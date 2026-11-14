@@ -89,7 +89,6 @@ typedef struct {
 struct sel_complex {
     sel_compound *compounds; /* left to right; matched from the rightmost (the subject) */
     int count;
-    int uses_scope; /* a written :scope in this selector or in a nested list it holds, set once at compile time */
 };
 
 typedef struct {
@@ -209,7 +208,7 @@ int selector_matches_alt(th_node *node, const sel_complex *complex, const sel_ct
    the three out-parameters (they must start zeroed). Shared by _css_specificity and
    the CSSOM cascade. */
 void sel_specificity(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c);
-int selector_uses_has_memo(const sel_compiled *compiled);
+int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth);
 /* Whether the selector writes :scope anywhere, so a match depends on the scope element. */
 int selector_uses_scope(const sel_compiled *compiled);
 void sel_memo_free(sel_memo *memo);

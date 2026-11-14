@@ -840,6 +840,21 @@ def test_has_memo_deep_tree_not_from_html_parser(build: Callable[[int], Document
     assert descendant < 100 * child
 
 
+def test_has_memo_deepening_mutation_after_query() -> None:
+    root: Final = Element("root")
+    assert root.select("group:has(item)") == []
+    innermost = root
+    for _ in range(_NESTED_DEPTH):
+        child: Final = Element("group")
+        innermost.append(child)
+        innermost = child
+    innermost.append(Element("item"))
+    assert len(root.select("group:has(item)")) == _NESTED_DEPTH
+    descendant: Final = min(_seconds(lambda: root.select("group:has(entry)")) for _ in range(3))
+    child_form: Final = min(_seconds(lambda: root.select("group:has(> entry)")) for _ in range(3))
+    assert descendant < 100 * child_form
+
+
 @pytest.mark.parametrize(
     "selector",
     [

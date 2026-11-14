@@ -100,7 +100,13 @@ struct th_tree {
     int scope_result;
     int open_p_count;
     Py_ssize_t open_cap;
-    th_node **afe; /* active formatting elements; NULL entry is a scope marker */
+    Py_ssize_t max_depth;       /* peak open-element nesting seen while parsing; a cheap O(1)
+                                   lower bound on element depth that gates the :has() subtree memo */
+    uint64_t structure_version; /* bumped by handle_drop_index on every structural mutation of a live tree */
+    uint64_t depth_key;         /* structure_version + 1 when depth_walked was computed; 0 before the first walk */
+    th_node *depth_root;        /* the root depth_walked was measured from */
+    Py_ssize_t depth_walked;    /* deepest node below depth_root at depth_key */
+    th_node **afe;              /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     th_node *merged_text_node;
     size_t merged_text_capacity;

@@ -1731,6 +1731,7 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
                                int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
     css_slot slots[NUM_PROPS] = {0};
     sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL};
+    Py_ssize_t depth = -1;
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
@@ -1742,7 +1743,10 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
             }
             const css_specificity *specificities = current->specificities + offset;
             offset += compiled->count;
-            ctx.has_memo = selector_uses_has_memo(compiled) ? &cache->has_memo : NULL;
+            if (compiled->has_relational && depth < 0) {
+                depth = th_tree_max_depth(tree, th_node_root(element));
+            }
+            ctx.has_memo = selector_uses_has_memo(compiled, depth) ? &cache->has_memo : NULL;
             int best_a = -1;
             int best_b = 0;
             int best_c = 0;

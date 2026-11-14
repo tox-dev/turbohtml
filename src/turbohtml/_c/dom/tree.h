@@ -527,6 +527,13 @@ int th_tree_reparse_hazard(const th_tree *tree);
    reads it so a scripting-parsed subtree keeps building noscript as raw text. */
 int th_tree_scripting(const th_tree *tree);
 
+/* The deepest node below root, a parentless node of this tree (th_node_root finds it from any node). The parser's peak
+   open-element count is a lower bound maintained during the parse; the rest comes from a walk cached per
+   structure_version and root, so every mutation through a handle makes the next call walk again. Writes the cache: the
+   caller holds the handle's critical section. */
+th_node *th_node_root(th_node *node);
+Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root);
+void th_tree_structure_changed(th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a

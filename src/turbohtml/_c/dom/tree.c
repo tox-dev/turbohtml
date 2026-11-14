@@ -336,6 +336,53 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
+void th_tree_structure_changed(th_tree *tree) {
+    tree->structure_version++;
+}
+
+static Py_ssize_t th_tree_walk_depth(th_node *document) {
+    Py_ssize_t deepest = 0;
+    Py_ssize_t depth = 0;
+    th_node *node = document;
+    for (;;) {
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            depth++;
+            if (depth > deepest) {
+                deepest = depth;
+            }
+            continue;
+        }
+        while (node != document && node->next_sibling == NULL) {
+            node = node->parent;
+            depth--;
+        }
+        if (node == document) {
+            return deepest;
+        }
+        node = node->next_sibling;
+    }
+}
+
+th_node *th_node_root(th_node *node) {
+    while (node->parent != NULL) {
+        node = node->parent;
+    }
+    return node;
+}
+
+Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root) {
+    if (tree->depth_key == tree->structure_version + 1 && tree->depth_root == root) {
+        assert(tree->depth_walked == th_tree_walk_depth(root)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; a
+                                                                   mutation path that skipped its version bump */
+    } else {
+        tree->depth_walked = th_tree_walk_depth(root);
+        tree->depth_root = root;
+        tree->depth_key = tree->structure_version + 1;
+    }
+    return tree->max_depth > tree->depth_walked ? tree->max_depth : tree->depth_walked;
+}
+
 int th_tree_failed(const th_tree *tree) {
     return tree->failed;
 }
@@ -466,6 +513,9 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
+    if (tree->open_len > tree->max_depth) {
+        tree->max_depth = tree->open_len;
+    }
     return 1;
 }
 

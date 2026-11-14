@@ -1673,6 +1673,7 @@ TH_NODE_API(static, PyObject *, element_attr, (PyObject * self, PyObject *args, 
 void handle_drop_index(PyObject *handle_obj) {
     HandleObject *handle = (HandleObject *)handle_obj;
     handle->mutation_version++;
+    th_tree_structure_changed(handle->tree);
     handle_clear_css_cache(handle);
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);

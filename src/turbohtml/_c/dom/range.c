@@ -928,6 +928,7 @@ static PyObject *extract_or_delete(PyObject *self, int discard) {
         }
         th_node *fragment =
             do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        handle_drop_index(range->start_handle);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -1092,6 +1093,7 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
     if (range_is_collapsed(range)) {
         store_end(range, range->start_handle, parent, new_offset);
     }
+    handle_drop_index(range->start_handle);
     return linked;
 }
 
@@ -1182,6 +1184,7 @@ TH_NODE_API(static, PyObject *, range_surround_contents, (PyObject * self, PyObj
         }
         th_node *fragment =
             do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        handle_drop_index(range->start_handle);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
