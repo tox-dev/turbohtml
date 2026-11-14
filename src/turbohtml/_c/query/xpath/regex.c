@@ -686,13 +686,10 @@ static int xr_group_name(xr_parser *parser, Py_UCS4 terminator, PyObject **out) 
     /* GCOVR_EXCL_BR_STOP */
 }
 
-/* The number of the group called name in the names dict of a parser or a program, 0 when none is, -1 on error. */
+/* The number of the group called name in the names dict of a parser or a program, 0 when none is. */
 static int32_t xr_named_group(PyObject *names, PyObject *name) {
-    PyObject *group = names == NULL ? NULL : PyDict_GetItemWithError(names, name); /* borrowed */
-    if (group == NULL) {
-        return PyErr_Occurred() ? -1 : 0; /* GCOVR_EXCL_BR_LINE: a str key lookup cannot raise */
-    }
-    return (int32_t)PyLong_AsLong(group);
+    PyObject *group = names == NULL ? NULL : PyDict_GetItem(names, name); /* borrowed; a str key lookup cannot raise */
+    return group == NULL ? 0 : (int32_t)PyLong_AsLong(group);
 }
 
 /* Give name to the group the caller opens next, which takes the next number. XR_GROUP_BODY, or -1 on error. */
@@ -727,8 +724,6 @@ static int32_t xr_parse_named(xr_parser *parser, Py_ssize_t start) {
     if (group > 0) {
         result =
             kind == '<' ? xr_fail(parser, "redefinition of group name", start) : xr_backref_node(parser, group, start);
-    } else if (group < 0) { /* GCOVR_EXCL_BR_LINE: a str key lookup cannot raise */
-        result = -1;        /* GCOVR_EXCL_LINE: a str key lookup cannot raise */
     } else {
         result = kind == '<' ? xr_name_group(parser, name) : xr_fail(parser, "unknown group name", start);
     }
@@ -2097,7 +2092,7 @@ static int xr_template_named(xr_template *template, const xr_program *program, c
     int32_t known = xr_named_group(program->names, text_name);
     if (known != 0) {
         Py_DECREF(text_name);
-        return known < 0 ? -1 : xr_template_group(template, known); /* GCOVR_EXCL_BR_LINE: a str lookup cannot raise */
+        return xr_template_group(template, known);
     }
     int valid = th_str_is_identifier(text_name);
     if (valid < 0) {          /* GCOVR_EXCL_BR_LINE: only the PyPy fallback can fail */
