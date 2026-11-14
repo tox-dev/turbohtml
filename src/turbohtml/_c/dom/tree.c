@@ -627,7 +627,7 @@ static void generate_implied_end_tags(th_tree *tree, uint16_t except_atom) {
 /* Pop elements until (and including) an HTML element with this atom; a foreign
    element with the same local name (e.g. a MathML td) never matches. */
 static void pop_until_atom(th_tree *tree, uint16_t atom) {
-    while (tree->open_len > 1) {
+    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: every caller checks the atom is on the stack first */
         th_node *node = current_node(tree);
         stack_pop(tree);
         if (node->ns == TH_NS_HTML && node->atom == atom) {
