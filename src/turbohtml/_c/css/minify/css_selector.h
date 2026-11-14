@@ -66,6 +66,20 @@ static int css_attribute_value_position(const token_vec *vec, Py_ssize_t index) 
     return previous->kind == CSS_DELIM && previous->delim == '=';
 }
 
+/* A `+` before an unsigned number reads back as one signed number, so the space that closes a hex escape before it
+   stays. */
+static int css_plus_before_number(const token_vec *vec, Py_ssize_t index, Py_ssize_t end) {
+    Py_ssize_t next = index + 1;
+    while (next < end && vec->items[next].kind == CSS_WS) {
+        next++;
+    }
+    if (next == end || vec->items[next].kind != CSS_NUM) {
+        return 0;
+    }
+    css_char first = vec->items[next].text[0];
+    return css_is_digit(first) || first == '.';
+}
+
 /* Minify a selector token run [start, end) into out. */
 static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int keyframe, css_buf *out) {
     int pending_ws = 0;
@@ -73,6 +87,7 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
     int last_is_ident = 0;
     int attr_depth = 0;
     Py_ssize_t paren_depth = 0;
+    Py_ssize_t selector_start = out->len;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS) {
@@ -98,7 +113,13 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
         }
         if (token->kind == CSS_DELIM && attr_depth == 0 &&
             (token->delim == '>' || token->delim == '+' || token->delim == '~' || token->delim == ',')) {
-            css_rtrim_name_end(out);
+            /* a leading combinator has no name of its own, so its trim would reach the previous rule's body
+               in the pool */
+            if ((token->delim == '+' && css_plus_before_number(vec, index, end)) || out->len == selector_start) {
+                css_rtrim_name_end(out);
+            } else {
+                css_rtrim(out);
+            }
             cbuf_putc(out, token->delim);
             pending_ws = 0;
             continue;

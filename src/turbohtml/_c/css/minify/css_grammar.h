@@ -1841,6 +1841,7 @@ static int css_join_respells(const css_char *out, Py_ssize_t len, const css_char
     if (css_ends_in_hex_close(out, len)) {
         return !css_is_hex(text[0]);
     }
+    /* out[len - 2] is in bounds: this join follows an at-statement, which holds at least two code points */
     return out[len - 1] == '-' && (css_escapes(out, len - 1) || (out[len - 2] == '-' && css_escapes(out, len - 2)));
 }
 

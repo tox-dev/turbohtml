@@ -654,7 +654,7 @@ static int css_ends_in_escape(const css_char *text, Py_ssize_t len) {
 /* css_would_merge for text written straight after the len code points of out, which may end in an escape. */
 static int css_would_merge_after(const css_char *out, Py_ssize_t len, int last_is_ident, const css_char *next,
                                  Py_ssize_t next_len) {
-    return (css_ends_in_escape(out, len) && css_is_ident(next[0])) ||
+    return (css_is_ident(next[0]) && css_ends_in_escape(out, len)) ||
            css_would_merge(out[len - 1], last_is_ident, next, next_len);
 }
 

@@ -695,8 +695,8 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
         /* a leading space is kept only between two value pieces, never after '(' or ','; a space, `(` or `,` that ends
            a name through an escape cannot also separate the next token */
         if (pending_ws && out->len > 0 &&
-            (css_ends_in_escape(out->data, out->len) ||
-             (out->data[out->len - 1] != ' ' && out->data[out->len - 1] != ',' && out->data[out->len - 1] != '('))) {
+            ((out->data[out->len - 1] != ' ' && out->data[out->len - 1] != ',' && out->data[out->len - 1] != '(') ||
+             css_ends_in_escape(out->data, out->len))) {
             cbuf_putc(out, ' ');
         }
         pending_ws = 0;
