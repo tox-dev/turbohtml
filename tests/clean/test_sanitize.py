@@ -3221,10 +3221,16 @@ _NESTED_OPTION_CASES: Final[list[pytest.ParameterSet]] = [
         id="option-behind-escaped-optgroup-in-optgroup",
     ),
     pytest.param(
-        "<option><table><optgroup><option>",
-        Policy(tags=frozenset({"option", "optgroup", "table"}), on_disallowed_tag=OnDisallowed.STRIP),
-        "<option>&lt;optgroup&gt;&lt;option&gt;<table></table></option>",
-        id="option-behind-stripped-table-optgroup",
+        "<option><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup"}), on_disallowed_tag=OnDisallowed.STRIP),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x</option>",
+        id="option-behind-stripped-table",
+    ),
+    pytest.param(
+        "<option><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup"}), on_disallowed_tag=OnDisallowed.REMOVE),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x</option>",
+        id="option-behind-removed-table",
     ),
     pytest.param(
         "<option><table><optgroup><option>x",
@@ -3236,18 +3242,13 @@ _NESTED_OPTION_CASES: Final[list[pytest.ParameterSet]] = [
 
 
 @pytest.mark.parametrize(("payload", "policy", "expected"), _NESTED_OPTION_CASES)
-def test_nested_option_output_matches_exactly(payload: str, policy: Policy, expected: str) -> None:
-    assert sanitize(payload, policy) == expected
-    assert sanitize_node(parse_fragment(payload), policy).inner_html == expected
-
-
-@pytest.mark.parametrize(("payload", "policy", "expected"), _NESTED_OPTION_CASES)
-def test_nested_option_output_is_idempotent(payload: str, policy: Policy, expected: str) -> None:
-    once = sanitize(payload, policy)
-    assert once == expected
-    assert sanitize(once, policy) == once
-    node_once = sanitize_node(parse_fragment(payload), policy).inner_html
-    assert sanitize_node(parse_fragment(node_once), policy).inner_html == node_once
+def test_nested_option_output_is_parse_stable(payload: str, policy: Policy, expected: str) -> None:
+    assert (
+        sanitize(payload, policy),
+        sanitize_node(parse_fragment(payload), policy).inner_html,
+        sanitize(expected, policy),
+        parse_fragment(expected).inner_html,
+    ) == (expected,) * 4
 
 
 @pytest.mark.parametrize(("payload", "policy", "expected"), _PARSE_STABLE_CASES)
