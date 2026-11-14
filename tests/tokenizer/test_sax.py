@@ -56,16 +56,16 @@ class _Recorder(SaxHandler):
 
 
 @pytest.mark.parametrize(
-    "markup",
+    ("markup", "attrs"),
     [
-        pytest.param("<p><em class=k lang=en>a<p>b<p>c", id="reconstructed"),
-        pytest.param("<b class=k lang=en>1<div>2<div>3</b>4", id="adoption-agency"),
+        pytest.param("<ul><li><i data-k=v>a<li>b<li>c</ul>", (("data-k", "v"),), id="list-item"),
+        pytest.param("<i data-k=v lang=en>1<div>2<div>3</i>4", (("data-k", "v"), ("lang", "en")), id="adoption-agency"),
     ],
 )
-def test_clones_of_one_start_tag_share_one_attribute_tuple(markup: str) -> None:
+def test_clones_of_one_start_tag_share_one_attribute_tuple(markup: str, attrs: tuple[tuple[str, str], ...]) -> None:
     # a tuple of new strings per clone is value length x clones
     for starts in _attributed_starts(markup):
-        assert [start.attrs for start in starts] == [(("class", "k"), ("lang", "en"))] * 3
+        assert [start.attrs for start in starts] == [attrs] * 3
         assert starts[1].attrs is starts[2].attrs
 
 
@@ -82,17 +82,17 @@ def _attributed_starts(markup: str) -> list[list[StartElement]]:
     ("markup", "expected"),
     [
         pytest.param(
-            "<p><em title=one>a<p>b<p>c</em><em title=two>d<p>e<p>f",
-            [("em", (("title", "one"),))] * 3 + [("em", (("title", "two"),))] * 3,
+            "<ul><li><i title=one>a<li>b<li>c</i></ul><ul><li><i title=two>d<li>e<li>f</i></ul>",
+            [("i", (("title", "one"),))] * 3 + [("i", (("title", "two"),))] * 3,
             id="same-name",
         ),
         pytest.param(
-            "<p><em hidden>a<p>b<p>c</em><i hidden=until-found>d<p>e<p>f",
-            [("em", (("hidden", None),))] * 3 + [("i", (("hidden", "until-found"),))] * 3,
+            "<ul><li><i hidden>a<li>b<li>c</i></ul><ul><li><em hidden=until-found>d<li>e<li>f</em></ul>",
+            [("i", (("hidden", None),))] * 3 + [("em", (("hidden", "until-found"),))] * 3,
             id="valueless",
         ),
         pytest.param(
-            "<p>a<html lang=en><body class=c>",
+            "<ul><li>a<html lang=en><body class=c>",
             [("html", (("lang", "en"),)), ("body", (("class", "c"),))],
             id="implied-root",
         ),

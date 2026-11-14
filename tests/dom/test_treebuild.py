@@ -93,12 +93,12 @@ def test_element_carries_html_namespace_and_attribute_pairs() -> None:
 
 
 def test_reconstructed_formatting_clones_share_one_attribute_tuple() -> None:
-    # every <p> re-opens the unclosed <em>; a tuple per clone would copy its values once per paragraph
-    body = build("<p><em class=k lang=en>a<p>b<p>c<em class=k lang=en>d").children[0].children[1]
-    tuples = [paragraph.children[0].payload[2] for paragraph in body.children]
-    assert tuples == [(("class", "k"), ("lang", "en"))] * 3
+    # every <li> re-opens the unclosed <i>; a tuple per clone would copy its values once per item
+    items = build("<ul><li><i data-k=v>a<li>b<li>c<i data-k=v>d</ul>").children[0].children[1].children[0].children
+    tuples = [item.children[0].payload[2] for item in items]
+    assert tuples == [(("data-k", "v"),)] * 3
     assert tuples[1] is tuples[2]
-    nested = body.children[2].children[0].children[1]
+    nested = items[2].children[0].children[1]
     assert nested.payload[2] == tuples[0]
     assert nested.payload[2] is not tuples[1]  # its own start tag, so its own values
 
