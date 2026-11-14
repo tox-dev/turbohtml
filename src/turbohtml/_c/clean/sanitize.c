@@ -3324,19 +3324,17 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
             if (frame->action != SANITIZE_KEEP_CHILDREN) {
                 grandparent = frame->element->parent;
                 before = frame->element->prev_sibling;
-                /* GCOVR_EXCL_BR_START: unwrapping and settling only fail on allocation */
                 /* Bound repeated deep settles, as sanitize_children does; the final pass balances their hoisted
                    descendants once. */
                 int defer_balance = depth >= 32 && !balancer_fosters_from(grandparent);
                 status = unwrap_element(s, frame->element, frame->action);
-                if (status == 0) {
+                if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */
                     status = defer_balance ? settle_range(s, grandparent, before, frame->next, 0, 0, 0, 0)
                                            : settle_hoisted(s, grandparent, before, frame->next, frame->element,
                                                             balanced_unwrap_pending, frames, depth);
                 }
                 s->balance_edited |= defer_balance;
                 walk.deferred |= defer_balance;
-                /* GCOVR_EXCL_BR_STOP */
             }
             if (frame->role > ROLE_RECORDED) {
                 if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */

@@ -115,6 +115,14 @@ def test_deep_unwrap_is_balanced_past_an_element_that_escapes_to_nothing() -> No
     assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source)).inner_html) == (once, once)
 
 
+def test_deep_unwrap_in_table_context_settles_in_place() -> None:
+    # the unwrapped row sits in a table context, which fosters its children, so its settle stays in place this deep
+    source: Final = f"{'<div>' * 40}<table><tr><td>x"
+    policy: Final = Policy(tags=frozenset({"table", "td"}))
+    once: Final = sanitize(source, policy)
+    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
+
+
 @pytest.mark.parametrize(
     ("mode", "expected_open_count"),
     [
