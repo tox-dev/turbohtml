@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
+import time
 from functools import partial
 from io import BytesIO
 from typing import TYPE_CHECKING, Final, cast
@@ -718,6 +719,153 @@ def test_xml_c14n_exclusive_forced_prefix_rebound_without_use() -> None:
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
         b'<r xmlns:p="urn:a"><a xmlns:p="urn:b"><b></b></a></r>'
     )
+
+
+@pytest.mark.parametrize(
+    ("source", "exclusive", "expected"),
+    [
+        pytest.param(
+            '<r><a xmlns:p="urn:a"><p:x/></a><b xmlns:p="urn:b"><p:x/></b><c/></r>',
+            False,
+            b'<r><a xmlns:p="urn:a"><p:x></p:x></a><b xmlns:p="urn:b"><p:x></p:x></b><c></c></r>',
+            id="inclusive-sibling-bindings",
+        ),
+        pytest.param(
+            '<r><a xmlns:p="urn:a"><p:x/></a><b xmlns:p="urn:b"><p:x/></b><c/></r>',
+            True,
+            b'<r><a><p:x xmlns:p="urn:a"></p:x></a><b><p:x xmlns:p="urn:b"></p:x></b><c></c></r>',
+            id="exclusive-sibling-bindings",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:a"><a xmlns:p="urn:b"/><b xmlns:p="urn:a"/><p:c/></r>',
+            False,
+            b'<r xmlns:p="urn:a"><a xmlns:p="urn:b"></a><b></b><p:c></p:c></r>',
+            id="inclusive-shadowed-binding-restored",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:a"><p:a><p:b xmlns:p="urn:b"/><p:c/></p:a></r>',
+            True,
+            b'<r><p:a xmlns:p="urn:a"><p:b xmlns:p="urn:b"></p:b><p:c></p:c></p:a></r>',
+            id="exclusive-shadowed-use-restored",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:a p:x="1" p:y="2"/></r>',
+            True,
+            b'<r><p:a xmlns:p="urn:p" p:x="1" p:y="2"></p:a></r>',
+            id="exclusive-prefix-used-three-times",
+        ),
+        pytest.param(
+            '<r><a xmlns="urn:a"/></r>',
+            True,
+            b'<r><a xmlns="urn:a"></a></r>',
+            id="exclusive-new-default-under-unbound-use",
+        ),
+    ],
+)
+def test_xml_c14n_scope_follows_open_elements(source: str, expected: bytes, *, exclusive: bool) -> None:
+    assert parse_xml(source).canonicalize(Canonical(exclusive=exclusive)) == expected
+
+
+def test_xml_c14n_apex_inherits_nearest_binding() -> None:
+    document = parse_xml('<r xmlns:p="urn:a"><c xmlns:p="urn:b"><p:a/></c></r>')
+    assert document.children[0].children[0].children[0].canonicalize() == b'<p:a xmlns:p="urn:b"></p:a>'
+
+
+@pytest.mark.parametrize("listed", [pytest.param("pp", id="prefix"), pytest.param("#defaults", id="default")])
+def test_xml_c14n_exclusive_forced_prefix_matches_whole_name(listed: str) -> None:
+    source: Final = '<q:r xmlns="urn:d" xmlns:p="urn:p" xmlns:q="urn:q"><q:a/></q:r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=(listed,))) == (
+        b'<q:r xmlns:q="urn:q"><q:a></q:a></q:r>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "expected"),
+    [
+        pytest.param('<r xmlns:p="urn:p"/>', "r", b'<r xmlns:p="urn:p" q:x="1"></r>', id="never-declared"),
+        pytest.param(
+            '<r><a xmlns:q="urn:q"/><b/></r>',
+            "b",
+            b'<r><a xmlns:q="urn:q"></a><b q:x="1"></b></r>',
+            id="declared-by-closed-sibling",
+        ),
+    ],
+)
+def test_xml_c14n_assigned_attribute_with_unbound_prefix(source: str, target: str, expected: bytes) -> None:
+    document: Final = parse_xml(source)
+    element = document.find(target)
+    assert element is not None
+    element.attrs["q:x"] = "1"
+    assert document.canonicalize() == expected
+
+
+def test_xml_c14n_assigned_attribute_with_unbound_prefix_and_no_declaration() -> None:
+    root = cast("Element", parse_xml('<r xmlns:p="urn:p"/>').children[0])
+    del root.attrs["xmlns:p"]
+    root.attrs["q:x"] = "1"
+    assert root.canonicalize() == b'<r q:x="1"></r>'
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        pytest.param("q:a", b'<r><q:a></q:a><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="unbound-prefix"),
+        pytest.param(":a", b'<r><:a></:a><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="empty-prefix"),
+    ],
+)
+def test_xml_c14n_exclusive_inserted_element_name(tag: str, expected: bytes) -> None:
+    root = cast("Element", parse_xml('<r><b xmlns:q="urn:q"><q:c/></b></r>').children[0])
+    root.insert(0, Element(tag))
+    assert root.canonicalize(Canonical(exclusive=True)) == expected
+
+
+def _inherited_declarations(count: int) -> str:
+    declarations: Final = " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
+    return f"<r {declarations}>{''.join(f'<p{index}:x/>' for index in range(count))}</r>"
+
+
+@pytest.mark.parametrize("exclusive", [pytest.param(False, id="inclusive"), pytest.param(True, id="exclusive")])
+def test_xml_c14n_many_inherited_declarations(*, exclusive: bool) -> None:
+    count: Final = 1_500
+    canonical: Final = parse_xml(_inherited_declarations(count)).canonicalize(Canonical(exclusive=exclusive))
+    assert canonical == _inherited_canonical(count, exclusive=exclusive)
+
+
+def _inherited_canonical(count: int, *, exclusive: bool) -> bytes:
+    declared: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in sorted(range(count), key=str))
+    children: Final = "".join(
+        f'<p{index}:x xmlns:p{index}="urn:{index}"></p{index}:x>' if exclusive else f"<p{index}:x></p{index}:x>"
+        for index in range(count)
+    )
+    return (f"<r>{children}</r>" if exclusive else f"<r{declared}>{children}</r>").encode()
+
+
+def _nested_elements(count: int) -> str:
+    return f'<r xmlns="urn:d">{"<a>" * count}{"</a>" * count}</r>'
+
+
+@pytest.mark.parametrize("exclusive", [pytest.param(False, id="inclusive"), pytest.param(True, id="exclusive")])
+@pytest.mark.parametrize(
+    ("build", "size"),
+    [
+        pytest.param(_inherited_declarations, 2_500, id="inherited-declarations"),
+        pytest.param(_nested_elements, 120_000, id="nested-elements"),
+    ],
+)
+def test_xml_c14n_namespace_scope_scales_linearly(build: Callable[[int], str], size: int, *, exclusive: bool) -> None:
+    options: Final = Canonical(exclusive=exclusive)
+    _, reference = _timed_canonicalize(f"<r>{'<a/>' * size}</r>", options)
+    canonical, elapsed = _timed_canonicalize(build(size), options)
+    assert canonical.count(b"</") == size + 1
+    # The floor keeps sub-millisecond reference timings from shrinking the budget below scheduling noise.
+    assert elapsed < 100 * max(reference, 0.01)
+
+
+def _timed_canonicalize(source: str, options: Canonical) -> tuple[bytes, float]:
+    document: Final = parse_xml(source)
+    start: Final = time.perf_counter()
+    canonical: Final = document.canonicalize(options)
+    return canonical, time.perf_counter() - start
 
 
 def test_xml_c14n_apex_uses_nearest_xml_attribute() -> None:
