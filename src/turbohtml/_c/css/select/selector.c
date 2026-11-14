@@ -486,6 +486,12 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
                 return;
             }
             *b = bsign * bval;
+            if (*b < 0 && *a != 0) {
+                /* a descending series that starts below 1 matches no position, and an ascending one matches the same
+                   positions from b % a, so the reduction changes no match and no translated XPath; a step of -1 then
+                   never keeps a negative offset, which keeps sel_nth_matches away from INT_MIN % -1 */
+                *b = *a < 0 ? 0 : *b % *a;
+            }
         } else {
             *b = 0;
         }
@@ -1398,14 +1404,16 @@ static int sel_nth_index(th_node *node, int direction, int of_type, const sel_si
     return index;
 }
 
-/* Whether a 1-based index satisfies An+B for some non-negative n. The difference
-   is taken in 64 bits: index - b leaves the int range for a b near INT_MIN, and
-   INT_MIN % -1 is a hardware divide error on x86. */
+/* Whether a 1-based index satisfies An+B for some non-negative n. sel_parse_anb leaves a
+   negative b only with a = 0 or above -a, so the difference cannot reach INT_MIN with
+   a = -1 (a hardware divide error on x86). Past INT_MAX the unsigned subtraction wraps
+   to a negative difference that reads as no match, which is wrong only for a position
+   beyond INT_MAX / 2, a position that needs over a billion siblings. */
 static int sel_nth_matches(int a, int b, int index) {
     if (a == 0) {
         return index == b;
     }
-    const long long diff = (long long)index - b;
+    const int diff = (int)((unsigned)index - (unsigned)b);
     return diff % a == 0 && diff / a >= 0;
 }
 
