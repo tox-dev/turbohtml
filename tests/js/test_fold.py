@@ -1852,7 +1852,15 @@ def test_fold_and_compress_preserve_behavior(source: str, expected: str, options
 
 
 @pytest.mark.parametrize(
-    "link", [pytest.param("a&&", id="and"), pytest.param("a||", id="or"), pytest.param("a??", id="nullish")]
+    "link",
+    [
+        pytest.param("a&&", id="and"),
+        pytest.param("a||", id="or"),
+        pytest.param("a??", id="nullish"),
+        pytest.param("(a&&a&&a)&&", id="grouped-and"),
+        pytest.param("(a||a||a)||", id="grouped-or"),
+        pytest.param("(a??a??a)??", id="grouped-nullish"),
+    ],
 )
 def test_long_logical_chain_folds_in_linear_steps(link: str, work_steps: WorkSteps) -> None:
     work_steps.assert_linear(lambda n: partial(minify_js, f"x={link * n}a"), (200, 800))
