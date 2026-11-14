@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Final, cast
 
 import pytest
@@ -1055,6 +1056,69 @@ def test_feed_atom_xhtml_unbound_attribute_prefix_falls_back() -> None:
     )
     del document.select("feed")[0].attrs["xmlns:s"]
     assert cast("Feed", document.feed()).title == "text"
+
+
+def test_feed_atom_xhtml_repeats_inherited_prefix_once_per_tag() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:t="urn:t"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p s:a="1" k="2" t:a="3" s:b="4" t:b="5"><s:x s:a="6" t:a="7"/>'
+        '<i xmlns:t="urn:own" t:a="8" s:a="9" t:b="10" s:b="11"/></p></div></title></feed>'
+    )
+    assert parse_feed(xml).title == (
+        '<p xmlns:s="urn:s" s:a="1" k="2" xmlns:t="urn:t" t:a="3" s:b="4" t:b="5">'
+        '<s:x xmlns:s="urn:s" s:a="6" xmlns:t="urn:t" t:a="7"/>'
+        '<i xmlns:t="urn:own" t:a="8" xmlns:s="urn:s" s:a="9" t:b="10" s:b="11"></i></p>'
+    )
+
+
+def test_feed_atom_xhtml_prefixes_of_different_length_stay_apart() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:ss="urn:ss"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p s:a="1" ss:a="2" s:b="3" ss:b="4"/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == ('<p xmlns:s="urn:s" s:a="1" xmlns:ss="urn:ss" ss:a="2" s:b="3" ss:b="4"></p>')
+
+
+def test_feed_atom_xhtml_more_prefixes_than_inline_slots_declare_once() -> None:
+    prefixes: Final = "abcdefghi"
+    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    attributes: Final = "".join(f' {prefix}:x="{index}"' for index, prefix in enumerate(prefixes))
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        f'<div xmlns="http://www.w3.org/1999/xhtml"{declarations}><p{attributes} a:y="9" i:y="10" k="11"/></div>'
+        "</title></feed>"
+    )
+    inherited: Final = "".join(
+        f' xmlns:{prefix}="urn:{prefix}" {prefix}:x="{index}"' for index, prefix in enumerate(prefixes)
+    )
+    assert parse_feed(xml).title == f'<p{inherited} a:y="9" i:y="10" k="11"></p>'
+
+
+def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time() -> None:
+    prefixes: Final = [f"p{index}" for index in range(10)]
+    attributes: Final = {prefix: "".join(f' {prefix}:a{index}=""' for index in range(1500)) for prefix in prefixes}
+    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    head: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        f'<div xmlns="http://www.w3.org/1999/xhtml"{declarations}><b'
+    )
+    tail: Final = "/></div></title></feed>"
+    prefixed_xml: Final = head + "".join(attributes.values()) + tail
+    expected_attributes: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"{attributes[prefix]}' for prefix in prefixes)
+    assert parse_feed(prefixed_xml).title == f"<b{expected_attributes}></b>"
+    # Rescanning earlier attributes per prefix is quadratic in the attribute count. The same tag with the prefixes
+    # removed from its attribute names skips that lookup, so it is the baseline.
+    plain_xml: Final = head + "".join(attributes.values()).replace(":", "_") + tail
+    prefixed_seconds: Final = min(_parse_seconds(prefixed_xml) for _ in range(3))
+    plain_seconds: Final = min(_parse_seconds(plain_xml) for _ in range(3))
+    # Timings under a few milliseconds are noise, so the baseline is floored at 5 ms.
+    assert prefixed_seconds <= 10 * max(plain_seconds, 0.005)
+
+
+def _parse_seconds(xml: str) -> float:
+    start: Final = time.perf_counter()
+    parse_feed(xml)
+    return time.perf_counter() - start
 
 
 def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
