@@ -302,7 +302,13 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     }
     if (is_schema_el(schema, particle, XSD_NS, "choice")) {
         for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
-            if (child->type != TH_NODE_ELEMENT) {
+            /* wildcards are not matched: xs:any stays the branch that consumes nothing, without a descent */
+            if (is_schema_el(schema, child, XSD_NS, "any")) {
+                posset_or(out, in);
+                continue;
+            }
+            /* an annotation is no branch, and xsd_check_chains bounds only the group refs that particles reach */
+            if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
                 continue;
             }
             posset branch = {posset_alloc(schema, in->size), in->size};
@@ -321,7 +327,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     }
     memcpy(cur.pos, in->pos, (size_t)in->size);
     for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
+        if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
             continue;
         }
         posset next = {posset_alloc(schema, in->size), in->size};
@@ -814,10 +820,19 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
    refs, and the extension base), then flag any undeclared instance attribute. */
 static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, edecl_vec *declared);
 
+/* The content child a complexType derives through: XSD allows one, and with several every walk takes the same one, so
+   the base chain xsd_check_chains bounds is the chain validation recurses along. */
+static th_node *xsd_type_content(const th_schema *schema, th_node *ctype) {
+    th_node *content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
+    return content != NULL ? content : first_schema_child(schema, ctype, XSD_NS, "simpleContent");
+}
+
 static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, edecl_vec *declared,
                               const xattr_index *attrs) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
+    /* Only a complexType has a base. An attribute group or a derivation holds attributes and attribute group refs, so
+       from there the walk follows nothing but the refs the attribute group cycle check covers. */
     for (th_node *child = scope->first_child; child != NULL; child = child->next_sibling) {
         if (is_schema_el(schema, child, XSD_NS, "attribute")) {
             xsd_validate_attr_decl(ctx, instance, child, attrs);
@@ -847,8 +862,9 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 /* xsd_compile has already rejected an attributeGroup ref that resolves to nothing */
                 xsd_collect_attrs(ctx, instance, named_find(&schema->attr_groups, local, local_len), declared, attrs);
             }
-        } else if (is_schema_el(schema, child, XSD_NS, "complexContent") ||
-                   is_schema_el(schema, child, XSD_NS, "simpleContent")) {
+        } else if ((is_schema_el(schema, child, XSD_NS, "complexContent") ||
+                    is_schema_el(schema, child, XSD_NS, "simpleContent")) &&
+                   is_schema_el(schema, scope, XSD_NS, "complexType") && child == xsd_type_content(schema, scope)) {
             th_node *derivation = first_schema_child(schema, child, XSD_NS, "extension");
             if (derivation == NULL) {
                 derivation = first_schema_child(schema, child, XSD_NS, "restriction");
@@ -1334,10 +1350,7 @@ static const char *xsd_chain_kind(int kind) {
 
 /* A-extends-B-extends-A is a cycle; a built-in or simple-type base ends the chain. */
 static int xsd_type_base_edge(th_schema *schema, th_node *ctype, int *state, int depth, int *longest) {
-    th_node *content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
-    if (content == NULL) {
-        content = first_schema_child(schema, ctype, XSD_NS, "simpleContent");
-    }
+    th_node *content = xsd_type_content(schema, ctype);
     if (content == NULL) {
         return 0;
     }
