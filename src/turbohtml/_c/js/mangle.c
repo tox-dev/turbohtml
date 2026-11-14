@@ -715,7 +715,8 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
         if (node->flags & JN_F_SHORTHAND) {
             walk(mangler, node->a, scope, bind); /* { x } references (or binds) x */
             int32_t self = mangler->prog->nodes[node->a].sym;
-            if (self >= 0) {
+            /* only a read: expanding a `{ x }` that binds or assigns x would link the inlined value under it too */
+            if (self >= 0 && bind == 0) {
                 mangler->prog->syms[self].ref_prop = idx;
             }
         }
