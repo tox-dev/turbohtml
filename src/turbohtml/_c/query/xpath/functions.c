@@ -1568,12 +1568,10 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     }
     int filled = 0;
     int condition = func_is(fn, "not") || func_is(fn, "boolean"); /* the argument is only read by to_boolean() */
-    ctx->depth += XP_CALL_DEPTH;
     for (int32_t arg_node = fn->first; arg_node >= 0; arg_node = prog->nodes[arg_node].next) {
-        int arg_rc = condition ? eval_condition(prog, arg_node, ctx, &args[filled])
-                               : eval_expr(prog, arg_node, ctx, &args[filled]);
+        int arg_rc = condition ? eval_held(prog, arg_node, ctx, &args[filled], 1)
+                               : eval_held(prog, arg_node, ctx, &args[filled], 0);
         if (arg_rc < 0) {
-            ctx->depth -= XP_CALL_DEPTH;
             xp_live_leave(ctx, &frame);
             for (int cleanup_index = 0; cleanup_index < filled; cleanup_index++) {
                 xp_result_free(&args[cleanup_index]);
@@ -1586,7 +1584,6 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         filled++;
         xp_live_changed(ctx);
     }
-    ctx->depth -= XP_CALL_DEPTH;
     int rc = 0;
     if (func_is(fn, "true") || func_is(fn, "false")) {
         result_bool(out, func_is(fn, "true"));

@@ -174,11 +174,12 @@ int xp_name_eq(const lexer *lx, const char *kw);
 #define XP_MAX_DEPTH 64
 
 /* What the evaluator charges on top of the level eval_expr counts. A function call
-   keeps its frame under its arguments, a location path its step state under its base
-   expression and its predicates, and a predicate its context under its expression:
-   each weighs about one more level. */
-#define XP_CALL_DEPTH 1
-#define XP_PATH_DEPTH 1
+   keeps its frame under its arguments and a location path its step state under its
+   base expression and its predicates (XP_HELD_DEPTH), and a predicate its context
+   under its expression (XP_PREDICATE_DEPTH): each weighs about one more level. The
+   charge is a constant in the guard of the expression evaluated under that frame, so
+   no call or path pays for it separately. */
+#define XP_HELD_DEPTH 1
 #define XP_PREDICATE_DEPTH 1
 
 /* The evaluation context: the tree, the current node, its 1-based proximity
@@ -313,6 +314,8 @@ static inline int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp
 static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     return eval_guarded(prog, idx, ctx, out, 1);
 }
+/* eval_guarded for a function argument or a path base, charged XP_HELD_DEPTH for the frame beneath it. */
+int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
