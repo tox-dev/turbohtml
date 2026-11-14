@@ -100,9 +100,7 @@ struct th_tree {
     int scope_result;
     int open_p_count;
     Py_ssize_t open_cap;
-    Py_ssize_t max_depth; /* peak open-element nesting seen while parsing; a cheap O(1)
-                             lower bound on element depth that gates the :has() subtree memo */
-    th_node **afe;        /* active formatting elements; NULL entry is a scope marker */
+    th_node **afe; /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     th_node *merged_text_node;
     size_t merged_text_capacity;

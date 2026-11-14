@@ -805,6 +805,39 @@ def test_has_memo_deep_remove_and_prune() -> None:
     assert len(kept.select("div")) == 40
 
 
+def _deep_xml(depth: int) -> Document:
+    return parse_xml(f"{'<group>' * depth}<item/>{'</group>' * depth}")
+
+
+def _deep_appended(depth: int) -> Element:
+    root: Final = Element("root")
+    innermost = root
+    for _ in range(depth):
+        child = Element("group")
+        innermost.append(child)
+        innermost = child
+    innermost.append(Element("item"))
+    return root
+
+
+# parse_xml and the mutation API never pass through the HTML tree builder's depth bookkeeping. The check times the
+# fastest of three runs of a miss query, which walks every subtree on a tree that is not memoized, and asserts it
+# finishes within the budget. It bounds wall-clock time, not the number of node visits.
+_NESTED_DEPTH: Final = 60_000
+_BUDGET_SECONDS: Final = 6.0
+
+
+@pytest.mark.parametrize(
+    "build", [pytest.param(_deep_xml, id="parse-xml"), pytest.param(_deep_appended, id="mutation-api")]
+)
+def test_has_memo_deep_tree_not_from_html_parser(build: Callable[[int], Document | Element]) -> None:
+    tree: Final = build(_NESTED_DEPTH)
+    assert len(tree.select("group:has(item)")) == _NESTED_DEPTH
+    assert tree.select("group:has(entry)") == []
+    fastest: Final = min(_seconds(lambda: tree.select("group:has(entry)")) for _ in range(3))
+    assert fastest < _BUDGET_SECONDS
+
+
 @pytest.mark.parametrize(
     "selector",
     [

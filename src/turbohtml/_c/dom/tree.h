@@ -527,10 +527,6 @@ int th_tree_reparse_hazard(const th_tree *tree);
    reads it so a scripting-parsed subtree keeps building noscript as raw text. */
 int th_tree_scripting(const th_tree *tree);
 
-/* The peak element-nesting depth recorded while parsing (0 for a tree built purely
-   through the mutation API). A cheap O(1) proxy for how deep the tree nests, used to
-   skip the :has() subtree memo on shallow trees where the direct walk is already cheap. */
-Py_ssize_t th_tree_max_depth(const th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a

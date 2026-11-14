@@ -336,10 +336,6 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
-Py_ssize_t th_tree_max_depth(const th_tree *tree) {
-    return tree->max_depth;
-}
-
 int th_tree_failed(const th_tree *tree) {
     return tree->failed;
 }
@@ -470,9 +466,6 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
-    if (tree->open_len > tree->max_depth) {
-        tree->max_depth = tree->open_len;
-    }
     return 1;
 }
 
