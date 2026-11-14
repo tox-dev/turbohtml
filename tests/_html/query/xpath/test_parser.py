@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -344,3 +346,34 @@ def test_deeply_nested_expression_is_rejected(expr: str) -> None:
     # raises before the C stack overflows (issue #421)
     with pytest.raises(XPathDepthError, match="nested too deeply"):
         _PARSE(expr)
+
+
+@pytest.mark.parametrize(
+    ("expr", "message"),
+    [
+        pytest.param("substring(1,$,2)", "expected a name after", id="missing-variable-name"),
+        # the leading minus takes a nesting level, so the cap trips on the comma that ends the failed argument
+        pytest.param(f"-f(1,{'(' * 1022},2)", "nested too deeply", id="depth-cap"),
+    ],
+)
+def test_argument_after_a_failed_argument_is_not_linked(expr: str, message: str) -> None:
+    # an argument that fails to parse has no arena node; the one after it must not be chained onto index -1, which is
+    # a store in front of the arena
+    with pytest.raises(ValueError, match=message):
+        _PARSE(expr)
+
+
+def test_argument_after_a_failed_argument_in_a_large_arena() -> None:
+    # run in a subprocess: an arena this large is a mapping of its own, so a store in front of it faults
+    code = (
+        "from turbohtml import _html\n"
+        "try:\n"
+        "    _html._xpath_parse('f(' + '1,' * 12000 + '$,2)')\n"
+        "except ValueError as error:\n"
+        "    print(error)\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("expected a name after '$'")

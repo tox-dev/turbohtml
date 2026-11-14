@@ -353,6 +353,11 @@ static int32_t parse_primary(parser *ps) {
     if (lx->kind != TK_RPAREN) {
         for (;;) {
             int32_t arg = parse_expr(ps);
+            if (arg < 0) {
+                /* A failed argument (a '$' with no name, the depth cap) has no node and has recorded its error. Kept
+                   as the tail, its -1 would chain the next argument through nodes[-1], in front of the arena. */
+                break;
+            }
             if (arg_head < 0) {
                 arg_head = arg;
             } else {
