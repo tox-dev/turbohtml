@@ -1668,6 +1668,7 @@ static int32_t parse_primary(P *parser) {
             fail(parser, "bad regex");
             return -1;
         }
+        parser->prog->has_regex = 1;
         return leaf(parser, JN_REGEX);
     case JT_TEMPLATE:
     case JT_TEMPLATE_HEAD:

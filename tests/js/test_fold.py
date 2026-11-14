@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
+import time
 from typing import Final
 
 import pytest
@@ -378,6 +379,16 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(){var r=/a/;return c?g():r.test(s)}",
             "function f(){return c?g():/a/.test(s)}",
             id="regex-into-ternary-alt",
+        ),
+        pytest.param(
+            "function f(){var r=/a/;g(function(){return 1},r)}",
+            "function f(){g(function(){return 1},/a/)}",
+            id="regex-after-nested-function-in-next-statement",
+        ),
+        pytest.param(
+            "function f(){var r=/a/;g(()=>r)}",
+            "function f(){var a=/a/;g(()=>a)}",
+            id="regex-into-arrow-in-next-statement-kept",
         ),
         pytest.param(
             "function f(){var r=/a/;throw g(w);function g(x){return r.test(x)}}",
@@ -802,6 +813,33 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
 )
 def test_compresses(source: str, expected: str) -> None:
     assert minify_js(source) == expected
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param("function f(){{q({names});{declaration};h([{padding}])}}", id="read-before"),
+        pytest.param("function f(){{{declaration};h([{padding}],{names})}}", id="read-in-next"),
+    ],
+)
+def test_regex_initializers_cost_no_more_than_string_ones(shape: str) -> None:
+    # a string initializer never reaches the regex branch, so it times the same script without that check
+    def cost(initializer: str) -> float:
+        names = [f"r{index:x}" for index in range(3_000)]
+        source = shape.format(
+            names=",".join(names),
+            declaration=f"var {','.join(f'{name}={initializer}' for name in names)}",
+            padding="1," * 30_000,
+        )
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            minify_js(source)
+            best = min(best, time.perf_counter() - start)
+        return best
+
+    # the floor keeps a near-zero string baseline from turning timer noise into a failure
+    assert cost("/a/") <= 20 * cost('"a"') + 0.05
 
 
 @pytest.mark.parametrize(
