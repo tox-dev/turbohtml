@@ -3,6 +3,7 @@
    selector.h now carries only the shared types plus the entry-point prototypes. */
 
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "css/select/selector.h"
 
 #if defined(_MSC_VER)
@@ -2250,6 +2251,7 @@ static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
 static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node *node) {
     size_t idx = sel_memo_hash(key, node, memo->mask);
     for (;;) {
+        TH_WORK_STEP();
         const sel_memo_slot *slot = &memo->slots[idx];
         /* Key first: one argument spans many nodes, so the existing tests reach every probe edge. */
         if (slot->key == key && slot->node == node) {

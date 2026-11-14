@@ -190,6 +190,7 @@ static int value_ci_eq(const Py_UCS4 *value, Py_ssize_t value_len, const char *t
    case-insensitive match for exactly text/html or application/xhtml+xml. */
 static int annotation_xml_encoding_is_html(const th_node *node) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        TH_WORK_STEP();
         const th_node_attr *attr = &node->attrs[index];
         if (attr->name_atom == TH_ATTR_ENCODING && attr->value != NULL &&
             (value_ci_eq(attr->value, attr->value_len, "text/html") ||

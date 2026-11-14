@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import time
-from typing import Final
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import Element, IncrementalParser, parse, parse_fragment
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _OPTION_HOLDS_SELECTEDCONTENT: Final[str] = "<select><option><selectedcontent>"
 _OPTION_HOLDS_SELECTEDCONTENT_TREE: Final[str] = "<select><option><selectedcontent></selectedcontent></option></select>"
@@ -259,27 +262,14 @@ def test_parse_skips_the_options_of_each_disabled_optgroup(options: str, shown: 
 
 
 @pytest.mark.parametrize("disabled", [pytest.param("", id="enabled"), pytest.param(" disabled", id="disabled-last")])
-def test_parse_of_options_in_an_optgroup_of_many_attributes_stays_linear(disabled: str) -> None:
-    grown = _grouped_options_markup(40_000, disabled)
-    assert len(parse(grown).find_all("option")) == 40_000
-    # linear parsing scales the time with the input, a search of the optgroup's attributes per option with its square;
-    # the floor keeps a sub-millisecond baseline from inflating the ratio
-    baseline = _fastest_parse(_grouped_options_markup(10_000, disabled))
-    assert _fastest_parse(grown) < 8 * max(baseline, 0.01)
+def test_parse_of_options_in_an_optgroup_of_many_attributes_stays_linear(disabled: str, work_steps: WorkSteps) -> None:
+    assert len(parse(_grouped_options_markup(4_000, disabled)).find_all("option")) == 4_000
+    work_steps.assert_linear(lambda n: partial(parse, _grouped_options_markup(n, disabled)), (1000, 4000))
 
 
 def _grouped_options_markup(count: int, disabled: str) -> str:
     attributes = " ".join(f"a{index}" for index in range(count))
     return f"<select><optgroup {attributes}{disabled}>{'<option>' * count}"
-
-
-def _fastest_parse(markup: str) -> float:
-    timings: Final[list[float]] = []
-    for _ in range(3):
-        start = time.perf_counter()
-        parse(markup)
-        timings.append(time.perf_counter() - start)
-    return min(timings)
 
 
 def test_set_inner_html_clones_the_selected_option() -> None:

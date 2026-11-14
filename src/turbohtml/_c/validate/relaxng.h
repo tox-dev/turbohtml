@@ -10,6 +10,8 @@
 #ifndef TURBOHTML_VALIDATE_RELAXNG_H
 #define TURBOHTML_VALIDATE_RELAXNG_H
 
+#include "core/work_steps.h"
+
 enum {
     P_EMPTY,
     P_NOTALLOWED,
@@ -1633,6 +1635,7 @@ static int ns_table_grow(th_schema *schema) {
 /* The canonical node for `name` over these children. An equal node already built is returned, so equal treaps share
    one root and a union meets shared subtrees as the same pointer. */
 static nsnode *ns_make(th_schema *schema, const nameclass *name, nsnode *left, nsnode *right) {
+    TH_WORK_STEP();
     if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in make; reachable, hard to pin */
         return NULL;                /* GCOVR_EXCL_LINE */
     }
@@ -1669,6 +1672,7 @@ static nsnode *ns_make(th_schema *schema, const nameclass *name, nsnode *left, n
 /* Splits the treap at `name` into the nodes ordered before it and those ordered after. A node equal to `name` is
    dropped, which lets a union split the other side without keeping its duplicate. */
 static int ns_split(th_schema *schema, nsnode *node, const nameclass *name, nsnode **below, nsnode **above) {
+    TH_WORK_STEP();
     if (node == NULL) {
         *below = NULL;
         *above = NULL;
@@ -1712,6 +1716,7 @@ static int ns_split(th_schema *schema, nsnode *node, const nameclass *name, nsno
 /* The union of two treaps as one canonical treap. A subtree both sides hold is the same node on each, so the recursion
    stops there: a union of sets that differ in a few names costs about the size of the difference. */
 static int ns_union(th_schema *schema, nsnode *first, nsnode *second, nsnode **out) {
+    TH_WORK_STEP();
     if (first == NULL) {
         *out = second;
         return 0;
@@ -2341,6 +2346,7 @@ static int nc_name_eq(const nameclass *left, const nameclass *right) {
    namespace for an <nsName>, and a name in a namespace nothing mentions for an <anyName>. Loops down the left spine,
    which is as long as a <choice> has names. */
 static int nc_holds(const nameclass *nc, const nameclass *probe, Py_ssize_t *work) {
+    TH_WORK_STEP();
     for (;; nc = nc->a) {
         switch (nc->type) {
         case NC_ANY:
@@ -2387,6 +2393,7 @@ static int nc_overlap_at(const nameclass *part, const nameclass *left, const nam
    so testing one representative per leaf decides it, as jing's OverlapDetector does. The comparisons read names, and
    their length is added to `work`. */
 static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t *work) {
+    TH_WORK_STEP();
     return nc_overlap_at(left, left, right, work) | nc_overlap_at(right, left, right, work);
 }
 

@@ -24,6 +24,7 @@
 
 #include "core/ascii.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -797,6 +798,7 @@ static void new_attr(th_tokenizer *self) {
    collision between a narrow and a wide name of equal length still resolves
    correctly. */
 static int attr_name_dup(const th_attr *a, const th_attr *b) {
+    TH_WORK_STEP();
     if (a->name.len != b->name.len) {
         return 0;
     }
@@ -855,6 +857,7 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
     Py_ssize_t mask = self->attr_seen_cap - 1;
     Py_ssize_t slot = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
     while (self->attr_seen[slot].epoch == self->attr_epoch) {
+        TH_WORK_STEP();
         if (attr_name_dup(&attrs[self->attr_seen[slot].index], &attrs[cur])) {
             return 1;
         }

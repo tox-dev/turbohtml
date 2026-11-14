@@ -20,6 +20,7 @@
    sibling scopes reuse slots), then the shortest names go to the slots whose bindings
    are referenced most -- the frequency ordering esbuild/terser/swc use. */
 
+#include "core/work_steps.h"
 #include "js/internal.h"
 
 #include <stdlib.h>
@@ -545,6 +546,7 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     if (idx < 0) {
         return;
     }
+    TH_WORK_STEP();
     jm_node *node = &mangler->prog->nodes[idx];
     switch (node->kind) {
     case JN_NUM:
@@ -1389,6 +1391,7 @@ static int expand_shorthand_ref(jm_program *prog, int32_t sym) {
    in its function body's first statement -- nothing executes before it except the initializers of
    the declarators left of its own, so a read there keeps the binding. */
 static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, int32_t declr, int32_t init) {
+    TH_WORK_STEP();
     if (prog->syms[sym].decl >= 1 && is_value_literal(prog, init)) {
         return prog->syms[sym].min_ref >= declr &&
                (prog->syms[sym].ref_scope == prog->syms[sym].scope ||
