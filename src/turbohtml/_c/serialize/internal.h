@@ -37,20 +37,23 @@ enum th_formatter {
 };
 
 /* Whether a character has a named reference under the NAMED formatter. The ASCII
-   ones are exactly & " < >, so the generated table is only consulted past 0x7F. */
+   ones are & " < > and CR, so the generated table is only consulted past 0x7F. */
 static inline int sbuf_named_special(Py_UCS4 character) {
     if (character < 0x80) {
-        return character == '&' || character == '"' || character == '<' || character == '>';
+        return character == '&' || character == '"' || character == '<' || character == '>' || character == '\r';
     }
     return th_entity_name(character) != NULL;
 }
 
 /* The WHATWG/MINIMAL special set tested over a 64-bit word of two UCS-4 code
-   points: & < > always, " in any attribute value, and the no-break space
-   WHATWG folds. Each probe sets the matching lane's high bit; a nonzero result
-   means a special is in the pair. */
+   points: & < > and CR always, " in any attribute value, and the no-break space
+   WHATWG folds. CR must be written as &#13; in every formatter: input
+   preprocessing folds a raw CR to LF on reparse, so the output would read back
+   as a different tree. Each probe sets the matching lane's high bit; a nonzero
+   result means a special is in the pair. */
 static inline uint64_t sbuf_special_mask(uint64_t word, int escape_quote, int escape_nbsp) {
-    uint64_t mask = swar_haslane32(word, '&') | swar_haslane32(word, '<') | swar_haslane32(word, '>');
+    uint64_t mask =
+        swar_haslane32(word, '&') | swar_haslane32(word, '<') | swar_haslane32(word, '>') | swar_haslane32(word, '\r');
     if (escape_quote) {
         mask |= swar_haslane32(word, '"');
     }
@@ -61,8 +64,8 @@ static inline uint64_t sbuf_special_mask(uint64_t word, int escape_quote, int es
 }
 
 /* Skip step for the clean-run scan: the same special set tested a vector at a time rather than a
-   64-bit pair. The tree holds text as UCS-4, so every serialized run pays this scan, and four lanes
-   per step halves the probes over the long unescaped spans documents are made of. The step only
+   64-bit pair. The tree holds text as UCS-4, so every serialized run pays this scan, and eight code
+   points per step halves the probes over the long unescaped spans documents are made of. The step only
    skips: when it reports a hit the SWAR pair loop below rescans the block and names the exact code
    point, so the vector arms never decide where a special is. escape.c carries the same per-arch
    split for its sizing scan. */
@@ -76,6 +79,7 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, 
     uint32x4_t lanes = vld1q_u32((const uint32_t *)text);
     uint32x4_t hits = vceqq_u32(lanes, vdupq_n_u32('&'));
     hits = vorrq_u32(hits, vorrq_u32(vceqq_u32(lanes, vdupq_n_u32('<')), vceqq_u32(lanes, vdupq_n_u32('>'))));
+    hits = vorrq_u32(hits, vceqq_u32(lanes, vdupq_n_u32('\r')));
     if (escape_quote) {
         hits = vorrq_u32(hits, vceqq_u32(lanes, vdupq_n_u32('"')));
     }
@@ -89,18 +93,24 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, 
 
 #include <emmintrin.h>
 
-#define SBUF_SCAN_STEP 4
+#define SBUF_SCAN_STEP 8
 
+/* Two vectors of four code points pack into one of eight 16-bit lanes. Every special is below 0x100 and
+   the saturating pack maps anything wider to 0x7FFF, so the 16-bit compares match exactly the same code
+   points as 32-bit compares would, at half the compares per code point. */
 static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, int escape_nbsp) {
-    __m128i lanes = _mm_loadu_si128((const __m128i *)text);
-    __m128i hits = _mm_cmpeq_epi32(lanes, _mm_set1_epi32('&'));
+    __m128i low = _mm_loadu_si128((const __m128i *)text);
+    __m128i high = _mm_loadu_si128((const __m128i *)(text + 4));
+    __m128i lanes = _mm_packs_epi32(low, high);
+    __m128i hits = _mm_cmpeq_epi16(lanes, _mm_set1_epi16('&'));
     hits = _mm_or_si128(
-        hits, _mm_or_si128(_mm_cmpeq_epi32(lanes, _mm_set1_epi32('<')), _mm_cmpeq_epi32(lanes, _mm_set1_epi32('>'))));
+        hits, _mm_or_si128(_mm_cmpeq_epi16(lanes, _mm_set1_epi16('<')), _mm_cmpeq_epi16(lanes, _mm_set1_epi16('>'))));
+    hits = _mm_or_si128(hits, _mm_cmpeq_epi16(lanes, _mm_set1_epi16('\r')));
     if (escape_quote) {
-        hits = _mm_or_si128(hits, _mm_cmpeq_epi32(lanes, _mm_set1_epi32('"')));
+        hits = _mm_or_si128(hits, _mm_cmpeq_epi16(lanes, _mm_set1_epi16('"')));
     }
     if (escape_nbsp) {
-        hits = _mm_or_si128(hits, _mm_cmpeq_epi32(lanes, _mm_set1_epi32(0xA0)));
+        hits = _mm_or_si128(hits, _mm_cmpeq_epi16(lanes, _mm_set1_epi16(0xA0)));
     }
     return _mm_movemask_epi8(hits) != 0;
 }
@@ -132,6 +142,8 @@ static inline void sbuf_put_special(sbuf *out, Py_UCS4 character, int formatter)
         sbuf_puts(out, "&gt;");
     } else if (character == '"') {
         sbuf_puts(out, "&quot;");
+    } else if (character == '\r') {
+        sbuf_puts(out, "&#13;");
     } else {
         sbuf_puts(out, "&nbsp;"); /* the only remaining flagged character is U+00A0 */
     }

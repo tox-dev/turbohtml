@@ -243,7 +243,7 @@ def test_html_serialization(find: Callable[[str, str], Element], html: str, sele
         pytest.param("a&lt;b&gt;c", "a&lt;b&gt;c", id="angle-brackets"),
         pytest.param("a&amp;b", "a&amp;b", id="ampersand"),
         pytest.param("a&nbsp;b", "a&nbsp;b", id="nbsp"),
-        pytest.param("a&#13;b", "a\rb", id="carriage-return"),
+        pytest.param("a&#13;b", "a&#13;b", id="carriage-return"),
     ],
 )
 def test_text_is_escaped_in_html(find: Callable[[str, str], Element], source: str, expected: str) -> None:
@@ -1541,6 +1541,16 @@ def test_default_formatter_keeps_non_ascii_literal() -> None:
             Formatter.NAMED_ENTITIES,
             "<p>&eacute;&amp;😀&alpha;a</p>",
             id="named-mixed-text",
+        ),
+        pytest.param("<p>a&#xd;b</p>", "p", Formatter.WHATWG, "<p>a&#13;b</p>", id="whatwg-carriage-return"),
+        pytest.param("<p>a&#xd;b</p>", "p", Formatter.MINIMAL, "<p>a&#13;b</p>", id="minimal-carriage-return"),
+        pytest.param("<p>a&#xd;b</p>", "p", Formatter.NAMED_ENTITIES, "<p>a&#13;b</p>", id="named-carriage-return"),
+        pytest.param(
+            '<a title="a&#xd;b">t</a>',
+            "a",
+            Formatter.NAMED_ENTITIES,
+            '<a title="a&#13;b">t</a>',
+            id="named-attribute-carriage-return",
         ),
         pytest.param(
             '<p title="é&amp;😀\u03b1a">x</p>',
