@@ -1495,7 +1495,6 @@ typedef struct {
     Py_ssize_t rule_count;
     sel_compiled **compiled;
     css_specificity *specificities;
-    int uses_has;
 } css_sheet;
 
 typedef struct {
@@ -1636,7 +1635,6 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             goto fail;                         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_ssize_t alternative_count = 0;
-        int uses_has = 0;
         for (Py_ssize_t rule = 0; rule < rule_count; rule++) {
             PyObject *selector = css_slice_str(rules[rule].selector, rules[rule].selector_len);
             if (selector == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1666,7 +1664,6 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             } else {
                 css_prioritize_subject(compiled[rule]);
                 alternative_count += compiled[rule]->count;
-                uses_has |= compiled[rule]->has_relational;
             }
         }
         if (count == capacity) {
@@ -1684,7 +1681,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             sheets = bigger;
             capacity = grown;
         }
-        sheets[count++] = (css_sheet){clean, rules, rule_count, compiled, NULL, uses_has};
+        sheets[count++] = (css_sheet){clean, rules, rule_count, compiled, NULL};
         if (alternative_count == 0) {
             continue;
         }
@@ -1740,13 +1737,6 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
     css_slot slots[NUM_PROPS] = {0};
     sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL};
     long order = 0;
-    int uses_has = 0;
-    for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
-        uses_has |= sheets[sheet].uses_has;
-    }
-    if (uses_has) {
-        ctx.has_memo = th_tree_depth_reaches(tree, element) ? &cache->has_memo : NULL;
-    }
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
         Py_ssize_t offset = 0;
@@ -1757,6 +1747,7 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
             }
             const css_specificity *specificities = current->specificities + offset;
             offset += compiled->count;
+            ctx.has_memo = selector_uses_has_memo(compiled) ? &cache->has_memo : NULL;
             int best_a = -1;
             int best_b = 0;
             int best_c = 0;

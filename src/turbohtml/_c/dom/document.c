@@ -3210,13 +3210,14 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
     /* link each rebuilt child straight into the node: a document has no append(), and a fragment child (a template's
        contents) must land as a child rather than be spliced */
     th_node *parent = ((NodeObject *)node)->node;
+    th_tree_note_deepened(tree_of(node));
     for (Py_ssize_t index = 0; index < PyList_GET_SIZE(children); index++) {
         th_node *child = adopt_child((NodeObject *)node, parent, PyList_GET_ITEM(children, index));
         if (child == NULL) {
             Py_DECREF(node);
             return NULL;
         }
-        th_node_append_child(tree_of(node), parent, child);
+        th_node_append_child(parent, child);
     }
     return node;
 }

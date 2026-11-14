@@ -318,12 +318,13 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
         }
         /* GCOVR_EXCL_BR_STOP */
     }
+    th_tree_note_deepened(schema->tree);
     if (include) {
         if (rng_rename_div(schema, reference) < 0 || rng_rename_div(schema, copy) < 0) {
             return NULL;
         }
         (void)th_node_attr_del(schema->tree, reference, "href", 4);
-        th_node_insert_before(loader->schema->tree, reference, copy, reference->first_child);
+        th_node_insert_before(reference, copy, reference->first_child);
         return reference;
     }
     const th_node_attr *ns = attr_exact(schema->tree, reference, "ns", 2);
@@ -336,7 +337,7 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
         /* GCOVR_EXCL_BR_STOP */
     }
     if (reference->parent != NULL) {
-        th_node_insert_before(loader->schema->tree, reference->parent, copy, reference);
+        th_node_insert_before(reference->parent, copy, reference);
         th_node_remove(reference);
     }
     return copy;

@@ -338,81 +338,12 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
-/* The depth, capped at TH_HAS_MEMO_DEPTH, of the deepest node below origin. Walks down the first-child chain and stops
-   at the first node that deep, so a deep subtree costs only its first levels. */
-static Py_ssize_t th_depth_below(th_node *origin) {
-    Py_ssize_t depth = 0;
-    Py_ssize_t deepest = 0;
-    th_node *node = origin;
-    for (;;) {
-        TH_WORK_STEP();
-        if (node->first_child != NULL) {
-            node = node->first_child;
-            if (++depth > deepest) {
-                deepest = depth;
-                if (deepest >= TH_HAS_MEMO_DEPTH) {
-                    return deepest;
-                }
-            }
-            continue;
-        }
-        while (node != origin && node->next_sibling == NULL) {
-            node = node->parent;
-            depth--;
-        }
-        if (node == origin) {
-            return deepest;
-        }
-        node = node->next_sibling;
-    }
+Py_ssize_t th_tree_nest_bound(const th_tree *tree) {
+    return tree->nest_bound;
 }
 
-/* Attaching child under parent deepens the document by the depth of child's subtree below parent's depth. Only the
-   document's own bound is kept current, so a subtree attached outside the document, or into a document already at the
-   memo depth, changes nothing. */
-void th_tree_note_attach(th_tree *tree, th_node *parent, th_node *child) {
-    if (!tree->depth_bound_known || tree->depth_bound >= TH_HAS_MEMO_DEPTH) {
-        return;
-    }
-    th_node *top = parent;
-    Py_ssize_t depth = 0;
-    while (top->parent != NULL && depth < TH_HAS_MEMO_DEPTH) {
-        top = top->parent;
-        depth++;
-    }
-    if (top != th_tree_document(tree)) {
-        return;
-    }
-    Py_ssize_t reached = depth + 1 + th_depth_below(child);
-    if (reached > tree->depth_bound) {
-        tree->depth_bound = reached < TH_HAS_MEMO_DEPTH ? reached : TH_HAS_MEMO_DEPTH;
-    }
-}
-
-/* A document at the memo depth answers every origin at once, as the tree-wide peak did. A shallower document has no
-   node that deep, so an origin inside it is answered without a walk; only an origin outside it measures its subtree. */
-int th_tree_depth_reaches(th_tree *tree, th_node *origin) {
-    th_node *document = th_tree_document(tree);
-    if (document == NULL) {
-        return th_depth_below(origin) >= TH_HAS_MEMO_DEPTH;
-    }
-    if (!tree->depth_bound_known) {
-        tree->depth_bound = th_depth_below(document);
-        tree->depth_bound_known = 1;
-    }
-    if (tree->depth_bound >= TH_HAS_MEMO_DEPTH) {
-        return 1;
-    }
-    assert(tree->depth_bound >= th_depth_below(document)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; a link edit
-                                                              that deepened the document without th_tree_note_attach */
-    th_node *top = origin;
-    for (Py_ssize_t up = 0; top->parent != NULL && up < TH_HAS_MEMO_DEPTH; up++) {
-        top = top->parent;
-    }
-    if (top == document) {
-        return 0;
-    }
-    return th_depth_below(origin) >= TH_HAS_MEMO_DEPTH;
+void th_tree_note_deepened(th_tree *tree) {
+    tree->nest_bound = 0;
 }
 
 int th_tree_failed(const th_tree *tree) {
@@ -545,6 +476,9 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
+    if (tree->open_len >= TH_HAS_MEMO_DEPTH) {
+        tree->nest_bound = 0;
+    }
     return 1;
 }
 
@@ -1882,6 +1816,7 @@ static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
 
 /* Deep-copy src's children into dst without consuming one C stack frame per level. */
 static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) {
+    tree->nest_bound = 0; /* the copy can sit deeper than the source the stack measured */
     const th_node *from = src;
     th_node *copy = dst;
     for (;;) {
@@ -2347,6 +2282,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         }
         /* moving the furthest block under a formatting clone can nest it where its own start tag would not */
         tree->reparse_hazard = 1;
+        tree->nest_bound = 0;
         /* the stack bottom, html or the fragment root, is below every formatting element; without one, the document
            takes its place */
         th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
@@ -4774,6 +4710,7 @@ static th_tree *tree_new_document(int positions, int locations) {
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
+    tree->nest_bound = TH_HAS_MEMO_DEPTH;
     tree->track_positions = positions || locations; /* set before any element node_new */
     tree->track_locations = locations;
     tree->document = node_new(tree, TH_NODE_DOCUMENT);
@@ -4861,6 +4798,7 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
+    tree->nest_bound = TH_HAS_MEMO_DEPTH;
     tree->scripting = scripting;
     tree->declarative_shadow = declarative_shadow;
     tree->kind = kind;

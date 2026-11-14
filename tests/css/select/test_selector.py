@@ -813,13 +813,28 @@ def _deep_appended(depth: int) -> Element:
     return root
 
 
+def _deep_xml_in_parsed_html(depth: int) -> Document:
+    document: Final = parse("<p>shallow</p>")
+    body: Final = document.find("body")
+    root: Final = _deep_xml(depth).root
+    assert body is not None
+    assert root is not None
+    body.append(root)
+    return document
+
+
 # A descendant :has() miss visits each anchor's subtree, which without the memo sums to quadratic steps on a
 # chain. The memo answers every element in amortized constant time, so the counted steps grow linearly with depth.
 _NESTED_DEPTH: Final[int] = 4_000
 
 
 @pytest.mark.parametrize(
-    "build", [pytest.param(_deep_xml, id="parse-xml"), pytest.param(_deep_appended, id="mutation-api")]
+    "build",
+    [
+        pytest.param(_deep_xml, id="parse-xml"),
+        pytest.param(_deep_appended, id="mutation-api"),
+        pytest.param(_deep_xml_in_parsed_html, id="appended-to-parsed-html"),
+    ],
 )
 def test_has_memo_deep_tree_not_from_html_parser(
     build: Callable[[int], Document | Element], work_steps: WorkSteps

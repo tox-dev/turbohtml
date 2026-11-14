@@ -452,14 +452,12 @@ void th_node_remove(th_node *child) {
     node_remove(child);
 }
 
-void th_node_append_child(th_tree *tree, th_node *parent, th_node *child) {
+void th_node_append_child(th_node *parent, th_node *child) {
     node_append(parent, child);
-    th_tree_note_attach(tree, parent, child);
 }
 
-void th_node_insert_before(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
+void th_node_insert_before(th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
-    th_tree_note_attach(tree, parent, child);
 }
 
 /* The MutationObserver registry accessors dom/observe.c reaches the tree fields through. */
@@ -582,7 +580,7 @@ void th_node_remove_observed(th_tree *tree, th_node *child) {
 
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
     node_append(parent, child);
-    th_tree_note_attach(tree, parent, child);
+    tree->nest_bound = 0;
     th_mo_child_inserted(tree, parent, child);
 }
 
@@ -748,7 +746,7 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
 
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
-    th_tree_note_attach(tree, parent, child);
+    tree->nest_bound = 0;
     th_mo_child_inserted(tree, parent, child);
 }
 
@@ -1211,6 +1209,7 @@ static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_n
 }
 
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
+    dest->nest_bound = 0; /* a subtree from another tree can nest deeper than dest's stack measured */
     th_node *copy =
         src->shadow_count == 0 ? th_tree_copy_node(dest, src, src_node) : copy_adopted_shadows(dest, src, src_node);
     if (copy == NULL || src->xml == dest->xml) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
@@ -1259,7 +1258,7 @@ static inline void normalize_unlink(th_tree *tree, th_node *child, int iterators
     if (iterators) {
         th_node_remove_silent(tree, child);
     } else {
-        th_node_remove(child);
+        node_remove(child);
     }
 }
 

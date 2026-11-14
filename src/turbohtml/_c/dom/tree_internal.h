@@ -103,11 +103,8 @@ struct th_tree {
     int scope_result;
     int open_p_count;
     Py_ssize_t open_cap;
-    Py_ssize_t depth_bound; /* at least the depth below the document of every document node, capped at
-                               TH_HAS_MEMO_DEPTH; kept by th_tree_note_attach */
-    int depth_bound_known;  /* whether depth_bound has been measured; 0 until the first query, since the parser
-                               links nodes without the attach primitives */
-    th_node **afe;          /* active formatting elements; NULL entry is a scope marker */
+    Py_ssize_t nest_bound; /* see th_tree_nest_bound; 0 once the stack reaches it or an edit nests deeper */
+    th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     th_node *merged_text_node;
     size_t merged_text_capacity;

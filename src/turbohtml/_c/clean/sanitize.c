@@ -2527,13 +2527,13 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
 }
 
 /* Move an element's children up before it (used by both escape and strip). */
-static void hoist_children(th_tree *tree, th_node *element) {
+static void hoist_children(th_node *element) {
     th_node *parent = element->parent;
     th_node *child = element->first_child;
     while (child != NULL) {
         th_node *next = child->next_sibling;
         th_node_remove(child);
-        th_node_insert_before(tree, parent, child, element);
+        th_node_insert_before(parent, child, element);
         child = next;
     }
 }
@@ -2552,9 +2552,9 @@ static int escape_element(sanitizer *s, th_node *element) {
         if (open_node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_insert_before(s->tree, element->parent, open_node, element);
+        th_node_insert_before(element->parent, open_node, element);
     }
-    hoist_children(s->tree, element);
+    hoist_children(element);
     /* Only reproduce an end tag the source actually wrote: a void element or an
        unclosed one (`<name of movie>`, `I love <sarcasm> this`) carries no close
        tag, so escaping must not fabricate one. */
@@ -2573,7 +2573,7 @@ static int escape_element(sanitizer *s, th_node *element) {
         if (close_node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_insert_before(s->tree, element->parent, close_node, element);
+        th_node_insert_before(element->parent, close_node, element);
     }
     th_node_remove(element);
     return 0;
@@ -2968,7 +2968,7 @@ static int strip_tree_templates(sanitizer *s, th_node *root) {
 /* Strip or escape an element whose children are done, moving them up in its place. Returns 0, or -1 on error. */
 static int unwrap_element(sanitizer *s, th_node *element, enum sanitize_action action) {
     if (action == SANITIZE_STRIP_CHILDREN) {
-        hoist_children(s->tree, element);
+        hoist_children(element);
         th_node_remove(element);
         return 0;
     }
@@ -4181,7 +4181,7 @@ static int balancer_foster_text(sanitizer *s, th_node *text) {
         return 0;
     }
     th_node_remove(text);
-    th_node_insert_before(s->tree, table->parent, text, table);
+    th_node_insert_before(table->parent, text, table);
     s->balance_edited = 1;
     return 1;
 }
@@ -4246,7 +4246,8 @@ static int balancer_wrap_runs(sanitizer *s, th_node *parent, th_node *before, th
         if (!allowed) {
             s->omitted_wrapper = 1;
         }
-        th_node_insert_before(s->tree, parent, wrapper, child);
+        th_node_insert_before(parent, wrapper, child);
+        th_tree_note_deepened(s->tree);
         s->balance_edited = 1;
         /* a browser keeps the row or row group open across text it fosters out and a comment, so they stay inside the
            run; text pops a column group, so only a comment does there. The run still ends at its last match. */
@@ -4261,7 +4262,7 @@ static int balancer_wrap_runs(sanitizer *s, th_node *parent, th_node *before, th
         while (child != end) {
             th_node *next = child->next_sibling;
             th_node_remove(child);
-            th_node_append_child(s->tree, wrapper, child);
+            th_node_append_child(wrapper, child);
             child = next;
         }
     }

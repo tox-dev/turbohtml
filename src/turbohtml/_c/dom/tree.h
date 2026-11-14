@@ -363,12 +363,12 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
    so it is for nodes no caller holds an iterator on (a parse, sanitize, schema or
    XSLT result tree, or a fragment built in the same call) and for XSLT's whitespace
    strip, which puts the nodes back before it returns; remove_silent runs the steps
-   without queuing a mutation record. Append and insert take the tree so they can keep the document's depth
-   bound up to date; remove cannot deepen a tree and needs none. */
+   without queuing a mutation record. A link that can nest a node deeper than before
+   needs th_tree_note_deepened. */
 void th_node_remove(th_node *child);
 void th_node_remove_silent(th_tree *tree, th_node *child);
-void th_node_append_child(th_tree *tree, th_node *parent, th_node *child);
-void th_node_insert_before(th_tree *tree, th_node *parent, th_node *child, th_node *ref);
+void th_node_append_child(th_node *parent, th_node *child);
+void th_node_insert_before(th_node *parent, th_node *child, th_node *ref);
 
 /* The same three edits, but each queues a childList mutation record for the tree's
    MutationObservers (dom/observe.c). The binding layer routes user-driven structural
@@ -531,13 +531,18 @@ int th_tree_reparse_hazard(const th_tree *tree);
    reads it so a scripting-parsed subtree keeps building noscript as raw text. */
 int th_tree_scripting(const th_tree *tree);
 
-/* The depth below a query origin at which the :has() subtree memo starts to pay. */
+/* The descent below a :has() anchor at which the subtree memo starts to pay. */
 #define TH_HAS_MEMO_DEPTH 24
-/* Whether some node lies at least TH_HAS_MEMO_DEPTH levels below origin, judged by the document's depth bound and,
-   for an origin outside a shallow document, by origin's own subtree. */
-int th_tree_depth_reaches(th_tree *tree, th_node *origin);
-/* Keeps the document's depth bound current after child is linked under parent. */
-void th_tree_note_attach(th_tree *tree, th_node *parent, th_node *child);
+/* A depth no element of the tree reaches, known in O(1), or 0 when none is known. Only a tree the HTML tree builder
+   made whose open-element stack stayed below TH_HAS_MEMO_DEPTH, and that nothing has deepened since, has one
+   (TH_HAS_MEMO_DEPTH itself). Any other tree (parse_xml(), Element(), a copy, a sanitizer or XSLT result, or an edited
+   document) may nest arbitrarily deep. A :has() query skips the subtree memo on a tree bounded below the memo depth,
+   where the direct walk is already cheap. */
+Py_ssize_t th_tree_nest_bound(const th_tree *tree);
+/* Drops the tree's nest bound after an edit that can nest a node deeper than before. The observed link primitives and
+   th_tree_adopt_copy call it; a caller that links with th_node_append_child or th_node_insert_before calls it when
+   the link can deepen the tree. */
+void th_tree_note_deepened(th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a
