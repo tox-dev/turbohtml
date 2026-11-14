@@ -1027,7 +1027,7 @@ static int single_shot_stmt(jm_program *prog, int32_t stmt) {
 }
 
 /* A literal whose copy is the same immutable value at every read: a number, a string, or a folded
-   boolean/undefined. A regex is excluded: each evaluation creates a fresh object (13.2.7.5 in the
+   boolean/undefined. A regex is excluded: each evaluation creates a fresh object (13.2.7.3 in the
    evaluation of a RegularExpressionLiteral), so a read inside a loop or closure would mint new
    state (lastIndex, identity) where the binding shared one object. */
 static int is_value_literal(jm_program *prog, int32_t idx) {
@@ -1375,7 +1375,7 @@ static int expand_shorthand_ref(jm_program *prog, int32_t sym) {
 /* Whether the binding's declaration dominates its one read with a value that survives the move:
    a value let/const must have no read before initialization. Cross-scope reads require the first
    initializer in the function, before a caller could run. A regex may ride only into the very next
-   single-shot statement (a fresh object per evaluation, 13.2.7.5, so the read must run at most
+   single-shot statement (a fresh object per evaluation, 13.2.7.3, so the read must run at most
    once per pass over the declaration and outside any nested function), and a value var must sit
    in its function body's first statement -- nothing executes before it except the initializers of
    the declarators left of its own, so a read there keeps the binding. */

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
+import time
 from typing import Final
 
 import pytest
@@ -814,20 +815,30 @@ def test_compresses(source: str, expected: str) -> None:
     assert minify_js(source) == expected
 
 
-def test_regex_bindings_read_before_a_long_statement_are_kept() -> None:
-    # each binding once searched the whole statement after its declaration for its one read, on every compress pass:
-    # O(bindings * statement) for nothing when, as here, the hoisted reads all sit in front of the declaration
-    names: Final = [f"r{index:x}" for index in range(6_000)]
-    declaration: Final = f"var {','.join(f'{name}=/a/' for name in names)}"
-    source: Final = f"function f(){{q({','.join(names)});{declaration};h([{'1,' * 60_000}])}}"
-    assert minify_js(source).count("=/a/") == len(names)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param("function f(){{q({names});{declaration};h([{padding}])}}", id="read-before"),
+        pytest.param("function f(){{{declaration};h([{padding}],{names})}}", id="read-in-next"),
+    ],
+)
+def test_regex_initializers_cost_no_more_than_string_ones(shape: str) -> None:
+    # a string initializer never reaches the regex branch, so it times the same script without that check
+    def cost(initializer: str) -> float:
+        names = [f"r{index:x}" for index in range(3_000)]
+        source = shape.format(
+            names=",".join(names),
+            declaration=f"var {','.join(f'{name}={initializer}' for name in names)}",
+            padding="1," * 30_000,
+        )
+        best = float("inf")
+        for _ in range(3):
+            start = time.thread_time()
+            minify_js(source)
+            best = min(best, time.thread_time() - start)
+        return best
 
-
-def test_regex_bindings_read_in_a_long_statement_are_inlined() -> None:
-    names: Final = [f"r{index:x}" for index in range(6_000)]
-    declaration: Final = f"var {','.join(f'{name}=/a/' for name in names)}"
-    source: Final = f"function f(){{{declaration};h([{'1,' * 60_000}],{','.join(names)})}}"
-    assert minify_js(source) == f"function f(){{h([{','.join('1' * 60_000)}],{','.join(['/a/'] * len(names))})}}"
+    assert cost("/a/") < 20 * cost('"a"')
 
 
 @pytest.mark.parametrize(

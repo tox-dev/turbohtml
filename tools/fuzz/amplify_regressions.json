@@ -851,8 +851,8 @@
     }
   },
   {
-    "name": "js-regex-inline-read-elsewhere",
-    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/js/mangle.c#L1403-L1405",
+    "name": "1800-js-regex-inline-read-elsewhere",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1800",
     "targets": [
       "minify_js"
     ],
@@ -868,8 +868,8 @@
     }
   },
   {
-    "name": "js-regex-inline-read-next",
-    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/js/mangle.c#L1403-L1405",
+    "name": "1800-js-regex-inline-read-next",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1800",
     "targets": [
       "minify_js"
     ],
