@@ -23,16 +23,13 @@ jobs:
       matrix:
         # The C-coverage gate runs where gcov/llvm-cov exist; on Windows the same
         # suite runs without it (MSVC has no gcov), gated natively in tox.toml.
-        os: ["ubuntu-24.04", "macos-15", "windows-2025"]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04", "windows-2025"]' || '["ubuntu-24.04", "macos-15", "windows-2025"]') }}
         py: ["3.15", "3.14", "3.13", "3.12", "3.11", "3.15t", "3.14t"]
-        include:
-          - {os: "ubuntu-24.04", label: Linux, cov: "gcov"}
-          - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
-          - {os: "windows-2025", label: Windows, cov: ""}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","label":"Linux","cov":"gcov"},{"os":"windows-2025","label":"Windows","cov":""}]' || '[{"os":"ubuntu-24.04","label":"Linux","cov":"gcov"},{"os":"macos-15","label":"macOS","cov":"xcrun llvm-cov gcov"},{"os":"windows-2025","label":"Windows","cov":""}]') }}
         # macOS keeps 3.15, 3.15t and 3.11 on every event; the other interpreters run in the weekly full matrix.
-        # Temporarily, pull requests run only the cells that caught failures during the security fix push; main
-        # still runs the full matrix after every merge.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","py":"3.15"},{"os":"ubuntu-24.04","py":"3.12"},{"os":"ubuntu-24.04","py":"3.11"},{"os":"ubuntu-24.04","py":"3.15t"},{"os":"ubuntu-24.04","py":"3.14t"},{"os":"macos-15","py":"3.15"},{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"},{"os":"macos-15","py":"3.15t"},{"os":"macos-15","py":"3.14t"},{"os":"windows-2025","py":"3.15"},{"os":"windows-2025","py":"3.14"},{"os":"windows-2025","py":"3.13"},{"os":"windows-2025","py":"3.12"},{"os":"windows-2025","py":"3.11"},{"os":"windows-2025","py":"3.14t"}]' || github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
+        # Temporarily, pull requests run only 3.14 Linux and 3.15t Windows; main still runs the full matrix after
+        # every merge.
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","py":"3.15"},{"os":"ubuntu-24.04","py":"3.13"},{"os":"ubuntu-24.04","py":"3.12"},{"os":"ubuntu-24.04","py":"3.11"},{"os":"ubuntu-24.04","py":"3.15t"},{"os":"ubuntu-24.04","py":"3.14t"},{"os":"windows-2025","py":"3.15"},{"os":"windows-2025","py":"3.14"},{"os":"windows-2025","py":"3.13"},{"os":"windows-2025","py":"3.12"},{"os":"windows-2025","py":"3.11"},{"os":"windows-2025","py":"3.14t"}]' || github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -78,6 +75,7 @@ jobs:
     # PyPy stands outside the test matrix because it runs no coverage gate: gcovr reaches cpyext only through lxml,
     # which publishes no PyPy wheels, and a cpyext build has no gcov to feed it. Both gates run on the matrix above.
     name: 🧪 ${{ matrix.py }} - Linux
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -120,9 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: "ubuntu-24.04", arch: "x64"}
-          - {os: "ubuntu-24.04-arm", arch: "arm64"}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","arch":"x64"}]' || '[{"os":"ubuntu-24.04","arch":"x64"},{"os":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -153,6 +149,7 @@ jobs:
           UV_PYTHON_PREFERENCE: only-managed
   preprocess-identity:
     name: 🧪 production preprocessing identity
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     # the fuzz-only build adds #ifdef branches to production sources and headers; a production token change would shift
     # LTO inlining and the CodSpeed gate, so this compares the production preprocessing with those branches stripped
@@ -180,7 +177,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tox_env: ["type", "docs", "pkg_meta", "atheris"]
+        tox_env: ${{ fromJSON(github.event_name == 'pull_request' && '["type", "docs"]' || '["type", "docs", "pkg_meta", "atheris"]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -194,8 +191,9 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: 🧪 Run ${{ matrix.tox_env }}
-        run: uvx --with tox-uv tox run -e ${{ matrix.tox_env }}
+        run: uvx --with tox-uv tox run -e "$TOX_ENV"
         env:
+          TOX_ENV: ${{ matrix.tox_env }}
           UV_PYTHON_PREFERENCE: only-managed
   conformance:
     name: 🧪 conformance
@@ -245,11 +243,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: "ubuntu-24.04", cc: "gcc", label: "gcc · Linux x64"}
-          - {os: "ubuntu-24.04", cc: "clang", label: "clang · Linux x64"}
-          - {os: "ubuntu-24.04-arm", cc: "gcc", label: "gcc · Linux arm64"}
-          - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","cc":"gcc","label":"gcc · Linux x64"}]' || '[{"os":"ubuntu-24.04","cc":"gcc","label":"gcc · Linux x64"},{"os":"ubuntu-24.04","cc":"clang","label":"clang · Linux x64"},{"os":"ubuntu-24.04-arm","cc":"gcc","label":"gcc · Linux arm64"},{"os":"macos-15","cc":"clang","label":"clang · macOS arm64"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -269,6 +263,7 @@ jobs:
           CC: ${{ matrix.cc }}
   warnings-msvc:
     name: 🏗️ -Werror (${{ matrix.label }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ${{ matrix.os }}
     # MSVC is detected by meson without a CC override and maps -Werror to /WX; split from the matrix
     # above so an empty CC env never shadows the auto-detection. x64 builds the SSE2 branch; on
@@ -322,9 +317,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: "ubuntu-24.04", arch: "x64"}
-          - {os: "ubuntu-24.04-arm", arch: "arm64"}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","arch":"x64"}]' || '[{"os":"ubuntu-24.04","arch":"x64"},{"os":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -387,6 +380,7 @@ jobs:
           TSAN_SHARD: ${{ matrix.shard }}
   release:
     name: 🏷️ Release dry run
+    if: ${{ github.event_name != 'pull_request' }}
     uses: $/.github/workflows/prepare-release.yaml
     permissions:
       contents: read
@@ -395,6 +389,7 @@ jobs:
       dry-run: true
   hooks:
     name: 🧹 Hooks under the cooldown
+    if: ${{ github.event_name != 'pull_request' }}
     uses: tox-dev/github-workflows/.github/workflows/cooled-hooks.yaml@bf1c3ab0aa137d307a07aad844d507af73039387 # 6.8.0
     permissions:
       contents: read
