@@ -106,7 +106,7 @@ static void htab_resize(htab *table, int32_t cap) {
         start++;
     }
     for (int32_t step = 0; step < table->cap; step++) {
-        int32_t index = (start + step) % table->cap;
+        int32_t index = (start + step) & (table->cap - 1);
         if (table->slots[index].name != NULL) {
             const Py_UCS4 *name = table->slots[index].name;
             Py_ssize_t len = table->slots[index].len;
