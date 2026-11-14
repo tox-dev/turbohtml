@@ -659,6 +659,12 @@ def test_prune_keeps_matching_subtree() -> None:
     assert document.xpath("//main//text()") == ["A", "inside"]
 
 
+def test_prune_keeps_a_match_nested_in_another_match() -> None:
+    document: Final = parse("<main><b>A<i>in</i><b>B<i>deep</i></b></b><i>drop</i></main>")
+    document.prune("b")
+    assert document.xpath("//main//text()") == ["A", "in", "B", "deep"]
+
+
 def test_prune_detached_subtree_keeps_removed_references() -> None:
     document: Final = parse("<main><section><div><b>A</b><i>drop</i><b>B</b></div></section></main>")
     section: Final = document.select_one("section")
