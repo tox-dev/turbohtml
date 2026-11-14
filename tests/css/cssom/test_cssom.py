@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import gc
 import time
-import tracemalloc
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -1475,13 +1474,14 @@ def test_computed_style_foreign_style_reads_its_text_children_only(html: str, ex
 
 
 def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
     document: Final = parse(f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>")
-    tracemalloc.start()
+    tracing.start()
     try:
         computed_style(document.select("p")[0])
-        peak: Final = tracemalloc.get_traced_memory()[1]
+        peak: Final = tracing.get_traced_memory()[1]
     finally:
-        tracemalloc.stop()
+        tracing.stop()
     assert peak < 16 * 1024 * 1024, peak
 
 
