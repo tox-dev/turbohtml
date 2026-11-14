@@ -471,6 +471,23 @@ typedef struct {
 } named_vec;
 
 typedef struct pattern pattern;
+typedef struct nsnode nsnode;
+
+/* compile-time 7.4 check: a persistent treap of name classes and how many it holds, see rng_names_merge */
+typedef struct nstree {
+    nsnode *root;
+} nstree;
+
+/* compile-time 7.4 check: what a branch matches, as exact names and as wildcard or choice classes */
+typedef struct nameset {
+    nstree names, wild;
+    int text;
+} nameset;
+
+/* compile-time 7.4 check: a pair of sets whose conflict test found no overlap, keyed by their roots */
+typedef struct nspair {
+    nsnode *roots[4]; /* small exact, small wildcard, large exact, large wildcard */
+} nspair;
 
 typedef struct def_part {
     th_node *node;
@@ -484,6 +501,8 @@ typedef struct def_entry {
     def_part *extra, *last;
     pattern *built;  /* memoized pattern, NULL until first resolved */
     int cycle_depth; /* compile-time 4.19 cycle check: -1 unvisited, -2 cleared, else the element depth in progress */
+    nameset names;   /* compile-time 7.4 check: what a ref to this define matches, final once names_state is 2 */
+    int names_state; /* compile-time 7.4 check: 0 unvisited, 1 on the DFS stack, 2 done */
 } def_entry;
 
 typedef struct {
@@ -509,6 +528,15 @@ typedef struct th_schema {
     pattern *p_empty, *p_notallowed, *p_text;
     int rng_references; /* the annotation pruning walk met an include or externalRef with href */
     def_vec defines;
+    arena names_mem;       /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
+    Py_ssize_t rng_work;   /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
+    Py_ssize_t rng_nodes;  /* compile-time 7.4 check: treap nodes allocated against RNG_INTERLEAVE_NODE_LIMIT */
+    th_node **rng_checked; /* compile-time 7.4 check: open-addressed set of interleaves already checked */
+    nsnode **rng_table;    /* compile-time 7.4 check: hash-consed treap nodes, open addressed */
+    size_t rng_table_cap, rng_table_len;
+    size_t rng_checked_cap, rng_checked_len;
+    nspair rng_disjoint[8]; /* compile-time 7.4 check: the last disjoint pairs, round robin */
+    size_t rng_disjoint_len, rng_disjoint_next;
     struct patintern *intern; /* per-validation pattern hash-consing table; NULL while compiling */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
@@ -881,6 +909,7 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
         return PyErr_NoMemory();                             /* GCOVR_EXCL_LINE */
     }
     int ok = kind == 0 ? xsd_compile(schema) : rng_compile(schema, base_url, include_root);
+    arena_free(&schema->names_mem);
     /* a pattern that exceeds the regex limits sets a ValueError */
     ok = ok && regex_cache_schema(schema, schema->root) == 0;
     /* a build that lost an arena allocation is partial even when it raised nothing */

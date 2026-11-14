@@ -22,8 +22,12 @@ takes time linear in its length.
 Compiling a RELAX NG schema raises :class:`ValueError` for a grammar the RELAX NG specification forbids: a ``<ref>``
 with no ``name`` attribute (section 4.10), a reference cycle whose expansion never passes through an ``element``
 (section 4.19), and an ``interleave`` whose branches can match an element with the same name or can both match text
-(section 7.4). The message names the offending ``define`` or construct. Validating against a legal but ambiguous
-``choice`` or ``interleave`` takes memory bounded by the schema size, not by the number of child elements.
+(section 7.4). The message names the offending ``define`` or construct. The check compares name classes, so an
+``anyName`` or ``nsName`` that overlaps the name class of another branch is a conflict. It looks through each ``<ref>``,
+counts a ``mixed`` as text, and checks a ``combine="interleave"`` part against the parts before it; a part without that
+attribute joins them as a choice. Once the interleave check has done about 33 million steps of work, compilation raises
+:class:`ValueError` with ``RELAX NG grammar too large to check interleave branches``. Validating against a legal but
+ambiguous ``choice`` or ``interleave`` takes memory bounded by the schema size, not by the number of child elements.
 
 A RELAX NG ``include`` or ``externalRef`` reads its ``href`` from disk when the schema compiles, resolved against
 ``base_url`` and any ``xml:base`` (sections 4.5 to 4.7). Compilation raises :class:`ValueError` when the schema
