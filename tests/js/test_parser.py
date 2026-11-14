@@ -670,8 +670,6 @@ def test_function_after_single_statement_body_minifies_to(source: str, expected:
         pytest.param("let [a.b]=c", "offset 4 near '['", id="member-element"),
         pytest.param("let [a+=1]=b", "offset 4 near '['", id="compound-assign-default"),
         pytest.param("let [0=1]=b", "offset 4 near '['", id="literal-with-default"),
-        pytest.param('let {"a"}=b', "offset 4 near '{'", id="string-shorthand"),
-        pytest.param("let {[a]=1}=b", "offset 4 near '{'", id="computed-shorthand"),
         pytest.param("let {a(){}}=b", "offset 4 near '{'", id="method"),
         pytest.param("let [...0]=b", "offset 4 near '['", id="array-rest-literal"),
         pytest.param("let [...a,b]=c", "offset 4 near '['", id="array-rest-not-last"),
@@ -705,6 +703,24 @@ def test_function_after_single_statement_body_minifies_to(source: str, expected:
 )
 def test_invalid_binding_pattern_raises(source: str, match: str) -> None:
     with pytest.raises(ValueError, match=re.escape(f"invalid binding pattern at {match}")):
+        minify(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param('x={"a"}', "offset 6 near '}'", id="string"),
+        pytest.param("x={1}", "offset 4 near '}'", id="number"),
+        pytest.param('({"a"=1}=b)', "offset 5 near '='", id="string-default"),
+        pytest.param("x={[a]}", "offset 6 near '}'", id="computed"),
+        pytest.param("({[a]=1}=b)", "offset 5 near '='", id="computed-default"),
+        pytest.param("({[a]=1})=>0", "offset 5 near '='", id="computed-default-parameter"),
+        pytest.param('let {"a"}=b', "offset 8 near '}'", id="string-binding"),
+        pytest.param("let {[a]=1}=b", "offset 8 near '='", id="computed-default-binding"),
+    ],
+)
+def test_shorthand_property_needs_identifier_key(source: str, match: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(f"expected : at {match}")):
         minify(source)
 
 
