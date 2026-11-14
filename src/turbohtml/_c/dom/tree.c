@@ -1641,6 +1641,7 @@ static void select_cache_add_target(th_tree *tree, th_select_cache *cache, th_no
 static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
     th_node *root = cache->select;
     cache->target_count = 0;
+    cache->filled = 0;
     th_node *node = root->first_child;
     while (node != NULL) {
         TH_WORK_STEP();
@@ -1879,16 +1880,20 @@ static th_node *select_cache_shown_option(const th_select_cache *cache) {
     return option != NULL && option_nearest_select(option) == cache->select ? option : NULL;
 }
 
-/* Replaces each target's children with a copy of the option, so markup the parser
-   already gave a target is dropped, as the HTML Standard's replace-all step does. */
-static void clone_into_targets(th_tree *tree, th_select_cache *cache, th_node *option) {
-    for (Py_ssize_t index = 0; index < cache->target_count; index++) {
+/* Replaces the children of the targets from first on with a copy of option, or with nothing when no option is
+   shown. Children the parser gave a target are dropped, not kept beside the copy: browsers keep them, but then
+   reparsing the output adds a copy each time, so this departs from browser output on purpose. */
+static void replace_target_children(th_tree *tree, th_select_cache *cache, th_node *option, Py_ssize_t first) {
+    for (Py_ssize_t index = first; index < cache->target_count; index++) {
         th_node *target = cache->targets[index];
         while (target->first_child != NULL) {
             node_remove(target->first_child);
         }
-        deep_copy_children(tree, option, target);
+        if (option != NULL) {
+            deep_copy_children(tree, option, target);
+        }
     }
+    cache->filled = cache->target_count;
 }
 
 /* "Update descendant selectedcontent elements for an option": when the option the
@@ -1916,15 +1921,16 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
     if (cache->target_count == 0 || cache->disabled) {
         return;
     }
-    clone_into_targets(tree, cache, option);
+    replace_target_children(tree, cache, option, 0);
 }
 
 /* The selectedcontent post-connection steps: a selectedcontent inserted under a select
-   it is enabled for joins the select's clone targets, while the cap leaves room. Its
-   copy waits for select_cache_finish, since the parser appends the element's own
-   children after this point and the clone must replace them. A select with no cache
-   has had no option closed, so it shows none. The walk stops at an ancestor option, so
-   a chain of nested options stays O(1) each. */
+   it is enabled for joins the select's targets, while the cap leaves room. It stays
+   pending until select_cache_finish, which runs after the parser has appended the
+   element's own children and replaces them. A browser keeps those children beside the
+   copy; dropping them keeps reparsed output unchanged. A select with no cache yet builds
+   one here, which lists the new element with the rest. The walk stops at an ancestor
+   option, so a chain of nested options stays O(1) each. */
 static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     th_node *select = selectedcontent->parent;
     while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
@@ -1934,20 +1940,45 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
         }
         select = select->parent;
     }
-    Py_ssize_t slot = select != NULL ? th_node_map_find(&tree->select_state->index, select) : 0;
-    if (slot == 0 || node_has_attr(selectedcontent, TH_ATTR_DISABLED)) {
+    if (select == NULL || node_has_attr(selectedcontent, TH_ATTR_DISABLED)) {
+        return;
+    }
+    Py_ssize_t slot = tree->select_state != NULL ? th_node_map_find(&tree->select_state->index, select) : 0;
+    if (slot == 0) {
+        select_cache_get(tree, select);
         return;
     }
     th_select_cache *cache = &tree->select_state->caches[slot - 1];
     if (cache->target_count == MAX_CLONE_TARGETS) {
         return;
     }
-    /* listed even while the cache is invalid, so the cap counts every late target */
     select_cache_add_target(tree, cache, selectedcontent);
 }
 
-/* The queued selectedcontent update runs once the parse has built every late target's
-   children, and it replaces them with the option the select shows. */
+/* Whether an option element sits anywhere under the select, template contents excluded. */
+static int select_has_option(const th_node *select) {
+    const th_node *node = select->first_child;
+    while (node != NULL) {
+        TH_WORK_STEP();
+        if (is_html_element(node, TH_TAG_OPTION)) {
+            return 1;
+        }
+        if (node->type != TH_NODE_CONTENT && node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != select && node->next_sibling == NULL) {
+            TH_WORK_STEP();
+            node = node->parent;
+        }
+        node = node == select ? NULL : node->next_sibling;
+    }
+    return 0;
+}
+
+/* Runs once the parse has ended: each pending target takes the shown option's copy. When the select has an option
+   but shows none, a pending target is emptied, since the option it would copy was removed from the stack. Targets
+   filled when their option closed are skipped, so no copy lands twice. */
 static void select_cache_finish(th_tree *tree) {
     th_select_state *state = tree->select_state;
     if (state == NULL) {
@@ -1955,10 +1986,14 @@ static void select_cache_finish(th_tree *tree) {
     }
     for (Py_ssize_t index = 0; index < state->count; index++) {
         th_select_cache *cache = &state->caches[index];
-        th_node *option = select_cache_shown_option(cache);
-        if (option != NULL && !cache->disabled && cache->target_count > 0) {
-            clone_into_targets(tree, cache, option);
+        if (cache->filled == cache->target_count || cache->disabled) {
+            continue;
         }
+        th_node *option = select_cache_shown_option(cache);
+        if (option == NULL && !select_has_option(cache->select)) {
+            continue;
+        }
+        replace_target_children(tree, cache, option, cache->filled);
     }
 }
 
@@ -3691,13 +3726,10 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                       other element is ignored in HTML content) */
         }
         stack_push(tree, node);
-        /* every HTML selectedcontent the parser creates lands here, so a select cached before
-           it arrived learns of it without a test on every other element's insert or push */
+        /* every HTML selectedcontent the parser creates lands here, so its select learns of it as it arrives */
         if (atom == TH_TAG_SELECTEDCONTENT) {
             selectedcontent_flagged(node);
-            if (tree->select_state != NULL) {
-                selectedcontent_inserted(tree, node);
-            }
+            selectedcontent_inserted(tree, node);
         }
         return TH_DRAIN_NEXT;
     }
@@ -4573,7 +4605,8 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
 }
 
 /* Stop parsing at EOF: pop the remaining open elements, which runs the
-   option-into-selectedcontent clone for a still-open selected option. */
+   option-into-selectedcontent clone for a still-open selected option, then settles
+   the late selectedcontent elements, whose children are complete only now. */
 static void run_close(th_tree *tree) {
     /* EOF closes the remaining open elements; none was closed by an end tag. The
        last token buffer may still hold a partial tag the tokenizer never emitted

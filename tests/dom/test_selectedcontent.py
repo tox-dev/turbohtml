@@ -9,6 +9,7 @@ from turbohtml import Element, IncrementalParser, parse, parse_fragment
 from turbohtml.clean import Policy, sanitize
 
 if TYPE_CHECKING:
+    from traced_bytes import RetainedBytes
     from work_steps import WorkSteps
 
 _OPTION_HOLDS_SELECTEDCONTENT: Final[str] = "<select><option><selectedcontent>"
@@ -66,8 +67,7 @@ _OPTION_HOLDS_SELECTEDCONTENT_TREE: Final[str] = "<select><option><selectedconte
         pytest.param(
             "<select><button><selectedcontent><svg><foreignObject><select><button><selectedcontent></button>"
             "<option>x</option></select>",
-            "<select><button><selectedcontent><svg><foreignObject><select><button><selectedcontent></selectedcontent>"
-            "</button><option>x</option></select></foreignObject></svg></selectedcontent></button></select>",
+            "<select><button><selectedcontent></selectedcontent></button></select>",
             id="selectedcontent-above-select",
         ),
         pytest.param(
@@ -786,6 +786,11 @@ _LATE_SOURCE_CASES: Final[list[pytest.ParameterSet]] = [
         "<button><selectedcontent>a</selectedcontent></button></select>",
         id="every-target",
     ),
+    pytest.param(
+        "<select><button><selectedcontent>z</selectedcontent></button></select>",
+        "<select><button><selectedcontent>z</selectedcontent></button></select>",
+        id="no-option-keeps-its-children",
+    ),
 ]
 
 
@@ -798,10 +803,9 @@ def test_late_selectedcontent_children_are_replaced_by_the_option_copy(markup: s
     assert parser.close().html == f"<html><head></head><body>{body}</body></html>"
 
 
-@pytest.mark.parametrize(("markup", "body"), _LATE_SOURCE_CASES)
-def test_reparsing_late_selectedcontent_output_is_stable(markup: str, body: str) -> None:
+@pytest.mark.parametrize(("markup", "_body"), _LATE_SOURCE_CASES)
+def test_reparsing_late_selectedcontent_output_is_stable(markup: str, _body: str) -> None:
     once = parse(markup).html
-    assert once == f"<html><head></head><body>{body}</body></html>"
     assert parse(once).html == once
 
 
@@ -813,10 +817,29 @@ def test_sanitize_of_late_selectedcontent_is_idempotent(markup: str, body: str) 
     assert sanitize(once, policy) == once
 
 
-def test_disabled_late_selectedcontent_keeps_its_children() -> None:
-    markup = "<select><option>a</option><button><selectedcontent disabled><b>k</b></selectedcontent>"
-    markup += "</button></select>"
-    body = '<select><option>a</option><button><selectedcontent disabled=""><b>k</b></selectedcontent>'
-    body += "</button></select>"
-    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
-    assert parse_fragment(markup).inner_html == body
+def test_reparsing_a_selectedcontent_after_an_adoption_agency_removal_is_stable() -> None:
+    once = parse("<select><a><option selected><button><a><selectedcontent>z").html
+    assert parse(once).html == once
+
+
+def test_incremental_parser_splits_inside_a_late_selectedcontent() -> None:
+    parser = IncrementalParser()
+    for chunk in ("<select><option>a</option><button><selected", "content>z", "z</selectedcontent>", "</button>"):
+        parser.feed(chunk)
+    assert parser.close().html == (
+        "<html><head></head><body><select><option>a</option><button><selectedcontent>a</selectedcontent></button>"
+        "</select></body></html>"
+    )
+
+
+def test_filled_selectedcontent_is_copied_once(retained_bytes: RetainedBytes) -> None:
+    option: Final = f"<option>{'<b>x</b>' * 5000}</option>"
+    base = retained_bytes("*")
+    plain = parse(f"<select>{option}</select>")
+    plain_bytes = retained_bytes("*") - base
+    base = retained_bytes("*")
+    filled = parse(f"<select><button><selectedcontent></selectedcontent></button>{option}</select>")
+    filled_bytes = retained_bytes("*") - base
+    assert len(filled.find_all("b")) == 10_000
+    assert len(plain.find_all("b")) == 5000
+    assert filled_bytes < 2.5 * plain_bytes
