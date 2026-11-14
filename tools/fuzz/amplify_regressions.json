@@ -922,7 +922,7 @@
     "shape": {
       "kind": "repeat",
       "head": "matches('x', '",
-      "left": "(?P<n{n}>)",
+      "left": "(?P<a{n}>)(?P<bb{n}>)(?:x)",
       "tail": "')",
       "counter": true
     }
