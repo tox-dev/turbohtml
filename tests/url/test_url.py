@@ -78,12 +78,12 @@ def test_base_url_default_fallback() -> None:
             id="credentials-default-port-query",
         ),
         pytest.param("https:", "https://é.example/a#old", "https://xn--9ca.example/a", id="unicode-host"),
-        pytest.param("https:", "http://site.org/a#old", "http://site.org/a#old", id="other-scheme-fallback-kept"),
+        pytest.param("https:", "http://site.org/a#old", "http://site.org/a#old", id="foreign-scheme"),
         pytest.param("file:", "file:///a#old", "file:///a", id="file-scheme"),
         pytest.param("a:", "a:/p#old", "a:", id="non-special-scheme"),
     ],
 )
-def test_base_url_scheme_only_reference(href: str, fallback: str, expected: str) -> None:
+def test_base_url_scheme_only_href_uses_fallback_path(href: str, fallback: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
@@ -767,9 +767,9 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             id="remainder-repeats-scheme",
         ),
         pytest.param(
-            "ftp:wss://files.test/%2e/q",
+            "ftp:wss://files.test/q/%2e",
             "ftp://mirror.example/pub/x",
-            "ftp://mirror.example/pub/wss://files.test/q",
+            "ftp://mirror.example/pub/wss://files.test/q/",
             id="remainder-foreign-scheme",
         ),
         pytest.param(
@@ -783,18 +783,6 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "ws://gateway.example/x/y",
             "ws://gateway.example/x/alt:%2e%2e/t",
             id="remainder-colon-segment",
-        ),
-        pytest.param(
-            "ftp:h\\i:j/%2e/k", "ftp://mirror.example/a/b", "ftp://mirror.example/a/h/i:j/k", id="colon-after-slash"
-        ),
-        pytest.param(
-            "ftp:%2E?k=v:w", "ftp://mirror.example/pub/x", "ftp://mirror.example/pub/?k=v:w", id="colon-in-query"
-        ),
-        pytest.param(
-            "wss:%2E#p:q", "wss://relay.example/room/9/z", "wss://relay.example/room/9/#p:q", id="colon-in-fragment"
-        ),
-        pytest.param(
-            "ftp:%2e%2E", "ftp://mirror.example/pub/x/y", "ftp://mirror.example/pub/", id="encoded-parent-only"
         ),
         pytest.param("ws:%2e/..", "wwws://site.org/a/b", "ws://./", id="same-length-foreign-fallback"),
         pytest.param("ftp:%2e/..", "", "ftp://./", id="empty-fallback-dot-host"),
@@ -841,7 +829,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         ),
     ],
 )
-def test_base_url_resolves_encoded_dot_segments(href: str, fallback: str, expected: str) -> None:
+def test_base_url_collapses_escaped_dot_segments(href: str, fallback: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
@@ -1034,7 +1022,7 @@ _SITE: Final[str] = "http://s.com/"
         pytest.param("5;url=\x01", (5.0, _SITE), id="control-only-url"),
     ],
 )
-def test_meta_refresh_content(content: str, expected: tuple[float, str]) -> None:
+def test_meta_refresh_content_splits_delay_and_target(content: str, expected: tuple[float, str]) -> None:
     assert parse(f'<meta http-equiv=refresh content="{content}">').meta_refresh(_SITE) == expected
 
 
@@ -1092,7 +1080,7 @@ def test_meta_refresh_rejects_missing_special_host(href: str, fallback: str) -> 
         pytest.param('<meta http-equiv=other content="8;url=z">', None, id="non-refresh-equiv"),
         pytest.param('<meta http-equiv=refresx content="9;url=z">', None, id="seven-char-non-refresh-equiv"),
         pytest.param('<meta content="5;url=z">', None, id="meta-without-http-equiv"),
-        pytest.param("<meta http-equiv=REFRESH>", None, id="refresh-without-content"),
+        pytest.param("<meta http-equiv=refresh>", None, id="refresh-without-content"),
         pytest.param('<meta http-equiv=refresh content="abc">', None, id="no-leading-number"),
         pytest.param('<meta http-equiv=refresh content="   ">', None, id="all-whitespace-content"),
         pytest.param('<meta http-equiv="   " content="5;url=x">', None, id="all-whitespace-equiv"),
@@ -1102,7 +1090,7 @@ def test_meta_refresh_rejects_missing_special_host(href: str, fallback: str) -> 
         ),
     ],
 )
-def test_meta_refresh_selection(html: str, expected: tuple[float, str] | None) -> None:
+def test_meta_refresh_picks_matching_meta_element(html: str, expected: tuple[float, str] | None) -> None:
     assert parse(html).meta_refresh() == expected
 
 

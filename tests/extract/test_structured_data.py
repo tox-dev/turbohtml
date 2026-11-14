@@ -1526,9 +1526,10 @@ def test_json_ld(html: str, expected: list[dict[str, str | int | bool | float] |
     ("html", "expected"),
     [
         pytest.param(
-            '<math><script type="application/ld+json">[7, <script type="application/ld+json">8]</script></math>',
+            '<svg><script type="application/ld+json">{"k": 7,'
+            '<script type="application/ld+json">"v": 8}</script></script></svg>',
             [],
-            id="nested-script-splits-the-block",
+            id="nested-script-splits-the-object",
         ),
         pytest.param(
             '<svg><script type="application/ld+json">{"c": 3}'
@@ -1537,23 +1538,21 @@ def test_json_ld(html: str, expected: list[dict[str, str | int | bool | float] |
             id="sibling-block-after-nested-script",
         ),
         pytest.param(
-            '<svg><script type="application/ld+json">[true, <g>false</g>]</script></svg>',
+            '<svg><script type="application/ld+json">[0, <desc>1</desc>, 2]</script></svg>',
             [],
-            id="element-child-text-ignored",
+            id="child-element-breaks-the-array",
         ),
     ],
 )
-def test_json_ld_foreign_script_reads_its_text_children_only(
-    html: str, expected: list[dict[str, int] | list[int]]
-) -> None:
-    # in foreign content <script> elements nest; each is a block of its own text children, not of its descendants' text
+def test_json_ld_foreign_script_uses_own_text_only(html: str, expected: list[dict[str, int] | list[int]]) -> None:
+    # a script's own text is one block; text split around a child element never forms a block
     assert parse(html).json_ld() == expected
 
 
 @pytest.mark.parametrize("root", ["svg", "math"])
 def test_json_ld_script_staircase_yields_one_block_per_script(root: str) -> None:
     blocks: Final = [{f"k{index}": index} for index in range(60)]
-    staircase: Final = "".join(f'<script type="application/ld+json">{{"k{index}": {index}}}' for index in range(60))
+    staircase: Final = "".join(f'<script type="application/ld+json">{json.dumps(block)}' for block in blocks)
     document: Final = parse(f"<{root}>{staircase}")
     assert document.json_ld() == blocks
     assert document.structured_data().json_ld == blocks

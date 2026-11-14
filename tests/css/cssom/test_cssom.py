@@ -157,15 +157,15 @@ def test_stylesheet_skips_at_rules() -> None:
 @pytest.mark.parametrize(
     ("css", "selectors"),
     [
-        pytest.param("@import 'a'; @import 'b'; p { color: red }", ["p"], id="statements-before-rule"),
-        pytest.param("@a; @media x { b { color: red } } p { color: red }", ["p"], id="statement-then-block"),
-        pytest.param("@media x { b { color: red; } } @a; p { color: red }", ["p"], id="block-then-statement"),
-        pytest.param("@a (;) '{;' [{;}]; p { color: red }", ["p"], id="nested-separators-stay-in-statement"),
-        pytest.param("@a (x) { b { color: red } } ; p { color: red }", ["; p"], id="semicolon-after-block"),
-        pytest.param("p { color: red } @a; q { color: red } @b", ["p", "q"], id="statements-between-rules"),
+        pytest.param("@import 'c'; @import 'd'; q { color: red }", ["q"], id="two-imports-then-rule"),
+        pytest.param("@x; @media y { z { color: red } } q { color: red }", ["q"], id="statement-skips-media-block"),
+        pytest.param("@media y { z { color: red; } } @x; q { color: red }", ["q"], id="media-block-then-statement"),
+        pytest.param("@k (;) '{;' [{;}]; q { color: red }", ["q"], id="nested-separators-in-statement"),
+        pytest.param("@k (x) { z { color: red } } ; q { color: red }", ["; q"], id="semicolon-after-block-kept"),
+        pytest.param("q { color: red } @x; r { color: red } @y", ["q", "r"], id="statements-between-two-rules"),
     ],
 )
-def test_stylesheet_at_rule_ends_at_first_semicolon_or_block(css: str, selectors: list[str]) -> None:
+def test_stylesheet_at_rule_stops_at_first_terminator(css: str, selectors: list[str]) -> None:
     assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
 
 
@@ -186,9 +186,7 @@ def _computed_color(css: str) -> str:
         pytest.param(_computed_color, "red", id="computed-style"),
     ],
 )
-def test_statement_at_rules_parse_in_linear_time(
-    entry: Callable[[str], str], expected: str, work_steps: WorkSteps
-) -> None:
+def test_statement_at_rules_scale_linearly(entry: Callable[[str], str], expected: str, work_steps: WorkSteps) -> None:
     statement: Final = "@import url(x);"
     work_steps.assert_linear(lambda n: partial(entry, f"{statement * n}p {{ color: red }}"), (500, 2000))
     assert entry(f"{statement * 2_000}p {{ color: red }}") == expected
@@ -551,13 +549,13 @@ def test_computed_style_inherit_at_root_falls_back_to_initial() -> None:
     assert computed_style(root)["color"] == "canvastext"
 
 
-def test_computed_style_of_extracted_element_matches_no_root_rule() -> None:
-    # the page's own :root rule reaches an element that has no parent once it is extracted
-    paragraph = parse("<style>:root { color: red } p { display: inline }</style><p>x</p>").select_one("p")
-    assert isinstance(paragraph, Element)
-    assert computed_style(paragraph)["color"] == "red"
-    style = computed_style(paragraph.extract())
-    assert (style["color"], style["display"]) == ("canvastext", "inline")
+def test_computed_style_detached_copy_ignores_root_rule() -> None:
+    # a detached element is matched as a root-less node, so the document's :root rule does not apply to it
+    span = parse("<style>:root { color: blue } span { display: block }</style><span>x</span>").select_one("span")
+    assert isinstance(span, Element)
+    assert computed_style(span)["color"] == "blue"
+    style = computed_style(span.extract())
+    assert (style["color"], style["display"]) == ("canvastext", "block")
 
 
 def test_computed_style_ignores_unsupported_selector_rules() -> None:
@@ -597,7 +595,7 @@ def test_computed_style_tracks_stylesheet_text_mutation() -> None:
     assert computed_style(paragraph)["color"] == "blue"
 
 
-def test_computed_style_tracks_stylesheet_insertion() -> None:
+def test_computed_style_follows_inserted_sheet() -> None:
     document = parse("<head><style>p { color: red }</style></head><body><p></p></body>")
     head = document.select_one("head")
     paragraph = document.select_one("p")
@@ -886,7 +884,7 @@ def test_computed_style_longhand_css_wide_keyword_token_boundaries(value: str) -
         pytest.param("inherit_foo", id="underscore-suffix"),
         pytest.param("inherité", id="non-ascii-suffix"),
         pytest.param("inherit-foo", id="hyphen-suffix"),
-        pytest.param("indigo", id="unrelated-word"),
+        pytest.param("indigo", id="ordinary-word"),
         pytest.param("unit", id="unit"),
         pytest.param("unite", id="unite"),
     ],
@@ -1436,9 +1434,9 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
     ("html", "expected"),
     [
         pytest.param(
-            "<svg><style>p{color:<tspan>red</tspan>}</style></svg><p></p>",
+            "<math><style>p{color:<mi>teal</mi>}</style></math><p></p>",
             {"color": "canvastext"},
-            id="element-child-text-not-sheet",
+            id="child-element-text-not-sheet",
         ),
         pytest.param(
             "<math><style><style>p</style>{font-style:italic}</style></math><p></p>",
@@ -1446,14 +1444,14 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
             id="inner-style-text-not-outer-declaration",
         ),
         pytest.param(
-            "<math><style>p{top:3px}<style>p{color:green}</style>p{left:4px}</style></math><p></p>",
+            "<math><style>p{color:green}<style>p{top:3px}</style>p{left:4px}</style></math><p></p>",
             {"top": "3px", "color": "green", "left": "4px"},
-            id="inner-style-own-sheet",
+            id="inner-style-keeps-outer-declarations",
         ),
     ],
 )
 def test_computed_style_foreign_style_sheet_is_its_own_text(html: str, expected: dict[str, str]) -> None:
-    # in foreign content <style> elements nest; each is a sheet of its own text children, not of its descendants' text
+    # a nested style's text is compiled as that style's own sheet, never appended to the enclosing one
     style: Final = computed_style(parse(html).select("p")[0])
     assert {name: style[name] for name in expected} == expected
 
