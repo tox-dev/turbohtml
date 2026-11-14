@@ -724,8 +724,15 @@ CSS_NOINLINE static void css_close_prelude_blocks(token_vec *vec, Py_ssize_t sta
     css_blocks_close(&blocks, out);
 }
 
-/* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of an @media block's header
-   (name, prelude and '{'), or 0 for another at-rule with a block. */
+/* Same-query @media blocks merge only in a rule list at most this deep. Joining two blocks re-minifies their text, and
+   blocks that end and start with a nested twin join again one level down, so twins at every level of a nest d deep
+   cost about d*d/2 parses of the innermost rules. The cap goes by where a block sits, which minifying does not change,
+   so the blocks it leaves apart stay apart on the next pass. */
+#define CSS_MAX_MEDIA_MERGE_DEPTH 8
+
+/* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of the header (name,
+   prelude and '{') of an @media block that may merge with a same-query sibling, or 0 for another at-rule with a
+   block. */
 static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_declarations) {
     Py_ssize_t media_head = 0;
     if (cur->index == cur->media_at) {
@@ -763,7 +770,8 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_
                a declaration list, which would wrongly join the keyframe blocks with ';'. For @media, out holds the
                rendered prelude, so the inner parse pulls in the rules of an immediately following same-query @media
                (#1065), merging them in this pass instead of leaving adjacent blocks for the next call. */
-            media_head = css_run_ieq(name, name_len, "@media") ? out->len : 0;
+            media_head =
+                css_run_ieq(name, name_len, "@media") && cur->vec->depth <= CSS_MAX_MEDIA_MERGE_DEPTH ? out->len : 0;
             css_parse_rules(pool, cur, 0, is_keyframes, media_head > 0, out);
         } else {
             decl_vec decls = {NULL, 0, 0, pool->oom, 0};
@@ -1824,6 +1832,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         return;
     }
     rule_vec items = {NULL, 0, 0, pool->oom};
+    Py_ssize_t mark = pool->len;
     /* css_media_continues folds only blocks that whitespace and comments separate, since it cannot tell a node that
        minifies away, and the blocks it folds may each end and start with a nested same-query block. joinable_at is
        items.len after a dropped node or a folded block boundary; an @media block pushed then that repeats the last
@@ -1937,6 +1946,9 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
            (CSS Syntax 3 §5.5.2) would otherwise read on into the next rule and take its block */
         cbuf_putc(out, ';');
     }
+    /* out holds the list now and the items go with it, so nothing reads what the list put in the pool again; left
+       there, a nested block's text would stay once per level it sits below, and once more per re-minified join */
+    pool->len = mark;
     css_free(items.items);
     css_nesting_leave(cur->vec);
 }
