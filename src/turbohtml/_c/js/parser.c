@@ -458,10 +458,6 @@ static int is_binding_target(P *parser, int32_t target) {
         }
         int32_t bound = child;
         if (element->kind == JN_PROP) {
-            /* a shorthand binds its key, which a computed `[a]` key cannot be */
-            if ((element->flags & JN_F_SHORTHAND) != 0 && (element->flags & JN_F_COMPUTED) != 0) {
-                return 0;
-            }
             bound = element->b < 0 ? element->a : element->b;
         }
         if (!is_binding_element(parser, bound)) {
@@ -1577,6 +1573,11 @@ static int32_t parse_object(P *parser) {
                 set_b(parser, prop, fn);
             } else if (eat(parser, JT_COLON)) {
                 set_b(parser, prop, parse_assign(parser, 0));
+            } else if ((parser->prog->nodes[prop].flags & JN_F_COMPUTED) != 0 ||
+                       parser->prog->nodes[parser->prog->nodes[prop].a].kind != JN_IDENT) {
+                /* only an IdentifierReference abbreviates (ECMA-262 13.2.5); a shorthand's key is also its value, so
+                   a computed key taken as one is walked once per role at every nesting level */
+                fail(parser, "expected :");
             } else if (eat(parser, JT_ASSIGN)) {
                 /* shorthand with a default - only valid in a destructuring pattern */
                 parser->prog->nodes[prop].flags |= JN_F_SHORTHAND;
