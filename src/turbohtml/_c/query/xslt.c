@@ -748,7 +748,7 @@ typedef struct engine {
     int gen_counter;
     int depth;
 #if defined(__linux__)
-    uintptr_t stack_floor; /* enter_stack_guard's bound for the thread of this run; 0 until its first checked level */
+    uintptr_t stack_floor; /* enter_deep_level's bound for the thread of this run; 0 until its first checked level */
 #endif
 
     struct {
@@ -783,6 +783,9 @@ typedef struct engine {
     const char *error;
     int py_error;
     int owns_model;
+    /* compile_expression's error text for the handlers that recurse: here, not on their frames, which every nesting
+       level repeats */
+    char errbuf[256];
 #ifdef TH_OPERATION_LIMIT
     size_t operations; /* stylesheet elements compiled, then instructions applied in one run */
 #endif
@@ -833,13 +836,14 @@ static int build_name_indexes(engine *eng) {
 /* Template calls, xsl:for-each, result-tree construction and use-attribute-sets chains recurse in C. How much C stack
    a level takes depends on what nests (in an optimized build about a third of a kilobyte for a named-template call
    and more than twice that for a template applied from an xsl:param default) and on the compiler, so this count
-   bounds the recursion but cannot promise that a small thread stack holds all 400 levels. Each counted level therefore
-   also passes enter_stack_guard. */
+   bounds the recursion but cannot promise that a small thread stack holds all 400 levels. Each counted level deeper
+   than XSLT_STACK_CHECK_DEPTH therefore also checks the stack in enter_deep_level. */
 #define XSLT_MAX_DEPTH TH_DEPTH_LIMIT(400)
 
-/* About 1 KiB of C stack per level, so 32 levels fit in half of musl's 128 KiB thread stack. Shallower levels skip the
-   stack check, which would otherwise cost on every level of a large transform. */
+/* About 1 KiB of C stack per level, so 32 levels fit in half of musl's 128 KiB thread stack. Shallower levels skip both
+   the stack check and the cap, so a level costs one comparison, as it did before the stack check existed. */
 #define XSLT_STACK_CHECK_DEPTH 32
+_Static_assert(XSLT_MAX_DEPTH > XSLT_STACK_CHECK_DEPTH, "enter_deep_level enforces the cap");
 
 #if defined(__linux__)
 /* Stack kept free below a counted level for what runs under it without a check of its own: an instruction handler and
@@ -865,40 +869,6 @@ TH_NOINLINE static uintptr_t find_stack_floor(void) {
     return known = (uintptr_t)lowest + (size / 2 < XSLT_STACK_MARGIN ? size / 2 : XSLT_STACK_MARGIN);
 }
 #endif
-
-/* Refuse a level the thread's C stack has no room for, with RecursionError. The interpreter's own guard compares the
-   stack pointer with the thread's real limit only from CPython 3.14; before that it counts calls. On Linux, where
-   musl starts threads with 128 KiB, the thread's bounds are therefore read directly on every Python version. Elsewhere
-   an older interpreter relies on 400 levels fitting the default thread stacks (512 KiB on macOS, 1 MiB on Windows). */
-static int enter_stack_guard(engine *eng) {
-    if (eng->depth <= XSLT_STACK_CHECK_DEPTH) {
-        return 0;
-    }
-    if (Py_EnterRecursiveCall(" while applying an XSLT stylesheet") != 0) { /* GCOVR_EXCL_BR_LINE: see above */
-        return -1;                                                          /* GCOVR_EXCL_LINE */
-    }
-#if defined(__linux__)
-    if (eng->stack_floor == 0) {
-        eng->stack_floor = find_stack_floor();
-    }
-    /* the frame address, not a local's: under ASan a local can live on a heap-allocated fake stack */
-    if ((uintptr_t)__builtin_frame_address(0) < eng->stack_floor) {
-        Py_LeaveRecursiveCall();
-        PyErr_SetString(PyExc_RecursionError,
-                        "xslt: template nesting needs more C stack than this thread has left; reduce the recursion "
-                        "depth, or run the transform on a thread with a larger stack");
-        return -1;
-    }
-#endif
-    return 0;
-}
-
-/* Releases what enter_stack_guard took. The level still counts toward eng->depth here, so the same test picks it. */
-static void leave_stack_guard(engine *eng) {
-    if (eng->depth > XSLT_STACK_CHECK_DEPTH) {
-        Py_LeaveRecursiveCall();
-    }
-}
 
 /* ---- xsl element identification ------------------------------------------- */
 
@@ -2193,7 +2163,7 @@ static Py_UCS4 *current_string(engine *eng, Py_ssize_t *out_len) {
 }
 
 /* Instantiate the string value of a select expression as text (xsl:value-of). */
-TH_NOINLINE static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
+static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, instruction, "select", 6, &select_len);
     if (select == NULL) {
@@ -2209,11 +2179,10 @@ TH_NOINLINE static int do_value_of(engine *eng, th_node *instruction, th_node *o
         PyMem_Free(text);
         return rc;
     }
-    char errbuf[256];
-    xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
+    xp_program *prog = compile_expression(eng, select, select_len, eng->errbuf, sizeof(eng->errbuf));
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
-            PyErr_Format(PyExc_ValueError, "xslt: bad value-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
+            PyErr_Format(PyExc_ValueError, "xslt: bad value-of select: %s", eng->errbuf); /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
@@ -2255,17 +2224,16 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
     return 0;
 }
 
-TH_NOINLINE static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
+static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, instruction, "select", 6, &select_len);
     if (select == NULL) {
         return fail(eng, "xsl:copy-of requires a select attribute");
     }
-    char errbuf[256];
-    xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
+    xp_program *prog = compile_expression(eng, select, select_len, eng->errbuf, sizeof(eng->errbuf));
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
-            PyErr_Format(PyExc_ValueError, "xslt: bad copy-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
+            PyErr_Format(PyExc_ValueError, "xslt: bad copy-of select: %s", eng->errbuf); /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
@@ -2404,6 +2372,58 @@ static int raise_attrset_depth(engine *eng, const xslt_attrset *set) {
     return fail_py(eng);
 }
 
+enum xslt_level { XSLT_LEVEL_TEMPLATE, XSLT_LEVEL_SOURCE, XSLT_LEVEL_ATTRSET };
+
+/* Admit a level deeper than XSLT_STACK_CHECK_DEPTH, or release it and raise RecursionError when it passes the cap or
+   the thread's C stack has no room for it; `set` names the attribute set of an XSLT_LEVEL_ATTRSET level. Keeping the
+   cap here lets each caller test one condition, which the cap's tests drive both ways, and leaves shallow levels one
+   comparison.
+
+   The interpreter's own guard compares the stack pointer with the thread's real limit only from CPython 3.14; before
+   that it counts calls. Only its stack check is wanted, so the call is released at once. On Linux, where musl starts
+   threads with 128 KiB, the thread's bounds are also read directly, which covers every Python version. Elsewhere an
+   older interpreter relies on 400 levels fitting the default thread stacks (512 KiB on macOS, 1 MiB on Windows). */
+TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, const xslt_attrset *set) {
+    if (eng->depth > XSLT_MAX_DEPTH) {
+        eng->depth--;
+        if (level == XSLT_LEVEL_ATTRSET) {
+            return raise_attrset_depth(eng, set);
+        }
+        if (level == XSLT_LEVEL_SOURCE) {
+            PyErr_Format(PyExc_RecursionError,
+                         "xslt: source nesting exceeds %d levels for the built-in template rules; reduce the input "
+                         "document depth",
+                         XSLT_MAX_DEPTH);
+            return fail_py(eng);
+        }
+        PyErr_Format(PyExc_RecursionError,
+                     "xslt: template nesting exceeds %d levels; reduce the recursion depth, or iterate over long "
+                     "lists with xsl:for-each",
+                     XSLT_MAX_DEPTH);
+        return fail_py(eng);
+    }
+    /* only the 3.11-3.13 coverage jobs leave this branch untaken */
+    if (Py_EnterRecursiveCall(" while applying an XSLT stylesheet") != 0) { /* GCOVR_EXCL_BR_LINE */
+        eng->depth--;                                                       /* GCOVR_EXCL_LINE */
+        return fail_py(eng);                                                /* GCOVR_EXCL_LINE */
+    }
+    Py_LeaveRecursiveCall();
+#if defined(__linux__)
+    if (eng->stack_floor == 0) {
+        eng->stack_floor = find_stack_floor();
+    }
+    /* the frame address, not a local's: under ASan a local can live on a heap-allocated fake stack */
+    if ((uintptr_t)__builtin_frame_address(0) < eng->stack_floor) {
+        eng->depth--;
+        PyErr_SetString(PyExc_RecursionError,
+                        "xslt: template nesting needs more C stack than this thread has left; reduce the recursion "
+                        "depth, or run the transform on a thread with a larger stack");
+        return fail_py(eng);
+    }
+#endif
+    return 0;
+}
+
 /* Walking references last to first and recording each set at first sighting yields, reversed, the section 7.1.4
    expansion with each set kept at its last position, the one that decides its attribute values. */
 static int order_attrset(engine *eng, Py_ssize_t slot, unsigned char *seen, xslt_slots *order) {
@@ -2411,20 +2431,14 @@ static int order_attrset(engine *eng, Py_ssize_t slot, unsigned char *seen, xslt
         return 0;
     }
     const xslt_attrset *set = &eng->attrsets[slot];
-    if (++eng->depth > XSLT_MAX_DEPTH) {
-        eng->depth--;
-        return raise_attrset_depth(eng, set);
-    }
-    if (enter_stack_guard(eng) < 0) {
-        eng->depth--;
-        return fail_py(eng);
+    if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_ATTRSET, set) < 0) {
+        return -1;
     }
     seen[slot] = 1;
     int rc = slots_push(order, slot) < 0 ? fail(eng, "out of memory") : 0; /* GCOVR_EXCL_BR_LINE: alloc */
     for (Py_ssize_t index = set->uses_end - 1; rc == 0 && index >= set->uses_start; index--) {
         rc = order_attrset(eng, eng->attrset_uses.items[index], seen, order);
     }
-    leave_stack_guard(eng);
     eng->depth--;
     return rc;
 }
@@ -2931,11 +2945,10 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
             select = &XPATH_DOT;
             select_len = 1;
         }
-        char errbuf[256];
-        xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
+        xp_program *prog = compile_expression(eng, select, select_len, eng->errbuf, sizeof(eng->errbuf));
         if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed sort selects before a run */
             if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
-                PyErr_Format(PyExc_ValueError, "xslt: bad sort select: %s", errbuf); /* GCOVR_EXCL_LINE */
+                PyErr_Format(PyExc_ValueError, "xslt: bad sort select: %s", eng->errbuf); /* GCOVR_EXCL_LINE */
             } /* GCOVR_EXCL_LINE */
             fail_py(eng); /* GCOVR_EXCL_LINE */
             return -1;    /* GCOVR_EXCL_LINE */
@@ -4123,15 +4136,13 @@ TH_NOINLINE static int do_number(engine *eng, th_node *instruction, th_node *out
 
 /* ---- variables ------------------------------------------------------------ */
 
-/* Evaluate a select attribute at the current node; owner names the instruction in the error. Out of line because the
-   callers recurse into whatever the selection drives, and the error buffer would sit in their frames on every level. */
-TH_NOINLINE static int eval_select(engine *eng, const Py_UCS4 *select, Py_ssize_t select_len, const char *owner,
-                                   xp_result *out_value) {
-    char errbuf[256];
-    xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
+/* Evaluate a select attribute at the current node; owner names the instruction in the error. */
+XSLT_FORCEINLINE static int eval_select(engine *eng, const Py_UCS4 *select, Py_ssize_t select_len, const char *owner,
+                                        xp_result *out_value) {
+    xp_program *prog = compile_expression(eng, select, select_len, eng->errbuf, sizeof(eng->errbuf));
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
-            PyErr_Format(PyExc_ValueError, "xslt: bad %s select: %s", owner, errbuf); /* GCOVR_EXCL_LINE */
+            PyErr_Format(PyExc_ValueError, "xslt: bad %s select: %s", owner, eng->errbuf); /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
@@ -4346,8 +4357,8 @@ static int do_call_template(engine *eng, th_node *instruction, th_node *out_pare
 
 /* ---- for-each ------------------------------------------------------------- */
 
-/* Order the node-set an instruction selected by its xsl:sort children. Out of line for the reason eval_select is: the
-   sort specs stay off the frames of xsl:for-each and xsl:apply-templates, which recurse. */
+/* Order the node-set an instruction selected by its xsl:sort children. Out of line so the sort specs stay off the
+   frames of xsl:for-each and xsl:apply-templates, which recurse. */
 TH_NOINLINE static int sort_selection(engine *eng, th_node *instruction, xp_nodeset *nodes) {
     sort_spec specs[XSLT_MAX_SORTS];
     int nspecs = compile_sorts(eng, instruction, specs, XSLT_MAX_SORTS);
@@ -4451,17 +4462,8 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
     if (node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT) {
         /* a template application (section 5.8) like a matched rule, so it shares the cap that keeps a deep source off
            the C stack limit; libxslt counts it in ctxt->depth too (xsltApplyBuiltinTemplate) */
-        if (++eng->depth > XSLT_MAX_DEPTH) {
-            eng->depth--;
-            PyErr_Format(PyExc_RecursionError,
-                         "xslt: source nesting exceeds %d levels for the built-in template rules; reduce the input "
-                         "document depth",
-                         XSLT_MAX_DEPTH);
-            return fail_py(eng);
-        }
-        if (enter_stack_guard(eng) < 0) {
-            eng->depth--;
-            return fail_py(eng);
+        if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_SOURCE, NULL) < 0) {
+            return -1;
         }
         Py_ssize_t child_pos = 0;
         Py_ssize_t child_count = 0;
@@ -4473,7 +4475,6 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
             child_pos++;
             rc = apply_to_item(eng, (xp_item){child, -1}, child_pos, child_count, mode, mode_len, NULL, 0, out_parent);
         }
-        leave_stack_guard(eng);
         eng->depth--;
         return rc;
     }
@@ -4994,8 +4995,8 @@ static int instantiate_non_element(engine *eng, th_node *node, th_node *out_pare
 }
 
 /* Every xsl:* instruction dispatches through this frame, so a recursive template repeats it once per nesting level.
-   The handlers that hold scratch buffers and never recurse (do_value_of, do_copy_of, do_number) are TH_NOINLINE to
-   keep their buffers out of it, and eval_select and sort_selection do the same for the handlers that do recurse. */
+   Scratch arrays stay out of it: do_number and sort_selection are TH_NOINLINE, and the compile error text lives in the
+   engine. */
 static int instantiate_classified(engine *eng, th_node *node, th_node *out_parent, enum xsl_instr instruction) {
     switch (instruction) {
     case XSL_VALUE_OF:
@@ -5135,17 +5136,8 @@ static int instantiate_one_dynamic(engine *eng, th_node *node, th_node *out_pare
 
 /* Instantiate every child of `body` (skipping the param declarations already bound). */
 static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
-    if (++eng->depth > XSLT_MAX_DEPTH) {
-        eng->depth--;
-        PyErr_Format(PyExc_RecursionError,
-                     "xslt: template nesting exceeds %d levels; reduce the recursion depth, or iterate over long "
-                     "lists with xsl:for-each",
-                     XSLT_MAX_DEPTH);
-        return fail_py(eng);
-    }
-    if (enter_stack_guard(eng) < 0) {
-        eng->depth--;
-        return fail_py(eng);
+    if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_TEMPLATE, NULL) < 0) {
+        return -1;
     }
     Py_ssize_t scope_mark = eng->scope_len;
     int rc = 0;
@@ -5177,7 +5169,6 @@ static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
         }
     }
     scope_drop(eng, scope_mark); /* local xsl:variable bindings fall out of scope */
-    leave_stack_guard(eng);
     eng->depth--;
     return rc;
 }

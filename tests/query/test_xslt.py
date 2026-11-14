@@ -1138,7 +1138,7 @@ def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -
         "def run():\n"
         "    try:\n        transform(parse_xml(stylesheet), parse_xml('<r/>'))\n"
         "    except RecursionError as exc:\n        print(type(exc).__name__)\n"
-        "threading.stack_size(192 * 1024)\n"
+        "threading.stack_size(112 * 1024)\n"
         "worker = threading.Thread(target=run)\nworker.start()\nworker.join()\n"
     )
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
