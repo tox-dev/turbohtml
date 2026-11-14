@@ -148,6 +148,36 @@ def test_list_pattern() -> None:
     assert not check(schema, "<nums>1 x 3</nums>").valid
 
 
+_NESTED_VALUE: Final[str] = (
+    '<start><element name="doc"><list><oneOrMore><list><oneOrMore><value>x</value></oneOrMore></list>'
+    "</oneOrMore></list></element></start>"
+)
+_NESTED_REF: Final[str] = (
+    '<start><element name="doc"><list><oneOrMore><list><ref name="t"/></list></oneOrMore></list></element></start>'
+    '<define name="t"><choice><value>x</value><value>y</value></choice></define>'
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "xml", "ok"),
+    [
+        pytest.param(_NESTED_VALUE, "<doc>x x</doc>", True, id="value-all-x"),
+        pytest.param(_NESTED_VALUE, "<doc>x y</doc>", False, id="value-one-bad"),
+        pytest.param(_NESTED_VALUE, "<doc/>", False, id="value-empty"),
+        pytest.param(_NESTED_REF, "<doc>x y</doc>", True, id="ref-choice"),
+        pytest.param(_NESTED_REF, "<doc>x z</doc>", False, id="ref-outside-choice"),
+    ],
+)
+def test_nested_list(body: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
+    assert check(grammar(body), xml).valid is ok
+
+
+def test_nested_list_past_free_steps() -> None:
+    tokens = " ".join(["x"] * 400)
+    assert check(grammar(_NESTED_VALUE), f"<doc>{tokens}</doc>").valid
+    assert not check(grammar(_NESTED_VALUE), f"<doc>{tokens} y</doc>").valid
+
+
 def test_default_datatype_token() -> None:
     schema = wrap('<element name="t"><data type="token"/></element>')
     assert check(schema, "<doc><t>  spaced  </t></doc>").valid
