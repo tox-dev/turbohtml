@@ -1131,6 +1131,47 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, mess
         _run(f"<r>{'<n>' * 600}x{'</n>' * 600}</r>", body)
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 14) and sys.platform != "linux",
+    reason="before CPython 3.14 only Linux builds read the thread's real C stack bounds",
+)
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:call-template name="loop"/></xsl:template>'
+            '<xsl:template name="loop"><xsl:call-template name="loop"/></xsl:template>',
+            id="named-template",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:variable name="v"><xsl:apply-templates select="."/></xsl:variable>'
+            '<xsl:value-of select="$v"/></xsl:template>',
+            id="variable-body",
+        ),
+    ],
+)
+def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
+    # a stack overflow kills the interpreter, so the transform runs in a subprocess and the crash becomes a failure
+    code = (
+        "import sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.transform import transform\n"
+        "stylesheet = sys.stdin.read()\n"
+        "def run():\n"
+        "    try:\n        transform(parse_xml(stylesheet), parse_xml('<r/>'))\n"
+        "    except RecursionError as exc:\n        print(type(exc).__name__)\n"
+        "threading.stack_size(112 * 1024)\n"
+        "worker = threading.Thread(target=run)\nworker.start()\nworker.join()\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
+        [sys.executable, "-c", code],
+        input=_oracle_sheet(body),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, "RecursionError\n"), result.stderr
+
+
 def test_transform_anchored_patterns() -> None:
     body = (
         '<xsl:template match="/"><xsl:apply-templates select="//n"/></xsl:template>'
