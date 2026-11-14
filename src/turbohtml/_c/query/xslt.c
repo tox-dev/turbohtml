@@ -30,6 +30,12 @@
 #include <math.h>
 #if defined(__linux__)
 #include <pthread.h>
+#if !defined(__GLIBC__) && !defined(__ANDROID__)
+#include <sys/auxv.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 #endif
 #include <stdint.h>
 #include <string.h>
@@ -865,7 +871,29 @@ TH_NOINLINE static uintptr_t find_stack_floor(void) {
     void *lowest = NULL;
     size_t size = 0;
     pthread_attr_getstack(&attr, &lowest, &size);
+#if !defined(__GLIBC__) && !defined(__ANDROID__)
+    size_t guard = 0;
+    pthread_attr_getguardsize(&attr, &guard);
+#endif
     pthread_attr_destroy(&attr);
+#if !defined(__GLIBC__) && !defined(__ANDROID__)
+    /* musl keeps no bounds for the process's first thread and reports only the part of its stack mapped so far, which
+       the kernel grows on demand until the mapping spans RLIMIT_STACK. That thread is the one with no guard page: a
+       thread forked into a child keeps its guard, and the thread id rules out one started on a stack its creator
+       supplied. The kernel copies the executable's path to the top of the mapping, above the argument and environment
+       strings that musl's answer leaves out, so the page that path ends in closes the mapping. */
+    struct rlimit limit;
+    if (guard == 0 && getpid() == (pid_t)syscall(SYS_gettid) && getrlimit(RLIMIT_STACK, &limit) == 0) {
+        const char *path = (const char *)getauxval(AT_EXECFN);
+        uintptr_t page = (uintptr_t)getauxval(AT_PAGESZ);
+        uintptr_t end = path == NULL ? (uintptr_t)lowest + size : ((uintptr_t)path + strlen(path) + page) & ~(page - 1);
+        if (limit.rlim_cur == RLIM_INFINITY || limit.rlim_cur >= end) {
+            return known = 1; /* no limit to keep under; the level cap and the interpreter's check still apply */
+        }
+        lowest = (void *)(end - limit.rlim_cur);
+        size = limit.rlim_cur;
+    }
+#endif
     return known = (uintptr_t)lowest + (size / 2 < XSLT_STACK_MARGIN ? size / 2 : XSLT_STACK_MARGIN);
 }
 #endif
