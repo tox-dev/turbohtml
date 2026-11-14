@@ -2020,6 +2020,32 @@ def test_frameset_refused_at_depth_cap_keeps_every_frame(nesting: int) -> None:
     assert len(document.find_all("frame")) == nesting
 
 
+def test_noframes_refused_at_depth_cap_keeps_the_frameset_open() -> None:
+    document = parse(f"{'<frameset>' * (_DEPTH_CAP - 1)}<noframes>x</noframes><frame>")
+    assert document.find_all("frameset")[-1].inner_html == "<noframes></noframes>x<frame>"
+
+
+@pytest.mark.parametrize(
+    ("tag", "inner"),
+    [
+        pytest.param("script", "<script></script>xtail", id="script"),
+        pytest.param("style", "<style></style>xtail", id="style"),
+        pytest.param("textarea", "<textarea></textarea>xtail", id="textarea"),
+        pytest.param("title", "<title></title>xtail", id="title"),
+        pytest.param("xmp", "<xmp></xmp>xtail", id="xmp"),
+        pytest.param("iframe", "<iframe></iframe>xtail", id="iframe"),
+        pytest.param("noembed", "<noembed></noembed>xtail", id="noembed"),
+        pytest.param("noframes", "<noframes></noframes>xtail", id="noframes"),
+        pytest.param("noscript", "<noscript></noscript>xtail", id="noscript"),
+        pytest.param("plaintext", "<plaintext></plaintext>x&lt;/plaintext&gt;tail", id="plaintext"),
+    ],
+)
+def test_raw_text_element_refused_at_depth_cap_keeps_its_parent_open(tag: str, inner: str) -> None:
+    # the end tag of a refused element must not close the div it was refused under
+    document = parse(f"<!doctype html><html><body>{'<div>' * (_DEPTH_CAP - 2)}<{tag}>x</{tag}>tail", scripting=True)
+    assert document.find_all("div")[-1].inner_html == inner
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL
