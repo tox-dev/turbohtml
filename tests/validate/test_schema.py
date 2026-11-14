@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import gc
-from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-import turbohtml
 from turbohtml import parse_xml
 from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
-    from types import ModuleType
+    from traced_bytes import RetainedBytes
 
     from turbohtml import Document
 
@@ -125,34 +122,22 @@ def xsd_ok(schema: str, xml: str) -> bool:
     ],
 )
 def test_schema_releases_validation_buffers_for_valid_documents(
-    schema_type: type[XMLSchema | RelaxNG], source: str, valid_markup: str
+    schema_type: type[XMLSchema | RelaxNG], source: str, valid_markup: str, retained_bytes: RetainedBytes
 ) -> None:
-    _assert_validation_buffers_released(schema_type(source), parse_xml(valid_markup), valid=True)
+    _assert_validation_buffers_released(
+        schema_type(source), parse_xml(valid_markup), valid=True, retained_bytes=retained_bytes
+    )
 
 
-def _assert_validation_buffers_released(schema: XMLSchema | RelaxNG, document: Document, *, valid: bool) -> None:
-    # PyPy has no tracemalloc; its collector also uses a different reclamation schedule.
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    tracing.start()
-    try:
-        for _ in range(10):
-            assert schema.validate(document).valid is valid
-        gc.collect()
-        before: Final[int] = _turbohtml_bytes(tracing)
-        for _ in range(100):
-            assert schema.validate(document).valid is valid
-        gc.collect()
-        assert _turbohtml_bytes(tracing) - before < 32_768
-    finally:
-        tracing.stop()
-
-
-def _turbohtml_bytes(tracing: ModuleType) -> int:
-    package: Final = Path(turbohtml.__file__).parent
-    snapshot: Final = tracing.take_snapshot().filter_traces([
-        tracing.Filter(inclusive=True, filename_pattern=f"{package}/*")
-    ])
-    return sum(stat.size for stat in snapshot.statistics("filename"))
+def _assert_validation_buffers_released(
+    schema: XMLSchema | RelaxNG, document: Document, *, valid: bool, retained_bytes: RetainedBytes
+) -> None:
+    for _ in range(10):
+        assert schema.validate(document).valid is valid
+    before: Final[int] = retained_bytes()
+    for _ in range(100):
+        assert schema.validate(document).valid is valid
+    assert retained_bytes() - before < 32_768
 
 
 @pytest.mark.parametrize(
@@ -182,6 +167,8 @@ def _turbohtml_bytes(tracing: ModuleType) -> int:
     ],
 )
 def test_schema_releases_validation_buffers_for_invalid_documents(
-    schema_type: type[XMLSchema | RelaxNG], source: str
+    schema_type: type[XMLSchema | RelaxNG], source: str, retained_bytes: RetainedBytes
 ) -> None:
-    _assert_validation_buffers_released(schema_type(source), parse_xml("<value>123</value>"), valid=False)
+    _assert_validation_buffers_released(
+        schema_type(source), parse_xml("<value>123</value>"), valid=False, retained_bytes=retained_bytes
+    )

@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import gc
-from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-import turbohtml
 from turbohtml.extract import feed
 
 if TYPE_CHECKING:
-    from types import ModuleType
+    from traced_bytes import RetainedBytes
 
 
 @pytest.mark.parametrize(
@@ -104,9 +101,7 @@ def test_feed_atom_entry_inherits_feed_author_restored_default_namespace() -> No
     assert result.entries[0].author == "Right"
 
 
-def test_feed_atom_entries_do_not_copy_inherited_author() -> None:
-    # PyPy lacks tracemalloc and reclaims objects on a different schedule.
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+def test_feed_atom_entries_do_not_copy_inherited_author(retained_bytes: RetainedBytes) -> None:
     contributor: Final = "Contributor " * 2_500
     entries: Final = "<entry><id>urn:entry</id></entry>" * 400
     inherited: Final = (
@@ -120,26 +115,12 @@ def test_feed_atom_entries_do_not_copy_inherited_author() -> None:
     assert result is not None
     assert {entry.author for entry in result.entries} == {contributor.strip()}
     # A copy kept per inheriting entry would be retained once per entry, while the control retains one copy.
-    assert _retained_bytes(tracing, inherited) <= 4 * _retained_bytes(tracing, own)
+    assert _retained_by_feed(retained_bytes, inherited) <= 4 * _retained_by_feed(retained_bytes, own)
 
 
-def _retained_bytes(tracing: ModuleType, xml: str) -> int:
-    tracing.start()
-    try:
-        gc.collect()
-        before: Final = _turbohtml_bytes(tracing)
-        kept: Final = feed(xml)
-        gc.collect()
-        retained: Final = _turbohtml_bytes(tracing) - before
-    finally:
-        tracing.stop()
+def _retained_by_feed(retained_bytes: RetainedBytes, xml: str) -> int:
+    before: Final = retained_bytes()
+    kept: Final = feed(xml)
+    retained: Final = retained_bytes() - before
     assert kept is not None
     return retained
-
-
-def _turbohtml_bytes(tracing: ModuleType) -> int:
-    package: Final = Path(turbohtml.__file__).parent
-    snapshot: Final = tracing.take_snapshot().filter_traces([
-        tracing.Filter(inclusive=True, filename_pattern=f"{package}/*")
-    ])
-    return sum(stat.size for stat in snapshot.statistics("filename"))

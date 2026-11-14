@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import shutil
@@ -1340,27 +1341,42 @@ def test_minify_css_nested_media_merge_is_bounded_and_stable(between: str) -> No
     # joining two same-query blocks minifies their text again, and that pass joins the twins nested in them one level
     # down, so twins at each of 48 levels cost 1128 passes over the innermost rules, and every pass left a copy of them
     # per enclosing list in the arena (68 MiB here); past eight levels the twins stay apart, on the next pass too
+    source: Final = nested_media(between)
+    result: Final = minify_css(source)
+    blocks: Final = [result.count(f"@media m{level}{{") for level in (7, 8)]
+    assert (blocks, minify_css(result)) == ([1, 10], result)
+
+
+def nested_media(between: str) -> str:
     source = "".join(f"r{index}{{p{index}:0}}" for index in range(256))
     twin = "z{y:x}"
     for level in reversed(range(48)):
         twin = f"@media m{level}{{{twin}}}"
         source = f"@media m{level}{{{source}}}{between}{twin}"
-    # tracemalloc totals every thread, so the peak is read in a child process that has no other threads
+    return source
+
+
+@pytest.mark.parametrize(
+    "between",
+    [
+        pytest.param("", id="adjacent"),
+        pytest.param("a{}", id="across-dropped-rule"),
+    ],
+)
+def test_minify_css_nested_media_merge_peak_is_bounded(
+    between: str, peak_bytes: Callable[[str, tuple[str, ...]], int]
+) -> None:
     script: Final = (
+        f"{inspect.getsource(nested_media)}\n"
+        "import sys\n"
         "import tracemalloc\n"
         "from turbohtml.clean import minify_css\n"
-        f"source = {source!r}\n"
+        "source = nested_media(sys.argv[1])\n"
         "tracemalloc.start()\n"
         "minify_css(source)\n"
         "print(tracemalloc.get_traced_memory()[1])\n"
     )
-    run: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
-    )
-    peak: Final = int(run.stdout)
-    result: Final = minify_css(source)
-    blocks: Final = [result.count(f"@media m{level}{{") for level in (7, 8)]
-    assert (blocks, peak < 512 * len(source), minify_css(result)) == ([1, 10], True, result)
+    assert peak_bytes(script, (between,)) < 512 * len(nested_media(between))
 
 
 def test_minify_css_cap_stays_a_fixpoint_after_shorthand_fold() -> None:

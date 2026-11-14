@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import gc
-from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-import turbohtml
 from turbohtml.extract import Extraction, Paragraph, boilerplate
 
 if TYPE_CHECKING:
-    from types import ModuleType
+    from traced_bytes import RetainedBytes
 
 
 _PROSE: Final[str] = (
@@ -267,27 +264,11 @@ def test_boilerplate_classifies_owned_text() -> None:
     ]
 
 
-def test_boilerplate_releases_text_snapshots() -> None:
-    # PyPy lacks tracemalloc and reclaims objects on a different schedule.
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+def test_boilerplate_releases_text_snapshots(retained_bytes: RetainedBytes) -> None:
     page: Final = f'<article><p>{"A comet passes near the Sun. " * 256}<a href="/more">more</a></p></article>'
-    tracing.start()
-    try:
-        for _ in range(128):
-            boilerplate(page)
-        gc.collect()
-        before: Final = _turbohtml_bytes(tracing)
-        for _ in range(128):
-            boilerplate(page)
-        gc.collect()
-        assert _turbohtml_bytes(tracing) - before < 256 * 1024
-    finally:
-        tracing.stop()
-
-
-def _turbohtml_bytes(tracing: ModuleType) -> int:
-    package: Final = Path(turbohtml.__file__).parent
-    snapshot: Final = tracing.take_snapshot().filter_traces([
-        tracing.Filter(inclusive=True, filename_pattern=f"{package}/*")
-    ])
-    return sum(stat.size for stat in snapshot.statistics("filename"))
+    for _ in range(128):
+        boilerplate(page)
+    before: Final = retained_bytes()
+    for _ in range(128):
+        boilerplate(page)
+    assert retained_bytes() - before < 256 * 1024
