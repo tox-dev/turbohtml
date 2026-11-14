@@ -1948,7 +1948,7 @@ static PyObject *view_tostring(PyObject *module, PyObject *args, PyObject *kwarg
         return result;
     }
     const char *codec = encoding == Py_None ? "ascii" : PyUnicode_AsUTF8(encoding);
-    PyObject *encoded = codec == NULL ? NULL : PyUnicode_AsEncodedString(result, codec, "xmlcharrefreplace");
+    PyObject *encoded = codec == NULL ? NULL : markup_encode(result, codec, 1);
     Py_DECREF(result);
     return encoded;
 }

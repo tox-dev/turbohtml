@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import io
 import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from html.entities import codepoint2name
 from itertools import product
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Final, Protocol, cast
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
     ElementTree as ET,
 )
@@ -1747,6 +1748,7 @@ def test_encode(html: str, selector: str, call: Callable[[Node], bytes], expecte
     ("html", "kwargs", "exception"),
     [
         pytest.param("<p>x</p>", {"encoding": "not-a-codec"}, LookupError, id="unknown-encoding"),
+        pytest.param("<p>\x1b</p>", {"encoding": "not-a-codec"}, LookupError, id="unknown-encoding-shift-code"),
         # the default WHATWG formatter keeps é literal, so ascii cannot represent it
         pytest.param("<p>café</p>", {"encoding": "ascii"}, UnicodeEncodeError, id="unencodable-character"),
     ],
@@ -2074,6 +2076,62 @@ def test_meta_charset_with_minify_normalizes_existing_meta() -> None:
 def test_encode_meta_charset_uses_target_encoding() -> None:
     out: Final = parse("<p>x").encode("iso-8859-1", Html(meta_charset=True))
     assert out == ('<html><head><meta charset="iso-8859-1"></head><body><p>x</p></body></html>'.encode("latin-1"))
+
+
+@pytest.mark.parametrize("label", ["iso-2022-jp", "ISO-2022-JP", "csiso2022jp", "iso2022_jp", "iso-2022-kr"])
+@pytest.mark.parametrize(
+    "shift",
+    [pytest.param("\x0e", id="shift-out"), pytest.param("\x0f", id="shift-in"), pytest.param("\x1b", id="escape")],
+)
+def test_encode_iso_2022_refuses_a_shift_code(label: str, shift: str) -> None:
+    # CPython's encoder would write it as a byte, which a decoder reads as a shift code
+    doc: Final = parse(f'<a title="{shift}x">y</a>{shift}z')
+    with pytest.raises(UnicodeEncodeError, match="shift code") as refused:
+        doc.encode(label)
+    assert refused.value.start == doc.serialize().index(shift)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("a\x1bb\x0ec\x0f", id="escape-first"),
+        pytest.param("a\x0fb\x1bc\x0e", id="shift-in-first"),
+        pytest.param("a\x0eb\x0fc\x1b", id="shift-out-first"),
+    ],
+)
+def test_encode_iso_2022_reports_the_first_shift_code(text: str) -> None:
+    with pytest.raises(UnicodeEncodeError) as refused:
+        parse(f"<p>{text}").select("p")[0].encode("iso-2022-jp")
+    assert (refused.value.start, refused.value.end) == (4, 5)
+
+
+def test_encode_iso_2022_jp_round_trips_without_a_shift_code() -> None:
+    doc: Final = parse('<a title="日本語">x</a>a " data-after="1" b')
+    assert parse(doc.encode("iso-2022-jp"), encoding="iso-2022-jp").serialize() == doc.serialize()
+
+
+@pytest.mark.parametrize("label", ["shift_jis", "euc-jp", "utf-8"])
+def test_encode_keeps_a_shift_code_outside_iso_2022(label: str) -> None:
+    assert parse("<p>\x1b").select("p")[0].encode(label) == b"<p>\x1b</p>"
+
+
+_UTF8: Final[codecs.CodecInfo] = codecs.lookup("utf-8")
+
+
+@pytest.mark.parametrize(
+    "info",
+    [
+        pytest.param(cast("codecs.CodecInfo", tuple(_UTF8)), id="plain-tuple"),
+        pytest.param(codecs.CodecInfo(*_UTF8, name=None), id="nameless-codec-info"),
+    ],
+)
+def test_encode_keeps_a_shift_code_in_a_codec_without_a_name(info: codecs.CodecInfo) -> None:
+    search: Final = {"turbohtml_nameless": info}.get
+    codecs.register(search)
+    try:
+        assert parse("<p>\x1b").select("p")[0].encode("turbohtml_nameless") == b"<p>\x1b</p>"
+    finally:
+        codecs.unregister(search)
 
 
 def test_encode_sort_attributes() -> None:
