@@ -13,6 +13,7 @@ from turbohtml import Token, Tokenizer, TokenType, tokenize
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from traced_bytes import RetainedBytes
     from work_steps import WorkSteps
 
 
@@ -369,24 +370,20 @@ def test_reset_forgets_a_suspended_charref_run() -> None:
         pytest.param("<a x=&", "a", id="attribute-name-over-cap"),
     ],
 )
-def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str) -> None:
+def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str, work_steps: WorkSteps) -> None:
     # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
-    document = prefix + run * 200_000
-    reference_seconds, _ = _stream_fed_in_chunks("x" * len(document))
-    seconds, shapes = _stream_fed_in_chunks(document)
-    # both sides slow down under CPU contention, so the ratio to the reference is compared, not the raw time
-    assert seconds <= 20 * max(reference_seconds, 0.01)
-    assert shapes == [_shape(token) for token in tokenize(document)]
+    document = prefix + run * 20_000
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
+    work_steps.assert_linear(lambda n: partial(_stream_fed_in_chunks, prefix + run * n), (5_000, 20_000))
 
 
-def _stream_fed_in_chunks(document: str) -> tuple[float, list[_Shape]]:
+def _stream_fed_in_chunks(document: str) -> list[_Shape]:
     tokenizer = Tokenizer()
     tokens: list[Token] = []
-    start = time.perf_counter()
     for offset in range(0, len(document), 7):
         tokens.extend(tokenizer.feed(document[offset : offset + 7]))
     tokens.extend(tokenizer.close())
-    return time.perf_counter() - start, [_shape(token) for token in tokens]
+    return [_shape(token) for token in tokens]
 
 
 def test_streaming_crlf_across_feeds() -> None:
@@ -654,23 +651,18 @@ def test_tag_names_are_lowercased() -> None:
     assert [next(iter(tokenize(document))).tag for document in ("<DIV>", "<SpAn>")] == ["div", "span"]
 
 
-def test_streaming_tokenizer_reclaims_consumed_input() -> None:
+def test_streaming_tokenizer_reclaims_consumed_input(retained_bytes: RetainedBytes) -> None:
     # feed() compacts the consumed prefix, so a long-lived streaming tokenizer stays memory
     # bounded instead of growing its input buffer with every chunk (issue #80).
-    # PyPy ships no _tracemalloc, and its GC frees the buffer on its own schedule, so there is
-    # no peak to assert there; the compaction itself is C and covered by the CPython run.
-    tracemalloc = pytest.importorskip("tracemalloc")
     tokenizer = Tokenizer()
     for _ in range(200):  # warm up so one-time allocations settle out of the measurement
         list(tokenizer.feed("<p>hello world</p>"))
-    tracemalloc.start()
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    retained = tracemalloc.get_traced_memory()[0]
+    retained = retained_bytes(__file__)
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    growth = tracemalloc.get_traced_memory()[0] - retained
-    tracemalloc.stop()
+    growth = retained_bytes(__file__) - retained
     # without compaction the input buffer grows by about 180 KB in the second batch
     assert growth < 100_000, f"streaming feed retained {growth} more bytes"
 
