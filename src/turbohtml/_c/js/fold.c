@@ -26,6 +26,7 @@
 
    Validated by execution differentials under Node. */
 
+#include "core/work_steps.h"
 #include "js/internal.h"
 
 #include <string.h>
@@ -497,10 +498,13 @@ static int is_empty_branch(F *folder, int32_t idx) {
 /* Left-rotate a same-operator `&&`/`||`/`??` chain. Short-circuit evaluation makes the operator
    associative -- `a&&(b&&c)` and `(a&&b)&&c` evaluate a, b, c in the same order with the same
    result (13.13) -- and the grammar is left-associative, so only the left-leaning shape prints
-   without parentheses (`a&&b&&c`) and re-parses to itself. */
-static void rotate_logical_chain(F *folder, int32_t idx) {
+   without parentheses (`a&&b&&c`) and re-parses to itself. `settled` is a left operand already
+   known to be left-leaning (-1: none); the descent stops there, because walk has folded it and
+   descending the whole spine from every node of a chain is quadratic in the chain's length. */
+static void rotate_logical_chain(F *folder, int32_t idx, int32_t settled) {
     jm_program *prog = folder->prog;
     for (int32_t cur = idx;;) {
+        TH_WORK_STEP();
         uint16_t op = prog->nodes[cur].op;
         while (prog->nodes[prog->nodes[cur].b].kind == JN_LOGICAL && prog->nodes[prog->nodes[cur].b].op == op) {
             int32_t right = prog->nodes[cur].b;
@@ -511,7 +515,7 @@ static void rotate_logical_chain(F *folder, int32_t idx) {
             folder->changed = 1;
         }
         cur = prog->nodes[cur].a; /* a rotation may leave a same-op chain as the new left's right */
-        if (prog->nodes[cur].kind != JN_LOGICAL || prog->nodes[cur].op != op) {
+        if (cur == settled || prog->nodes[cur].kind != JN_LOGICAL || prog->nodes[cur].op != op) {
             return;
         }
     }
@@ -677,7 +681,9 @@ static int32_t make_logical(F *folder, int32_t test, int32_t expr) {
     prog->nodes[logic].op = op;
     prog->nodes[logic].a = test;
     prog->nodes[logic].b = expr;
-    rotate_logical_chain(folder, logic); /* expr may be a same-op chain: if(a)b&&c -> a&&b&&c */
+    /* expr may be a same-op chain (if(a)b&&c -> a&&b&&c), and negate_test can leave one on the test's
+       spine (!a&&!(b||c) -> a||(b||c)), so the descent is not bounded */
+    rotate_logical_chain(folder, logic, -1);
     return logic;
 }
 
@@ -717,7 +723,7 @@ static void fold_to_logical(F *folder, int32_t idx, uint16_t op, int32_t left, i
     folder->prog->nodes[logic].op = op;
     folder->prog->nodes[logic].a = left;
     folder->prog->nodes[logic].b = right;
-    rotate_logical_chain(folder, logic); /* right may be a same-op chain: x?x:y||z -> x||y||z */
+    rotate_logical_chain(folder, logic, -1); /* right may be a same-op chain: x?x:y||z -> x||y||z */
     replace_with(folder, idx, logic);
 }
 
@@ -1647,13 +1653,13 @@ static void walk(F *folder, int32_t idx) {
             } else if (is_pure_const(folder, node->a)) {
                 replace_with(folder, idx, node->a);
             } else {
-                rotate_logical_chain(folder, idx);
+                rotate_logical_chain(folder, idx, node->a);
             }
             return;
         }
         int truth = pure_truthy(folder, node->a);
         if (truth < 0) {
-            rotate_logical_chain(folder, idx);
+            rotate_logical_chain(folder, idx, node->a);
             return;
         }
         int keep_right = node->op == JT_AND ? truth : !truth;

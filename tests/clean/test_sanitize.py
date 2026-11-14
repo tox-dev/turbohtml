@@ -696,7 +696,7 @@ def _style_policy(
         ),
         pytest.param(
             "font-family: 'x\\&#13;&#10;; y'; color: red",
-            "font-family: 'x\\\r\n; y'; color: red",
+            "font-family: 'x\\&#13;\n; y'; color: red",
             id="string-crlf-continuation",
         ),
         pytest.param(
@@ -4180,23 +4180,19 @@ def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # ruff:ignore[b
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "expected"),
     [
-        # a raw carriage return normalizes to a newline when the sanitized text is reparsed.
-        pytest.param("a&#xd;b", id="cr-normalization"),
-        pytest.param("<div>&#xd;</div>", id="cr-in-element"),
+        pytest.param("a&#xd;b", "a&#13;b", id="cr-text"),
+        pytest.param("<div>&#xd;</div>", "&lt;div&gt;&#13;&lt;/div&gt;", id="cr-in-element"),
+        pytest.param('<a href="x" title="a&#xd;b">x</a>', '<a href="x" title="a&#13;b">x</a>', id="cr-in-attribute"),
     ],
 )
-def test_inert_even_when_not_string_idempotent(payload: str) -> None:
-    # These are benign inputs whose sanitized form is *not* byte-identical on a second pass
-    # (CR->LF normalization). Sanitization is single-pass, so the
-    # guarantee is inertness, not string idempotence: no executable construct survives either pass,
-    # even though sanitize(sanitize(x)) != sanitize(x). Consumers must trust the first pass, not reparse.
+def test_carriage_return_is_stable_across_reparse(payload: str, expected: str) -> None:
+    # a raw CR reparses as LF, so the sanitizer must write it as a reference for a second pass to match the first
     once = sanitize(payload)
-    twice = sanitize(once)
-    assert once != twice, "expected a non-idempotent case; move it to the round-trip corpus if it stabilizes"
+    assert once == expected
+    assert sanitize(once) == once
     assert _live_danger(once) == []
-    assert _live_danger(twice) == []
 
 
 @pytest.mark.parametrize(
