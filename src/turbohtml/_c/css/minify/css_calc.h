@@ -632,9 +632,11 @@ static void css_emit_function(css_buf *pool, token_vec *vec, Py_ssize_t name_ind
 }
 
 /* Minify a function's argument list into out, recursing for nested functions. var()
-   keeps its raw fallback; calc/min/max/clamp keep their spaced operators. */
+   keeps its raw fallback; calc/min/max/clamp keep their spaced operators. When the comma token at split is reached,
+   split_len receives the length of out before that comma is written. */
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
-                                 Py_ssize_t name_len, css_buf *out, int *raw_fallback) {
+                                 Py_ssize_t name_len, css_buf *out, int *raw_fallback, Py_ssize_t split,
+                                 Py_ssize_t *split_len) {
     int is_var = css_run_ieq(name, name_len, "var");
     int keep_ws = css_is_math_func(name, name_len);
     int is_color = css_run_ieq(name, name_len, "rgb") || css_run_ieq(name, name_len, "rgba") ||
@@ -651,6 +653,9 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
         }
         if (token->kind == CSS_DELIM && token->delim == ',') {
             css_rtrim(out);
+            if (index == split) {
+                *split_len = out->len;
+            }
             cbuf_putc(out, ',');
             pending_ws = 0;
             index++;

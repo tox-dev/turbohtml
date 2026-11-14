@@ -370,6 +370,22 @@ static int lex_time_of_day(const Py_UCS4 *value, Py_ssize_t at, Py_ssize_t len, 
     return 1;
 }
 
+/* The year has no length limit, so its residue mod 400 is folded digit by digit: the leap rule
+   depends on nothing else. */
+static int year_is_leap(const Py_UCS4 *digits, Py_ssize_t len) {
+    int residue = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        residue = (residue * 10 + (int)(digits[index] - '0')) % 400;
+    }
+    return residue % 4 == 0 && (residue % 100 != 0 || residue == 0);
+}
+
+/* The days in `month` of the year written by `year`. Only February depends on the year, so only it reads the year. */
+static int days_in_month(int month, const Py_UCS4 *year, Py_ssize_t year_len) {
+    static const int DAYS[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    return month == 2 && year_is_leap(year, year_len) ? 29 : DAYS[month - 1];
+}
+
 static int lex_date_body(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *end) {
     Py_ssize_t index = 0;
     if (index < len && value[index] == '-') { /* a negative (BCE) year is allowed */
@@ -385,7 +401,9 @@ static int lex_date_body(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *end) 
     if (value[index] != '-' || value[index + 3] != '-') {
         return 0;
     }
-    if (fixed_digits(value, index + 1, 2, 1, 12) < 0 || fixed_digits(value, index + 4, 2, 1, 31) < 0) {
+    const int month = fixed_digits(value, index + 1, 2, 1, 12);
+    const int day = fixed_digits(value, index + 4, 2, 1, 31);
+    if (month < 0 || day < 0 || day > days_in_month(month, value + year_start, index - year_start)) {
         return 0;
     }
     *end = index + 6;
