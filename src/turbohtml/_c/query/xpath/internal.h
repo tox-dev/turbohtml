@@ -82,6 +82,7 @@ struct xp_program {
     size_t references;
     int has_python_calls;
     int has_variables;
+    int may_sort;
     xn *nodes;
     int32_t count;
     int32_t cap;
@@ -171,7 +172,11 @@ typedef struct {
     uint64_t next_id;
 } xp_live_registry;
 
+/* What one evaluation has learned about document order (eval.c), shared by its predicate contexts. */
 typedef struct xp_order xp_order;
+
+/* Drop it once Python runs, since Python can move nodes. */
+void xp_order_forget(xp_order *order);
 
 typedef struct {
     struct th_tree *tree;
@@ -191,7 +196,7 @@ typedef struct {
     xp_name_test_fn name_test;
     void *name_test_ctx;
     int strict_no_ns;
-    xp_order **order; /* shared by the predicate contexts of one top-level evaluation, built by its first sort */
+    xp_order *order;
 #ifdef TH_OPERATION_LIMIT
     size_t *operations; /* shared by the predicate contexts of one top-level evaluation */
 #endif
@@ -229,13 +234,11 @@ static inline void xp_live_changed(xp_ctx *ctx) {
     }
 }
 
-void xp_order_drop(xp_order **order);
-
 static inline int xp_before_python(xp_ctx *ctx) {
     if (ctx->before_python == NULL) {
         return 0;
     }
-    xp_order_drop(ctx->order);
+    xp_order_forget(ctx->order);
     return ctx->before_python(ctx->extension_ctx, ctx->live->current);
 }
 

@@ -1809,7 +1809,6 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         rc = regex_replace(ctx, args, argc, 0, out);
     } else if (ctx->extension != NULL) {
         if ((rc = xp_before_python(ctx)) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            xp_order_drop(ctx->order);
             rc = ctx->extension(ctx->extension_ctx, ctx->node, fn->str, fn->str_len, args, argc, out);
         }
         if (rc == -2) {
