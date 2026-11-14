@@ -474,7 +474,6 @@ run.omit = [
   "tests/conformance/test_dom_jsdom_differential.py",
   "tests/conformance/test_xml_conformance.py",
 ]
-run.concurrency = [ "multiprocessing", "thread" ]
 run.parallel = true
 run.plugins = [
   "covdefaults",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from contextlib import nullcontext
 from functools import partial
 from typing import TYPE_CHECKING, Final
@@ -156,3 +157,23 @@ def test_search_rejects_a_bad_shape_count(value: str, reason: str, capsys: pytes
     with pytest.raises(SystemExit) as error:
         main(["search", "--shapes", value])
     assert (error.value.code, reason in capsys.readouterr().err) == (2, True)
+
+
+def test_seam_process_installs_the_probe_and_clock_in_the_worker(tmp_path: Path) -> None:
+    observed: list[float] = []
+
+    def observe(*_: object) -> None:
+        TARGETS["probe"].run("a" * 1024)
+        observed.append(time.thread_time())
+
+    SeamProcess(kind="quadratic", marker=tmp_path / "marker", target=observe, args=()).run()
+    assert observed == [pytest.approx(quadratic_cost(1024))]
+
+
+def test_crash_once_probe_exits_on_its_first_call_only(tmp_path: Path) -> None:
+    clock = [0.0]
+    probe = build_probe("crash-once", clock, tmp_path / "marker")
+    with pytest.raises(SystemExit):
+        probe.run("a")
+    probe.run("a" * 1024)
+    assert clock[0] == pytest.approx(linear_cost(1024))
