@@ -27,6 +27,7 @@
 
 #include "dom/tree.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>

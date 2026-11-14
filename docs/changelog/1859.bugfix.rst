@@ -1,0 +1,1 @@
+Reparsing serialized output no longer changes a ``selectedcontent`` placed after its option.

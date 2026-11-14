@@ -2689,6 +2689,52 @@ def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, form: tuple
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
+@pytest.mark.parametrize(
+    ("datatype", "values"),
+    [
+        pytest.param("date", ("0950-05-05", "2024-06-15", "2777-07-07"), id="date"),
+        pytest.param(
+            "dateTime", ("2024-06-15T11:59:59.9", "2024-06-15T12:00:00", "2024-06-15T12:00:00.1"), id="dateTime"
+        ),
+        pytest.param("time", ("13:59:59+02:00", "12:00:00Z", "10:00:01-02:00"), id="time"),
+        pytest.param("duration", ("PT719H", "P30D", "P77Y"), id="duration"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("facet", "expected"),
+    [
+        pytest.param("minInclusive", (False, True, True), id="min-inclusive"),
+        pytest.param("maxInclusive", (True, True, False), id="max-inclusive"),
+        pytest.param("minExclusive", (False, False, True), id="min-exclusive"),
+        pytest.param("maxExclusive", (True, False, False), id="max-exclusive"),
+    ],
+)
+def test_rng_ordered_bound(datatype: str, values: tuple[str, str, str], facet: str, expected: tuple[bool, ...]) -> None:
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="{datatype}"><param name="{facet}"> {values[1]} </param></data></element>'
+    )
+    assert tuple(validator.is_valid(parse_xml(f"<doc>{value}</doc>")) for value in values) == expected
+
+
+@pytest.mark.parametrize(
+    ("datatype", "bound", "value"),
+    [
+        pytest.param("date", "2024-06-15", "2024-06-15Z", id="timezone-against-none"),
+        pytest.param("duration", "P30D", "P1M", id="month-against-days"),
+        pytest.param("date", "soon", "2024-06-15", id="bound-not-a-date"),
+        pytest.param("date", "", "2024-06-15", id="bound-empty"),
+    ],
+)
+@pytest.mark.parametrize("facet", ["minInclusive", "maxInclusive", "minExclusive", "maxExclusive"])
+def test_rng_ordered_bound_unordered(datatype: str, bound: str, value: str, facet: str) -> None:
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="{datatype}"><param name="{facet}">{bound}</param></data></element>'
+    )
+    assert not validator.is_valid(parse_xml(f"<doc>{value}</doc>"))
+
+
 @pytest.mark.parametrize("facet", ["minInclusive", "maxInclusive", "minExclusive", "maxExclusive"])
 def test_rng_numeric_bound_nan(facet: str) -> None:
     validator: Final = RelaxNG(

@@ -26,6 +26,7 @@
 
    Validated by execution differentials under Node. */
 
+#include "core/work_steps.h"
 #include "js/internal.h"
 
 #include <string.h>
@@ -497,10 +498,13 @@ static int is_empty_branch(F *folder, int32_t idx) {
 /* Left-rotate a same-operator `&&`/`||`/`??` chain. Short-circuit evaluation makes the operator
    associative -- `a&&(b&&c)` and `(a&&b)&&c` evaluate a, b, c in the same order with the same
    result (13.13) -- and the grammar is left-associative, so only the left-leaning shape prints
-   without parentheses (`a&&b&&c`) and re-parses to itself. */
-static void rotate_logical_chain(F *folder, int32_t idx) {
+   without parentheses (`a&&b&&c`) and re-parses to itself. `settled` is a left operand already
+   known to be left-leaning (-1: none); the descent stops there, because walk has folded it and
+   descending the whole spine from every node of a chain is quadratic in the chain's length. */
+static void rotate_logical_chain(F *folder, int32_t idx, int32_t settled) {
     jm_program *prog = folder->prog;
     for (int32_t cur = idx;;) {
+        TH_WORK_STEP();
         uint16_t op = prog->nodes[cur].op;
         while (prog->nodes[prog->nodes[cur].b].kind == JN_LOGICAL && prog->nodes[prog->nodes[cur].b].op == op) {
             int32_t right = prog->nodes[cur].b;
@@ -511,7 +515,7 @@ static void rotate_logical_chain(F *folder, int32_t idx) {
             folder->changed = 1;
         }
         cur = prog->nodes[cur].a; /* a rotation may leave a same-op chain as the new left's right */
-        if (prog->nodes[cur].kind != JN_LOGICAL || prog->nodes[cur].op != op) {
+        if (cur == settled || prog->nodes[cur].kind != JN_LOGICAL || prog->nodes[cur].op != op) {
             return;
         }
     }
@@ -677,7 +681,9 @@ static int32_t make_logical(F *folder, int32_t test, int32_t expr) {
     prog->nodes[logic].op = op;
     prog->nodes[logic].a = test;
     prog->nodes[logic].b = expr;
-    rotate_logical_chain(folder, logic); /* expr may be a same-op chain: if(a)b&&c -> a&&b&&c */
+    /* expr may be a same-op chain (if(a)b&&c -> a&&b&&c), and negate_test can leave one on the test's
+       spine (!a&&!(b||c) -> a||(b||c)), so the descent is not bounded */
+    rotate_logical_chain(folder, logic, -1);
     return logic;
 }
 
@@ -717,7 +723,7 @@ static void fold_to_logical(F *folder, int32_t idx, uint16_t op, int32_t left, i
     folder->prog->nodes[logic].op = op;
     folder->prog->nodes[logic].a = left;
     folder->prog->nodes[logic].b = right;
-    rotate_logical_chain(folder, logic); /* right may be a same-op chain: x?x:y||z -> x||y||z */
+    rotate_logical_chain(folder, logic, -1); /* right may be a same-op chain: x?x:y||z -> x||y||z */
     replace_with(folder, idx, logic);
 }
 
@@ -1318,7 +1324,7 @@ static void fold_arithmetic(F *folder, int32_t idx) {
    are decoded and the result re-encoded rather than the raw lexemes spliced: a trailing variable-length
    escape (a legacy octal or a `\x`) in the left operand would otherwise absorb the right operand's first
    character and change the value (`"\1"+"2"` is `"1","2"`, not the single octal `"\12"`; #437). */
-static void fold_concat(F *folder, int32_t idx) {
+static void fold_concat(F *folder, int32_t idx, int32_t owned_mark) {
     jm_node *node = &folder->prog->nodes[idx];
     const jm_node *left = &folder->prog->nodes[node->a];
     const jm_node *right = &folder->prog->nodes[node->b];
@@ -1327,33 +1333,33 @@ static void fold_concat(F *folder, int32_t idx) {
     }
     Py_UCS4 quote = left->str[0];
     Py_ssize_t value_cap = left->str_len + right->str_len; /* neither decoded value outgrows its lexeme */
-    Py_UCS4 *value = jm_malloc((size_t)value_cap * sizeof(Py_UCS4));
-    if (value == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+    /* one scratch block: the decoded value, then the lexeme re-encoded after it (the widest escape is 6 wide) */
+    Py_UCS4 *scratch = jm_malloc((size_t)(value_cap * 7 + 2) * sizeof(Py_UCS4));
+    if (scratch == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
         return;                   /* GCOVR_EXCL_LINE */
     }
+    Py_UCS4 *value = scratch;
     Py_ssize_t value_len = jm_str_decode(left->str, left->str_len, value);
     Py_ssize_t right_len = value_len < 0 ? -1 : jm_str_decode(right->str, right->str_len, value + value_len);
     if (right_len < 0) { /* an operand with an escape that has no value is left as written */
-        jm_free(value);
+        jm_free(scratch);
         return;
     }
     value_len += right_len;
-    Py_UCS4 *lexeme = jm_malloc((size_t)(value_len * 6 + 2) * sizeof(Py_UCS4)); /* the widest escape is 6 wide */
-    if (lexeme == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        jm_free(value);           /* GCOVR_EXCL_LINE */
-        folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
-        return;                   /* GCOVR_EXCL_LINE */
-    }
+    Py_UCS4 *lexeme = scratch + value_cap;
     lexeme[0] = quote;
     Py_ssize_t inner = jm_str_encode(value, value_len, quote, lexeme + 1);
     lexeme[inner + 1] = quote;
-    jm_free(value);
     const Py_UCS4 *owned = jm_program_own(folder->prog, lexeme, inner + 2);
-    jm_free(lexeme);
+    jm_free(scratch);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return;          /* GCOVR_EXCL_LINE */
     }
+    /* Every lexeme owned since the walk entered this node was synthesized for a node below it, and the rewrite
+       unlinks all of them. Keeping them until the program is freed would make an n-literal chain hold n/2 copies of
+       its joined value. */
+    jm_program_disown(folder->prog, owned_mark);
     node = &folder->prog->nodes[idx];
     node->kind = JN_STRING;
     node->str = owned;
@@ -1398,6 +1404,17 @@ static void walk_target(F *folder, int32_t idx) {
         walk(folder, idx);
         return;
     }
+}
+
+/* A `+` walks its operands, then joins them if both are strings. The buffers the operands' folds made are released by
+   that join, so the count taken here marks where this subtree's buffers start. */
+static TH_NOINLINE void walk_plus(F *folder, int32_t idx) {
+    int32_t child_a = folder->prog->nodes[idx].a;
+    int32_t child_b = folder->prog->nodes[idx].b;
+    int32_t owned_mark = folder->prog->owned_count;
+    walk(folder, child_a);
+    walk(folder, child_b);
+    fold_concat(folder, idx, owned_mark);
 }
 
 static void walk(F *folder, int32_t idx) {
@@ -1606,6 +1623,12 @@ static void walk(F *folder, int32_t idx) {
             walk(folder, child_a);
         }
         break;
+    case JN_BINARY:
+        if (node->op == JT_PLUS) {
+            walk_plus(folder, idx); /* a `+` has no `c` child: only the word operators carry one */
+            break;
+        }
+        /* falls through */
     default:
         walk(folder, child_a);
         walk(folder, child_b);
@@ -1647,13 +1670,13 @@ static void walk(F *folder, int32_t idx) {
             } else if (is_pure_const(folder, node->a)) {
                 replace_with(folder, idx, node->a);
             } else {
-                rotate_logical_chain(folder, idx);
+                rotate_logical_chain(folder, idx, node->a);
             }
             return;
         }
         int truth = pure_truthy(folder, node->a);
         if (truth < 0) {
-            rotate_logical_chain(folder, idx);
+            rotate_logical_chain(folder, idx, node->a);
             return;
         }
         int keep_right = node->op == JT_AND ? truth : !truth;
@@ -1712,12 +1735,7 @@ static void walk(F *folder, int32_t idx) {
         splice_branch_else(folder, node->a);
         return;
     case JN_BINARY:
-        if (node->op == JT_PLUS) {
-            fold_concat(folder, idx); /* string operands; turns the node into a string literal */
-        }
-        if (folder->prog->nodes[idx].kind == JN_BINARY) {
-            fold_arithmetic(folder, idx); /* integer operands; a folded concat is already done */
-        }
+        fold_arithmetic(folder, idx); /* integer operands; a folded concat is already done */
         if (node->op == JT_EQ_EQ || node->op == JT_NE || node->op == JT_EQ_EQ_EQ || node->op == JT_NE_EQ) {
             int32_t typeof_side = is_typeof_nonref(folder, node->a)   ? node->a
                                   : is_typeof_nonref(folder, node->b) ? node->b

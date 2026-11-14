@@ -1094,6 +1094,23 @@ static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets,
         if (facets->has_max_exclusive && !(number < facets->max_exclusive)) {
             return 0;
         }
+    } else if (dt_is_ordered(datatype_id)) {
+        if (facets->has_min_inclusive &&
+            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MIN_INCLUSIVE], 1, 1)) {
+            return 0;
+        }
+        if (facets->has_max_inclusive &&
+            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MAX_INCLUSIVE], -1, 1)) {
+            return 0;
+        }
+        if (facets->has_min_exclusive &&
+            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MIN_EXCLUSIVE], 1, 0)) {
+            return 0;
+        }
+        if (facets->has_max_exclusive &&
+            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MAX_EXCLUSIVE], -1, 0)) {
+            return 0;
+        }
     }
     for (Py_ssize_t index = 0; index < facets->pattern_count; index++) {
         if (!regex_full_match(schema, facets->patterns[index].ptr, facets->patterns[index].len, norm, norm_len)) {

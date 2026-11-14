@@ -215,6 +215,7 @@ typedef struct {
     int depth;   /* parser recursion depth, kept on the vector every parser holds to avoid a thread-local lookup */
     int bad;     /* whether any token is CSS_BAD, so valid input skips the per-declaration scan for one */
     int escaped; /* whether a name holds an escape, so input without one skips css_spell_names */
+    int escapes; /* whether output can end in an escape, so input that cannot skips every check for one */
 } token_vec;
 
 /* Untrusted nesting drives the parsers into C recursion. 100 sits between rust-cssparser's 75 and WebKit's 128; the
@@ -645,14 +646,22 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                             if (source[end] == quote) {
                                 break;
                             }
-                            end += (stop == CSS_QUOTED_ESCAPE && end + 1 < length) ? 2 : 1;
+                            if (stop == CSS_QUOTED_ESCAPE && end + 1 < length) {
+                                vec->escapes = 1;
+                                end++;
+                            }
+                            end++;
                         }
                         if (end < length) {
                             end++;
                         }
                         continue;
                     }
-                    end += (source[end] == '\\' && end + 1 < length) ? 2 : 1;
+                    if (source[end] == '\\' && end + 1 < length) {
+                        vec->escapes = 1;
+                        end++;
+                    }
+                    end++;
                 }
                 if (end < length) {
                     end++;
@@ -677,6 +686,9 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             pos++;
         }
     }
+    /* a string ends in its unescaped closing quote, so only a name, a url (whose minified body can drop the whitespace
+       an escape held), or a bad string kept with its newline can end the output in an escape */
+    vec->escapes = vec->escapes || vec->escaped || (vec->bad && memchr(source, '\\', (size_t)length) != NULL);
 }
 
 #endif /* TURBOHTML_CSS_TOKENIZE_H */
