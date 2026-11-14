@@ -57,9 +57,10 @@ link-bearing location in C: ``<a href>``, the URLs hidden in ``srcset`` candidat
 and CSS ``url()``/``@import`` in a ``style`` attribute or a ``<style>`` sheet, so the capability no hand-rolled
 ``find_all`` loop reaches comes for free. The walk locates the URL spans and splices replacements back in place; the URL
 resolution itself is :func:`urllib.parse.urljoin` from the standard library, deliberately *not* reimplemented in C,
-because RFC 3986 reference resolution is a solved, standard problem and not where turbohtml's value lies. The line
-between the two is the project's rule in miniature: the HTML-specific, performance-sensitive work is C, and a thin typed
-facade wires it to the stdlib.
+because RFC 3986 reference resolution is a solved, standard problem and not where turbohtml's value lies. The one
+departure is a link with extra slashes before its host, which :meth:`~turbohtml.Node.resolve_links` reads as a browser
+does; urljoin reads it as a path on the base host. The line between the two is the project's rule in miniature: the
+HTML-specific, performance-sensitive work is C, and a thin typed facade wires it to the stdlib.
 
 Generating HTML is the one place a builder helper earns a little Python of its own. :data:`turbohtml.build.E` adds no
 tree mechanics: every ``E.<tag>(...)`` call constructs a real :class:`~turbohtml.Element` and appends its children
