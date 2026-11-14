@@ -610,10 +610,12 @@ static th_node_attr *rw_attr_grow(th_node *node) {
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     node->attrs = grown;
-    node->attr_capacity_shift = 0;
-    for (size_t slots = capacity; slots > 1; slots >>= 1) {
-        node->attr_capacity_shift++;
+    /* th_grow_cap doubles from two slots, so the shift starts at 1 and a new element's first array takes no loop */
+    uint8_t shift = 1;
+    for (size_t slots = capacity; slots > 2; slots >>= 1) {
+        shift++;
     }
+    node->attr_capacity_shift = shift;
     return &grown[node->attr_count];
 }
 

@@ -308,6 +308,15 @@ static void mark_start_dirty(th_tree *tree, th_node *node) {
 #define ATTR_INDEX_FOLDED 1u
 #define ATTR_INDEX_STALE UINT32_MAX
 
+/* The index code runs only on elements with ATTR_INDEX_MIN or more attributes, so GCC compiles it once instead of
+   cloning it per call site: the clones grew the extension past LTO's unit-wide inlining limit, which then dropped
+   inlines in unrelated hot code such as the XPath evaluator. */
+#if defined(__GNUC__) && !defined(__clang__)
+#define ATTR_INDEX_FN static __attribute__((noinline, noclone))
+#else
+#define ATTR_INDEX_FN static TH_NOINLINE
+#endif
+
 typedef struct {
     uint32_t count;   /* attributes indexed, or ATTR_INDEX_STALE */
     uint32_t links[]; /* two bucket heads per array slot, then as many chain links */
@@ -349,7 +358,7 @@ static uint32_t attr_name_folded_hash(const char *name, Py_ssize_t name_len, int
 }
 
 /* Entries go to the head of their chain, so a chain runs from the highest position down. */
-static void attr_index_add(th_tree *tree, const th_node *node, attr_index *index) {
+ATTR_INDEX_FN void attr_index_add(th_tree *tree, const th_node *node, attr_index *index) {
     TH_WORK_STEP();
     const size_t buckets = 2 * th_node_attr_capacity(node);
     uint32_t *next = index->links + buckets;
@@ -371,8 +380,8 @@ static void attr_index_add(th_tree *tree, const th_node *node, attr_index *index
 
 /* Rebuilds a stale index first. Chains run from the highest position down, so the last match met is the lowest, the
    one a scan of the array returns. */
-static TH_NOINLINE Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *node, const char *name,
-                                                     Py_ssize_t name_len, uint32_t atom) {
+ATTR_INDEX_FN Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *node, const char *name,
+                                                Py_ssize_t name_len, uint32_t atom) {
     attr_index *index = node_attr_index(node);
     const size_t buckets = 2 * th_node_attr_capacity(node);
     const uint32_t *next = index->links + buckets;
@@ -433,26 +442,28 @@ static inline int node_attr_reserve(th_tree *tree, th_node *node, int indexed) {
         memcpy(grown, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
     }
     node->attrs = grown;
-    node->attr_capacity_shift = 0;
-    for (size_t slots = capacity; slots > 1; slots >>= 1) {
-        node->attr_capacity_shift++;
+    /* th_grow_cap doubles from two slots, so the shift starts at 1 and a new element's first array takes no loop */
+    uint8_t shift = 1;
+    for (size_t slots = capacity; slots > 2; slots >>= 1) {
+        shift++;
     }
+    node->attr_capacity_shift = shift;
     if (indexed) {
-        node->attr_capacity_shift = (uint8_t)(node->attr_capacity_shift | TH_ATTR_INDEXED);
+        node->attr_capacity_shift = (uint8_t)(shift | TH_ATTR_INDEXED);
         node_attr_index(node)->count = ATTR_INDEX_STALE;
     }
     return 0;
 }
 
 /* Indexed growth stays out of line, so that node_attr_store inlines only the plain growth every new element takes. */
-static TH_NOINLINE int node_attr_reserve_indexed(th_tree *tree, th_node *node) {
+ATTR_INDEX_FN int node_attr_reserve_indexed(th_tree *tree, th_node *node) {
     return node_attr_reserve(tree, node, 1);
 }
 
 /* The lookup of an element with ATTR_INDEX_MIN or more attributes: indexes the array on its first write, then answers
    from the index. Returns the position, -1 for a miss, or -2 on allocation failure. */
-static TH_NOINLINE Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                                   uint32_t atom) {
+ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                              uint32_t atom) {
     if (!(node->attr_capacity_shift & TH_ATTR_INDEXED)) {
         if (node_attr_reserve_indexed(tree, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -2;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -467,7 +478,7 @@ static TH_NOINLINE Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node,
 #define ATTR_STORE_INLINE static inline __attribute__((always_inline))
 #endif
 
-/* Inlined into th_node_attr_set and th_node_attr_append, so the appender the XML parser calls per attribute compiles
+/* Inlined into node_attr_write and th_node_attr_append, so the appender the XML parser calls per attribute compiles
    without the lookup. */
 ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value, int append) {
@@ -488,13 +499,13 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
     Py_ssize_t existing = -1;
     if (!append) { /* an appender has ruled a duplicate out itself */
         /* a small array is scanned even when an index is left over from when it was large */
-        if (node->attr_count < ATTR_INDEX_MIN) {
-            existing = th_node_attr_find(tree, node, name, name_len);
-        } else {
+        if (node->attr_count >= ATTR_INDEX_MIN) {
             existing = node_attr_find_large(tree, node, name, name_len, atom);
             if (existing < -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
             }
+        } else {
+            existing = th_node_attr_find(tree, node, name, name_len);
         }
     }
     /* testing right after interning changed how LTO inlined the lookup and cost a class edit 150 instructions */
@@ -514,9 +525,10 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
         node->attrs[existing].value_len = has_value ? value_len : 0;
         return 0;
     }
+    /* growth keeps an array indexed or plain, so the flag read here also holds after it */
+    const int indexed = node->attr_capacity_shift & TH_ATTR_INDEXED;
     if ((size_t)node->attr_count >= th_node_attr_capacity(node)) {
-        const int grown = node->attr_capacity_shift & TH_ATTR_INDEXED ? node_attr_reserve_indexed(tree, node)
-                                                                      : node_attr_reserve(tree, node, 0);
+        const int grown = indexed ? node_attr_reserve_indexed(tree, node) : node_attr_reserve(tree, node, 0);
         if (grown < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -524,7 +536,7 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
     node->attrs[node->attr_count].name_atom = atom;
     node->attrs[node->attr_count].value = owned;
     node->attrs[node->attr_count].value_len = has_value ? value_len : 0;
-    if (node->attr_capacity_shift & TH_ATTR_INDEXED) {
+    if (indexed) {
         /* an index out of step here (the array has just moved, or this is an append after a removal) is pinned stale,
            so that adding cannot bring its count level with attr_count again */
         attr_index *index = node_attr_index(node);
@@ -538,9 +550,17 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
     return 0;
 }
 
+/* Out of line behind the th_node_attr_set wrapper, as on main: with the store inlined into th_node_attr_set, GCC
+   specialized three more copies of it, enough to exhaust LTO's unit-wide inlining budget and drop inlines in unrelated
+   hot code. */
+static TH_NOINLINE int node_attr_write(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
+    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 0);
+}
+
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len, int has_value) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 0);
+    return node_attr_write(tree, node, name, name_len, value, value_len, has_value);
 }
 
 /* out of line: inlined into the XML parser's attribute loop it cost that loop more than the call */
