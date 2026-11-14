@@ -58,6 +58,7 @@ static inline int xp_is_attribute(Py_ssize_t attr) {
 const th_node_attr *xp_item_attribute(struct th_tree *tree, xp_item item);
 const char *xp_item_attr_name(struct th_tree *tree, xp_item item, Py_ssize_t *len);
 int xp_item_equal(xp_item left, xp_item right);
+Py_ssize_t xp_item_rank(Py_ssize_t attr);
 uintptr_t xp_item_hash(xp_item item);
 
 typedef struct xp_live_frame xp_live_frame;

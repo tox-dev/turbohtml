@@ -819,6 +819,26 @@ def test_transform_generate_id_does_not_depend_on_node_address() -> None:
     assert convert(second).split() == ids
 
 
+def test_transform_generate_id_distinguishes_attributes() -> None:
+    body = "".join(
+        f'<xsl:value-of select="generate-id({select})"/><xsl:text> </xsl:text>'
+        for select in ("doc", "doc/@lang", "doc/@dir", "doc/namespace::*")
+    )
+    ids = _run('<doc lang="en" dir="ltr"/>', f'<xsl:template match="/">{body}</xsl:template>').split()
+    assert len(set(ids)) == len(ids) == 4
+
+
+@pytest.mark.parametrize("select", ["generate-id()", "generate-id(current())"])
+def test_transform_generate_id_distinguishes_attributes_in_for_each(select: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:value-of select="generate-id(doc)"/><xsl:text> </xsl:text>'
+        f'<xsl:for-each select="doc/@*"><xsl:value-of select="{select}"/><xsl:text> </xsl:text></xsl:for-each>'
+        "</xsl:template>"
+    )
+    ids = _run('<doc lang="en" dir="ltr"/>', body).split()
+    assert len(set(ids)) == len(ids) == 3
+
+
 def test_transform_generate_id_empty_for_empty_node_set() -> None:
     body = '<xsl:template match="/">[<xsl:value-of select="generate-id(//missing)"/>]</xsl:template>'
     assert _run("<r/>", body) == "[]"
