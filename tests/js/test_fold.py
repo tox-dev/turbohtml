@@ -819,18 +819,18 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             id="shorthand-pattern-not-an-inline-slot",
         ),
         pytest.param(
-            "function f(){var y=2;return[{y}];var {y}=o}",
-            "function f(){return[{y:2}];var {y:a}=o}",
+            "function f(){var y=2;g({y});if(c)var {y}=o}",
+            "function f(){g({y:2});if(c)var {y:a}=o}",
             id="shorthand-read-before-pattern-expands-key",
         ),
         pytest.param(
-            "function p(o){function g(){}let {g}=o;return j(g)}",
-            "function p(a){let {g:b}=a;return j(function(){})}",
+            "function p(o){function g(){}let {g}=o;if(c)q();else k(g)}",
+            "function p(a){let {g:b}=a;c?q():k(function(){})}",
             id="shorthand-pattern-not-a-function-inline-slot",
         ),
         pytest.param(
-            "function g(){var k=function([{k}]-1){};return k}",
-            "function g(){return function([{k}]-1){}}",
+            "function g(){var k=function([{k}]?1:0){};return k}",
+            "function g(){return function([{k}]?1:0){}}",
             id="shorthand-in-parameter-not-an-inline-slot",
         ),
         pytest.param(
