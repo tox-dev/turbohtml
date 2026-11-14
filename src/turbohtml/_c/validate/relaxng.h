@@ -76,6 +76,7 @@ struct pattern {
     int def_index;
     int datatype_id;
     int value_ws;
+    int choice_leaves; /* leaves of a choice chain built during validation, 0 on every other pattern */
     facetset *facets;
     const Py_UCS4 *value;
     Py_ssize_t value_len;
@@ -200,6 +201,9 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
 #else
 #define MEMO_FREE_STEPS 1024
 #endif
+
+/* Leaves a choice built during validation may hold, for a schema of up to 128 patterns. */
+#define RNG_CHOICE_LIMIT 256
 
 typedef struct memo_key {
     pattern *p;
@@ -353,7 +357,8 @@ static Py_ssize_t choice_leaf_count(const pattern *choice);
 static void choice_collect(pattern *choice, pattern **out, Py_ssize_t *at);
 static int pat_ptr_cmp(const void *left, const void *right);
 
-/* A canonical choice is a right-leaning chain of non-choice leaves, sorted by address and free of duplicates. */
+static pattern *choice_build(th_schema *schema, pattern **leaves, Py_ssize_t total);
+
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t total = choice_leaf_count(p1) + choice_leaf_count(p2);
     pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
@@ -363,12 +368,33 @@ static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t len = 0;
     choice_collect(p1, leaves, &len);
     choice_collect(p2, leaves, &len);
+    return choice_build(schema, leaves, total);
+}
+
+/* A canonical choice is a right-leaning chain of non-choice leaves, sorted by address and free of duplicates.
+
+   The memo derives each node once per event, but a content model whose places double with each define still leaves a
+   residual choice with one leaf per place. Building a choice is the only step that grows one, so past the limit it
+   yields NotAllowed and validate() raises; a limit of 0 marks that this happened. */
+static pattern *choice_build(th_schema *schema, pattern **leaves, Py_ssize_t total) {
+    if (total == 0) {
+        return schema->p_notallowed;
+    }
     qsort(leaves, (size_t)total, sizeof(pattern *), pat_ptr_cmp);
-    pattern *result = leaves[total - 1];
-    for (Py_ssize_t index = total - 2; index >= 0; index--) {
-        if (leaves[index] != leaves[index + 1]) {
-            result = pat_binary(schema, P_CHOICE, leaves[index], result);
+    Py_ssize_t distinct = 1;
+    for (Py_ssize_t index = 1; index < total; index++) {
+        if (leaves[index] != leaves[distinct - 1]) {
+            leaves[distinct++] = leaves[index];
         }
+    }
+    if (distinct > schema->choice_limit) {
+        schema->choice_limit = 0;
+        return schema->p_notallowed;
+    }
+    pattern *result = leaves[distinct - 1];
+    for (Py_ssize_t index = distinct - 2; index >= 0; index--) {
+        result = pat_binary(schema, P_CHOICE, leaves[index], result);
+        result->choice_leaves = (int)(distinct - index);
     }
     return result;
 }
@@ -1112,6 +1138,15 @@ static int rng_ws_equal(int ws, const Py_UCS4 *value, Py_ssize_t len, const Py_U
 
 static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
 
+/* Deriving a choice link by link merges the derivative of its tail once per link, which costs the square of its leaves;
+   a long chain is derived leaf by leaf and built into one choice. Chains this short stay on the plain walk. */
+#define RNG_CHAIN_SPLIT 16
+
+enum { DERIV_TEXT, DERIV_OPEN, DERIV_ATT, DERIV_CLOSE };
+
+static RNG_NOINLINE pattern *rng_choice_deriv(th_schema *schema, pattern *p, int op, const qname *name,
+                                              const Py_UCS4 *value, Py_ssize_t len);
+
 static int rng_value_match(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
     if (rng_nullable(schema, rng_text_deriv(schema, p, value, len))) {
         return 1;
@@ -1185,6 +1220,9 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
                                                     Py_ssize_t len) {
     switch (p->type) {
     case P_CHOICE:
+        if (p->choice_leaves > RNG_CHAIN_SPLIT) {
+            return rng_choice_deriv(schema, p, DERIV_TEXT, NULL, value, len);
+        }
         return pat_choice(schema, rng_text_deriv(schema, p->p1, value, len), rng_text_deriv(schema, p->p2, value, len));
     case P_INTERLEAVE:
         return pat_choice(schema, pat_interleave(schema, rng_text_deriv(schema, p->p1, value, len), p->p2),
@@ -1223,9 +1261,11 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
     }
 }
 
-/* applyAfter over an After/Choice tree: replace each After tail t with either
-   group(t, tail) (mode 0, for group/oneOrMore) or after(t, tail) (mode 1, for after). */
-static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, int as_after);
+/* applyAfter over an After/Choice tree: replace each After tail t with group(t, tail) for group and oneOrMore,
+   after(t, tail) for after, or an interleave of t and the sibling branch for interleave. */
+enum { APPLY_GROUP, APPLY_AFTER, APPLY_INTERLEAVE_RIGHT, APPLY_INTERLEAVE_LEFT };
+
+static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, int mode);
 static pattern *rng_apply_after_interleave_left(th_schema *schema, pattern *p, const qname *name);
 static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, const qname *name);
 
@@ -1254,6 +1294,9 @@ static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern 
 static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name) {
     switch (p->type) {
     case P_CHOICE:
+        if (p->choice_leaves > RNG_CHAIN_SPLIT) {
+            return rng_choice_deriv(schema, p, DERIV_OPEN, name, NULL, 0);
+        }
         return pat_choice(schema, rng_start_tag_open(schema, p->p1, name), rng_start_tag_open(schema, p->p2, name));
     case P_ELEMENT:
         return nc_contains(p->nc, name) ? pat_after(schema, p->p1, schema->p_empty) : schema->p_notallowed;
@@ -1262,17 +1305,17 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, patte
                           rng_apply_after_interleave_right(schema, p, name));
     case P_ONEMORE: {
         pattern *derived = rng_start_tag_open(schema, p->p1, name);
-        return rng_apply_after(schema, derived, pat_choice(schema, p, schema->p_empty), 0);
+        return rng_apply_after(schema, derived, pat_choice(schema, p, schema->p_empty), APPLY_GROUP);
     }
     case P_GROUP: {
-        pattern *left = rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 0);
+        pattern *left = rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, APPLY_GROUP);
         if (rng_nullable(schema, p->p1)) {
             return pat_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
         }
         return left;
     }
     case P_AFTER:
-        return rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 1);
+        return rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, APPLY_AFTER);
     case P_REF:
         return rng_start_tag_open(schema, rng_resolve(schema, p->def_index), name);
     default:
@@ -1280,40 +1323,51 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, patte
     }
 }
 
-static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, int as_after) {
+static pattern *rng_after_continue(th_schema *schema, pattern *after, pattern *tail, int mode) {
+    pattern *combined = mode == APPLY_GROUP              ? pat_group(schema, after->p2, tail)
+                        : mode == APPLY_AFTER            ? pat_after(schema, after->p2, tail)
+                        : mode == APPLY_INTERLEAVE_RIGHT ? pat_interleave(schema, after->p2, tail)
+                                                         : pat_interleave(schema, tail, after->p2);
+    return pat_after(schema, after->p1, combined);
+}
+
+/* Rebuilding a long choice one leaf at a time would merge it once per leaf, a cost that grows with the square of the
+   leaves, so the leaves are mapped first and built into one choice. A start tag derivative holds only Afters. */
+static pattern *rng_apply_after_choice(th_schema *schema, pattern *choice, pattern *tail, int mode) {
+    Py_ssize_t total = choice_leaf_count(choice);
+    pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
+    if (leaves == NULL) {            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t len = 0;
+    choice_collect(choice, leaves, &len);
+    for (Py_ssize_t index = 0; index < total; index++) {
+        leaves[index] = rng_after_continue(schema, leaves[index], tail, mode);
+    }
+    return choice_build(schema, leaves, total);
+}
+
+static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, int mode) {
     if (p->type == P_AFTER) {
-        pattern *combined = as_after ? pat_after(schema, p->p2, tail) : pat_group(schema, p->p2, tail);
-        return pat_after(schema, p->p1, combined);
+        return rng_after_continue(schema, p, tail, mode);
     }
-    if (p->type == P_CHOICE) {
-        return pat_choice(schema, rng_apply_after(schema, p->p1, tail, as_after),
-                          rng_apply_after(schema, p->p2, tail, as_after));
+    if (p->type != P_CHOICE) {
+        return schema->p_notallowed;
     }
-    return schema->p_notallowed;
+    if (p->choice_leaves > RNG_CHAIN_SPLIT) {
+        return rng_apply_after_choice(schema, p, tail, mode);
+    }
+    return pat_choice(schema, rng_apply_after(schema, p->p1, tail, mode), rng_apply_after(schema, p->p2, tail, mode));
 }
 
-/* applyAfter over `derived` (the derivative of one interleave branch), re-wrapping each
-   After tail so the sibling `other` interleaves with the continuation. `derived` is
-   already the start-tag derivative, so this never re-opens it. */
-static pattern *rng_apply_after_interleave(th_schema *schema, pattern *derived, pattern *other, int other_on_right) {
-    if (derived->type == P_AFTER) {
-        pattern *combined =
-            other_on_right ? pat_interleave(schema, derived->p2, other) : pat_interleave(schema, other, derived->p2);
-        return pat_after(schema, derived->p1, combined);
-    }
-    if (derived->type == P_CHOICE) {
-        return pat_choice(schema, rng_apply_after_interleave(schema, derived->p1, other, other_on_right),
-                          rng_apply_after_interleave(schema, derived->p2, other, other_on_right));
-    }
-    return schema->p_notallowed;
-}
-
+/* applyAfter over the derivative of one interleave branch, re-wrapping each After tail so the sibling interleaves
+   with the continuation. The derivative is already the start-tag derivative, so this never re-opens it. */
 static pattern *rng_apply_after_interleave_left(th_schema *schema, pattern *p, const qname *name) {
-    return rng_apply_after_interleave(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 1);
+    return rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, APPLY_INTERLEAVE_RIGHT);
 }
 
 static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, const qname *name) {
-    return rng_apply_after_interleave(schema, rng_start_tag_open(schema, p->p2, name), p->p1, 0);
+    return rng_apply_after(schema, rng_start_tag_open(schema, p->p2, name), p->p1, APPLY_INTERLEAVE_LEFT);
 }
 
 static RNG_FORCEINLINE pattern *rng_att_deriv_step(th_schema *schema, pattern *p, const qname *name,
@@ -1343,6 +1397,9 @@ static RNG_FORCEINLINE pattern *rng_att_deriv_step(th_schema *schema, pattern *p
                                                    const Py_UCS4 *value, Py_ssize_t len) {
     switch (p->type) {
     case P_CHOICE:
+        if (p->choice_leaves > RNG_CHAIN_SPLIT) {
+            return rng_choice_deriv(schema, p, DERIV_ATT, name, value, len);
+        }
         return pat_choice(schema, rng_att_deriv(schema, p->p1, name, value, len),
                           rng_att_deriv(schema, p->p2, name, value, len));
     case P_GROUP:
@@ -1388,6 +1445,9 @@ static RNG_NOINLINE pattern *rng_start_tag_close_walk(th_schema *schema, pattern
 static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, pattern *p) {
     switch (p->type) {
     case P_CHOICE:
+        if (p->choice_leaves > RNG_CHAIN_SPLIT) {
+            return rng_choice_deriv(schema, p, DERIV_CLOSE, NULL, NULL, 0);
+        }
         return pat_choice(schema, rng_start_tag_close(schema, p->p1), rng_start_tag_close(schema, p->p2));
     case P_GROUP:
         return pat_group(schema, rng_start_tag_close(schema, p->p1), rng_start_tag_close(schema, p->p2));
@@ -1404,6 +1464,39 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, patt
     default:
         return p;
     }
+}
+
+static RNG_NOINLINE pattern *rng_choice_deriv(th_schema *schema, pattern *p, int op, const qname *name,
+                                              const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t count = p->choice_leaves;
+    pattern **derived = arena_alloc(&schema->mem, (size_t)count * sizeof(pattern *));
+    if (derived == NULL) {           /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t at = 0;
+    choice_collect(p, derived, &at);
+    Py_ssize_t total = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        pattern *leaf = derived[index];
+        derived[index] = op == DERIV_TEXT   ? rng_text_deriv(schema, leaf, value, len)
+                         : op == DERIV_OPEN ? rng_start_tag_open(schema, leaf, name)
+                         : op == DERIV_ATT  ? rng_att_deriv(schema, leaf, name, value, len)
+                                            : rng_start_tag_close(schema, leaf);
+        if (derived[index]->type != P_NOTALLOWED) {
+            total += choice_leaf_count(derived[index]);
+        }
+    }
+    pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
+    if (leaves == NULL) {            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+    }
+    at = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (derived[index]->type != P_NOTALLOWED) {
+            choice_collect(derived[index], leaves, &at);
+        }
+    }
+    return choice_build(schema, leaves, total);
 }
 
 /* Nullability is no pattern, so the memo stores it as Empty or NotAllowed. */
@@ -2817,8 +2910,17 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
                         : (Py_ssize_t)schema->pattern_count * 2 > MEMO_FREE_STEPS
                             ? (Py_ssize_t)schema->pattern_count * 2
                             : MEMO_FREE_STEPS;
+    /* A residual holds about one leaf per schema pattern it can reach, so the limit grows with the schema. */
+    schema->choice_limit = (Py_ssize_t)schema->pattern_count * 2 > RNG_CHOICE_LIMIT
+                               ? (Py_ssize_t)schema->pattern_count * 2
+                               : RNG_CHOICE_LIMIT;
     Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
+    if (schema->choice_limit == 0) {
+        ctx->failed = 1;
+        PyErr_SetString(PyExc_ValueError, "RELAX NG content model too ambiguous to validate");
+        return;
+    }
     if (!rng_nullable(schema, result) && ctx->error_count == before) {
         report(ctx, root, "structure", "document does not match the schema");
     }

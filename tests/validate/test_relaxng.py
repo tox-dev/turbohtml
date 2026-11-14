@@ -1601,6 +1601,40 @@ def test_rng_shared_defines_scale_linearly(leaf: str, content: str, xml: str, wo
 
 
 @pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param('<r><v a="1"/><v/>tail</r>', True, id="elements-then-text"),
+        pytest.param(f"<r>{'<v/>' * 40}</r>", True, id="many-elements"),
+        pytest.param('<r><v b="1"/></r>', False, id="unknown-attribute"),
+        pytest.param("<r><w/></r>", False, id="unknown-element"),
+        pytest.param("<r><v>x</v></r>", False, id="text-inside-empty"),
+    ],
+)
+def test_rng_many_places_for_one_element_decide(xml: str, *, valid: bool) -> None:
+    assert rng_ok(_places(6), xml) is valid
+
+
+def _places(count: int) -> str:
+    leaf = '<optional><element name="v"><optional><attribute name="a"/></optional></element></optional>'
+    return _crossed_chain(leaf, '<group><ref name="d0"/><text/></group>', "group", count=count)
+
+
+def test_rng_too_many_places_for_one_element_raises() -> None:
+    with pytest.raises(ValueError, match="too ambiguous"):
+        RelaxNG(_places(10)).validate(parse_xml('<r><v a="2"/></r>'))
+
+
+def test_rng_too_many_places_scale_linearly(work_steps: WorkSteps) -> None:
+    document = parse_xml("<r><v/><v/></r>")
+    work_steps.assert_linear(lambda n: partial(_validate_rejected, RelaxNG(_places(n)), document), (10, 20))
+
+
+def _validate_rejected(schema: RelaxNG, document: Document) -> None:
+    with pytest.raises(ValueError, match="too ambiguous"):
+        schema.validate(document)
+
+
+@pytest.mark.parametrize(
     ("schema", "xml"),
     [
         pytest.param(

@@ -36,6 +36,7 @@ class _Schema:
 
         :param document: the parsed document or element to check.
         :returns: whether the document satisfies the schema.
+        :raises ValueError: if a RELAX NG content model is too ambiguous to validate.
         """
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
@@ -45,6 +46,7 @@ class _Schema:
 
         :param document: the parsed document or element to check.
         :raises SchemaValidationError: if the document is invalid.
+        :raises ValueError: if a RELAX NG content model is too ambiguous to validate.
         """
         result = self.validate(document)
         if not result.valid:
@@ -56,6 +58,7 @@ class _Schema:
 
         :param document: the parsed document or element to check.
         :returns: the validation outcome, its verdict and the errors found.
+        :raises ValueError: if a RELAX NG content model is too ambiguous to validate.
         """
         valid, errors = _schema_validate(self._compiled, document)
         return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
