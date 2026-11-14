@@ -128,8 +128,13 @@ def test_search_restarts_a_dead_worker_and_stops_at_the_cap(
         process=partial(SeamProcess, kind="crash-once", marker=marker),
     )
     summary = [line.split(",")[0] for line in capfd.readouterr().out.splitlines() if line.startswith("search: ")]
-    findings = [json.loads(path.read_text(encoding="utf-8"))["finding"] for path in tmp_path.glob("crash-*.json")]
-    assert (code, summary, findings) == (1, ["search: 1 shapes over 1 targets"], ["abort"])
+    records = [json.loads(path.read_text(encoding="utf-8")) for path in tmp_path.glob("crash-*.json")]
+    aborts = [(record["finding"], record["exitcode"], record["log"]) for record in records]
+    assert (code, summary, aborts) == (
+        1,
+        ["search: 1 shapes over 1 targets"],
+        [("abort", 1, "crash-worker-0.log")],
+    )
 
 
 @pytest.mark.usefixtures("controls")

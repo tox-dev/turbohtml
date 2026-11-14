@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+from contextlib import nullcontext
 from multiprocessing.context import SpawnProcess
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from fuzz.amplify import TARGETS, Target
@@ -11,15 +12,17 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
 
+    from fuzz.amplify import _Budget  # simplint: ignore[private-import-path]  # the worker's budget type
+
 
 class SeamProcess(SpawnProcess):
     # A spawned worker starts with none of the parent's patches, so it installs the fake clock and its probe itself
     def __init__(
         self,
         *,
-        kind: str,
+        kind: Literal["quadratic", "crash-once"],
         marker: Path,
-        target: Callable[[Sequence[str], Any, str, Path], None],
+        target: Callable[[Sequence[str], _Budget, str, Path], None],
         args: tuple[object, ...],
     ) -> None:
         super().__init__(target=target, args=args)
@@ -31,10 +34,11 @@ class SeamProcess(SpawnProcess):
         with pytest.MonkeyPatch.context() as patch:
             patch.setitem(TARGETS, "probe", build_probe(self.kind, clock, self.marker))
             patch.setattr("time.thread_time", lambda: clock[0])
+            patch.setattr("fuzz.amplify._watchdog", nullcontext)
             super().run()
 
 
-def build_probe(kind: str, clock: list[float], marker: Path) -> Target:
+def build_probe(kind: Literal["quadratic", "crash-once"], clock: list[float], marker: Path) -> Target:
     if kind == "quadratic":
         return Target(run=charging(clock, quadratic_cost), sources=TARGETS["url"].sources)
 
