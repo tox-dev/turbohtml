@@ -569,7 +569,7 @@ def test_repeated_body_tags_merge_in_time_linear_in_attributes() -> None:
 def _fastest_parse(markup: str) -> float:
     timings: Final[list[float]] = []
     for _ in range(3):
-        start: Final = time.perf_counter()
+        start = time.perf_counter()
         parse(markup)
         timings.append(time.perf_counter() - start)
     return min(timings)
