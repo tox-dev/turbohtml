@@ -3765,12 +3765,13 @@ static int balancer_block_closes_open_p(const th_node *element) {
     return 0;
 }
 
-/* An option or optgroup start tag closes the current option or optgroup, but not one behind another open element. */
-static int balancer_option_autocloses(const th_node *element) {
+/* An option or optgroup start tag closes the current option or optgroup, but not one behind another open element. The
+   parent is passed in because the walk judges a child before its escaped ancestor leaves the tree, so the tree parent
+   can still be that ancestor. */
+static int balancer_option_autocloses(const th_node *element, const th_node *parent) {
     if (element->atom != TH_TAG_OPTION && element->atom != TH_TAG_OPTGROUP) {
         return 0;
     }
-    const th_node *parent = element->parent;
     return parent->ns == TH_NS_HTML &&
            (parent->atom == TH_TAG_OPTION || (element->atom == TH_TAG_OPTGROUP && parent->atom == TH_TAG_OPTGROUP));
 }
@@ -4025,7 +4026,7 @@ static int balancer_structurally_unstable(const th_node *element) {
     if (balancer_is_heading(atom) && parent->ns == TH_NS_HTML && balancer_is_heading(parent->atom)) {
         return 1;
     }
-    return balancer_block_closes_open_p(element) || balancer_option_autocloses(element) ||
+    return balancer_block_closes_open_p(element) || balancer_option_autocloses(element, parent) ||
            balancer_closes_select(element) || balancer_button_nested(element) ||
            balancer_implied_end_closes_parent(element) || balancer_form_dropped(element) ||
            balancer_formatting_reopens(element) || balancer_table_part_orphaned(element);
@@ -4054,7 +4055,7 @@ static int balancer_context_breaks(const th_node *element, balance_context conte
     if (rule & bits & ~(uint32_t)(CONTEXT_OPTION | CONTEXT_OPTION_GROUP)) {
         return 1;
     }
-    if ((rule & bits & (CONTEXT_OPTION | CONTEXT_OPTION_GROUP)) && balancer_option_autocloses(element)) {
+    if ((rule & bits & (CONTEXT_OPTION | CONTEXT_OPTION_GROUP)) && balancer_option_autocloses(element, parent)) {
         return 1;
     }
     if (!(rule & RULE_BEYOND_BITS)) {
