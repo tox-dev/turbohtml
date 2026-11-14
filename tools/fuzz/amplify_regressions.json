@@ -926,5 +926,20 @@
       "tail": "')",
       "counter": true
     }
+  },
+  {
+    "name": "xslt-attribute-copy",
+    "source": "https://github.com/tox-dev/turbohtml/blob/498cb854ced88a2fa17384d07037a92628f7a5ac/src/turbohtml/_c/dom/mutate.c#L315",
+    "targets": [
+      "xslt"
+    ],
+    "base": 49152,
+    "shape": {
+      "kind": "repeat",
+      "head": "<r",
+      "left": " k{n}=''",
+      "tail": "/>",
+      "counter": true
+    }
   }
 ]
