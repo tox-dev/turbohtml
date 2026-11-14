@@ -582,6 +582,104 @@ def test_noahs_ark_compares_empty_attribute_values(markup: str, expected: str) -
     assert body.inner_html == expected
 
 
+# Twelve distinct open formatting elements keep the list long enough that a push looks its duplicates up in the hash
+# set instead of comparing against each entry.
+_LISTED: Final[str] = "".join(f'<u id="{index}">' for index in range(12))
+
+
+def _colliding(index: int) -> str:
+    # these code points agree in their low 20 bits, which the hash's low slot bits read, so the values collide
+    return "".join("\U00100071" if index >> bit & 1 else "q" for bit in range(12))
+
+
+def _closed(tag: str, first: int, count: int) -> str:
+    return "".join(f'<{tag} t="{_colliding(index)}"></{tag}>' for index in range(first, first + count))
+
+
+def _marked_level(level: int) -> str:
+    # the template puts a marker in front of 50 entries that stay listed once </span> pops them off the stack
+    entries = "".join(f'<b t="{_colliding(50 * level + index)}">' for index in range(50))
+    return f"<template><span>{entries}</span>"
+
+
+def _behind_markers(count: int) -> str:
+    levels = "".join(_marked_level(level) for level in range(count // 100))
+    return f"{levels}<template>{_LISTED}{_closed('b', 4000 - count, count)}"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(lambda count: f"<u>{_closed('s', 0, count)}", id="one-open-entry"),
+        pytest.param(lambda count: _LISTED + _closed("s", 0, count), id="long-list"),
+        pytest.param(
+            lambda count: f'<font face="{"z" * 8 * count}">{_LISTED}{_closed("s", 0, count)}', id="long-value"
+        ),
+        pytest.param(_behind_markers, id="entries-behind-markers"),
+    ],
+)
+def test_formatting_elements_push_in_linear_steps(source: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<p><em><em><em><s></s><em></p>z",
+            "<p><em><em><em><s></s><em></em></em></em></em></p><em><em><em>z</em></em></em>",
+            id="after-removal",
+        ),
+        pytest.param(
+            "<div><p><em><em><em></p>z<em></div>w",
+            "<div><p><em><em><em></em></em></em></p><em><em><em>z<em></em></em></em></em></div>"
+            "<em><em><em>w</em></em></em>",
+            id="after-reconstruction",
+        ),
+        pytest.param(
+            "<p><em><em><em><table><tr><td><em></td></tr></table><em></p>z",
+            "<p><em><em><em><table><tbody><tr><td><em></em></td></tr></tbody></table><em></em></em></em></em></p>"
+            "<em><em><em>z</em></em></em>",
+            id="after-cell",
+        ),
+        pytest.param(
+            # the cell's own twelve entries put the hash set in use, and its end returns to entries the set never held
+            f"<p><em><em><em><table><tr><td>{_LISTED}</td></tr></table><em></p>z",
+            f"<p><em><em><em><table><tbody><tr><td>{_LISTED}{'</u>' * 12}</td></tr></tbody></table><em></em></em></em>"
+            "</em></p><em><em><em>z</em></em></em>",
+            id="after-long-cell",
+        ),
+        pytest.param(
+            "<p><em><em><em><div></em><em></div></p>z",
+            "<p><em><em><em></em></em></em></p><div><em><em><em></em></em></em></div><p></p>"
+            "<em><em><em>z</em></em></em>",
+            id="after-adoption-bookmark",
+        ),
+        pytest.param(
+            "<div><a><em><em><em><p>y</a><em></p></div>z",
+            "<div><a><em><em><em></em></em></em></a><em><em><em><p><a>y</a><em></em></p></em></em></em></div>"
+            "<em><em><em>z</em></em></em>",
+            id="after-adoption-clones",
+        ),
+        pytest.param(
+            "<p><em><em><em><template><em></template><em></p>z",
+            "<p><em><em><em><template><em></em></template><em></em></em></em></em></p><em><em><em>z</em></em></em>",
+            id="after-template",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("prefix", "container"),
+    [pytest.param("", "body", id="scanned"), pytest.param(_LISTED, 'u[id="11"]', id="hashed")],
+)
+def test_noahs_ark_reopens_three_identical_entries(markup: str, expected: str, prefix: str, container: str) -> None:
+    # the fourth em drops the earliest from the list, so the text reopens three; behind twelve open entries the
+    # duplicate lookup goes through the hash set and its cached keys, which must agree with the scan
+    element = parse(prefix + markup).select_one(container)
+    assert isinstance(element, Element)
+    assert element.inner_html == expected
+
+
 def test_colgroup_fragment_keeps_whitespace_after_ignored_characters() -> None:
     # with no colgroup to pop, each non-whitespace character is ignored in "in column group" and the
     # whitespace between them is still inserted
