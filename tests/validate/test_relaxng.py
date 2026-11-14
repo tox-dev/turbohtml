@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -12,6 +12,8 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -1000,12 +1002,15 @@ def _wildcards_outnumber_exact(count: int) -> str:
         pytest.param(_except_wildcard_pair, id="except-class-against-a-wildcard"),
     ],
 )
-def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], str]) -> None:
+def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], str], work_steps: WorkSteps) -> None:
     schema = builder(20000)
-    start = time.perf_counter()
-    with pytest.raises(ValueError, match="too large to check interleave branches"):
-        RelaxNG(schema)
-    assert time.perf_counter() - start < 5.0
+
+    def reject() -> None:
+        with pytest.raises(ValueError, match="too large to check interleave branches"):
+            RelaxNG(schema)
+
+    # nc_holds and nc_overlap tick per visit while the budget counts units, so visits can pass the limit: 1.30x at most
+    assert 0 < work_steps(reject) <= 2 * (1 << 25)
 
 
 def test_rng_shared_unions_stay_accepted() -> None:
@@ -1054,32 +1059,16 @@ def _chained_unions(depth: int) -> str:
     return rgrammar(f"{start}{chained}")
 
 
-def test_rng_same_structure_wildcards_scale_linearly() -> None:
-    timings = []
-    for count in (2000, 8000):
+def test_rng_same_structure_wildcards_scale_linearly(work_steps: WorkSteps) -> None:
+    def wildcards(count: int) -> str:
         alts = "".join(f'<element><nsName ns="urn:a"/><attribute name="v{index}"/></element>' for index in range(count))
-        schema = rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            RelaxNG(schema)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < 9 * timings[0]
+        return rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
+
+    work_steps.assert_linear(lambda n: partial(RelaxNG, wildcards(n)), (2000, 8000), exponent=1.3)
 
 
-def test_rng_chain_of_interleaves_scales_linearly() -> None:
-    schema_small = _interleave_chain(500)
-    schema_large = _interleave_chain(2000)
-    timings = []
-    for schema in (schema_small, schema_large):
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            RelaxNG(schema)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < 9 * timings[0]
+def test_rng_chain_of_interleaves_scales_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(RelaxNG, _interleave_chain(n)), (500, 2000), exponent=1.3)
 
 
 def _interleave_chain(count: int) -> str:
@@ -1325,11 +1314,13 @@ def test_rng_restricted_grammar_compiles_and_validates(schema: str, xml: str, *,
 
 def rshared(leaf: str, content: str = '<ref name="d0"/>', combine: str = "group", *, count: int) -> str:
     defines = "".join(
-        f'<define name="d{index}"><{combine}><ref name="d{index + 1}"/><ref name="d{index + 1}"/></{combine}></define>'
+        f'<define name="d{index}"><{combine}><ref name="d{index + 1}"/><ref name="e{index + 1}"/></{combine}></define>'
+        f'<define name="e{index}"><{combine}><ref name="e{index + 1}"/><ref name="d{index + 1}"/></{combine}></define>'
         for index in range(count)
     )
     return rgrammar(
-        f'<start><element name="r">{content}</element></start>{defines}<define name="d{count}">{leaf}</define>'
+        f'<start><element name="r">{content}</element></start>{defines}'
+        f'<define name="d{count}">{leaf}</define><define name="e{count}">{leaf}</define>'
     )
 
 
@@ -1377,16 +1368,16 @@ def _attribute_doc(count: int) -> str:
             id="list-token-rejected",
         ),
         pytest.param(
-            rwrap("<optional><attribute><anyName/></attribute></optional>" * 12),
-            _attribute_doc(12),
+            rwrap('<optional><attribute><nsName ns=""/></attribute></optional>' * 9),
+            _attribute_doc(9),
             True,
-            id="wildcard-attributes-without-defines",
+            id="namespace-attributes-without-defines",
         ),
         pytest.param(
-            rwrap("<optional><attribute><anyName/></attribute></optional>" * 12),
-            _attribute_doc(13),
+            rwrap('<optional><attribute><nsName ns=""/></attribute></optional>' * 9),
+            _attribute_doc(10),
             False,
-            id="one-wildcard-attribute-too-many",
+            id="one-namespace-attribute-too-many",
         ),
     ],
 )
@@ -1558,18 +1549,9 @@ def _interleaved_ladder(*, first: bool) -> str:
     return rshared("<text/>", f"<interleave>{walk}</interleave>", count=11)
 
 
-def test_rng_shared_defines_scale_linearly() -> None:
-    timings = []
-    for count in (16, 26):
-        schema = RelaxNG(rshared("<empty/>", count=count))
-        document = parse_xml("<r/>")
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            schema.validate(document)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < max(0.05, 9 * timings[0])
+def test_rng_shared_defines_scale_linearly(work_steps: WorkSteps) -> None:
+    document = parse_xml("<r/>")
+    work_steps.assert_linear(lambda n: partial(RelaxNG(rshared("<empty/>", count=n)).validate, document), (12, 24))
 
 
 @pytest.mark.parametrize(

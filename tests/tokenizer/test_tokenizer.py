@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gc
 import threading
-import time
+from functools import partial
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -12,6 +12,8 @@ from turbohtml import Token, Tokenizer, TokenType, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+
+    from work_steps import WorkSteps
 
 
 def test_tokenize_simple_document() -> None:
@@ -704,23 +706,9 @@ def test_token_attrs_returns_fresh_list(document: str) -> None:
     assert token.attrs == expected
 
 
-# Large enough that the old O(n^2) scan would take tens of seconds even on an
-# instrumented build, so a regression cannot slip under the wall-clock ceiling; the
-# linear path parses it in well under a second.
-_MANY: Final[int] = 60000
-
-
-# Headroom is ~30x over the linear cost and ~5x under the quadratic one, so ordinary
-# CI scheduling jitter cannot flip the result either way.
-_BUDGET_SECONDS: Final[float] = 6.0
-
-
-def test_many_distinct_attributes_parse_in_linear_time() -> None:
-    pairs = "".join(f" a{index}" for index in range(_MANY))
-    start = time.perf_counter()
-    attrs = _attrs_of(pairs)
-    assert time.perf_counter() - start < _BUDGET_SECONDS
-    assert len(attrs) == _MANY  # every distinct name is kept, none dropped
+def test_many_distinct_attributes_parse_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(_attrs_of, "".join(f" a{i}" for i in range(n))), (2000, 8000))
+    assert len(_attrs_of("".join(f" a{index}" for index in range(8000)))) == 8000  # every distinct name is kept
 
 
 def _attrs_of(pairs: str) -> list[tuple[str, str]]:
@@ -735,7 +723,7 @@ def test_many_distinct_attributes_keep_their_names_and_order() -> None:
 
 
 def test_many_duplicate_attributes_collapse_to_the_first() -> None:
-    assert _attrs_of(" x" * _MANY) == [("x", "")]  # duplicates dropped early, count never grows
+    assert _attrs_of(" x" * 60_000) == [("x", "")]  # duplicates dropped early, count never grows
 
 
 def test_interleaved_duplicates_keep_first_occurrence_order() -> None:

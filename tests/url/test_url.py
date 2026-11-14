@@ -754,6 +754,35 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         pytest.param(
             "HTTPS:%2E/..?q=x", "https://example.org/dir/file", "https://example.org/?q=x", id="uppercase-encoded-dot"
         ),
+        pytest.param(
+            "https:https:%2e/x",
+            "https://example.org/dir/file",
+            "https://example.org/dir/https:%2e/x",
+            id="same-scheme-repeated-scheme-is-path",
+        ),
+        pytest.param(
+            "https:http://other.org/%2e",
+            "https://example.org/dir/file",
+            "https://example.org/dir/http://other.org/",
+            id="same-scheme-foreign-url-is-path",
+        ),
+        pytest.param(
+            "https:mailto:a/%2e%2e/x",
+            "https://example.org/dir/file",
+            "https://example.org/dir/x",
+            id="same-scheme-opaque-url-is-path",
+        ),
+        pytest.param(
+            "https:foo:%2e%2e/../x", "https://example.org/dir/file", "https://example.org/dir/x", id="same-scheme-colon"
+        ),
+        pytest.param(
+            "https:b\\c:d/%2e", "https://example.org/dir/file", "https://example.org/dir/b/c:d/", id="late-colon"
+        ),
+        pytest.param("https:%2e?a:b", "https://example.org/dir/file", "https://example.org/dir/?a:b", id="query-colon"),
+        pytest.param(
+            "https:%2e#a:b", "https://example.org/dir/file", "https://example.org/dir/#a:b", id="fragment-colon"
+        ),
+        pytest.param("https:%2e%2e", "https://example.org/dir/file", "https://example.org/", id="bare-parent"),
         pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
         pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
         pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
@@ -929,6 +958,15 @@ def test_meta_refresh_resolves_encoded_dot_segments() -> None:
     assert parse('<meta http-equiv=refresh content="0;url=/a/%2e%2e/..">').meta_refresh("https://example.org/.") == (
         0.0,
         "https://example.org/",
+    )
+
+
+def test_meta_refresh_same_scheme_keeps_tabbed_url_a_path() -> None:
+    # unlike base_url(), meta_refresh() hands the tab on, and the join's scheme scan reads through it
+    html = '<meta http-equiv=refresh content="0;url=https:ht\ttp://other.org/%2e/x">'
+    assert parse(html).meta_refresh("https://example.org/dir/file") == (
+        0.0,
+        "https://example.org/dir/http://other.org/x",
     )
 
 

@@ -10,6 +10,8 @@
 #ifndef TURBOHTML_VALIDATE_RELAXNG_H
 #define TURBOHTML_VALIDATE_RELAXNG_H
 
+#include "core/work_steps.h"
+
 /* The step bodies inline into the hot walk and into their memo functions. A debug build keeps one copy, as
    CSS_FORCEINLINE does, because gcc counts a body's branches once per copy and the coverage gate needs them all. */
 #if defined(_MSC_VER)
@@ -1006,6 +1008,7 @@ static RNG_FORCEINLINE int rng_nullable(th_schema *schema, pattern *p) {
 }
 
 static RNG_NOINLINE int rng_nullable_walk(th_schema *schema, pattern *p) {
+    TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_nullable_step(schema, p);
     }
@@ -1128,6 +1131,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, co
 }
 
 static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+    TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_text_deriv_step(schema, p, value, len);
     }
@@ -1206,7 +1210,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
         return rng_list_deriv(schema, p, value, len);
     case P_REF: /* the compile-time 4.19 check rules out a ref that recurses here without an element */
         return rng_text_deriv(schema, rng_resolve(schema, p->def_index), value, len);
-    default: /* a text event starts at an After pattern, so a value only comes through the wrapper */
+    default: /* a failed start tag leaves NotAllowed where the text event starts */
         return schema->p_notallowed;
     }
 }
@@ -1232,6 +1236,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open(th_schema *schema, pattern *p
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern *p, const qname *name) {
+    TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_start_tag_open_step(schema, p, name);
     }
@@ -1319,6 +1324,7 @@ static RNG_FORCEINLINE pattern *rng_att_deriv(th_schema *schema, pattern *p, con
 
 static RNG_NOINLINE pattern *rng_att_walk(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
                                           Py_ssize_t len) {
+    TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_att_deriv_step(schema, p, name, value, len);
     }
@@ -1364,6 +1370,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close(th_schema *schema, pattern *
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_close_walk(th_schema *schema, pattern *p) {
+    TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_start_tag_close_step(schema, p);
     }
@@ -2020,6 +2027,7 @@ static int ns_table_grow(th_schema *schema) {
 /* The canonical node for `name` over these children. An equal node already built is returned, so equal treaps share
    one root and a union meets shared subtrees as the same pointer. */
 static nsnode *ns_make(th_schema *schema, const nameclass *name, nsnode *left, nsnode *right) {
+    TH_WORK_STEP();
     if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in make; reachable, hard to pin */
         return NULL;                /* GCOVR_EXCL_LINE */
     }
@@ -2056,6 +2064,7 @@ static nsnode *ns_make(th_schema *schema, const nameclass *name, nsnode *left, n
 /* Splits the treap at `name` into the nodes ordered before it and those ordered after. A node equal to `name` is
    dropped, which lets a union split the other side without keeping its duplicate. */
 static int ns_split(th_schema *schema, nsnode *node, const nameclass *name, nsnode **below, nsnode **above) {
+    TH_WORK_STEP();
     if (node == NULL) {
         *below = NULL;
         *above = NULL;
@@ -2099,6 +2108,7 @@ static int ns_split(th_schema *schema, nsnode *node, const nameclass *name, nsno
 /* The union of two treaps as one canonical treap. A subtree both sides hold is the same node on each, so the recursion
    stops there: a union of sets that differ in a few names costs about the size of the difference. */
 static int ns_union(th_schema *schema, nsnode *first, nsnode *second, nsnode **out) {
+    TH_WORK_STEP();
     if (first == NULL) {
         *out = second;
         return 0;
@@ -2728,6 +2738,7 @@ static int nc_name_eq(const nameclass *left, const nameclass *right) {
    namespace for an <nsName>, and a name in a namespace nothing mentions for an <anyName>. Loops down the left spine,
    which is as long as a <choice> has names. */
 static int nc_holds(const nameclass *nc, const nameclass *probe, Py_ssize_t *work) {
+    TH_WORK_STEP();
     for (;; nc = nc->a) {
         switch (nc->type) {
         case NC_ANY:
@@ -2774,6 +2785,7 @@ static int nc_overlap_at(const nameclass *part, const nameclass *left, const nam
    so testing one representative per leaf decides it, as jing's OverlapDetector does. The comparisons read names, and
    their length is added to `work`. */
 static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t *work) {
+    TH_WORK_STEP();
     return nc_overlap_at(left, left, right, work) | nc_overlap_at(right, left, right, work);
 }
 

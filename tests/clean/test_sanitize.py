@@ -3,9 +3,9 @@ from __future__ import annotations
 import gc
 import json
 import re
-import time
 import weakref
 from dataclasses import dataclass, replace
+from functools import partial
 from html import escape
 from pathlib import Path
 from types import MappingProxyType
@@ -35,6 +35,8 @@ from turbohtml.migration.bleach import clean
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+
+    from work_steps import WorkSteps
 
     from turbohtml import Node
 
@@ -91,6 +93,36 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
         "&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;</div>"
     )
     assert sanitize_node(root, Policy(tags=frozenset({"div", "tr", "td", "span"}))).html == expected
+
+
+def test_deep_unwrap_agrees_between_string_and_node_walks() -> None:
+    # both walks defer the settle of an unwrap this deep, so each judges the blockquote once the p above it is gone
+    source: Final = f"{'<section>' * 40}<p><object><blockquote>x"
+    expected: Final = f"{'&lt;section&gt;' * 40}&lt;p&gt;&lt;object&gt;<blockquote>x</blockquote>"
+    assert (sanitize(source), sanitize_node(parse_fragment(source)).inner_html) == (expected, expected)
+
+
+def test_deep_unwrap_under_kept_ancestors_is_balanced_after_the_walk() -> None:
+    # no shallower unwrap re-checks the list item the object hid, so the pass after the walk has to escape it
+    source: Final = f"{'<div>' * 40}<li><object><li>x"
+    expected: Final = f"{'<div>' * 40}<li>&lt;object&gt;&lt;li&gt;x</li>{'</div>' * 40}"
+    policy: Final = Policy(tags=frozenset({"div", "li"}))
+    assert (sanitize(source, policy), sanitize_node(parse_fragment(source), policy).inner_html) == (expected, expected)
+
+
+def test_deep_unwrap_is_balanced_past_an_element_that_escapes_to_nothing() -> None:
+    # the deferred object unwrap exposes links behind an implied, empty one: the later passes have to reach them too
+    source: Final = f"<dd>{'<u>' * 31}<a><object><b><a><dt><dl><dl><a></b>"
+    once: Final = sanitize(source)
+    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source)).inner_html) == (once, once)
+
+
+def test_deep_unwrap_in_table_context_settles_in_place() -> None:
+    # the unwrapped row sits in a table context, which fosters its children, so its settle stays in place this deep
+    source: Final = f"{'<div>' * 40}<table><tr><td>x"
+    policy: Final = Policy(tags=frozenset({"table", "td"}))
+    once: Final = sanitize(source, policy)
+    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
 
 @pytest.mark.parametrize(
@@ -2536,22 +2568,13 @@ def test_annotation_xml_encoding_selects_integration_point(html: str, expected: 
         pytest.param(' encoding="application/xhtml+xml"', id="application-xhtml-xml"),
     ],
 )
-def test_annotation_xml_integration_check_is_linear_in_children(encoding: str) -> None:
-    # The sanitizer asks whether an annotation-xml parent is an integration point for each child, and that answer used
-    # to rescan the parent's attributes each time. The control closes the element before the children, so it pays the
-    # same attribute costs without the per-child check. The floor keeps a fast control from inflating the ratio.
-    count: Final = 40_000
-    attributes = " ".join(f"a{index}" for index in range(count))
-    open_tag = f"<math><annotation-xml {attributes}{encoding}>"
-    children = "<i>x</i>" * count
-    control = min(_sanitize_seconds(f"{open_tag}</annotation-xml>{children}") for _ in range(3))
-    assert min(_sanitize_seconds(f"{open_tag}{children}") for _ in range(3)) < 10 * max(control, 0.01)
+def test_annotation_xml_integration_check_is_linear_in_children(encoding: str, work_steps: WorkSteps) -> None:
+    def markup(count: int) -> str:
+        attributes = " ".join(f"a{index}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'<i>x</i>' * count}"
 
-
-def _sanitize_seconds(markup: str) -> float:
-    start = time.perf_counter()
-    sanitize(markup)
-    return time.perf_counter() - start
+    work_steps.assert_linear(lambda n: partial(sanitize, markup(n)), (500, 2000))
+    assert work_steps(partial(sanitize, markup(500))) >= 500
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
@@ -3235,6 +3258,8 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<dd><header><b><dt>x", frozenset({"dd", "dt", "b"}), id="dt-behind-unwrapped-barrier"),
     pytest.param("<p><button><b><div>x", frozenset({"p", "b", "div"}), id="block-behind-unwrapped-button"),
     pytest.param("<a><object><b><a>x", frozenset({"a", "b"}), id="link-behind-unwrapped-marker"),
+    # the implied link under the li escapes to nothing, and the scan must still reach the link under the ul
+    pytest.param("<a><object><b><a><li><ul></a></b>", frozenset({"a", "b", "li", "ul"}), id="link-after-empty-escape"),
     pytest.param("<nobr><object><b><nobr>x", frozenset({"nobr", "b"}), id="nobr-behind-unwrapped-marker"),
     pytest.param("<button><select><i><button>x", frozenset({"button"}), id="button-in-button"),
     pytest.param("<optgroup><optgroup>", frozenset({"optgroup"}), id="nested-optgroup-reopens"),
