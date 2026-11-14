@@ -582,6 +582,21 @@ def test_noahs_ark_compares_empty_attribute_values(markup: str, expected: str) -
     assert body.inner_html == expected
 
 
+def test_closed_formatting_elements_push_in_linear_steps(work_steps: WorkSteps) -> None:
+    # these code points agree in their low 20 bits, which the hash's low slot bits read, so the values collide
+    def source(count: int) -> str:
+        values = ("".join("\U00100071" if index >> bit & 1 else "q" for bit in range(12)) for index in range(count))
+        elements = "".join(f'<s t="{value}"></s>' for value in values)
+        return f"<u>{elements}"
+
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+    body = parse(f"{source(3)}x").find("body")
+    assert body is not None
+    assert body.inner_html == (
+        '<u><s t="qqqqqqqqqqqq"></s><s t="\U00100071qqqqqqqqqqq"></s><s t="q\U00100071qqqqqqqqqq"></s>x</u>'
+    )
+
+
 def test_colgroup_fragment_keeps_whitespace_after_ignored_characters() -> None:
     # with no colgroup to pop, each non-whitespace character is ignored in "in column group" and the
     # whitespace between them is still inserted

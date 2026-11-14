@@ -1999,6 +1999,7 @@ static int afe_hash_add(th_tree *tree, const th_node *node) {
             if (hash != 0) {
                 size_t slot = (size_t)hash & (capacity - 1);
                 while (hashes[slot] != 0) {
+                    TH_WORK_STEP();
                     slot = (slot + 1) & (capacity - 1);
                 }
                 hashes[slot] = hash;
@@ -2011,6 +2012,7 @@ static int afe_hash_add(th_tree *tree, const th_node *node) {
     uint64_t hash = afe_hash(node);
     size_t slot = (size_t)hash & (tree->afe_hash_capacity - 1);
     while (tree->afe_hashes[slot] != 0) {
+        TH_WORK_STEP();
         if (tree->afe_hashes[slot] == hash) {
             return 1;
         }
@@ -2022,6 +2024,12 @@ static int afe_hash_add(th_tree *tree, const th_node *node) {
 }
 
 static int afe_push(th_tree *tree, th_node *node) {
+    /* An entry leaving the list keeps its hash until the next rebuild. Left alone, the table grows with every
+       formatting element the list has held, and since the low bits of FNV-1a follow the low bits of the input, a
+       document can seat all of them in one probe run that each later push walks. */
+    if (tree->afe_hash_count > 2 * (size_t)tree->afe_len + 64) {
+        tree->afe_hash_valid = 0;
+    }
     if (!tree->afe_hash_valid) {
         if (tree->afe_hash_capacity > 0) {
             memset(tree->afe_hashes, 0, tree->afe_hash_capacity * sizeof(uint64_t));
