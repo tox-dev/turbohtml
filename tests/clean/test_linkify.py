@@ -516,6 +516,20 @@ def test_find_keeps_a_balanced_brace_in_the_path() -> None:
 @pytest.mark.parametrize(
     "nest",
     [
+        pytest.param(f"{'(' * 32}x{')' * 32}", id="round"),
+        pytest.param(f"{'[' * 32}x{']' * 32}", id="square"),
+        pytest.param(f"{'{' * 32}x{'}' * 32}", id="curly"),
+        pytest.param(f"{'(' * 11}{'[' * 11}{'{' * 10}x{'}' * 10}{']' * 11}{')' * 11}", id="mixed"),
+    ],
+)
+def test_find_keeps_brackets_nested_to_the_depth_cap(nest: str) -> None:
+    text = f"http://example.com/{nest}"
+    assert _tuples(LinkDetector().find(text)) == [(0, len(text), text, text, False)]
+
+
+@pytest.mark.parametrize(
+    "nest",
+    [
         pytest.param(f"{'(' * 33}x{')' * 33}", id="round"),
         pytest.param(f"{'[' * 33}x{']' * 33}", id="square"),
         pytest.param(f"{'{' * 33}x{'}' * 33}", id="curly"),
@@ -536,7 +550,7 @@ def test_find_ends_a_link_before_brackets_nested_past_the_depth_cap(nest: str) -
     ],
 )
 def test_links_before_unclosed_brackets_scan_in_linear_time(link: str) -> None:
-    link_run = 4_000
+    link_run = 8_000
     # a space after each link ends every walk at its own link, so this run has the same links without re-reads
     unclosed = _fastest_seconds(link * link_run)
     separated = _fastest_seconds(f"{link} " * link_run)

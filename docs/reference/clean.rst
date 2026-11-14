@@ -269,7 +269,8 @@ to the built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascri
 ``phones`` turns on phone-number detection with ``tel:`` hrefs.
 
 A link keeps the parentheses, brackets and braces that balance inside its path, query and fragment, nested at most 32
-deep. A bracket opened past that depth ends the link before it, as an unclosed bracket does.
+deep. A link whose brackets nest more than 32 deep ends where an unclosed bracket would end it: at its last balanced
+character.
 
 .. autofunction:: linkify
 
