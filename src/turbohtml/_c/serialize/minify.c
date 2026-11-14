@@ -29,10 +29,11 @@ static int mini_is_preserve_atom(const th_node *node) {
 }
 
 /* The whitespace lanes of a 2-code-point word, folded into the same SWAR probe the
-   serializer uses for escapable characters so the collapse scan hops clean runs. */
+   serializer uses for escapable characters so the collapse scan hops clean runs. CR is
+   left to sbuf_special_mask, which already stops the hop on it. */
 static inline uint64_t mini_ws_mask(uint64_t word) {
     return swar_haslane32(word, ' ') | swar_haslane32(word, '\t') | swar_haslane32(word, '\n') |
-           swar_haslane32(word, '\f') | swar_haslane32(word, '\r');
+           swar_haslane32(word, '\f');
 }
 
 /* Whether a code point must be escaped when it appears in collapsed text: the
@@ -76,7 +77,7 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
             while (index + UCS4_LANES <= len) {
                 uint64_t word;
                 memcpy(&word, &text[index], sizeof(word));
-                if ((sbuf_special_mask(word, 0, escape_nbsp) | mini_ws_mask(word)) != 0) {
+                if ((sbuf_special_mask(word, escape_nbsp) | mini_ws_mask(word)) != 0) {
                     break;
                 }
                 index += UCS4_LANES;

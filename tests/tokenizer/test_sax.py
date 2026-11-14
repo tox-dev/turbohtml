@@ -55,6 +55,56 @@ class _Recorder(SaxHandler):
         self.events.append(ProcessingInstruction(target, data))
 
 
+@pytest.mark.parametrize(
+    ("markup", "attrs"),
+    [
+        pytest.param("<ul><li><i data-k=v>a<li>b<li>c</ul>", (("data-k", "v"),), id="list-item"),
+        pytest.param("<i data-k=v lang=en>1<div>2<div>3</i>4", (("data-k", "v"), ("lang", "en")), id="adoption-agency"),
+    ],
+)
+def test_clones_of_one_start_tag_share_one_attribute_tuple(markup: str, attrs: tuple[tuple[str, str], ...]) -> None:
+    # a tuple of new strings per clone is value length x clones
+    for starts in _attributed_starts(markup):
+        assert [start.attrs for start in starts] == [attrs] * 3
+        assert starts[1].attrs is starts[2].attrs
+
+
+def _attributed_starts(markup: str) -> list[list[StartElement]]:
+    recorder = _Recorder()
+    sax_parse(markup, recorder)
+    return [
+        [event for event in events if isinstance(event, StartElement) and event.attrs]
+        for events in (recorder.events, list(iter_events(markup)))
+    ]
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<ul><li><i title=one>a<li>b<li>c</i></ul><ul><li><i title=two>d<li>e<li>f</i></ul>",
+            [("i", (("title", "one"),))] * 3 + [("i", (("title", "two"),))] * 3,
+            id="same-name",
+        ),
+        pytest.param(
+            "<ul><li><i hidden>a<li>b<li>c</i></ul><ul><li><em hidden=until-found>d<li>e<li>f</em></ul>",
+            [("i", (("hidden", None),))] * 3 + [("em", (("hidden", "until-found"),))] * 3,
+            id="valueless",
+        ),
+        pytest.param(
+            "<ul><li>a<html lang=en><body class=c>",
+            [("html", (("lang", "en"),)), ("body", (("class", "c"),))],
+            id="implied-root",
+        ),
+    ],
+)
+def test_elements_without_a_start_tag_keep_their_own_attributes(
+    markup: str, expected: list[tuple[str, tuple[tuple[str, str | None], ...]]]
+) -> None:
+    for starts in _attributed_starts(markup):
+        assert [(start.tag, start.attrs) for start in starts] == expected
+
+
 def test_sax_parse_fires_every_event_and_order() -> None:
     recorder = _Recorder()
     sax_parse("<!DOCTYPE html><p>hi<br><!--c--><?pi?></p>", recorder)

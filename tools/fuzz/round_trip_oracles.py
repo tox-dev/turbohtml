@@ -889,10 +889,6 @@ def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | Non
     # controls, surrogates, U+FFFE/U+FFFF, ``--`` or a trailing ``-`` in a comment, non-XML attribute names) waives only
     # the tree comparison.
     document = parse(markup)
-    if sum(isinstance(node, Element) for node in document.children) != 1 or any(
-        isinstance(node, Text) for node in document.children
-    ):
-        raise OutOfScopeError
     if _xml_has_unbound_prefix(document):
         raise OutOfScopeError
     try:

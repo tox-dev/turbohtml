@@ -93,6 +93,8 @@ What cssselect has that turbohtml does not
 - ``:scope`` anywhere other than the leftmost compound. turbohtml translates ``:scope > div`` but raises
   ``ExpressionError`` for ``:scope`` deeper in a selector, matching cssselect's own leftmost-only behavior; neither is
   more general here.
+- ``css_to_xpath`` raises ``ExpressionError`` when the translated expression would pass 16,777,216 characters, a limit
+  cssselect does not have. Split a long selector list into several calls.
 
 Performance
 ===========

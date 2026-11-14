@@ -557,10 +557,16 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 PyObject *th_node_text_string(th_tree *tree, th_node *node);
 
+/* An element's attributes as a tuple of (name, value) pairs, shared by the clones of one start tag within a walk.
+   *shared is that walk's cache: NULL before the first call, released by the caller when the walk ends. A new
+   reference, or NULL with an exception set. */
+PyObject *th_node_attrs_tuple(th_tree *tree, th_node *node, PyObject **shared);
+
 /* Gather node's concatenated descendant text into a caller-sized, reusable UCS4
-   buffer (no allocation, no str), for the find(text=) literal/exact C scan. Returns -1
-   when realizing a zero-copy text span fails. */
-int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf);
+   buffer (no allocation, no str), for the find(text=) literal/exact C scan. Stores the
+   count of code points gathered in out_len; returns -1 when realizing a zero-copy text
+   span fails. */
+int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf, Py_ssize_t *out_len);
 
 /* Serialize node and its subtree as HTML (the WHATWG fragment serialization).
    For the document node this is the whole-document markup. PyMem-allocated;

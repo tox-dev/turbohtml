@@ -57,7 +57,8 @@ class GenericTranslator:
         :param css: the CSS selector list to translate.
         :param prefix: prepended to each arm of the translated union.
         :raises SelectorSyntaxError: the selector does not parse.
-        :raises ExpressionError: the selector parses but cannot be expressed in XPath 1.0.
+        :raises ExpressionError: the selector parses but cannot be expressed in XPath 1.0, or its expression would pass
+            16,777,216 characters.
         :returns: the XPath 1.0 expression.
         """
         return css_to_xpath(css, prefix=prefix)
@@ -85,7 +86,11 @@ def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
 
 
 class ExpressionError(SelectorError, RuntimeError):
-    """The selector is valid CSS but has no XPath 1.0 equivalent (for example ``:dir()`` or ``*:first-of-type``)."""
+    """
+    The selector is valid CSS but has no XPath 1.0 equivalent, or its XPath would pass 16,777,216 characters.
+
+    For example ``:dir()`` or ``*:first-of-type`` has no equivalent.
+    """
 
 
 class HTMLTranslator(GenericTranslator):

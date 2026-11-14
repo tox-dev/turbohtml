@@ -98,10 +98,10 @@ What urlextract has that turbohtml does not
 - ``ignore_list`` and ``permit_list``. Filter the returned spans on ``span.url``, which is the set membership test
   urlextract runs over its own results.
 - A configurable result cap. ``_limit`` and ``URLExtractError`` guard against a pathological input; the C scan is a
-  single linear pass, so there is no blow-up to cap.
+  single linear pass, so there is no result count to cap.
 - Tunable boundaries: ``set_stop_chars_left``/``set_stop_chars_right``, ``set_after_tld_chars`` and ``add_enclosure``.
-  turbohtml's rules are fixed -- brackets, parentheses and braces balance, and trailing sentence punctuation is trimmed
-  -- and are not configurable.
+  turbohtml's rules are fixed -- brackets, parentheses and braces balance up to 32 levels deep, and trailing sentence
+  punctuation is trimmed -- and are not configurable.
 - ``update()`` and ``update_when_older()``. The table moves when you upgrade turbohtml. Pass ``tlds=`` for a suffix IANA
   does not list.
 - A command-line entry point. urlextract ships a ``urlextract`` command; turbohtml's CLI has no link-extraction

@@ -1,0 +1,1 @@
+Sanitized markup now re-parses to the same tree when an option or optgroup would otherwise nest inside an option.

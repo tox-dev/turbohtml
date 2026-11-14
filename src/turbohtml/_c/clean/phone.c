@@ -2138,9 +2138,6 @@ static int context_prefix(th_phone_read read, const void *text, size_t value, si
     return prefix->len > 1 ? 1 : -1;
 }
 
-/* MAX_INPUT_STRING_LENGTH: parse refuses a longer string before reading any of it. */
-#define MAX_PARSE_CHARS 250
-
 /* UNWANTED_END_CHAR_PATTERN: a trailing character that is neither a number, a letter nor `#`. */
 static int is_unwanted_end(uint32_t code) {
     return !is_number_mark(code) && !is_letter(code) && code != '#';
@@ -2252,7 +2249,7 @@ static void normalize_number(const candidate_text *number, size_t start, size_t 
 int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
                    th_phone_match *match) {
     candidate_text number;
-    if (end - start > MAX_PARSE_CHARS || !number_to_parse(read, text, start, end, &number)) {
+    if (end - start > TH_PHONE_MAX_PARSE_CHARS || !number_to_parse(read, text, start, end, &number)) {
         return 0;
     }
     size_t plus_end = 0;

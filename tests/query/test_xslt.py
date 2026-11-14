@@ -5,7 +5,6 @@ import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs the fixed interpreter on in-repository stylesheets
 import sys
 import threading
-import timeit
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -23,6 +22,8 @@ from turbohtml.transform import Transform, strparam, transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Node
 
@@ -117,9 +118,9 @@ def test_transform_choose_without_otherwise_falls_through() -> None:
     assert _run("<r/>", body) == "[]"
 
 
-def test_transform_test_of_a_path_grows_linearly() -> None:
-    # Compares the time for a stylesheet whose tests walk the following axes with the time for the same stylesheet with
-    # self:: tests, both run on one source of 16,000 i elements.
+def test_transform_test_of_a_path_grows_linearly(work_steps: WorkSteps) -> None:
+    # Compares the steps for a stylesheet whose tests walk the following axes with the steps for the same stylesheet
+    # with self:: tests, both run on one source of 16,000 i elements.
     template: Final = (
         '<xsl:template match="/"><xsl:for-each select="r/i"><xsl:choose>'
         '<xsl:when test="{sibling}">.</xsl:when><xsl:otherwise>]</xsl:otherwise></xsl:choose>'
@@ -128,9 +129,7 @@ def test_transform_test_of_a_path_grows_linearly() -> None:
     source: Final = turbohtml.parse_xml(f"<r>{'<i/>' * 16_000}</r>")
     expensive: Final = Transform(_sheet(template.format(sibling="following-sibling::i", following="following::i")))
     reference: Final = Transform(_sheet(template.format(sibling="self::i", following="self::i")))
-    expensive_seconds: Final = min(timeit.repeat(partial(expensive, source), number=1, repeat=3))
-    reference_seconds: Final = min(timeit.repeat(partial(reference, source), number=1, repeat=3))
-    assert expensive_seconds / reference_seconds < 20
+    work_steps.assert_within(partial(expensive, source), partial(reference, source), factor=20)
 
 
 def test_transform_test_and_select_of_one_expression_keep_their_own_results() -> None:
@@ -806,6 +805,18 @@ def test_transform_current_attribute() -> None:
 def test_transform_generate_id_is_stable_per_node() -> None:
     body = '<xsl:template match="/"><xsl:value-of select="generate-id(//n) = generate-id(//n)"/></xsl:template>'
     assert _run("<r><n/></r>", body) == "true"
+
+
+def test_transform_generate_id_does_not_depend_on_node_address() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="//*"><xsl:value-of select="generate-id()"/>'
+        "<xsl:text> </xsl:text></xsl:for-each></xsl:template>"
+    )
+    convert = Transform(_sheet(body))
+    first, second = parse_xml("<r><n/><n/></r>"), parse_xml("<r><n/><n/></r>")  # both alive, so no shared address
+    ids = convert(first).split()
+    assert len(set(ids)) == 3
+    assert convert(second).split() == ids
 
 
 def test_transform_generate_id_empty_for_empty_node_set() -> None:
