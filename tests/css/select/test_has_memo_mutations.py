@@ -166,24 +166,27 @@ def _comparisons(doc: Document, state: dict[str, Element]) -> list[tuple[str, li
     reparsed: Final = parse(doc.html)
     body: Final = doc.select_one("body")
     reparsed_body: Final = reparsed.select_one("body")
-    assert body is not None and reparsed_body is not None
+    assert body is not None
+    assert reparsed_body is not None
     detached: Final = state.get("detached")
     pairs: list[tuple[str, list[str], list[str]]] = []
     for query in _QUERIES:
-        pairs.append((query, [node.html for node in doc.select(query)], [node.html for node in reparsed.select(query)]))
-        pairs.append(
-            (f"body {query}", [node.html for node in body.select(query)], [node.html for node in reparsed_body.select(query)])
-        )
+        pairs.extend((
+            (query, [node.html for node in doc.select(query)], [node.html for node in reparsed.select(query)]),
+            (
+                f"body {query}",
+                [node.html for node in body.select(query)],
+                [node.html for node in reparsed_body.select(query)],
+            ),
+        ))
         if detached is not None and detached.parent is None:
             reference_root: Final = parse(f"<body>{detached.html}</body>").select_one("body > *")
             assert reference_root is not None
-            pairs.append(
-                (
-                    f"detached {query}",
-                    [node.html for node in detached.select(query)],
-                    [node.html for node in reference_root.select(query)],
-                )
-            )
+            pairs.append((
+                f"detached {query}",
+                [node.html for node in detached.select(query)],
+                [node.html for node in reference_root.select(query)],
+            ))
     return pairs
 
 
