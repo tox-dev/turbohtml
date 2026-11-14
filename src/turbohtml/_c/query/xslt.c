@@ -1403,6 +1403,15 @@ oom:
     /* GCOVR_EXCL_STOP */
 }
 
+/* Kept out of line so the key() path of xslt_extension compiles as before. */
+TH_NOINLINE static int item_id_suffix(char *buffer, size_t size, Py_ssize_t attr) {
+    Py_ssize_t rank = xp_item_rank(attr);
+    if (rank == PY_SSIZE_T_MAX) {
+        return snprintf(buffer, size, "n");
+    }
+    return snprintf(buffer, size, "a%zd", rank - 1);
+}
+
 /* The XPath-engine extension hook: dispatch the XSLT-only functions. Returns 0 when
    handled (out filled), -2 when the name is not an XSLT function (the engine then
    reports an unknown function), -1 on a Python/allocation error. */
@@ -1471,6 +1480,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
     }
     if (ucs4_ascii_eq(name, name_len, "generate-id")) {
         const th_node *target = eng->cur_node;
+        Py_ssize_t attr = eng->cur_attr;
         if (argc >= 1) {
             if (args[0].kind != XP_NODESET) {
                 PyErr_SetString(PyExc_TypeError, "xslt: generate-id() wants a node-set");
@@ -1481,11 +1491,16 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
                 return 0;
             }
             target = args[0].nodes.items[0].node;
+            attr = args[0].nodes.items[0].attr;
         }
         /* seq is unique within the one source tree an expression can reach; document() and result tree fragments yield
-           no nodes from other trees. */
+           no nodes from other trees. An attribute or namespace node shares its element's seq, so a suffix that starts
+           with a letter keeps its id apart from the element's and from its siblings'. */
         char buffer[32];
         int written = snprintf(buffer, sizeof(buffer), "id%u", (unsigned)target->seq);
+        if (attr != -1) {
+            written += item_id_suffix(buffer + written, sizeof(buffer) - (size_t)written, attr);
+        }
         Py_ssize_t str_len = 0;
         Py_UCS4 *str = ucs4_from_ascii(buffer, written, &str_len);
         if (str == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
