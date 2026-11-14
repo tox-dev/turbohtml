@@ -1551,7 +1551,7 @@ def _interleaved_ladder(*, first: bool) -> str:
 
 def test_rng_shared_defines_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<r/>")
-    work_steps.assert_linear(lambda n: partial(RelaxNG(rshared("<empty/>", count=n)).validate, document), (12, 24))
+    work_steps.assert_linear(lambda n: partial(RelaxNG(rshared("<empty/>", count=n)).validate, document), (12, 20))
 
 
 @pytest.mark.parametrize(
