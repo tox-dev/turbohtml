@@ -2238,24 +2238,21 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
     return 0;
 }
 
-/* Hash the node pointer to a slot; drop the always-zero low alignment bits before
-   mixing. The key stays (key, node) -- see sel_memo_find -- but only the node feeds
-   the hash, so the two entries a same node picks up under two different keys land on
-   the same home slot and always collide. That makes the "occupied by a different key"
-   probe edge fire on every multi-argument query rather than only when pointer layout
-   happens to collide, keeping branch coverage independent of the allocator. */
-static size_t sel_memo_hash(const th_node *node, size_t mask) {
-    return (size_t)(((uintptr_t)node >> 4) * 0x9E3779B97F4A7C15u >> 32) & mask;
+/* Hash the (key, node) pair to a slot. The key feeds the hash because a node collects one entry
+   per key it is probed with; hashing the node alone would put all of them in one probe run. */
+static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
+    return (size_t)((((uintptr_t)node >> 4) + ((uintptr_t)key >> 4)) * 0x9E3779B97F4A7C15u >> 32) & mask;
 }
 
-/* Linear-probe from node's home slot to the slot holding the (key, node) pair or, if
+/* Linear-probe from the pair's home slot to the slot holding the (key, node) pair or, if
    absent, the first empty slot it would occupy (the table is never full, so an empty slot
    always exists). Shared by get and insert so one probe loop carries both. */
 static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node *node) {
-    size_t idx = sel_memo_hash(node, memo->mask);
+    size_t idx = sel_memo_hash(key, node, memo->mask);
     for (;;) {
         const sel_memo_slot *slot = &memo->slots[idx];
-        if (slot->node == node && slot->key == key) {
+        /* Key first: one argument spans many nodes, so the existing tests reach every probe edge. */
+        if (slot->key == key && slot->node == node) {
             return idx;
         }
         if (slot->key == NULL) {

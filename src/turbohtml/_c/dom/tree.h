@@ -121,6 +121,9 @@ struct th_node {
        tree. */
     uint32_t seq;
     uint8_t css_name_safety;
+    /* MathML annotation-xml only: set by insert_foreign from the start tag's encoding attribute. Valid only during
+       tree construction: clones and DOM attribute edits do not update it. */
+    uint8_t html_integration;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;

@@ -350,6 +350,65 @@ static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const c
     return 1;
 }
 
+enum { XHTML_INLINE_PREFIXES = 8 };
+
+typedef struct {
+    const char *names[XHTML_INLINE_PREFIXES];
+    Py_ssize_t lengths[XHTML_INLINE_PREFIXES];
+    Py_ssize_t inline_count;
+    PyObject *overflow;
+} xhtml_prefix_set;
+
+/* 1 when the key was new, 0 when the set already held it, -1 on allocation failure. */
+static int xhtml_prefix_set_add(PyObject *set, const char *prefix, Py_ssize_t prefix_len) {
+    PyObject *key = PyBytes_FromStringAndSize(prefix, prefix_len);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;     /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    Py_ssize_t before = PySet_GET_SIZE(set);
+    int added = PySet_Add(set, key);
+    Py_DECREF(key);
+    if (added < 0) { /* GCOVR_EXCL_BR_LINE: a bytes insert only fails on allocation failure */
+        return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return PySet_GET_SIZE(set) > before;
+}
+
+/* 1 when the start tag already carried this prefix, 0 the first time, -1 on allocation failure. The first eight
+   distinct prefixes are compared in place, so an ordinary start tag allocates nothing. A tag with more moves them into
+   a set once, which keeps the work linear in its attribute count. */
+static int xhtml_prefix_seen(xhtml_prefix_set *handled, const char *prefix, Py_ssize_t prefix_len) {
+    for (Py_ssize_t index = 0; index < handled->inline_count; index++) {
+        if (handled->lengths[index] == prefix_len && memcmp(handled->names[index], prefix, (size_t)prefix_len) == 0) {
+            return 1;
+        }
+    }
+    if (handled->overflow == NULL && handled->inline_count < XHTML_INLINE_PREFIXES) {
+        handled->names[handled->inline_count] = prefix;
+        handled->lengths[handled->inline_count] = prefix_len;
+        handled->inline_count++;
+        return 0;
+    }
+    if (handled->overflow == NULL) {
+        handled->overflow = PySet_New(NULL);
+        if (handled->overflow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        for (Py_ssize_t index = 0; index < handled->inline_count; index++) {
+            int added = xhtml_prefix_set_add(handled->overflow, handled->names[index], handled->lengths[index]);
+            if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+            }
+        }
+        handled->inline_count = 0;
+    }
+    int added = xhtml_prefix_set_add(handled->overflow, prefix, prefix_len);
+    if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return !added;
+}
+
 static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *element) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, element->text, element->text_len);
@@ -376,6 +435,9 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
             }
         }
     }
+    xhtml_prefix_set handled;
+    handled.inline_count = 0;
+    handled.overflow = NULL;
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len;
@@ -384,14 +446,15 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
         if (colon != NULL && !(name_len >= 6 && memcmp(name, "xmlns:", 6) == 0)) {
             Py_ssize_t prefix_len = colon - name;
             int already_bound = tag_prefix_len == prefix_len && memcmp(tag_prefix, name, (size_t)prefix_len) == 0;
-            for (Py_ssize_t previous = 0; !already_bound && previous < index; previous++) {
-                Py_ssize_t previous_len;
-                const char *previous_name = th_attr_name(tree, element->attrs[previous].name_atom, &previous_len);
-                already_bound = previous_len > prefix_len && previous_name[prefix_len] == ':' &&
-                                memcmp(previous_name, name, (size_t)prefix_len) == 0;
-            }
             if (!already_bound) {
-                if (xhtml_inherit_prefix(out, tree, node, name, prefix_len)) {
+                int seen = xhtml_prefix_seen(&handled, name, prefix_len);
+                if (seen < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    Py_XDECREF(handled.overflow); /* GCOVR_EXCL_LINE: allocation failure */
+                    Py_XDECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
+                    return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (!seen && xhtml_inherit_prefix(out, tree, node, name, prefix_len)) {
+                    Py_XDECREF(handled.overflow);
                     Py_XDECREF(tag_prefix_owner);
                     return 1;
                 }
@@ -403,6 +466,7 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
         sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
         sbuf_putc(out, '"');
     }
+    Py_XDECREF(handled.overflow);
     Py_XDECREF(tag_prefix_owner);
     return 0;
 }
@@ -1190,7 +1254,7 @@ static PyObject *extract_author(th_tree *tree, th_node *const *fields, const cha
 }
 
 static PyObject *entry_author(th_tree *tree, th_node *source, th_node *const *fields, const char *uri, int inherited,
-                              th_node *feed_author, int feed_namespace) {
+                              PyObject *feed_author) {
     PyObject *author = extract_author(tree, fields, uri, inherited);
     if (author == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
@@ -1218,11 +1282,7 @@ static PyObject *entry_author(th_tree *tree, th_node *source, th_node *const *fi
             Py_DECREF(author);
         }
     }
-    if (feed_author == NULL) {
-        return Py_NewRef(Py_None);
-    }
-    th_node *feed_fields[2] = {feed_author, NULL};
-    return extract_author(tree, feed_fields, ATOM_URI, feed_namespace);
+    return Py_NewRef(feed_author);
 }
 
 /* The entry identifier: an RSS <guid> / Atom <id> element text, else the RDF item's rdf:about attribute, else None.
@@ -1302,7 +1362,7 @@ static PyObject *entry_link(th_tree *tree, th_node *item, th_node *guid, const c
    or an RDF item, each field the first present value in its precedence order. NULL only on the excluded
    allocation-failure path. */
 static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, const char *uri, int inherited,
-                             PyObject *resolved_about, th_node *feed_author, int feed_namespace) {
+                             PyObject *resolved_about, PyObject *feed_author) {
     th_node *fields[FEED_FIELD_COUNT] = {0};
     if (collect_entry_fields(tree, item, fields, uri, inherited) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;                                                    /* GCOVR_EXCL_LINE: allocation failure */
@@ -1320,9 +1380,8 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, 
     failed |= record_set(record, 4, entry_field_text(tree, fields + FEED_PUBLISHED, 3, 0, 0));
     failed |= record_set(record, 5, entry_field_text(tree, fields + FEED_SUMMARY, 3, atom, 0));
     failed |= record_set(record, 6, entry_field_text(tree, fields + FEED_ENCODED, 2, atom, atom));
-    failed |= record_set(
-        record, 7,
-        entry_author(tree, fields[FEED_SOURCE], fields + FEED_AUTHOR, uri, inherited, feed_author, feed_namespace));
+    failed |= record_set(record, 7,
+                         entry_author(tree, fields[FEED_SOURCE], fields + FEED_AUTHOR, uri, inherited, feed_author));
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */
@@ -1346,38 +1405,49 @@ static PyObject *build_entries(module_state *state, th_tree *tree, th_node *pare
     }
     if (parent != NULL) {
         int error = 0;
-        th_node *feed_author =
-            uri == ATOM_URI ? feed_child_named(tree, parent, "author", 6, ATOM_URI, inherited, &error) : NULL;
+        th_node *feed_fields[2] = {
+            uri == ATOM_URI ? feed_child_named(tree, parent, "author", 6, ATOM_URI, inherited, &error) : NULL, NULL};
         if (error) {         /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
             Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation failure */
             return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        /* Read once and shared by every entry that inherits it: the feed's <author> lies outside the entries, so
+           reading it again per entry costs the entry count times its size. */
+        PyObject *feed_author = extract_author(tree, feed_fields, ATOM_URI, inherited);
+        if (feed_author == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(list);       /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;           /* GCOVR_EXCL_LINE: allocation failure */
         }
         for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
             if (child->type != TH_NODE_ELEMENT) {
                 continue;
             }
             int match = feed_tag_is(tree, child, name, len, uri, inherited);
-            if (match < 0) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
-                Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation failure */
-                return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+            if (match < 0) {            /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                Py_DECREF(feed_author); /* GCOVR_EXCL_LINE: allocation failure */
+                Py_DECREF(list);        /* GCOVR_EXCL_LINE: allocation failure */
+                return NULL;            /* GCOVR_EXCL_LINE: allocation failure */
             }
             if (!match) {
                 continue;
             }
             int entry_namespace =
                 uri != NULL && th_tree_is_xml(tree) ? default_namespace_at_node(tree, child, uri, inherited) : 1;
-            PyObject *entry = build_entry(state, tree, child, uri, entry_namespace, NULL, feed_author, inherited);
-            if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: build_entry fails only on allocation */
-                Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;     /* GCOVR_EXCL_LINE */
+            PyObject *entry = build_entry(state, tree, child, uri, entry_namespace, NULL, feed_author);
+            if (entry == NULL) {        /* GCOVR_EXCL_BR_LINE: build_entry fails only on allocation */
+                Py_DECREF(feed_author); /* GCOVR_EXCL_LINE: allocation-failure path */
+                Py_DECREF(list);        /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;            /* GCOVR_EXCL_LINE */
             }
             int append_failed = PyList_Append(list, entry) < 0;
             Py_DECREF(entry);
-            if (append_failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
-                Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;     /* GCOVR_EXCL_LINE */
+            if (append_failed) {        /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
+                Py_DECREF(feed_author); /* GCOVR_EXCL_LINE: allocation-failure path */
+                Py_DECREF(list);        /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;            /* GCOVR_EXCL_LINE */
             }
         }
+        Py_DECREF(feed_author);
     }
     PyObject *entries = PyList_AsTuple(list);
     Py_DECREF(list);
@@ -1500,7 +1570,7 @@ static PyObject *build_rdf_entries(module_state *state, th_tree *tree, th_node *
             goto lookup;
         }
         int item_namespace = default_namespace_at_node(tree, item, RSS_URI, root_namespace);
-        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, NULL, NULL, 0);
+        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, NULL, Py_None);
         if (entry == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
             Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
             return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
@@ -1563,7 +1633,7 @@ lookup:
             goto error;    /* GCOVR_EXCL_LINE: allocation failure */
         }
         int item_namespace = default_namespace_at_node(tree, item, RSS_URI, root_namespace);
-        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, key, NULL, 0);
+        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, key, Py_None);
         if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             Py_DECREF(key);  /* GCOVR_EXCL_LINE: allocation failure */
             goto error;      /* GCOVR_EXCL_LINE: allocation failure */

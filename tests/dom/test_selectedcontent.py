@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Final
 
 import pytest
@@ -230,6 +231,57 @@ def test_parse_of_deeply_nested_selected_options_stays_linear() -> None:
     assert len(document.html) < 8 * len("<option selected><div>" * 2000)
 
 
+@pytest.mark.parametrize(
+    ("options", "shown"),
+    [
+        pytest.param(
+            "<optgroup disabled><option>a<option>b</optgroup><optgroup><option>c<option>d</optgroup>",
+            "c",
+            id="disabled-group-then-enabled-group",
+        ),
+        pytest.param(
+            "<optgroup><option disabled>a</optgroup><optgroup disabled><option>b<option>c</optgroup><option>d",
+            "d",
+            id="enabled-group-then-disabled-group",
+        ),
+        pytest.param(
+            "<optgroup disabled><option>a</optgroup><optgroup disabled><option>b<option selected>c</optgroup>",
+            "c",
+            id="selected-option-of-a-disabled-group",
+        ),
+        pytest.param("<optgroup disabled><option>a<option>b</optgroup>", "", id="only-a-disabled-group"),
+    ],
+)
+def test_parse_skips_the_options_of_each_disabled_optgroup(options: str, shown: str) -> None:
+    selectedcontent = parse(f"<select><button><selectedcontent></button>{options}</select>").find("selectedcontent")
+    assert isinstance(selectedcontent, Element)
+    assert selectedcontent.inner_html == shown
+
+
+@pytest.mark.parametrize("disabled", [pytest.param("", id="enabled"), pytest.param(" disabled", id="disabled-last")])
+def test_parse_of_options_in_an_optgroup_of_many_attributes_stays_linear(disabled: str) -> None:
+    grown = _grouped_options_markup(40_000, disabled)
+    assert len(parse(grown).find_all("option")) == 40_000
+    # linear parsing scales the time with the input, a search of the optgroup's attributes per option with its square;
+    # the floor keeps a sub-millisecond baseline from inflating the ratio
+    baseline = _fastest_parse(_grouped_options_markup(10_000, disabled))
+    assert _fastest_parse(grown) < 8 * max(baseline, 0.01)
+
+
+def _grouped_options_markup(count: int, disabled: str) -> str:
+    attributes = " ".join(f"a{index}" for index in range(count))
+    return f"<select><optgroup {attributes}{disabled}>{'<option>' * count}"
+
+
+def _fastest_parse(markup: str) -> float:
+    timings: Final[list[float]] = []
+    for _ in range(3):
+        start = time.perf_counter()
+        parse(markup)
+        timings.append(time.perf_counter() - start)
+    return min(timings)
+
+
 def test_set_inner_html_clones_the_selected_option() -> None:
     host = parse("<div></div>").find("div")
     assert isinstance(host, Element)
@@ -279,6 +331,63 @@ def test_parse_many_selects_each_clone_their_option() -> None:
     unit = "<select><button><selectedcontent></button><option selected>x</option></select>"
     cloned = '<select><button><selectedcontent>x</selectedcontent></button><option selected="">x</option></select>'
     assert parse(unit * 9).html == f"<html><head></head><body>{cloned * 9}</body></html>"
+
+
+_CAPPED_TARGETS: Final[str] = "<selectedcontent></selectedcontent>" * 20
+_CAPPED_MIRRORS: Final[str] = "<selectedcontent>a</selectedcontent>" * 16 + "<selectedcontent></selectedcontent>" * 4
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            f"<select>{_CAPPED_TARGETS}<option>a</option></select>",
+            f"<select>{_CAPPED_MIRRORS}<option>a</option></select>",
+            id="before-the-option",
+        ),
+        pytest.param(
+            f"<select><option>a</option>{_CAPPED_TARGETS}</select>",
+            f"<select><option>a</option>{_CAPPED_MIRRORS}</select>",
+            id="after-the-option",
+        ),
+        pytest.param(
+            f"<select><option>a</option><b><p>q</b></p>{_CAPPED_TARGETS}</select>",
+            f"<select><option>a</option><b></b><p><b>q</b></p>{_CAPPED_MIRRORS}</select>",
+            id="after-an-adoption-agency-move",
+        ),
+        pytest.param(
+            f"<select>{_CAPPED_TARGETS}<option>b</option><option selected>a</option></select>",
+            f'<select>{_CAPPED_MIRRORS}<option>b</option><option selected="">a</option></select>',
+            id="later-selected-option",
+        ),
+        pytest.param(
+            f"<select>{'<selectedcontent></selectedcontent>' * 15}<option>a</option>"
+            "<selectedcontent></selectedcontent><selectedcontent>kept</selectedcontent></select>",
+            f"<select>{'<selectedcontent>a</selectedcontent>' * 15}<option>a</option>"
+            "<selectedcontent>a</selectedcontent><selectedcontent>kept</selectedcontent></select>",
+            id="one-past-the-cap-keeps-its-own-content",
+        ),
+    ],
+)
+def test_parse_mirrors_the_option_into_sixteen_selectedcontent_at_most(markup: str, body: str) -> None:
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        pytest.param(
+            f"<select>{'<selectedcontent></selectedcontent>' * 400}<option>{'<b>x</b>' * 100}",
+            id="selectedcontent-before-the-option",
+        ),
+        pytest.param(
+            f"<select><option>{'<b>x</b>' * 100}</option>{'<selectedcontent></selectedcontent>' * 400}",
+            id="selectedcontent-after-the-option",
+        ),
+    ],
+)
+def test_parse_of_many_selectedcontent_stays_linear(page: str) -> None:
+    assert len(parse(page).html) < 8 * len(page)
 
 
 def test_selectedcontent_inserted_after_first_option_refreshes_target() -> None:

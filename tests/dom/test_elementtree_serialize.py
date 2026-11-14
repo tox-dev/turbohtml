@@ -23,6 +23,13 @@ def test_element_tree_serialization_encoding(
     assert tostring(tree, encoding=encoding, with_tail=with_tail) == expected
 
 
+def test_element_tree_iso_2022_text_writes_shift_codes_as_references() -> None:
+    # as bytes they would switch the reader's decoder state; "xmlcharrefreplace" spells what the codec cannot encode
+    tree: Final = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
+    assert tostring(tree, encoding="iso-2022-jp", method="text") == b"&#14;&#15;&#27;"
+    assert tostring(tree, encoding="shift_jis", method="text") == b"\x0e\x0f\x1b"
+
+
 def test_element_tree_rejects_non_string_encoding() -> None:
     with pytest.raises(TypeError):
         tostring(Element("p"), encoding=cast("str", 42))

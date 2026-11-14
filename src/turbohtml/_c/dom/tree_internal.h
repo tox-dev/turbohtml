@@ -65,17 +65,20 @@ typedef struct {
 } th_shadow_link;
 
 /* What maybe_clone_option needs from one select, kept while the tree is built:
-   the enabled descendant selectedcontent elements (the clone destinations) and the
-   option the select shows. */
+   the enabled descendant selectedcontent elements (the clone destinations), the
+   option the select shows, the optgroup option_is_disabled last looked at and whether
+   it carries the disabled attribute, so the next option of that group skips the search. */
 typedef struct {
     th_node *select;
     th_node **targets; /* the enabled descendant selectedcontent elements, the clone destinations */
     th_node *selected; /* the option the select shows, NULL until one closes */
+    const th_node *optgroup;
     Py_ssize_t target_count;
     Py_ssize_t target_cap;
     uint8_t valid;
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
+    uint8_t optgroup_disabled;
 } th_select_cache;
 
 /* The select caches of one parse, allocated on the first selected-option clone so a
@@ -86,6 +89,8 @@ typedef struct {
     Py_ssize_t cap;
     th_node_map index; /* select node -> 1-based position in caches */
 } th_select_state;
+
+typedef struct th_attr_names th_attr_names;
 
 struct th_tree {
     arena_block *arena;
@@ -190,6 +195,8 @@ struct th_tree {
        parsing closes. One pointer keeps th_tree at 512 bytes, inside pymalloc's
        small-object limit, so every parse still allocates its tree from pymalloc. */
     th_select_state *select_state;
+    /* Attribute names of the elements merge_attrs searches by hash, allocated on the first such merge. */
+    th_attr_names *attr_names;
     /* What a failed element construction hands the insertion modes in place of NULL: never linked into the
        document, it absorbs the rest of the failing token's pushes and edits until tree->failed ends the drain, so
        stack_push and the modes need no NULL checks. ctx_atom sits beside scope_atom to keep th_tree at 512 bytes. */

@@ -942,48 +942,169 @@ static Py_UCS4 *build_doctype_text(th_tree *tree, const th_token *tok, Py_ssize_
     return out;
 }
 
+/* Attribute names of the elements merge_attrs looks up by hash, one open-addressed set per tree of
+   (element, name atom) keys. The key takes the element's creation sequence, not its address, so the probe
+   order depends only on the input. Key 0 marks an empty slot; an element's marker key (atom 0 is never a
+   real name) records that its names were loaded. */
+struct th_attr_names {
+    uint64_t *keys;
+    size_t capacity;
+    size_t count;
+};
+
+/* Elements with at most this many attributes are searched linearly, which is cheaper than hashing. */
+enum { TH_MERGE_SCAN_LIMIT = 8 };
+
+static uint64_t attr_name_key(const th_node *node, uint32_t atom) {
+    return (((uint64_t)node->seq + 1) << 32) | atom;
+}
+
+static size_t attr_name_slot(uint64_t key, size_t capacity) {
+    return th_hash_slot(th_fibonacci_hash(th_fibonacci_hash((uint32_t)(key >> 32)) ^ (uint32_t)key), capacity);
+}
+
+static void attr_name_place(uint64_t *keys, size_t capacity, uint64_t key) {
+    size_t slot = attr_name_slot(key, capacity);
+    while (keys[slot] != 0) {
+        slot = (slot + 1) & (capacity - 1);
+    }
+    keys[slot] = key;
+}
+
+static int attr_name_present(const th_attr_names *names, uint64_t key) {
+    if (names->count == 0) {
+        return 0;
+    }
+    size_t slot = attr_name_slot(key, names->capacity);
+    while (names->keys[slot] != 0) {
+        if (names->keys[slot] == key) {
+            return 1;
+        }
+        slot = (slot + 1) & (names->capacity - 1);
+    }
+    return 0;
+}
+
+static int attr_name_add(th_tree *tree, th_attr_names *names, uint64_t key) {
+    if (2 * (names->count + 1) > names->capacity) {
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation-size overflow */
+        if (!th_grow_cap(2 * (names->count + 1), names->capacity, 16, sizeof(uint64_t), &capacity, &bytes) ||
+            bytes > PY_SSIZE_T_MAX) {
+            /* GCOVR_EXCL_BR_STOP */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-size overflow */
+        }
+        uint64_t *keys = arena_alloc(tree, (Py_ssize_t)bytes);
+        if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;      /* GCOVR_EXCL_LINE: allocation failure cannot be forced from a test */
+        }
+        memset(keys, 0, bytes);
+        for (size_t index = 0; index < names->capacity; index++) {
+            if (names->keys[index] != 0) {
+                attr_name_place(keys, capacity, names->keys[index]);
+            }
+        }
+        names->keys = keys;
+        names->capacity = capacity;
+    }
+    attr_name_place(names->keys, names->capacity, key);
+    names->count++;
+    return 0;
+}
+
+/* The tree's name set with the element's current names loaded. An element is loaded once, on the first merge
+   that finds it past the linear limit, so later merges only add the names they insert. */
+static th_attr_names *attr_names_for(th_tree *tree, const th_node *node) {
+    if (tree->attr_names == NULL) {
+        tree->attr_names = arena_alloc(tree, (Py_ssize_t)sizeof(th_attr_names));
+        if (tree->attr_names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;                /* GCOVR_EXCL_LINE: allocation failure cannot be forced from a test */
+        }
+        *tree->attr_names = (th_attr_names){NULL, 0, 0};
+    }
+    th_attr_names *names = tree->attr_names;
+    const uint64_t loaded = attr_name_key(node, TH_ATTR_UNKNOWN);
+    if (!attr_name_present(names, loaded)) {
+        if (attr_name_add(tree, names, loaded) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;                              /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            const uint64_t key = attr_name_key(node, node->attrs[index].name_atom);
+            if (attr_name_add(tree, names, key) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return NULL;                           /* GCOVR_EXCL_LINE: allocation failure */
+            }
+        }
+    }
+    return names;
+}
+
+static int merge_name_present(const th_attr_names *names, const th_node *node, uint32_t atom) {
+    if (names != NULL) {
+        return attr_name_present(names, attr_name_key(node, atom));
+    }
+    for (Py_ssize_t inner_index = 0; inner_index < node->attr_count; inner_index++) {
+        if (node->attrs[inner_index].name_atom == atom) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Merge a start tag's attributes onto an existing element, keeping only the
    ones whose name is not already present (the <html>/<body> re-open rule). */
 static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     if (token->attr_count == 0) {
         return;
     }
+    th_attr_names *names = NULL;
+    if (node->attr_count > TH_MERGE_SCAN_LIMIT) {
+        names = attr_names_for(tree, node);
+        if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;          /* GCOVR_EXCL_LINE: allocation failure cannot be forced from a test */
+        }
+    }
     Py_ssize_t add = 0;
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         uint32_t atom = intern_attr(tree, &token->attrs[index].name);
-        int present = 0;
-        for (Py_ssize_t inner_index = 0; inner_index < node->attr_count; inner_index++) {
-            if (node->attrs[inner_index].name_atom == atom) {
-                present = 1;
-                break;
-            }
-        }
-        if (!present) {
+        if (!merge_name_present(names, node, atom)) {
             add++;
         }
     }
     if (add == 0) {
         return;
     }
-    th_node_attr *merged = arena_alloc(tree, (node->attr_count + add) * (Py_ssize_t)sizeof(th_node_attr));
-    if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-    }
-    if (node->attr_count > 0) { /* an element without attributes has a NULL attrs array */
-        memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    /* Grow geometrically, as node_attr_store does: the arena keeps every superseded array until the tree is freed,
+       so an exact-size copy per re-opening tag would retain memory quadratic in the number of such tags. */
+    size_t capacity = node->attr_capacity_shift ? (size_t)1 << node->attr_capacity_shift : 0;
+    size_t needed = (size_t)node->attr_count + (size_t)add;
+    th_node_attr *merged = node->attrs;
+    if (needed > capacity) {
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation-size overflow */
+        if (!th_grow_cap(needed, capacity, 2, sizeof(th_node_attr), &capacity, &bytes) || bytes > PY_SSIZE_T_MAX) {
+            /* GCOVR_EXCL_BR_STOP */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
+            return;           /* GCOVR_EXCL_LINE: allocation-size overflow */
+        }
+        merged = arena_alloc(tree, (Py_ssize_t)bytes);
+        if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        if (node->attr_count > 0) { /* an element without attributes has a NULL attrs array */
+            memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+        }
+        node->attr_capacity_shift = 0;
+        for (size_t slots = capacity; slots > 1; slots >>= 1) {
+            node->attr_capacity_shift++;
+        }
     }
     Py_ssize_t at = node->attr_count;
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         const th_attr *src = &token->attrs[index];
         uint32_t atom = intern_attr(tree, &src->name);
-        int present = 0;
-        for (Py_ssize_t inner_index = 0; inner_index < node->attr_count; inner_index++) {
-            if (node->attrs[inner_index].name_atom == atom) {
-                present = 1;
-                break;
-            }
-        }
-        if (present) {
+        if (merge_name_present(names, node, atom)) {
             continue;
         }
         // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound): merged holds one slot per source attribute
@@ -995,7 +1116,14 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
         }
     }
     node->attrs = merged;
-    node->attr_capacity_shift = 0;
+    if (names != NULL) {
+        for (Py_ssize_t index = node->attr_count; index < at; index++) {
+            const uint64_t key = attr_name_key(node, merged[index].name_atom);
+            if (attr_name_add(tree, names, key) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return;                                /* GCOVR_EXCL_LINE: allocation failure */
+            }
+        }
+    }
     node->attr_count += add;
 }
 
@@ -1401,11 +1529,23 @@ static int is_html_element(const th_node *node, uint16_t atom) {
 }
 
 /* An option is disabled by its own disabled attribute or by sitting directly in a
-   disabled optgroup ("a disabled option"), so "reset a select's selectedness" skips it. */
-static int option_is_disabled(const th_node *option) {
+   disabled optgroup ("a disabled option"), so "reset a select's selectedness" skips it.
+   The options of one optgroup close in turn and share it as their parent, and the parser
+   never changes an open optgroup's attributes, so the select caches the last answer
+   instead of searching the attributes once per option. */
+static int option_is_disabled(th_select_cache *cache, const th_node *option) {
+    if (node_has_attr(option, TH_ATTR_DISABLED)) {
+        return 1;
+    }
     th_node *parent = option->parent;
-    return node_has_attr(option, TH_ATTR_DISABLED) ||
-           (is_html_element(parent, TH_TAG_OPTGROUP) && node_has_attr(parent, TH_ATTR_DISABLED));
+    if (!is_html_element(parent, TH_TAG_OPTGROUP)) {
+        return 0;
+    }
+    if (cache->optgroup != parent) {
+        cache->optgroup = parent;
+        cache->optgroup_disabled = (uint8_t)node_has_attr(parent, TH_ATTR_DISABLED);
+    }
+    return cache->optgroup_disabled;
 }
 
 /* An HTML select, option, or selectedcontent element: a selectedcontent below one
@@ -1433,8 +1573,18 @@ static int select_disabled_by_ancestor(const th_node *select) {
     return 0;
 }
 
+/* The selectedcontent elements one select mirrors its shown option into. The HTML
+   Standard mirrors it into every enabled one, and a valid select holds one, in its
+   button. Uncapped, N of them under one select copy an option of M nodes N times, so
+   the tree grows as N x M from N + M of input. A target past the cap keeps the content
+   the source gave it, as a disabled one does. */
+#define MAX_CLONE_TARGETS 16
+
 /* Record one clone destination, growing the per-select buffer as needed. */
 static void select_cache_add_target(th_tree *tree, th_select_cache *cache, th_node *target) {
+    if (cache->target_count == MAX_CLONE_TARGETS) {
+        return;
+    }
     if (cache->target_count == cache->target_cap) {
         size_t cap;
         size_t bytes;
@@ -1527,6 +1677,8 @@ static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
         cache->target_count = 0;
         cache->target_cap = 0;
         cache->selected = NULL;
+        cache->optgroup = NULL;
+        cache->optgroup_disabled = 0;
         cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
         cache->valid = 0;
     }
@@ -1680,7 +1832,7 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
     /* the selectedness setting algorithm: the last selected option wins, and the first
        enabled one is selected only while no option is */
     if (!node_has_attr(option, TH_ATTR_SELECTED) &&
-        (option_is_disabled(option) || select_cache_shown_option(cache) != NULL)) {
+        (option_is_disabled(cache, option) || select_cache_shown_option(cache) != NULL)) {
         return;
     }
     cache->selected = option;
@@ -1697,9 +1849,10 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
 }
 
 /* The selectedcontent post-connection steps: a selectedcontent inserted under a select
-   it is enabled for joins the select's clone targets and copies the option the select
-   already shows. A select with no cache has had no option closed, so it shows none.
-   The walk stops at an ancestor option, so a chain of nested options stays O(1) each. */
+   it is enabled for joins the select's clone targets, while the cap leaves room, and
+   copies the option the select already shows. A select with no cache has had no option
+   closed, so it shows none. The walk stops at an ancestor option, so a chain of nested
+   options stays O(1) each. */
 static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     th_node *select = selectedcontent->parent;
     while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
@@ -1714,9 +1867,11 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
         return;
     }
     th_select_cache *cache = &tree->select_state->caches[slot - 1];
-    if (cache->valid) { /* an invalid cache refills on the next pop and finds it then */
-        select_cache_add_target(tree, cache, selectedcontent);
+    if (cache->target_count == MAX_CLONE_TARGETS) {
+        return;
     }
+    /* listed even while the cache is invalid, so the cap counts every late target */
+    select_cache_add_target(tree, cache, selectedcontent);
     th_node *option = select_cache_shown_option(cache);
     if (option != NULL && !cache->disabled) {
         deep_copy_children(tree, option, selectedcontent);

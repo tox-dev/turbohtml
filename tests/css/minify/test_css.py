@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -1712,7 +1713,26 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param("a{b:c;</**//style:d}", "a{b:c;</**//style:d}", id="kept-declaration-would-join-end-tag"),
         pytest.param('a{b:"x\\\ny"}', 'a{b:"xy"}', id="string-continuation-dropped"),
         pytest.param('a{b:"</stylo"}', 'a{b:"</stylo"}', id="end-tag-prefix-of-other-name"),
-        pytest.param('a { b : "</style" }', 'a{b:"</style"}', id="end-tag-from-source-still-minified"),
+        # an end tag the source spells does not excuse a minified form that spells one
+        pytest.param('a { b : "</style" }', 'a { b : "</style" }', id="end-tag-from-source-unchanged"),
+        pytest.param(
+            'a { c : "</stylex" ; b : "<\\\n/style>" }',
+            'a { c : "</stylex" ; b : "<\\\n/style>" }',
+            id="end-tag-prefix-in-source-keeps-string-continuation",
+        ),
+        pytest.param(
+            'a{c:"</stylex";</**//style:d}', 'a{c:"</stylex";</**//style:d}', id="end-tag-prefix-in-source-keeps-join"
+        ),
+        pytest.param(
+            'a{b:"<\\\n/style>";c:"</style',
+            'a{b:"<\\\n/style>";c:"</style',
+            id="end-tag-prefix-in-string-open-at-end-of-input",
+        ),
+        # a name escape the minifier spells out is checked like a literal end tag
+        pytest.param("a{b:c;</\\73tyle:d}", "a{b:c;</\\73tyle:d}", id="kept-declaration-would-unescape-end-tag"),
+        pytest.param("a{b:</\\73tyle}", "a{b:< /style}", id="less-than-slash-unescaped-name"),
+        pytest.param("\\3c/style>{color:red}", "\\3c/style>{color:red}", id="escaped-less-than-would-spell-end-tag"),
+        pytest.param('</\\73tyle>{a:"b', '</\\73tyle>{a:"b', id="unescaped-end-tag-with-string-open-at-end-of-input"),
         # an @import/@namespace url() with a <url-modifier> keeps its function form (CSS Values 4 §4.5.4): moving the
         # modifier outside the url() would make @import read it as a media query and @namespace as the prefix
         pytest.param('@import url("a.css" screen);', '@import url("a.css" screen);', id="import-url-modifier-kept"),
@@ -5076,6 +5096,63 @@ def test_filter_preserves_variable_token_boundary(value: str) -> None:
 )
 def test_filter_math_folds_constant_calc(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+def test_filter_math_folds_constant_calc_at_any_depth() -> None:
+    nested: Final = minify_css(f"a{{filter:{'blur(' * 150}calc(1px + 2px){')' * 150}}}")
+    assert nested == f"a{{filter:{'blur(' * 150}3px{')' * 150}}}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:] min( 1px + 2px )}", "a{filter:]min(1px + 2px)}", id="stray-closer"),
+        pytest.param("a{filter:min( 1px + 2px ] + 3px )}", "a{filter:min(1px + 2px ] + 3px)}", id="other-closer"),
+        pytest.param("a{filter:min([ 1px + 2px )] )}", "a{filter:min([ 1px + 2px)])}", id="closer-in-bracket"),
+        pytest.param(
+            "a{filter:min( 1px + { 2px ) } + 3px )}", "a{filter:min(1px + { 2px) } + 3px)}", id="closer-in-brace"
+        ),
+        pytest.param("a{filter:min( [ 1px + 2px )", "a{filter:min([1px+ 2px)])}", id="unclosed-bracket"),
+        pytest.param(
+            "a{filter:drop-shadow( min( 1px + 2px ) 0 red ) blur( 1px + 2px )}",
+            "a{filter:drop-shadow(min(1px + 2px) 0 red)blur(1px+ 2px)}",
+            id="sibling-functions",
+        ),
+    ],
+)
+def test_filter_function_ends_at_its_own_closer(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("nested", "recovery"),
+    [
+        pytest.param(f"{'min(' * 200}{')' * 200}", "", id="closed"),
+        pytest.param(f"{'drop-shadow(' * 200}{')' * 200}", "", id="shadow"),
+        # the rule's `}` lands inside the blocks the value leaves open; the recovery closes them and the rule after it
+        pytest.param("min(" * 200, f"{')' * 200}}}", id="unclosed"),
+        pytest.param("min([)" * 200, f"{'])' * 200}}}", id="closer-in-bracket"),
+    ],
+)
+def test_filter_nested_functions_keep_their_recovery(nested: str, recovery: str) -> None:
+    assert minify_css(f"a{{filter:{nested}}}") == f"a{{filter:{nested}}}{recovery}"
+
+
+@pytest.mark.parametrize("name", ["min", "drop-shadow"])
+def test_filter_nested_functions_within_ratio_of_nested_blur(name: str) -> None:
+    depth: Final = 40_000
+    blur: Final = f"a{{filter:{'blur(' * depth}{')' * depth}}}"
+    opener: Final = f"{name}("
+    nested: Final = f"a{{filter:{opener * depth}{')' * depth}}}"
+    start = time.perf_counter()
+    minify_css(blur)
+    # the floor keeps a near-instant baseline from inflating the ratio on a quiet machine
+    baseline = max(time.perf_counter() - start, 0.01)
+    start = time.perf_counter()
+    minified = minify_css(nested)
+    elapsed = time.perf_counter() - start
+    assert minified == nested
+    assert elapsed / baseline < 30
 
 
 @pytest.mark.parametrize(

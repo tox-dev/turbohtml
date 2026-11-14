@@ -854,6 +854,11 @@ void path_positions_free(void *positions);
    Defined in element.c; query/methods.c reuses it for re(). */
 char *attr_key_utf8(th_tree *tree, PyObject *key, Py_ssize_t *out_len);
 
+/* Encode serialized markup under a codec label: PyUnicode_AsEncodedString, strict or (charrefs) "xmlcharrefreplace",
+   that keeps content from writing its own ISO-2022 shift codes. Defined in node.c beside encode(); elementtree.c's
+   tostring() encodes through it too. */
+PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs);
+
 PyObject *node_get_text(PyObject *self, void *Py_UNUSED(closure));
 PyObject *element_get_tag(PyObject *self, void *Py_UNUSED(closure));
 PyObject *element_get_attrs(PyObject *self, void *Py_UNUSED(closure));

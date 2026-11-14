@@ -1193,7 +1193,9 @@ def test_corpus_preserves_generated_bindings(tmp_path: Path) -> None:
         pytest.param(b"", "", id="empty"),
         pytest.param(b"p { color: #ff0000; margin: 0px; }", "p{color:red;margin:0}", id="sheet"),
         pytest.param('p { content: "水😀"; }'.encode(), 'p{content:"水😀"}', id="unicode"),
-        pytest.param(b'p { content: "</style>"; color: red; }', 'p{content:"</style>";color:red}', id="html-boundary"),
+        pytest.param(
+            b'p { content: "</style>"; color: red; }', 'p { content: "</style>"; color: red; }', id="html-boundary"
+        ),
         pytest.param(b"p{e:c(\\3  x)}", "p{e:c(\\3  x)}", id="function-hex-escape"),
         pytest.param(b"0}@d\\b", "0@d\\b ", id="stray-escaped-at-keyword"),
         pytest.param(b"0}@d\0\\b", "0@d \0\\b ", id="stray-escaped-at-prelude"),

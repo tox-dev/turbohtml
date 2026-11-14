@@ -1119,6 +1119,43 @@ static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssiz
     return end;
 }
 
+/* css_match_paren for every block of the tokens [start, end) in one pass: closers[opener - start] is the index of the
+   closer of the `(`, `[` or `{` at opener, or end when the block runs to it. It serves a walk that asks about a
+   function and then about the functions in its arguments, where a css_match_paren each reads a nested call's tokens
+   once for every function around it. An open block holds the index of the block around it until its closer turns up,
+   so the table doubles as the stack. Returns NULL when the allocation fails. Kept out of line: only a filter value
+   that calls a math function or drop-shadow() reaches it. */
+CSS_NOINLINE static Py_ssize_t *css_match_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t *closers = css_malloc((size_t)(end - start) * sizeof(Py_ssize_t));
+    if (closers == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        *vec->oom = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t open = -1;
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (vec->items[index].kind != CSS_DELIM) {
+            continue;
+        }
+        css_char delim = vec->items[index].delim;
+        if (delim == '(' || delim == '[' || delim == '{') {
+            closers[index - start] = open;
+            open = index;
+        } else if ((delim == ')' || delim == ']' || delim == '}') && open >= 0 &&
+                   vec->items[open].delim == (delim == ')' ? '(' : delim - 2)) {
+            /* `[` and `{` sit two code points before their closers, `(` one */
+            Py_ssize_t around = closers[open - start];
+            closers[open - start] = index;
+            open = around;
+        }
+    }
+    while (open >= 0) {
+        Py_ssize_t around = closers[open - start];
+        closers[open - start] = end;
+        open = around;
+    }
+    return closers;
+}
+
 /* The CSS Values 4 §10 math functions: their arguments are calculations, where a bare 0 is a <number> that no longer
    type-checks against a length, and a '+' or '-' operator needs whitespace on both sides. */
 static int css_is_math_func(const css_char *name, Py_ssize_t len) {
