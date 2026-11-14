@@ -96,13 +96,6 @@ typedef struct {
     uint8_t recheck;    /* a shown option may have left its select, so the finish walks every cache */
 } th_select_state;
 
-/* One entry of the template insertion mode stack. refused marks a template the depth cap kept off the stack of open
-   elements, so that its own end tag pops this record instead of closing the nearest open template, an ancestor. */
-typedef struct {
-    uint8_t mode; /* enum mode */
-    uint8_t refused;
-} th_tmpl_record;
-
 typedef struct th_attr_names th_attr_names;
 
 struct th_tree {
@@ -133,7 +126,7 @@ struct th_tree {
     th_node *head;          /* the <head> element once inserted */
     th_node *fragment_root; /* the html root in fragment parsing; NULL otherwise */
     th_node *form;          /* the form element pointer: nested forms are ignored */
-    th_tmpl_record *tmpl;   /* stack of template insertion modes */
+    int *tmpl;              /* stack of template insertion modes (enum mode as int) */
     Py_ssize_t tmpl_len;
     Py_ssize_t tmpl_cap;
     int frameset_ok;        /* a <frameset> may still replace an empty body */
