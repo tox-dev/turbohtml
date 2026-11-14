@@ -243,6 +243,8 @@ static int c14n_chain_start(c14n_chain *chain, PyObject *joined) {
    with an exception set: a join's ValueError, since a canonical form can neither drop the attribute nor write it
    unresolved. */
 static int c14n_base_fixup(th_tree *tree, const th_node *apex, Py_UCS4 **value, Py_ssize_t *length) {
+    /* gcc -Werror=maybe-uninitialized cannot tie the callers' read after a 0 status to the write on that path */
+    *length = 0;
     const th_node_attr *own = c14n_base_attribute(tree, apex);
     PyObject *current = own == NULL ? PyUnicode_FromString("")
                                     : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, own->value, own->value_len);
