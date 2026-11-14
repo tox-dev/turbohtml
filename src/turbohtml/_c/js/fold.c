@@ -1327,30 +1327,26 @@ static void fold_concat(F *folder, int32_t idx, int32_t owned_mark) {
     }
     Py_UCS4 quote = left->str[0];
     Py_ssize_t value_cap = left->str_len + right->str_len; /* neither decoded value outgrows its lexeme */
-    Py_UCS4 *value = jm_malloc((size_t)value_cap * sizeof(Py_UCS4));
-    if (value == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+    /* one scratch block: the decoded value, then the lexeme re-encoded after it (the widest escape is 6 wide) */
+    Py_UCS4 *scratch = jm_malloc((size_t)(value_cap * 7 + 2) * sizeof(Py_UCS4));
+    if (scratch == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
         return;                   /* GCOVR_EXCL_LINE */
     }
+    Py_UCS4 *value = scratch;
     Py_ssize_t value_len = jm_str_decode(left->str, left->str_len, value);
     Py_ssize_t right_len = value_len < 0 ? -1 : jm_str_decode(right->str, right->str_len, value + value_len);
     if (right_len < 0) { /* an operand with an escape that has no value is left as written */
-        jm_free(value);
+        jm_free(scratch);
         return;
     }
     value_len += right_len;
-    Py_UCS4 *lexeme = jm_malloc((size_t)(value_len * 6 + 2) * sizeof(Py_UCS4)); /* the widest escape is 6 wide */
-    if (lexeme == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        jm_free(value);           /* GCOVR_EXCL_LINE */
-        folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
-        return;                   /* GCOVR_EXCL_LINE */
-    }
+    Py_UCS4 *lexeme = scratch + value_cap;
     lexeme[0] = quote;
     Py_ssize_t inner = jm_str_encode(value, value_len, quote, lexeme + 1);
     lexeme[inner + 1] = quote;
-    jm_free(value);
     const Py_UCS4 *owned = jm_program_own(folder->prog, lexeme, inner + 2);
-    jm_free(lexeme);
+    jm_free(scratch);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return;          /* GCOVR_EXCL_LINE */
     }
@@ -1404,6 +1400,17 @@ static void walk_target(F *folder, int32_t idx) {
     }
 }
 
+/* A `+` walks its operands, then joins them if both are strings. The buffers the operands' folds made are released by
+   that join, so the count taken here marks where this subtree's buffers start. */
+static TH_NOINLINE void walk_plus(F *folder, int32_t idx) {
+    int32_t child_a = folder->prog->nodes[idx].a;
+    int32_t child_b = folder->prog->nodes[idx].b;
+    int32_t owned_mark = folder->prog->owned_count;
+    walk(folder, child_a);
+    walk(folder, child_b);
+    fold_concat(folder, idx, owned_mark);
+}
+
 static void walk(F *folder, int32_t idx) {
     if (idx < 0) {
         return;
@@ -1415,7 +1422,6 @@ static void walk(F *folder, int32_t idx) {
     int32_t child_b = node->b;
     int32_t child_c = node->c;
     int32_t child_d = node->d;
-    int32_t owned_mark = folder->prog->owned_count; /* lexemes owned from here on belong to this subtree */
     /* recurse into children first (post-order), skipping property-name positions. The kind, flags
        and child indices are captured before any recursion: a fold inside a child allocates nodes,
        which may grow the arena and move it, so `node` dangles the moment a child walk returns.
@@ -1611,6 +1617,12 @@ static void walk(F *folder, int32_t idx) {
             walk(folder, child_a);
         }
         break;
+    case JN_BINARY:
+        if (node->op == JT_PLUS) {
+            walk_plus(folder, idx); /* a `+` has no `c` child: only the word operators carry one */
+            break;
+        }
+        /* falls through */
     default:
         walk(folder, child_a);
         walk(folder, child_b);
@@ -1717,9 +1729,6 @@ static void walk(F *folder, int32_t idx) {
         splice_branch_else(folder, node->a);
         return;
     case JN_BINARY:
-        if (node->op == JT_PLUS) {
-            fold_concat(folder, idx, owned_mark); /* string operands; turns the node into a string literal */
-        }
         if (folder->prog->nodes[idx].kind == JN_BINARY) {
             fold_arithmetic(folder, idx); /* integer operands; a folded concat is already done */
         }
