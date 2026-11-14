@@ -2785,8 +2785,10 @@ static int implied_table_wrapper(const th_node *element) {
 /* Record a disallowed element and pick its disposition: drop the whole subtree for a content-removal tag (e.g.
    script/style, so its text never leaks), in REMOVE mode (except for an implied table wrapper), or for foreign content
    under STRIP (unwrapping it would invite namespace confusion); otherwise strip or escape it once its children are
-   done. Returns 0, or -1 on error. */
-static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyObject *tag,
+   done. An implied table wrapper is unwrapped under REMOVE too, and never escapes: its end tag is the source's, so
+   escaping would print it. `table_wrapper` is judged on the source tag, before a transform renames the element.
+   Returns 0, or -1 on error. */
+static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyObject *tag, int table_wrapper,
                                              enum sanitize_action *action) {
     if (record_removed(s, tag, NULL, 0) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
         return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2796,14 +2798,14 @@ static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyO
         return -1;            /* GCOVR_EXCL_LINE */
     }
     *action = SANITIZE_DONE;
-    if (remove_content || (s->on_disallowed == ON_REMOVE && !implied_table_wrapper(element)) ||
+    if (remove_content || (s->on_disallowed == ON_REMOVE && !table_wrapper) ||
         (s->on_disallowed == ON_STRIP && element->ns != TH_NS_HTML)) {
         th_node_remove(
             element); /* the whole subtree goes, hoisting nothing, so no nesting the balancer must re-examine */
-    } else if (s->on_disallowed == ON_STRIP) {
-        *action = SANITIZE_STRIP_CHILDREN;
-    } else {
+    } else if (s->on_disallowed == ON_ESCAPE) {
         *action = SANITIZE_ESCAPE_CHILDREN;
+    } else {
+        *action = SANITIZE_STRIP_CHILDREN;
     }
     return 0;
 }
@@ -2815,6 +2817,7 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
     if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    int table_wrapper = implied_table_wrapper(element);
     if (is_html && PyDict_GET_SIZE(s->transform_tags) > 0) {
         if (apply_transform(s, element, &tag) < 0) { /* GCOVR_EXCL_BR_LINE: apply_transform only fails on allocation */
             Py_DECREF(tag);                          /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2878,7 +2881,7 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
             *action = SANITIZE_KEEP_CHILDREN;
         }
     } else {
-        status = dispose_disallowed(s, element, tag, action);
+        status = dispose_disallowed(s, element, tag, table_wrapper, action);
     }
     Py_DECREF(tag);
     return status;
@@ -3085,7 +3088,7 @@ static TH_WALK_INLINE int settle_range(sanitizer *s, th_node *parent, th_node *b
                 return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             enum sanitize_action action;
-            int status = dispose_disallowed(s, cursor, tag, &action);
+            int status = dispose_disallowed(s, cursor, tag, implied_table_wrapper(cursor), &action);
             Py_DECREF(tag);
             if (status == 0 && action != SANITIZE_DONE) { /* GCOVR_EXCL_BR_LINE: dispose only fails on allocation */
                 status = unwrap_element(s, cursor, action);
