@@ -929,7 +929,7 @@
   },
   {
     "name": "js-logical-chain-rotation",
-    "source": "https://github.com/tox-dev/turbohtml/blob/216997712c990d297ee89a4261c097036b06bcf6/src/turbohtml/_c/js/fold.c#L497-L518",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1890",
     "targets": [
       "minify_js"
     ],
