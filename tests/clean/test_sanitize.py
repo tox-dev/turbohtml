@@ -386,7 +386,7 @@ def test_set_attributes_skips_disallowed_elements() -> None:
 @pytest.mark.parametrize(
     ("attribute", "value", "expected"),
     [
-        pytest.param("href", "javascript:alert(1)", {}, id="url-scheme"),
+        pytest.param("href", "javascript:alert(7)", {}, id="url-scheme"),
         pytest.param("onclick", "alert(2)", {}, id="event-handler"),
         pytest.param("style", "color: url(javascript:alert(3))", {}, id="style"),
         pytest.param("srcset", "safe.png 1x, javascript:alert(4) 2x", {}, id="srcset"),
@@ -416,7 +416,7 @@ def test_set_attributes_canonicalizes_html_names_before_safety_checks() -> None:
         css_properties=frozenset({"color"}),
         set_attributes={
             "a": {
-                "HREF": "javascript:alert(1)",
+                "HREF": "javascript:alert(7)",
                 "OnClick": "alert(2)",
                 "STYLE": "color:url(javascript:alert(3))",
                 "TITLE": "safe",
@@ -1014,7 +1014,7 @@ def test_allowed_styles_does_not_narrow_style_element_body() -> None:
         css_properties=frozenset({"color"}),
         allowed_styles={"*": {"color": [r"^blue$"]}},
     )
-    assert sanitize("<style>p{color:red}</style>", policy) == "<style>p{color:red;}</style>"
+    assert sanitize("<style>p{color:teal}</style>", policy) == "<style>p{color:teal;}</style>"
 
 
 @pytest.mark.parametrize("css", [pytest.param("", id="no-text-child"), pytest.param("  ", id="whitespace-only")])
@@ -1113,7 +1113,7 @@ def test_style_element_unterminated_token_is_a_fixpoint(css: str, expected_body:
 def test_style_element_empty_property_set_drops_all_css() -> None:
     # an empty css_properties set means no declaration is allowlisted, so every rule scrubs to an empty block
     assert (
-        sanitize("<style>p{color:red}</style>", _style_element_policy(css_properties=frozenset()))
+        sanitize("<style>p{color:teal}</style>", _style_element_policy(css_properties=frozenset()))
         == "<style>p{}</style>"
     )
 
@@ -1136,7 +1136,7 @@ def test_style_element_attribute_filter_error_propagates() -> None:
 
 def test_style_element_dropped_when_not_allowed() -> None:
     # the baseline is unchanged: a <style> the policy does not allowlist is escaped, never kept as live CSS
-    out = sanitize("<style>p{color:red}</style>")
+    out = sanitize("<style>p{color:teal}</style>")
     assert "<style>" not in out
     assert "&lt;style&gt;" in out
 
@@ -1155,7 +1155,7 @@ def test_style_element_removed_with_content_when_named() -> None:
         pytest.param("mailto:a@b.com", True, id="mailto"),
         pytest.param("/relative/path", True, id="relative"),
         pytest.param("#fragment", True, id="fragment"),
-        pytest.param("javascript:alert(1)", False, id="javascript"),
+        pytest.param("javascript:alert(7)", False, id="javascript"),
         pytest.param("JAVASCRIPT:alert(1)", False, id="javascript-upper"),
         pytest.param("data:text/html,x", False, id="data"),
         pytest.param("ftp://x.com", False, id="ftp-not-allowed"),
@@ -1445,7 +1445,7 @@ def test_attribute_filter_rewrites_value() -> None:
             Policy(
                 tags=frozenset({"a"}),
                 attributes={"a": frozenset({"href"})},
-                attribute_filter=lambda _tag, _name, _value: "javascript:alert(1)",
+                attribute_filter=lambda _tag, _name, _value: "javascript:alert(7)",
             ),
             id="url",
         ),
@@ -3886,7 +3886,7 @@ def test_oracle_detects_a_dangerous_url() -> None:
 # allow/block decision. Every obfuscated dangerous scheme stays blocked; the benign counterparts stay allowed (a
 # regression there would be over-blocking, not a hole, but the allowlist is only useful if normal URLs survive).
 _SCHEME_PARITY: Final[list[pytest.ParameterSet]] = [
-    pytest.param("javascript:alert(1)", False, id="javascript"),
+    pytest.param("javascript:alert(7)", False, id="javascript"),
     pytest.param("JaVaScRiPt:alert(1)", False, id="javascript-mixed-case"),
     pytest.param("DATA:text/html,x", False, id="data-upper"),
     pytest.param("vbscript:msgbox(1)", False, id="vbscript"),
@@ -3914,7 +3914,7 @@ _SCHEME_PARITY: Final[list[pytest.ParameterSet]] = [
     pytest.param("﻿javascript:alert(1)", False, id="leading-bom"),
     pytest.param("tel:+15551234", False, id="tel-not-allowlisted"),
     pytest.param("ftp://x.com", False, id="ftp-not-allowlisted"),
-    pytest.param("http://example.com", True, id="http"),
+    pytest.param("http://example.net", True, id="http"),
     pytest.param("https://example.com/a?b#c", True, id="https-with-query-fragment"),
     pytest.param("HtTp://ok.com", True, id="http-mixed-case"),
     pytest.param("  https://ok.com", True, id="https-leading-space"),
@@ -4160,7 +4160,7 @@ def test_transform_added_url_attribute_is_scheme_scrubbed() -> None:
     policy = Policy(
         tags=frozenset({"a"}),
         attributes={"a": frozenset({"href"})},
-        transform_tags={"b": Transform("a", {"href": "javascript:alert(1)"})},
+        transform_tags={"b": Transform("a", {"href": "javascript:alert(7)"})},
     )
     assert sanitize("<b>x</b>", policy) == "<a>x</a>"
 

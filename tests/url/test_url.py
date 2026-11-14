@@ -78,7 +78,7 @@ def test_base_url_default_fallback() -> None:
             id="credentials-default-port-query",
         ),
         pytest.param("https:", "https://é.example/a#old", "https://xn--9ca.example/a", id="unicode-host"),
-        pytest.param("https:", "http://site.org/a#old", "http://site.org/a#old", id="foreign-scheme"),
+        pytest.param("https:", "http://site.org/a#old", "http://site.org/a#old", id="other-scheme-fallback-kept"),
         pytest.param("file:", "file:///a#old", "file:///a", id="file-scheme"),
         pytest.param("a:", "a:/p#old", "a:", id="non-special-scheme"),
     ],
@@ -721,7 +721,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "https://other.org/a/x?x=%20y",
             id="dot-segments-and-query-spaces",
         ),
-        pytest.param("mailto:a/%2e%2e/x", "https://example.org/dir/file", "mailto:a/%2e%2e/x", id="opaque-path"),
+        pytest.param("news:c/%2e%2e/y", "https://example.org/dir/file", "news:c/%2e%2e/y", id="opaque-path"),
         pytest.param("mailto:?q=%2e", "https://example.org/dir/file", "mailto:?q=%2e", id="opaque-query"),
         pytest.param(
             "https://other.org/a%2eb/x?q=/./",
@@ -742,7 +742,10 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "https:%2e%2e/a", "https://example.org/dir/file", "https://example.org/a", id="same-scheme-prefix"
         ),
         pytest.param(
-            "https:%2e/..", "https://example.org/dir/file", "https://example.org/", id="same-scheme-encoded-dot-parent"
+            "wss:%2e/..",
+            "wss://relay.example/room/42/q",
+            "wss://relay.example/room/",
+            id="same-scheme-encoded-dot-parent",
         ),
         pytest.param(
             "https:%2e/../x", "https://example.org/dir/file", "https://example.org/x", id="same-scheme-encoded-dot-path"
@@ -752,7 +755,10 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         ),
         pytest.param("https:.%2e/..", "https://example.org/dir/file", "https://example.org/", id="mixed-dot-parent"),
         pytest.param(
-            "HTTPS:%2E/..?q=x", "https://example.org/dir/file", "https://example.org/?q=x", id="uppercase-encoded-dot"
+            "WSS:%2E/..?q=y",
+            "wss://relay.example/room/42/q",
+            "wss://relay.example/room/?q=y",
+            id="upper-scheme-dot-query",
         ),
         pytest.param(
             "wss:wss:b:c/%2e%2e/%2e",
@@ -790,11 +796,11 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         pytest.param(
             "ftp:%2e%2E", "ftp://mirror.example/pub/x/y", "ftp://mirror.example/pub/", id="encoded-parent-only"
         ),
-        pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
-        pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
-        pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
-        pytest.param("https:%2e/..", "extraverylongscheme://site.org/a/b", "https://./", id="longer-foreign-scheme"),
-        pytest.param("https:%2e/..", "https://site.org/a/%2e/b", "https://site.org/", id="encoded-dot-base"),
+        pytest.param("ws:%2e/..", "wwws://site.org/a/b", "ws://./", id="same-length-foreign-fallback"),
+        pytest.param("ftp:%2e/..", "", "ftp://./", id="empty-fallback-dot-host"),
+        pytest.param("wss:%2e/..", "bigscheme://site.org/a/b", "wss://./", id="long-fallback-scheme"),
+        pytest.param("ftp:%2e/..", "verylongschemename://site.org/a/b", "ftp://./", id="longer-fallback-scheme"),
+        pytest.param("wss:%2e/..", "wss://site.org/a/%2e/b", "wss://site.org/", id="encoded-dot-base"),
         pytest.param("https:\\b/%2e", "https://site.org/a/b", "https://site.org/b/", id="same-scheme-backslash"),
         pytest.param(
             "https:\\b/%2e", "https://site.org/a/%2e/b", "https://site.org/b/", id="backslash-encoded-dot-base"
@@ -805,7 +811,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         pytest.param("https://b/%2e", "https://site.org/a/%2e/b", "https://b/", id="authority-with-encoded-dot-base"),
         pytest.param("ftp:\\\\b/%2e", "ftp://site.org/a/b", "ftp://b/", id="ftp-double-backslash-authority"),
         pytest.param("https://other.org/%2e", "https://site.org/a/b", "https://other.org/", id="same-scheme-authority"),
-        pytest.param("hxxp:%2e/..", "hxxp://site.org/a/b", "hxxp:%2e/..", id="non-special-same-scheme"),
+        pytest.param("gopher:%2e/..", "gopher://site.org/a/b", "gopher:%2e/..", id="non-special-same-scheme"),
         pytest.param(
             "https:%20?x=%2e", "https://site.org/a/b", "https://site.org/a/%20?x=%2e", id="other-leading-escape"
         ),
@@ -975,9 +981,10 @@ def test_meta_refresh_tab_in_repeated_scheme_keeps_colon_segment() -> None:
 
 
 def test_meta_refresh_resolves_root_backslash_before_trailing_control() -> None:
-    assert parse('<meta http-equiv="refresh" content="0;url=\\x\x01">').meta_refresh(
-        "https://example.org/dir/page"
-    ) == (0.0, "https://example.org/x")
+    assert parse('<meta http-equiv="refresh" content="0;url=\\q\x1f">').meta_refresh("wss://relay.example/a/b") == (
+        0.0,
+        "wss://relay.example/q",
+    )
 
 
 @pytest.mark.parametrize(
@@ -1085,7 +1092,7 @@ def test_meta_refresh_rejects_missing_special_host(href: str, fallback: str) -> 
         pytest.param('<meta http-equiv=other content="8;url=z">', None, id="non-refresh-equiv"),
         pytest.param('<meta http-equiv=refresx content="9;url=z">', None, id="seven-char-non-refresh-equiv"),
         pytest.param('<meta content="5;url=z">', None, id="meta-without-http-equiv"),
-        pytest.param("<meta http-equiv=refresh>", None, id="refresh-without-content"),
+        pytest.param("<meta http-equiv=REFRESH>", None, id="refresh-without-content"),
         pytest.param('<meta http-equiv=refresh content="abc">', None, id="no-leading-number"),
         pytest.param('<meta http-equiv=refresh content="   ">', None, id="all-whitespace-content"),
         pytest.param('<meta http-equiv="   " content="5;url=x">', None, id="all-whitespace-equiv"),
