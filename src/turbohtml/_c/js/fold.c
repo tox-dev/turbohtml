@@ -1318,7 +1318,7 @@ static void fold_arithmetic(F *folder, int32_t idx) {
    are decoded and the result re-encoded rather than the raw lexemes spliced: a trailing variable-length
    escape (a legacy octal or a `\x`) in the left operand would otherwise absorb the right operand's first
    character and change the value (`"\1"+"2"` is `"1","2"`, not the single octal `"\12"`; #437). */
-static void fold_concat(F *folder, int32_t idx) {
+static void fold_concat(F *folder, int32_t idx, int32_t owned_mark) {
     jm_node *node = &folder->prog->nodes[idx];
     const jm_node *left = &folder->prog->nodes[node->a];
     const jm_node *right = &folder->prog->nodes[node->b];
@@ -1354,6 +1354,10 @@ static void fold_concat(F *folder, int32_t idx) {
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return;          /* GCOVR_EXCL_LINE */
     }
+    /* Every lexeme owned since the walk entered this node was synthesized for a node below it, and the rewrite
+       unlinks all of them. Keeping them until the program is freed would make an n-literal chain hold n/2 copies of
+       its joined value. */
+    jm_program_disown(folder->prog, owned_mark);
     node = &folder->prog->nodes[idx];
     node->kind = JN_STRING;
     node->str = owned;
@@ -1411,6 +1415,7 @@ static void walk(F *folder, int32_t idx) {
     int32_t child_b = node->b;
     int32_t child_c = node->c;
     int32_t child_d = node->d;
+    int32_t owned_mark = folder->prog->owned_count; /* lexemes owned from here on belong to this subtree */
     /* recurse into children first (post-order), skipping property-name positions. The kind, flags
        and child indices are captured before any recursion: a fold inside a child allocates nodes,
        which may grow the arena and move it, so `node` dangles the moment a child walk returns.
@@ -1713,7 +1718,7 @@ static void walk(F *folder, int32_t idx) {
         return;
     case JN_BINARY:
         if (node->op == JT_PLUS) {
-            fold_concat(folder, idx); /* string operands; turns the node into a string literal */
+            fold_concat(folder, idx, owned_mark); /* string operands; turns the node into a string literal */
         }
         if (folder->prog->nodes[idx].kind == JN_BINARY) {
             fold_arithmetic(folder, idx); /* integer operands; a folded concat is already done */
