@@ -2446,6 +2446,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
 static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx) {
     th_node *current = sel_first_element_child(node);
     while (current != NULL) {
+        TH_WORK_STEP();
         if (sel_match_compound(current, &rel->compounds[subject], ctx) &&
             sel_match_from(current, rel, subject, anchor, ctx) == SEL_MATCHES) {
             return 1;
