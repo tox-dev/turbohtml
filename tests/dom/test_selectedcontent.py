@@ -521,12 +521,9 @@ def test_adoption_agency_move_keeps_the_selectedcontent_targets(markup: str, bod
     assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
 
 
-def test_adoption_agency_inside_a_select_with_options_stays_linear() -> None:
+def test_adoption_agency_inside_a_select_with_options_stays_linear(work_steps: WorkSteps) -> None:
     cycle = "<em><section>w</em></section><option>z</option>"
-    # the div holds the same recoveries without a select cache, so the ratio isolates the cache's walk
-    select_seconds = _fastest_parse(f"<select>{cycle * 10_000}</select>")
-    linear_seconds = _fastest_parse(f"<div>{cycle * 10_000}</div>")
-    assert select_seconds < 8 * max(linear_seconds, 0.01)
+    work_steps.assert_linear(lambda n: partial(parse, f"<select>{cycle * n}</select>"), (1000, 4000))
 
 
 @pytest.mark.parametrize(
@@ -539,11 +536,9 @@ def test_adoption_agency_inside_a_select_with_options_stays_linear() -> None:
         ),
     ],
 )
-def test_adoption_agency_move_with_selectedcontent_stays_linear(block: str) -> None:
+def test_adoption_agency_move_with_selectedcontent_stays_linear(block: str, work_steps: WorkSteps) -> None:
     cycle = f"<span></span>{block}"
-    select_seconds = _fastest_parse(f"<select>{cycle * 10_000}</select>")
-    linear_seconds = _fastest_parse(f"<div>{cycle * 10_000}</div>")
-    assert select_seconds < 8 * max(linear_seconds, 0.01)
+    work_steps.assert_linear(lambda n: partial(parse, f"<select>{cycle * n}</select>"), (1000, 4000))
 
 
 @pytest.mark.parametrize(
