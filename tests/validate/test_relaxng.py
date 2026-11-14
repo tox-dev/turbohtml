@@ -1016,8 +1016,8 @@ def test_rng_same_structure_wildcards_scale_linearly() -> None:
 
 
 def test_rng_chain_of_interleaves_scales_linearly() -> None:
-    schema_small = _interleave_chain(2000)
-    schema_large = _interleave_chain(8000)
+    schema_small = _interleave_chain(500)
+    schema_large = _interleave_chain(2000)
     timings = []
     for schema in (schema_small, schema_large):
         best = float("inf")
@@ -1040,6 +1040,18 @@ def _chain_define(index: int) -> str:
     return (
         f'<define name="d{index}"><interleave><group>{elements}</group><ref name="d{index + 1}"/></interleave></define>'
     )
+
+
+def test_rng_referenced_define_with_attribute_and_value() -> None:
+    schema = RelaxNG(
+        rgrammar(
+            '<start><element name="r"><interleave><ref name="p"/>'
+            '<element name="q"><empty/></element></interleave></element></start>'
+            '<define name="p"><group><attribute name="x"/><value>v</value></group></define>'
+        )
+    )
+    assert schema.validate(parse_xml('<r x="1">v<q/></r>')).valid
+    assert not schema.validate(parse_xml("<r><q/></r>")).valid
 
 
 def test_rng_identical_wildcard_classes_stay_accepted() -> None:

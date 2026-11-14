@@ -1451,6 +1451,7 @@ static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is
 static int rng_names_node(th_schema *schema, th_node *node, nameset *out);
 static int rng_names_define(th_schema *schema, def_entry *entry, nameset *out);
 static int rng_names_interleave(th_schema *schema, th_node *interleave, nameset *out, int keep);
+static def_entry *rng_names_ref_define(th_schema *schema, th_node *node);
 
 /* One unit is a treap node visited or created, a tree node walked, a checked-interleave probe, or a name class
    comparison's size. The limit leaves room for the 20,000-interleave grammars the tests build, and it bounds the nodes
@@ -2130,13 +2131,12 @@ static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
         return 0;
     }
     if (is_schema_el(schema, node, RNG_NS, "ref")) {
-        const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
-        Py_ssize_t index = name == NULL ? -1 : def_find(&schema->defines, name->value, name->value_len);
+        def_entry *target = rng_names_ref_define(schema, node);
         /* 4.10: the scan or the build rejects a ref that names no define */
-        if (index < 0) {
+        if (target == NULL) {
             return 0;
         }
-        return rng_names_define(schema, &schema->defines.items[index], out);
+        return rng_names_define(schema, target, out);
     }
     if (is_schema_el(schema, node, RNG_NS, "interleave")) {
         return rng_names_interleave(schema, node, out, 1);
@@ -2179,17 +2179,8 @@ static int rng_names_interleave(th_schema *schema, th_node *interleave, nameset 
 }
 
 /* A define's set folds its components like rng_combine does, so a component that combines by interleave is checked
-   against those before it. A define on the DFS stack adds nothing; the scan rejects that cycle. The set is kept once
-   the define is done, so every ref to it shares the same persistent version. */
-static int rng_names_define(th_schema *schema, def_entry *entry, nameset *out) {
-    if (entry->names_state == 2) {
-        *out = entry->names;
-        return 0;
-    }
-    if (entry->names_state == 1) {
-        return 0;
-    }
-    entry->names_state = 1;
+   against those before it. A define on the DFS stack adds nothing; the scan rejects that cycle. */
+static int rng_names_body(th_schema *schema, def_entry *entry) {
     nameset acc = {0};
     if (rng_names_node(schema, entry->first, &acc) < 0) {
         return -1;
@@ -2203,7 +2194,106 @@ static int rng_names_define(th_schema *schema, def_entry *entry, nameset *out) {
     }
     entry->names = acc;
     entry->names_state = 2;
-    *out = acc;
+    return 0;
+}
+
+/* The define a ref names, or NULL when no define has that name. */
+static def_entry *rng_names_ref_define(th_schema *schema, th_node *node) {
+    const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
+    Py_ssize_t index = name == NULL ? -1 : def_find(&schema->defines, name->value, name->value_len);
+    return index < 0 ? NULL : &schema->defines.items[index];
+}
+
+/* The refs in a node's content, in the order rng_names_node reaches them. Writes them to out when out is not NULL,
+   and returns the index after the last one. */
+static Py_ssize_t rng_names_refs(th_schema *schema, th_node *node, def_entry **out, Py_ssize_t index) {
+    if (is_schema_el(schema, node, RNG_NS, "element") || is_schema_el(schema, node, RNG_NS, "attribute")) {
+        return index;
+    }
+    if (is_schema_el(schema, node, RNG_NS, "ref")) {
+        def_entry *target = rng_names_ref_define(schema, node);
+        if (target == NULL) {
+            return index;
+        }
+        if (out != NULL) {
+            out[index] = target;
+        }
+        return index + 1;
+    }
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            index = rng_names_refs(schema, child, out, index);
+        }
+    }
+    return index;
+}
+
+typedef struct rng_names_frame {
+    struct rng_names_frame *parent;
+    def_entry *entry;
+    def_entry **refs;
+    Py_ssize_t count, next;
+} rng_names_frame;
+
+/* Puts a define on the stack with the refs of its components, which are sized in one pass and filled in another. */
+static rng_names_frame *rng_names_push(th_schema *schema, rng_names_frame *parent, def_entry *entry) {
+    Py_ssize_t count = rng_names_refs(schema, entry->first, NULL, 0);
+    for (def_part *part = entry->extra; part != NULL; part = part->next) {
+        count = rng_names_refs(schema, part->node, NULL, count);
+    }
+    rng_names_frame *frame = arena_alloc(&schema->mem, sizeof(*frame));
+    def_entry **refs = arena_alloc(&schema->mem, (size_t)count * sizeof(*refs));
+    if (frame == NULL || refs == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;                     /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t index = rng_names_refs(schema, entry->first, refs, 0);
+    for (def_part *part = entry->extra; part != NULL; part = part->next) {
+        index = rng_names_refs(schema, part->node, refs, index);
+    }
+    entry->names_state = 1;
+    frame->parent = parent;
+    frame->entry = entry;
+    frame->refs = refs;
+    frame->count = count;
+    frame->next = 0;
+    return frame;
+}
+
+/* Builds the sets of root and of the defines it reaches, each after the defines it refers to. The stack is in the
+   arena, so a long chain of refs costs memory and not C stack, which a deep grammar would otherwise exhaust. */
+static int rng_names_ensure(th_schema *schema, def_entry *root) {
+    rng_names_frame *top = rng_names_push(schema, NULL, root);
+    if (top == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    while (top != NULL) {
+        if (top->next < top->count) {
+            def_entry *child = top->refs[top->next++];
+            if (child->names_state == 0) {
+                rng_names_frame *frame = rng_names_push(schema, top, child);
+                if (frame == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                    return -1;       /* GCOVR_EXCL_LINE */
+                }
+                top = frame;
+            }
+            continue;
+        }
+        if (rng_names_body(schema, top->entry) < 0) {
+            return -1;
+        }
+        top = top->parent;
+    }
+    return 0;
+}
+
+/* A ref to a define takes its set, building it first if it is not built yet. */
+static int rng_names_define(th_schema *schema, def_entry *entry, nameset *out) {
+    if (entry->names_state == 0 && rng_names_ensure(schema, entry) < 0) {
+        return -1;
+    }
+    if (entry->names_state == 2) {
+        *out = entry->names;
+    }
     return 0;
 }
 
