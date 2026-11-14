@@ -6,6 +6,7 @@
 #include "core/ascii.h"
 #include "core/pycompat.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -1062,6 +1063,7 @@ static int32_t xr_parse(xr_parser *parser) {
     parser->levels[0] = (xr_level){-1, -1, -1, -1, -1, parser->flags, 0};
     parser->level_count = 1;
     while (parser->pos < parser->len) {
+        TH_WORK_STEP();
         Py_UCS4 current = parser->pattern[parser->pos];
         xr_level *level = &parser->levels[parser->level_count - 1];
         if (current == ')' && parser->level_count == 1) {
