@@ -1194,40 +1194,35 @@ static int css_arg_is_zero(const css_char *text, Py_ssize_t len) {
     return (len == 1 && text[0] == '0') || (len == 2 && text[0] == '0' && text[1] == '%');
 }
 
+/* The index of the comma between the two arguments of a translate() or scale() whose argument tokens are [start, end),
+   or end for any other function or argument count. The comma is looked up among the tokens, outside every block: in
+   the rendered text a comma inside a string, a comment or a nested block reads like a separator, and cutting the text
+   there leaves that string, comment or block open. */
+static Py_ssize_t css_transform_comma(token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
+                                      Py_ssize_t name_len) {
+    if (!css_run_ieq(name, name_len, "translate") && !css_run_ieq(name, name_len, "scale")) {
+        return end;
+    }
+    Py_ssize_t comma = css_scan_stacked(vec, start, end, 0, ",");
+    if (comma < end && css_scan_stacked(vec, comma + 1, end, 0, ",") < end) {
+        return end; /* more than two arguments: not a form we collapse */
+    }
+    return comma;
+}
+
 /* Drop a redundant trailing argument from a transform function: translate(x,0) -> translate(x) and
    translate(0,0) -> translate(0) (the omitted Y defaults to 0), scale(n,n) -> scale(n). These are exact identities,
-   so the transform is value-safe; translate3d and the single-axis variants are intentionally left untouched. */
-static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_len, css_buf *args) {
+   so the transform is value-safe; translate3d and the single-axis variants are intentionally left untouched. args
+   holds the two rendered arguments around the comma css_transform_comma found, the first of them first_len long. */
+static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_len, css_buf *args,
+                                        Py_ssize_t first_len) {
+    if (*args->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return;       /* GCOVR_EXCL_LINE: a failed growth may have dropped the comma */
+    }
     int is_translate = css_run_ieq(name, name_len, "translate");
     int is_scale = css_run_ieq(name, name_len, "scale");
-    if (!is_translate && !is_scale) {
-        return;
-    }
-    Py_ssize_t comma = -1;
-    int depth = 0;
-    for (Py_ssize_t index = 0; index < args->len; index++) {
-        css_char character = args->data[index];
-        if (character == '\\') {
-            index++;
-            continue;
-        }
-        if (character == '(') {
-            depth++;
-        } else if (character == ')') {
-            depth--;
-        } else if (character == ',' && depth == 0) {
-            if (comma != -1) { /* more than two arguments: not a form we collapse */
-                return;
-            }
-            comma = index;
-        }
-    }
-    if (comma < 0) {
-        return;
-    }
-    Py_ssize_t first_len = comma;
-    const css_char *second = args->data + comma + 1;
-    Py_ssize_t second_len = args->len - comma - 1;
+    const css_char *second = args->data + first_len + 1;
+    Py_ssize_t second_len = args->len - first_len - 1;
     if ((is_translate && css_arg_is_zero(second, second_len)) ||
         (is_scale && first_len == second_len &&
          memcmp(args->data, second, (size_t)first_len * sizeof(css_char)) == 0)) {
@@ -1238,15 +1233,24 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
 /* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. A function
    with no matching `)` runs to the end of the input, as css_read_until reads blocks the same way; the arguments then
    close their own blocks before the function's `)`, which would otherwise close an inner `(` on the next pass and leave
-   the function open. */
+   the function open. The two arguments of a translate() or scale() render one after the other, so the length of the
+   first is known; that writes the text a single pass does, since a comma resets the pass's state and only a math
+   function takes the raw fallback, which rewrites the whole buffer. */
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
     css_buf args = {NULL, 0, 0, pool->oom};
     int raw_fallback = 0;
-    css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args,
+    Py_ssize_t comma = css_transform_comma(vec, name_index + 2, close_index, name_token->text, name_token->text_len);
+    css_minify_func_args(pool, vec, name_index + 2, comma, name_token->text, name_token->text_len, &args,
                          &raw_fallback);
-    css_collapse_transform_args(name_token->text, name_token->text_len, &args);
+    if (comma < close_index) {
+        Py_ssize_t first_len = args.len;
+        cbuf_putc(&args, ',');
+        css_minify_func_args(pool, vec, comma + 1, close_index, name_token->text, name_token->text_len, &args,
+                             &raw_fallback);
+        css_collapse_transform_args(name_token->text, name_token->text_len, &args, first_len);
+    }
     if (close_index == vec->len) {
         if (raw_fallback) {
             /* Raw arguments still contain nested functions, so their blocks must be counted too. */
