@@ -1093,28 +1093,23 @@ def test_html_c14n_1_1_joins_ancestor_bases_at_depth() -> None:
 
 
 @pytest.mark.parametrize(
-    ("parse_markup", "element", "value", "depths"),
+    ("parse_markup", "value", "apex", "depths"),
     [
-        pytest.param(parse_xml, "a", "seg/" * 5, (1500, 6000), id="xml"),
+        pytest.param(parse_xml, "seg/" * 5, "", (1500, 6000), id="xml"),
         # the HTML tree builder caps the depth at 512, so this case stays below it
-        pytest.param(parse, "section", "seg/" * 250, (100, 400), id="html"),
+        pytest.param(parse, "seg/" * 250, "", (100, 400), id="html"),
+        pytest.param(parse_xml, "seg/" * 5, "http://h.example/", (1000, 4000), id="absolute"),
     ],
 )
 def test_c14n_1_1_fixup_steps_grow_linearly(
-    parse_markup: Callable[[str], Document],
-    element: str,
-    value: str,
-    depths: tuple[int, int],
-    work_steps: WorkSteps,
+    parse_markup: Callable[[str], Document], value: str, apex: str, depths: tuple[int, int], work_steps: WorkSteps
 ) -> None:
-    work_steps.assert_linear(lambda depth: _base_chain_apex(parse_markup, element, value, depth), depths)
+    work_steps.assert_linear(lambda depth: _base_chain_apex(parse_markup, value, apex, depth), depths)
 
 
-def _base_chain_apex(
-    parse_markup: Callable[[str], Document], element: str, value: str, depth: int
-) -> Callable[[], bytes]:
-    opening = f'<{element} xml:base="{value}">'
-    node = parse_markup(f"{opening * depth}<s></s>{f'</{element}>' * depth}").select_one("s")
+def _base_chain_apex(parse_markup: Callable[[str], Document], value: str, apex: str, depth: int) -> Callable[[], bytes]:
+    opening = f'<section xml:base="{value}">'
+    node = parse_markup(f'{opening * depth}<s xml:base="{apex}"></s>{"</section>" * depth}').select_one("s")
     assert node is not None
     return partial(node.canonicalize, Canonical(version="1.1"))
 
