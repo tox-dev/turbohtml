@@ -385,6 +385,10 @@ Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root) {
     return tree->max_depth > tree->depth_walked ? tree->max_depth : tree->depth_walked;
 }
 
+int th_tree_depth_reaches(th_tree *tree, th_node *origin, Py_ssize_t depth) {
+    return tree->max_depth >= depth || th_tree_max_depth(tree, th_node_root(origin)) >= depth;
+}
+
 int th_tree_failed(const th_tree *tree) {
     return tree->failed;
 }

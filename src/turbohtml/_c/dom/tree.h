@@ -536,6 +536,7 @@ int th_tree_scripting(const th_tree *tree);
    caller holds the handle's critical section. */
 th_node *th_node_root(th_node *node);
 Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root);
+int th_tree_depth_reaches(th_tree *tree, th_node *origin, Py_ssize_t depth);
 void th_tree_structure_changed(th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 

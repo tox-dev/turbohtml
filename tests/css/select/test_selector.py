@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
@@ -812,39 +813,41 @@ def _deep_appended(depth: int) -> Element:
     return root
 
 
-# The test compares two :has() misses on the same tree: a descendant argument, whose per-anchor walk is quadratic
-# without the memo, and a child-combinator argument, which inspects one child per anchor and stays linear. Each is
-# timed as the fastest of three runs, and the descendant time must stay under 100 times the child time. With the
-# memo the ratio stays in the single digits at this depth; without it the ratio is in the hundreds.
+# A descendant :has() miss visits each anchor's subtree, which without the memo sums to quadratic steps on a
+# chain. The memo answers every element in amortized constant time, so the counted steps grow linearly with depth.
 _NESTED_DEPTH: Final[int] = 4_000
 
 
 @pytest.mark.parametrize(
     "build", [pytest.param(_deep_xml, id="parse-xml"), pytest.param(_deep_appended, id="mutation-api")]
 )
-def test_has_memo_deep_tree_not_from_html_parser(build: Callable[[int], Document | Element]) -> None:
+def test_has_memo_deep_tree_not_from_html_parser(
+    build: Callable[[int], Document | Element], work_steps: WorkSteps
+) -> None:
     tree: Final = build(_NESTED_DEPTH)
     assert len(tree.select("group:has(item)")) == _NESTED_DEPTH
     assert len(tree.select("group:has(> item)")) == 1
     assert tree.select("group:has(entry)") == []
-    descendant: Final = min(_seconds(lambda: tree.select("group:has(entry)")) for _ in range(3))
-    child: Final = min(_seconds(lambda: tree.select("group:has(> entry)")) for _ in range(3))
-    assert descendant < 100 * child
+    work_steps.assert_linear(lambda size: partial(build(size).select, "group:has(entry)"), (1000, _NESTED_DEPTH))
 
 
-def test_has_memo_deepening_mutation_after_query() -> None:
+def test_has_memo_deepening_mutation_after_query(work_steps: WorkSteps) -> None:
+    assert len(_chain_grown_after_query(_NESTED_DEPTH).select("group:has(item)")) == _NESTED_DEPTH
+    work_steps.assert_linear(
+        lambda size: partial(_chain_grown_after_query(size).select, "group:has(entry)"), (1000, _NESTED_DEPTH)
+    )
+
+
+def _chain_grown_after_query(depth: int) -> Element:
     root: Final = Element("root")
     assert root.select("group:has(item)") == []
     innermost = root
-    for _ in range(_NESTED_DEPTH):
+    for _ in range(depth):
         child: Final = Element("group")
         innermost.append(child)
         innermost = child
     innermost.append(Element("item"))
-    assert len(root.select("group:has(item)")) == _NESTED_DEPTH
-    descendant: Final = min(_seconds(lambda: root.select("group:has(entry)")) for _ in range(3))
-    child_form: Final = min(_seconds(lambda: root.select("group:has(> entry)")) for _ in range(3))
-    assert descendant < 100 * child_form
+    return root
 
 
 @pytest.mark.parametrize(

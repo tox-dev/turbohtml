@@ -187,14 +187,13 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
     sel_default_memo default_memo = {0};
     sel_sibling_memo memo = {0};
     HandleObject *handle_obj = (HandleObject *)handle;
-    sel_ctx ctx = {
-        compiled->tree,
-        origin,
-        compiled->quirks,
-        selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
-        &nth_memo,
-        &default_memo,
-        &memo};
+    sel_ctx ctx = {compiled->tree,
+                   origin,
+                   compiled->quirks,
+                   selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
+                   &nth_memo,
+                   &default_memo,
+                   &memo};
     if (selector_use_index(handle_obj, origin, compiled)) {
         Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
         for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -2474,14 +2473,13 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
     sel_sibling_memo memo = {0}; /* shared across the walk so :has() and ~ memoize their scans */
-    sel_ctx ctx = {
-        compiled->tree,
-        origin,
-        compiled->quirks,
-        selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
-        &nth_memo,
-        &default_memo,
-        &memo};
+    sel_ctx ctx = {compiled->tree,
+                   origin,
+                   compiled->quirks,
+                   selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
+                   &nth_memo,
+                   &default_memo,
+                   &memo};
     int result = 0;
     for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
         if (node->type != TH_NODE_ELEMENT) {

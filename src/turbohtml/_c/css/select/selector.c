@@ -2359,17 +2359,6 @@ static int sel_rel_uses_scope(const sel_complex *rel) {
     return 0;
 }
 
-/* The memo only earns its keep where nesting is deep enough that candidate anchors'
-   subtrees overlap heavily -- there the re-walk factor (how many nested anchors re-scan
-   a node) dwarfs a hash probe. Shallower than this the direct walk wins, so a candidate
-   at descent `descent` below the tested anchor consults/populates the memo only past
-   this many levels. Real markup nests ~8-18 deep (the benchmark pages top out at 18), so
-   its :has() subtrees never touch the hash and cost exactly what the pre-memo walk did,
-   while a deep nested chain -- the O(n^2) trigger -- collapses to amortized O(1) per
-   candidate. Each anchor pays at most this many un-memoized levels before it reaches a
-   populated deeper node, bounding its work at O(depth) total. */
-#define SEL_HAS_MEMO_MIN_DESCENT 24
-
 static th_node *sel_first_element_child(th_node *node) {
     th_node *child = node->first_child;
     while (child != NULL && child->type != TH_NODE_ELEMENT) {
@@ -2629,11 +2618,6 @@ int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ct
    ctx->has_memo NULL and the matcher runs the exact pre-memo path with no added per-node cost. */
 int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth) {
     return compiled->has_relational && depth >= SEL_HAS_MEMO_MIN_DESCENT;
-}
-
-int selector_query_uses_has_memo(const sel_compiled *compiled, th_node *origin) {
-    return compiled->has_relational &&
-           selector_uses_has_memo(compiled, th_tree_max_depth(compiled->tree, th_node_root(origin)));
 }
 
 int selector_uses_scope(const sel_compiled *compiled) {
