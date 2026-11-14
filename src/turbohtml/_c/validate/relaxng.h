@@ -188,14 +188,14 @@ static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
     table->count++;
 }
 
-/* A shared pattern node is derived once per path that reaches it. The memo derives it once per event: a start tag
-   name, an attribute, a start tag close or a text run. The name is fixed within an event, and the value tells a list
-   token from the text that holds it, so the pattern and the value identify a derivative. */
+/* Each path that reaches a shared node re-derives it, so the memo keeps one result per node for each event: a start
+   tag name, an attribute, a start tag close or a text run. An event has a single name, and a list token is kept apart
+   from the text around it by its address and length, so a node and a value together name one result. */
 enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
 
 /* A probe costs more than a plain step, so an event walks its first steps as a tree. */
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-/* No free steps, so a short schema takes the memo path. */
+/* With no free steps the memo engages on the first step, so the fuzzing build exercises it on small schemas. */
 #define MEMO_FREE_STEPS 0
 #else
 #define MEMO_FREE_STEPS 1024
@@ -242,7 +242,8 @@ static void memo_engage(th_schema *schema) {
     }
 }
 
-/* The operands are arena pointers with zero low bits, which the multiply alone would leave out of the slot index. */
+/* Slots come from the low bits, which a multiply computes from the input's low bits alone. Arena addresses have
+   none there, so the hash folds the high half down first. */
 static uint64_t memo_key_hash(memo_key key) {
     uint64_t hash = UINT64_C(1469598103934665603);
     hash = (hash ^ (uint64_t)key.op) * UINT64_C(1099511628211);
@@ -288,7 +289,7 @@ static RNG_NOINLINE int memo_grow(th_schema *schema) {
     size_t cap = memo->cap ? memo->cap * 2 : 64;
     memo_entry *slots = arena_alloc(&schema->mem, cap * sizeof(memo_entry));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return 0;        /* GCOVR_EXCL_LINE: skipping the insert only loses the memo, not correctness */
+        return 0;        /* GCOVR_EXCL_LINE: without the grow the entry is not cached; that costs time, not a result */
     }
     memset(slots, 0, cap * sizeof(memo_entry));
     for (size_t index = 0; index < memo->cap; index++) {

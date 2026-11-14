@@ -36,11 +36,11 @@ attribute, text run, and end tag: the pattern that remains after consuming one p
 ``interleave`` fall out for free -- the derivative of ``interleave(p1, p2)`` over an element is the choice of advancing
 either side -- with no backtracking. Smart constructors absorb ``notAllowed`` and ``empty``, each validation hash-conses
 the residual patterns, and ``choice`` drops a branch it already holds, so the residual of an ambiguous grammar stays
-bounded where it would otherwise double on each child. Shared ``define`` components make the pattern a graph, so after
-its free steps, which scale with the schema, a derivative memoizes the rest of its walk and derives each shared part
-once. The compiler enforces the specification's schema restrictions: it raises :class:`ValueError` for a ``<ref>`` with
-no name, for a reference cycle that never crosses an ``element``, and for an ``interleave`` whose branches compete for
-an element name or for text.
+bounded where it would otherwise double on each child. A shared ``define`` does not cost time that doubles with each
+reference: once an event has used its step allowance, which scales with the schema size, each shared ``define`` is
+evaluated at most once per event. The compiler enforces the specification's schema restrictions: it raises
+:class:`ValueError` for a ``<ref>`` with no name, for a reference cycle that never crosses an ``element``, and for an
+``interleave`` whose branches compete for an element name or for text.
 
 A RELAX NG schema can span files through ``include`` and ``externalRef``. The compiler resolves both as the
 specification's simplification steps describe: each ``href`` resolves against the element's base URI, the referenced
