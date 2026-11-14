@@ -136,8 +136,10 @@ static uint64_t c14n_xml_prefix_hash(const c14n_xml_scope *scope, const char *na
 static Py_ssize_t c14n_xml_prefix_slot(const c14n_xml_scope *scope, uint64_t hash, const char *name,
                                        Py_ssize_t name_len) {
     Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(scope->slots_cap - 1));
+    /* One step per lookup, not per probe: how far a probe runs depends on the per-process hash salt, so
+       counting probes would make the work-step tests pass or fail with PYTHONHASHSEED. */
+    TH_WORK_STEP();
     while (scope->slots[slot] != 0) {
-        TH_WORK_STEP();
         const c14n_xml_prefix *known = &scope->prefixes[scope->slots[slot] - 1];
         if (known->name_len == name_len && memcmp(known->name, name, (size_t)name_len) == 0) {
             return slot;
