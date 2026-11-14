@@ -1533,8 +1533,9 @@ double to_number(struct th_tree *tree, const xp_result *value) {
     return number;
 }
 
-/* Apply each predicate in the XN_PRED chain to set, in place, in proximity order. */
-static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set) {
+/* Apply each predicate in the XN_PRED chain to set, in place, in proximity order. held is the depth the caller's
+   frames weigh beneath the predicate on top of the level its own expression counts. */
+static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set, int held) {
     for (int32_t pr = pred_head; pr >= 0; pr = prog->nodes[pr].next) {
         int32_t expr = prog->nodes[pr].first;
         const xn *predicate = &prog->nodes[expr];
@@ -1574,7 +1575,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                 ctx->namespaces,
                 ctx->extension,
                 ctx->extension_ctx,
-                ctx->depth,
+                ctx->depth + held,
                 ctx->caches,
                 ctx->live,
                 ctx->before_python,
@@ -1652,6 +1653,18 @@ static int resolve_step_ns(xp_ctx *ctx, const Py_UCS4 *prefix, Py_ssize_t prefix
     return 0;
 }
 
+/* The atom of an XML-namespace attribute: both trees store it under its xml:-prefixed name. Out of line, so the name
+   buffer stays out of the frame each location path keeps on the stack while its predicates recurse. */
+static TH_NOINLINE uint32_t resolve_xml_attr_atom(struct th_tree *tree, const Py_UCS4 *local, Py_ssize_t local_len) {
+    Py_UCS4 qualified[128] = {'x', 'm', 'l', ':'};
+    uint32_t atom = UINT32_MAX;
+    if (local_len < (Py_ssize_t)(sizeof(qualified) / sizeof(qualified[0])) - 4) {
+        memcpy(qualified + 4, local, (size_t)local_len * sizeof(Py_UCS4));
+        atom = resolve_attr_atom(tree, qualified, local_len + 4);
+    }
+    return atom;
+}
+
 /* Resolve a step's name test once: the local part after any prefix, its interned atoms,
    and the namespace the prefix binds. Returns 0, or -3 (with *feature set) for an
    unbound prefix. */
@@ -1681,12 +1694,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
         }
     }
     if (step->axis == AX_ATTRIBUTE && match->xml_ns) {
-        /* both trees store an XML-namespace attribute under its xml:-prefixed name */
-        Py_UCS4 qualified[128] = {'x', 'm', 'l', ':'};
-        if (match->local_len < (Py_ssize_t)(sizeof(qualified) / sizeof(qualified[0])) - 4) {
-            memcpy(qualified + 4, match->local, (size_t)match->local_len * sizeof(Py_UCS4));
-            match->attr_atom = resolve_attr_atom(ctx->tree, qualified, match->local_len + 4);
-        }
+        match->attr_atom = resolve_xml_attr_atom(ctx->tree, match->local, match->local_len);
         match->foreign_only = !th_tree_is_xml(ctx->tree);
     } else if (step->axis == AX_ATTRIBUTE) {
         /* a prefix that binds any other namespace names no attribute a tree carries */
@@ -1712,7 +1720,7 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
     xp_nodeset *contexts = current;
     if (root->second >= 0) {
         xp_result base;
-        int rc = eval_expr(prog, root->second, ctx, &base);
+        int rc = eval_held(prog, root->second, ctx, &base, 0);
         if (rc < 0) {
             return rc;
         }
@@ -1845,10 +1853,10 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
                 accepted->len = before;
                 xp_live_frame frame = {.sets = {&slice}};
                 xp_live_enter(ctx, &frame);
-                rc = apply_predicates(prog, step->first, ctx, &slice);
+                rc = apply_predicates(prog, step->first, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
                 xp_live_leave(ctx, &frame);
             } else {
-                rc = apply_predicates(prog, step->first, ctx, &slice);
+                rc = apply_predicates(prog, step->first, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
             }
             if (rc < 0) {
                 return rc;
@@ -2375,7 +2383,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
                 frame = (xp_live_frame){.results = &primary, .result_count = 1};
                 xp_live_enter(ctx, &frame);
             }
-            rc = apply_predicates(prog, expr->second, ctx, &primary.nodes);
+            rc = apply_predicates(prog, expr->second, ctx, &primary.nodes, XP_PREDICATE_DEPTH);
             xp_live_leave(ctx, &frame);
         }
         if (rc < 0) {
@@ -2473,6 +2481,33 @@ int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *ou
         xp_live_leave(ctx, &frame);
     }
     ctx->depth--;
+    return rc;
+}
+
+/* eval_guarded with the caller's frame charged in the same check and update, so a function call or a path base pays
+   no instruction of its own for it. Out of line: inlined into eval_function, it grew the LTO unit enough to stop an
+   unrelated inline in the selector matcher. */
+TH_NOINLINE int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists) {
+    if (ctx->depth + XP_HELD_DEPTH >= XP_MAX_DEPTH) {
+        *ctx->feature = "an expression nested too deeply";
+        return -5;
+    }
+#ifdef TH_OPERATION_LIMIT
+    if (xp_charge(ctx, 1) < 0) {
+        return -3;
+    }
+#endif
+    ctx->depth += 1 + XP_HELD_DEPTH;
+    int rc;
+    if (ctx->live == NULL) {
+        rc = eval_expr_inner(prog, idx, ctx, out, exists);
+    } else {
+        xp_live_frame frame = {.node = ctx->node};
+        xp_live_enter(ctx, &frame);
+        rc = eval_expr_inner(prog, idx, ctx, out, exists);
+        xp_live_leave(ctx, &frame);
+    }
+    ctx->depth -= 1 + XP_HELD_DEPTH;
     return rc;
 }
 
