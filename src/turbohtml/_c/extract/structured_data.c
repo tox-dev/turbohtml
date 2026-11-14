@@ -740,7 +740,9 @@ done:
 }
 
 /* Gather the verbatim text of every <script type="application/ld+json"> under the document into a list of str, leaving
-   the JSON parsing to the Python facade. NULL only on the excluded allocation-failure path. */
+   the JSON parsing to the Python facade. NULL only on the excluded allocation-failure path. A block is the element's
+   child text content, not its descendant text: an SVG or MathML <script> can hold further <script> elements, and
+   descendant text would decode the innermost one once per enclosing element. */
 static PyObject *gather_json_ld(PyObject *self) {
     PyObject *texts = PyList_New(0);
     if (texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -763,7 +765,7 @@ static PyObject *gather_json_ld(PyObject *self) {
             !json_ld_type_with_parameters(type_attr->value, type_attr->value_len)) {
             continue;
         }
-        PyObject *text = str_from_accessor(th_node_text, tree, node);
+        PyObject *text = str_from_accessor(th_node_child_text, tree, node);
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
             break;          /* GCOVR_EXCL_LINE */

@@ -1595,9 +1595,12 @@ static int css_style_type_supported(const th_node *node) {
 }
 
 /* Collect every <style> element's text under root (document order), parsing each
-   into a sheet whose selectors are compiled against tree. A selector that fails to
-   compile leaves compiled[rule] NULL so the rule matches nothing. Returns the sheet
-   array and sets *out_count, or NULL with *out_count negative on failure. */
+   into a sheet whose selectors are compiled against tree. A sheet is the element's
+   child text content, not its descendant text: an SVG or MathML <style> can hold
+   further <style> elements, and descendant text would compile the innermost one once
+   per enclosing element. A selector that fails to compile leaves compiled[rule] NULL
+   so the rule matches nothing. Returns the sheet array and sets *out_count, or NULL
+   with *out_count negative on failure. */
 static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node *root, Py_ssize_t *out_count) {
     css_sheet *sheets = NULL;
     Py_ssize_t count = 0;
@@ -1607,7 +1610,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             continue;
         }
         Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_text(tree, node, &text_len);
+        Py_UCS4 *text = th_node_child_text(tree, node, &text_len);
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             goto fail;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
