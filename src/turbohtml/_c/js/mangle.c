@@ -91,8 +91,9 @@ static uint32_t name_hash_keyed(const Py_UCS4 *name, Py_ssize_t len) {
 }
 #endif
 
-/* Move the slots into cap of them under the table's hash. Taken in slot order, no name of a doubled table lands further
-   from its home than it sat before, so the bound htab_slot keeps on how far a name sits holds on. */
+/* Move the slots into cap of them under the table's hash. The walk starts at an empty slot, so a run that wraps past
+   the end of the array is re-seated in its own order: no name of a doubled table lands further from its home than it
+   sat before, and the bound htab_slot keeps on how far a name sits holds on. */
 static void htab_resize(htab *table, int32_t cap) {
     hslot *slots = jm_calloc((size_t)cap, sizeof(hslot));
     if (slots == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -100,7 +101,12 @@ static void htab_resize(htab *table, int32_t cap) {
         return;            /* GCOVR_EXCL_LINE */
     }
     uint32_t mask = (uint32_t)cap - 1;
-    for (int32_t index = 0; index < table->cap; index++) {
+    int32_t start = 0;
+    while (start < table->cap && table->slots[start].name != NULL) {
+        start++;
+    }
+    for (int32_t step = 0; step < table->cap; step++) {
+        int32_t index = (start + step) % table->cap;
         if (table->slots[index].name != NULL) {
             const Py_UCS4 *name = table->slots[index].name;
             Py_ssize_t len = table->slots[index].len;
