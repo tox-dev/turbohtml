@@ -474,6 +474,7 @@ run.omit = [
   "tests/conformance/test_dom_jsdom_differential.py",
   "tests/conformance/test_xml_conformance.py",
 ]
+run.concurrency = [ "multiprocessing", "thread" ]
 run.parallel = true
 run.plugins = [
   "covdefaults",
@@ -482,7 +483,6 @@ run.plugins = [
 # contexts pytest-cov sets via --cov-context (7.15.2 dropped them silently, 7.15.3 warns,
 # and filterwarnings=error turns that into a failure); ctrace supports them
 run.core = "ctrace"
-run.patch = [ "_exit", "subprocess" ]
 paths.source = [
   "src",
   ".tox/*/lib/*/site-packages",

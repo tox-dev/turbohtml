@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import sys
 from contextlib import nullcontext
 from multiprocessing.context import SpawnProcess
 from typing import TYPE_CHECKING, Literal
@@ -46,7 +46,7 @@ def build_probe(kind: Literal["quadratic", "crash-once"], clock: list[float], ma
         # the first call of the first worker ends its process, so the search has to restart it
         if not marker.exists():
             marker.touch()
-            os._exit(1)
+            sys.exit(1)
         clock[0] += linear_cost(len(text))
 
     return Target(run=crash_once, sources=TARGETS["url"].sources)
