@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import sys
 from typing import TYPE_CHECKING, Final
 
@@ -114,16 +115,23 @@ def test_regressions_fail_a_row(
 
 @pytest.mark.usefixtures("controls")
 def test_search_keeps_the_seed_and_inputs_out_of_the_log(
-    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], install_probe: Callable[[Callable[[list[float]], Target]], None]
 ) -> None:  # pragma: win32 no cover
-    code = main(["search", "--shapes", "2", "--target", "url", "--rng-seed", "918273645", "--crash-dir", str(tmp_path)])
+    install_probe(lambda clock: Target(run=_charging(clock, _quadratic_cost), sources=TARGETS["url"].sources))
+    code = main(
+        ["search", "--shapes", "2", "--target", "probe", "--rng-seed", "918273645", "--crash-dir", str(tmp_path)],
+        context=multiprocessing.get_context("fork"),
+    )
     out, err = capfd.readouterr()
     summary = [line.split(",")[0] for line in out.splitlines() if line.startswith("search: ")]
-    assert (code, summary, "918273645" in out + err, sorted(tmp_path.iterdir())) == (
-        0,
+    findings = [line for line in out.splitlines() if line.startswith("FINDING ")]
+    crashes = list(tmp_path.glob("crash-*.json"))
+    assert (code, summary, len(findings), len(crashes), "918273645" in out + err) == (
+        1,
         ["search: 2 shapes over 1 targets"],
+        2,
+        2,
         False,
-        [],
     )
 
 
