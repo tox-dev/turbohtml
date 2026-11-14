@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import gc
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
+import turbohtml
 from turbohtml.extract import feed
 
 if TYPE_CHECKING:
@@ -116,14 +119,27 @@ def test_feed_atom_entries_do_not_copy_inherited_author() -> None:
     result = feed(inherited)
     assert result is not None
     assert {entry.author for entry in result.entries} == {contributor.strip()}
-    # A copy kept per inheriting entry would grow the peak with the entry count, while the control keeps one copy.
-    assert _peak_bytes(tracing, inherited) <= 4 * _peak_bytes(tracing, own)
+    # A copy kept per inheriting entry would be retained once per entry, while the control retains one copy.
+    assert _retained_bytes(tracing, inherited) <= 4 * _retained_bytes(tracing, own)
 
 
-def _peak_bytes(tracing: ModuleType, xml: str) -> int:
+def _retained_bytes(tracing: ModuleType, xml: str) -> int:
     tracing.start()
     try:
-        feed(xml)
-        return tracing.get_traced_memory()[1]
+        gc.collect()
+        before: Final = _turbohtml_bytes(tracing)
+        kept: Final = feed(xml)
+        gc.collect()
+        retained: Final = _turbohtml_bytes(tracing) - before
     finally:
         tracing.stop()
+    assert kept is not None
+    return retained
+
+
+def _turbohtml_bytes(tracing: ModuleType) -> int:
+    package: Final = Path(turbohtml.__file__).parent
+    snapshot: Final = tracing.take_snapshot().filter_traces([
+        tracing.Filter(inclusive=True, filename_pattern=f"{package}/*")
+    ])
+    return sum(stat.size for stat in snapshot.statistics("filename"))

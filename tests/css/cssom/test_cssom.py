@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
+import sys
 from functools import partial
 from typing import TYPE_CHECKING, Final
 
@@ -12,7 +14,6 @@ from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -1457,14 +1458,21 @@ def test_computed_style_foreign_style_reads_its_text_children_only(html: str, ex
 
 
 def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
-    document: Final = parse(f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>")
-    tracing.start()
-    try:
-        computed_style(document.select("p")[0])
-        peak: Final = tracing.get_traced_memory()[1]
-    finally:
-        tracing.stop()
+    # tracemalloc totals every thread, so the peak is read in a child process that has no other threads
+    source: Final = f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>"
+    script: Final = (
+        "import tracemalloc\n"
+        "from turbohtml import parse\n"
+        "from turbohtml.cssom import computed_style\n"
+        f"document = parse({source!r})\n"
+        "tracemalloc.start()\n"
+        'computed_style(document.select("p")[0])\n'
+        "print(tracemalloc.get_traced_memory()[1])\n"
+    )
+    run: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    peak: Final = int(run.stdout)
     assert peak < 16 * 1024 * 1024, peak
 
 

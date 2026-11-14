@@ -17,7 +17,6 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -1341,18 +1340,25 @@ def test_minify_css_nested_media_merge_is_bounded_and_stable(between: str) -> No
     # joining two same-query blocks minifies their text again, and that pass joins the twins nested in them one level
     # down, so twins at each of 48 levels cost 1128 passes over the innermost rules, and every pass left a copy of them
     # per enclosing list in the arena (68 MiB here); past eight levels the twins stay apart, on the next pass too
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
     source = "".join(f"r{index}{{p{index}:0}}" for index in range(256))
     twin = "z{y:x}"
     for level in reversed(range(48)):
         twin = f"@media m{level}{{{twin}}}"
         source = f"@media m{level}{{{source}}}{between}{twin}"
-    tracing.start()
-    try:
-        result: Final = minify_css(source)
-        peak: Final[int] = tracing.get_traced_memory()[1]
-    finally:
-        tracing.stop()
+    # tracemalloc totals every thread, so the peak is read in a child process that has no other threads
+    script: Final = (
+        "import tracemalloc\n"
+        "from turbohtml.clean import minify_css\n"
+        f"source = {source!r}\n"
+        "tracemalloc.start()\n"
+        "minify_css(source)\n"
+        "print(tracemalloc.get_traced_memory()[1])\n"
+    )
+    run: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    peak: Final = int(run.stdout)
+    result: Final = minify_css(source)
     blocks: Final = [result.count(f"@media m{level}{{") for level in (7, 8)]
     assert (blocks, peak < 512 * len(source), minify_css(result)) == ([1, 10], True, result)
 

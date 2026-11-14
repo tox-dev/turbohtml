@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import gc
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
+import turbohtml
 from turbohtml import parse_xml
 from turbohtml.validate import RelaxNG, XMLSchema
 
@@ -136,13 +138,21 @@ def _assert_validation_buffers_released(schema: XMLSchema | RelaxNG, document: D
         for _ in range(10):
             assert schema.validate(document).valid is valid
         gc.collect()
-        before: Final[int] = tracing.get_traced_memory()[0]
+        before: Final[int] = _turbohtml_bytes(tracing)
         for _ in range(100):
             assert schema.validate(document).valid is valid
         gc.collect()
-        assert tracing.get_traced_memory()[0] - before < 32_768
+        assert _turbohtml_bytes(tracing) - before < 32_768
     finally:
         tracing.stop()
+
+
+def _turbohtml_bytes(tracing: ModuleType) -> int:
+    package: Final = Path(turbohtml.__file__).parent
+    snapshot: Final = tracing.take_snapshot().filter_traces([
+        tracing.Filter(inclusive=True, filename_pattern=f"{package}/*")
+    ])
+    return sum(stat.size for stat in snapshot.statistics("filename"))
 
 
 @pytest.mark.parametrize(

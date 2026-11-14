@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import gc
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
+import turbohtml
 from turbohtml.extract import Extraction, Paragraph, boilerplate
 
 if TYPE_CHECKING:
@@ -274,10 +276,18 @@ def test_boilerplate_releases_text_snapshots() -> None:
         for _ in range(128):
             boilerplate(page)
         gc.collect()
-        before: Final = tracing.get_traced_memory()[0]
+        before: Final = _turbohtml_bytes(tracing)
         for _ in range(128):
             boilerplate(page)
         gc.collect()
-        assert tracing.get_traced_memory()[0] - before < 256 * 1024
+        assert _turbohtml_bytes(tracing) - before < 256 * 1024
     finally:
         tracing.stop()
+
+
+def _turbohtml_bytes(tracing: ModuleType) -> int:
+    package: Final = Path(turbohtml.__file__).parent
+    snapshot: Final = tracing.take_snapshot().filter_traces([
+        tracing.Filter(inclusive=True, filename_pattern=f"{package}/*")
+    ])
+    return sum(stat.size for stat in snapshot.statistics("filename"))

@@ -12,6 +12,7 @@ from turbohtml import Token, Tokenizer, TokenType, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -625,13 +626,22 @@ def test_streaming_tokenizer_reclaims_consumed_input() -> None:
     tracemalloc.start()
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    retained = tracemalloc.get_traced_memory()[0]
+    gc.collect()
+    retained = _own_bytes(tracemalloc)
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    growth = tracemalloc.get_traced_memory()[0] - retained
+    gc.collect()
+    growth = _own_bytes(tracemalloc) - retained
     tracemalloc.stop()
     # without compaction the input buffer grows by about 180 KB in the second batch
     assert growth < 100_000, f"streaming feed retained {growth} more bytes"
+
+
+def _own_bytes(tracemalloc: ModuleType) -> int:
+    snapshot: Final = tracemalloc.take_snapshot().filter_traces([
+        tracemalloc.Filter(inclusive=True, filename_pattern=__file__)
+    ])
+    return sum(stat.size for stat in snapshot.statistics("filename"))
 
 
 def test_feed_keeps_input_while_a_token_is_queued() -> None:
