@@ -2083,7 +2083,8 @@ PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', options=None, *, inner=False)
                          ":raises TypeError: if options is not an Html configuration object.\n"
                          ":raises LookupError: if encoding names a codec Python does not know.\n"
                          ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
-                         "    represent.");
+                         "    represent. Under an ISO-2022 codec those include U+000E, U+000F and U+001B,\n"
+                         "    which would reach the output as the shift codes that switch a decoder's state.");
 
 PyDoc_STRVAR(find_doc,
              "find(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, **filters)\n--\n\n"
@@ -2405,6 +2406,80 @@ TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args
     return node_serialize_options(self, options, "utf-8", inner);
 }
 
+/* Whether encoding resolves to one of CPython's ISO-2022 codecs (iso2022_jp and its variants, iso2022_kr): 1 or 0, or
+   -1 with the registry's LookupError set. */
+static int codec_is_iso2022(const char *encoding) {
+    PyObject *codecs = PyImport_ImportModule("codecs");
+    /* GCOVR_EXCL_BR_START: the untested arm requires the codecs module to fail to import */
+    PyObject *info = codecs == NULL ? NULL : PyObject_CallMethod(codecs, "lookup", "s", encoding);
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XDECREF(codecs);
+    if (info == NULL) {
+        return -1;
+    }
+    PyObject *name = PyObject_GetAttrString(info, "name");
+    Py_DECREF(info);
+    const char *resolved = name != NULL && PyUnicode_Check(name) ? PyUnicode_AsUTF8(name) : NULL;
+    int iso2022 = resolved != NULL && strncmp(resolved, "iso2022", 7) == 0;
+    PyErr_Clear(); /* a codec a search function registered without a str name is not one of CPython's */
+    Py_XDECREF(name);
+    return iso2022;
+}
+
+/* The first U+000E, U+000F or U+001B in text, or -1: each sweep stops where the one before it matched. */
+static Py_ssize_t shift_code_find(PyObject *text) {
+    static const Py_UCS4 shift_codes[] = {0x0E, 0x0F, 0x1B};
+    Py_ssize_t first = -1;
+    for (size_t index = 0; index < sizeof(shift_codes) / sizeof(shift_codes[0]); index++) {
+        Py_ssize_t end = first < 0 ? PyUnicode_GET_LENGTH(text) : first;
+        Py_ssize_t found = PyUnicode_FindChar(text, shift_codes[index], 0, end, 1);
+        if (found >= 0) {
+            first = found;
+        }
+    }
+    return first;
+}
+
+static int label_may_be_iso2022(const char *encoding) {
+    return strstr(encoding, "2022") != NULL;
+}
+
+/* CPython's ISO-2022 encoders write U+000E, U+000F and U+001B unchanged, and a decoder reads those bytes as shift
+   codes that change how the bytes after them are read, so markup holding one would not read back as serialized. The
+   WHATWG ISO-2022-JP encoder errors on all three for that reason
+   (https://encoding.spec.whatwg.org/#iso-2022-jp-encoder), so under those codecs they are characters the encoding
+   cannot represent: a strict encode raises UnicodeEncodeError, and charrefs writes them the way "xmlcharrefreplace"
+   writes every other such character. Only a label containing "2022" pays for the scan, because CPython gives every
+   ISO-2022 codec name and alias that substring. */
+PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs) {
+    const char *errors = charrefs ? "xmlcharrefreplace" : NULL;
+    Py_ssize_t shift = label_may_be_iso2022(encoding) ? shift_code_find(text) : -1;
+    int iso2022 = shift < 0 ? 0 : codec_is_iso2022(encoding);
+    if (iso2022 < 0) {
+        return NULL;
+    }
+    if (!iso2022) {
+        return PyUnicode_AsEncodedString(text, encoding, errors);
+    }
+    if (!charrefs) {
+        PyObject *error = PyObject_CallFunction(PyExc_UnicodeEncodeError, "sOnns", encoding, text, shift, shift + 1,
+                                                "a shift code would change the decoder's state");
+        if (error != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_SetObject(PyExc_UnicodeEncodeError, error);
+            Py_DECREF(error);
+        }
+        return NULL;
+    }
+    PyObject *table = Py_BuildValue("{i:s,i:s,i:s}", 0x0E, "&#14;", 0x0F, "&#15;", 0x1B, "&#27;");
+    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
+    PyObject *inert = table == NULL ? NULL : PyObject_CallMethod(text, "translate", "O", table);
+    Py_XDECREF(table);
+    PyObject *encoded = inert == NULL ? NULL : PyUnicode_AsEncodedString(inert, encoding, errors);
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XDECREF(inert);
+    return encoded;
+}
+
 TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
             (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
             args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
@@ -2419,7 +2494,7 @@ TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, P
     if (text == NULL) {
         return NULL;
     }
-    PyObject *encoded = PyUnicode_AsEncodedString(text, encoding, NULL);
+    PyObject *encoded = markup_encode(text, encoding, 0);
     Py_DECREF(text);
     return encoded;
 }
