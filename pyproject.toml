@@ -434,6 +434,10 @@ environment.python-version = "3.15"
 ini_options.testpaths = [
   "tests",
 ]
+ini_options.pythonpath = [
+  "tools",
+  "tests", # spawned search workers import amplify_seam by name
+]
 # the default set drops "build", which would silently skip tests/build (it mirrors turbohtml.build);
 # testpaths is tests only, so no build artifact dir is ever swept
 ini_options.norecursedirs = [ "*.egg", ".*", "_darcs", "{arch}", "CVS", "dist", "node_modules", "venv" ]
@@ -478,6 +482,7 @@ run.plugins = [
 # contexts pytest-cov sets via --cov-context (7.15.2 dropped them silently, 7.15.3 warns,
 # and filterwarnings=error turns that into a failure); ctrace supports them
 run.core = "ctrace"
+run.patch = [ "_exit", "subprocess" ]
 paths.source = [
   "src",
   ".tox/*/lib/*/site-packages",
