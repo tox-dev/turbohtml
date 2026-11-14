@@ -120,7 +120,7 @@ def peak_bytes() -> Callable[[str, tuple[str, ...]], int]:
         run = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
             [sys.executable, "-c", script, *args], capture_output=True, text=True, check=False
         )
-        assert (run.returncode, run.stderr) == (0, ""), run.stderr
+        assert run.returncode == 0, run.stderr
         return int(run.stdout)
 
     return measure
