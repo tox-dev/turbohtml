@@ -1450,8 +1450,10 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
             }
             target = args[0].nodes.items[0].node;
         }
+        /* seq is unique within the one source tree an expression can reach; document() and result tree fragments yield
+           no nodes from other trees. */
         char buffer[32];
-        int written = snprintf(buffer, sizeof(buffer), "id%zx", (size_t)(uintptr_t)target);
+        int written = snprintf(buffer, sizeof(buffer), "id%u", (unsigned)target->seq);
         Py_ssize_t str_len = 0;
         Py_UCS4 *str = ucs4_from_ascii(buffer, written, &str_len);
         if (str == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
