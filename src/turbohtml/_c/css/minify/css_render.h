@@ -978,10 +978,25 @@ static Py_ssize_t css_collapse_box_shadow_run(css_buf *pool, css_comp *items, Py
     return count;
 }
 
+/* The closer of the `(` at open_paren in a filter value's tokens [start, end), as css_match_paren finds it.
+   css_handle_filter asks for each function it meets and then walks on into its arguments, so the first request
+   matches every block of the value and the later ones read the table. */
+static Py_ssize_t css_filter_closer(token_vec *vec, Py_ssize_t start, Py_ssize_t end, Py_ssize_t open_paren,
+                                    Py_ssize_t **closers) {
+    if (*closers == NULL) {
+        *closers = css_match_blocks(vec, start, end);
+        if (*closers == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return end;         /* GCOVR_EXCL_LINE: the call's oom flag fails it as a whole */
+        }
+    }
+    return (*closers)[open_paren - start];
+}
+
 /* Append a color-function-style filter value (progid alpha shortening), returning 1 when handled. */
 static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *prop,
                               Py_ssize_t prop_len, css_buf *out) {
     css_buf joined = {NULL, 0, 0, pool->oom};
+    Py_ssize_t *closers = NULL;
     int is_ms = css_run_ieq(prop, prop_len, "-ms-filter");
     Py_ssize_t keep_ws_end = -1;
     int pending_ws = 0;
@@ -1003,14 +1018,14 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
         if (token->kind == CSS_IDENT && token->text_len == 11 && !is_ms &&
             css_run_ieq(token->text, token->text_len, "drop-shadow") && index + 1 < end &&
             vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(') {
-            Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
+            Py_ssize_t close_index = css_filter_closer(vec, start, end, index + 1, &closers);
             if (close_index < end) {
                 keep_ws_end = close_index;
             }
         } else if (!is_ms && token->kind == CSS_IDENT && css_lower(token->text[0]) != 'b' && index + 1 < end &&
                    vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
                    token->text_len <= 5 && css_is_math_func(token->text, token->text_len)) {
-            Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
+            Py_ssize_t close_index = css_filter_closer(vec, start, end, index + 1, &closers);
             if (close_index < end) {
                 if (index >= keep_ws_end) {
                     keep_ws_end = close_index;
@@ -1053,6 +1068,7 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
             cbuf_put_run(&joined, token->text, token->text_len);
         }
     }
+    css_free(closers);
     if (*pool->oom) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         cbuf_free(&joined); /* GCOVR_EXCL_LINE: allocation-failure path */
         return;             /* GCOVR_EXCL_LINE: allocation-failure path */

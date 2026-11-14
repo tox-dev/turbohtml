@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -5076,6 +5077,63 @@ def test_filter_preserves_variable_token_boundary(value: str) -> None:
 )
 def test_filter_math_folds_constant_calc(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+def test_filter_math_folds_constant_calc_at_any_depth() -> None:
+    nested: Final = minify_css(f"a{{filter:{'blur(' * 150}calc(1px + 2px){')' * 150}}}")
+    assert nested == f"a{{filter:{'blur(' * 150}3px{')' * 150}}}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:] min( 1px + 2px )}", "a{filter:]min(1px + 2px)}", id="stray-closer"),
+        pytest.param("a{filter:min( 1px + 2px ] + 3px )}", "a{filter:min(1px + 2px ] + 3px)}", id="other-closer"),
+        pytest.param("a{filter:min([ 1px + 2px )] )}", "a{filter:min([ 1px + 2px)])}", id="closer-in-bracket"),
+        pytest.param(
+            "a{filter:min( 1px + { 2px ) } + 3px )}", "a{filter:min(1px + { 2px) } + 3px)}", id="closer-in-brace"
+        ),
+        pytest.param("a{filter:min( [ 1px + 2px )", "a{filter:min([1px+ 2px)])}", id="unclosed-bracket"),
+        pytest.param(
+            "a{filter:drop-shadow( min( 1px + 2px ) 0 red ) blur( 1px + 2px )}",
+            "a{filter:drop-shadow(min(1px + 2px) 0 red)blur(1px+ 2px)}",
+            id="sibling-functions",
+        ),
+    ],
+)
+def test_filter_function_ends_at_its_own_closer(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("nested", "recovery"),
+    [
+        pytest.param(f"{'min(' * 200}{')' * 200}", "", id="closed"),
+        pytest.param(f"{'drop-shadow(' * 200}{')' * 200}", "", id="shadow"),
+        # the rule's `}` lands inside the blocks the value leaves open; the recovery closes them and the rule after it
+        pytest.param("min(" * 200, f"{')' * 200}}}", id="unclosed"),
+        pytest.param("min([)" * 200, f"{'])' * 200}}}", id="closer-in-bracket"),
+    ],
+)
+def test_filter_nested_functions_keep_their_recovery(nested: str, recovery: str) -> None:
+    assert minify_css(f"a{{filter:{nested}}}") == f"a{{filter:{nested}}}{recovery}"
+
+
+@pytest.mark.parametrize("name", ["min", "drop-shadow"])
+def test_filter_nested_functions_within_ratio_of_nested_blur(name: str) -> None:
+    depth: Final = 40_000
+    blur: Final = f"a{{filter:{'blur(' * depth}{')' * depth}}}"
+    opener: Final = f"{name}("
+    nested: Final = f"a{{filter:{opener * depth}{')' * depth}}}"
+    start = time.perf_counter()
+    minify_css(blur)
+    # the floor keeps a near-instant baseline from inflating the ratio on a quiet machine
+    baseline = max(time.perf_counter() - start, 0.01)
+    start = time.perf_counter()
+    minified = minify_css(nested)
+    elapsed = time.perf_counter() - start
+    assert minified == nested
+    assert elapsed / baseline < 30
 
 
 @pytest.mark.parametrize(
