@@ -1009,6 +1009,8 @@ def test_minify_keep_quotes_retains_attribute_quotes() -> None:
     [
         pytest.param(_DOC, id="document"),
         pytest.param("<pre>  keep   spaces  </pre>", id="preformatted"),
+        pytest.param("<pre>&#xd;x</pre>", id="preformatted-carriage-return"),
+        pytest.param('<p title="a&#xd;b">x</p>', id="attribute-carriage-return"),
         pytest.param("<p>one</p><script>let x = 1 + 2;</script>", id="raw-text"),
         pytest.param("<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>", id="table"),
         pytest.param("<!doctype html><html><body><p>x</p></body></html>", id="doctyped"),
