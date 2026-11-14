@@ -479,7 +479,7 @@ static int stack_push(th_tree *tree, th_node *node) {
 static void maybe_clone_option(th_tree *tree, th_node *option);
 static int name_matches(const th_node *node, const th_token *token, int fold);
 
-static void stack_pop(th_tree *tree) {
+static void stack_pop_any(th_tree *tree) {
     if (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: only reached with a non-empty stack */
         tree->open_len--;
         tree->stack_version++;
@@ -506,6 +506,15 @@ static void stack_pop(th_tree *tree) {
                clone an option into selectedcontent" */
             maybe_clone_option(tree, popped);
         }
+    }
+}
+
+/* html, or the fragment root, stays at open[0] until run_close: the scope walks, clear_to and the adoption agency's
+   common ancestor all read it. An element the depth cap kept off the stack leaves its insertion mode popping for it
+   (a refused tr, td or raw-text element), and that pop must not reach the root. */
+static void stack_pop(th_tree *tree) {
+    if (tree->open_len > 1) {
+        stack_pop_any(tree);
     }
 }
 
@@ -597,8 +606,8 @@ static int is_implied_end_atom(uint16_t atom) {
 }
 
 static void generate_implied_end_tags(th_tree *tree, uint16_t except_atom) {
-    while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: the html element is never an implied-end-tag element, so the
-                                    stack never empties here */
+    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: the html element is never an implied-end-tag element, so the
+                                    walk stops above the root */
         uint16_t atom = current_node(tree)->atom;
         if (atom == except_atom || !is_implied_end_atom(atom)) {
             return;
@@ -610,8 +619,8 @@ static void generate_implied_end_tags(th_tree *tree, uint16_t except_atom) {
 /* Pop elements until (and including) an HTML element with this atom; a foreign
    element with the same local name (e.g. a MathML td) never matches. */
 static void pop_until_atom(th_tree *tree, uint16_t atom) {
-    while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: pop_until_atom is only called with the target element in scope,
-                                    so the stack never empties */
+    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: pop_until_atom is only called with the target element in scope,
+                                    so the walk stops above the root */
         th_node *node = current_node(tree);
         stack_pop(tree);
         if (node->ns == TH_NS_HTML && node->atom == atom) {
@@ -624,8 +633,8 @@ static void pop_until_atom(th_tree *tree, uint16_t atom) {
    (exclusive); used by the table modes to "clear the stack back to a
    table / body / row context". */
 static void clear_to(th_tree *tree, uint16_t atom_a, uint16_t atom_b, uint16_t atom_c) {
-    while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: a table-context boundary is always on the open stack, so the
-                                    loop never empties it */
+    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: a table-context boundary is always on the open stack, so the
+                                    loop stops above the root */
         th_node *node = current_node(tree);
         uint16_t atom = node->atom;
         /* A table-context boundary is always an html element. */
@@ -2072,9 +2081,11 @@ static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
     return -1;
 }
 
+/* The index of the topmost HTML element with this atom on the stack, or -1; like pop_until_atom, which acts on the
+   answer, a foreign element with the same local name (an SVG or MathML template) never matches. */
 static Py_ssize_t stack_index_of_atom(th_tree *tree, uint16_t atom) {
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
-        if (tree->open[index]->atom == atom) {
+        if (tree->open[index]->ns == TH_NS_HTML && tree->open[index]->atom == atom) {
             return index;
         }
     }
@@ -2204,7 +2215,9 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         }
         /* moving the furthest block under a formatting clone can nest it where its own start tag would not */
         tree->reparse_hazard = 1;
-        th_node *common = tree->open[fmt_stack - 1];
+        /* html, or the fragment root, sits below every formatting element; should the stack ever lose it, the document
+           stands in as it does in current_node, rather than the slot in front of the array */
+        th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
         th_node *node, *last = furthest;
         Py_ssize_t node_idx = furthest_idx;
@@ -2366,6 +2379,12 @@ static int is_heading_atom(uint16_t atom) {
            atom == TH_TAG_H6;
 }
 
+/* An HTML h1-h6 on the stack: the heading rules name HTML elements, so a foreign element of that name (the root of an
+   "svg h1" fragment context) is not one. */
+static int is_heading(const th_node *node) {
+    return node->ns == TH_NS_HTML && is_heading_atom(node->atom);
+}
+
 /* Start tags that close an open <p> in button scope before being inserted. */
 static int is_p_closing_block(uint16_t atom) {
     switch (atom) {
@@ -2468,8 +2487,9 @@ static int name_matches(const th_node *node, const th_token *token, int fold) {
    match (after implied end tags), or stop at a special element. Unknown
    elements (atom 0) match by name so <foo></foo> closes correctly. */
 static void any_other_end_tag(th_tree *tree, uint16_t atom, const th_token *token) {
-    /* the html element is a special element, so any-other-end-tag stops before the stack bottom */
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0 /* GCOVR_EXCL_BR_LINE */; index--) {
+    /* the html element is a special element, so any-other-end-tag stops before the stack bottom; the root is never
+       the match, although a fragment root carries its context's name */
+    for (Py_ssize_t index = tree->open_len - 1; index > 0; index--) {
         th_node *node = tree->open[index];
         int match =
             node->ns == TH_NS_HTML && (atom != TH_TAG_UNKNOWN ? node->atom == atom : name_matches(node, token, 0));
@@ -2560,7 +2580,9 @@ static enum mode reset_insertion_mode(th_tree *tree) {
         int last = (index == 0);
         uint16_t atom;
         if (last && tree->fragment_root != NULL) {
-            atom = tree->ctx_atom; /* the bottom of the stack stands in for the context */
+            /* the bottom of the stack stands in for the context; a foreign context matches no step, like the foreign
+               elements below, or a "svg table" root would select a table mode whose clear_to pops the root itself */
+            atom = node->ns == TH_NS_HTML ? tree->ctx_atom : TH_TAG_UNKNOWN;
         } else if (node->ns != TH_NS_HTML) {
             /* the reset algorithm names HTML-namespace elements only, so a foreign
                element (an SVG/MathML td/tr/table/html/...) matches no step; skip it */
@@ -3331,7 +3353,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
            WITHOUT reconstructing the active formatting elements */
         if (is_heading_atom(atom)) {
             close_p_in_button_scope(tree);
-            if (is_heading_atom(current_node(tree)->atom)) {
+            if (is_heading(current_node(tree))) {
                 stack_pop(tree); /* nested headings don't stack */
             }
             th_node *node = insert_element(tree, tok);
@@ -3385,7 +3407,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             /* html bounds the stack walk */
             for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
-                if (open_atom == TH_TAG_LI) {
+                /* an HTML li: pop_until_atom never matches a foreign one (a "svg li" fragment context) */
+                if (tree->open[index]->ns == TH_NS_HTML && open_atom == TH_TAG_LI) {
                     generate_implied_end_tags(tree, TH_TAG_LI);
                     pop_until_atom(tree, TH_TAG_LI);
                     break;
@@ -3406,7 +3429,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             /* html bounds the stack walk */
             for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
-                if (open_atom == TH_TAG_DD || open_atom == TH_TAG_DT) {
+                if (tree->open[index]->ns == TH_NS_HTML && (open_atom == TH_TAG_DD || open_atom == TH_TAG_DT)) {
                     generate_implied_end_tags(tree, open_atom);
                     pop_until_atom(tree, open_atom);
                     break;
@@ -3644,7 +3667,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             int in_scope = 0;
             /* html bounds the stack walk */
             for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
-                if (is_heading_atom(tree->open[index]->atom)) {
+                if (is_heading(tree->open[index])) {
                     in_scope = 1;
                     break;
                 }
@@ -3654,11 +3677,11 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             }
             if (in_scope) {
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: the heading is in scope when this runs, so
-                                                the stack never empties */
+                while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: the heading is in scope when this runs, so
+                                                the walk stops above the root */
                     th_node *node = current_node(tree);
                     stack_pop(tree);
-                    if (is_heading_atom(node->atom)) {
+                    if (is_heading(node)) {
                         break;
                     }
                 }
@@ -4490,7 +4513,7 @@ static void run_close(th_tree *tree) {
        element whose name matches that leftover gets a span the source never wrote. */
     tree->closing_end_tag = NULL;
     while (tree->open_len > 0) {
-        stack_pop(tree);
+        stack_pop_any(tree);
     }
     select_cache_free(tree);
 }

@@ -1002,6 +1002,92 @@ def test_reset_insertion_mode_skips_a_foreign_html_in_a_document() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("source", "body"),
+    [
+        pytest.param(
+            "<svg><template><title><p></template>x",
+            "<svg><template><title><p>x</p></title></template></svg>",
+            id="svg-text-stays-in-place",
+        ),
+        pytest.param(
+            "<svg><template><title><p></template><em><section></em>",
+            "<svg><template><title><p><em></em></p><section></section></title></template></svg>",
+            id="svg-adoption-agency",
+        ),
+        pytest.param(
+            "<math><template><mi><p></template><a><section><a>",
+            "<math><template><mi><p><a></a></p><section><a></a></section></mi></template></math>",
+            id="mathml-adoption-agency",
+        ),
+        pytest.param(
+            "<svg><template><foreignObject><b></template><i><button></i>",
+            "<svg><template><foreignObject><b><i></i><button><i></i></button></b></foreignObject></template></svg>",
+            id="svg-template-keeps-root",
+        ),
+    ],
+)
+def test_template_end_tag_ignores_a_foreign_template_on_the_stack(source: str, body: str) -> None:
+    # only an HTML template counts as "a template element on the stack": under an SVG/MathML one the end tag is
+    # ignored instead of popping every open element, html included
+    found = parse(source).find("body")
+    assert found is not None
+    assert found.inner_html == body
+
+
+def test_foreign_template_fragment_keeps_the_root() -> None:
+    root = parse_fragment("<math><template><mi><option selected></template><i><p></i>", "table")
+    assert root.next_sibling is None
+    assert root.find("p") is not None
+
+
+@pytest.mark.parametrize(
+    ("source", "context", "expected"),
+    [
+        pytest.param(
+            "<title><p></template><em><section></em>x",
+            "svg template",
+            "<title><p><em></em></p><section>x</section></title>",
+            id="template-end-tag",
+        ),
+        pytest.param(
+            "<li></li><s><section></s>x", "svg li", "<li></li><s></s><section><s></s>x</section>", id="li-start-tag"
+        ),
+        pytest.param(
+            "<dd></dd><u><section></u>x", "math dd", "<dd></dd><u></u><section><u></u>x</section>", id="dd-start-tag"
+        ),
+        pytest.param(
+            "<dt></dt><em><section></em>x",
+            "math dt",
+            "<dt></dt><em></em><section><em></em>x</section>",
+            id="dt-start-tag",
+        ),
+        pytest.param(
+            "<h3></h3><s><section></s>x",
+            "svg h1",
+            "<h3></h3><s></s><section><s></s>x</section>",
+            id="heading-start-tag",
+        ),
+        pytest.param(
+            "<span></h6><i><section></i>x",
+            "math h1",
+            "<span><i></i><section><i></i>x</section></span>",
+            id="heading-end-tag",
+        ),
+        pytest.param(
+            "<dt><table></table><caption></caption><i><section></i>x",
+            "svg table",
+            "<dt><table></table><i></i><section><i></i>x</section></dt>",
+            id="reset-insertion-mode",
+        ),
+    ],
+)
+def test_foreign_fragment_context_is_not_its_html_namesake(source: str, context: str, expected: str) -> None:
+    # the root of a foreign-context fragment carries the context's atom; taking it for the HTML element of that name
+    # popped the root off the stack of open elements, and the content after it landed outside the fragment
+    assert parse_fragment(source, context).inner_html == expected
+
+
 @pytest.mark.parametrize("distinct", [pytest.param(True, id="distinct-values"), pytest.param(False, id="same-values")])
 def test_formatting_duplicate_scan_keeps_all_source_elements(*, distinct: bool) -> None:
     values: Final = [str(index) if distinct else "same" for index in range(256)]
@@ -1622,6 +1708,61 @@ def _max_element_depth(node: Element | Document) -> int:
 def test_deeply_nested_parse_keeps_every_element() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert len(doc.find_all("div")) == _PATHOLOGICAL  # capped elements survive as siblings
+
+
+_DEPTH_CAP: Final[int] = 512
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"{'<section>' * (_DEPTH_CAP - 4)}<table><tbody><tr></tbody>", id="row-refused"),
+        pytest.param(
+            f"{'<section>' * (_DEPTH_CAP - 6)}<table><tbody><tr><td>y<textarea></textarea></tr>",
+            id="text-element-in-cell",
+        ),
+        pytest.param(
+            f"{'<section>' * (_DEPTH_CAP - 5)}<table><tbody><tr><td>y<script></script></tbody>",
+            id="text-element-in-row",
+        ),
+    ],
+)
+def test_element_refused_at_depth_cap_keeps_html_on_the_stack(markup: str) -> None:
+    # the insertion mode entered for the refused element pops for it; that pop must stop above html
+    document = parse(f"{markup}<i><p></i>x")
+    assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
+    assert document.find("p") is not None
+
+
+@pytest.mark.parametrize(
+    ("markup", "context"),
+    [
+        pytest.param(
+            f"<svg>{'<defs>' * (_DEPTH_CAP - 4)}<svg><title><title></title><i><s><p></s>x", "div", id="svg-title"
+        ),
+        pytest.param(
+            f"{'<section>' * _DEPTH_CAP}<table><caption></caption><i><p></i>", "svg foreignObject", id="table-svg"
+        ),
+        pytest.param(
+            f"{'<section>' * _DEPTH_CAP}<table><caption></caption><i><p></i>", "math mtext", id="table-mathml"
+        ),
+        pytest.param(f"{'<section>' * _DEPTH_CAP}<template><tr><td></td></tr><i><p></i>", "svg desc", id="template"),
+        pytest.param(
+            f"{'<blockquote>' * (_DEPTH_CAP - 2)}<table><tbody><tr><td></td></tr><i><p></i>", "svg path", id="path"
+        ),
+    ],
+)
+def test_element_refused_at_depth_cap_keeps_the_fragment_root(markup: str, context: str) -> None:
+    root = parse_fragment(markup, context)
+    assert root.next_sibling is None
+    assert root.find("p") is not None
+
+
+def test_end_tag_named_like_a_custom_context_keeps_the_fragment_root() -> None:
+    card = parse("<data-tile></data-tile>").find("data-tile")
+    assert card is not None
+    card.set_inner_html("</data-tile><i><p></i>x")
+    assert card.html == "<data-tile><i></i><p><i></i>x</p></data-tile>"
 
 
 def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
