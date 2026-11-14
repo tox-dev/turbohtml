@@ -461,37 +461,38 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
         ),
         pytest.param(
             "<select><option>a</option><b><option><p><selectedcontent></b></p><option selected>o</option></select>",
-            '<select><option>a</option><b><option></option></b><p><b><selectedcontent>o</selectedcontent></b></p>'
+            "<select><option>a</option><b><option></option></b><p><b><selectedcontent>o</selectedcontent></b></p>"
             '<option selected="">o</option></select>',
             id="block-reaching-a-select-with-a-cache",
         ),
         pytest.param(
             "<select><b><option><p><selectedcontent></b></p></select>",
-            '<select><b><option></option></b><p><b><selectedcontent></selectedcontent></b></p></select>',
+            "<select><b><option></option></b><p><b><selectedcontent></selectedcontent></b></p></select>",
             id="block-reaching-a-select-without-a-cache",
         ),
         pytest.param(
             "<select><option>a</option></select><b><option><p><selectedcontent></b></p>",
-            '<select><option>a</option></select><b><option></option></b><p><b><selectedcontent></selectedcontent></b></p>',
+            "<select><option>a</option></select><b><option></option></b><p><b><selectedcontent></selectedcontent></b></p>",
             id="block-outside-any-select-after-a-select-cache",
         ),
         pytest.param(
             "<select><option>a</option><i><option><div><b><p><selectedcontent></b></p></i></div></select>",
-            '<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>'
+            "<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>"
             "</b></p></i></div></select>",
             id="block-holding-an-emptied-formatting-element",
         ),
         pytest.param(
-            f"<select><b><option><p>{'<selectedcontent></selectedcontent>' * 17}</b></p><option selected>o</option></select>",
+            f"<select><b><option><p>{'<selectedcontent></selectedcontent>' * 17}</b></p>"
+            "<option selected>o</option></select>",
             f"<select><b><option></option></b><p><b>{'<selectedcontent>o</selectedcontent>' * 16}"
             '<selectedcontent></selectedcontent></b></p><option selected="">o</option></select>',
             id="block-reaching-a-select-past-the-cap",
         ),
         pytest.param(
-            "<select><option>a</option><b><option><p>" + "<selectedcontent></selectedcontent>" * 17
-            + "</b></p><option selected>o</option></select>",
-            "<select><option>a</option><b><option></option></b><p><b>" + "<selectedcontent>o</selectedcontent>" * 16
-            + '<selectedcontent></selectedcontent></b></p><option selected="">o</option></select>',
+            f"<select><option>a</option><b><option><p>{'<selectedcontent></selectedcontent>' * 17}</b></p>"
+            "<option selected>o</option></select>",
+            f"<select><option>a</option><b><option></option></b><p><b>{'<selectedcontent>o</selectedcontent>' * 16}"
+            '<selectedcontent></selectedcontent></b></p><option selected="">o</option></select>',
             id="block-reaching-a-select-with-a-cache-past-the-cap",
         ),
         pytest.param(
@@ -501,19 +502,20 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
         ),
         pytest.param(
             "<select><option>a</option><i><option><div><b><p><selectedcontent></b></p></i></div></select>",
-            '<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>'
+            "<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>"
             "</b></p></i></div></select>",
             id="block-with-a-childless-flagged-formatting-element",
         ),
         pytest.param(
-            "<select><option>a</option><b><option><p><span></span><selectedcontent></b></p><option selected>o</option></select>",
-            '<select><option>a</option><b><option></option></b><p><b><span></span><selectedcontent>o</selectedcontent>'
+            "<select><option>a</option><b><option><p><span></span><selectedcontent></b></p>"
+            "<option selected>o</option></select>",
+            "<select><option>a</option><b><option></option></b><p><b><span></span><selectedcontent>o</selectedcontent>"
             '</b></p><option selected="">o</option></select>',
             id="block-with-an-unflagged-sibling",
         ),
         pytest.param(
             "<select><option>a</option></select><select><b><selectedcontent><p><selectedcontent></b></p></select>",
-            '<select><option>a</option></select><select><b><selectedcontent></selectedcontent></b>'
+            "<select><option>a</option></select><select><b><selectedcontent></selectedcontent></b>"
             "<p><b><selectedcontent></selectedcontent></b></p></select>",
             id="block-reaching-a-select-without-a-cache-after-another",
         ),
@@ -559,14 +561,14 @@ def test_adoption_agency_move_with_selectedcontent_stays_linear(block: str) -> N
         pytest.param(
             "<select><option>a</option><em><section><selectedcontent></em></section>"
             "<option selected>o</option></select>",
-            '<select><option>a</option><em></em><section><em><selectedcontent>o</selectedcontent></em></section>'
+            "<select><option>a</option><em></em><section><em><selectedcontent>o</selectedcontent></em></section>"
             '<option selected="">o</option></select>',
             id="select-with-a-cache",
         ),
         pytest.param(
             "<select><option>a</option></select><select><em><section><selectedcontent></em></section></select>",
-            '<select><option>a</option></select>'
-            '<select><em></em><section><em><selectedcontent></selectedcontent></em></section></select>',
+            "<select><option>a</option></select>"
+            "<select><em></em><section><em><selectedcontent></selectedcontent></em></section></select>",
             id="second-select-without-a-cache",
         ),
         pytest.param(
