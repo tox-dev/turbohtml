@@ -1002,17 +1002,23 @@ def _chained_unions(depth: int) -> str:
 
 
 def test_rng_same_structure_wildcards_scale_linearly() -> None:
-    timings = []
-    for count in (2000, 8000):
-        alts = "".join(f'<element><nsName ns="urn:a"/><attribute name="v{index}"/></element>' for index in range(count))
-        schema = rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            RelaxNG(schema)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < 9 * timings[0]
+    wildcards = _best_cpu_time(_same_structure_alternatives(12000, lambda _: '<nsName ns="urn:a"/>'))
+    named = _best_cpu_time(_same_structure_alternatives(12000, lambda index: f"<name>e{index}</name>"))
+    assert wildcards < 5 * max(named, 0.01)
+
+
+def _best_cpu_time(schema: str) -> float:
+    best = float("inf")
+    for _ in range(3):
+        start = time.process_time()
+        RelaxNG(schema)
+        best = min(best, time.process_time() - start)
+    return best
+
+
+def _same_structure_alternatives(count: int, name_class: Callable[[int], str]) -> str:
+    alts = "".join(f'<element>{name_class(index)}<attribute name="v{index}"/></element>' for index in range(count))
+    return rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
 
 
 def test_rng_chain_of_interleaves_scales_linearly() -> None:
