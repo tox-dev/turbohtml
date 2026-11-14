@@ -546,6 +546,7 @@ typedef struct th_schema {
     Py_ssize_t memo_budget; /* counts the current event's free steps down; the step that takes it below zero engages the
                                memo */
     Py_ssize_t choice_limit; /* leaves a choice built during validation may hold; 0 once a merge ran past it */
+    Py_ssize_t rng_scanned;  /* schema nodes the reference scan visited, every reachable define counted once */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;

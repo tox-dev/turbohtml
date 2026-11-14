@@ -76,7 +76,9 @@ struct pattern {
     int def_index;
     int datatype_id;
     int value_ws;
-    int choice_leaves; /* leaves of a choice chain built during validation, 0 on every other pattern */
+    /* links from here to the end of a choice chain built during validation, 0 on every other pattern; a leaf can be a
+       compiled choice, so this is a lower bound on the leaves and only picks the linear derivative */
+    int choice_leaves;
     facetset *facets;
     const Py_UCS4 *value;
     Py_ssize_t value_len;
@@ -202,8 +204,10 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
 #define MEMO_FREE_STEPS 1024
 #endif
 
-/* Leaves a choice built during validation may hold, for a schema of up to 128 patterns. */
-#define RNG_CHOICE_LIMIT 256
+/* Leaves a choice built during validation may hold for each node of the schema, and at least the floor. A residual
+   with two levels of nested ambiguity stays under it; one that doubles with each define passes it within a few. */
+#define RNG_CHOICE_PER_NODE 24
+#define RNG_CHOICE_FLOOR 256
 
 typedef struct memo_key {
     pattern *p;
@@ -359,6 +363,18 @@ static int pat_ptr_cmp(const void *left, const void *right);
 
 static pattern *choice_build(th_schema *schema, pattern **leaves, Py_ssize_t total);
 
+/* Sorts the leaves by address and moves the distinct ones to the front, returning their count. */
+static Py_ssize_t choice_compact(pattern **leaves, Py_ssize_t total) {
+    qsort(leaves, (size_t)total, sizeof(pattern *), pat_ptr_cmp);
+    Py_ssize_t distinct = 1;
+    for (Py_ssize_t index = 1; index < total; index++) {
+        if (leaves[index] != leaves[distinct - 1]) {
+            leaves[distinct++] = leaves[index];
+        }
+    }
+    return distinct;
+}
+
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t total = choice_leaf_count(p1) + choice_leaf_count(p2);
     pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
@@ -377,16 +393,7 @@ static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
    residual choice with one leaf per place. Building a choice is the only step that grows one, so past the limit it
    yields NotAllowed and validate() raises; a limit of 0 marks that this happened. */
 static pattern *choice_build(th_schema *schema, pattern **leaves, Py_ssize_t total) {
-    if (total == 0) {
-        return schema->p_notallowed;
-    }
-    qsort(leaves, (size_t)total, sizeof(pattern *), pat_ptr_cmp);
-    Py_ssize_t distinct = 1;
-    for (Py_ssize_t index = 1; index < total; index++) {
-        if (leaves[index] != leaves[distinct - 1]) {
-            leaves[distinct++] = leaves[index];
-        }
-    }
+    Py_ssize_t distinct = choice_compact(leaves, total);
     if (distinct > schema->choice_limit) {
         schema->choice_limit = 0;
         return schema->p_notallowed;
@@ -1142,7 +1149,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, co
    a long chain is derived leaf by leaf and built into one choice. Chains this short stay on the plain walk. */
 #define RNG_CHAIN_SPLIT 16
 
-enum { DERIV_TEXT, DERIV_OPEN, DERIV_ATT, DERIV_CLOSE };
+enum { DERIV_TEXT, DERIV_OPEN, DERIV_ATT, DERIV_CLOSE, DERIV_END };
 
 static RNG_NOINLINE pattern *rng_choice_deriv(th_schema *schema, pattern *p, int op, const qname *name,
                                               const Py_UCS4 *value, Py_ssize_t len);
@@ -1466,35 +1473,86 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, patt
     }
 }
 
-static RNG_NOINLINE pattern *rng_choice_deriv(th_schema *schema, pattern *p, int op, const qname *name,
-                                              const Py_UCS4 *value, Py_ssize_t len) {
-    Py_ssize_t count = p->choice_leaves;
-    pattern **derived = arena_alloc(&schema->mem, (size_t)count * sizeof(pattern *));
-    if (derived == NULL) {           /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+static RNG_NOINLINE pattern *rng_end_tag_choice(th_schema *schema, pattern *p);
+
+static RNG_FORCEINLINE pattern *rng_end_tag_deriv(th_schema *schema, pattern *p) {
+    if (p->type == P_CHOICE) {
+        return rng_end_tag_choice(schema, p);
+    }
+    if (p->type == P_AFTER) {
+        return rng_nullable(schema, p->p1) ? p->p2 : schema->p_notallowed;
+    }
+    return schema->p_notallowed;
+}
+
+static pattern **choice_gather(th_schema *schema, pattern **derived, Py_ssize_t count, Py_ssize_t total) {
+    pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
+    if (leaves == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;      /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t at = 0;
-    choice_collect(p, derived, &at);
-    Py_ssize_t total = 0;
     for (Py_ssize_t index = 0; index < count; index++) {
-        pattern *leaf = derived[index];
-        derived[index] = op == DERIV_TEXT   ? rng_text_deriv(schema, leaf, value, len)
-                         : op == DERIV_OPEN ? rng_start_tag_open(schema, leaf, name)
-                         : op == DERIV_ATT  ? rng_att_deriv(schema, leaf, name, value, len)
-                                            : rng_start_tag_close(schema, leaf);
-        if (derived[index]->type != P_NOTALLOWED) {
-            total += choice_leaf_count(derived[index]);
+        choice_collect(derived[index], leaves, &at);
+    }
+    return leaves;
+}
+
+static RNG_NOINLINE pattern *rng_choice_deriv(th_schema *schema, pattern *p, int op, const qname *name,
+                                              const Py_UCS4 *value, Py_ssize_t len) {
+    /* Most leaves derive to NotAllowed, so the buffer is taken from the arena only once a second leaf survives, sized
+       by the links still to walk: an event on a wide choice that one leaf matches allocates nothing. */
+    pattern *first = NULL;
+    pattern **derived = NULL;
+    Py_ssize_t count = 0;
+    Py_ssize_t total = 0;
+    /* Each leaf can derive to a whole choice, so the leaves gathered so far are counted whenever their total doubles:
+       a derivative that passes the limit stops there instead of deriving every remaining leaf first. */
+    Py_ssize_t check = schema->choice_limit;
+    for (pattern *link = p;; link = link->p2) {
+        int last = link->type != P_CHOICE;
+        pattern *leaf = last ? link : link->p1;
+        pattern *result = op == DERIV_TEXT    ? rng_text_deriv(schema, leaf, value, len)
+                          : op == DERIV_OPEN  ? rng_start_tag_open(schema, leaf, name)
+                          : op == DERIV_ATT   ? rng_att_deriv(schema, leaf, name, value, len)
+                          : op == DERIV_CLOSE ? rng_start_tag_close(schema, leaf)
+                                              : rng_end_tag_deriv(schema, leaf);
+        if (result->type != P_NOTALLOWED) {
+            if (count == 1) {
+                derived = arena_alloc(&schema->mem, (size_t)(choice_leaf_count(link) + 1) * sizeof(pattern *));
+                if (derived == NULL) {           /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                    return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+                }
+                derived[0] = first;
+            }
+            if (count == 0) {
+                first = result;
+            } else {
+                derived[count] = result;
+            }
+            count++;
+            total += choice_leaf_count(result);
+            if (count > 1 && total > check) {
+                pattern **leaves = choice_gather(schema, derived, count, total);
+                if (leaves == NULL) {            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                    return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+                }
+                if (choice_compact(leaves, total) > schema->choice_limit) {
+                    schema->choice_limit = 0;
+                    return schema->p_notallowed;
+                }
+                check = total * 2;
+            }
+        }
+        if (last) {
+            break;
         }
     }
-    pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
+    if (count <= 1) {
+        return count == 0 ? schema->p_notallowed : first;
+    }
+    pattern **leaves = choice_gather(schema, derived, count, total);
     if (leaves == NULL) {            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    at = 0;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        if (derived[index]->type != P_NOTALLOWED) {
-            choice_collect(derived[index], leaves, &at);
-        }
     }
     return choice_build(schema, leaves, total);
 }
@@ -1561,14 +1619,11 @@ static RNG_NOINLINE pattern *rng_start_tag_close_memo(th_schema *schema, pattern
     return derived;
 }
 
-static pattern *rng_end_tag_deriv(th_schema *schema, pattern *p) {
-    if (p->type == P_CHOICE) {
-        return pat_choice(schema, rng_end_tag_deriv(schema, p->p1), rng_end_tag_deriv(schema, p->p2));
+static RNG_NOINLINE pattern *rng_end_tag_choice(th_schema *schema, pattern *p) {
+    if (p->choice_leaves > RNG_CHAIN_SPLIT) {
+        return rng_choice_deriv(schema, p, DERIV_END, NULL, NULL, 0);
     }
-    if (p->type == P_AFTER) {
-        return rng_nullable(schema, p->p1) ? p->p2 : schema->p_notallowed;
-    }
-    return schema->p_notallowed;
+    return pat_choice(schema, rng_end_tag_deriv(schema, p->p1), rng_end_tag_deriv(schema, p->p2));
 }
 
 static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element);
@@ -1866,6 +1921,7 @@ static int rng_scan_kind(th_node *node);
 static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth);
 
 static int rng_scan_node(th_schema *schema, th_node *node, int depth) {
+    schema->rng_scanned++;
     switch (rng_scan_kind(node)) {
     case RNG_SCAN_REF: {
         const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
@@ -2910,10 +2966,10 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
                         : (Py_ssize_t)schema->pattern_count * 2 > MEMO_FREE_STEPS
                             ? (Py_ssize_t)schema->pattern_count * 2
                             : MEMO_FREE_STEPS;
-    /* A residual holds about one leaf per schema pattern it can reach, so the limit grows with the schema. */
-    schema->choice_limit = (Py_ssize_t)schema->pattern_count * 2 > RNG_CHOICE_LIMIT
-                               ? (Py_ssize_t)schema->pattern_count * 2
-                               : RNG_CHOICE_LIMIT;
+    /* A grammar builds its defines during validation, so the compiled patterns miss them; the scan visited each one. */
+    Py_ssize_t nodes = (Py_ssize_t)schema->pattern_count + schema->rng_scanned;
+    schema->choice_limit =
+        nodes * RNG_CHOICE_PER_NODE > RNG_CHOICE_FLOOR ? nodes * RNG_CHOICE_PER_NODE : RNG_CHOICE_FLOOR;
     Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
     if (schema->choice_limit == 0) {
