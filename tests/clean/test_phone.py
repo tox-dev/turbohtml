@@ -4,10 +4,10 @@ import copy
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own trusted payloads
 import random
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from threading import Barrier
-from typing import Final, TypedDict
+from typing import TYPE_CHECKING, Final, TypedDict
 
 import pytest
 
@@ -22,6 +22,9 @@ from turbohtml.clean import (
     PhoneType,
     linkify,
 )
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 _WORKERS: Final[int] = 8
@@ -1105,24 +1108,8 @@ def test_long_address_chains_scan_in_bounded_time(text: str, count: int) -> None
     assert len(LinkDetector(phones=_PHONE_RUNS_US).find(text)) == count
 
 
-# The reference colons each cost a constant scheme check, so it does the same per-colon work as the chain without the
-# walk; the per-character ratio holds across machines, where absolute seconds would not.
-def test_a_chain_of_tel_uris_without_a_number_scans_in_linear_time() -> None:
-    detector = LinkDetector(phones=_PHONE_RUNS_US)
-    chain = "tel:" * 32768
-    reference = "xel:" * 262144
-    chain_per_character = _fastest_seconds(detector, chain) / len(chain)
-    reference_per_character = _fastest_seconds(detector, reference) / len(reference)
-    assert chain_per_character / reference_per_character < 120
-
-
-def _fastest_seconds(detector: LinkDetector, text: str) -> float:
-    timings = []
-    for _ in range(3):
-        start = time.perf_counter()
-        detector.find(text)
-        timings.append(time.perf_counter() - start)
-    return min(timings)
+def test_a_chain_of_tel_uris_without_a_number_scans_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(LinkDetector(phones=_PHONE_RUNS_US).find, "tel:=" * n), (1000, 4000))
 
 
 @pytest.mark.parametrize(
