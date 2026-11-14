@@ -16,7 +16,7 @@ adjusts the spelling but keeps the structure.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast, overload  # simplint: ignore[init-module-content]  # public class
+from typing import TYPE_CHECKING, cast, overload
 
 from ._match import (
     DEBUG,
@@ -33,48 +33,48 @@ from ._match import (
     select,
     select_one,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     Document,
     Element,
     parse,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     matches_many as _matches_many,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_add_class as _query_add_class,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_attr as _query_attr,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_children as _query_children,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_closest as _query_closest,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_has_class as _query_has_class,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_parents as _query_parents,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_remove_class as _query_remove_class,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_siblings as _query_siblings,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_text as _query_text,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_toggle_class as _query_toggle_class,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     query_unique as _query_unique,
 )
-from ._native import (  # simplint: ignore[init-module-content]  # public class
+from ._native import (
     select_many as _select_many,
 )
 from ._xpath import XPathDepthError, XPathString
@@ -83,7 +83,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
 
-class Query:  # ruff:ignore[too-many-public-methods]  # simplint: ignore[init-module-content]  # public identity
+class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainable step of the public API
     """An ordered, duplicate-free set of elements with chainable traversal and mutation."""
 
     def __init__(self, source: str | Element | Document | Iterable[Element]) -> None:

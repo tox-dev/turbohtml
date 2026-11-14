@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Final, cast
 
@@ -631,11 +632,434 @@ def test_rng_interleave_choice_same_name() -> None:
             "same element name in more than one branch",
             id="7.4-conflict-nested-in-an-element",
         ),
+        pytest.param(
+            rwrap('<interleave><element><anyName/><empty/></element><element name="b"><empty/></element></interleave>'),
+            "same element name in more than one branch",
+            id="7.4-wildcard-branch-holds-a-name",
+        ),
+        pytest.param(
+            rwrap(f"<interleave>{'<optional><element><anyName/><empty/></element></optional>' * 14}</interleave>"),
+            "same element name in more than one branch",
+            id="7.4-wildcard-branches",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element name="a" ns="urn:x"><empty/></element>'
+                '<element><nsName ns="urn:x"/><empty/></element></interleave>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-namespace-branch-holds-a-name",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element><nsName ns="urn:x"><except><name>b</name></except></nsName><empty/></element>'
+                '<element><nsName ns="urn:x"/><empty/></element></interleave>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-namespace-branches-share-an-unnamed-name",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><anyName><except><name>a</name></except></anyName><empty/></element>"
+                '<element><nsName ns="urn:x"/><empty/></element></interleave>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-wildcard-except-still-holds-a-namespace",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><choice><name>a</name><name>b</name></choice><empty/></element>"
+                "<element><choice><name>c</name><name>b</name></choice><empty/></element></interleave>"
+            ),
+            "same element name in more than one branch",
+            id="7.4-name-choices-share-a-name",
+        ),
+        pytest.param(
+            rgrammar(
+                "".join((
+                    '<start><element name="r"><interleave>',
+                    *(f'<ref name="d{index}"/>' for index in range(14)),
+                    "</interleave></element></start>",
+                    *(
+                        f'<define name="d{index}"><optional><element name="a"><empty/></element></optional></define>'
+                        for index in range(14)
+                    ),
+                ))
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-through-refs",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><interleave>'
+                '<ref name="outer"/><element name="z"><empty/></element>'
+                "</interleave></element></start>"
+                '<define name="outer"><optional><ref name="inner"/></optional></define>'
+                '<define name="inner"><element name="a"><empty/></element></define>'
+                '<define name="inner" combine="choice"><element name="z"><empty/></element></define>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-through-a-ref-chain",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><interleave><ref name="t"/><text/></interleave></element></start>'
+                '<define name="t"><text/></define>'
+            ),
+            "text in more than one branch",
+            id="7.4-double-text-through-a-ref",
+        ),
+        pytest.param(
+            rwrap(f"<interleave>{'<optional><mixed><empty/></mixed></optional>' * 2}</interleave>"),
+            "text in more than one branch",
+            id="7.4-double-text-in-mixed",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="c"/></element></start>'
+                f"""{'<define name="c" combine="interleave"><optional><element name="a"/></optional></define>' * 14}"""
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-in-combine-interleave",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="c"/></element></start>'
+                '<define name="c"><text/></define>'
+                '<define name="c" combine="interleave"><optional><text/></optional></define>'
+            ),
+            "text in more than one branch",
+            id="7.4-double-text-in-combine-interleave",
+        ),
+        pytest.param(
+            rgrammar('<start combine="interleave"><element name="r"><empty/></element></start>' * 2),
+            "same element name in more than one branch",
+            id="7.4-conflict-in-combined-start",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><interleave>'
+                '<ref name="x"/><element name="b"><empty/></element>'
+                "</interleave></element></start>"
+                '<define name="x"><ref name="x"/></define>'
+            ),
+            "define 'x' references itself with no element in between",
+            id="4.19-self-reference-in-an-interleave-branch",
+        ),
+        pytest.param(
+            rwrap("<interleave><ref/><text/></interleave>"),
+            "<ref> is missing the required name attribute",
+            id="4.10-nameless-ref-in-an-interleave-branch",
+        ),
+        pytest.param(
+            rwrap('<interleave><ref name="missing"/><text/></interleave>'),
+            "<ref> has no matching define",
+            id="undefined-ref-in-an-interleave-branch",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><anyName/><empty/></element>"
+                "<element><choice><name>a</name><name>b</name></choice><empty/></element></interleave>"
+            ),
+            "same element name in more than one branch",
+            id="7.4-any-branch-holds-a-choice-name",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element><choice><name>a</name><nsName ns="urn:x"/></choice><empty/></element>'
+                '<element><nsName ns="urn:x"/><empty/></element></interleave>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-wildcard-inside-a-choice-overlaps",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><choice><name>a</name><name>b</name></choice><empty/></element>"
+                "<element><anyName/><empty/></element></interleave>"
+            ),
+            "same element name in more than one branch",
+            id="7.4-choice-branch-held-by-a-later-any-branch",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><interleave><ref name="p"/><ref name="p"/></interleave></element></start>'
+                '<define name="p"><element name="a"><empty/></element></define>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-through-a-shared-define",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="d0"/></element></start>'
+                '<define name="d0"><interleave><element name="x"><empty/></element>'
+                '<ref name="d1"/></interleave></define>'
+                '<define name="d1"><interleave><element name="y"><empty/></element>'
+                '<ref name="d2"/></interleave></define>'
+                '<define name="d2"><element name="x"><empty/></element></define>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-at-the-end-of-a-ref-chain",
+        ),
     ],
 )
 def test_rng_forbidden_grammar_rejected_at_compile(schema: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         RelaxNG(schema)
+
+
+def _except_against_group(count: int) -> str:
+    return rgrammar(
+        f'<start><element name="r"><interleave>{_except_group_branches(count)}</interleave></element></start>'
+    )
+
+
+def _adversarial_interleaves(names: int) -> str:
+    left = "".join(f'<element name="p{index}"><empty/></element>' for index in range(names))
+    right = "".join(f'<element name="q{index}"><empty/></element>' for index in range(names))
+    count = 200
+    branches = "".join(f'<interleave><ref name="p"/><ref name="v{index}"/></interleave>' for index in range(count))
+    variants = "".join(
+        f'<define name="v{index}"><interleave><element name="s{index}"><empty/></element>'
+        f'<ref name="q"/></interleave></define>'
+        for index in range(count)
+    )
+    return rgrammar(
+        f'<start><element name="r"><group>{branches}</group></element></start>'
+        f'<define name="p"><group>{left}</group></define><define name="q"><group>{right}</group></define>'
+        f"{variants}"
+    )
+
+
+def _except_group_branches(count: int) -> str:
+    names = "".join(f"<name>q{index}</name>" for index in range(count))
+    group = "".join(f'<element name="q{index}"><empty/></element>' for index in range(count))
+    return f"<element><anyName><except>{names}</except></anyName><empty/></element><group>{group}</group>"
+
+
+def _nested_interleave_budget(count: int) -> str:
+    return rgrammar(
+        '<start><element name="r"><interleave><interleave>'
+        f"{_except_group_branches(count)}"
+        '</interleave><element name="z"><empty/></element></interleave></element></start>'
+    )
+
+
+def _define_interleave_budget(count: int) -> str:
+    return rgrammar(
+        '<start><element name="r"><interleave><ref name="d"/><element name="z"><empty/></element>'
+        "</interleave></element></start>"
+        f'<define name="d"><interleave>{_except_group_branches(count)}</interleave></define>'
+    )
+
+
+def _combine_part_budget(count: int) -> str:
+    names = "".join(f"<name>r{index}</name>" for index in range(count))
+    group = "".join(f'<element name="r{index}"><empty/></element>' for index in range(count))
+    return rgrammar(
+        '<start><element name="r"><ref name="c"/></element></start>'
+        f'<define name="c"><group>{group}</group></define>'
+        f'<define name="c" combine="interleave"><element><anyName><except>{names}</except></anyName>'
+        "<empty/></element></define>"
+    )
+
+
+def _superset_unions(count: int) -> str:
+    base = "".join(f'<element name="a{index}"><empty/></element>' for index in range(2000))
+    defines = "".join(
+        f'<define name="b{index}"><choice><ref name="a"/><element name="x{index}"><empty/></element></choice></define>'
+        for index in range(count)
+    )
+    refs = "".join(f'<ref name="b{index}"/>' for index in range(count))
+    return rgrammar(
+        f'<start><element name="r"><interleave><choice>{refs}</choice><element name="z"><empty/></element>'
+        "</interleave></element></start>"
+        f'<define name="a"><group>{base}</group></define>{defines}'
+    )
+
+
+def _wildcards_against_exact_names(count: int) -> str:
+    classes = "".join(f'<element><nsName ns="urn:w{index}"/><empty/></element>' for index in range(count))
+    exact = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
+    return rgrammar(
+        '<start><element name="r"><interleave>'
+        f"<group>{classes}</group><group>{exact}</group>"
+        "</interleave></element></start>"
+    )
+
+
+def _superset_wild_unions(count: int) -> str:
+    base = "".join(f'<element><nsName ns="urn:a{index}"/><empty/></element>' for index in range(2000))
+    defines = "".join(
+        f'<define name="b{index}"><choice><ref name="a"/><group><element><nsName ns="urn:b{index}"/><empty/></element>'
+        f'<element name="x{index}"><empty/></element></group></choice></define>'
+        for index in range(count)
+    )
+    refs = "".join(f'<ref name="b{index}"/>' for index in range(count))
+    return rgrammar(
+        f'<start><element name="r"><interleave><choice>{refs}</choice><element name="z"><empty/></element>'
+        "</interleave></element></start>"
+        f'<define name="a"><group>{base}</group></define>{defines}'
+    )
+
+
+def _combine_part_nested_budget(count: int) -> str:
+    group = "".join(f'<element name="r{index}"><empty/></element>' for index in range(count))
+    return rgrammar(
+        '<start><element name="r"><ref name="c"/></element></start>'
+        f'<define name="c"><group>{group}</group></define>'
+        f'<define name="c" combine="interleave"><interleave>{_except_group_branches(count)}</interleave></define>'
+    )
+
+
+def _except_wildcard_pair(names: int) -> str:
+    listed = "".join(f'<name ns="urn:a">x{index}</name>' for index in range(names))
+    big = (
+        '<define name="big"><element><anyName><except><choice><nsName ns="urn:a"/>'
+        f"{listed}</choice></except></anyName><empty/></element></define>"
+    )
+    branch = '<interleave><element><nsName ns="urn:a"/><empty/></element><ref name="big"/></interleave>'
+    return rgrammar(f'<start><element name="doc"><group>{branch}</group></element></start>{big}')
+
+
+def _wildcards_outnumber_exact(count: int) -> str:
+    classes = "".join(f'<element><nsName ns="urn:w{index}"/><empty/></element>' for index in range(count + 1))
+    exact = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
+    return rgrammar(
+        '<start><element name="r"><interleave>'
+        f"<group>{exact}</group><group>{classes}</group>"
+        "</interleave></element></start>"
+    )
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        pytest.param(_adversarial_interleaves, id="shared-define-against-variants"),
+        pytest.param(_except_against_group, id="except-class-against-exact-group"),
+        pytest.param(_wildcards_outnumber_exact, id="wildcards-outnumber-exact-names"),
+        pytest.param(_nested_interleave_budget, id="nested-interleave-branch"),
+        pytest.param(_define_interleave_budget, id="interleave-in-a-referenced-define"),
+        pytest.param(_combine_part_budget, id="combined-interleave-part"),
+        pytest.param(_superset_unions, id="unions-of-supersets"),
+        pytest.param(_superset_wild_unions, id="unions-of-wildcard-supersets"),
+        pytest.param(_wildcards_against_exact_names, id="wildcard-classes-against-exact-names"),
+        pytest.param(_combine_part_nested_budget, id="nested-interleave-in-a-combined-part"),
+        pytest.param(_except_wildcard_pair, id="except-class-against-a-wildcard"),
+    ],
+)
+def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], str]) -> None:
+    schema = builder(20000)
+    start = time.perf_counter()
+    with pytest.raises(ValueError, match="too large to check interleave branches"):
+        RelaxNG(schema)
+    assert time.perf_counter() - start < 5.0
+
+
+def test_rng_shared_unions_stay_accepted() -> None:
+    assert isinstance(RelaxNG(_shared_unions(2000)), RelaxNG)
+    schema = RelaxNG(_shared_unions(3))
+    assert schema.validate(parse_xml(f"<doc>{'<x0/><q/>' * 3}</doc>")).valid
+    assert not schema.validate(parse_xml("<doc><x0/></doc>")).valid
+
+
+def _shared_unions(count: int) -> str:
+    left = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
+    right = "".join(f'<element name="y{index}"><empty/></element>' for index in range(count))
+    defines = "".join(
+        f'<define name="z{index}"><choice><ref name="x"/><ref name="y"/></choice></define>' for index in range(count)
+    )
+    uses = "".join(
+        f'<interleave><ref name="z{index}"/><element name="q"><empty/></element></interleave>' for index in range(count)
+    )
+    return rgrammar(
+        f'<start><element name="doc"><group>{uses}</group></element></start>'
+        f'<define name="x"><choice>{left}</choice></define><define name="y"><choice>{right}</choice></define>{defines}'
+    )
+
+
+def test_rng_chained_choice_unions_of_shared_defines_stay_accepted() -> None:
+    assert isinstance(RelaxNG(_chained_unions(2000)), RelaxNG)
+    schema = RelaxNG(_chained_unions(3))
+    assert schema.validate(parse_xml("<r><b2/><z/></r>")).valid
+    assert not schema.validate(parse_xml("<r><z/></r>")).valid
+
+
+def _chained_unions(depth: int) -> str:
+    chained = "".join(
+        f'<define name="d{index}"><choice><ref name="d{index - 1}"/><ref name="e{index - 1}"/>'
+        f'<element name="a{index}"><empty/></element></choice></define>'
+        f'<define name="e{index}"><choice><ref name="e{index - 1}"/><ref name="d{index - 1}"/>'
+        f'<element name="b{index}"><empty/></element></choice></define>'
+        for index in range(1, depth + 1)
+    )
+    start = (
+        f'<start><element name="r"><interleave><ref name="d{depth}"/>'
+        '<element name="z"><empty/></element></interleave></element></start>'
+        '<define name="d0"><element name="a0"><empty/></element></define>'
+        '<define name="e0"><element name="b0"><empty/></element></define>'
+    )
+    return rgrammar(f"{start}{chained}")
+
+
+def test_rng_same_structure_wildcards_scale_linearly() -> None:
+    timings = []
+    for count in (2000, 8000):
+        alts = "".join(f'<element><nsName ns="urn:a"/><attribute name="v{index}"/></element>' for index in range(count))
+        schema = rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            RelaxNG(schema)
+            best = min(best, time.perf_counter() - start)
+        timings.append(best)
+    assert timings[1] < 9 * timings[0]
+
+
+def test_rng_chain_of_interleaves_scales_linearly() -> None:
+    schema_small = _interleave_chain(500)
+    schema_large = _interleave_chain(2000)
+    timings = []
+    for schema in (schema_small, schema_large):
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            RelaxNG(schema)
+            best = min(best, time.perf_counter() - start)
+        timings.append(best)
+    assert timings[1] < 9 * timings[0]
+
+
+def _interleave_chain(count: int) -> str:
+    defines = "".join(_chain_define(index) for index in range(count))
+    start = '<start><element name="r"><ref name="d0"/></element></start>'
+    return rgrammar(f'{start}{defines}<define name="d{count}"><empty/></define>')
+
+
+def _chain_define(index: int) -> str:
+    elements = "".join(f'<element name="e{index}_{slot}"><empty/></element>' for slot in range(10))
+    return (
+        f'<define name="d{index}"><interleave><group>{elements}</group><ref name="d{index + 1}"/></interleave></define>'
+    )
+
+
+def test_rng_referenced_define_with_attribute_and_value() -> None:
+    schema = RelaxNG(
+        rgrammar(
+            '<start><element name="r"><interleave><ref name="p"/>'
+            '<element name="q"><empty/></element></interleave></element></start>'
+            '<define name="p"><group><attribute name="x"/><value>v</value></group></define>'
+        )
+    )
+    assert schema.validate(parse_xml('<r x="1">v<q/></r>')).valid
+    assert not schema.validate(parse_xml("<r><q/></r>")).valid
+
+
+def test_rng_identical_wildcard_classes_stay_accepted() -> None:
+    alts = "".join('<element><nsName ns="urn:a"/><empty/></element>' for _ in range(2000))
+    schema = rwrap(
+        f'<interleave><optional><choice>{alts}</choice></optional><element name="b"><empty/></element></interleave>'
+    )
+    assert rng_ok(schema, "<doc><b/></doc>")
 
 
 @pytest.mark.parametrize(
@@ -668,10 +1092,144 @@ def test_rng_forbidden_grammar_rejected_at_compile(schema: str, message: str) ->
             id="ambiguous-choice-stays-bounded",
         ),
         pytest.param(
-            rwrap('<interleave><element><anyName/><empty/></element><element name="b"><empty/></element></interleave>'),
+            rwrap(
+                "<interleave><element><anyName><except><name>b</name></except></anyName><empty/></element>"
+                '<element name="b"><empty/></element></interleave>'
+            ),
             "<doc><z/><b/></doc>",
             True,
-            id="7.4-wildcard-branch-not-analysed",
+            id="7.4-wildcard-branch-excepts-the-other-name",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element><anyName><except><nsName ns="urn:x"/></except></anyName><empty/></element>'
+                '<element><nsName ns="urn:x"/><empty/></element></interleave>'
+            ),
+            '<doc><a xmlns="urn:x"/><b/></doc>',
+            True,
+            id="7.4-wildcard-branch-excepts-the-other-namespace",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element><nsName ns="urn:x"/><empty/></element>'
+                '<element><nsName ns="urn:y"/><empty/></element><element name="a"><empty/></element></interleave>'
+            ),
+            '<doc><a xmlns="urn:y"/><a/><b xmlns="urn:x"/></doc>',
+            True,
+            id="7.4-namespace-branches-in-different-namespaces",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><choice><name>a</name><name>b</name></choice><empty/></element>"
+                "<element><choice><name>c</name><name>d</name></choice><empty/></element></interleave>"
+            ),
+            "<doc><d/><a/></doc>",
+            True,
+            id="7.4-name-choices-with-different-names",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><interleave>'
+                '<group><ref name="a"/><ref name="a"/></group><ref name="b"/><ref name="c"/>'
+                "</interleave></element></start>"
+                '<define name="a"><element name="a"><empty/></element></define>'
+                '<define name="b"><element name="b"><optional><ref name="a"/></optional></element></define>'
+                '<define name="c"><element name="c"><empty/></element></define>'
+                '<define name="c" combine="choice"><element name="d"><empty/></element></define>'
+            ),
+            "<r><a/><d/><b><a/></b><a/></r>",
+            True,
+            id="7.4-refs-to-distinct-elements",
+        ),
+        pytest.param(
+            rgrammar(
+                "".join((
+                    '<start><element name="r"><interleave><group>',
+                    *(f'<ref name="d{index}"/>' for index in range(9)),
+                    '</group><element name="z"><empty/></element></interleave></element></start>',
+                    *(
+                        f'<define name="d{index}"><element name="a{index}"><empty/></element></define>'
+                        for index in range(9)
+                    ),
+                ))
+            ),
+            "<r><a0/><a1/><z/><a2/><a3/><a4/><a5/><a6/><a7/><a8/></r>",
+            True,
+            id="7.4-branch-with-many-refs",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="c"/></element></start>'
+                '<define name="c"><element name="a"><empty/></element><text/></define>'
+                '<define name="c" combine="choice"><element name="a"><text/></element><text/></define>'
+            ),
+            "<r><a>x</a>y</r>",
+            True,
+            id="7.4-combine-choice-shares-names-and-text",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element name="a"><empty/></element>'
+                '<element><choice><name ns="urn:x">a</name><name>b</name></choice><empty/></element></interleave>'
+            ),
+            "<doc><a/><b/></doc>",
+            True,
+            id="7.4-name-differs-only-by-namespace",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element><choice><name>a</name><nsName ns="urn:x"/></choice><empty/></element>'
+                '<element name="b"><empty/></element></interleave>'
+            ),
+            "<doc><a/><b/></doc>",
+            True,
+            id="7.4-wildcard-inside-a-choice-is-not-a-name",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><choice><name>a</name><name>a</name></choice><empty/></element>"
+                '<element name="b"><empty/></element></interleave>'
+            ),
+            "<doc><a/><b/></doc>",
+            True,
+            id="7.4-repeated-name-in-a-choice",
+        ),
+        pytest.param(
+            rwrap(
+                f"""<interleave><optional><choice><element><nsName ns="urn:x"/><empty/></element>"""
+                f"""<group>{'<element><nsName ns="urn:x"/><empty/></element>' * 3}</group></choice></optional>"""
+                '<element name="z"><empty/></element></interleave>'
+            ),
+            "<doc><z/></doc>",
+            True,
+            id="7.4-identical-wildcard-classes-in-a-choice",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="doc"><group>'
+                '<interleave><zeroOrMore><ref name="a"/></zeroOrMore>'
+                '<zeroOrMore><ref name="b"/></zeroOrMore></interleave>'
+                '<interleave><zeroOrMore><ref name="a"/></zeroOrMore>'
+                '<zeroOrMore><ref name="b"/></zeroOrMore></interleave>'
+                '<interleave><zeroOrMore><ref name="a"/></zeroOrMore>'
+                '<zeroOrMore><ref name="b"/></zeroOrMore></interleave>'
+                "</group></element></start>"
+                '<define name="a"><element name="a"><empty/></element></define>'
+                '<define name="b"><element name="b"><empty/></element></define>'
+            ),
+            "<doc><a/><b/></doc>",
+            True,
+            id="7.4-shared-pair-of-defines-in-three-interleaves",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="c"/></element></start>'
+                '<define name="c" combine="choice"><element name="a"><empty/></element></define>'
+                '<define name="c"><element name="b"><empty/></element></define>'
+            ),
+            "<r><b/></r>",
+            True,
+            id="7.4-later-combined-part-without-an-attribute",
         ),
         pytest.param(
             rwrap(

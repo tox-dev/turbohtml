@@ -211,6 +211,8 @@ typedef struct {
     int32_t args_scope;  /* scope of the innermost enclosing non-arrow function, whose `arguments` a
                             free `arguments` read names (-1 at the top level) */
     int32_t catch_depth; /* enclosing catch bodies: only a var inside one can name a catch parameter */
+    int32_t stmt;        /* the innermost enclosing expression, return or throw statement (-1 outside one) */
+    int track_stmt;      /* a regex literal was parsed, so reads record their statement (see walk) */
     int poisoned;        /* a with / eval was seen: stop renaming entirely */
     int failed;
 } M;
@@ -400,6 +402,7 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
 }
 
 static void walk(M *mangler, int32_t idx, int32_t scope, int bind);
+static void walk_stmt(M *mangler, int32_t idx, int32_t scope);
 
 /* A `var` in a catch block may name the catch parameter (Annex B.3.4): it binds the enclosing function's var while
    its initializer assigns the parameter, so the statement declares one binding and writes another. Pin both: they
@@ -559,6 +562,9 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
             if (bind == 0) { /* a read reference */
                 mangler->prog->syms[sym].refs++;
                 mangler->prog->syms[sym].ref_node = idx;
+                if (mangler->track_stmt) {
+                    mangler->prog->syms[sym].ref_stmt = mangler->stmt;
+                }
                 if (mangler->prog->syms[sym].refs == 1) {
                     mangler->prog->syms[sym].ref_scope = scope;
                 } else if (mangler->prog->syms[sym].ref_scope != scope) {
@@ -585,6 +591,14 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     case JN_ARROW:
         walk_function(mangler, idx, scope);
         return;
+    case JN_EXPR_STMT:
+    case JN_RETURN:
+    case JN_THROW:
+        if (mangler->track_stmt) { /* the kinds single_shot_stmt accepts, recorded as the ref_stmt of their reads */
+            walk_stmt(mangler, idx, scope);
+            return;
+        }
+        break;
     case JN_BLOCK:
         walk_block(mangler, node->a, scope);
         return;
@@ -864,6 +878,15 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     walk(mangler, node->d, scope, bind);
 }
 
+/* A read below records this statement as its ref_stmt, so whether a binding's one read sits in the statement after
+   its declaration is a comparison rather than a search of that statement per binding. */
+static void walk_stmt(M *mangler, int32_t idx, int32_t scope) {
+    int32_t outer = mangler->stmt;
+    mangler->stmt = idx;
+    walk(mangler, mangler->prog->nodes[idx].a, scope, 0);
+    mangler->stmt = outer;
+}
+
 /* Whether name is a reserved word or a name that must not be reused: a free name, or
    a kept binding's name (reserved globally so a mangled binding never shadows one).
    The free table holds both, so this is O(1). */
@@ -1013,7 +1036,7 @@ static int single_shot_stmt(jm_program *prog, int32_t stmt) {
 }
 
 /* A literal whose copy is the same immutable value at every read: a number, a string, or a folded
-   boolean/undefined. A regex is excluded: each evaluation creates a fresh object (13.2.7.5 in the
+   boolean/undefined. A regex is excluded: each evaluation creates a fresh object (13.2.7.3 in the
    evaluation of a RegularExpressionLiteral), so a read inside a loop or closure would mint new
    state (lastIndex, identity) where the binding shared one object. */
 static int is_value_literal(jm_program *prog, int32_t idx) {
@@ -1329,34 +1352,6 @@ static int drop_unused(jm_program *prog, int32_t global) {
     return changed;
 }
 
-static int chain_contains(jm_program *prog, int32_t first, int32_t target);
-
-/* Whether target sits anywhere inside the subtree rooted at idx (its own siblings excluded);
-   callers pass real nodes, chain_contains skips the absent links. */
-static int subtree_contains(jm_program *prog, int32_t idx, int32_t target) {
-    if (idx == target) {
-        return 1;
-    }
-    const jm_node *node = &prog->nodes[idx];
-    /* d is only ever populated on JN_FOR (loop body) and JN_TRY (finally block); the sole caller
-       (read_sees_initialized) only reaches here once target's scope has been confirmed to match the
-       declaration's own scope, but a for-loop body and a try's finally are themselves a deeper scope,
-       so a target actually inside one would already have failed that check -- chain_contains(d) can
-       only ever return false here. */
-    return chain_contains(prog, node->a, target) || chain_contains(prog, node->b, target) ||
-           chain_contains(prog, node->c, target) || /* GCOVR_EXCL_BR_LINE: true outcome is unreachable */
-           chain_contains(prog, node->d, target);
-}
-
-static int chain_contains(jm_program *prog, int32_t first, int32_t target) {
-    for (int32_t idx = first; idx >= 0; idx = prog->nodes[idx].next) {
-        if (subtree_contains(prog, idx, target)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* The last element of a comma sequence -- the operand whose value the sequence yields (13.16). */
 static int32_t seq_value(jm_program *prog, int32_t seq) {
     int32_t elem = prog->nodes[seq].a;
@@ -1389,12 +1384,11 @@ static int expand_shorthand_ref(jm_program *prog, int32_t sym) {
 /* Whether the binding's declaration dominates its one read with a value that survives the move:
    a value let/const must have no read before initialization. Cross-scope reads require the first
    initializer in the function, before a caller could run. A regex may ride only into the very next
-   single-shot statement (a fresh object per evaluation, 13.2.7.5, so the read must run at most
+   single-shot statement (a fresh object per evaluation, 13.2.7.3, so the read must run at most
    once per pass over the declaration and outside any nested function), and a value var must sit
    in its function body's first statement -- nothing executes before it except the initializers of
    the declarators left of its own, so a read there keeps the binding. */
-static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, int32_t declr, int32_t init,
-                                 int32_t ref) {
+static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, int32_t declr, int32_t init) {
     if (prog->syms[sym].decl >= 1 && is_value_literal(prog, init)) {
         return prog->syms[sym].min_ref >= declr &&
                (prog->syms[sym].ref_scope == prog->syms[sym].scope ||
@@ -1402,7 +1396,7 @@ static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, in
     }
     if (prog->nodes[init].kind == JN_REGEX && prog->syms[sym].ref_scope == prog->syms[sym].scope &&
         prog->nodes[stmt].next >= 0 && single_shot_stmt(prog, prog->nodes[stmt].next) &&
-        subtree_contains(prog, prog->nodes[stmt].next, ref)) {
+        prog->syms[sym].ref_stmt == prog->nodes[stmt].next) {
         return 1;
     }
     if (prog->syms[sym].decl != 0 || !is_value_literal(prog, init) ||
@@ -1467,7 +1461,7 @@ static int inline_single_use(jm_program *prog, int32_t global) {
             continue; /* a bare `var x;` declares no value to propagate */
         }
         int lone = prog->nodes[stmt].a == declr && prog->nodes[declr].next < 0;
-        if (!read_sees_initialized(prog, sym, stmt, declr, init, ref)) {
+        if (!read_sees_initialized(prog, sym, stmt, declr, init)) {
             if (!lone) {
                 continue; /* moving an impure initializer past its sibling declarators would reorder them */
             }
@@ -1650,6 +1644,8 @@ static int32_t analyze(M *mangler, jm_program *prog) {
     }
     mangler->global = global;
     mangler->args_scope = -1;
+    mangler->stmt = -1;
+    mangler->track_stmt = prog->has_regex;
     int32_t stmts = prog->nodes[prog->root].a;
     hoist_vars(mangler, stmts, global);
     hoist_block(mangler, stmts, global);

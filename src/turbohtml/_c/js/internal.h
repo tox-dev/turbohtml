@@ -301,6 +301,8 @@ typedef struct {
                          the key, so an inline must first give the property an explicit key */
     int32_t min_ref;  /* the lowest read node index: parse order is textual order, so a read below
                          the binding's own declarator index runs before it initializes */
+    int32_t ref_stmt; /* the innermost expression, return or throw statement around ref_node, or -1;
+                         with ref_scope it tells whether the one read sits directly in a given statement */
 } jm_sym;
 
 /* A scope node in the lexical scope tree. kind distinguishes a function/block/catch/
@@ -351,6 +353,7 @@ typedef struct jm_program {
 
     int shadows_undefined; /* some binding is named `undefined`, so the fold pass must check each read */
     int resolved;          /* every identifier carries its symbol from a with/eval-free resolution */
+    int has_regex;         /* a regex literal was parsed: only then can a binding be initialized to one */
 
     int failed;     /* sticky allocation failure: the minifier raises MemoryError instead of printing the tree */
     int *parse_err; /* the parser's error flag while jm_parse runs, else NULL: a failed node allocation stops the
