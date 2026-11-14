@@ -1012,6 +1012,51 @@ def test_html_c14n_1_1_rejects_invalid_ancestor_base_with_many_attributes() -> N
         node.canonicalize(Canonical(version="1.1"))
 
 
+# Each ancestor's xml:base is joined onto everything joined so far, so the fixup reads the inner value once per ancestor
+# above it; the two joins here read 2 * len(inner) + len("c/") code points, and 1,048,576 is what one fixup may read.
+def test_xml_c14n_1_1_accepts_ancestor_base_joins_at_budget() -> None:
+    node = parse_xml(f'<r xml:base="c/"><a xml:base="{"b" * 524_287}"><s/></a></r>').select_one("s")
+    assert node is not None
+    assert node.canonicalize(Canonical(version="1.1")) == f'<s xml:base="c/{"b" * 524_287}"></s>'.encode()
+
+
+def test_xml_c14n_1_1_rejects_ancestor_base_joins_past_budget() -> None:
+    node = parse_xml(f'<r xml:base="c/"><a xml:base="{"b" * 524_288}"><s/></a></r>').select_one("s")
+    assert node is not None
+    with pytest.raises(ValueError, match="xml:base attributes above the subtree exceeds the limit of 1048576"):
+        node.canonicalize(Canonical(version="1.1"))
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        pytest.param('<a xml:base="bbbbbbbbbbbbbbbbbbbb/">', id="nested-relative"),
+        pytest.param('<a xml:base="">', id="nested-empty"),
+    ],
+)
+def test_xml_c14n_1_1_rejects_deep_ancestor_base_chain(wrapper: str) -> None:
+    source: Final = f'{wrapper * 1_000}<s xml:base="{"c" * 2_000}"/>{"</a>" * 1_000}'
+    node = parse_xml(source).select_one("s")
+    assert node is not None
+    with pytest.raises(ValueError, match="xml:base attributes above the subtree exceeds the limit of 1048576"):
+        node.canonicalize(Canonical(version="1.1"))
+    assert node.canonicalize() == f'<s xml:base="{"c" * 2_000}"></s>'.encode()
+
+
+def test_xml_c14n_1_1_combines_many_short_ancestor_bases() -> None:
+    wrapper: Final = '<a xml:base="b/">'
+    node = parse_xml(f'{wrapper * 300}<s xml:base="c"/>{"</a>" * 300}').select_one("s")
+    assert node is not None
+    assert node.canonicalize(Canonical(version="1.1")) == f'<s xml:base="{"b/" * 300}c"></s>'.encode()
+
+
+def test_html_c14n_1_1_rejects_deep_ancestor_base_chain() -> None:
+    wrapper: Final = '<div xml:base="bbbbbbbbbbbbbbbbbbbb/">'
+    node = _one(f"{wrapper * 400}<p></p>", "p")
+    with pytest.raises(ValueError, match="xml:base attributes above the subtree exceeds the limit of 1048576"):
+        node.canonicalize(Canonical(version="1.1"))
+
+
 def test_xml_c14n_comment_is_omitted_without_option() -> None:
     source: Final = '<!--pre--><r xmlns:p="urn:p"><!--inner--><p:a/></r><!--post-->'
     assert parse_xml(source).canonicalize() == b'<r xmlns:p="urn:p"><p:a></p:a></r>'

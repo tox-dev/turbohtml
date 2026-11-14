@@ -49,6 +49,11 @@ Canonical XML 1.1 inherits ``xml:lang`` and ``xml:space`` from excluded ancestor
 ``xml:`` attributes. It resolves the apex's ``xml:base`` against those of excluded ancestors, preserving relative parent
 segments when the result has no absolute base. Both rules can change the apex's output when ``version="1.1"``.
 
+Resolving ``xml:base`` joins each ancestor's value onto everything joined below it, so a chain of them costs more than
+its length: thousands of nested elements that each add a short relative address ask for work that grows with the square
+of their depth. :meth:`~turbohtml.Node.canonicalize` therefore reads at most 1,048,576 characters across the joins of
+one call and raises :class:`ValueError` past that, which leaves room for hundreds of nested relative addresses.
+
 ********************************
  An HTML infoset, canonicalized
 ********************************
