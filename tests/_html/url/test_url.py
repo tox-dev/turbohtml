@@ -1223,6 +1223,15 @@ def test_is_tracker_cases(key: str, *, expected: bool) -> None:
     assert _url_is_tracker(key) is expected
 
 
+@pytest.mark.parametrize(
+    "key", [f"{name}\x00{'x' * filler}" for name in sorted(_TRACKER_NAMES) for filler in range(64)]
+)
+def test_is_tracker_embedded_nul_is_not_an_exact_name(key: str) -> None:
+    # a name that continues past a NUL (a decoded %00) is longer than the tracker it starts with, so it is no exact
+    # match; the filler walks the key's length across the bytes that follow the name in the table
+    assert _url_is_tracker(key) is False
+
+
 def test_is_tracker_rejects_non_str() -> None:
     with pytest.raises(TypeError, match="must be str"):
         _url_is_tracker(123)  # ty: ignore[invalid-argument-type]  # a non-str exercises the TypeError guard
