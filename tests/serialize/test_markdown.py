@@ -1251,15 +1251,17 @@ def test_loose_list_nested_heading_and_link_stay_structural() -> None:
         pytest.param(
             '<ol><li value="9223372036854775807">a</li></ol>',
             "li",
-            "9223372036854775807. a",
+            "999999999. a",
             id="maximum-value",
         ),
         pytest.param(
             '<ol><li value="9223372036854775807">a</li><li>b</li></ol>',
             "li:last-child",
-            "9223372036854775807. b",
+            "999999999. b",
             id="maximum-preceding-value",
         ),
+        pytest.param('<ol><li value="999999999">a</li></ol>', "li", "999999999. a", id="marker-limit-value"),
+        pytest.param('<ol><li value="1000000005">a</li></ol>', "li", "999999999. a", id="value-past-marker-limit"),
         pytest.param('<ol><li value="">a</li></ol>', "li", "1. a", id="empty-value"),
         pytest.param(
             '<ol><li><h2><a href="https://example.com">Result</a></h2><p>Summary</p></li></ol>',
@@ -1344,6 +1346,11 @@ def test_ordered_list_item_value() -> None:
             id="gfm-marker-limit",
         ),
         pytest.param(
+            '<ol start="999999997"><li>a</li><li>b</li><li>c</li><li>d</li></ol>',
+            "999999997. a\n999999998. b\n999999999. c\n999999999. d",
+            id="count-past-marker-limit",
+        ),
+        pytest.param(
             '<ol><li value="8">a</li><li>b</li></ol>',
             "8. a\n9. b",
             id="first-value-representable",
@@ -1397,6 +1404,34 @@ def test_ordered_list_html_fallback_escapes_text_and_attributes() -> None:
 def test_ordered_list_empty_text_item() -> None:
     root: Final = Element("ol", children=[Element("li", children=[Text("")])])
     assert root.to_markdown() == "1."
+
+
+@pytest.mark.parametrize(
+    ("html", "options"),
+    [
+        pytest.param(
+            '<ol start="1000000005"><li><u>a</u><pre>&lt;b&gt;\n\nc</pre></li></ol>',
+            None,
+            id="start",
+        ),
+        pytest.param(
+            '<ol><li value="1000000005"><u>a</u><pre>&lt;b&gt;\n\nc</pre></li></ol>',
+            None,
+            id="value",
+        ),
+        pytest.param(
+            '<ol start="1000000005"><li>a<pre>&lt;b&gt;\n\nc</pre></li></ol>',
+            Markdown(strip=["i"]),
+            id="options",
+        ),
+    ],
+)
+def test_ordered_list_past_marker_limit_stays_a_list(html: str, options: Markdown | None) -> None:
+    output: Final = parse(html).to_markdown(options)
+    assert output == "999999999. a\n           ```\n           <b>\n           \n           c\n           ```"
+    assert MarkdownIt("commonmark", {"html": True}).render(output) == (
+        '<ol start="999999999">\n<li>a<pre><code>&lt;b&gt;\n\nc\n</code></pre>\n</li>\n</ol>\n'
+    )
 
 
 def test_ordered_list_ordinals_with_explicit_default_options() -> None:
