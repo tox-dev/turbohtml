@@ -3187,9 +3187,10 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_TEMPLATE) {
             th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
-            afe_push_marker(tree);
-            tmpl_push(tree, M_IN_TEMPLATE);
+            if (stack_push_kept(tree, node)) {
+                afe_push_marker(tree);
+                tmpl_push(tree, M_IN_TEMPLATE);
+            }
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
@@ -4213,10 +4214,8 @@ static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
             th_node *node = insert_element(tree, tok);
-            Py_ssize_t open_len_before = tree->open_len;
-            stack_push(tree, node);
             /* A cell outside the depth-capped stack cannot be closed in cell mode. */
-            if (tree->open_len == open_len_before) {
+            if (!stack_push_kept(tree, node)) {
                 return TH_DRAIN_NEXT;
             }
             afe_push_marker(tree);

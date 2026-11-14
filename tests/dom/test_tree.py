@@ -1808,6 +1808,24 @@ def test_col_rejected_at_depth_cap_keeps_its_table_and_attributes(
     ]
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<table><caption></table></p>x", id="caption"),
+        pytest.param(f"<p><b>{'<span>' * (_DEPTH_CAP - 4)}<template></template></p>x", id="body-template"),
+        pytest.param(
+            f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<table><template></template></table></p>x", id="table-template"
+        ),
+        pytest.param(
+            f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<template><template></template></template></p>x",
+            id="nested-template",
+        ),
+    ],
+)
+def test_formatting_element_survives_table_part_refused_at_depth_cap(markup: str) -> None:
+    assert "<b>x</b>" in parse(markup).html
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL
