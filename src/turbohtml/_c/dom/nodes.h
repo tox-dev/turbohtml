@@ -582,15 +582,8 @@ static inline th_node *node_root(th_node *node) {
     return node;
 }
 
-static inline int node_order(th_node *left, th_node *right) {
-    Py_ssize_t left_depth = 0;
-    for (th_node *node = left; node->parent != NULL; node = node->parent) {
-        left_depth++;
-    }
-    Py_ssize_t right_depth = 0;
-    for (th_node *node = right; node->parent != NULL; node = node->parent) {
-        right_depth++;
-    }
+/* node_order for nodes whose depths the caller already knows. */
+static inline int node_order_at(th_node *left, Py_ssize_t left_depth, th_node *right, Py_ssize_t right_depth) {
     th_node *left_at = left;
     th_node *right_at = right;
     while (left_depth > right_depth) {
@@ -612,6 +605,18 @@ static inline int node_order(th_node *left, th_node *right) {
         right_at = right_at->parent;
     }
     return node_index(left_at) < node_index(right_at) ? -1 : 1;
+}
+
+static inline int node_order(th_node *left, th_node *right) {
+    Py_ssize_t left_depth = 0;
+    for (th_node *node = left; node->parent != NULL; node = node->parent) {
+        left_depth++;
+    }
+    Py_ssize_t right_depth = 0;
+    for (th_node *node = right; node->parent != NULL; node = node->parent) {
+        right_depth++;
+    }
+    return node_order_at(left, left_depth, right, right_depth);
 }
 
 /* Walk back in document order from current, skipping origin's ancestors so the

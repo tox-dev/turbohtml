@@ -546,20 +546,39 @@ static Py_ssize_t sort_roots(th_node **group, Py_ssize_t group_count) {
         }
         return sort_tree_roots(group, group_count);
     }
+    if (group_count == 1) {
+        return 1;
+    }
+    /* node_order climbs both roots on every comparison, so climb each root once and compare at known depths */
+    Py_ssize_t depths[32];
+    for (Py_ssize_t index = 0; index < group_count; index++) {
+        depths[index] = 0;
+        for (th_node *node = group[index]; node->parent != NULL; node = node->parent) {
+            depths[index]++;
+        }
+    }
     for (Py_ssize_t index = 1; index < group_count; index++) {
         th_node *node = group[index];
+        Py_ssize_t depth = depths[index];
         Py_ssize_t position = index;
-        while (position > 0 && node_order(node, group[position - 1]) < 0) {
+        while (position > 0 && node_order_at(node, depth, group[position - 1], depths[position - 1]) < 0) {
             group[position] = group[position - 1];
+            depths[position] = depths[position - 1];
             position--;
         }
         group[position] = node;
+        depths[position] = depth;
     }
-    /* is_ancestor climbs from each root, which only a group this small can afford */
-    Py_ssize_t kept = 0;
-    for (Py_ssize_t index = 0; index < group_count; index++) {
-        if (kept == 0 || !is_ancestor(group[kept - 1], group[index])) {
-            group[kept++] = group[index];
+    /* a root is inside the last kept root when climbing it to that root's depth lands on it */
+    Py_ssize_t kept = 1;
+    for (Py_ssize_t index = 1; index < group_count; index++) {
+        th_node *node = group[index];
+        for (Py_ssize_t depth = depths[index]; depth > depths[kept - 1]; depth--) {
+            node = node->parent;
+        }
+        if (node != group[kept - 1]) {
+            group[kept] = group[index];
+            depths[kept++] = depths[index];
         }
     }
     return kept;
@@ -626,35 +645,41 @@ static Py_ssize_t index_root_group(th_node_map *groups, th_node *root, Py_ssize_
     return 0;
 }
 
-/* node_root for a root. A climb to the top from every root is quadratic for roots nested in each other, or for siblings
-   below a deep chain, so past the first levels a climb stops at a node an earlier root recorded in groups and returns
-   that root's group; 0 means it reached *top. Either way *stop is where it stopped and *passed where recording starts.
-   Tops have no parent, so they and the recorded nodes share the map without colliding. */
-static Py_ssize_t climb_root(const th_node_map *groups, th_node *node, th_node **stop, th_node **passed) {
-    /* the fixed inner bound unrolls, so a shallow climb costs no more than node_root */
-    for (int stride = 0; stride < 4 && node->parent != NULL; stride++) {
-        for (int level = 0; level < 8 && node->parent != NULL; level++) {
+/* node_root for a node under 32 levels deep. For a deeper one it returns NULL and leaves the ancestor 32 levels up
+   in *passed. The fixed inner bound unrolls, so the climb costs no more than node_root. */
+static inline th_node *climb_levels(th_node *node, th_node **passed) {
+    for (int stride = 0; stride < 4; stride++) {
+        for (int level = 0; level < 8; level++) {
+            if (node->parent == NULL) {
+                return node;
+            }
             node = node->parent;
         }
     }
     *passed = node;
-    Py_ssize_t group = 0;
-    while (node->parent != NULL && (group = th_node_map_find(groups, node)) == 0) {
-        TH_WORK_STEP();
-        node = node->parent;
-    }
-    *stop = node;
-    return group;
+    return NULL;
 }
 
-static int record_climb(th_node_map *groups, th_node *node, th_node *stop, Py_ssize_t group) {
-    for (; node != stop; node = node->parent) {
+/* The rest of node_root for the root at position, from node 32 levels above it. A climb to the top from every root is
+   quadratic for roots nested in each other, or for siblings below a deep chain, so the climb stops at a node an earlier
+   root passed and takes that root's top from root_tops, then records its own position on the nodes it passed. Tops
+   have no parent, so they and the recorded nodes share the map without colliding. Returns NULL on allocation
+   failure. */
+static th_node *climb_deep_root(th_node_map *tops, th_node *node, th_node **root_tops, Py_ssize_t position) {
+    th_node *stop = node;
+    Py_ssize_t passer = 0;
+    while (stop->parent != NULL && (passer = th_node_map_find(tops, stop)) == 0) {
         TH_WORK_STEP();
-        if (th_node_map_insert(groups, node, group) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                     /* GCOVR_EXCL_LINE */
+        stop = stop->parent;
+    }
+    for (th_node *passed = node; passed != stop; passed = passed->parent) {
+        TH_WORK_STEP();
+        if (th_node_map_insert(tops, passed, position) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;                                      /* GCOVR_EXCL_LINE */
         }
     }
-    return 0;
+    root_tops[position - 1] = passer == 0 ? stop : root_tops[passer - 1];
+    return root_tops[position - 1];
 }
 
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
@@ -724,21 +749,25 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 if (roots[index].processed || !node_owned_by(candidate, handle)) {
                     continue;
                 }
-                th_node *top;
                 th_node *passed;
-                Py_ssize_t head = climb_root(&tops, candidate->node, &top, &passed);
-                if (head == 0) {
-                    head = top == first_top   ? first_group
-                           : first_group == 0 ? 0
-                                              : index_root_group(&tops, top, index + 1);
+                th_node *top = climb_levels(candidate->node, &passed);
+                if (top == NULL) {
+                    /* group holds the tops of the deep roots until the roots are grouped */
+                    top = climb_deep_root(&tops, passed, group, index + 1);
+                    if (top == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
+                        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                        error = 1;        /* GCOVR_EXCL_LINE */
+                        break;            /* GCOVR_EXCL_LINE */
+                    }
                 }
-                /* GCOVR_EXCL_BR_START: allocation failure */
-                if (head < 0 || record_climb(&tops, passed, top, head == 0 ? index + 1 : head) < 0) {
+                Py_ssize_t head = top == first_top   ? first_group
+                                  : first_group == 0 ? 0
+                                                     : index_root_group(&tops, top, index + 1);
+                if (head < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
                     PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
                     error = 1;        /* GCOVR_EXCL_LINE */
                     break;            /* GCOVR_EXCL_LINE */
                 }
-                /* GCOVR_EXCL_BR_STOP */
                 if (head == 0) {
                     if (first_group != 0) {
                         roots[last_group - 1].next_group = index + 1;
