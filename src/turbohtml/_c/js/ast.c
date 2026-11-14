@@ -174,6 +174,15 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
     return copy;
 }
 
+void jm_program_disown(jm_program *prog, int32_t mark) {
+    int32_t newest = prog->owned_count - 1;
+    for (int32_t index = mark; index < newest; index++) {
+        jm_free(prog->owned[index]);
+    }
+    prog->owned[mark] = prog->owned[newest];
+    prog->owned_count = mark + 1;
+}
+
 /* The value of one hex digit; the caller has checked that ch is one. */
 static Py_UCS4 jm_hex_digit(Py_UCS4 ch) {
     return ch >= 'a' ? ch - ('a' - 10) : ch >= 'A' ? ch - ('A' - 10) : ch - '0';
