@@ -371,7 +371,10 @@ typedef struct {
     strmap_slot *slots;
     size_t cap;
     size_t count;
-    int keyed; /* 1 once the slots moved to th_name_hash (strmap_hash) */
+    /* A str_hash map takes the inline paths while count < fast, one below half of cap. fast is 0 while the map is
+       empty and once it moved to th_name_hash, so the one comparison the inline paths already made against the load
+       limit also sends those maps out of line, and a map on str_hash pays nothing for the keyed mode. */
+    size_t fast;
 } strmap;
 
 static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
@@ -393,16 +396,15 @@ static int str_eq(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right
     return left_len == right_len && memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
 }
 
-/* Out of line, so SipHash's body stays out of the str_hash walks that callers inline. */
-static TH_NOINLINE size_t str_keyed_hash(const Py_UCS4 *str, Py_ssize_t len) {
-    return th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4));
-}
-
-/* The hash a key table is in. Its strings are xsl:key values the source document picks: str_hash first, and once a
-   walk passes TH_FAST_PROBE_LIMIT slots the table rehashes under th_name_hash, which the document cannot steer
-   (core/hash.h). */
-static size_t strmap_hash(const strmap *map, const Py_UCS4 *str, Py_ssize_t len) {
-    return map->keyed ? str_keyed_hash(str, len) : str_hash(str, len);
+static inline void strmap_reseat(strmap_slot *slots, size_t mask, const strmap_slot *entry, int keyed) {
+    size_t probe = (keyed ? th_name_hash(entry->str, entry->str_len * (Py_ssize_t)sizeof(Py_UCS4))
+                          : str_hash(entry->str, entry->str_len)) &
+                   mask;
+    while (slots[probe].used) {
+        TH_WORK_STEP();
+        probe = (probe + 1) & mask;
+    }
+    slots[probe] = *entry;
 }
 
 /* Move the entries into new_cap slots under th_name_hash when keyed, else str_hash. The walk starts at an empty slot,
@@ -417,100 +419,37 @@ static inline int strmap_move(strmap *map, size_t new_cap, int keyed) {
     while (start < map->cap && map->slots[start].used) {
         start++;
     }
-    for (size_t step = 0; step < map->cap; step++) {
-        size_t index = (start + step) & (map->cap - 1);
+    for (size_t index = start; index < map->cap; index++) {
         if (map->slots[index].used) {
-            const Py_UCS4 *str = map->slots[index].str;
-            Py_ssize_t len = map->slots[index].str_len;
-            size_t probe =
-                (keyed ? th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4)) : str_hash(str, len)) & (new_cap - 1);
-            while (slots[probe].used) {
-                TH_WORK_STEP();
-                probe = (probe + 1) & (new_cap - 1);
-            }
-            slots[probe] = map->slots[index];
+            strmap_reseat(slots, new_cap - 1, &map->slots[index], keyed);
         }
+    }
+    for (size_t index = 0; index < start; index++) { /* every slot before start is filled */
+        strmap_reseat(slots, new_cap - 1, &map->slots[index], keyed);
     }
     PyMem_Free(map->slots);
     map->slots = slots;
     map->cap = new_cap;
+    map->fast = keyed ? 0 : new_cap / 2 - 1;
     return 0;
 }
 
-/* Out of line, so the str_hash move inlined into strmap_bucket keeps its registers. */
+/* Out of line, so SipHash's rounds stay out of the str_hash paths. */
 static TH_NOINLINE int strmap_move_keyed(strmap *map, size_t new_cap) {
     return strmap_move(map, new_cap, 1);
 }
 
-static int strmap_grow(strmap *map) {
-    size_t new_cap = map->cap == 0 ? 16 : map->cap * 2;
-    return map->keyed ? strmap_move_keyed(map, new_cap) : strmap_move(map, new_cap, 0);
-}
-
-/* A walk on str_hash went past TH_FAST_PROBE_LIMIT slots: move the map to th_name_hash for the rest of its life. Out
-   of line, so the walks keep their registers. */
-static TH_NOINLINE int strmap_rekey(strmap *map) {
-    if (strmap_move_keyed(map, map->cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        return -1;                              /* GCOVR_EXCL_LINE */
-    }
-    map->keyed = 1;
-    return 0;
-}
-
-/* The string's node-vector, or NULL when absent. A hit walks no further than its entry sits from its home, but a miss
-   walks to the end of the run its home falls in, and the document can line up homes into one long run without any
-   entry sitting far, so a long miss moves the map to th_name_hash. */
-static const nodevec *strmap_lookup(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
-    if (map->cap == 0) {
-        return NULL;
-    }
-    size_t home = strmap_hash(map, str, str_len) & (map->cap - 1);
-    size_t probe = home;
-    for (;;) {
-        if (!map->slots[probe].used) {
-            if (map->keyed || ((probe - home) & (map->cap - 1)) <= TH_FAST_PROBE_LIMIT) {
-                return NULL;
-            }
-            /* a failed move leaves the map whole on str_hash, where the walk just found no entry */
-            if (strmap_rekey(map) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-                return NULL;             /* GCOVR_EXCL_LINE */
-            }
-            home = strmap_hash(map, str, str_len) & (map->cap - 1);
-            probe = home;
-            continue;
-        }
-        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
-            return &map->slots[probe].nodes;
-        }
+/* The slot of str in a map on th_name_hash: its entry, or the empty slot that ends its run. */
+static size_t strmap_keyed_slot(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    size_t probe = th_name_hash(str, str_len * (Py_ssize_t)sizeof(Py_UCS4)) & (map->cap - 1);
+    while (map->slots[probe].used && !str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
         TH_WORK_STEP();
         probe = (probe + 1) & (map->cap - 1);
     }
+    return probe;
 }
 
-/* Return the node-vector for a key string, creating the slot (copying str) if absent. On str_hash no entry is seated
-   past TH_FAST_PROBE_LIMIT slots from its home, which bounds every walk that ends at an entry.
-   NULL on allocation failure. */
-static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
-    if ((map->count + 1) * 2 >= map->cap) {
-        if (strmap_grow(map) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            return NULL;            /* GCOVR_EXCL_LINE */
-        }
-    }
-    size_t home = strmap_hash(map, str, str_len) & (map->cap - 1);
-    size_t probe = home;
-    while (map->slots[probe].used) {
-        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
-            return &map->slots[probe].nodes;
-        }
-        TH_WORK_STEP();
-        probe = (probe + 1) & (map->cap - 1);
-    }
-    if (!map->keyed && ((probe - home) & (map->cap - 1)) > TH_FAST_PROBE_LIMIT) {
-        if (strmap_rekey(map) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            return NULL;             /* GCOVR_EXCL_LINE */
-        }
-        return strmap_bucket(map, str, str_len);
-    }
+static nodevec *strmap_seat(strmap *map, size_t probe, const Py_UCS4 *str, Py_ssize_t str_len) {
     Py_UCS4 *owned = ucs4_dup(str, str_len);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return NULL;     /* GCOVR_EXCL_LINE */
@@ -520,6 +459,87 @@ static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_le
     map->slots[probe].used = 1;
     map->count++;
     return &map->slots[probe].nodes;
+}
+
+/* The string's node-vector in a map that is empty or on th_name_hash, or NULL when absent. */
+static TH_NOINLINE const nodevec *strmap_lookup_slow(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->cap == 0) {
+        return NULL;
+    }
+    size_t probe = strmap_keyed_slot(map, str, str_len);
+    return map->slots[probe].used ? &map->slots[probe].nodes : NULL;
+}
+
+/* The string's node-vector, or NULL when absent. A hit walks no further than its entry sits from its home, but a miss
+   walks to the end of the run its home falls in, and the document can line up homes into one long run without any
+   entry sitting far, so a miss that walked past TH_FAST_PROBE_LIMIT slots moves the map to th_name_hash (core/hash.h)
+   for the rest of its life. A failed move leaves the map whole on str_hash, where the walk just found no entry. */
+static const nodevec *strmap_lookup(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->fast == 0) {
+        return strmap_lookup_slow(map, str, str_len);
+    }
+    size_t home = str_hash(str, str_len) & (map->cap - 1);
+    size_t probe = home;
+    while (map->slots[probe].used) {
+        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
+            return &map->slots[probe].nodes;
+        }
+        TH_WORK_STEP();
+        probe = (probe + 1) & (map->cap - 1);
+    }
+    if (((probe - home) & (map->cap - 1)) <= TH_FAST_PROBE_LIMIT) {
+        return NULL;
+    }
+    if (strmap_move_keyed(map, map->cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return NULL;                            /* GCOVR_EXCL_LINE */
+    }
+    return strmap_lookup_slow(map, str, str_len);
+}
+
+static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len);
+
+/* strmap_bucket for a map that is empty, at its load limit, or on th_name_hash, and for a str_hash map the miss for str
+   walked past TH_FAST_PROBE_LIMIT slots in (rekey), which moves to th_name_hash for good. Out of line, so the str_hash
+   walk keeps its registers. */
+static TH_NOINLINE nodevec *strmap_bucket_slow(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len, int rekey) {
+    if (rekey) {
+        if (strmap_move_keyed(map, map->cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return NULL;                            /* GCOVR_EXCL_LINE */
+        }
+    } else if (map->cap == 0 || map->fast != 0) {
+        if (strmap_move(map, map->cap == 0 ? 16 : map->cap * 2, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+            return NULL;                                                  /* GCOVR_EXCL_LINE */
+        }
+        return strmap_bucket(map, str, str_len);
+    } else if ((map->count + 1) * 2 >= map->cap) {
+        if (strmap_move_keyed(map, map->cap * 2) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return NULL;                                /* GCOVR_EXCL_LINE */
+        }
+    }
+    size_t probe = strmap_keyed_slot(map, str, str_len);
+    return map->slots[probe].used ? &map->slots[probe].nodes : strmap_seat(map, probe, str, str_len);
+}
+
+/* Return the node-vector for a key string, creating the slot (copying str) if absent. On str_hash no entry is seated
+   past TH_FAST_PROBE_LIMIT slots from its home, which bounds every walk that ends at an entry.
+   NULL on allocation failure. */
+static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->count >= map->fast) {
+        return strmap_bucket_slow(map, str, str_len, 0);
+    }
+    size_t home = str_hash(str, str_len) & (map->cap - 1);
+    size_t probe = home;
+    while (map->slots[probe].used) {
+        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
+            return &map->slots[probe].nodes;
+        }
+        TH_WORK_STEP();
+        probe = (probe + 1) & (map->cap - 1);
+    }
+    if (((probe - home) & (map->cap - 1)) > TH_FAST_PROBE_LIMIT) {
+        return strmap_bucket_slow(map, str, str_len, 1);
+    }
+    return strmap_seat(map, probe, str, str_len);
 }
 
 static void strmap_free(strmap *map) {
@@ -533,7 +553,7 @@ static void strmap_free(strmap *map) {
     map->slots = NULL;
     map->cap = 0;
     map->count = 0;
-    map->keyed = 0;
+    map->fast = 0;
 }
 
 typedef struct {

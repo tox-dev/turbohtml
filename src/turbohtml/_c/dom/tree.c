@@ -106,12 +106,6 @@ static uint16_t tok_atom(const th_token *tok) {
     return tok->atom;
 }
 
-/* The hash the dynamic table is in: FNV-1a until a probe run passes
-   TH_FAST_RUN_LIMIT, th_name_hash after (core/hash.h). */
-static uint32_t attr_name_hash(const th_tree *tree, const char *bytes, Py_ssize_t len) {
-    return tree->attr_keyed ? th_name_hash(bytes, len) : th_fnv1a_bytes(bytes, len);
-}
-
 /* 1 when the run of filled slots through slot is longer than TH_FAST_RUN_LIMIT. A
    lookup walks at most the run its home falls in, so bounding every run bounds hits
    and misses alike. Every run was within the limit before this seat, so the walks back
@@ -128,11 +122,12 @@ static int attr_run_long(const th_tree *tree, uint32_t slot) {
     return length > TH_FAST_RUN_LIMIT;
 }
 
-/* Replace the slots with cap of them and seat every record under its stored hash.
-   Doubling cannot lengthen the longest run: the records of a run in the new slots
-   have their homes inside it, so they already formed a run at least as long in the
-   old ones. A failure flags the parse as arena_alloc does. */
-static int attr_slots_rebuild(th_tree *tree, uint32_t cap) {
+/* Replace the slots with cap of them and seat every record under its stored hash,
+   which is th_name_hash when keyed, else FNV-1a. Doubling cannot lengthen the longest
+   run: the records of a run in the new slots have their homes inside it, so they
+   already formed a run at least as long in the old ones. A failure flags the parse
+   as arena_alloc does. */
+static int attr_slots_rebuild(th_tree *tree, uint32_t cap, int keyed) {
     uint32_t *slots = PyMem_Calloc(cap, sizeof(uint32_t));
     if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -149,6 +144,7 @@ static int attr_slots_rebuild(th_tree *tree, uint32_t cap) {
     }
     PyMem_Free(tree->attr_slots);
     tree->attr_slots = slots;
+    tree->attr_fast = keyed ? NULL : slots;
     tree->attr_slot_mask = mask;
     return 0;
 }
@@ -158,12 +154,11 @@ static int attr_slots_rebuild(th_tree *tree, uint32_t cap) {
    past TH_FAST_RUN_LIMIT every record is rehashed under a key the document cannot
    see and seated again. */
 static TH_NOINLINE int attr_table_rekey(th_tree *tree) {
-    tree->attr_keyed = 1;
     for (uint32_t index = 0; index < tree->attr_rec_count; index++) {
         th_attr_record *rec = &tree->attr_recs[index];
         rec->hash = th_name_hash(rec->name, (Py_ssize_t)rec->name_len);
     }
-    return attr_slots_rebuild(tree, tree->attr_slot_mask + 1);
+    return attr_slots_rebuild(tree, tree->attr_slot_mask + 1, 1);
 }
 
 /* Ensure the dynamic table can take one more record: grow the record array, and
@@ -189,17 +184,15 @@ static int attr_table_reserve(th_tree *tree) {
         tree->attr_rec_cap = (uint32_t)cap;
     }
     if (tree->attr_slots == NULL || tree->attr_rec_count + 1 > (tree->attr_slot_mask + 1) * 3 / 4) {
-        return attr_slots_rebuild(tree, tree->attr_slots == NULL ? 16 : (tree->attr_slot_mask + 1) * 2);
+        int keyed = tree->attr_slots != NULL && tree->attr_fast == NULL;
+        return attr_slots_rebuild(tree, tree->attr_slots == NULL ? 16 : (tree->attr_slot_mask + 1) * 2, keyed);
     }
     return 0;
 }
 
-/* The record index + 1 for an interned name, or 0 when it is not in the table.
+/* The record index + 1 for an interned name, or 0 when it is not in the built table.
    The name comparison is by bytes, so a hash collision is not a special case. */
 static uint32_t dynamic_slot(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
-    if (tree->attr_slots == NULL) {
-        return 0;
-    }
     uint32_t mask = tree->attr_slot_mask;
     for (uint32_t probe = hash & mask; tree->attr_slots[probe] != 0; probe = (probe + 1) & mask) {
         TH_WORK_STEP();
@@ -232,7 +225,7 @@ static TH_NOINLINE uint32_t intern_attr_insert(th_tree *tree, const char *bytes,
         probe = (probe + 1) & mask;
     }
     tree->attr_slots[probe] = index + 1;
-    if (TH_UNLIKELY(!tree->attr_keyed && tree->attr_rec_count > TH_FAST_RUN_LIMIT && attr_run_long(tree, probe))) {
+    if (tree->attr_fast != NULL && tree->attr_rec_count > TH_FAST_RUN_LIMIT && attr_run_long(tree, probe)) {
         if (attr_table_rekey(tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return TH_ATTR_UNKNOWN;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -240,10 +233,24 @@ static TH_NOINLINE uint32_t intern_attr_insert(th_tree *tree, const char *bytes,
     return TH_ATTR__DYNAMIC_BASE + index;
 }
 
+/* intern_attr_dynamic for a table that is not built yet, which starts on FNV-1a, or
+   one on th_name_hash. Out of line, so the FNV-1a lookup keeps its registers. */
+static TH_NOINLINE uint32_t intern_attr_slow(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    if (tree->attr_slots == NULL) {
+        return intern_attr_insert(tree, bytes, len, th_fnv1a_bytes(bytes, len));
+    }
+    uint32_t hash = th_name_hash(bytes, len);
+    uint32_t found = dynamic_slot(tree, bytes, len, hash);
+    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : intern_attr_insert(tree, bytes, len, hash);
+}
+
 /* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom
    (prototype in dom/tree_internal.h; the construction API in mutate.c reuses it). */
 uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
-    uint32_t hash = attr_name_hash(tree, bytes, len);
+    if (tree->attr_fast == NULL) {
+        return intern_attr_slow(tree, bytes, len);
+    }
+    uint32_t hash = th_fnv1a_bytes(bytes, len);
     uint32_t found = dynamic_slot(tree, bytes, len, hash);
     if (found != 0) {
         return TH_ATTR__DYNAMIC_BASE + (found - 1);
@@ -339,7 +346,14 @@ uint32_t th_attr_lookup(th_tree *tree, const char *bytes, Py_ssize_t len) {
     if (atom != TH_ATTR_UNKNOWN) {
         return atom;
     }
-    uint32_t found = dynamic_slot(tree, bytes, len, attr_name_hash(tree, bytes, len));
+    uint32_t found;
+    if (tree->attr_fast != NULL) {
+        found = dynamic_slot(tree, bytes, len, th_fnv1a_bytes(bytes, len));
+    } else if (tree->attr_slots != NULL) {
+        found = dynamic_slot(tree, bytes, len, th_name_hash(bytes, len));
+    } else {
+        return UINT32_MAX;
+    }
     return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
 }
 

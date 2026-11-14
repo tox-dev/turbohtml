@@ -25,6 +25,7 @@ _FACTOR: Final[float] = 16.0
 _LINED_UP: Final[int] = 512
 _TRANSLATE_FROM: Final[int] = 512
 _TRANSLATE_CAPACITY: Final[int] = 1024  # th_grow_cap(2 * 512) slots, the stride that puts every from character home
+_TRANSLATE_MULTIPLIER: Final[int] = 2654435761  # the multiplicative hash of translate() in xpath/functions.c
 
 
 def _attribute_tag(names: list[str]) -> str:
@@ -104,6 +105,15 @@ def test_names_on_one_home_slot_stay_within_the_step_budget(
 ) -> None:
     collide = ["".join(choice) for choice in itertools.product(*_block_pairs(fnv, _STEPS))]
     work_steps.assert_within(build(collide), build(_spread(len(collide), len(collide[0]))), factor=_FACTOR)
+
+
+def test_attribute_lookup_after_the_name_table_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
+    document: Final = turbohtml.parse(_attribute_tag(names))
+
+    found = (document.select(f"i[{names[-1]}]"), document.select("i[absent]"))
+
+    assert (len(found[0]), len(found[1])) == (1, 0)
 
 
 def _block_pairs(fnv: tuple[int, int], steps: int) -> list[tuple[str, str]]:
@@ -216,6 +226,39 @@ def test_translate_characters_on_one_home_slot_stay_within_the_step_budget(work_
     work_steps.assert_within(
         _translate(_code_points(0x400, _TRANSLATE_CAPACITY)), _translate(_code_points(0x400, 1)), factor=_FACTOR
     )
+
+
+def test_translate_misses_along_lined_up_homes_stay_within_the_step_budget(work_steps: WorkSteps) -> None:
+    # Every from character on its own home, the homes in one run that wraps past the last slot, and a text of absent
+    # characters on the same homes: each miss walks to the end of the run although no character sits away from home.
+    homes: Final = range(_TRANSLATE_CAPACITY - 100, _TRANSLATE_CAPACITY - 100 + _TRANSLATE_FROM)
+    work_steps.assert_within(
+        _translate_misses(_on_homes(homes, _TRANSLATE_CAPACITY), _on_homes(homes, 2 * _TRANSLATE_CAPACITY)),
+        _translate_misses(_code_points(0x400, 1), _code_points(0x800, 1)),
+        factor=_FACTOR,
+    )
+
+
+def test_translate_keeps_a_short_lined_up_run() -> None:
+    source: Final = "".join(_on_homes(range(40), _TRANSLATE_CAPACITY)) + "".join(chr(0x3000 + 7 * i) for i in range(60))
+    target: Final = "".join(chr(0x4000 + index) for index in range(len(source)))
+    text: Final = (source + "xyz") * 4
+    document: Final = turbohtml.parse_xml(f"<r>{text}</r>")
+
+    result = document.xpath(f"translate(string(/r), '{source}', '{target}')")
+
+    assert result == text.translate(str.maketrans(source, target))
+
+
+def _translate_misses(source: list[str], misses: list[str]) -> Callable[[], object]:
+    document: Final = turbohtml.parse_xml(f"<r>{''.join(misses) * 4}</r>")
+    return lambda: document.xpath(f"translate(string(/r), '{''.join(source)}', '')")
+
+
+def _on_homes(homes: range, offset: int) -> list[str]:
+    # The code points from offset whose multiplicative hash puts them on each of homes in _TRANSLATE_CAPACITY slots.
+    inverse: Final = pow(_TRANSLATE_MULTIPLIER, -1, _TRANSLATE_CAPACITY)
+    return [chr(home % _TRANSLATE_CAPACITY * inverse % _TRANSLATE_CAPACITY + offset) for home in homes]
 
 
 def _translate(characters: list[str]) -> Callable[[], object]:

@@ -187,6 +187,13 @@ typedef struct {
     Py_ssize_t position;
 } translate_entry;
 
+/* A run longer than TH_FAST_PROBE_LIMIT covers a whole aligned block of TRANSLATE_BLOCK slots, of which
+   translate_runs_long reads every TRANSLATE_SAMPLE-th; translate_index walks at most TRANSLATE_WALKS steps per
+   character on the multiplicative hash. */
+#define TRANSLATE_BLOCK 32
+#define TRANSLATE_SAMPLE 8
+#define TRANSLATE_WALKS 4
+
 static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character, int keyed);
 static int translate_index(translate_entry *entries, size_t capacity, const Py_UCS4 *from, Py_ssize_t flen);
 static inline Py_ssize_t translate_rest(const translate_entry *entries, size_t mask, int keyed, const Py_UCS4 *text,
@@ -297,30 +304,76 @@ static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS
     return slot;
 }
 
-/* Fill the zeroed table with the first position of each from character. Returns 1 when the table ended on th_key_mix:
-   on the multiplicative hash, an entry that landed past TH_FAST_PROBE_LIMIT from its home, or a run of filled slots
-   that long (a lookup that misses walks its run), starts it over keyed. */
+/* 1 when a run of filled slots is longer than TH_FAST_PROBE_LIMIT. Such a run covers a whole aligned block of
+   TRANSLATE_BLOCK slots, and so the slot that starts it, so the walk reads every TRANSLATE_SAMPLE-th slot and measures
+   the run through the start of a block only when all its samples are filled, which they rarely are at half load. Each
+   measure stops past the limit and the samples are a fraction of the slots, so none is a counted work step. */
+static TH_NOINLINE int translate_runs_long(const translate_entry *entries, size_t capacity) {
+    size_t mask = capacity - 1;
+    for (size_t block = 0; block < capacity; block += TRANSLATE_BLOCK) {
+        size_t sample = block;
+        while (sample < block + TRANSLATE_BLOCK && entries[sample].position != 0) {
+            sample += TRANSLATE_SAMPLE;
+        }
+        if (sample < block + TRANSLATE_BLOCK) {
+            continue;
+        }
+        size_t length = 1;
+        for (size_t probe = (block - 1) & mask; length <= TH_FAST_PROBE_LIMIT && entries[probe].position != 0;
+             probe = (probe - 1) & mask) {
+            length++;
+        }
+        for (size_t probe = (block + 1) & mask; length <= TH_FAST_PROBE_LIMIT && entries[probe].position != 0;
+             probe = (probe + 1) & mask) {
+            length++;
+        }
+        if (length > TH_FAST_PROBE_LIMIT) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Out of line, so th_key_mix stays out of the multiplicative fill. */
+static TH_NOINLINE void translate_index_keyed(translate_entry *entries, size_t capacity, const Py_UCS4 *from,
+                                              Py_ssize_t flen) {
+    memset(entries, 0, capacity * sizeof(*entries));
+    for (Py_ssize_t position = 0; position < flen; position++) {
+        const size_t slot = translate_slot(entries, capacity - 1, from[position], 1);
+        if (entries[slot].position == 0) {
+            entries[slot] = (translate_entry){from[position], position + 1};
+        }
+    }
+}
+
+/* Fill the zeroed table with the first position of each from character, and return 1 when it ended on th_key_mix. The
+   multiplicative hash lets a map put its characters on one home, which makes the fill quadratic, or line them up into
+   one long run, which every lookup that misses walks to its end. So the fill starts over on th_key_mix (core/hash.h)
+   once its walks pass TRANSLATE_WALKS steps per character, or when it leaves a run longer than TH_FAST_PROBE_LIMIT. A
+   fill that seats each character at or next to its home, as ordinary maps do, takes no step of either. */
 static int translate_index(translate_entry *entries, size_t capacity, const Py_UCS4 *from, Py_ssize_t flen) {
     size_t mask = capacity - 1;
-    for (int keyed = 0;; keyed = 1) {
-        int long_run = 0;
-        for (Py_ssize_t position = 0; position < flen && !long_run; position++) {
-            const size_t slot = translate_slot(entries, mask, from[position], keyed);
-            if (entries[slot].position == 0) {
-                entries[slot] = (translate_entry){from[position], position + 1};
-                long_run = !keyed && ((slot - ((size_t)from[position] * 2654435761u)) & mask) > TH_FAST_PROBE_LIMIT;
+    size_t budget = (size_t)flen * TRANSLATE_WALKS;
+    for (Py_ssize_t position = 0; position < flen; position++) {
+        size_t slot = ((size_t)from[position] * 2654435761u) & mask;
+        TH_WORK_STEP();
+        while (entries[slot].position != 0 && entries[slot].character != from[position]) {
+            TH_WORK_STEP();
+            if (--budget == 0) {
+                translate_index_keyed(entries, capacity, from, flen);
+                return 1;
             }
+            slot = (slot + 1) & mask;
         }
-        size_t run = 0;
-        for (size_t step = 0; !keyed && !long_run && flen > TH_FAST_PROBE_LIMIT && step < 2 * capacity; step++) {
-            run = entries[step & mask].position != 0 ? run + 1 : 0; /* twice round, for the run that wraps */
-            long_run = run > TH_FAST_PROBE_LIMIT;
+        if (entries[slot].position == 0) {
+            entries[slot] = (translate_entry){from[position], position + 1};
         }
-        if (keyed || !long_run) {
-            return keyed;
-        }
-        memset(entries, 0, capacity * sizeof(*entries));
     }
+    if (flen > TH_FAST_PROBE_LIMIT && translate_runs_long(entries, capacity)) {
+        translate_index_keyed(entries, capacity, from, flen);
+        return 1;
+    }
+    return 0;
 }
 
 /* Translate text[index, slen) through the table into buf from write_pos, returning the new write position. keyed is a

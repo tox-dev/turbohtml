@@ -160,7 +160,10 @@ struct th_tree {
     uint64_t attr_version;
     uint64_t id_version;
     uint32_t attr_slot_mask;
-    uint8_t attr_keyed; /* 1 once the name table has switched from the fast hash to th_name_hash, for good */
+    /* attr_slots while the name table is on FNV-1a; NULL while it is not built and once it has moved to
+       th_name_hash for good, so the one test the lookup made for an unbuilt table also sends a keyed one
+       out of line */
+    uint32_t *attr_fast;
     /* Encoding declarations from <meta> elements, in document order, so a bytes parse
        can run the WHATWG "changing the encoding while parsing" step once the tree is
        built. Grown lazily: a document without a <meta> charset never allocates. */
