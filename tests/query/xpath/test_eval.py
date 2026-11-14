@@ -920,23 +920,22 @@ def test_deep_boolean_chain_operand_still_raises(doc: turbohtml.Node) -> None:
 @pytest.mark.parametrize(
     "expression",
     [
-        pytest.param("//li[following-sibling::li]", id="predicate"),
-        pytest.param("//li[not(following-sibling::li)]", id="not"),
-        pytest.param("//li[boolean(following-sibling::*)]", id="boolean"),
-        pytest.param("//li[@id or following::li]", id="or"),
-        pytest.param("//li[following::li and ../li]", id="and"),
-        pytest.param("//li[preceding-sibling::li]", id="preceding-sibling"),
-        pytest.param("//li[not(preceding::li)]", id="preceding"),
-        pytest.param(css_to_xpath("li:last-child", prefix="//"), id="css-last-child"),
+        pytest.param("//p[following-sibling::node()]", id="predicate"),
+        pytest.param("//p[not(following-sibling::p)]", id="not"),
+        pytest.param("//p[boolean(following-sibling::*)]", id="boolean"),
+        pytest.param("//p[@id or following::p]", id="or"),
+        pytest.param("//p[following::p and ../p]", id="and"),
+        pytest.param("//p[preceding-sibling::p]", id="preceding-sibling"),
+        pytest.param("//p[not(preceding::p)]", id="preceding"),
+        pytest.param(css_to_xpath("p:last-child", prefix="//"), id="css-last-child"),
     ],
 )
 def test_a_path_tested_for_emptiness_grows_linearly(expression: str) -> None:
-    # Growth is about 8 for a walk that stops early and about 64 for one that collects the axis. The floor keeps timer
-    # noise on the short list from inflating the ratio.
-    small: Final = parse(f"<ul>{'<li>x' * 2_000}</ul>")
-    large: Final = parse(f"<ul>{'<li>x' * 16_000}</ul>")
-    growth: Final = _best_seconds(large, expression) / max(_best_seconds(small, expression), 0.05)
-    assert growth < 24
+    # Compares the time for expression with the time for //p[self::p] on one list of 16,000 p elements. Both visit each
+    # p once, so the ratio is near 1 when the walk stops at the first node and grows with the list length otherwise.
+    document: Final = parse(f"<section>{'<p>y' * 16_000}</section>")
+    growth: Final = _best_seconds(document, expression) / _best_seconds(document, "//p[self::p]")
+    assert growth < 20
 
 
 def _best_seconds(document: Document, expression: str) -> float:
@@ -977,7 +976,7 @@ def test_a_path_tested_for_emptiness_agrees_with_its_count(context: str, path: s
     document: Final = parse_xml(
         '<r><b x="1"><i/>t<b><i x="2"/><b/></b></b><i><b/><!--c--></i><a><b x="3"/><i/><b><i/></b></a><i x="4"/></r>'
     )
-    nodes: Final = document.xpath("//i")
+    nodes: Final = document.select("i")
     checks: Final = (
         (path, f"count({path}) > 0"),
         (f"not({path})", f"count({path}) = 0"),

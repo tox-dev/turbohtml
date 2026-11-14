@@ -118,19 +118,19 @@ def test_transform_choose_without_otherwise_falls_through() -> None:
 
 
 def test_transform_test_of_a_path_grows_linearly() -> None:
-    # Growth is about 8 for a walk that stops early and about 64 for one that collects the axis. The floor keeps timer
-    # noise on the short list from inflating the ratio.
-    body = (
+    # Compares the time for a stylesheet whose tests walk the following axes with the time for the same stylesheet with
+    # self:: tests, both run on one source of 16,000 i elements.
+    template: Final = (
         '<xsl:template match="/"><xsl:for-each select="r/i"><xsl:choose>'
-        '<xsl:when test="following-sibling::i">.</xsl:when><xsl:otherwise>]</xsl:otherwise></xsl:choose>'
-        '<xsl:if test="not(following::i)">!</xsl:if></xsl:for-each></xsl:template>'
+        '<xsl:when test="{sibling}">.</xsl:when><xsl:otherwise>]</xsl:otherwise></xsl:choose>'
+        '<xsl:if test="not({following})">!</xsl:if></xsl:for-each></xsl:template>'
     )
-    stylesheet: Final = Transform(_sheet(body))
-    small: Final = turbohtml.parse_xml(f"<r>{'<i/>' * 1_000}</r>")
-    large: Final = turbohtml.parse_xml(f"<r>{'<i/>' * 8_000}</r>")
-    small_seconds: Final = min(timeit.repeat(partial(stylesheet, small), number=1, repeat=3))
-    large_seconds: Final = min(timeit.repeat(partial(stylesheet, large), number=1, repeat=3))
-    assert large_seconds / max(small_seconds, 0.05) < 24
+    source: Final = turbohtml.parse_xml(f"<r>{'<i/>' * 16_000}</r>")
+    expensive: Final = Transform(_sheet(template.format(sibling="following-sibling::i", following="following::i")))
+    reference: Final = Transform(_sheet(template.format(sibling="self::i", following="self::i")))
+    expensive_seconds: Final = min(timeit.repeat(partial(expensive, source), number=1, repeat=3))
+    reference_seconds: Final = min(timeit.repeat(partial(reference, source), number=1, repeat=3))
+    assert expensive_seconds / reference_seconds < 20
 
 
 def test_transform_test_and_select_of_one_expression_keep_their_own_results() -> None:
