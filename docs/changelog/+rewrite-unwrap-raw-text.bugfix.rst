@@ -1,2 +1,3 @@
-Text inside a raw-text element such as ``script`` is now escaped when a :func:`~turbohtml.rewrite.rewrite` handler
-unwraps the element, so it stays text.
+Unwrapping ``script``, ``style``, ``noscript``, ``textarea`` or another raw-text element in a
+:func:`~turbohtml.rewrite.rewrite` handler now escapes its content so it stays text, fallback markup inside ``noscript``
+included.
