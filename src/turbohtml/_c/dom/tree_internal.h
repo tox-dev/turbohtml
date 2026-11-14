@@ -76,7 +76,6 @@ typedef struct {
     Py_ssize_t target_count;
     Py_ssize_t target_cap;
     Py_ssize_t filled; /* leading targets holding the shown option's copy; the rest are pending */
-    uint8_t valid;
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
     uint8_t optgroup_disabled;

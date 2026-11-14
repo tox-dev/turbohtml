@@ -113,8 +113,7 @@ parsing data
 validates it. The result is the tree a browser builds for the same bytes, with two departures. A ``select`` copies its
 selected option into at most 16 ``selectedcontent`` elements, and any after those keep the content the markup gave them;
 valid markup has one per ``select``. A ``selectedcontent`` placed after its option drops the children the markup gave
-it, which a browser keeps beside the copy, so reparsing the output yields the same tree. In a ``select`` that has
-options but shows none, such a ``selectedcontent`` is emptied.
+it, which a browser keeps beside the copy, so reparsing the output yields the same tree.
 
 turbohtml builds the tree in C as a pointer-linked node graph in a single bump-allocated arena, the layout `lexbor
 <https://lexbor.com>`_, Go's ``x/net/html``, and html5ever all converge on. It holds **no Python objects**. Element

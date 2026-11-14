@@ -67,7 +67,8 @@ _OPTION_HOLDS_SELECTEDCONTENT_TREE: Final[str] = "<select><option><selectedconte
         pytest.param(
             "<select><button><selectedcontent><svg><foreignObject><select><button><selectedcontent></button>"
             "<option>x</option></select>",
-            "<select><button><selectedcontent></selectedcontent></button></select>",
+            "<select><button><selectedcontent><svg><foreignObject><select><button><selectedcontent></selectedcontent>"
+            "</button><option>x</option></select></foreignObject></svg></selectedcontent></button></select>",
             id="selectedcontent-above-select",
         ),
         pytest.param(
@@ -820,6 +821,81 @@ def test_sanitize_of_late_selectedcontent_is_idempotent(markup: str, body: str) 
 def test_reparsing_a_selectedcontent_after_an_adoption_agency_removal_is_stable() -> None:
     once = parse("<select><a><option selected><button><a><selectedcontent>z").html
     assert parse(once).html == once
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select><a><option selected>o<button><a><selectedcontent>z",
+            '<select><a><option selected="">o</option></a><button><a></a><a><selectedcontent>o</selectedcontent></a>'
+            "</button></select>",
+            id="selected-option-with-content",
+        ),
+        pytest.param(
+            "<select><a><option>o<button><a><selectedcontent>z",
+            "<select><a><option>o</option></a><button><a></a><a><selectedcontent>o</selectedcontent></a></button></select>",
+            id="first-enabled-option",
+        ),
+        pytest.param(
+            "<select><a><option>o<option>p<button><a><selectedcontent>z",
+            "<select><a><option>o</option><option>p</option></a><button><a></a><a><selectedcontent>o</selectedcontent>"
+            "</a></button></select>",
+            id="first-of-two-enabled-options",
+        ),
+        pytest.param(
+            "<select><a><option disabled>d<option>p<button><a><selectedcontent>z",
+            '<select><a><option disabled="">d</option><option>p</option></a><button><a></a><a>'
+            "<selectedcontent>p</selectedcontent></a></button></select>",
+            id="first-enabled-after-a-disabled-option",
+        ),
+    ],
+)
+def test_adoption_agency_removed_options_fill_the_selectedcontent(markup: str, body: str) -> None:
+    once = parse(markup).html
+    assert once == f"<html><head></head><body>{body}</body></html>"
+    assert parse(once).html == once
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select multiple><button><selectedcontent>z</selectedcontent></button><option>a</option></select>",
+            '<select multiple=""><button><selectedcontent>z</selectedcontent></button><option>a</option></select>',
+            id="multiple",
+        ),
+        pytest.param(
+            "<select><option disabled>d</option><button><selectedcontent>z</selectedcontent></button></select>",
+            '<select><option disabled="">d</option><button><selectedcontent>z</selectedcontent></button></select>',
+            id="only-disabled-option",
+        ),
+        pytest.param(
+            "<select><optgroup disabled><option>a</option></optgroup><button><selectedcontent>z</selectedcontent>"
+            "</button></select>",
+            '<select><optgroup disabled=""><option>a</option></optgroup><button><selectedcontent>z</selectedcontent>'
+            "</button></select>",
+            id="only-disabled-optgroup",
+        ),
+        pytest.param(
+            "<select><datalist><option>q</option></datalist><button><selectedcontent>z</selectedcontent></button></select>",
+            "<select><datalist><option>q</option></datalist><button><selectedcontent>z</selectedcontent></button></select>",
+            id="option-in-datalist",
+        ),
+        pytest.param(
+            "<select><select><button><selectedcontent>z</selectedcontent></button></select><option>q</option></select>",
+            "<select></select><button><selectedcontent>z</selectedcontent></button><option>q</option>",
+            id="option-of-a-nested-select",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent>z</selectedcontent></button><template><option>a</option></template></select>",
+            "<select><button><selectedcontent>z</selectedcontent></button><template><option>a</option></template></select>",
+            id="option-in-template",
+        ),
+    ],
+)
+def test_selectedcontent_keeps_its_children_when_no_option_is_shown(markup: str, body: str) -> None:
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
 
 
 def test_incremental_parser_splits_inside_a_late_selectedcontent() -> None:
