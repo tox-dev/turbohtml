@@ -1232,7 +1232,52 @@ def test_long_union_in_predicate_needs_no_c_stack() -> None:
 
 
 def test_moderately_nested_expression_still_evaluates(doc: turbohtml.Node) -> None:
-    assert doc.xpath(f"{'(' * 100}1 + 1{')' * 100}") == pytest.approx(2.0)
+    assert doc.xpath(f"{'(' * 50}1 + 1{')' * 50}") == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize(
+    ("opening", "innermost", "closing"),
+    [
+        pytest.param("descendant-or-self::node()[", "true()", "]", id="step-predicate"),
+        pytest.param("(self::node())[", "true()", "]", id="filter-predicate"),
+        pytest.param("(", "self::node()", ")/descendant-or-self::node()", id="path-base"),
+        pytest.param("count(ancestor-or-self::node()[", "true()", "])", id="function-over-predicate"),
+        pytest.param("boolean(", "true()", ")", id="function-argument"),
+        pytest.param("(2*", "3", ")", id="operator"),
+        pytest.param("-(", "1", ")", id="unary-minus"),
+    ],
+)
+def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermost: str, closing: str) -> None:
+    # a level of each shape puts different frames on the C stack, a predicate in a step three times what an operator
+    # does; whatever depth the cap admits has to fit a thread as small as musl's default, and past it the expression
+    # raises. A subprocess turns a regression into a clean failure instead of a killed worker.
+    code = (
+        "import sys, threading, turbohtml\n"
+        "doc = turbohtml.parse('<p>')\n"
+        "opening, innermost, closing = sys.argv[1:]\n"
+        "evaluated = []\n"
+        "def run():\n"
+        "    for depth in (*range(1, 64 + 7), *(64 * scale for scale in (4, 9, 15))):\n"
+        "        try:\n"
+        "            doc.xpath(opening * depth + innermost + closing * depth)\n"
+        "        except ValueError as error:\n"
+        "            assert 'nested too deeply' in str(error), error\n"
+        "        else:\n"
+        "            evaluated.append(depth)\n"
+        "threading.stack_size(128 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(8 <= evaluated[-1] < 64 and evaluated == list(range(1, evaluated[-1] + 1)))\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", code, opening, innermost, closing],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, "True\n"), result.stderr
 
 
 @pytest.mark.parametrize(

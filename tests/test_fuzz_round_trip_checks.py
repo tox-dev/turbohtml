@@ -574,6 +574,14 @@ def test_selector_entry_check_skips_an_invalid_selector() -> None:
         selector_entry_check(json.dumps({"html": "<p>x</p>", "css": "p["}))
 
 
+def test_selector_entry_check_skips_a_translation_nested_too_deeply() -> None:
+    # the selector parser nests deeper than the XPath parser, which refuses the translation as its evaluator would
+    depth = 64 + 26
+    selector = f"{':is(' * depth}p{')' * depth}"
+    with pytest.raises(OutOfScopeError):
+        selector_entry_check(json.dumps({"html": "<p>x</p>", "css": selector}))
+
+
 @pytest.mark.parametrize(
     "html",
     [

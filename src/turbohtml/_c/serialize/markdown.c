@@ -2152,13 +2152,13 @@ static void md_leave_link(md_ctx *ctx, md_frame *frame) {
     }
 }
 
-/* Pipe cells collapse LF but preserve CR, while raw HTML blocks must encode both. */
+/* Text and attribute CRs are already escaped as &#13;, so a raw HTML run only has line feeds to encode. */
 static void md_put_html_run(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len, int encode_lf) {
     Py_ssize_t run = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (text[index] == '\r' || (encode_lf && text[index] == '\n')) {
+        if (encode_lf && text[index] == '\n') {
             md_put_run(ctx, text + run, index - run);
-            sbuf_puts(&ctx->out, text[index] == '\n' ? "&#10;" : "&#13;");
+            sbuf_puts(&ctx->out, "&#10;");
             run = index + 1;
         }
     }
