@@ -17,6 +17,7 @@
 
 #include "data/attr_atom.h"
 #include "core/ascii.h"
+#include "core/work_steps.h"
 #include "css/cssom/cssom.h"
 #include "dom/nodes.h"
 #include "css/select/selector.h"
@@ -572,6 +573,7 @@ static Py_ssize_t css_scan_to(const Py_UCS4 *data, Py_ssize_t pos, Py_ssize_t en
     Py_ssize_t depth = 0;
     Py_ssize_t found = end;
     while (pos < end) {
+        TH_WORK_STEP();
         Py_UCS4 cur = data[pos];
         unsigned char class_of = cur < 128 ? CSS_SCAN_CLASS[cur] : 0;
         if (class_of == 0) {
@@ -1014,28 +1016,28 @@ static css_rule *css_parse_sheet(Py_UCS4 *data, Py_ssize_t len, Py_ssize_t *out_
         if (pos >= len) {
             break;
         }
-        Py_ssize_t brace = css_scan_to(data, pos, len, '{', '{', NULL);
-        if (brace < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            goto fail;   /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
         if (data[pos] == '@') {
             /* an at-rule: a statement one (@import, @charset) ends at ';', a block one
-               (@media, @supports) at its balanced '}'; either is skipped whole. The scan stops at the brace, since
-               past it a ';' outside the block lies in a later statement. */
-            Py_ssize_t semi = css_scan_to(data, pos, brace, ';', ';', NULL);
-            if (semi < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+               (@media, @supports) at its balanced '}'; either is skipped whole. The scan stops at the first of ';' and
+               '{', so a statement never scans on to a '{' that belongs to a later rule. */
+            Py_ssize_t stop = css_scan_to(data, pos, len, ';', '{', NULL);
+            if (stop < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 goto fail;  /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-            if (brace >= len || semi < brace) {
-                pos = semi < len ? semi + 1 : len;
+            if (stop >= len || data[stop] == ';') {
+                pos = stop < len ? stop + 1 : len;
                 continue;
             }
-            Py_ssize_t block_end = css_scan_to(data, brace + 1, len, '}', '}', NULL);
+            Py_ssize_t block_end = css_scan_to(data, stop + 1, len, '}', '}', NULL);
             if (block_end < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 goto fail;       /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             pos = block_end < len ? block_end + 1 : len;
             continue;
+        }
+        Py_ssize_t brace = css_scan_to(data, pos, len, '{', '{', NULL);
+        if (brace < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto fail;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (brace >= len) {
             break;
@@ -1595,9 +1597,12 @@ static int css_style_type_supported(const th_node *node) {
 }
 
 /* Collect every <style> element's text under root (document order), parsing each
-   into a sheet whose selectors are compiled against tree. A selector that fails to
-   compile leaves compiled[rule] NULL so the rule matches nothing. Returns the sheet
-   array and sets *out_count, or NULL with *out_count negative on failure. */
+   into a sheet whose selectors are compiled against tree. A sheet is the element's
+   child text content, not its descendant text: an SVG or MathML <style> can hold
+   further <style> elements, and descendant text would compile the innermost one once
+   per enclosing element. A selector that fails to compile leaves compiled[rule] NULL
+   so the rule matches nothing. Returns the sheet array and sets *out_count, or NULL
+   with *out_count negative on failure. */
 static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node *root, Py_ssize_t *out_count) {
     css_sheet *sheets = NULL;
     Py_ssize_t count = 0;
@@ -1607,7 +1612,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             continue;
         }
         Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_text(tree, node, &text_len);
+        Py_UCS4 *text = th_node_child_text(tree, node, &text_len);
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             goto fail;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }

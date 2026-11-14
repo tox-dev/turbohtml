@@ -284,6 +284,7 @@ typedef struct {
     const Py_UCS4 *qualified;
     Py_ssize_t qualified_len;
     int strict_no_ns;
+    int first; /* the step only has to find a node: eval_first_step */
 } step_match;
 
 static int ucs4_eq_ascii(const Py_UCS4 *text, Py_ssize_t text_len, const char *ascii, Py_ssize_t ascii_len) {
@@ -563,6 +564,135 @@ static int apply_owned_step(xp_nodeset *out, xp_item item, const xn *step, const
     default: /* the child, descendant, sibling, attribute, and namespace axes are empty */
         return 0;
     }
+}
+
+/* Pre-order predecessor over the whole tree, or NULL before the first node. */
+static struct th_node *document_previous(struct th_node *node) {
+    if (node->prev_sibling == NULL) {
+        return node->parent;
+    }
+    node = node->prev_sibling;
+    while (node->last_child != NULL) {
+        node = node->last_child;
+    }
+    return node;
+}
+
+/* Push the first node the step selects from item, where apply_step and apply_owned_step push them all, for the axes
+   that take a walk (match->first). Each walk starts at the node nearest to the context, so a match next to it is found
+   at once. */
+static int apply_first_step(xp_nodeset *out, xp_item item, const xn *step, const step_match *match) {
+    struct th_node *ctx = item.node;
+    struct th_node *node = NULL;
+    enum xp_axis axis = step->axis;
+    Py_ssize_t before = out->len;
+    int owned = item.attr != -1;
+    if (owned) {
+        /* as in apply_owned_step: only node() matches the attribute or namespace node itself, it has no children
+           and no siblings, and its owner element is its nearest ancestor */
+        switch (axis) {
+        case AX_DESCENDANT_OR_SELF:
+        case AX_ANCESTOR_OR_SELF:
+            if (step->test == NT_NODE) {
+                return ns_push(out, item.node, item.attr);
+            }
+            if (axis == AX_DESCENDANT_OR_SELF) {
+                return 0;
+            }
+            break;
+        case AX_ANCESTOR:
+            axis = AX_ANCESTOR_OR_SELF;
+            break;
+        case AX_FOLLOWING:
+        case AX_PRECEDING:
+            break;
+        default:
+            return 0;
+        }
+    }
+    switch (axis) {
+    case AX_CHILD:
+    case AX_FOLLOWING_SIBLING:
+        node = axis == AX_CHILD ? ctx->first_child : ctx->next_sibling;
+        for (; node != NULL && out->len == before; node = node->next_sibling) {
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    case AX_PRECEDING_SIBLING:
+        for (node = ctx->prev_sibling; node != NULL && out->len == before; node = node->prev_sibling) {
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    case AX_DESCENDANT:
+    case AX_DESCENDANT_OR_SELF:
+        node = axis == AX_DESCENDANT ? ctx->first_child : ctx;
+        for (; node != NULL && out->len == before; node = preorder_next(node, ctx)) {
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    case AX_ANCESTOR:
+    case AX_ANCESTOR_OR_SELF:
+        node = axis == AX_ANCESTOR ? ctx->parent : ctx;
+        for (; node != NULL && out->len == before; node = node->parent) {
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    case AX_FOLLOWING:
+        /* what follows an attribute or namespace node starts with its owner's children, and what follows a node
+           starts after its whole subtree */
+        node = owned ? ctx->first_child : NULL;
+        for (struct th_node *up = ctx; up != NULL && node == NULL; up = up->parent) {
+            node = up->next_sibling;
+        }
+        for (; node != NULL && out->len == before; node = document_next(node)) {
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    default: { /* AX_PRECEDING */
+        /* the walk back through the document meets the ancestors nearest first, so the next one due is the only
+           node to leave out */
+        struct th_node *ancestor = ctx->parent;
+        for (node = document_previous(ctx); node != NULL && out->len == before; node = document_previous(node)) {
+            if (node == ancestor) {
+                ancestor = node->parent;
+                continue;
+            }
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    }
+    }
+}
+
+/* The last step of a path that is only asked whether it selects a node: stop at the first one. Collecting the whole
+   axis for every candidate of an outer step, to read nothing but the length of the set, is quadratic on a long sibling
+   list. It stays out of line, and off apply_step, so that the ordinary step compiles as it did. */
+static TH_NOINLINE int eval_first_step(const xn *step, const step_match *match, xp_ctx *ctx, const xp_nodeset *current,
+                                       xp_nodeset *following) {
+    (void)ctx; /* only the operation limit of a fuzz build reads it */
+    for (Py_ssize_t index = 0; index < current->len && following->len == 0; index++) {
+        if (apply_first_step(following, current->items[index], step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                             /* GCOVR_EXCL_LINE */
+        }
+#ifdef TH_OPERATION_LIMIT
+        if (xp_charge(ctx, 1 + (size_t)following->len) < 0) {
+            return -3;
+        }
+#endif
+    }
+    return 0;
 }
 
 static Py_ssize_t node_depth(struct th_node *node) {
@@ -1222,7 +1352,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
 #endif
             };
             xp_result value;
-            int rc = eval_expr(prog, expr, &pctx, &value);
+            int rc = eval_condition(prog, expr, &pctx, &value);
             if (rc < 0) {
                 return rc;
             }
@@ -1341,7 +1471,7 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
                                 xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted);
 
 static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out, xp_nodeset *current,
-                           xp_nodeset *following) {
+                           xp_nodeset *following, int exists) {
     const xn *root = &prog->nodes[path_idx];
     xp_item start;
     xp_nodeset initial;
@@ -1379,6 +1509,10 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
             xp_nodeset_free(following);
             return resolved;
         }
+        /* A path that is only asked whether it selects a node needs one node of its last step, unless a predicate
+           could reject the node found. Self, parent, attribute and namespace take no walk that could be cut short. */
+        match.first = exists && step->next < 0 && step->first < 0 && step->axis != AX_SELF && step->axis != AX_PARENT &&
+                      step->axis != AX_ATTRIBUTE && step->axis != AX_NAMESPACE;
         if (following->snapshots) {
             for (Py_ssize_t index = 0; index < following->len; index++) {
                 item_release(following->items[index]);
@@ -1429,6 +1563,9 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
     int skip_nested =
         current->len > 1 && step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
     Py_ssize_t covered = 0;
+    if (match->first && !skip_nested) { /* nested contexts keep the one walk that covers them all */
+        return eval_first_step(step, match, ctx, current, following);
+    }
     for (Py_ssize_t index = 0; index < current->len; index++) {
         Py_ssize_t before = following->len;
         xp_item item = current->items[index];
@@ -1474,10 +1611,12 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
     return 0;
 }
 
-static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out) {
+/* exists is set when the caller only asks whether the path selects a node: out then holds at least one of the nodes
+   the path selects when there are any, and not necessarily all of them. */
+static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out, int exists) {
     xp_nodeset current = {0};
     xp_nodeset following = {0};
-    return eval_path_inner(prog, path_idx, ctx, out, &current, &following);
+    return eval_path_inner(prog, path_idx, ctx, out, &current, &following, exists);
 }
 
 /* Existential comparison of two scalar values (neither a node-set). */
@@ -1891,7 +2030,7 @@ static int eval_logical(const xp_program *prog, const xn *expr, xp_ctx *ctx, xp_
     int rc = 0;
     for (size_t index = 0; index <= count; index++) {
         xp_result operand;
-        rc = eval_expr(prog, operands[index], ctx, &operand);
+        rc = eval_condition(prog, operands[index], ctx, &operand);
         if (rc < 0) {
             break;
         }
@@ -1909,7 +2048,7 @@ static int eval_logical(const xp_program *prog, const xn *expr, xp_ctx *ctx, xp_
     return rc;
 }
 
-static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
+static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists) {
     const xn *expr = &prog->nodes[idx];
     switch (expr->kind) {
     case XN_NUM:
@@ -1936,7 +2075,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
     }
     case XN_PATH: {
         xp_nodeset ns = {0};
-        int rc = eval_path(prog, idx, ctx, &ns);
+        int rc = eval_path(prog, idx, ctx, &ns, exists);
         if (rc < 0) {
             return rc;
         }
@@ -2040,7 +2179,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
 
 /* Guard every recursive descent with a depth cap so a long operator spine or a deeply
    nested group raises past the bound instead of overflowing the C stack (issue #421). */
-int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
+int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists) {
     if (ctx->depth >= XP_MAX_DEPTH) {
         *ctx->feature = "an expression nested too deeply";
         return -5;
@@ -2053,11 +2192,11 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
     ctx->depth++;
     int rc;
     if (ctx->live == NULL) {
-        rc = eval_expr_inner(prog, idx, ctx, out);
+        rc = eval_expr_inner(prog, idx, ctx, out, exists);
     } else {
         xp_live_frame frame = {.node = ctx->node};
         xp_live_enter(ctx, &frame);
-        rc = eval_expr_inner(prog, idx, ctx, out);
+        rc = eval_expr_inner(prog, idx, ctx, out, exists);
         xp_live_leave(ctx, &frame);
     }
     ctx->depth--;
@@ -2084,6 +2223,27 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
         xr_cache_free(regex_cache);
     }
     xp_order_drop(&order);
+    return rc;
+}
+
+int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos,
+                         Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
+                         xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature) {
+    xr_cache *regex_cache = NULL;
+#ifdef TH_OPERATION_LIMIT
+    size_t operations = 0;
+#endif
+    xp_ctx ctx = {
+        tree,          context, -1,           pos,  size, feature, vars, namespaces, extension,
+        extension_ctx, 0,       &regex_cache, NULL, NULL, NULL,    NULL, 0,
+#ifdef TH_OPERATION_LIMIT
+        &operations,
+#endif
+    };
+    int rc = eval_condition(prog, prog->root, &ctx, out);
+    if (regex_cache != NULL) {
+        xr_cache_free(regex_cache);
+    }
     return rc;
 }
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
@@ -9,6 +8,8 @@ from turbohtml import Document, Element, SelectorSyntaxError, parse, parse_xml
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
 _DOC: Final[str] = (
     '<section id="s" class="box wide">'
@@ -740,24 +741,15 @@ def test_has_memo_deep_sibling_chains() -> None:
 
 # a hash that ignores the key chains one node's memo entries into a single probe run, so a selector list with many
 # :has() arguments grows quadratically; one argument per select() keeps each memo at one key and the walk linear
-def test_has_memo_many_arguments_scale_linearly() -> None:
-    selectors = [*(f"div:has(x{index})" for index in range(3000)), "div:has(a)"]
+def test_has_memo_many_arguments_scale_linearly(work_steps: WorkSteps) -> None:
+    selectors = [*(f"div:has(x{index})" for index in range(500)), "div:has(a)"]
     combined = ",".join(selectors)
     depth = 36
     doc = parse(_nested_divs(depth))
+    work_steps.assert_within(
+        lambda: doc.select(combined), lambda: [doc.select(selector) for selector in selectors], factor=30
+    )
     assert len(doc.select(combined)) == depth
-    together = one_at_a_time = float("inf")
-    for _ in range(3):
-        together = min(together, _seconds(lambda: doc.select(combined)))
-        one_at_a_time = min(one_at_a_time, _seconds(lambda: [doc.select(selector) for selector in selectors]))
-    # the floor keeps a baseline of a few milliseconds from turning timer noise into a failing ratio
-    assert together <= 4 * max(one_at_a_time, 0.01)
-
-
-def _seconds(select: Callable[[], object]) -> float:
-    start = time.perf_counter()
-    select()
-    return time.perf_counter() - start
 
 
 # a deep tree so the memo is live, carrying elements every relative-selector shape needs:

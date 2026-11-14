@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -11,7 +12,10 @@ from turbohtml.build import E
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import ModuleType
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -149,6 +153,46 @@ def test_comment_stripping_tolerates_unterminated_comment_and_string() -> None:
 def test_stylesheet_skips_at_rules() -> None:
     sheet = StyleSheet('@charset "utf-8"; @import url(x.css); @media screen { p { color: red } } q { color: blue }')
     assert [rule.selector_text for rule in sheet.rules] == ["q"]
+
+
+@pytest.mark.parametrize(
+    ("css", "selectors"),
+    [
+        pytest.param("@import 'a'; @import 'b'; p { color: red }", ["p"], id="statements-before-rule"),
+        pytest.param("@a; @media x { b { color: red } } p { color: red }", ["p"], id="statement-then-block"),
+        pytest.param("@media x { b { color: red; } } @a; p { color: red }", ["p"], id="block-then-statement"),
+        pytest.param("@a (;) '{;' [{;}]; p { color: red }", ["p"], id="nested-separators-stay-in-statement"),
+        pytest.param("@a (x) { b { color: red } } ; p { color: red }", ["; p"], id="semicolon-after-block"),
+        pytest.param("p { color: red } @a; q { color: red } @b", ["p", "q"], id="statements-between-rules"),
+    ],
+)
+def test_stylesheet_at_rule_ends_at_first_semicolon_or_block(css: str, selectors: list[str]) -> None:
+    assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
+
+
+def _stylesheet_selectors(css: str) -> str:
+    return " ".join(rule.selector_text for rule in StyleSheet(css).rules)
+
+
+def _computed_color(css: str) -> str:
+    target = parse(f"<style>{css}</style><p>x</p>").select_one("p")
+    assert isinstance(target, Element)
+    return computed_style(target)["color"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        pytest.param(_stylesheet_selectors, "p", id="stylesheet"),
+        pytest.param(_computed_color, "red", id="computed-style"),
+    ],
+)
+def test_statement_at_rules_parse_in_linear_time(
+    entry: Callable[[str], str], expected: str, work_steps: WorkSteps
+) -> None:
+    statement: Final = "@import url(x);"
+    work_steps.assert_linear(lambda n: partial(entry, f"{statement * n}p {{ color: red }}"), (500, 2000))
+    assert entry(f"{statement * 2_000}p {{ color: red }}") == expected
 
 
 def test_stylesheet_skips_unterminated_at_block_and_trailing_selector() -> None:
@@ -1393,3 +1437,51 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
     document: Final = parse('<div style="color:red"><i></i><i></i></div><div style="color:blue"><i></i><i></i></div>')
     nodes: Final = document.select("div,i")
     assert tuple(computed_style(nodes[index])["color"] for index in order) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<svg><style>p{color:<tspan>red</tspan>}</style></svg><p></p>",
+            {"color": "canvastext"},
+            id="element-child-text-not-sheet",
+        ),
+        pytest.param(
+            "<svg><style>p{color:<style>red}</style></style></svg><p></p>",
+            {"color": "canvastext"},
+            id="nested-style-not-in-outer-sheet",
+        ),
+        pytest.param(
+            "<svg><style>p{top:1px}<style>p{color:red}</style>p{left:2px}</style></svg><p></p>",
+            {"top": "1px", "color": "red", "left": "2px"},
+            id="nested-style-own-sheet",
+        ),
+    ],
+)
+def test_computed_style_foreign_style_reads_its_text_children_only(html: str, expected: dict[str, str]) -> None:
+    # in foreign content <style> elements nest; each is a sheet of its own text children, not of its descendants' text
+    style: Final = computed_style(parse(html).select("p")[0])
+    assert {name: style[name] for name in expected} == expected
+
+
+def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
+    document: Final = parse(f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>")
+    tracing.start()
+    try:
+        computed_style(document.select("p")[0])
+        peak: Final = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < 16 * 1024 * 1024, peak
+
+
+def test_computed_style_html_style_drops_text_of_appended_element() -> None:
+    document: Final = parse("<style>p{color:</style><p></p>")
+    style: Final = document.select_one("style")
+    paragraph: Final = document.select_one("p")
+    assert isinstance(style, Element)
+    assert isinstance(paragraph, Element)
+    style.append(Element("b", children=[Text("red}")]))
+    assert computed_style(paragraph)["color"] == "canvastext"

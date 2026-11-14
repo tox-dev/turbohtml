@@ -124,6 +124,9 @@ struct th_node {
     /* MathML annotation-xml only: set by insert_foreign from the start tag's encoding attribute. Valid only during
        tree construction: clones and DOM attribute edits do not update it. */
     uint8_t html_integration;
+    /* set once an enabled selectedcontent is reachable below this node, never cleared: the adoption agency only
+       lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
+    uint8_t reaches_selectedcontent;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -547,6 +550,11 @@ Py_UCS4 *th_node_data(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 /* The concatenated character data of every Text descendant of node, in document
    order. PyMem-allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+/* The concatenated character data of node's Text children only, in order (the
+   DOM "child text content"). Every Text node has one parent, so reading it for
+   each element of a walk stays linear, where th_node_text on nested elements
+   reads the innermost text once per ancestor. */
+Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 PyObject *th_node_text_string(th_tree *tree, th_node *node);
 
 /* Gather node's concatenated descendant text into a caller-sized, reusable UCS4
@@ -604,7 +612,9 @@ typedef struct {
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
     const th_node *xml_boundary;
-    int markdown; /* a th_markdown_html context, or 0 outside Markdown */
+    int markdown;         /* a th_markdown_html context, or 0 outside Markdown */
+    int *charset_missing; /* non-NULL when charset is a placeholder no label names: a writer sets *charset_missing
+                             instead of writing it, and the caller refuses the output */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

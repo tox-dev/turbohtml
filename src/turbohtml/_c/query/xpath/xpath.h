@@ -151,6 +151,13 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature);
 
+/* xp_eval_at for an expression the caller only converts to a boolean, as the test of xsl:if and xsl:when is: a
+   location path stops at the first node it selects rather than collecting them all, so a node-set in *out is empty
+   exactly when the whole one is, and is good for nothing but that question. */
+int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos,
+                         Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
+                         xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature);
+
 typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
                                Py_ssize_t name_len);
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
