@@ -851,8 +851,8 @@
     }
   },
   {
-    "name": "css-filter-nested-math",
-    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/css/minify/css_render.h#L1013",
+    "name": "1806-css-filter-nested-math",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1806",
     "targets": [
       "minify_css"
     ],
@@ -866,8 +866,8 @@
     }
   },
   {
-    "name": "css-filter-unclosed-math",
-    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/css/minify/css_render.h#L1013",
+    "name": "1806-css-filter-unclosed-math",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1806",
     "targets": [
       "minify_css"
     ],
