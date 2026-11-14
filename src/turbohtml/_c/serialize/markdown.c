@@ -1300,7 +1300,9 @@ static Py_UCS4 md_text_first(md_ctx *ctx, th_node *node, Py_UCS4 fallback) {
    with, or the punctuation that a following link, run or code span opens with. An image,
    or anything a converter writes, reads as ordinary: an ordinary character is where a run
    after punctuation cannot close, so an uncertain answer only ever trades a delimiter for
-   the raw-HTML tag. A parsed tree wraps every inline node in a block, so the climb ends. */
+   the raw-HTML tag. The climb ends at the block around the element, or past the top of a
+   tree that has none above it (a fragment, a shadow root, a detached inline element, an
+   XML document, whose elements carry no HTML atom), where the output ends like a line. */
 static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
     if (opt->converters != NULL) {
@@ -1313,6 +1315,9 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
     for (;;) {
         while (next == NULL) {
             cursor = cursor->parent;
+            if (cursor == NULL) {
+                return '\n'; /* past a parentless root nothing follows */
+            }
             if (depth > 0) {
                 /* an entered element ran out without text, so it wrote nothing */
                 punct_depth = punct_depth == depth ? 0 : punct_depth;
@@ -2550,9 +2555,11 @@ static int md_is_link(md_ctx *ctx, th_node *node) {
    with text is visible content, and a block ends the run; another break, or an inline
    element holding none of these (an empty link draws nothing either), is looked
    through, as is nothing when a converter could write anything. Climbing out of an
-   inline wrapper reaches the block that encloses the break. A parsed tree always wraps
-   a break in a block (the body at least), so the climb meets that block and never a
-   parentless node. */
+   inline wrapper reaches the block that encloses the break. A tree need not have one:
+   a fragment, a shadow root and a detached inline element have no block above their
+   content, and an XML document has none at all, its elements carrying no HTML atom.
+   There the climb runs past the parentless root, where the output ends and the run
+   with it. */
 static int md_br_trailing(md_ctx *ctx, th_node *node) {
     if (ctx->trailing_br_next == node) {
         ctx->trailing_br_next = node->next_sibling;
@@ -2569,11 +2576,13 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
     for (;;) {
         while (next == NULL) {
             cursor = cursor->parent;
-            if (cursor == link) {
-                link = NULL;
-            } else if (link == NULL && is_md_block(cursor->ns == TH_NS_HTML ? cursor->atom : TH_TAG_UNKNOWN)) {
+            if (cursor == NULL ||
+                (link == NULL && is_md_block(cursor->ns == TH_NS_HTML ? cursor->atom : TH_TAG_UNKNOWN))) {
                 ctx->trailing_br_next = node->next_sibling;
                 return 1;
+            }
+            if (cursor == link) {
+                link = NULL;
             }
             next = cursor->next_sibling;
         }
@@ -2610,13 +2619,14 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
     }
 }
 
-/* Whether the nearest block around a node is a heading. */
+/* Whether the nearest block around a node is a heading; a tree with no block above the
+   node (see md_br_trailing) has none. */
 static int md_in_heading_element(th_node *node) {
     th_node *block = node->parent;
-    while (!is_md_block(block->ns == TH_NS_HTML ? block->atom : TH_TAG_UNKNOWN)) {
+    while (block != NULL && !is_md_block(block->ns == TH_NS_HTML ? block->atom : TH_TAG_UNKNOWN)) {
         block = block->parent;
     }
-    return block->atom >= TH_TAG_H1 && block->atom <= TH_TAG_H6;
+    return block != NULL && block->atom >= TH_TAG_H1 && block->atom <= TH_TAG_H6;
 }
 
 /* Render an element (or content node) by its tag, the common path shared by the
