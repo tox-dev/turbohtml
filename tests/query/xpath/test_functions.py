@@ -1760,6 +1760,7 @@ def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFix
     [
         pytest.param("(a)(b)?", "[\\1\\2\\g<1>\\g<0>]", "ab a", id="group-references"),
         pytest.param("(?P<first>\\w)(?P<rest>\\w*)", "\\g<rest>\\g<first>", "hello world", id="named-references"),
+        pytest.param("(x)(?P<a>(?P<b>y)(z))(?P<c>w)(?P=b)", "\\g<c>\\g<b>\\g<a>", "xyzwy", id="named-among-numbered"),
         pytest.param("a", "\\0\\07\\101\\1011\\08", "a", id="octal-escapes"),
         pytest.param("a", "\\n\\t\\r\\f\\v\\a\\b\\\\", "a", id="control-escapes"),
         pytest.param("a", "\\-\\.\\ \\_\\~\\é", "a", id="kept-escapes"),
@@ -1777,6 +1778,17 @@ def test_re_replace_template_matches_python_re(
     expected: Final = re.sub(pattern, replacement, text)
     _forbid_python_re(mocker)
     assert _REGEX_REPLACE(parse_xml("<r/>"), text=text, pattern=pattern, flags="g", replacement=replacement) == expected
+
+
+@pytest.mark.usefixtures("native_regex")
+def test_regex_resolves_each_of_many_group_names() -> None:
+    digits: Final = "".join(str(index % 10) for index in range(150))
+    groups: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(150))
+    pattern: Final = f"{groups}(?P=n7)(?P=n148)"
+    replaced = _REGEX_REPLACE(
+        parse_xml("<r/>"), text=f"{digits}78", pattern=pattern, flags="", replacement="\\g<n149>\\g<n3>\\g<n42>"
+    )
+    assert replaced == "932"
 
 
 @pytest.mark.parametrize(

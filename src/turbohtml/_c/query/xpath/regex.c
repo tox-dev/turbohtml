@@ -85,12 +85,6 @@ typedef struct {
     int32_t alt;
 } xr_inst;
 
-typedef struct {
-    Py_ssize_t offset;
-    Py_ssize_t len;
-    int32_t group;
-} xr_name;
-
 /* A pending Pike VM branch or backtracking choice (slot -1), or a capture slot to restore to value. */
 typedef struct {
     int32_t pc;
@@ -125,8 +119,7 @@ typedef struct {
     int32_t code_count;
     xr_class *classes;
     xr_range *ranges;
-    xr_name *names;
-    int32_t name_count;
+    PyObject *names; /* a dict of group name to number, NULL when the pattern names none */
     int32_t groups;
     int32_t slots;     /* capture slots, 2 per group plus the whole match */
     int32_t registers; /* loop-start positions only the backtracker reads */
@@ -346,8 +339,7 @@ typedef struct {
     int32_t range_count, range_cap;
     uint8_t *closed;
     int32_t groups, closed_cap;
-    xr_name *names;
-    int32_t name_count, name_cap;
+    PyObject *names; /* a dict of group name to number, so a pattern of many names still parses in linear time */
     int backrefs;
     xr_error *error;
 } xr_parser;
@@ -665,13 +657,8 @@ static int32_t xr_parse_class(xr_parser *parser) {
     }
 }
 
-static int xr_name_equal(const xr_parser *parser, const xr_name *name, Py_ssize_t offset, Py_ssize_t len) {
-    return name->len == len &&
-           memcmp(parser->pattern + name->offset, parser->pattern + offset, (size_t)len * sizeof(Py_UCS4)) == 0;
-}
-
-/* Read a group name up to its terminator, leaving pos past it. 1 on success, -1 on error. */
-static int xr_group_name(xr_parser *parser, Py_UCS4 terminator, Py_ssize_t *offset, Py_ssize_t *len) {
+/* Read a group name up to its terminator, leaving pos past it. 1 with a new reference in *out, -1 on error. */
+static int xr_group_name(xr_parser *parser, Py_UCS4 terminator, PyObject **out) {
     Py_ssize_t start = parser->pos;
     while (parser->pos < parser->len && parser->pattern[parser->pos] != terminator) {
         parser->pos++;
@@ -680,40 +667,73 @@ static int xr_group_name(xr_parser *parser, Py_UCS4 terminator, Py_ssize_t *offs
         return xr_fail(parser, terminator == '>' ? "missing >, unterminated name" : "missing ), unterminated name",
                        start);
     }
-    *offset = start;
-    *len = parser->pos++ - start;
-    if (*len == 0) {
+    Py_ssize_t len = parser->pos++ - start;
+    if (len == 0) {
         return xr_fail(parser, "missing group name", start);
     }
-    PyObject *name = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, parser->pattern + start, *len);
+    PyObject *name = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, parser->pattern + start, len);
     if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int valid = th_str_is_identifier(name);
-    Py_DECREF(name);
-    if (valid < 0) { /* GCOVR_EXCL_BR_LINE: only the PyPy fallback can fail */
-        return -1;   /* GCOVR_EXCL_LINE: PyPy method-call failure */
+    if (valid > 0) {
+        *out = name;
+        return 1;
     }
-    return valid ? 1 : xr_fail(parser, "bad character in group name", start);
+    Py_DECREF(name);
+    /* GCOVR_EXCL_BR_START: only the PyPy fallback can fail */
+    return valid < 0 ? -1 : xr_fail(parser, "bad character in group name", start);
+    /* GCOVR_EXCL_BR_STOP */
 }
 
-/* (?P<name>...) or (?P=name): XR_GROUP_BODY with the name set, a back-reference node, or -1 on error. */
-static int32_t xr_parse_named(xr_parser *parser, Py_ssize_t start, Py_ssize_t *offset, Py_ssize_t *len) {
+/* The number of the group called name in the names dict of a parser or a program, 0 when none is, -1 on error. */
+static int32_t xr_named_group(PyObject *names, PyObject *name) {
+    PyObject *group = names == NULL ? NULL : PyDict_GetItemWithError(names, name); /* borrowed */
+    if (group == NULL) {
+        return PyErr_Occurred() ? -1 : 0; /* GCOVR_EXCL_BR_LINE: a str key lookup cannot raise */
+    }
+    return (int32_t)PyLong_AsLong(group);
+}
+
+/* Give name to the group the caller opens next, which takes the next number. XR_GROUP_BODY, or -1 on error. */
+static int32_t xr_name_group(xr_parser *parser, PyObject *name) {
+    /* GCOVR_EXCL_BR_START: allocation failure */
+    if (parser->names == NULL && (parser->names = PyDict_New()) == NULL) {
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *group = PyLong_FromLong(parser->groups + 1);
+    if (group == NULL) {
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int status = PyDict_SetItem(parser->names, name, group);
+    Py_DECREF(group);
+    return status < 0 ? -1 : XR_GROUP_BODY;
+    /* GCOVR_EXCL_BR_STOP */
+}
+
+/* (?P<name>...) or (?P=name): XR_GROUP_BODY with the name recorded, a back-reference node, or -1 on error. */
+static int32_t xr_parse_named(xr_parser *parser, Py_ssize_t start) {
     Py_UCS4 kind = parser->pos < parser->len ? parser->pattern[parser->pos] : 0;
     parser->pos++;
     if (kind != '<' && kind != '=') {
         return xr_fail(parser, "unknown extension ?P", start);
     }
-    if (xr_group_name(parser, kind == '<' ? '>' : ')', offset, len) < 0) {
+    PyObject *name;
+    if (xr_group_name(parser, kind == '<' ? '>' : ')', &name) < 0) {
         return -1;
     }
-    for (int32_t index = 0; index < parser->name_count; index++) {
-        if (xr_name_equal(parser, &parser->names[index], *offset, *len)) {
-            return kind == '<' ? xr_fail(parser, "redefinition of group name", start)
-                               : xr_backref_node(parser, parser->names[index].group, start);
-        }
+    int32_t group = xr_named_group(parser->names, name);
+    int32_t result;
+    if (group > 0) {
+        result =
+            kind == '<' ? xr_fail(parser, "redefinition of group name", start) : xr_backref_node(parser, group, start);
+    } else if (group < 0) { /* GCOVR_EXCL_BR_LINE: a str key lookup cannot raise */
+        result = -1;        /* GCOVR_EXCL_LINE: a str key lookup cannot raise */
+    } else {
+        result = kind == '<' ? xr_name_group(parser, name) : xr_fail(parser, "unknown group name", start);
     }
-    return kind == '<' ? XR_GROUP_BODY : xr_fail(parser, "unknown group name", start);
+    Py_DECREF(name);
+    return result;
 }
 
 static int xr_flag_letter(xr_parser *parser, Py_UCS4 letter, int removing, Py_ssize_t start) {
@@ -767,15 +787,14 @@ static int xr_parse_flags(xr_parser *parser, Py_ssize_t start, int *add, int *re
 
 /* What follows "(?": XR_GROUP_BODY for a group (with *capture and *flags set), XR_NO_ITEM when the construct adds
    nothing, a node, or -1 on error. */
-static int32_t xr_parse_extension(xr_parser *parser, Py_ssize_t start, int may_set_global, int *capture, int *flags,
-                                  Py_ssize_t *offset, Py_ssize_t *len) {
+static int32_t xr_parse_extension(xr_parser *parser, Py_ssize_t start, int may_set_global, int *capture, int *flags) {
     if (parser->pos >= parser->len) {
         return xr_fail(parser, "unexpected end of pattern", start);
     }
     Py_UCS4 kind = parser->pattern[parser->pos++];
     switch (kind) {
     case 'P':
-        return xr_parse_named(parser, start, offset, len);
+        return xr_parse_named(parser, start);
     case ':':
         *capture = 0;
         return XR_GROUP_BODY;
@@ -829,11 +848,9 @@ static int32_t xr_parse_group(xr_parser *parser, int may_set_global) {
     Py_ssize_t start = parser->pos++;
     int capture = 1;
     int flags = parser->flags;
-    Py_ssize_t name_offset = 0;
-    Py_ssize_t name_len = -1;
     if (parser->pos < parser->len && parser->pattern[parser->pos] == '?') {
         parser->pos++;
-        int32_t result = xr_parse_extension(parser, start, may_set_global, &capture, &flags, &name_offset, &name_len);
+        int32_t result = xr_parse_extension(parser, start, may_set_global, &capture, &flags);
         if (result != XR_GROUP_BODY) {
             return result;
         }
@@ -847,14 +864,6 @@ static int32_t xr_parse_group(xr_parser *parser, int may_set_global) {
         }
         /* GCOVR_EXCL_BR_STOP */
         parser->closed[group] = 0;
-        if (name_len >= 0) {
-            /* GCOVR_EXCL_BR_START: allocation failure */
-            if (xr_grow((void **)&parser->names, &parser->name_cap, parser->name_count + 1, sizeof(xr_name)) < 0) {
-                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            /* GCOVR_EXCL_BR_STOP */
-            parser->names[parser->name_count++] = (xr_name){name_offset, name_len, group};
-        }
     }
     /* GCOVR_EXCL_BR_START: allocation failure */
     if (xr_grow((void **)&parser->levels, &parser->level_cap, parser->level_count + 1, sizeof(xr_level)) < 0) {
@@ -1419,7 +1428,7 @@ static void xr_program_free(xr_program *program) {
     PyMem_Free(program->code - 1);
     PyMem_Free(program->classes);
     PyMem_Free(program->ranges);
-    PyMem_Free(program->names);
+    Py_XDECREF(program->names);
     PyMem_Free(program->states);
     PyMem_Free(program->cells);
     PyMem_Free(program->frames);
@@ -1516,7 +1525,6 @@ static xr_program *xr_assemble(xr_parser *parser, int32_t root, int flags) {
     program->classes = parser->classes;
     program->ranges = parser->ranges;
     program->names = parser->names;
-    program->name_count = parser->name_count;
     parser->classes = NULL;
     parser->ranges = NULL;
     parser->names = NULL;
@@ -1555,7 +1563,7 @@ static xr_program *xr_compile(const Py_UCS4 *pattern, Py_ssize_t len, int flags,
     PyMem_Free(parser.classes);
     PyMem_Free(parser.ranges);
     PyMem_Free(parser.closed);
-    PyMem_Free(parser.names);
+    Py_XDECREF(parser.names);
     return program;
 }
 
@@ -2082,16 +2090,14 @@ static int xr_template_named(xr_template *template, const xr_program *program, c
     if (digit == name_len) {
         return xr_template_reference(template, program, group, start);
     }
-    for (int32_t entry = 0; entry < program->name_count; entry++) {
-        const xr_name *known = &program->names[entry];
-        if (known->len == name_len &&
-            memcmp(program->pattern + known->offset, text + name, (size_t)name_len * sizeof(Py_UCS4)) == 0) {
-            return xr_template_group(template, known->group);
-        }
-    }
     PyObject *text_name = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, text + name, name_len);
     if (text_name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int32_t known = xr_named_group(program->names, text_name);
+    if (known != 0) {
+        Py_DECREF(text_name);
+        return known < 0 ? -1 : xr_template_group(template, known); /* GCOVR_EXCL_BR_LINE: a str lookup cannot raise */
     }
     int valid = th_str_is_identifier(text_name);
     if (valid < 0) {          /* GCOVR_EXCL_BR_LINE: only the PyPy fallback can fail */
