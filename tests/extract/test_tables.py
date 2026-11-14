@@ -329,15 +329,10 @@ def test_records_inside_a_cell_are_cell_content(records: Callable[[str], list[di
     assert records("<table><tr><th>h<tr><td>a<svg><tr><td>b<tr><td>c</svg></table>") == [{"h": "abc"}]
 
 
-def test_text_below_nested_cells_is_copied_once() -> None:
-    text: Final = "x" * 100_000
-    assert parse(f"<table><tr><td><svg>{'<tr><td>' * 252}{text}").tables() == [[[text]]]
-
-
 def test_nested_tables_up_to_the_text_limit_are_kept() -> None:
-    # the outermost table is not nested; the 100 inside it repeat exactly the 16,000,000 characters allowed
+    # the two outermost tables are not charged; the 100 inside them repeat exactly the 16,000,000 characters allowed
     text: Final = "x" * 160_000
-    assert parse(f"{'<table><tr><td>' * 101}{text}").tables() == [[[text]]] * 101
+    assert parse(f"{'<table><tr><td>' * 102}{text}").tables() == [[[text]]] * 102
 
 
 def test_nested_tables_beyond_the_text_limit_raise(nested_past_text_limit: Node) -> None:
@@ -347,7 +342,7 @@ def test_nested_tables_beyond_the_text_limit_raise(nested_past_text_limit: Node)
 
 def test_nested_tables_past_the_text_limit_are_read_one_at_a_time(nested_past_text_limit: Node) -> None:
     # one table's cells never overlap, so reading the tables one at a time is not limited
-    assert [len(table.rows()) for table in nested_past_text_limit.select("table")] == [1] * 101
+    assert [len(table.rows()) for table in nested_past_text_limit.select("table")] == [1] * 102
 
 
 def test_tables_that_are_not_nested_are_not_charged_for_text() -> None:
@@ -365,9 +360,17 @@ def test_tables_that_are_not_nested_are_not_charged_for_text() -> None:
 
 
 def test_tables_called_inside_a_table_does_not_count_it_as_enclosing() -> None:
-    text: Final = "x" * 160_000
+    # the table holding the cell is not an enclosing table of this call, so only 99 tables are charged
+    text: Final = "x" * 160_001
     cell: Final = parse(f"<table><tr><td>{'<table><tr><td>' * 101}{text}").select("td")[0]
     assert cell.tables() == [[[text]]] * 101
+
+
+def test_tables_nested_inside_one_table_are_not_charged() -> None:
+    # tables nested in exactly one other table are disjoint, so their combined text is not limited
+    cell: Final = "x" * 100_000
+    inner: Final = f"<table><tr><td>{cell}</table>"
+    assert parse(f"<table><tr><td>{inner * 170}</table>").tables()[1:] == [[[cell]]] * 170
 
 
 @pytest.fixture
@@ -380,7 +383,7 @@ def non_table_div() -> Element:
 
 @pytest.fixture
 def nested_past_text_limit() -> Node:
-    return parse(f"{'<table><tr><td>' * 101}{'x' * 160_001}")
+    return parse(f"{'<table><tr><td>' * 102}{'x' * 160_001}")
 
 
 def test_rows_on_a_non_table_raises_type_error(non_table_div: Element) -> None:

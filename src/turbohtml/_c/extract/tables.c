@@ -23,10 +23,10 @@
 
 #define TABLE_COLSPAN_LIMIT 1000
 #define TABLE_ROWSPAN_LIMIT 65534
-/* Code points of cell text one tables() call may copy for the tables that lie inside another of its tables. The
-   enclosing cell's text already holds all of theirs, so each level of nesting copies the innermost text once more and
-   the tree builder's depth cap admits over a hundred levels; a table that is not nested always fits, whatever its
-   size. */
+/* Code points of cell text one tables() call may copy for tables nested inside two or more of its other tables.
+   Tables nested inside exactly one other table are pairwise disjoint, so together they copy no more text than the
+   document holds; only deeper nesting repeats text at each level, and the tree builder's depth cap admits over a
+   hundred levels. */
 #define TABLE_NESTED_TEXT_LIMIT 16000000
 
 typedef struct grid_text {
@@ -127,8 +127,9 @@ static int ensure_columns(grid_row *row, Py_ssize_t needed) {
 /* Place a row's <td>/<th> cells into the grid, honoring spans: each cell takes the next free column, and a rowspan or
    colspan shares one text snapshot across its covered slots. group_remaining is the number of rows from row_index to
    the end of this row's row group (thead/tbody/tfoot): the WHATWG table model ends every rowspan there, and a
-   rowspan=0 cell grows exactly that far. nested_text is NULL, or for a table inside another table of the call what is
-   left of TABLE_NESTED_TEXT_LIMIT. -1 on allocation failure, or with ValueError set once that allowance is spent. */
+   rowspan=0 cell grows exactly that far. nested_text is NULL, or for a table nested inside two or more other tables of
+   the call what is left of TABLE_NESTED_TEXT_LIMIT. -1 on allocation failure, or with ValueError set once that
+   allowance is spent. */
 static int fill_row(th_tree *tree, table_grid *grid, Py_ssize_t row_index, th_node *tr, Py_ssize_t group_remaining,
                     Py_ssize_t *nested_text) {
     Py_ssize_t column = 0;
@@ -489,8 +490,8 @@ static th_node *next_counting_tables(th_node *current, th_node *root, Py_ssize_t
 }
 
 /* Node.tables() -> list[list[list[str]]]. Snapshot every table in the subtree (nested tables included as their own
-   entries) under one critical section, then materialize each as rows(). The grids are all alive at once, so the nested
-   ones share one text allowance. */
+   entries) under one critical section, then materialize each as rows(). The grids are all alive at once, so the
+   tables nested two or more deep share one text allowance. */
 PyObject *turbohtml_node_tables(PyObject *owner, th_tree *tree, th_node *root) {
     table_grid *grids = NULL;
     Py_ssize_t grid_count = 0;
@@ -522,7 +523,7 @@ PyObject *turbohtml_node_tables(PyObject *owner, th_tree *tree, th_node *root) {
             grids = resized;
             grid_cap = (Py_ssize_t)cap;
         }
-        failed = build_grid_locked(tree, current, &grids[grid_count], enclosing > 0 ? &nested_text : NULL) < 0;
+        failed = build_grid_locked(tree, current, &grids[grid_count], enclosing > 1 ? &nested_text : NULL) < 0;
         grid_count++;
         if (failed) { /* the partial grid is counted so it is freed */
             break;
