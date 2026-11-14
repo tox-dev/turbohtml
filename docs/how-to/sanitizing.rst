@@ -188,8 +188,9 @@ An XHTML dialect (Reportlab's RML, an ePub content document, an XML feed body) r
 element has to self-close, and text has to follow the XML escaping rules. Set ``xml`` on the policy and the same walk
 serializes its result as XML instead of HTML -- ``<br>`` becomes ``<br/>``, foreign SVG and MathML subtrees carry their
 namespace declarations, and a kept comment or a stray control character is neutralized, so the output always reparses
-through :func:`turbohtml.parse_xml`. That replaces the brittle ``.replace("<br>", "<br/>")`` pass a bleach-based cleaner
-needs.
+through :func:`turbohtml.parse_xml`. Serve that output with an XML media type, not ``text/html``: an HTML parser does
+not read it the way ``parse_xml`` does. That replaces the brittle ``.replace("<br>", "<br/>")`` pass a bleach-based
+cleaner needs.
 
 .. testcode::
 
