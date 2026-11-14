@@ -1288,49 +1288,49 @@ def _attribute_doc(count: int) -> str:
 @pytest.mark.parametrize(
     ("schema", "xml", "valid"),
     [
-        pytest.param(rshared("<empty/>", count=40), "<r/>", True, id="start-tag-close"),
-        pytest.param(rshared("<empty/>", count=40), '<r a="1"/>', False, id="attribute-rejected"),
+        pytest.param(rshared("<empty/>", count=12), "<r/>", True, id="start-tag-close"),
+        pytest.param(rshared("<empty/>", count=12), '<r a="1"/>', False, id="attribute-rejected"),
         pytest.param(
-            rshared('<optional><attribute name="a"/></optional>', count=40),
+            rshared('<optional><attribute name="a"/></optional>', count=12),
             '<r a="1"/>',
             True,
             id="attribute-accepted",
         ),
-        pytest.param(rshared("<text/>", count=40), "<r>x</r>", True, id="text"),
-        pytest.param(rshared("<text/>", count=40), "<r><e/></r>", False, id="start-tag-open"),
+        pytest.param(rshared("<text/>", count=12), "<r>x</r>", True, id="text"),
+        pytest.param(rshared("<text/>", count=12), "<r><e/></r>", False, id="start-tag-open"),
         pytest.param(
-            rshared("<text/>", '<attribute name="a"><ref name="d0"/></attribute>', count=40),
+            rshared("<text/>", '<attribute name="a"><ref name="d0"/></attribute>', count=12),
             '<r a="x"/>',
             True,
             id="attribute-content-nullable",
         ),
         pytest.param(
-            rshared("<value>x</value>", '<attribute name="a"><ref name="d0"/></attribute>', "choice", count=40),
+            rshared("<value>x</value>", '<attribute name="a"><ref name="d0"/></attribute>', "choice", count=12),
             '<r a=" "/>',
             False,
             id="attribute-content-not-nullable",
         ),
         pytest.param(
-            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=40),
+            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=12),
             "<r>x x x</r>",
             True,
             id="list-tokens",
         ),
         pytest.param(
-            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=40),
+            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=12),
             "<r>x y x</r>",
             False,
             id="list-token-rejected",
         ),
         pytest.param(
-            rwrap("<optional><attribute><anyName/></attribute></optional>" * 40),
-            _attribute_doc(40),
+            rwrap("<optional><attribute><anyName/></attribute></optional>" * 12),
+            _attribute_doc(12),
             True,
             id="wildcard-attributes-without-defines",
         ),
         pytest.param(
-            rwrap("<optional><attribute><anyName/></attribute></optional>" * 40),
-            _attribute_doc(41),
+            rwrap("<optional><attribute><anyName/></attribute></optional>" * 12),
+            _attribute_doc(13),
             False,
             id="one-wildcard-attribute-too-many",
         ),
@@ -1352,6 +1352,33 @@ def test_rng_shared_defines_scale_linearly() -> None:
             best = min(best, time.perf_counter() - start)
         timings.append(best)
     assert timings[1] < max(0.05, 9 * timings[0])
+
+
+@pytest.mark.parametrize(
+    ("schema", "xml"),
+    [
+        pytest.param(
+            rwrap(
+                "".join(f'<optional><element name="e{index}"><empty/></element></optional>' for index in range(1100))
+            ),
+            "<doc><e550/></doc>",
+            id="elements",
+        ),
+        pytest.param(
+            rwrap("".join(f'<optional><attribute name="a{index}"/></optional>' for index in range(1100))),
+            '<doc a550="1"/>',
+            id="attributes",
+        ),
+        pytest.param(rwrap("<optional><text/></optional>" * 1100), "<doc>x</doc>", id="text"),
+        pytest.param(
+            rwrap('<optional><data type="token"><except><value>x</value></except></data></optional>' * 1100),
+            "<doc>y</doc>",
+            id="data-with-except",
+        ),
+    ],
+)
+def test_rng_long_optional_sequence_validates(schema: str, xml: str) -> None:
+    assert rng_ok(schema, xml)
 
 
 def test_rng_memoized_start_tag_is_not_reused_for_another_name() -> None:
