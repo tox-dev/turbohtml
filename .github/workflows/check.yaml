@@ -23,16 +23,13 @@ jobs:
       matrix:
         # The C-coverage gate runs where gcov/llvm-cov exist; on Windows the same
         # suite runs without it (MSVC has no gcov), gated natively in tox.toml.
-        os: ["ubuntu-24.04", "macos-15", "windows-2025"]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04", "windows-2025"]' || '["ubuntu-24.04", "macos-15", "windows-2025"]') }}
         py: ["3.15", "3.14", "3.13", "3.12", "3.11", "3.15t", "3.14t"]
-        include:
-          - {os: "ubuntu-24.04", label: Linux, cov: "gcov"}
-          - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
-          - {os: "windows-2025", label: Windows, cov: ""}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","label":"Linux","cov":"gcov"},{"os":"windows-2025","label":"Windows","cov":""}]' || '[{"os":"ubuntu-24.04","label":"Linux","cov":"gcov"},{"os":"macos-15","label":"macOS","cov":"xcrun llvm-cov gcov"},{"os":"windows-2025","label":"Windows","cov":""}]') }}
         # macOS keeps 3.15, 3.15t and 3.11 on every event; the other interpreters run in the weekly full matrix.
         # Temporarily, pull requests run only 3.14 Linux and 3.15t Windows; main still runs the full matrix after
         # every merge.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","py":"3.15"},{"os":"ubuntu-24.04","py":"3.13"},{"os":"ubuntu-24.04","py":"3.12"},{"os":"ubuntu-24.04","py":"3.11"},{"os":"ubuntu-24.04","py":"3.15t"},{"os":"ubuntu-24.04","py":"3.14t"},{"os":"macos-15","py":"3.15"},{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"},{"os":"macos-15","py":"3.11"},{"os":"macos-15","py":"3.15t"},{"os":"macos-15","py":"3.14t"},{"os":"windows-2025","py":"3.15"},{"os":"windows-2025","py":"3.14"},{"os":"windows-2025","py":"3.13"},{"os":"windows-2025","py":"3.12"},{"os":"windows-2025","py":"3.11"},{"os":"windows-2025","py":"3.14t"}]' || github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","py":"3.15"},{"os":"ubuntu-24.04","py":"3.13"},{"os":"ubuntu-24.04","py":"3.12"},{"os":"ubuntu-24.04","py":"3.11"},{"os":"ubuntu-24.04","py":"3.15t"},{"os":"ubuntu-24.04","py":"3.14t"},{"os":"windows-2025","py":"3.15"},{"os":"windows-2025","py":"3.14"},{"os":"windows-2025","py":"3.13"},{"os":"windows-2025","py":"3.12"},{"os":"windows-2025","py":"3.11"},{"os":"windows-2025","py":"3.14t"}]' || github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
