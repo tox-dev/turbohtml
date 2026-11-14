@@ -70,10 +70,6 @@ def test_score_flags_a_quadratic_run(clock: list[float]) -> None:  # pragma: win
     assert score(_charging(clock, _quadratic_cost), _SHAPE).super_linear is True
 
 
-def test_score_passes_a_linear_python_function(clock: list[float]) -> None:  # pragma: win32 no cover
-    assert score(_charging(clock, _linear_cost), _SHAPE).super_linear is False
-
-
 @pytest.mark.usefixtures("controls")
 def test_regressions_pass_a_linear_row(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], install_probe: Callable[[Callable[[list[float]], Target]], None]
@@ -116,20 +112,25 @@ def test_regressions_fail_a_row(
     assert (code, first.startswith("row [probe] growth "), first.endswith(verdict)) == (1, True, True)
 
 
+@pytest.mark.usefixtures("controls")
 def test_search_keeps_the_seed_and_inputs_out_of_the_log(
     tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:  # pragma: win32 no cover
-    code = main([
-        "search",
-        "--minutes",
-        "0.02",
-        "--target",
-        "url",
-        "--rng-seed",
-        "918273645",
-        "--crash-dir",
-        str(tmp_path),
-    ])
+    code = main(["search", "--shapes", "2", "--target", "url", "--rng-seed", "918273645", "--crash-dir", str(tmp_path)])
     out, err = capfd.readouterr()
-    summary = [line for line in out.splitlines() if line.startswith("search: ")]
-    assert (code, len(summary), "918273645" in out + err, sorted(tmp_path.iterdir())) == (0, 1, False, [])
+    summary = [line.split(",")[0] for line in out.splitlines() if line.startswith("search: ")]
+    assert (code, summary, "918273645" in out + err, sorted(tmp_path.iterdir())) == (
+        0,
+        ["search: 2 shapes over 1 targets"],
+        False,
+        [],
+    )
+
+
+@pytest.mark.usefixtures("controls")
+def test_search_stops_when_its_budget_is_spent(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:  # pragma: win32 no cover
+    code = main(["search", "--minutes", "0", "--target", "url", "--crash-dir", str(tmp_path)])
+    summary = [line for line in capfd.readouterr().out.splitlines() if line.startswith("search: ")]
+    assert (code, summary) == (0, ["search: 0 shapes over 0 targets, 0 capped slope(s), 0 finding(s)"])
