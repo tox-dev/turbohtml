@@ -28,6 +28,8 @@ typedef struct {
     /* Steps the C scan's reads may still take before the search weighs a text_index;
        the query carries it so the per-candidate loop keeps it out of a register. */
     Py_ssize_t text_left;
+    /* The search's text_index, reached through the query so the reads pass no pointer to it. */
+    struct text_index *text_index;
     enum th_axis axis;
     Py_ssize_t limit; /* -1 for unlimited */
     find_attr *attrs;
@@ -711,7 +713,19 @@ static int ucs4_contains_kmp(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UC
     return 0;
 }
 
-static int ucs4_contains(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UCS4 *needle, Py_ssize_t needle_len) {
+/* The candidate loop is forced inline once per scan, and the reads and the substring test into each copy and into
+   text_scan_moved: GCC keeps them out of line once they have several callers, which measured slower per candidate. A
+   debug build keeps one copy of each, which the coverage gates need. */
+#if defined(_MSC_VER)
+#define TH_FORCEINLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_FORCEINLINE inline __attribute__((always_inline))
+#else
+#define TH_FORCEINLINE
+#endif
+
+static TH_FORCEINLINE int ucs4_contains(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UCS4 *needle,
+                                        Py_ssize_t needle_len) {
     if (needle_len == 0) {
         return 1;
     }
@@ -799,7 +813,8 @@ typedef struct {
 
 /* Whether the text of each element at or below one root passes the scan, all from a single walk of that root, and
    what the search's reads have cost until it is built. */
-typedef struct {
+typedef struct text_index {
+    th_tree *tree;
     th_node *origin;    /* the node the search walks from */
     Py_ssize_t granted; /* steps the reads may take before the next weighing, the query's text_left counting down */
     Py_ssize_t widest;  /* the costliest substring read a weighing met: a walk of the tree costs at least that */
@@ -913,7 +928,8 @@ static int text_index_build(th_tree *tree, th_node *root, const query_t *query, 
    only starts once the costliest read leaves it a chance and resumes where the previous weighing stopped, so it never
    costs more than that share of the reads. Returns 0 to go on reading, TEXT_SCAN_INDEXED once the index is built, or
    -1 on allocation failure with no exception set. */
-TH_NOINLINE static int text_index_weigh(th_tree *tree, query_t *query, Py_ssize_t read, text_index *index) {
+TH_NOINLINE static int text_index_weigh(query_t *query, Py_ssize_t read) {
+    text_index *index = query->text_index;
     Py_ssize_t spent = index->granted - query->text_left;
     index->granted = 2 * spent;
     query->text_left = spent;
@@ -939,8 +955,8 @@ TH_NOINLINE static int text_index_weigh(th_tree *tree, query_t *query, Py_ssize_
     if (index->cost > limit) {
         return 0;
     }
-    if (text_index_build(tree, index->root, query, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                                               /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (text_index_build(index->tree, index->root, query, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     query->text_left = TEXT_SCAN_UNLIMITED;
     return TEXT_SCAN_INDEXED;
@@ -950,15 +966,14 @@ TH_NOINLINE static int text_index_weigh(th_tree *tree, query_t *query, Py_ssize_
    step each: every non-empty Text the read meets either rules the candidate out or matches at least a code point of
    the needle, so they add at most one more than the needle's length per read, and an ordinary candidate, whose first
    Text decides, costs no accounting. */
-static int text_scan_exact(th_tree *tree, th_node *node, query_t *query, text_index *index) {
+static TH_FORCEINLINE int text_scan_exact(th_tree *tree, th_node *node, query_t *query) {
     Py_ssize_t offset = 0;
     for (th_node *descendant = node->first_child; descendant != NULL; descendant = preorder_next(descendant, node)) {
         TH_WORK_STEP();
         if (descendant->type != TH_NODE_TEXT || descendant->text_len == 0) {
             if (--query->text_left < 0) {
-                int weighed = text_index_weigh(tree, query, 0, index);
-                if (weighed != 0) {
-                    return weighed;
+                if (text_index_weigh(query, 0) != 0) {
+                    return -1;
                 }
             }
             continue;
@@ -980,13 +995,12 @@ static int text_scan_exact(th_tree *tree, th_node *node, query_t *query, text_in
 
 /* Whether a candidate's collected text contains the needle, read from its own subtree. A read bounded by more than
    TEXT_SCAN_SMALL steps is charged that bound. */
-static int text_scan_contains(th_tree *tree, th_node *node, query_t *query, Py_UCS4 **scratch, Py_ssize_t *cap,
-                              text_index *index) {
+static TH_FORCEINLINE int text_scan_contains(th_tree *tree, th_node *node, query_t *query, Py_UCS4 **scratch,
+                                             Py_ssize_t *cap) {
     Py_ssize_t bound = subtree_text_bound(node);
     if (bound > TEXT_SCAN_SMALL && (query->text_left -= bound) < 0) {
-        int weighed = text_index_weigh(tree, query, bound, index);
-        if (weighed != 0) {
-            return weighed;
+        if (text_index_weigh(query, bound) != 0) {
+            return -1;
         }
     }
     if (bound == 0) { /* a childless node leaves the scratch buffer NULL, which memcpy may not receive */
@@ -995,9 +1009,9 @@ static int text_scan_contains(th_tree *tree, th_node *node, query_t *query, Py_U
     if (scratch_ensure(scratch, cap, bound) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t text_len = th_node_collect_text(tree, node, *scratch);
-    if (text_len < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
-        return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+    Py_ssize_t text_len;
+    if (th_node_collect_text(tree, node, *scratch, &text_len) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return -1;                                                   /* GCOVR_EXCL_LINE: allocation failure */
     }
     return ucs4_contains(*scratch, text_len, query->text_needle, query->text_needle_len);
 }
@@ -1020,13 +1034,28 @@ TH_NOINLINE static void text_index_free(text_index *index) {
     index->slices = NULL;
 }
 
+/* Whether node passes the scan, read from its own subtree with a buffer of its own: out of line, so the reading loop
+   keeps its registers and its scratch buffer. */
+TH_NOINLINE static int text_scan_moved(th_node *node, query_t *query) {
+    th_tree *tree = query->text_index->tree;
+    if (query->text_scan == TH_TEXT_EQ) {
+        return text_scan_exact(tree, node, query);
+    }
+    Py_UCS4 *scratch = NULL;
+    Py_ssize_t scratch_cap = 0;
+    int passed = text_scan_contains(tree, node, query, &scratch, &scratch_cap);
+    PyMem_Free(scratch);
+    return passed;
+}
+
 /* The rest of a search once the read of node, a candidate past the structural filters, built the text_index: the
    index answers for node and every later candidate. It sets found or fills result as find_with_text_scan does, and
-   error when a filter fails. Returns NULL once the search is over, or the candidate the index does not hold, which
-   frees the index: the search counts that candidate as failing the text test and goes on reading the rest from their
-   own subtrees, unweighed. */
+   error when a filter fails or a read cannot allocate. Only a filter that moved nodes after the build can hand over a
+   candidate the index does not hold. That frees the index, the candidate is read from its own subtree as before the
+   build, and the search goes on from it, reading the rest the same way, unweighed. Returns the candidate to go on
+   from, or NULL once the search is over. */
 TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *handle, th_node *origin, th_node *node,
-                                              const query_t *query, int want_all, text_index *index, PyObject *result,
+                                              query_t *query, int want_all, text_index *index, PyObject *result,
                                               th_node **found, int *error) {
     for (int filtered = 1; node != NULL; node = axis_next(node, origin, query->axis), filtered = 0) {
         if (!filtered) {
@@ -1043,11 +1072,21 @@ TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *han
             }
         }
         int passed = text_index_lookup(index, node);
+        th_node *resume = NULL;
         if (passed == TEXT_SCAN_ABSENT) {
             text_index_free(index);
-            return node;
+            passed = text_scan_moved(node, query);
+            if (passed < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                *error = 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;            /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            resume = node;
         }
         if (passed == 0) {
+            if (resume != NULL) {
+                return resume;
+            }
             continue;
         }
         if (!want_all) {
@@ -1058,8 +1097,64 @@ TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *han
             *error = 1;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
             break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        if (resume != NULL && PyList_GET_SIZE(result) != query->limit) {
+            return resume;
+        }
     }
     return NULL;
+}
+
+/* The candidate loop of find_with_text_scan, inlined once per scan so neither copy tests which scan runs for each
+   candidate. It sets found or fills result as find_with_text_scan describes. Returns 0, or -1 with an exception set. */
+static TH_FORCEINLINE int text_scan_candidates(module_state *state, PyObject *handle, th_node *origin, th_tree *tree,
+                                               query_t *query, enum th_text_scan scan, int want_all, PyObject *result,
+                                               th_node **found) {
+    Py_UCS4 *scratch = NULL;
+    Py_ssize_t scratch_cap = 0;
+    int error = 0;
+    /* only an append grows the result, so the limit is tested there rather than once per element */
+    th_node *first = want_all && query->limit == 0 ? NULL : axis_first(origin, query->axis);
+    for (th_node *node = first; node != NULL; node = axis_next(node, origin, query->axis)) {
+        int matched = node_matches(state, node, query);
+        if (matched < 0) {
+            error = 1;
+            break;
+        }
+        if (matched == 0) {
+            continue;
+        }
+        int passed = scan == TH_TEXT_EQ ? text_scan_exact(tree, node, query)
+                                        : text_scan_contains(tree, node, query, &scratch, &scratch_cap);
+        if (passed < 0) {
+            if (query->text_index->slices != NULL) { /* GCOVR_EXCL_BR_LINE: otherwise allocation failed, unforceable */
+                node = text_index_search(state, handle, origin, node, query, want_all, query->text_index, result, found,
+                                         &error);
+                if (node == NULL) {
+                    break;
+                }
+                continue;
+            }
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (passed == 0) {
+            continue;
+        }
+        if (!want_all) {
+            *found = node;
+            break;
+        }
+        if (append_wrapped(result, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot fail */
+            error = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (PyList_GET_SIZE(result) == query->limit) {
+            break;
+        }
+    }
+    PyMem_Free(scratch);
+    return error ? -1 : 0;
 }
 
 /* The text= search when the predicate is a pure-C scan (an exact str or a literal
@@ -1082,54 +1177,20 @@ static PyObject *find_with_text_scan(PyObject *self, query_t *query, int want_al
         }
     }
     th_node *found = NULL;
-    int error = 0;
-    Py_UCS4 *scratch = NULL;
-    Py_ssize_t scratch_cap = 0;
-    text_index index = {.origin = origin, .granted = TEXT_SCAN_BUDGET};
+    text_index index = {.tree = tree, .origin = origin, .granted = TEXT_SCAN_BUDGET};
     query->text_left = TEXT_SCAN_BUDGET;
+    query->text_index = &index;
+    int error;
     Py_BEGIN_CRITICAL_SECTION(handle);
-    for (th_node *node = axis_first(origin, query->axis); node != NULL; node = axis_next(node, origin, query->axis)) {
-        if (want_all && query->limit >= 0 && PyList_GET_SIZE(result) >= query->limit) {
-            break;
-        }
-        int matched = node_matches(state, node, query);
-        if (matched < 0) {
-            error = 1;
-            break;
-        }
-        if (matched == 0) {
-            continue;
-        }
-        int passed = query->text_scan == TH_TEXT_EQ
-                         ? text_scan_exact(tree, node, query, &index)
-                         : text_scan_contains(tree, node, query, &scratch, &scratch_cap, &index);
-        if (passed < 0) {
-            if (passed == TEXT_SCAN_INDEXED) { /* GCOVR_EXCL_BR_LINE: otherwise allocation failed, unforceable */
-                node = text_index_search(state, handle, origin, node, query, want_all, &index, result, &found, &error);
-                if (node == NULL) {
-                    break;
-                }
-                continue;
-            }
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-            error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;            /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (passed == 0) {
-            continue;
-        }
-        if (!want_all) {
-            found = node;
-            break;
-        }
-        if (append_wrapped(result, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot fail */
-            error = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
+    if (query->text_scan == TH_TEXT_EQ) {
+        error = text_scan_candidates(state, handle, origin, tree, query, TH_TEXT_EQ, want_all, result, &found);
+    } else {
+        error = text_scan_candidates(state, handle, origin, tree, query, TH_TEXT_SUBSTR, want_all, result, &found);
     }
     Py_END_CRITICAL_SECTION();
-    PyMem_Free(scratch);
-    text_index_free(&index);
+    if (index.slices != NULL) {
+        text_index_free(&index);
+    }
     if (error) {
         Py_XDECREF(result);
         return NULL;

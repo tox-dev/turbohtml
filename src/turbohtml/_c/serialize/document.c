@@ -1072,8 +1072,9 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
    zero-copy spans on the way; the caller sizes buf to at least the subtree's text
    length. The find(text=) C scan reuses one buffer across candidates so no per-node
    str is built; a Text or Content child of a content fragment is descended like an
-   element. Returns the count of code points copied. */
-static Py_ssize_t collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
+   element. Stores the count of code points copied in out_len and returns 0, or -1
+   when realizing a span fails. */
+static int collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf, Py_ssize_t *out_len) {
     Py_ssize_t pos = 0;
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type == TH_NODE_TEXT) {
@@ -1085,11 +1086,12 @@ static Py_ssize_t collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) 
             pos += node->text_len;
         }
     }
-    return pos;
+    *out_len = pos;
+    return 0;
 }
 
-Py_ssize_t th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
-    return collect_text_into(tree, node, buf);
+int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf, Py_ssize_t *out_len) {
+    return collect_text_into(tree, node, buf, out_len);
 }
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:

@@ -1292,3 +1292,39 @@ def test_text_of_nested_ancestors_moved_by_a_filter() -> None:
     # the climb meets the moved element after the ancestors that were above it, so the result is unspecified here too
     found: Final = chain[-1].find_all(move_late, text="go", axis=Axis.ANCESTORS)
     assert {element.tag for element in found} <= present
+
+
+_ADDED_DOC: Final[str] = f"<r>{'<li>' * _NEST}go{'</li>' * _NEST}<t/></r>"
+
+
+@pytest.mark.parametrize(
+    ("text_filter", "markup", "limit", "tags"),
+    [
+        pytest.param("go", "<b>go</b><c>go</c>", None, ["r", *_NESTED, "b", "c"], id="exact"),
+        pytest.param(re.compile(r"go"), "<b>go</b><c>go</c>", None, ["r", *_NESTED, "b", "c"], id="literal-regex"),
+        pytest.param("go", "<b>no</b><c>go</c>", None, ["r", *_NESTED, "c"], id="exact-added-fails"),
+        pytest.param("go", "<b>go</b><c>go</c>", _NEST + 2, ["r", *_NESTED, "b"], id="exact-limit-at-added"),
+    ],
+)
+def test_text_of_candidates_added_by_a_filter_past_the_nest(
+    text_filter: Filter, markup: str, limit: int | None, tags: list[str]
+) -> None:
+    document: Final = parse_xml(_ADDED_DOC)
+    # the table holds no verdict for an element added after it was built, so that element is read from its subtree
+    assert _tags(document.find_all(_add_at_target(document, markup), text=text_filter, limit=limit)) == tags
+
+
+def _add_at_target(document: Document, markup: str) -> Callable[[str | None], bool]:
+    target: Final = _el(document.find("t"))
+
+    def add(name: str | None) -> bool:
+        if name == "t" and not target.children:
+            target.set_inner_html(markup)
+        return name != "t"  # the table's verdict for t predates the edit, which leaves it unspecified
+
+    return add
+
+
+def test_first_text_match_added_by_a_filter_past_the_nest() -> None:
+    document: Final = parse_xml(_ADDED_DOC)
+    assert _el(document.find(_add_at_target(document, "<b>x</b>"), text="x")).tag == "b"
