@@ -1232,8 +1232,8 @@ def _section_chain(depth: int) -> str:
     return f"<main>{'<section><hr/>' * depth}back order{'<hr/></section>' * depth}</main>"
 
 
-def test_text_of_many_short_candidates_past_the_budget() -> None:
-    # each read ends at the first text node, so the reads cost a step apiece, too little to pay for a walk of the tree
+def test_text_of_many_short_candidates_stay_uncharged() -> None:
+    # a path test: each read's first node is its text, so no read is charged and the search never builds a table
     document: Final = parse_xml(f"<main>{'<li>x</li>' * 70_000}</main>")
     assert len(document.find_all(text="x")) == 70_000
 
