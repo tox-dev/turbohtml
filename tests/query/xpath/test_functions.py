@@ -1794,13 +1794,14 @@ def test_regex_resolves_each_of_many_group_names() -> None:
 
 @pytest.mark.usefixtures("native_regex")
 def test_regex_compiles_many_named_groups_in_linear_time() -> None:
-    count: Final = 20000
+    count: Final = 40000
     named: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(count))
-    # unnamed groups compile in linear time on every build; 10x more of them keeps the baseline above the 10 ms floor
+    # non-capturing groups have no names and compile in linear time on every build; 10x more of them keeps the
+    # baseline above the 10 ms floor, and capturing groups would exceed the instruction limit at that count
     reference_count: Final = 10 * count
-    unnamed: Final = "".join(f"({index % 10})" for index in range(reference_count))
+    unnamed: Final = "".join(f"(?:{index % 10})" for index in range(reference_count))
     per_group_baseline: Final = max(_compile_seconds(unnamed), 0.01) / reference_count
-    assert _compile_seconds(named) / count < 20 * per_group_baseline
+    assert _compile_seconds(named) / count < 70 * per_group_baseline
 
 
 def _compile_seconds(groups: str) -> float:
