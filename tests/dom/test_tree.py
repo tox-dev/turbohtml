@@ -1909,6 +1909,103 @@ def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
     assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
 
 
+_CAPPED_PARSES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(parse, _DEPTH_CAP - 3, id="document"),
+    pytest.param(partial(parse_fragment, context="div"), _DEPTH_CAP - 2, id="fragment"),
+]
+
+
+@pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
+@pytest.mark.parametrize("shallower", [pytest.param(0, id="at-cap"), pytest.param(1, id="one-shallower")])
+@pytest.mark.parametrize(
+    ("prefix", "text"),
+    [
+        pytest.param("<table><colgroup>", "cellafter", id="colgroup"),
+        pytest.param("<table><col id=c1>", "cellafter", id="col"),
+        pytest.param("<table><caption>c</caption>", "ccellafter", id="caption"),
+        pytest.param("<table><template><col></template>", "cellafter", id="template-in-table"),
+        pytest.param("<template><col></template>", "cellafter", id="template-in-body"),
+    ],
+)
+def test_table_part_rejected_at_depth_cap_keeps_later_content(
+    make: Callable[[str], Document | DocumentFragment], nesting: int, shallower: int, prefix: str, text: str
+) -> None:
+    tail = "<table><col span=2 id=c2><tr><td>cell</td></tr></table><p>after"
+    root = make(f"{'<div>' * (nesting - shallower)}{prefix}{tail}")
+    assert root.text == text
+
+
+@pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
+def test_col_rejected_at_depth_cap_keeps_its_table_and_attributes(
+    make: Callable[[str], Document | DocumentFragment], nesting: int
+) -> None:
+    table = make(f"{'<div>' * nesting}<table><col span=2><col id=c2>").find("table")
+    assert table is not None
+    assert [(child.tag, dict(child.attrs)) for child in table.children if isinstance(child, Element)] == [
+        ("col", {"span": "2"}),
+        ("col", {"id": "c2"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<table><caption></table></p>x", id="caption"),
+        pytest.param(f"<p><b>{'<span>' * (_DEPTH_CAP - 4)}<template></template></p>x", id="body-template"),
+        pytest.param(
+            f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<table><template></template></table></p>x", id="table-template"
+        ),
+        pytest.param(
+            f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<template><template></template></template></p>x",
+            id="nested-template",
+        ),
+    ],
+)
+def test_formatting_element_survives_table_part_refused_at_depth_cap(markup: str) -> None:
+    assert "<b>x</b>" in parse(markup).html
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        pytest.param(
+            "<template><template></template>x", "<template><template></template>x</template>", id="in-template"
+        ),
+        pytest.param(
+            "<template><br><template></template>x", "<template><br><template></template>x</template>", id="in-body"
+        ),
+        pytest.param(
+            "<template><col><template></template></template>x",
+            "<template><col><template></template></template>x",
+            id="in-column-group",
+        ),
+        pytest.param(
+            "<template><br><template><col></template>x",
+            "<template><br><template></template><col>x</template>",
+            id="mode-switched-inside",
+        ),
+    ],
+)
+def test_refused_template_end_tag_closes_only_itself(content: str, expected: str) -> None:
+    # the second template fills the stack, so the third is refused and its content lands beside it
+    outer = parse(f"{'<span>' * (_DEPTH_CAP - 4)}<template>{content}").find("template")
+    assert outer is not None
+    assert outer.inner_html == expected
+
+
+def test_table_closed_under_refused_template_keeps_later_text() -> None:
+    # the end tag closes the table around the refused template, and the outer template resumes in its own mode
+    markup = f"<body><template><table><tr><td>{'<span>' * (_DEPTH_CAP - 7)}<template><table></table>x"
+    assert parse(markup).text == "x"
+
+
+def test_stray_template_end_tag_at_depth_cap_is_ignored() -> None:
+    # the parse reached the cap, so the end tag looks for a refused template record, and no template is open at all
+    document = parse(f"{'<div>' * _DEPTH_CAP}</template>x")
+    assert document.find("template") is None
+    assert document.html.endswith(f"<div></div><div></div>x{'</div>' * (_DEPTH_CAP - 2)}</body></html>")
+
+
 @pytest.mark.parametrize(
     "nesting",
     [
