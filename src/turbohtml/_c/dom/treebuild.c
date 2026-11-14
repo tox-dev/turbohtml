@@ -44,6 +44,7 @@ enum {
 typedef struct {
     PyObject *slots[M_COUNT];
     PyObject *namespaces[3];
+    PyObject *shared_attrs; /* th_node_attrs_tuple's cache for this walk */
 } builder;
 
 static const char *const METHOD_NAMES[M_COUNT] = {
@@ -57,9 +58,11 @@ static void builder_release(builder *methods) {
     for (int index = 0; index < 3; index++) {
         Py_XDECREF(methods->namespaces[index]);
     }
+    Py_XDECREF(methods->shared_attrs);
 }
 
 static int builder_bind(PyObject *sink, builder *methods) {
+    methods->shared_attrs = NULL;
     for (int index = 0; index < 3; index++) {
         methods->namespaces[index] = NULL;
     }
@@ -133,6 +136,57 @@ static PyObject *attrs_tuple(th_tree *tree, th_node *node) {
     return result;
 }
 
+/* An element's attribute slots as bytes, copied field by field so struct padding stays out of the key. NULL with an
+   exception set on allocation failure. */
+static PyObject *attrs_key(const th_node *node) {
+    enum { SLOT_SIZE = sizeof(uint32_t) + sizeof(Py_UCS4 *) + sizeof(Py_ssize_t) };
+    PyObject *key = PyBytes_FromStringAndSize(NULL, node->attr_count * (Py_ssize_t)SLOT_SIZE);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    char *out = PyBytes_AS_STRING(key);
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *attr = &node->attrs[index];
+        memcpy(out, &attr->name_atom, sizeof(uint32_t));
+        memcpy(out + sizeof(uint32_t), &attr->value, sizeof(Py_UCS4 *));
+        memcpy(out + sizeof(uint32_t) + sizeof(Py_UCS4 *), &attr->value_len, sizeof(Py_ssize_t));
+        out += SLOT_SIZE;
+    }
+    return key;
+}
+
+/* Reconstructed formatting elements, adoption-agency copies and selectedcontent mirrors each copy the attributes of
+   one start tag, so a fresh tuple per clone costs (attributes + value lengths) x clones. The parse tree is private to
+   the walk and never frees or rewrites a value, so equal slots give equal tuples and one cached tuple serves every
+   clone. Only implied elements take the lookup: an element with its own start tag builds its tuple once anyway. */
+// NOLINTNEXTLINE(misc-use-internal-linkage): declared in dom/tree.h, called from tokenizer/sax.c
+PyObject *th_node_attrs_tuple(th_tree *tree, th_node *node, PyObject **shared) {
+    if (!(node->tag_flags & TH_ELEM_IMPLIED) || node->attr_count == 0) {
+        return attrs_tuple(tree, node);
+    }
+    if (*shared == NULL) {
+        *shared = PyDict_New();
+        if (*shared == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    PyObject *key = attrs_key(node);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *result = Py_XNewRef(PyDict_GetItemWithError(*shared, key));
+    if (result == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a bytes key lookup cannot raise */
+        result = attrs_tuple(tree, node);
+        /* GCOVR_EXCL_BR_START: the tuple and its dict entry fail only on allocation */
+        if (result != NULL && PyDict_SetItem(*shared, key, result) < 0) {
+            /* GCOVR_EXCL_BR_STOP */
+            Py_CLEAR(result); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    Py_DECREF(key);
+    return result;
+}
+
 /* Build the builder handle for one node by dispatching on its type: an element carries
    its tag, namespace URI, and attributes; a comment splits into a processing
    instruction when the parser folded a bogus `<?...>` into it; a doctype carries its
@@ -153,7 +207,7 @@ static PyObject *make_handle(th_tree *tree, th_node *node, builder *methods) {
                 return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
-        PyObject *attrs = attrs_tuple(tree, node);
+        PyObject *attrs = th_node_attrs_tuple(tree, node, &methods->shared_attrs);
         if (attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(tag);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
