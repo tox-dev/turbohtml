@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 from functools import partial
 from typing import TYPE_CHECKING, Final
 
@@ -1335,28 +1334,20 @@ def test_computed_style_selector_shared_inputs(case_index: int, expected: tuple[
     assert tuple(computed_style(node)["color"] for node in document.select("div")) == expected
 
 
-def test_computed_style_repeated_missing_has_bounds_retained_memory() -> None:
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+def test_computed_style_repeated_missing_has_work_is_linear_in_rounds(work_steps: WorkSteps) -> None:
     document: Final = parse(
         f"<style>div{{color:blue}}div:has(.absent){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     nodes: Final = tuple(document.select("div"))[:3]
-    tracing.start()
-    try:
+    # tracemalloc totals every thread's live blocks, so other threads move it between runs; the step counter is exact
+    work_steps.assert_linear(lambda rounds: partial(_compute_style_rounds, nodes, rounds), (256, 1_024))
+    assert tuple(computed_style(node)["color"] for node in nodes) == ("blue",) * 3
+
+
+def _compute_style_rounds(nodes: tuple[Element, ...], rounds: int) -> None:
+    for _ in range(rounds):
         for node in nodes:
             computed_style(node)
-        gc.collect()
-        before: Final = tracing.get_traced_memory()[0]
-        for _ in range(1_024):
-            for node in nodes:
-                computed_style(node)
-        gc.collect()
-        retained: Final = tracing.get_traced_memory()[0] - before
-    finally:
-        tracing.stop()
-    assert (tuple(computed_style(node)["color"] for node in nodes), retained < 32_768) == (("blue",) * 3, True), (
-        retained
-    )
 
 
 @pytest.mark.parametrize(
