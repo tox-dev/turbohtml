@@ -1,0 +1,2 @@
+Serialization writes carriage returns as ``&#13;`` in text and attribute values, so sanitized and minified output stays
+unchanged when parsed and serialized again.

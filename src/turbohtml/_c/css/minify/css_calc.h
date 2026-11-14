@@ -642,7 +642,6 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
     int is_color = css_run_ieq(name, name_len, "rgb") || css_run_ieq(name, name_len, "rgba") ||
                    css_run_ieq(name, name_len, "hsl") || css_run_ieq(name, name_len, "hsla");
     int pending_ws = 0;
-    int escaped_space = 0;
     Py_ssize_t index = start;
     while (index < end) {
         css_token *token = &vec->items[index];
@@ -659,7 +658,6 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             }
             cbuf_putc(out, ',');
             pending_ws = 0;
-            escaped_space = 0;
             index++;
             continue;
         }
@@ -696,18 +694,17 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             }
             cbuf_putc(out, ' ');
             pending_ws = 0;
-            escaped_space = 0;
             index++;
             continue;
         }
-        /* a leading space is kept only between two value pieces, never after '(' or ',' */
-        /* A space consumed by a hex escape cannot also separate the next token. */
-        if (pending_ws && out->len > 0 && (out->data[out->len - 1] != ' ' || escaped_space) &&
-            out->data[out->len - 1] != ',' && out->data[out->len - 1] != '(') {
+        /* a leading space is kept only between two value pieces, never after '(' or ','; a space, `(` or `,` that ends
+           a name through an escape cannot also separate the next token */
+        if (pending_ws && out->len > 0 &&
+            ((out->data[out->len - 1] != ' ' && out->data[out->len - 1] != ',' && out->data[out->len - 1] != '(') ||
+             (vec->escapes && css_ends_in_escape(out->data, out->len)))) {
             cbuf_putc(out, ' ');
         }
         pending_ws = 0;
-        escaped_space = 0;
         if (token->kind == CSS_IDENT && index + 1 < end && vec->items[index + 1].kind == CSS_DELIM &&
             vec->items[index + 1].delim == '(') {
             Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
@@ -744,13 +741,14 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 /* dropping a sign or unit (e.g. +0/-0/0px -> 0) can glue the number onto the token before it to read as
                    one different token (CSS Syntax 3 §9.1), including a second adjacent number in an invalid calc, so
                    keep a boundary as the declaration-value path does; a negative number after a unitless one starts
-                   no unit (§4.3.3), so `1-1` stays two numbers */
+                   no unit (§4.3.3), so `1-1` stays two numbers; a name ending in an escape runs on into a number that
+                   starts with a name code point, as an ident token does */
                 const css_token *before = &vec->items[index - 1];
                 int negative_after_number =
                     (signed_zero || pool->data[off] == '-') && before->kind == CSS_NUM && before->unit_len == 0;
                 if (out->len > 0 && !negative_after_number &&
-                    css_would_merge(out->data[out->len - 1], 0, signed_zero ? (const css_char *)"-" : pool->data + off,
-                                    signed_zero ? 1 : len)) {
+                    css_would_merge(out->data[out->len - 1], vec->escapes && css_ends_in_escape(out->data, out->len),
+                                    signed_zero ? (const css_char *)"-" : pool->data + off, signed_zero ? 1 : len)) {
                     cbuf_putc(out, ' ');
                 }
                 if (signed_zero) {
@@ -771,7 +769,6 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             }
         } else {
             cbuf_put_run(out, token->text, token->text_len);
-            escaped_space = token->kind == CSS_IDENT && css_is_ws(token->text[token->text_len - 1]);
         }
         index++;
     }
