@@ -1299,6 +1299,15 @@ oom:
     /* GCOVR_EXCL_STOP */
 }
 
+/* Kept out of line so the key() path of xslt_extension compiles as before. */
+TH_NOINLINE static int item_id_suffix(char *buffer, size_t size, Py_ssize_t attr) {
+    Py_ssize_t rank = xp_item_rank(attr);
+    if (rank == PY_SSIZE_T_MAX) {
+        return snprintf(buffer, size, "n");
+    }
+    return snprintf(buffer, size, "a%zd", rank - 1);
+}
+
 /* The XPath-engine extension hook: dispatch the XSLT-only functions. Returns 0 when
    handled (out filled), -2 when the name is not an XSLT function (the engine then
    reports an unknown function), -1 on a Python/allocation error. */
@@ -1383,15 +1392,10 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         /* seq is unique within the one source tree an expression can reach; document() and result tree fragments yield
            no nodes from other trees. An attribute or namespace node shares its element's seq, so a suffix that starts
            with a letter keeps its id apart from the element's and from its siblings'. */
-        Py_ssize_t rank = xp_item_rank(attr);
         char buffer[32];
-        int written;
-        if (rank == 0) {
-            written = snprintf(buffer, sizeof(buffer), "id%u", (unsigned)target->seq);
-        } else if (rank == PY_SSIZE_T_MAX) {
-            written = snprintf(buffer, sizeof(buffer), "id%un", (unsigned)target->seq);
-        } else {
-            written = snprintf(buffer, sizeof(buffer), "id%ua%zd", (unsigned)target->seq, rank - 1);
+        int written = snprintf(buffer, sizeof(buffer), "id%u", (unsigned)target->seq);
+        if (attr != -1) {
+            written += item_id_suffix(buffer + written, sizeof(buffer) - (size_t)written, attr);
         }
         Py_ssize_t str_len = 0;
         Py_UCS4 *str = ucs4_from_ascii(buffer, written, &str_len);
