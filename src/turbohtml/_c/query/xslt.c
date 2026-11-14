@@ -1408,6 +1408,10 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         return rc; /* GCOVR_EXCL_BR_LINE: rc<0 is an unforced allocation failure */
     }
     if (ucs4_ascii_eq(name, name_len, "system-property")) {
+        if (argc != 1) { /* args is NULL when the call has no arguments */
+            PyErr_SetString(PyExc_ValueError, "xslt: system-property() takes one argument");
+            return -1;
+        }
         Py_ssize_t prop_len = 0;
         Py_UCS4 *prop = to_string(eng->src_tree, &args[0], &prop_len);
         if (prop == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -1434,6 +1438,11 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         return 0;
     }
     if (ucs4_ascii_eq(name, name_len, "function-available") || ucs4_ascii_eq(name, name_len, "element-available")) {
+        if (argc != 1) {
+            PyErr_Format(PyExc_ValueError, "xslt: %s-available() takes one argument",
+                         ucs4_ascii_eq(name, name_len, "function-available") ? "function" : "element");
+            return -1;
+        }
         Py_ssize_t query_len = 0;
         Py_UCS4 *query = to_string(eng->src_tree, &args[0], &query_len);
         if (query == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */

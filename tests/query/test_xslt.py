@@ -1383,6 +1383,11 @@ def test_transform_document_returns_empty_node_set() -> None:
         pytest.param("key('k')", "two arguments", id="key-arity"),
         pytest.param("generate-id(1)", "wants a node-set", id="generate-id-type"),
         pytest.param("format-number(1)", "at least two", id="format-number-arity"),
+        pytest.param("system-property()", r"system-property\(\) takes one", id="system-property-none"),
+        pytest.param("system-property('a', 'b')", r"system-property\(\) takes one", id="system-property-two"),
+        pytest.param("function-available()", r"function-available\(\) takes one", id="function-available-none"),
+        pytest.param("element-available()", r"element-available\(\) takes one", id="element-available-none"),
+        pytest.param("element-available('a', 'b')", r"element-available\(\) takes one", id="element-available-two"),
     ],
 )
 def test_transform_extension_function_errors(expr: str, message: str) -> None:
