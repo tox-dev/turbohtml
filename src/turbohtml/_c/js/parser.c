@@ -257,7 +257,13 @@ static int32_t parse_spread(P *parser) {
    scope binder, the folder and the printer -- then sees the one canonical name. */
 static void set_ident(P *parser, int32_t node) {
     Py_ssize_t len = 0;
-    parser->prog->nodes[node].str = jm_ident_value(parser->prog, parser->lx.text, parser->lx.text_len, &len);
+    const Py_UCS4 *name = jm_ident_value(parser->prog, parser->lx.text, parser->lx.text_len, &len);
+    if (name == NULL) { /* an escape with no decoded form: keep the lexeme so the node stays well-formed */
+        fail(parser, "invalid identifier escape");
+        name = parser->lx.text;
+        len = parser->lx.text_len;
+    }
+    parser->prog->nodes[node].str = name;
     parser->prog->nodes[node].str_len = len;
 }
 

@@ -1152,6 +1152,46 @@ def test_concat_reencodes_by_value(source: str, expected: str) -> None:
     assert minify_js(f"x={source}") == f"x={expected}"
 
 
+# A hex or unicode escape that is malformed, or names a value past U+10FFFF, has no value to join by, and one past
+# U+10FFFF would otherwise reach the returned str: the operands stay as written.
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(f'"{_BS}u{{110000}}"+"a"', id="past-the-last-code-point"),
+        pytest.param(f'"{_BS}u{{7FFFFFFF}}"+"a"', id="31-bit-value"),
+        pytest.param(f'"{_BS}u{{100000041}}"+"a"', id="value-wrapping-32-bits"),
+        pytest.param(f'"a"+"{_BS}u{{110000}}"', id="right-operand"),
+        pytest.param(f'"{_BS}u{{}}"+"a"', id="empty-braces"),
+        pytest.param(f'"{_BS}u{{41"+"a"', id="unterminated-braces"),
+        pytest.param(f'"{_BS}u{{4g}}"+"a"', id="non-hex-in-braces"),
+        pytest.param(f'"{_BS}u"+"a"', id="unicode-no-digits"),
+        pytest.param(f'"{_BS}u004"+"a"', id="unicode-three-digits"),
+        pytest.param(f'"{_BS}u004g"+"a"', id="unicode-non-hex-digit"),
+        pytest.param(f'"{_BS}u{chr(0x10FFFF) * 4}"+"a"', id="unicode-astral-digits"),
+        pytest.param(f'"{_BS}x"+"a"', id="hex-no-digits"),
+        pytest.param(f'"{_BS}x4"+"a"', id="hex-one-digit"),
+        pytest.param(f'"{_BS}x4g"+"a"', id="hex-non-hex-digit"),
+        pytest.param(f'"{_BS}x{chr(0x10FFFF) * 2}"+"a"', id="hex-astral-digits"),
+    ],
+)
+def test_concat_keeps_operands_with_a_valueless_escape(source: str) -> None:
+    assert minify_js(f"x={source}") == f"x={source}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(f'"{_BS}u{{10FFFF}}"+"a"', f'"{chr(0x10FFFF)}a"', id="last-code-point"),
+        pytest.param(f'"{_BS}u{{0000000041}}"+"a"', '"Aa"', id="braced-leading-zeros"),
+        pytest.param(f'"{_BS}x4a"+"{_BS}x4B"', '"JK"', id="hex-either-case"),
+        pytest.param(f'"{_BS}x414"+"a"', '"A4a"', id="hex-takes-two-digits"),
+        pytest.param(f'"{_BS}u00414"+"a"', '"A4a"', id="unicode-takes-four-digits"),
+    ],
+)
+def test_concat_decodes_escape_at_its_bounds(source: str, expected: str) -> None:
+    assert minify_js(f"x={source}") == f"x={expected}"
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

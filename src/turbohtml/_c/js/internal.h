@@ -155,6 +155,10 @@ void jm_lex_rescan_template(jm_lexer *lx);
 /* Whether the lexer's current value-bearing token text equals the ASCII keyword. */
 int jm_text_eq(const jm_lexer *lx, const char *keyword);
 
+/* Whether ch may sit in an identifier, as its first code point (leads) or a later one, by the lexer's own
+   classification. */
+int jm_is_ident_char(Py_UCS4 ch, int leads);
+
 /* A short, stable name for a token kind, used by the parser-test dump hook. */
 const char *jm_tok_name(jm_tok kind);
 
@@ -380,13 +384,15 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
    escape decoded, so an escaped spelling binds and resolves as its plain form (`abc` == `abc`).
    The common escape-free name is returned as the borrowed source span (no copy); an escaped name is
    decoded into a program-owned buffer. *out_len receives the decoded length. Returns the source span
-   unchanged on allocation failure (the binding may then miss-link, but nothing is corrupted). */
+   unchanged on allocation failure (the binding may then miss-link, but nothing is corrupted), and NULL
+   when an escape is malformed or names a code point an identifier cannot hold at that position. */
 const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len);
 
 /* Decode a string literal (lexeme includes its surrounding quotes) to its ECMA-262 §12.9.4 String
    Value, writing the code points into out (capacity >= len is always enough: no escape expands) and
    returning the value length. A LineContinuation contributes nothing; a legacy octal, hex or unicode
-   escape decodes to its code point. */
+   escape decodes to its code point. Returns -1 for a hex or unicode escape that is malformed or names
+   a value past U+10FFFF: such a literal has no String Value. */
 Py_ssize_t jm_str_decode(const Py_UCS4 *lexeme, Py_ssize_t len, Py_UCS4 *out);
 
 /* Re-encode value[0..len) as the inner (quote-free) body of a string literal delimited by quote,
