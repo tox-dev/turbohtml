@@ -849,5 +849,33 @@
       "kind": "repeat",
       "left": "<blockquote>a"
     }
+  },
+  {
+    "name": "css-filter-nested-math",
+    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/css/minify/css_render.h#L1013",
+    "targets": [
+      "minify_css"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "sandwich",
+      "head": "a{filter:",
+      "left": "min(",
+      "right": ")",
+      "tail": "}"
+    }
+  },
+  {
+    "name": "css-filter-unclosed-math",
+    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/css/minify/css_render.h#L1013",
+    "targets": [
+      "minify_css"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "a{filter:",
+      "left": "min([)"
+    }
   }
 ]

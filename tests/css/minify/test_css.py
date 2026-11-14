@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -5076,6 +5077,23 @@ def test_filter_preserves_variable_token_boundary(value: str) -> None:
 )
 def test_filter_math_folds_constant_calc(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize("name", ["min", "drop-shadow"])
+def test_filter_nested_functions_within_ratio_of_nested_blur(name: str) -> None:
+    depth: Final = 40_000
+    blur: Final = f"a{{filter:{'blur(' * depth}{')' * depth}}}"
+    opener: Final = f"{name}("
+    nested: Final = f"a{{filter:{opener * depth}{')' * depth}}}"
+    start = time.perf_counter()
+    minify_css(blur)
+    # the floor keeps a near-instant baseline from inflating the ratio on a quiet machine
+    baseline = max(time.perf_counter() - start, 0.01)
+    start = time.perf_counter()
+    minified = minify_css(nested)
+    elapsed = time.perf_counter() - start
+    assert minified == nested
+    assert elapsed / baseline < 30
 
 
 @pytest.mark.parametrize(
