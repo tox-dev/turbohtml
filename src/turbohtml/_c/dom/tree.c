@@ -2136,7 +2136,7 @@ static void select_cache_finish(th_tree *tree) {
 /* The afe_hash() of each list entry, cached in the same allocation right after the entries so th_tree keeps its size:
    0 for an entry pushed while the hash set was unused, never read for a marker. */
 static inline uint64_t *afe_keys(const th_tree *tree) {
-    return (uint64_t *)(void *)(tree->afe + tree->afe_cap);
+    return (uint64_t *)(tree->afe + tree->afe_cap);
 }
 
 /* Remove the active-formatting-elements entry at index, shifting the tail down. */
