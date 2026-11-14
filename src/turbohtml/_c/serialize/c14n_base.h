@@ -289,10 +289,12 @@ static int c14n_base_fixup(th_tree *tree, const th_node *apex, Py_UCS4 **value, 
         sbuf whole = {0};
         c14n_chain_flatten(&chain, chain.head.data, chain.head.len, chain.parents, &whole);
         *value = sbuf_finish(&whole, length);
-        if (*value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-            status = -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        /* GCOVR_EXCL_START: allocation failure cannot be forced from a test */
+        if (*value == NULL) {
+            PyErr_NoMemory();
+            status = -1;
         }
+        /* GCOVR_EXCL_STOP */
     }
     Py_XDECREF(current);
     c14n_chain_clear(&chain);
