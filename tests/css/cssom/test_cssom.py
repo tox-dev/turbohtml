@@ -13,7 +13,7 @@ from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from traced_bytes import RetainedBytes
+    from traced_bytes import PeakBytes, RetainedBytes
     from work_steps import WorkSteps
 
     from turbohtml import Document
@@ -1459,7 +1459,7 @@ def test_computed_style_foreign_style_reads_its_text_children_only(html: str, ex
 
 
 def test_computed_style_nested_foreign_style_stays_within_memory_budget(
-    peak_bytes: Callable[[str, tuple[str, ...]], int],
+    peak_bytes: PeakBytes,
 ) -> None:
     peak: Final = peak_bytes(
         "import tracemalloc\n"

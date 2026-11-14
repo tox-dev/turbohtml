@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
 
-from traced_bytes import RetainedBytes
+from traced_bytes import PeakBytes, RetainedBytes
 from work_steps import WorkSteps
 from wpt_tree_corpus import WptHtmlTreeCorpus, load_wpt_html_tree
 
@@ -113,9 +113,9 @@ def retained_bytes() -> Iterator[RetainedBytes]:
 
 
 @pytest.fixture
-def peak_bytes() -> Callable[[str, tuple[str, ...]], int]:
+def peak_bytes() -> PeakBytes:
     # tracemalloc totals every thread of a process, so the peak is read in a fresh interpreter with no other threads
-    def measure(script: str, args: tuple[str, ...]) -> int:
+    def measure(script: str, args: tuple[str, ...] = ()) -> int:
         pytest.importorskip("tracemalloc")
         run = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
             [sys.executable, "-c", script, *args], capture_output=True, text=True, check=False

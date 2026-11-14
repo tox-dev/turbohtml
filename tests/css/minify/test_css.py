@@ -19,6 +19,7 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
 _NEWLY: Final[CSSMinify] = CSSMinify(baseline=2021)
@@ -1363,9 +1364,7 @@ def nested_media(between: str) -> str:
         pytest.param("a{}", id="across-dropped-rule"),
     ],
 )
-def test_minify_css_nested_media_merge_peak_is_bounded(
-    between: str, peak_bytes: Callable[[str, tuple[str, ...]], int]
-) -> None:
+def test_minify_css_nested_media_merge_peak_is_bounded(between: str, peak_bytes: PeakBytes) -> None:
     script: Final = (
         f"{inspect.getsource(nested_media)}\n"
         "import sys\n"

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import gc
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from types import ModuleType
+
+PeakBytes = Callable[[str, tuple[str, ...]], int]
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
