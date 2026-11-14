@@ -11,6 +11,7 @@
    generated from whatlang so the model is its published one, not a homegrown copy. */
 
 #include "core/hash.h"
+#include "core/work_steps.h"
 #include "encoding/language_data.h"
 
 #include <stdlib.h>
@@ -141,6 +142,7 @@ static size_t th_lang_trigram_slot(const th_lang_ranked_trigram *table, size_t c
     size_t slot = (size_t)th_key_mix(key) & (capacity - 1); /* keyed: the text picks its trigrams */
     /* Stop characters become spaces, so zero cannot be a trigram key. */
     while (table[slot].key != 0 && table[slot].key != key) {
+        TH_WORK_STEP();
         slot = (slot + 1) & (capacity - 1);
     }
     return slot;
