@@ -640,7 +640,164 @@ static int item_cmp(const void *pa, const void *pb) {
     return node_before(left->node, right->node);
 }
 
-static int sort_unique(xp_nodeset *ns) {
+/* node_before walks the sibling chain, so comparing it in a sort of a long sibling list costs quadratic time per sort.
+   The index numbers the nodes of one tree in document order once per evaluation, on the first sort that needs it. */
+/* Below this many nodes a sort or merge makes few node_before calls, so building the index costs more than it saves. */
+#define XP_ORDER_MIN_NODES 64
+
+typedef struct {
+    struct th_node *node;
+    Py_ssize_t ordinal;
+} xp_order_slot;
+
+struct xp_order {
+    unsigned shift;
+    size_t mask;
+    xp_order_slot *slots;
+};
+
+void xp_order_drop(xp_order **order) {
+    if (*order != NULL) {
+        PyMem_Free((*order)->slots);
+        PyMem_Free(*order);
+        *order = NULL;
+    }
+}
+
+static struct th_node *node_root(struct th_node *node) {
+    while (node->parent != NULL) {
+        node = node->parent;
+    }
+    return node;
+}
+
+static int same_root(const xp_nodeset *ns) {
+    struct th_node *root = node_root(ns->items[0].node);
+    for (Py_ssize_t index = 1; index < ns->len; index++) {
+        if (node_root(ns->items[index].node) != root) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static size_t order_slot(const xp_order *order, struct th_node *node) {
+    return (size_t)(((uintptr_t)node * (uintptr_t)0x9E3779B97F4A7C15ULL) >> order->shift);
+}
+
+static void order_insert(xp_order *order, struct th_node *node, Py_ssize_t ordinal) {
+    size_t slot = order_slot(order, node);
+    while (order->slots[slot].node != NULL) {
+        slot = (slot + 1) & order->mask;
+    }
+    order->slots[slot] = (xp_order_slot){node, ordinal};
+}
+
+static Py_ssize_t order_lookup(const xp_order *order, struct th_node *node) {
+    for (size_t slot = order_slot(order, node); order->slots[slot].node != NULL; slot = (slot + 1) & order->mask) {
+        if (order->slots[slot].node == node) {
+            return order->slots[slot].ordinal;
+        }
+    }
+    return -1;
+}
+
+static int order_build(xp_order **out, struct th_node *root) {
+    size_t count = 0;
+    for (struct th_node *node = root; node != NULL; node = preorder_next(node, root)) {
+        count++;
+    }
+    unsigned bits = 3;
+    while (((size_t)1 << bits) < 2 * count) {
+        bits++;
+    }
+    xp_order *order = PyMem_Malloc(sizeof(*order));
+    if (order == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    order->slots = PyMem_Calloc((size_t)1 << bits, sizeof(xp_order_slot));
+    if (order->slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(order);      /* GCOVR_EXCL_LINE */
+        return -1;              /* GCOVR_EXCL_LINE */
+    }
+    order->shift = (unsigned)(8 * sizeof(uintptr_t)) - bits;
+    order->mask = ((size_t)1 << bits) - 1;
+    Py_ssize_t ordinal = 0;
+    for (struct th_node *node = root; node != NULL; node = preorder_next(node, root)) {
+        order_insert(order, node, ordinal++);
+    }
+    *out = order;
+    return 0;
+}
+
+/* Sets the out pointer to the index when every node of ns is in it, and to NULL when a node lies outside the indexed
+   tree, in which case the caller compares with node_before as before. */
+static int order_for(xp_ctx *ctx, const xp_nodeset *ns, const xp_order **out) {
+    if (*ctx->order == NULL && order_build(ctx->order, node_root(ns->items[0].node)) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                                          /* GCOVR_EXCL_LINE */
+    }
+    *out = *ctx->order;
+    for (Py_ssize_t index = 0; index < ns->len; index++) {
+        if (order_lookup(*out, ns->items[index].node) < 0) {
+            *out = NULL;
+            break;
+        }
+    }
+    return 0;
+}
+
+static int item_order(const xp_order *order, const xp_item *left, const xp_item *right) {
+    if (order == NULL || left->node == right->node) {
+        return item_cmp(left, right);
+    }
+    return order_lookup(order, left->node) < order_lookup(order, right->node) ? -1 : 1;
+}
+
+static void merge_sort_items(xp_item *items, xp_item *scratch, Py_ssize_t len, const xp_order *order) {
+    if (len < 2) {
+        return;
+    }
+    Py_ssize_t half = len / 2;
+    merge_sort_items(items, scratch, half, order);
+    merge_sort_items(items + half, scratch, len - half, order);
+    Py_ssize_t left = 0;
+    Py_ssize_t right = half;
+    Py_ssize_t write = 0;
+    while (left < half && right < len) {
+        if (item_order(order, &items[right], &items[left]) < 0) {
+            scratch[write++] = items[right++];
+        } else {
+            scratch[write++] = items[left++];
+        }
+    }
+    while (left < half) {
+        scratch[write++] = items[left++];
+    }
+    while (right < len) {
+        scratch[write++] = items[right++];
+    }
+    memcpy(items, scratch, (size_t)len * sizeof(xp_item));
+}
+
+static int sort_items(xp_ctx *ctx, xp_nodeset *ns) {
+    const xp_order *order = NULL;
+    if (ns->len >= XP_ORDER_MIN_NODES && order_for(ctx, ns, &order) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                         /* GCOVR_EXCL_LINE */
+    }
+    if (order == NULL) {
+        qsort(ns->items, (size_t)ns->len, sizeof(xp_item), item_cmp);
+        return 0;
+    }
+    xp_item *scratch = PyMem_Malloc((size_t)ns->len * sizeof(xp_item));
+    if (scratch == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    merge_sort_items(ns->items, scratch, ns->len, order);
+    PyMem_Free(scratch);
+    return 0;
+}
+
+static int sort_unique(xp_ctx *ctx, xp_nodeset *ns) {
     if (ns->len < 2) {
         return 0;
     }
@@ -670,12 +827,19 @@ static int sort_unique(xp_nodeset *ns) {
         PyMem_Free(entries);
         ns->len = write;
     }
-    /* Forward axes already produce tree order; preserve it without sorting again. */
-    for (Py_ssize_t index = 1; index < ns->len; index++) {
-        if (item_cmp(&ns->items[index - 1], &ns->items[index]) > 0) {
-            qsort(ns->items, (size_t)ns->len, sizeof(xp_item), item_cmp);
-            break;
-        }
+    /* Forward axes already produce tree order; preserve it without sorting again. Reverse axes produce reverse
+       document order, which a single pass reverses without a sort. */
+    int ascending = 1;
+    int descending = 1;
+    for (Py_ssize_t index = 1; index < ns->len && (ascending || descending); index++) {
+        const int comparison = item_cmp(&ns->items[index - 1], &ns->items[index]);
+        ascending = ascending && comparison <= 0;
+        descending = descending && comparison > 0;
+    }
+    if (descending && same_root(ns)) {
+        reverse_items(ns, 0);
+    } else if (!ascending && sort_items(ctx, ns) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                      /* GCOVR_EXCL_LINE */
     }
     if (ns->snapshots) {
         return 0;
@@ -1052,6 +1216,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                 ctx->name_test,
                 ctx->name_test_ctx,
                 ctx->strict_no_ns,
+                ctx->order,
 #ifdef TH_OPERATION_LIMIT
                 ctx->operations,
 #endif
@@ -1234,10 +1399,10 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
         *current = *following;
         *following = swap;
         contexts = current;
-        if (!ordered_unique && sort_unique(current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            xp_nodeset_free(current);                      /* GCOVR_EXCL_LINE */
-            xp_nodeset_free(following);                    /* GCOVR_EXCL_LINE */
-            return -1;                                     /* GCOVR_EXCL_LINE */
+        if (!ordered_unique && sort_unique(ctx, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            xp_nodeset_free(current);                           /* GCOVR_EXCL_LINE */
+            xp_nodeset_free(following);                         /* GCOVR_EXCL_LINE */
+            return -1;                                          /* GCOVR_EXCL_LINE */
         }
     }
     xp_nodeset_free(following);
@@ -1555,7 +1720,18 @@ static int comparison_extreme(struct th_tree *tree, const xp_nodeset *nodes, int
     return 0;
 }
 
-static int nodeset_union(xp_nodeset *target, xp_nodeset *source) {
+static int union_order(xp_ctx *ctx, const xp_nodeset *target, const xp_nodeset *source, const xp_order **order) {
+    *order = NULL;
+    if (target->len == 0 || source->len == 0 || target->len + source->len < XP_ORDER_MIN_NODES) {
+        return 0;
+    }
+    if (order_for(ctx, target, order) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                           /* GCOVR_EXCL_LINE */
+    }
+    return *order == NULL ? 0 : order_for(ctx, source, order);
+}
+
+static int nodeset_union(xp_ctx *ctx, xp_nodeset *target, xp_nodeset *source) {
     /* Extension functions can return unordered nodes and duplicates. */
     if (target->snapshots || source->snapshots) {
         for (Py_ssize_t index = 0; index < source->len; index++) {
@@ -1565,10 +1741,15 @@ static int nodeset_union(xp_nodeset *target, xp_nodeset *source) {
             }
         }
         xp_nodeset_free(source);
-        return sort_unique(target);
+        return sort_unique(ctx, target);
     }
-    sort_unique(target);
-    sort_unique(source);
+    if (sort_unique(ctx, target) < 0 || sort_unique(ctx, source) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                      /* GCOVR_EXCL_LINE */
+    }
+    const xp_order *order = NULL;
+    if (union_order(ctx, target, source, &order) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                      /* GCOVR_EXCL_LINE */
+    }
     xp_nodeset merged = {0};
     Py_ssize_t left = 0;
     Py_ssize_t right = 0;
@@ -1579,9 +1760,9 @@ static int nodeset_union(xp_nodeset *target, xp_nodeset *source) {
         } else if (right == source->len) {
             item = &target->items[left++];
         } else {
-            const int order = item_cmp(&target->items[left], &source->items[right]);
-            item = order <= 0 ? &target->items[left++] : &source->items[right];
-            right += order >= 0;
+            const int comparison = item_order(order, &target->items[left], &source->items[right]);
+            item = comparison <= 0 ? &target->items[left++] : &source->items[right];
+            right += comparison >= 0;
         }
         if (ns_append(&merged, item->node, item->attr) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             xp_nodeset_free(&merged);                         /* GCOVR_EXCL_LINE: allocation failure */
@@ -1598,7 +1779,7 @@ static int nodeset_union(xp_nodeset *target, xp_nodeset *source) {
    binding (an Element or an iterable of Elements from the caller) is copied and
    normalized to document order without duplicates, the canonical node-set form the
    rest of the evaluator assumes. */
-static int copy_result(const xp_result *src, xp_result *dst) {
+static int copy_result(xp_ctx *ctx, const xp_result *src, xp_result *dst) {
     memset(dst, 0, sizeof(*dst));
     dst->kind = src->kind;
     if (src->kind == XP_STRING) {
@@ -1618,7 +1799,10 @@ static int copy_result(const xp_result *src, xp_result *dst) {
             memcpy(dst->nodes.items, src->nodes.items, (size_t)src->nodes.len * sizeof(xp_item));
             dst->nodes.len = src->nodes.len;
             dst->nodes.cap = src->nodes.len;
-            sort_unique(&dst->nodes);
+            if (sort_unique(ctx, &dst->nodes) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                xp_result_free(dst);                 /* GCOVR_EXCL_LINE */
+                return -1;                           /* GCOVR_EXCL_LINE */
+            }
         }
     } else {
         dst->boolean = src->boolean;
@@ -1667,11 +1851,11 @@ static int eval_union(const xp_program *prog, const xn *expr, xp_ctx *ctx, xp_re
             rc = -4;
             break;
         }
-        if (nodeset_union(&left.nodes, &right.nodes) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            xp_result_free(&left);                          /* GCOVR_EXCL_LINE */
-            xp_result_free(&right);                         /* GCOVR_EXCL_LINE: allocation failure */
-            rc = -1;                                        /* GCOVR_EXCL_LINE */
-            break;                                          /* GCOVR_EXCL_LINE */
+        if (nodeset_union(ctx, &left.nodes, &right.nodes) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xp_result_free(&left);                               /* GCOVR_EXCL_LINE */
+            xp_result_free(&right);                              /* GCOVR_EXCL_LINE: allocation failure */
+            rc = -1;                                             /* GCOVR_EXCL_LINE */
+            break;                                               /* GCOVR_EXCL_LINE */
         }
     }
     PyMem_Free(operands);
@@ -1744,7 +1928,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
             const xp_binding *binding = &ctx->vars->items[index];
             if (binding->name_len == expr->str_len &&
                 memcmp(binding->name, expr->str, (size_t)expr->str_len * sizeof(Py_UCS4)) == 0) {
-                return copy_result(&binding->value, out);
+                return copy_result(ctx, &binding->value, out);
             }
         }
         *ctx->feature = "a reference to an unbound variable";
@@ -1772,7 +1956,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
             *ctx->feature = "a predicate on a non-node-set";
             return -4;
         }
-        rc = sort_unique(&primary.nodes);
+        rc = sort_unique(ctx, &primary.nodes);
         if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             xp_live_frame frame;
             if (ctx->live != NULL) {
@@ -1884,12 +2068,13 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature) {
     xr_cache *regex_cache = NULL;
+    xp_order *order = NULL;
 #ifdef TH_OPERATION_LIMIT
     size_t operations = 0;
 #endif
     xp_ctx ctx = {
         tree,          context, -1,           pos,  size, feature, vars, namespaces, extension,
-        extension_ctx, 0,       &regex_cache, NULL, NULL, NULL,    NULL, 0,
+        extension_ctx, 0,       &regex_cache, NULL, NULL, NULL,    NULL, 0,          &order,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -1898,6 +2083,7 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
     if (regex_cache != NULL) {
         xr_cache_free(regex_cache);
     }
+    xp_order_drop(&order);
     return rc;
 }
 
@@ -1905,6 +2091,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
                        void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
                        const char **feature) {
     xr_cache *regex_cache = NULL;
+    xp_order *order = NULL;
 #ifdef TH_OPERATION_LIMIT
     size_t operations = 0;
 #endif
@@ -1926,6 +2113,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
         name_test,
         name_test_ctx,
         name_test == NULL && th_tree_is_xml(tree), /* GCOVR_EXCL_BR_LINE: XML only */
+        &order,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -1934,6 +2122,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
     if (regex_cache != NULL) {
         xr_cache_free(regex_cache);
     }
+    xp_order_drop(&order);
     return rc;
 }
 
@@ -1948,12 +2137,13 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
                      xp_before_python_fn before_python, xp_result *out, const char **feature) {
     xr_cache *regex_cache = NULL;
     xp_live_registry live = {0};
+    xp_order *order = NULL;
 #ifdef TH_OPERATION_LIMIT
     size_t operations = 0;
 #endif
     xp_ctx ctx = {
         tree,        context,       -1,   1,    1, feature, vars, namespaces, extension, extension_ctx, 0, &regex_cache,
-        &live,       before_python, NULL, NULL, 0,
+        &live,       before_python, NULL, NULL, 0, &order,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -1964,5 +2154,6 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
     if (regex_cache != NULL) {
         xr_cache_free(regex_cache);
     }
+    xp_order_drop(&order);
     return rc;
 }

@@ -171,6 +171,8 @@ typedef struct {
     uint64_t next_id;
 } xp_live_registry;
 
+typedef struct xp_order xp_order;
+
 typedef struct {
     struct th_tree *tree;
     struct th_node *node;
@@ -189,6 +191,7 @@ typedef struct {
     xp_name_test_fn name_test;
     void *name_test_ctx;
     int strict_no_ns;
+    xp_order **order; /* shared by the predicate contexts of one top-level evaluation, built by its first sort */
 #ifdef TH_OPERATION_LIMIT
     size_t *operations; /* shared by the predicate contexts of one top-level evaluation */
 #endif
@@ -226,8 +229,14 @@ static inline void xp_live_changed(xp_ctx *ctx) {
     }
 }
 
+void xp_order_drop(xp_order **order);
+
 static inline int xp_before_python(xp_ctx *ctx) {
-    return ctx->before_python == NULL ? 0 : ctx->before_python(ctx->extension_ctx, ctx->live->current);
+    if (ctx->before_python == NULL) {
+        return 0;
+    }
+    xp_order_drop(ctx->order);
+    return ctx->before_python(ctx->extension_ctx, ctx->live->current);
 }
 
 #ifdef TH_OPERATION_LIMIT

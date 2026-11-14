@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import timeit
 from functools import partial
 from operator import ge, gt, le, lt
 from types import MappingProxyType
@@ -315,6 +316,95 @@ def test_preceding_axis_proximity_order_in_predicate(doc: turbohtml.Node) -> Non
 def test_results_are_deduplicated(doc: turbohtml.Node) -> None:
     # both spans share the same ancestor div, which must appear once
     assert tags(doc.xpath("//span/ancestor::div")) == ["div"]
+
+
+@pytest.fixture
+def sibling_doc() -> turbohtml.Node:
+    return turbohtml.parse(f"<ul>{''.join(f'<li>{index}</li>' for index in range(6))}</ul>")
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        pytest.param("//li[last()]/preceding-sibling::li", ["0", "1", "2", "3", "4"], id="reverse-axis"),
+        pytest.param("//li[last()]/preceding-sibling::li[position() > 3]", ["0", "1"], id="reverse-proximity"),
+        pytest.param(
+            "//li[2]/preceding-sibling::li | //li[4]/preceding-sibling::li", ["0", "1", "2"], id="reverse-runs"
+        ),
+        pytest.param("//li[5] | //li[1] | //li[3]", ["0", "2", "4"], id="union-of-siblings"),
+        pytest.param("//li/preceding-sibling::li[1]", ["0", "1", "2", "3", "4"], id="reverse-per-context"),
+        pytest.param("//li[last()]/preceding::li", ["0", "1", "2", "3", "4"], id="preceding-axis"),
+        pytest.param("//li[position() > 4] | //li[1] | //li[2]", ["0", "1", "4", "5"], id="union-with-filter"),
+    ],
+)
+def test_sibling_node_sets_are_document_ordered(sibling_doc: turbohtml.Node, expr: str, expected: list[str]) -> None:
+    assert element_texts(sibling_doc.xpath(expr)) == expected
+
+
+def element_texts(result: XPathResult) -> list[str]:
+    return [node.text for node in node_list(result) if isinstance(node, Element)]
+
+
+def test_long_sibling_node_sets_are_document_ordered() -> None:
+    long_list = turbohtml.parse(f"<ul>{''.join(f'<li>{index}</li>' for index in range(3000))}</ul>")
+    assert element_texts(long_list.xpath("//li[3000]/preceding-sibling::li[position() < 3]")) == ["2997", "2998"]
+    assert element_texts(long_list.xpath("//li[position() mod 2 = 0] | //li[position() mod 2 = 1]")) == [
+        str(index) for index in range(3000)
+    ]
+    assert element_texts(long_list.xpath("//li[3000] | //li[1] | //li[1500]")) == ["0", "1499", "2999"]
+
+
+def test_union_of_elements_and_their_attributes() -> None:
+    items = "".join(f'<li id="{index}">{index}</li>' for index in range(70))
+    attributed = turbohtml.parse(f"<ul>{items}</ul>")
+    assert XPath("count(//li | //li/@id)")(attributed) == pytest.approx(140.0)
+
+
+def test_predicate_union_reuses_one_ordering_per_evaluation(sibling_doc: turbohtml.Node) -> None:
+    assert XPath("count(//li[count(preceding-sibling::li | following-sibling::li) = 5])")(sibling_doc) == pytest.approx(
+        6.0
+    )
+
+
+def test_node_set_variable_across_detached_subtrees_keeps_every_node() -> None:
+    doc = turbohtml.parse("<div><p>a</p><p>b</p></div>")
+    first_p, second_p = [node for node in node_list(doc.xpath("//p")) if isinstance(node, Element)]
+    first_p.extract()
+    second_p.extract()
+    assert len(node_list(XPath("$nodes")(doc, nodes=[second_p, first_p]))) == 2
+    assert len(node_list(XPath("$left | $right")(doc, left=[second_p], right=[first_p]))) == 2
+
+
+def test_long_node_sets_across_detached_subtrees_keep_every_node() -> None:
+    doc = parse_xml(f"<root><a>{'<i/>' * 70}</a><b>{'<i/>' * 70}</b></root>")
+    first, second = [node for node in node_list(doc.xpath("/root/*")) if isinstance(node, Element)]
+    first.extract()
+    second.extract()
+    first_items = [node for node in node_list(first.xpath("i")) if isinstance(node, Element)]
+    second_items = [node for node in node_list(second.xpath("i")) if isinstance(node, Element)]
+    assert len(node_list(XPath("$left | $right")(doc, left=first_items, right=second_items))) == 140
+    assert len(node_list(XPath("$nodes")(doc, nodes=second_items + first_items))) == 140
+
+
+def test_extension_call_after_an_indexed_sort_keeps_results(sibling_doc: turbohtml.Node) -> None:
+    def count_nodes(_context: SimpleNamespace, nodes: list[Element]) -> float:
+        return float(len(nodes))
+
+    extensions: dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], str | float | bool]] = {
+        (None, "count_nodes"): count_nodes
+    }
+    selector = XPath("count(//li | //li[1]) + count_nodes(//li)", extensions=extensions)
+    assert selector(sibling_doc) == pytest.approx(12.0)
+
+
+def test_reverse_axis_sort_costs_no_more_than_a_linear_scan() -> None:
+    long_list = turbohtml.parse(f"<ul>{'<li>x</li>' * 3000}</ul>")
+    reverse = XPath("count(//li[last()]/preceding-sibling::li)")
+    linear = XPath("count(//li[1]/following-sibling::li)")
+    assert reverse(long_list) == linear(long_list) == pytest.approx(2999.0)
+    reverse_time = min(timeit.repeat(partial(reverse, long_list), number=1, repeat=5))
+    linear_time = min(timeit.repeat(partial(linear, long_list), number=1, repeat=5))
+    assert reverse_time <= 20 * linear_time
 
 
 def test_context_relative(doc: turbohtml.Node) -> None:
