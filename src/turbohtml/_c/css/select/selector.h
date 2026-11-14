@@ -209,6 +209,7 @@ int selector_matches_alt(th_node *node, const sel_complex *complex, const sel_ct
    the CSSOM cascade. */
 void sel_specificity(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c);
 int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth);
+int selector_query_uses_has_memo(const sel_compiled *compiled, th_node *origin);
 /* Whether the selector writes :scope anywhere, so a match depends on the scope element. */
 int selector_uses_scope(const sel_compiled *compiled);
 void sel_memo_free(sel_memo *memo);

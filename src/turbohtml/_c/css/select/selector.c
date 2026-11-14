@@ -2629,6 +2629,11 @@ int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth) {
     return compiled->has_relational && depth >= SEL_HAS_MEMO_MIN_DESCENT;
 }
 
+int selector_query_uses_has_memo(const sel_compiled *compiled, th_node *origin) {
+    return compiled->has_relational &&
+           selector_uses_has_memo(compiled, th_tree_max_depth(compiled->tree, th_node_root(origin)));
+}
+
 int selector_uses_scope(const sel_compiled *compiled) {
     int uses_scope = 0;
     for (int alt = 0; alt < compiled->count; alt++) {
