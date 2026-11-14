@@ -2661,3 +2661,28 @@ def test_rng_numeric_bound_controls(datatype: str, params: str, value: str, *, e
         f'<data type="{datatype}">{params}</data></element>'
     )
     assert tuple(validator.validate(parse_xml(f"<doc>{value}</doc>")).valid for _ in range(2)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("datatype", "value", "expected"),
+    [
+        pytest.param("date", "2023-02-28", True, id="date-february-last-day"),
+        pytest.param("date", "2023-02-30", False, id="date-february-30"),
+        pytest.param("date", "2023-04-31", False, id="date-april-31"),
+        pytest.param("date", "2024-02-29", True, id="date-leap-day"),
+        pytest.param("date", "2023-02-29", False, id="date-common-year-february-29"),
+        pytest.param("date", "1900-02-29", False, id="date-century-not-leap"),
+        pytest.param("date", "2000-02-29", True, id="date-400-year-leap"),
+        pytest.param("date", "0000-02-29", True, id="date-year-zero-leap"),
+        pytest.param("date", f"1{'0' * 399}1-02-29", False, id="date-long-common"),
+        pytest.param("dateTime", "2023-02-30T12:00:00", False, id="dateTime-february-30"),
+        pytest.param("dateTime", "2024-02-29T23:59:59Z", True, id="dateTime-leap-day"),
+        pytest.param("dateTime", "2023-02-29T00:00:00", False, id="dateTime-common-year-february-29"),
+    ],
+)
+def test_rng_date_calendar_day(datatype: str, value: str, *, expected: bool) -> None:
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="{datatype}"/></element>'
+    )
+    assert validator.is_valid(parse_xml(f"<doc>{value}</doc>")) is expected
