@@ -381,6 +381,22 @@ static int url_has_scheme(PyObject *url) {
     return 0;
 }
 
+static int url_first_segment_colon(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    for (Py_ssize_t index = 0; index < length; index++) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, index);
+        if (point == '/' || point == '\\' || point == '?' || point == '#') {
+            break;
+        }
+        if (point == ':') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static Py_ssize_t url_base_opaque_colon(PyObject *base) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(base);
     if (length < 2 || !th_scheme_start(PyUnicode_READ_CHAR(base, 0))) {
@@ -516,10 +532,19 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
                            PyUnicode_FindChar(target, '#', 0, encoded_dot, 1) < 0;
     Py_ssize_t colon = path_encoded_dot ? url_same_scheme_colon(base, target) : -1;
     if (colon >= 0 && th_url_web_authority(target) == TH_URL_WEB_AUTHORITY_NONE) {
+        /* The remainder is a relative reference, so no scheme scan may read it again; "./" keeps a first segment that
+           holds a colon a path (RFC 3986 section 4.2). */
         PyObject *relative = PyUnicode_Substring(target, colon + 1, target_len);
         if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (url_first_segment_colon(relative)) {
+            Py_SETREF(relative, th_str_format("./%U", relative));
+            if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
+                Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         }
         PyObject *resolved =
             url_join_encoded_dot_segments(normalized_base == NULL ? base : normalized_base, relative, literalized);

@@ -19,6 +19,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h"
+#include "core/work_steps.h"
 
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/nodes.h"
@@ -366,6 +367,7 @@ static int xhtml_prefix_set_add(PyObject *set, const char *prefix, Py_ssize_t pr
         return -1;     /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_ssize_t before = PySet_GET_SIZE(set);
+    TH_WORK_STEP();
     int added = PySet_Add(set, key);
     Py_DECREF(key);
     if (added < 0) { /* GCOVR_EXCL_BR_LINE: a bytes insert only fails on allocation failure */
@@ -379,6 +381,7 @@ static int xhtml_prefix_set_add(PyObject *set, const char *prefix, Py_ssize_t pr
    a set once, which keeps the work linear in its attribute count. */
 static int xhtml_prefix_seen(xhtml_prefix_set *handled, const char *prefix, Py_ssize_t prefix_len) {
     for (Py_ssize_t index = 0; index < handled->inline_count; index++) {
+        TH_WORK_STEP();
         if (handled->lengths[index] == prefix_len && memcmp(handled->names[index], prefix, (size_t)prefix_len) == 0) {
             return 1;
         }

@@ -6,7 +6,7 @@ from typing import Final
 import pytest
 
 import turbohtml
-from turbohtml import Document, RdfaItem, StructuredData, parse
+from turbohtml import Document, Element, RdfaItem, StructuredData, Text, parse
 from turbohtml.extract import MicrodataItem, OpenGraph, microdata, opengraph
 
 
@@ -1520,3 +1520,46 @@ def test_json_ld_brackets_inside_a_string_do_not_count_toward_depth() -> None:
 )
 def test_json_ld(html: str, expected: list[dict[str, str | int | bool | float] | list[dict[str, str | int]]]) -> None:
     assert parse(html).json_ld() == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            '<svg><script type="application/ld+json">{"a": <script type="application/ld+json">1}</script></script>',
+            [],
+            id="split-across-a-nested-script",
+        ),
+        pytest.param(
+            '<svg><script type="application/ld+json">[1<script type="application/ld+json">{"b": 2}</script>, 3]'
+            "</script></svg>",
+            [[1, 3], {"b": 2}],
+            id="each-script-its-own-block",
+        ),
+        pytest.param(
+            '<math><script type="application/ld+json">{"a": <mi>1</mi>}</script></math>',
+            [],
+            id="element-child-text-not-data",
+        ),
+    ],
+)
+def test_json_ld_foreign_script_reads_its_text_children_only(
+    html: str, expected: list[list[int] | dict[str, int]]
+) -> None:
+    # in foreign content <script> elements nest; each is a block of its own text children, not of its descendants' text
+    assert parse(html).json_ld() == expected
+
+
+@pytest.mark.parametrize("root", ["svg", "math"])
+def test_json_ld_nested_foreign_script_is_decoded_once(root: str) -> None:
+    document: Final = parse(f"<{root}>{'<script type=application/ld+json>' * 500}[{'[],' * 99}[]]")
+    assert document.json_ld() == [[[]] * 100]
+    assert document.structured_data().json_ld == [[[]] * 100]
+
+
+def test_json_ld_html_script_drops_text_of_appended_element() -> None:
+    document: Final = parse('<script type="application/ld+json">[1</script>')
+    script: Final = document.select_one("script")
+    assert isinstance(script, Element)
+    script.append(Element("i", children=[Text(",2]")]))
+    assert document.json_ld() == []

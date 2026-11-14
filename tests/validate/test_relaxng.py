@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -12,6 +12,8 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -947,12 +949,15 @@ def _wildcards_outnumber_exact(count: int) -> str:
         pytest.param(_except_wildcard_pair, id="except-class-against-a-wildcard"),
     ],
 )
-def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], str]) -> None:
+def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], str], work_steps: WorkSteps) -> None:
     schema = builder(20000)
-    start = time.perf_counter()
-    with pytest.raises(ValueError, match="too large to check interleave branches"):
-        RelaxNG(schema)
-    assert time.perf_counter() - start < 5.0
+
+    def reject() -> None:
+        with pytest.raises(ValueError, match="too large to check interleave branches"):
+            RelaxNG(schema)
+
+    # nc_holds and nc_overlap tick per visit while the budget counts units, so visits can pass the limit: 1.30x at most
+    assert 0 < work_steps(reject) <= 2 * (1 << 25)
 
 
 def test_rng_shared_unions_stay_accepted() -> None:
@@ -1001,32 +1006,16 @@ def _chained_unions(depth: int) -> str:
     return rgrammar(f"{start}{chained}")
 
 
-def test_rng_same_structure_wildcards_scale_linearly() -> None:
-    timings = []
-    for count in (2000, 8000):
+def test_rng_same_structure_wildcards_scale_linearly(work_steps: WorkSteps) -> None:
+    def wildcards(count: int) -> str:
         alts = "".join(f'<element><nsName ns="urn:a"/><attribute name="v{index}"/></element>' for index in range(count))
-        schema = rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            RelaxNG(schema)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < 9 * timings[0]
+        return rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
+
+    work_steps.assert_linear(lambda n: partial(RelaxNG, wildcards(n)), (2000, 8000), exponent=1.3)
 
 
-def test_rng_chain_of_interleaves_scales_linearly() -> None:
-    schema_small = _interleave_chain(500)
-    schema_large = _interleave_chain(2000)
-    timings = []
-    for schema in (schema_small, schema_large):
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            RelaxNG(schema)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < 9 * timings[0]
+def test_rng_chain_of_interleaves_scales_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(RelaxNG, _interleave_chain(n)), (500, 2000), exponent=1.3)
 
 
 def _interleave_chain(count: int) -> str:
