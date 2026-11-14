@@ -1,2 +1,2 @@
-``normalize_url``, ``clean_url`` and ``extract_links`` no longer crash on a query or fragment key holding an encoded
-NUL, which is kept unless another rule drops it.
+URL cleaning no longer crashes on a query or fragment key that holds an encoded NUL; such a key is kept unless another
+rule drops it.
