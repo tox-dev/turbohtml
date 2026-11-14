@@ -44,6 +44,7 @@ struct nsnode {
     const nameclass *name;
     struct nsnode *left, *right;
     Py_ssize_t size; /* nodes in this treap; equal treaps share one node, so one size */
+    uint64_t id;     /* creation order, so table probes depend on the input and not on the heap address */
 };
 
 struct pattern {
@@ -1546,6 +1547,7 @@ static nsnode *ns_alloc(th_schema *schema) {
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         return NULL;      /* GCOVR_EXCL_LINE */
     }
+    node->id = (uint64_t)schema->rng_nodes;
     return node;
 }
 
@@ -1597,8 +1599,8 @@ static int ns_same(const nameclass *left, const nameclass *right) {
 static size_t ns_table_slot(const nameclass *name, const nsnode *left, const nsnode *right, size_t mask) {
     uint64_t identity = name->type == NC_NAME ? name->hash : name->seq;
     uint64_t hash = identity * UINT64_C(0x9E3779B97F4A7C15);
-    hash ^= (uint64_t)(uintptr_t)left * UINT64_C(0xBF58476D1CE4E5B9);
-    hash ^= (uint64_t)(uintptr_t)right * UINT64_C(0x94D049BB133111EB);
+    hash ^= (left == NULL ? 0 : left->id) * UINT64_C(0xBF58476D1CE4E5B9);
+    hash ^= (right == NULL ? 0 : right->id) * UINT64_C(0x94D049BB133111EB);
     hash ^= hash >> 31;
     hash *= UINT64_C(0xD6E8FEB86659FD93);
     return (size_t)(hash ^ (hash >> 29)) & mask;
@@ -1923,7 +1925,7 @@ static nsnode *rng_names_single(th_schema *schema, const nameclass *nc, nstree *
 /* Checked interleaves: a table of the interleave nodes whose branches already passed the 7.4 check, so an enclosing
    set computation and the scan do not check one twice. */
 static size_t rng_checked_slot(const th_node *node, size_t mask) {
-    return (size_t)(((uint64_t)(uintptr_t)node >> 4) * UINT64_C(0x9E3779B97F4A7C15) >> 32) & mask;
+    return (size_t)((uint64_t)node->seq * UINT64_C(0x9E3779B97F4A7C15) >> 32) & mask;
 }
 
 static int rng_is_checked(th_schema *schema, const th_node *node) {
