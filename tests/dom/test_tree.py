@@ -1860,6 +1860,13 @@ def test_table_closed_under_refused_template_keeps_later_text() -> None:
     assert parse(markup).text == "x"
 
 
+def test_stray_template_end_tag_at_depth_cap_is_ignored() -> None:
+    # the parse reached the cap, so the end tag looks for a refused template record, and no template is open at all
+    document = parse(f"{'<div>' * _DEPTH_CAP}</template>x")
+    assert document.find("template") is None
+    assert document.html.endswith(f"<div></div><div></div>x{'</div>' * (_DEPTH_CAP - 2)}</body></html>")
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL

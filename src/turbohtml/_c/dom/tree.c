@@ -2610,22 +2610,20 @@ enum mode {
     M_AFTER_AFTER_FRAMESET,
 };
 
-/* Set on the template mode record of a template the depth cap kept off the stack of open elements. */
-#define TMPL_REFUSED 0x100
-
 /* The stack of template insertion modes: a <template> pushes one, the
    in-template mode replaces its top as content selects a sub-mode, and reset
    returns the top so a closing sub-context resumes the template correctly. */
-static void tmpl_push(th_tree *tree, int record) {
+static void tmpl_push(th_tree *tree, enum mode mode) {
     if (tree->tmpl_len == tree->tmpl_cap) {
         size_t cap;
         size_t bytes;
-        int grew = th_grow_cap((size_t)(tree->tmpl_cap + 1), (size_t)tree->tmpl_cap, 8, sizeof(int), &cap, &bytes);
+        int grew =
+            th_grow_cap((size_t)(tree->tmpl_cap + 1), (size_t)tree->tmpl_cap, 8, sizeof(th_tmpl_record), &cap, &bytes);
         if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
             tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
             return;           /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
         }
-        int *grown = PyMem_Realloc(tree->tmpl, bytes);
+        th_tmpl_record *grown = PyMem_Realloc(tree->tmpl, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -2633,7 +2631,7 @@ static void tmpl_push(th_tree *tree, int record) {
         tree->tmpl = grown;
         tree->tmpl_cap = (Py_ssize_t)cap;
     }
-    tree->tmpl[tree->tmpl_len++] = record;
+    tree->tmpl[tree->tmpl_len++] = (th_tmpl_record){.mode = (uint8_t)mode, .refused = 0};
 }
 
 static void tmpl_pop(th_tree *tree) {
@@ -2646,27 +2644,40 @@ static void tmpl_pop(th_tree *tree) {
 static void tmpl_set(th_tree *tree, enum mode mode) {
     /* tmpl_set runs only while a template insertion mode is on the stack. */
     if (tree->tmpl_len > 0 /* GCOVR_EXCL_BR_LINE */) {
-        tree->tmpl[tree->tmpl_len - 1] = (tree->tmpl[tree->tmpl_len - 1] & TMPL_REFUSED) | (int)mode;
+        tree->tmpl[tree->tmpl_len - 1].mode = (uint8_t)mode;
     }
 }
 
 /* tmpl_top runs only for a template element, which carries a pushed mode. */
 static enum mode tmpl_top(th_tree *tree) {
-    return tree->tmpl_len > 0 ? (enum mode)(tree->tmpl[tree->tmpl_len - 1] & ~TMPL_REFUSED)
-                              : M_IN_BODY; /* GCOVR_EXCL_BR_LINE */
+    return tree->tmpl_len > 0 /* GCOVR_EXCL_BR_LINE */ ? (enum mode)tree->tmpl[tree->tmpl_len - 1].mode : M_IN_BODY;
 }
 
 /* A template refused at the depth cap stays off the stack but still opens its marker and its mode record, so what
    follows parses as its content. The record is flagged so that the template's own end tag pops it and the marker
    instead of closing the nearest open template, an ancestor. */
-static void stack_push_template(th_tree *tree, th_node *node) {
-    int kept = stack_push_kept(tree, node);
+static TH_NOINLINE void push_refused_template(th_tree *tree) {
     afe_push_marker(tree);
-    tmpl_push(tree, kept ? M_IN_TEMPLATE : M_IN_TEMPLATE | TMPL_REFUSED);
+    Py_ssize_t tmpl_len_before = tree->tmpl_len;
+    tmpl_push(tree, M_IN_TEMPLATE);
+    if (tree->tmpl_len > tmpl_len_before) { /* GCOVR_EXCL_BR_LINE: tmpl_push fails only on allocation */
+        tree->tmpl[tree->tmpl_len - 1].refused = 1;
+    }
 }
 
+static void stack_push_template(th_tree *tree, th_node *node) {
+    if (stack_at_depth_cap(tree)) {
+        push_refused_template(tree);
+        return;
+    }
+    stack_push(tree, node);
+    afe_push_marker(tree);
+    tmpl_push(tree, M_IN_TEMPLATE);
+}
+
+/* Only a parse that reached the depth cap can hold a refused template, so every other parse skips the record read. */
 static int current_template_refused(const th_tree *tree) {
-    return tree->tmpl_len > 0 && (tree->tmpl[tree->tmpl_len - 1] & TMPL_REFUSED);
+    return tree->max_depth >= TH_MAX_TREE_DEPTH && tree->tmpl_len > 0 && tree->tmpl[tree->tmpl_len - 1].refused;
 }
 
 /* Reset the insertion mode appropriately: pick the mode implied by the current
@@ -4412,6 +4423,13 @@ static enum th_drain drain_after_after_frameset(th_tree *tree, th_token *tok, th
     return TH_DRAIN_NEXT; /* everything else is a parse error and ignored */
 }
 
+/* The end tag of a template the depth cap kept off the stack drops its marker and mode record; nothing to pop. */
+static TH_NOINLINE enum mode close_refused_template(th_tree *tree) {
+    afe_clear_to_marker(tree);
+    tmpl_pop(tree);
+    return reset_insertion_mode(tree);
+}
+
 /* Drive tree construction over the tokens the tokenizer can produce now,
    returning when it stalls (TH_STEP_NEED_MORE), reaches EOF (TH_STEP_DONE), or
    fails. The insertion-mode state is restored from run_state on entry and saved
@@ -4477,9 +4495,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
            their own handlers for the active-formatting interactions */
         if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
             if (current_template_refused(tree)) {
-                afe_clear_to_marker(tree);
-                tmpl_pop(tree);
-                dc->mode = reset_insertion_mode(tree);
+                dc->mode = close_refused_template(tree);
             } else if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
                 /* an element still open inside the template may have pushed its own formatting marker, which the clear
