@@ -2705,6 +2705,25 @@ def test_minify_output_is_a_fixed_point(stylesheet: str, inline: str) -> None:
     assert (minify_css(stylesheet), minify_css_inline(inline)) == (stylesheet, inline)
 
 
+@pytest.mark.parametrize("source", [pytest.param(row[0], id=row[0][:40]) for row in _GOLDEN])
+def test_minify_is_idempotent_over_golden_corpus(source: str) -> None:
+    once = minify_css(source)
+    assert minify_css(once) == once
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{b:u+/*x*/calc( }", "a{b:u+ calc(})}", id="urange-prefix-before-hex-ident"),
+        pytest.param("a{b:u+?+0rgb(1)}", "a{b:u+?0rgb(1)}", id="urange-wildcard-then-hex-digit"),
+        pytest.param("a{b:calc((1", "a{b:1}", id="calc-nested-group-open-at-end"),
+    ],
+)
+def test_minify_css_is_idempotent(source: str, expected: str) -> None:
+    once = minify_css(source)
+    assert (once, minify_css(once)) == (expected, expected)
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

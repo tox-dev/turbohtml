@@ -151,9 +151,15 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
             int negative_after_number = comp->kind == CK_NUM &&
                                         (prev->kind == CK_NUM || (prev->kind == CK_DIM && prev->len == 1)) &&
                                         text[0] == '-';
+            /* `u+` then a hex digit or `?` reads back as one unicode-range token, so the space after the `+` stays */
+            int urange_prefix = index >= 2 && prev->kind == CK_DELIM && pool->data[prev->off] == '+' &&
+                                comps->items[index - 2].kind == CK_IDENT && comps->items[index - 2].len == 1 &&
+                                css_lower(pool->data[comps->items[index - 2].off]) == 'u' &&
+                                (css_is_hex(text[0]) || text[0] == '?');
             if (!negative_after_number &&
-                (!glued || css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT,
-                                           pool->data + comp->off, comp->len))) {
+                (urange_prefix || !glued ||
+                 css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT, pool->data + comp->off,
+                                 comp->len))) {
                 cbuf_putc(out, ' ');
             }
         }

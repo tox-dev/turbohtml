@@ -601,7 +601,11 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                    (css_is_hex(source[pos + 2]) || source[pos + 2] == '?')) {
             Py_ssize_t scan = pos + 2;
             Py_ssize_t digits = 0;
-            while (scan < length && digits < 6 && (css_is_hex(source[scan]) || source[scan] == '?')) {
+            while (scan < length && digits < 6 && css_is_hex(source[scan])) {
+                scan++;
+                digits++;
+            }
+            while (scan < length && digits < 6 && source[scan] == '?') {
                 scan++;
                 digits++;
             }

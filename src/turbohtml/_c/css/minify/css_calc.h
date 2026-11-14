@@ -226,10 +226,11 @@ static void calc_parse_value(calc_parser *parser, csum *out) {
         calc_parse_sum(parser, out);
         css_nesting_leave(parser->vec);
         calc_skip_ws(parser);
+        /* a group still open at the end of the input closes there, as the re-parse of the minified output sees it */
         if (parser->pos < parser->end && parser->vec->items[parser->pos].kind == CSS_DELIM &&
             parser->vec->items[parser->pos].delim == ')') {
             parser->pos++;
-        } else {
+        } else if (parser->pos != parser->end || parser->end != parser->vec->len) {
             out->ok = 0;
         }
     }
