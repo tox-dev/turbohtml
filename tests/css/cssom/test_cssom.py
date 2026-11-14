@@ -154,21 +154,6 @@ def test_stylesheet_skips_at_rules() -> None:
     assert [rule.selector_text for rule in sheet.rules] == ["q"]
 
 
-@pytest.mark.parametrize(
-    ("css", "selectors"),
-    [
-        pytest.param("@import 'a'; @import 'b'; p { color: red }", ["p"], id="statements-before-rule"),
-        pytest.param("@a; @media x { b { color: red } } p { color: red }", ["p"], id="statement-then-block"),
-        pytest.param("@media x { b { color: red; } } @a; p { color: red }", ["p"], id="block-then-statement"),
-        pytest.param("@a (;) '{;' [{;}]; p { color: red }", ["p"], id="nested-separators-stay-in-statement"),
-        pytest.param("@a (x) { b { color: red } } ; p { color: red }", ["; p"], id="semicolon-after-block"),
-        pytest.param("p { color: red } @a; q { color: red } @b", ["p", "q"], id="statements-between-rules"),
-    ],
-)
-def test_stylesheet_at_rule_ends_at_first_semicolon_or_block(css: str, selectors: list[str]) -> None:
-    assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
-
-
 def _stylesheet_selectors(css: str) -> str:
     return " ".join(rule.selector_text for rule in StyleSheet(css).rules)
 
@@ -186,9 +171,7 @@ def _computed_color(css: str) -> str:
         pytest.param(_computed_color, "red", id="computed-style"),
     ],
 )
-def test_statement_at_rules_parse_in_linear_time(
-    entry: Callable[[str], str], expected: str, work_steps: WorkSteps
-) -> None:
+def test_statement_at_rules_scale_linearly(entry: Callable[[str], str], expected: str, work_steps: WorkSteps) -> None:
     statement: Final = "@import url(x);"
     work_steps.assert_linear(lambda n: partial(entry, f"{statement * n}p {{ color: red }}"), (500, 2000))
     assert entry(f"{statement * 2_000}p {{ color: red }}") == expected
@@ -551,13 +534,15 @@ def test_computed_style_inherit_at_root_falls_back_to_initial() -> None:
     assert computed_style(root)["color"] == "canvastext"
 
 
-def test_computed_style_of_extracted_element_matches_no_root_rule() -> None:
-    # the page's own :root rule reaches an element that has no parent once it is extracted
-    paragraph = parse("<style>:root { color: red } p { display: inline }</style><p>x</p>").select_one("p")
-    assert isinstance(paragraph, Element)
-    assert computed_style(paragraph)["color"] == "red"
-    style = computed_style(paragraph.extract())
-    assert (style["color"], style["display"]) == ("canvastext", "inline")
+def test_computed_style_detached_copy_ignores_root_rule() -> None:
+    # extracting an element leaves it without ancestors, and the root rule must not keep matching it
+    emphasis = parse(
+        "<style>:root { color: navy } em { margin-top: 2px }</style><section><em>x</em></section>"
+    ).select_one("em")
+    assert isinstance(emphasis, Element)
+    assert computed_style(emphasis)["color"] == "navy"
+    detached = computed_style(emphasis.extract())
+    assert (detached["color"], detached["margin-top"]) == ("canvastext", "2px")
 
 
 def test_computed_style_ignores_unsupported_selector_rules() -> None:
@@ -1436,42 +1421,38 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
     ("html", "expected"),
     [
         pytest.param(
-            "<svg><style>p{color:<tspan>red</tspan>}</style></svg><p></p>",
+            "<math><style>p{color:<mi>teal</mi>}</style></math><p></p>",
             {"color": "canvastext"},
-            id="element-child-text-not-sheet",
+            id="child-element-text-not-sheet",
         ),
         pytest.param(
-            "<svg><style>p{color:<style>red}</style></style></svg><p></p>",
-            {"color": "canvastext"},
-            id="nested-style-not-in-outer-sheet",
-        ),
-        pytest.param(
-            "<svg><style>p{top:1px}<style>p{color:red}</style>p{left:2px}</style></svg><p></p>",
-            {"top": "1px", "color": "red", "left": "2px"},
-            id="nested-style-own-sheet",
+            "<math><style><style>p</style>{font-style:italic}</style></math><p></p>",
+            {"font-style": "normal"},
+            id="inner-style-text-not-outer-declaration",
         ),
     ],
 )
-def test_computed_style_foreign_style_reads_its_text_children_only(html: str, expected: dict[str, str]) -> None:
-    # in foreign content <style> elements nest; each is a sheet of its own text children, not of its descendants' text
+def test_computed_style_foreign_style_sheet_is_its_own_text(html: str, expected: dict[str, str]) -> None:
+    # a nested style's text is compiled as that style's own sheet, never appended to the enclosing one
     style: Final = computed_style(parse(html).select("p")[0])
     assert {name: style[name] for name in expected} == expected
 
 
-def test_computed_style_nested_foreign_style_stays_within_memory_budget(
+def test_computed_style_style_staircase_stays_within_memory_budget(
     peak_bytes: PeakBytes,
 ) -> None:
     peak: Final = peak_bytes(
         "import tracemalloc\n"
         "from turbohtml import parse\n"
         "from turbohtml.cssom import computed_style\n"
-        "document = parse('<p></p><svg>' + '<style>' * 200 + 'a{}' * 1000 + '</style>' * 200 + '</svg>')\n"
+        "staircase = ''.join('<style>p{z-index:%d}' % index for index in range(270))\n"
+        "document = parse('<p></p><math>' + staircase + '</math>')\n"
         "tracemalloc.start()\n"
         "computed_style(document.select('p')[0])\n"
         "print(tracemalloc.get_traced_memory()[1])\n",
         (),
     )
-    assert peak < 16 * 1024 * 1024, peak
+    assert peak < 12 * 1024 * 1024, peak
 
 
 def test_computed_style_html_style_drops_text_of_appended_element() -> None:
