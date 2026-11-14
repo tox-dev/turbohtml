@@ -859,7 +859,11 @@ char *attr_key_utf8(th_tree *tree, PyObject *key, Py_ssize_t *out_len);
    tostring() encodes through it too. */
 PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs);
 
-/* The WHATWG name a meta_charset declaration writes for an encode() codec, or NULL with ValueError set when no label
+/* The name the codec registry gives encoding, as a new reference: None when its CodecInfo carries no name, or NULL with
+   the lookup's exception set for an unknown codec. Defined in node.c beside the ISO-2022 check. */
+PyObject *codec_registry_name(const char *encoding);
+
+/* The WHATWG name a meta_charset declaration writes for an encode() codec, or NULL with no exception set when no label
    names it. Defined in document.c beside the codec registry, which holds the label table. */
 const char *meta_charset_label(const char *encoding);
 

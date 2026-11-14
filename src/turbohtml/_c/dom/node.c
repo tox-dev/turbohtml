@@ -2074,19 +2074,20 @@ PyDoc_STRVAR(serialize_iter_doc, "serialize_iter(options=None, *, inner=False)\n
                                  ":raises ValueError: if options selects a Minify layout, which cannot stream.\n"
                                  ":raises RuntimeError: from the iterator, after such an edit.");
 
-PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', options=None, *, inner=False)\n--\n\n"
-                         "Serialize this node and its subtree to bytes, with the same formatting controls\n"
-                         "as serialize().\n\n"
-                         ":param encoding: the codec to encode the markup with.\n"
-                         ":param options: an Html configuration object, or None for the defaults.\n"
-                         ":returns: the serialized markup encoded as bytes.\n"
-                         ":raises TypeError: if options is not an Html configuration object.\n"
-                         ":raises LookupError: if encoding names a codec Python does not know.\n"
-                         ":raises ValueError: if meta_charset is set and no WHATWG encoding label names the codec,\n"
-                         "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16.\n"
-                         ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
-                         "    represent. Under an ISO-2022 codec those include U+000E, U+000F and U+001B,\n"
-                         "    which would reach the output as the shift codes that switch a decoder's state.");
+PyDoc_STRVAR(encode_doc,
+             "encode(encoding='utf-8', options=None, *, inner=False)\n--\n\n"
+             "Serialize this node and its subtree to bytes, with the same formatting controls\n"
+             "as serialize().\n\n"
+             ":param encoding: the codec to encode the markup with.\n"
+             ":param options: an Html configuration object, or None for the defaults.\n"
+             ":returns: the serialized markup encoded as bytes.\n"
+             ":raises TypeError: if options is not an Html configuration object.\n"
+             ":raises LookupError: if encoding names a codec Python does not know.\n"
+             ":raises ValueError: if meta_charset would declare the codec and no WHATWG encoding label names it,\n"
+             "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16.\n"
+             ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
+             "    represent. Under an ISO-2022 codec those include U+000E, U+000F and U+001B,\n"
+             "    which would reach the output as the shift codes that switch a decoder's state.");
 
 PyDoc_STRVAR(find_doc,
              "find(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, **filters)\n--\n\n"
@@ -2314,18 +2315,27 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
 /* Serialize self to a str under the given Formatter member, layout mode, and the
    two output normalizations. encoding is the codec encode() writes, whose WHATWG
    name a meta_charset option declares; NULL is the str output, which declares
-   utf-8. It is borrowed only for the duration of the call. */
+   utf-8. A codec no label names is refused only when the output would declare it,
+   so a tree with no head and no charset meta is not refused. It is borrowed only
+   for the duration of the call. */
 static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj, int sort_attributes,
                                     int meta_charset, int xml, const char *encoding, int inner) {
     const char *charset = "utf-8";
+    int unlabelled = 0;
+    int *charset_missing = NULL;
     if (meta_charset && encoding != NULL) {
-        charset = meta_charset_label(encoding);
-        if (charset == NULL) {
+        const char *label = meta_charset_label(encoding);
+        if (label == NULL && PyErr_Occurred()) {
             return NULL;
+        }
+        if (label == NULL) {
+            charset_missing = &unlabelled;
+        } else {
+            charset = label;
         }
     }
     th_serialize_opts opts = {0,   sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset),
-                              xml, inner,           NULL,         0};
+                              xml, inner,           NULL,         0,       charset_missing};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2350,6 +2360,11 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     Py_END_CRITICAL_SECTION();
     if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (unlabelled) {
+        PyMem_Free(data);
+        return PyErr_Format(PyExc_ValueError, "meta_charset cannot declare %s: no WHATWG encoding label names it",
+                            encoding);
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
@@ -2415,23 +2430,35 @@ TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args
     return node_serialize_options(self, options, NULL, inner);
 }
 
-/* Whether encoding resolves to one of CPython's ISO-2022 codecs (iso2022_jp and its variants, iso2022_kr): 1 or 0, or
-   -1 with the registry's LookupError set. */
-static int codec_is_iso2022(const char *encoding) {
+PyObject *codec_registry_name(const char *encoding) {
     PyObject *codecs = PyImport_ImportModule("codecs");
     /* GCOVR_EXCL_BR_START: the untested arm requires the codecs module to fail to import */
     PyObject *info = codecs == NULL ? NULL : PyObject_CallMethod(codecs, "lookup", "s", encoding);
     /* GCOVR_EXCL_BR_STOP */
     Py_XDECREF(codecs);
     if (info == NULL) {
-        return -1;
+        return NULL;
     }
     PyObject *name = PyObject_GetAttrString(info, "name");
     Py_DECREF(info);
-    const char *resolved = name != NULL && PyUnicode_Check(name) ? PyUnicode_AsUTF8(name) : NULL;
+    if (name == NULL) {
+        PyErr_Clear(); /* a CodecInfo-like tuple a search function registered has no name */
+        return Py_NewRef(Py_None);
+    }
+    return name;
+}
+
+/* Whether encoding resolves to one of CPython's ISO-2022 codecs (iso2022_jp and its variants, iso2022_kr): 1 or 0, or
+   -1 with the registry's LookupError set. */
+static int codec_is_iso2022(const char *encoding) {
+    PyObject *name = codec_registry_name(encoding);
+    if (name == NULL) {
+        return -1;
+    }
+    const char *resolved = PyUnicode_Check(name) ? PyUnicode_AsUTF8(name) : NULL;
     int iso2022 = resolved != NULL && strncmp(resolved, "iso2022", 7) == 0;
     PyErr_Clear(); /* a codec a search function registered without a str name is not one of CPython's */
-    Py_XDECREF(name);
+    Py_DECREF(name);
     return iso2022;
 }
 
@@ -2643,7 +2670,7 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                                           int sort_attributes, int meta_charset, int xml, int inner) {
     module_state *state = state_of(self);
     th_serialize_opts opts = {0,   sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"),
-                              xml, inner,           NULL,         0};
+                              xml, inner,           NULL,         0,       NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

@@ -1083,7 +1083,7 @@ int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:
    minimal escaping, source attribute order, no charset injection. */
-static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 0};
+static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 0, NULL};
 
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
@@ -1095,14 +1095,14 @@ Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 /* The html accessor defaults with the CommonMark attribute-name filter, for the HTML Markdown embeds raw. */
 Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
-    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, (int)context};
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, (int)context, NULL};
     serialize_compact(&out, tree, node, &opts);
     return sbuf_finish(&out, out_len);
 }
 
 Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
-    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, (int)context};
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, (int)context, NULL};
     ser_open_tag(&out, tree, node, &opts);
     sbuf_putc(&out, '>');
     return sbuf_finish(&out, out_len);
@@ -1110,7 +1110,7 @@ Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_htm
 
 Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
-    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, TH_MARKDOWN_HTML_CELL};
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, TH_MARKDOWN_HTML_CELL, NULL};
     th_node *current = node;
     while (current != NULL) {
         current = serialize_compact_step(&out, tree, current, node, &opts, wrap);
@@ -1135,7 +1135,7 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 }
 
 /* The inner_html defaults with XML/XHTML syntax on, the same rules Node.serialize(Html(xml=True)) emits under. */
-static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 0, NULL, 0};
+static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 0, NULL, 0, NULL};
 
 Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};

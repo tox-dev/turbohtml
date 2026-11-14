@@ -85,8 +85,9 @@ serializations of equal trees diff cleanly:
 http-equiv="content-type">``) is normalized in place, and a head that declares none gets a ``<meta charset>`` injected
 as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the encoding of the returned ``str``), while
 ``encode`` declares the WHATWG name of the encoding it writes, the name a browser reads the bytes with, so Latin-1 is
-declared as ``windows-1252``. A codec no WHATWG label names, such as ``iso2022_jp_2`` or ``utf-16``, raises
-:exc:`ValueError` under ``meta_charset``, because the declaration would be wrong; encode without it instead:
+declared as ``windows-1252`` and UTF-8 as ``utf-8``, as ``serialize`` does. A codec no WHATWG label names, such as
+``iso2022_jp_2`` or ``utf-16``, raises :exc:`ValueError` under ``meta_charset`` when the output would declare it,
+because the declaration would be wrong; encode without the option instead:
 
 .. testcode::
 

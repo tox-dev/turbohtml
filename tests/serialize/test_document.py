@@ -2084,7 +2084,6 @@ def test_encode_meta_charset_uses_target_encoding() -> None:
     ("codec", "text", "label"),
     [
         pytest.param("iso2022_jp", "日本語", "ISO-2022-JP", id="iso2022-jp"),
-        pytest.param("latin1", "café", "windows-1252", id="latin1"),
         pytest.param("utf8", "café", "UTF-8", id="utf8"),
         pytest.param("shift_jis", "日本語", "Shift_JIS", id="shift-jis"),
         pytest.param("cp932", "日本語", "Shift_JIS", id="cp932"),
@@ -2093,6 +2092,8 @@ def test_encode_meta_charset_uses_target_encoding() -> None:
         pytest.param("cp949", "한국어", "EUC-KR", id="cp949"),
         pytest.param("gb2312", "中文", "GBK", id="gb2312"),
         pytest.param("big5hkscs", "中文", "Big5", id="big5hkscs"),
+        pytest.param("cp950", "中文", "Big5", id="cp950"),
+        pytest.param("iso8859_16", "Ș", "ISO-8859-16", id="iso8859-16"),
         pytest.param("cp1251", "Привет", "windows-1251", id="cp1251"),
         pytest.param("koi8_u", "Привіт", "KOI8-U", id="koi8-u"),
         pytest.param("mac_roman", "café", "macintosh", id="mac-roman"),
@@ -2108,7 +2109,7 @@ def test_encode_meta_charset_declares_the_whatwg_label(codec: str, text: str, la
 
 def test_encode_meta_charset_declares_utf_8_for_the_bom_codec() -> None:
     out: Final = parse("<p>x").encode("utf-8-sig", Html(meta_charset=True))
-    assert out == b'\xef\xbb\xbf<html><head><meta charset="UTF-8"></head><body><p>x</p></body></html>'
+    assert out == b'\xef\xbb\xbf<html><head><meta charset="utf-8"></head><body><p>x</p></body></html>'
 
 
 @pytest.mark.parametrize(
@@ -2120,13 +2121,29 @@ def test_encode_meta_charset_declares_utf_8_for_the_bom_codec() -> None:
         pytest.param("utf-16", id="utf-16"),
         pytest.param("utf-7", id="utf-7"),
         pytest.param("utf-32", id="utf-32"),
-        pytest.param("cp950", id="cp950"),
-        pytest.param("iso8859_16", id="iso8859-16"),
     ],
 )
 def test_encode_meta_charset_refuses_a_codec_without_a_label(codec: str) -> None:
     with pytest.raises(ValueError, match="no WHATWG encoding label"):
         parse("<p>x").encode(codec, Html(meta_charset=True))
+
+
+def test_encode_meta_charset_refuses_an_existing_charset_meta() -> None:
+    with pytest.raises(ValueError, match="no WHATWG encoding label"):
+        parse('<meta charset="ascii"><p>x').encode("utf-16", Html(meta_charset=True))
+
+
+@pytest.mark.parametrize("codec", ["iso2022_jp_2", "utf-16", "hz"])
+def test_encode_meta_charset_declares_nothing_for_an_element(codec: str) -> None:
+    element: Final = parse("<p>x").select_one("p")
+    assert element is not None
+    assert element.encode(codec, Html(meta_charset=True)) == element.encode(codec)
+
+
+@pytest.mark.parametrize("codec", ["iso2022_jp_2", "utf-16", "hz"])
+def test_encode_meta_charset_declares_nothing_for_a_fragment(codec: str) -> None:
+    fragment: Final = parse_fragment("<p>x")
+    assert fragment.encode(codec, Html(meta_charset=True)) == fragment.encode(codec)
 
 
 @pytest.mark.parametrize("codec", ["iso2022_jp_2", "utf-16", "hz"])

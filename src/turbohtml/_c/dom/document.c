@@ -2407,9 +2407,16 @@ static const struct {
     const char *codec;
     const char *label;
 } CODEC_WHATWG_LABELS[] = {
-    {"big5hkscs", "big5-hkscs"},  {"cp874", "windows-874"},      {"cp932", "windows-31j"},
-    {"cp949", "windows-949"},     {"iso2022_jp", "iso-2022-jp"}, {"mac-cyrillic", "x-mac-cyrillic"},
-    {"mac-roman", "x-mac-roman"}, {"utf-8-sig", "utf-8"},
+    {"big5hkscs", "big5-hkscs"},
+    {"cp874", "windows-874"},
+    {"cp932", "windows-31j"},
+    {"cp949", "windows-949"},
+    {"cp950", "big5"},
+    {"iso2022_jp", "iso-2022-jp"},
+    {"iso8859-16", "iso-8859-16"},
+    {"mac-cyrillic", "x-mac-cyrillic"},
+    {"mac-roman", "x-mac-roman"},
+    {"utf-8-sig", "utf-8"},
 };
 
 /* The label-table entry a codec's registry name resolves to, or NULL when no entry names it. */
@@ -2419,6 +2426,7 @@ static const th_encoding_entry *codec_label_entry(PyObject *name) {
     }
     const char *codec = PyUnicode_AsUTF8(name);
     if (codec == NULL) {
+        PyErr_Clear(); /* a name the UTF-8 encoder rejects is one no label names */
         return NULL;
     }
     for (size_t index = 0; index < sizeof(CODEC_WHATWG_LABELS) / sizeof(CODEC_WHATWG_LABELS[0]); index++) {
@@ -2438,30 +2446,20 @@ static const th_encoding_entry *codec_label_entry(PyObject *name) {
     return th_encoding_lookup(label, (Py_ssize_t)len);
 }
 
-/* The WHATWG name a <meta charset> declares for the codec encode() writes. A codec no label names raises ValueError,
-   so the output never declares an encoding a browser cannot read; UTF-16 is refused too, because the spec rewrites a
-   UTF-16 declaration to UTF-8. */
+/* The WHATWG name a <meta charset> declares for the codec encode() writes, or NULL with no exception set when no label
+   names the codec. UTF-16 has no such name, because the spec rewrites a UTF-16 declaration to UTF-8. */
 const char *meta_charset_label(const char *encoding) {
-    PyObject *codecs = PyImport_ImportModule("codecs");
-    /* GCOVR_EXCL_BR_START: the untested arm requires the codecs module to fail to import */
-    PyObject *info = codecs == NULL ? NULL : PyObject_CallMethod(codecs, "lookup", "s", encoding);
-    /* GCOVR_EXCL_BR_STOP */
-    Py_XDECREF(codecs);
-    if (info == NULL) {
-        return NULL;
-    }
-    PyObject *name = PyObject_GetAttrString(info, "name");
-    Py_DECREF(info);
-    const th_encoding_entry *entry = NULL;
+    PyObject *name = codec_registry_name(encoding);
     if (name == NULL) {
-        PyErr_Clear();
-    } else {
-        entry = codec_label_entry(name);
-        Py_DECREF(name);
-    }
-    if (entry == NULL || th_encoding_declared(entry) != entry) {
-        PyErr_Format(PyExc_ValueError, "meta_charset cannot declare %s: no WHATWG encoding label names it", encoding);
         return NULL;
+    }
+    const th_encoding_entry *entry = codec_label_entry(name);
+    Py_DECREF(name);
+    if (entry == NULL || th_encoding_declared(entry) != entry) {
+        return NULL;
+    }
+    if (entry == &th_encoding_utf8) {
+        return "utf-8"; /* serialize() declares this spelling, so encode() and serialize() agree */
     }
     return entry->canonical;
 }
