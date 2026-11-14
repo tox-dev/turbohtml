@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
-import time
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -18,6 +18,8 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import ModuleType
+
+    from work_steps import WorkSteps
 
 _NEWLY: Final[CSSMinify] = CSSMinify(baseline=2021)
 
@@ -5139,20 +5141,10 @@ def test_filter_nested_functions_keep_their_recovery(nested: str, recovery: str)
 
 
 @pytest.mark.parametrize("name", ["min", "drop-shadow"])
-def test_filter_nested_functions_within_ratio_of_nested_blur(name: str) -> None:
-    depth: Final = 40_000
-    blur: Final = f"a{{filter:{'blur(' * depth}{')' * depth}}}"
-    opener: Final = f"{name}("
-    nested: Final = f"a{{filter:{opener * depth}{')' * depth}}}"
-    start = time.perf_counter()
-    minify_css(blur)
-    # the floor keeps a near-instant baseline from inflating the ratio on a quiet machine
-    baseline = max(time.perf_counter() - start, 0.01)
-    start = time.perf_counter()
-    minified = minify_css(nested)
-    elapsed = time.perf_counter() - start
-    assert minified == nested
-    assert elapsed / baseline < 30
+def test_filter_nested_functions_scale_linearly(name: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda d: partial(minify_css, f"a{{filter:{f'{name}(' * d}{')' * d}}}"), (1000, 4000))
+    nested: Final = f"a{{filter:{f'{name}(' * 4_000}{')' * 4_000}}}"
+    assert minify_css(nested) == nested
 
 
 @pytest.mark.parametrize(

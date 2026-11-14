@@ -328,26 +328,34 @@ static void match_set_free(match_set *set) {
 /* ---- string -> node-vector map (key tables) ------------------------------- */
 
 typedef struct {
-    th_node **nodes;
+    th_node *node;
+    Py_ssize_t order;
+} nodeslot;
+
+typedef struct {
+    nodeslot *slots;
     Py_ssize_t len;
     Py_ssize_t cap;
 } nodevec;
 
-static int nodevec_push(nodevec *vec, th_node *node) {
+/* order is the node's index in the key's match list, which build_key walks in document order. */
+static int nodevec_push(nodevec *vec, th_node *node, Py_ssize_t order) {
     /* build_key processes each source node's values together in document order. */
-    if (vec->len > 0 && vec->nodes[vec->len - 1] == node) {
+    if (vec->len > 0 && vec->slots[vec->len - 1].node == node) {
         return 0;
     }
     if (vec->len == vec->cap) {
         Py_ssize_t cap = vec->cap == 0 ? TH_INITIAL_CAPACITY(4) : vec->cap * 2;
-        th_node **grown = PyMem_Realloc(vec->nodes, (size_t)cap * sizeof(th_node *));
+        nodeslot *grown = PyMem_Realloc(vec->slots, (size_t)cap * sizeof(nodeslot));
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
             return -1;       /* GCOVR_EXCL_LINE */
         }
-        vec->nodes = grown;
+        vec->slots = grown;
         vec->cap = cap;
     }
-    vec->nodes[vec->len++] = node;
+    nodeslot *slot = &vec->slots[vec->len++];
+    slot->node = node;
+    slot->order = order;
     return 0;
 }
 
@@ -442,7 +450,7 @@ static void strmap_free(strmap *map) {
     for (size_t index = 0; index < map->cap; index++) {
         if (map->slots[index].used) {
             PyMem_Free(map->slots[index].str);
-            PyMem_Free(map->slots[index].nodes.nodes);
+            PyMem_Free(map->slots[index].nodes.slots);
         }
     }
     PyMem_Free(map->slots);
@@ -1148,6 +1156,8 @@ static int build_key(engine *eng, xslt_key *key);
 
 static int copy_result_value(const xp_result *src, xp_result *dst);
 
+static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out);
+
 /* format-number: apply a DecimalFormat picture to a number (default decimal-format
    only: '.' decimal separator, ',' grouping, '#' optional digit, '0' required digit,
    '%' percent, '-' minus). Enough of section 12.3 for the common integer/decimal
@@ -1337,23 +1347,9 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         }
         out->kind = XP_NODESET;
         /* The lookup value: a node-set contributes each member's string-value, any
-           other type its string. */
-        if (args[1].kind == XP_NODESET) {
-            for (Py_ssize_t index = 0; index < args[1].nodes.len; index++) {
-                Py_ssize_t value_len = 0;
-                Py_UCS4 *value = item_string(eng->src_tree, args[1].nodes.items[index], &value_len);
-                if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    return -1;       /* GCOVR_EXCL_LINE */
-                }
-                const nodevec *bucket = strmap_lookup(&key->table, value, value_len);
-                PyMem_Free(value);
-                for (Py_ssize_t slot = 0; bucket != NULL && slot < bucket->len; slot++) {
-                    if (ns_push(&out->nodes, bucket->nodes[slot], -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                        return -1;                                           /* GCOVR_EXCL_LINE */
-                    }
-                }
-            }
-            return 0;
+           other type its string. A one-member set's string is that member's string-value, so one lookup suffices. */
+        if (args[1].kind == XP_NODESET && args[1].nodes.len != 1) {
+            return key_union(eng, key, &args[1].nodes, &out->nodes);
         }
         Py_ssize_t value_len = 0;
         Py_UCS4 *value = to_string(eng->src_tree, &args[1], &value_len);
@@ -1363,8 +1359,8 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         const nodevec *bucket = strmap_lookup(&key->table, value, value_len);
         PyMem_Free(value);
         for (Py_ssize_t slot = 0; bucket != NULL && slot < bucket->len; slot++) {
-            if (ns_push(&out->nodes, bucket->nodes[slot], -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                           /* GCOVR_EXCL_LINE */
+            if (ns_push(&out->nodes, bucket->slots[slot].node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                                /* GCOVR_EXCL_LINE */
             }
         }
         return 0;
@@ -1474,6 +1470,68 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
     return -2;
 }
 
+static int nodeslot_order_cmp(const void *first, const void *second) {
+    const Py_ssize_t first_order = ((const nodeslot *)first)->order;
+    const Py_ssize_t second_order = ((const nodeslot *)second)->order;
+    return (first_order > second_order) - (first_order < second_order);
+}
+
+/* key() over a node-set: the union of the lookups for each member's string-value (XSLT 1.0 section 12.2). Members
+   that share a value name one bucket, and a multi-valued use files one node under several values, so a bucket is
+   walked once and a node taken once; appending a bucket per member instead builds members x bucket entries. Each
+   bucket is in match order, which is document order, so the taken nodes are sorted by their match index. */
+static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out) {
+    strmap walked = {0};
+    match_set taken = {0};
+    nodevec ordered = {0};
+    int rc = -1;
+    for (Py_ssize_t index = 0; index < members->len; index++) {
+        Py_ssize_t value_len = 0;
+        Py_UCS4 *value = item_string(eng->src_tree, members->items[index], &value_len);
+        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            goto done;       /* GCOVR_EXCL_LINE */
+        }
+        const nodevec *bucket = strmap_lookup(&key->table, value, value_len);
+        /* strmap_bucket adds a slot only for a value it has not seen, so an unchanged count is a repeated value. */
+        const size_t walked_before = walked.count;
+        const nodevec *mark = bucket == NULL ? NULL : strmap_bucket(&walked, value, value_len);
+        PyMem_Free(value);
+        if (bucket == NULL) {
+            continue;
+        }
+        if (mark == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            goto done;      /* GCOVR_EXCL_LINE */
+        }
+        if (walked.count == walked_before) {
+            continue;
+        }
+        for (Py_ssize_t slot = 0; slot < bucket->len; slot++) {
+            th_node *node = bucket->slots[slot].node;
+            if (match_set_has(&taken, node, -1)) {
+                continue;
+            }
+            if (match_set_add(&taken, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                goto done;                             /* GCOVR_EXCL_LINE */
+            }
+            if (nodevec_push(&ordered, node, bucket->slots[slot].order) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                goto done;                                                     /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    qsort(ordered.slots, (size_t)ordered.len, sizeof(nodeslot), nodeslot_order_cmp);
+    for (Py_ssize_t slot = 0; slot < ordered.len; slot++) {
+        if (ns_push(out, ordered.slots[slot].node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            goto done;                                        /* GCOVR_EXCL_LINE */
+        }
+    }
+    rc = 0;
+done:
+    strmap_free(&walked);
+    match_set_free(&taken);
+    PyMem_Free(ordered.slots);
+    return rc;
+}
+
 /* Evaluate a compiled program against the current node with the current scope and
    the XSLT extension functions. Returns the xp_eval status; fills *out on success.
    condition is set when the caller only converts *out to a boolean (xp_eval_condition_at). */
@@ -1560,9 +1618,9 @@ static int build_key(engine *eng, xslt_key *key) {
                 const Py_UCS4 *value = attributes[slot].value == NULL ? &empty : attributes[slot].value;
                 Py_ssize_t value_len = attributes[slot].value == NULL ? 0 : attributes[slot].value_len;
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
-                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    xp_result_free(&matched);                           /* GCOVR_EXCL_LINE */
-                    return -1;                                          /* GCOVR_EXCL_LINE */
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    xp_result_free(&matched);                                  /* GCOVR_EXCL_LINE */
+                    return -1;                                                 /* GCOVR_EXCL_LINE */
                 }
                 break;
             }
@@ -1599,7 +1657,7 @@ static int build_key(engine *eng, xslt_key *key) {
                 }
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
                 PyMem_Free(owned);
-                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_START: alloc */
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_START: alloc */
                     rc = -1;
                     break;
                 } /* GCOVR_EXCL_STOP */
@@ -1612,8 +1670,8 @@ static int build_key(engine *eng, xslt_key *key) {
             } else {             /* GCOVR_EXCL_LINE */
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
                 PyMem_Free(value);
-                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    rc = -1;                                            /* GCOVR_EXCL_LINE */
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    rc = -1;                                                   /* GCOVR_EXCL_LINE */
                 } /* GCOVR_EXCL_LINE */
             }
         }

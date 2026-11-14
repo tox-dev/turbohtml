@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import time
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import RdfaItem, parse
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _OUTER: Final[str] = "http://outer.example/"
 _INNER: Final[str] = "http://inner.example/"
@@ -93,14 +95,14 @@ def test_rdfa_prefix_of_top_level_item_ends_with_it() -> None:
     ]
 
 
-def test_rdfa_time_is_linear_in_elements_that_declare_a_prefix() -> None:
-    # Copying the inherited map once per declaring element takes many seconds here; merging and taking back one pair
-    # per element takes milliseconds, so the budget fails when a copy or a delete and re-insert runs per element.
-    count: Final = 120000
-    inherited: Final = " ".join(f"a{index:x}: u" for index in range(count))
-    declaring: Final = "<p prefix='z: u'>" * count
-    document: Final = parse(f"<div typeof=A prefix='{inherited}'>{declaring}")
-    start = time.perf_counter()
-    items = document.rdfa()
-    assert time.perf_counter() - start < 2.0
-    assert items == [RdfaItem(vocab=None, type=["A"], resource=None, properties={})]
+def test_rdfa_time_is_linear_in_elements_that_declare_a_prefix(work_steps: WorkSteps) -> None:
+    # Copying the inherited map once per declaring element is quadratic here; merging and taking back one pair per
+    # element is linear, so the count fails when a copy or a delete and re-insert runs per element.
+    work_steps.assert_linear(lambda n: parse(_rdfa_markup(n)).rdfa, (2000, 8000))
+    assert parse(_rdfa_markup(2000)).rdfa() == [RdfaItem(vocab=None, type=["A"], resource=None, properties={})]
+
+
+def _rdfa_markup(count: int) -> str:
+    inherited = " ".join(f"a{index:x}: u" for index in range(count))
+    declaring = "<p prefix='z: u'>"
+    return f"<div typeof=A prefix='{inherited}'>{declaring * count}"

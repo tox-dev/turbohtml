@@ -361,6 +361,8 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     return node;
 }
 
+void th_node_mark_ancestors(th_node *node);
+
 static inline void node_append(th_node *parent, th_node *child) {
     child->parent = parent;
     child->prev_sibling = parent->last_child;
@@ -371,6 +373,9 @@ static inline void node_append(th_node *parent, th_node *child) {
         parent->first_child = child;
     }
     parent->last_child = child;
+    if (child->reaches_selectedcontent) {
+        th_node_mark_ancestors(parent);
+    }
 }
 
 /* Detach a node from its current parent (the adoption agency re-parents). */
@@ -410,6 +415,9 @@ static inline void node_insert_before(th_node *parent, th_node *child, th_node *
         parent->first_child = child;
     }
     ref->prev_sibling = child;
+    if (child->reaches_selectedcontent) {
+        th_node_mark_ancestors(parent);
+    }
 }
 
 /* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom.

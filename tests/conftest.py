@@ -9,9 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
 
+from work_steps import WorkSteps
 from wpt_tree_corpus import WptHtmlTreeCorpus, load_wpt_html_tree
 
-from turbohtml import Element, Node, parse
+from turbohtml import Element, Node, _html, parse  # ruff:ignore[import-private-name]  # work-step build hook
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -86,3 +87,12 @@ def first_of_type() -> Callable[[str, type[_N]], _N]:
         return next(node for node in parse(html).descendants if isinstance(node, node_type))
 
     return _first
+
+
+@pytest.fixture
+def work_steps() -> WorkSteps:
+    # Count C loop steps through the work-step build's private counter.
+    read = getattr(_html, "_work_steps", None)
+    if read is None:  # pragma: no cover  # only release-build legs (scalar) lack it, and they run without coverage
+        pytest.skip("needs the work-step build: meson setup -Dwork_steps=true")
+    return WorkSteps(read=read)
