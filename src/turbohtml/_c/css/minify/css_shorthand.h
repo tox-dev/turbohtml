@@ -1228,7 +1228,7 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
         }
     }
     css_apply_handler(pool, name, name_len, scratch);
-    css_assemble(pool, scratch, out);
+    css_assemble(pool, scratch, vec->escapes, out);
 }
 
 #endif /* TURBOHTML_CSS_SHORTHAND_H */

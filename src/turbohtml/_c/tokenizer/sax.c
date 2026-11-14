@@ -31,6 +31,8 @@ typedef struct {
     th_node *cursor;  /* the node the next step enters or leaves */
     int leaving;      /* 0: about to enter cursor; 1: about to leave it */
     int done;         /* the walk has left the document root */
+    /* th_node_attrs_tuple's cache for this walk */
+    PyObject *shared_attrs;
 } SaxEventsObject;
 
 /* A node's own character data (text/comment/doctype-name) as a str, realizing a
@@ -44,41 +46,6 @@ static PyObject *data_str(th_tree *tree, th_node *node) {
     }
     PyObject *result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, len);
     PyMem_Free(data);
-    return result;
-}
-
-/* An element's attributes as a tuple of (name, value) pairs; value is None for a
-   valueless attribute. NULL with an exception set on allocation failure. */
-static PyObject *attrs_tuple(th_tree *tree, th_node *node) {
-    th_node_attr *attrs;
-    Py_ssize_t count = th_node_attributes(node, &attrs);
-    PyObject *result = PyTuple_New(count);
-    if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (Py_ssize_t index = 0; index < count; index++) {
-        Py_ssize_t name_len;
-        const char *name = th_attr_name(tree, attrs[index].name_atom, &name_len);
-        PyObject *name_obj = PyUnicode_FromStringAndSize(name, name_len);
-        PyObject *value_obj =
-            attrs[index].value == NULL
-                ? Py_NewRef(Py_None)
-                : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attrs[index].value, attrs[index].value_len);
-        /* allocation failure cannot be forced from a test */
-        if (name_obj == NULL || value_obj == NULL) { /* GCOVR_EXCL_BR_LINE */
-            Py_XDECREF(name_obj);                    /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_XDECREF(value_obj);                   /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_DECREF(result);                       /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                             /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        PyTuple_SET_ITEM(result, index, PyTuple_Pack(2, name_obj, value_obj));
-        Py_DECREF(name_obj);
-        Py_DECREF(value_obj);
-        if (PyTuple_GET_ITEM(result, index) == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-            Py_DECREF(result);                         /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                               /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-    }
     return result;
 }
 
@@ -137,14 +104,14 @@ static PyObject *pi_event(th_node *node) {
 /* The event for entering a node, or NULL: with an exception set on allocation
    failure, and without one for a node that emits nothing on entry (the document
    root and a <template>'s content fragment, whose children carry the events). */
-static PyObject *enter_event(th_tree *tree, th_node *node) {
+static PyObject *enter_event(th_tree *tree, th_node *node, PyObject **shared_attrs) {
     switch (node->type) {
     case TH_NODE_ELEMENT: {
         PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->text_len);
         if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *attrs = attrs_tuple(tree, node);
+        PyObject *attrs = th_node_attrs_tuple(tree, node, shared_attrs);
         if (attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(tag);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -198,7 +165,7 @@ static PyObject *sax_iter_next(PyObject *self) {
         th_node *node = iterator->cursor;
         PyObject *event;
         if (!iterator->leaving) {
-            event = enter_event(iterator->tree, node);
+            event = enter_event(iterator->tree, node, &iterator->shared_attrs);
             if (node->first_child != NULL) {
                 iterator->cursor = node->first_child;
             } else {
@@ -229,14 +196,16 @@ static PyObject *sax_iter_next(PyObject *self) {
 
 static int sax_traverse(PyObject *self, visitproc visit, void *arg) {
     SaxEventsObject *iterator = (SaxEventsObject *)self;
-    Py_VISIT(Py_TYPE(self));    /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
-    Py_VISIT(iterator->source); /* GCOVR_EXCL_BR_LINE: set at creation, dropped only in dealloc */
+    Py_VISIT(Py_TYPE(self));          /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
+    Py_VISIT(iterator->source);       /* GCOVR_EXCL_BR_LINE: set at creation, dropped only in dealloc */
+    Py_VISIT(iterator->shared_attrs); /* GCOVR_EXCL_BR_LINE: Python cannot induce visit errors */
     return 0;
 }
 
 static int sax_clear(PyObject *self) {
     SaxEventsObject *iterator = (SaxEventsObject *)self;
     Py_CLEAR(iterator->source); /* GCOVR_EXCL_BR_LINE: the source is non-NULL until this single clear */
+    Py_CLEAR(iterator->shared_attrs);
     return 0;
 }
 
@@ -286,6 +255,7 @@ PyObject *turbohtml_sax_events(PyObject *module, PyObject *arg) {
     }
     iterator->tree = tree;
     iterator->source = Py_NewRef(arg);
+    iterator->shared_attrs = NULL;
     iterator->cursor = th_tree_document(tree);
     iterator->leaving = 0;
     iterator->done = 0;
@@ -312,15 +282,18 @@ static const char *const SAX_HANDLER_NAMES[SAX_H_COUNT] = {
 
 typedef struct {
     PyObject *fn[SAX_H_COUNT];
+    PyObject *shared_attrs; /* th_node_attrs_tuple's cache for this walk */
 } sax_dispatch_handlers;
 
 static void sax_handlers_release(sax_dispatch_handlers *bound) {
     for (int index = 0; index < SAX_H_COUNT; index++) {
         Py_XDECREF(bound->fn[index]);
     }
+    Py_XDECREF(bound->shared_attrs);
 }
 
 static int sax_handlers_bind(sax_dispatch_handlers *bound, PyObject *handler) {
+    bound->shared_attrs = NULL;
     for (int index = 0; index < SAX_H_COUNT; index++) {
         bound->fn[index] = NULL;
     }
@@ -344,7 +317,7 @@ static int dispatch_enter(th_tree *tree, th_node *node, sax_dispatch_handlers *b
         if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *attrs = attrs_tuple(tree, node);
+        PyObject *attrs = th_node_attrs_tuple(tree, node, &bound->shared_attrs);
         if (attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(tag);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
