@@ -4,7 +4,18 @@ from typing import Final
 
 import pytest
 
-from turbohtml import CData, Element, IncrementalParser, ProcessingInstruction, Text, parse, parse_fragment, parse_xml
+from turbohtml import (
+    CData,
+    Element,
+    Formatter,
+    Html,
+    IncrementalParser,
+    ProcessingInstruction,
+    Text,
+    parse,
+    parse_fragment,
+    parse_xml,
+)
 
 _DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
 
@@ -195,6 +206,7 @@ def test_fragment_round_trips_are_byte_identical(markup: str) -> None:
     [
         pytest.param(_DOC.format("<p>&copy; 2020 &mdash; done</p>"), id="named-entities"),
         pytest.param(_DOC.format("<pre>\nleading newline</pre>"), id="dropped-newline"),
+        pytest.param(_DOC.format("<p>a&#xd;b</p>"), id="carriage-return-reference"),
         pytest.param("<!doctype html><html><head></head><body><p>x</p></body></html>", id="lowercase-doctype"),
     ],
 )
@@ -204,6 +216,30 @@ def test_normalizing_inputs_are_idempotent_and_reparse_equal(markup: str) -> Non
     twice = parse(once, source_locations=True).to_source()
     assert once == twice
     assert parse(once).serialize() == doc.serialize()
+
+
+@pytest.mark.parametrize(
+    "formatter",
+    [
+        pytest.param(Formatter.WHATWG, id="whatwg"),
+        pytest.param(Formatter.MINIMAL, id="minimal"),
+        pytest.param(Formatter.NAMED_ENTITIES, id="named"),
+    ],
+)
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<p>a&#xd;b</p>", id="text"),
+        pytest.param('<p title="a&#xd;b">x</p>', id="attribute"),
+        pytest.param("<pre>&#xd;x</pre>", id="preformatted"),
+    ],
+)
+def test_carriage_return_serialization_is_idempotent_and_reparse_equal(markup: str, formatter: Formatter) -> None:
+    # a raw CR reparses as LF, so the serializer must write it as a reference for the output to read back unchanged
+    html = Html(formatter=formatter)
+    once = parse(markup).serialize(html)
+    assert parse(once).serialize(html) == once
+    assert parse(once).text == parse(markup).text
 
 
 @pytest.mark.parametrize(

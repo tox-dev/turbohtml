@@ -8,7 +8,7 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from html.entities import codepoint2name
-from itertools import product
+from itertools import combinations_with_replacement, product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol, cast
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
@@ -243,11 +243,38 @@ def test_html_serialization(find: Callable[[str, str], Element], html: str, sele
         pytest.param("a&lt;b&gt;c", "a&lt;b&gt;c", id="angle-brackets"),
         pytest.param("a&amp;b", "a&amp;b", id="ampersand"),
         pytest.param("a&nbsp;b", "a&nbsp;b", id="nbsp"),
-        pytest.param("a&#13;b", "a\rb", id="carriage-return"),
+        pytest.param("a&#13;b", "a&#13;b", id="carriage-return"),
     ],
 )
 def test_text_is_escaped_in_html(find: Callable[[str, str], Element], source: str, expected: str) -> None:
     assert find(f"<p>{source}</p>", "p").html == f"<p>{expected}</p>"
+
+
+@pytest.mark.parametrize("length", range(1, 18))
+@pytest.mark.parametrize(
+    ("char", "formatter", "escaped"),
+    [
+        pytest.param("&", Formatter.WHATWG, "&amp;", id="amp"),
+        pytest.param("<", Formatter.WHATWG, "&lt;", id="lt"),
+        pytest.param(">", Formatter.WHATWG, "&gt;", id="gt"),
+        pytest.param('"', Formatter.WHATWG, '"', id="quot"),
+        pytest.param("\r", Formatter.WHATWG, "&#13;", id="cr"),
+        pytest.param("\r", Formatter.MINIMAL, "&#13;", id="cr-minimal"),
+        pytest.param("\xa0", Formatter.WHATWG, "&nbsp;", id="nbsp"),
+        pytest.param("\xa0", Formatter.MINIMAL, "\xa0", id="nbsp-minimal"),
+    ],
+)
+def test_special_escaped_at_every_offset(char: str, formatter: Formatter, escaped: str, length: int) -> None:
+    # the clean-run scan takes a different path for runs under four, four to seven, and eight or more code points
+    filler = "a1é\U0001f600"
+    for first, second in combinations_with_replacement(range(length), 2):
+        value = "".join(char if index in {first, second} else filler[index % 4] for index in range(length))
+        element = Element("p")
+        element.attrs["title"] = value
+        element.append(Text(value))
+        text = "".join(escaped if character == char else character for character in value)
+        attribute = text.replace('"', "&quot;")
+        assert element.serialize(Html(formatter=formatter)) == f'<p title="{attribute}">{text}</p>'
 
 
 @pytest.mark.parametrize(
@@ -1541,6 +1568,16 @@ def test_default_formatter_keeps_non_ascii_literal() -> None:
             Formatter.NAMED_ENTITIES,
             "<p>&eacute;&amp;😀&alpha;a</p>",
             id="named-mixed-text",
+        ),
+        pytest.param("<p>a&#xd;b</p>", "p", Formatter.WHATWG, "<p>a&#13;b</p>", id="whatwg-carriage-return"),
+        pytest.param("<p>a&#xd;b</p>", "p", Formatter.MINIMAL, "<p>a&#13;b</p>", id="minimal-carriage-return"),
+        pytest.param("<p>a&#xd;b</p>", "p", Formatter.NAMED_ENTITIES, "<p>a&#13;b</p>", id="named-carriage-return"),
+        pytest.param(
+            '<a title="a&#xd;b">t</a>',
+            "a",
+            Formatter.NAMED_ENTITIES,
+            '<a title="a&#13;b">t</a>',
+            id="named-attribute-carriage-return",
         ),
         pytest.param(
             '<p title="é&amp;😀\u03b1a">x</p>',
