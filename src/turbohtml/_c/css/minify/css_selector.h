@@ -98,7 +98,7 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
         }
         if (token->kind == CSS_DELIM && attr_depth == 0 &&
             (token->delim == '>' || token->delim == '+' || token->delim == '~' || token->delim == ',')) {
-            css_rtrim(out);
+            css_rtrim_name_end(out);
             cbuf_putc(out, token->delim);
             pending_ws = 0;
             continue;
@@ -129,11 +129,12 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
                  last == '|')) {
                 blocked = 1;
             }
-            if (!blocked) {
+            /* a delimiter a backslash escapes ends a name, so the space after it is a descendant combinator */
+            if (!blocked || css_escapes(out->data, out->len - 1)) {
                 cbuf_putc(out, ' ');
             }
         } else if (comment_gap &&
-                   css_would_merge(out->data[out->len - 1], last_is_ident, token->text, token->text_len)) {
+                   css_would_merge_after(out->data, out->len, last_is_ident, token->text, token->text_len)) {
             /* whitespace here would be a descendant combinator, so only an empty comment keeps the tokens apart */
             cbuf_puts(out, "/**/");
         }

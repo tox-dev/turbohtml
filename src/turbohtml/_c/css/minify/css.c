@@ -263,8 +263,7 @@ enum { CSS_SPELL_IDENT, CSS_SPELL_UNIT, CSS_SPELL_HASH };
 
 /* Hex escapes keep control bytes out of HTML style elements; escaping U+FEFF prevents BOM sniffing.
    Preserve token boundaries for CDC and dimension exponents (CSS Syntax 3 §4.3.1 and §4.3.3). */
-static int css_serialize_name(const css_char *name, Py_ssize_t len, int mode, int exponent, css_buf *out) {
-    int ends_hex = 0;
+static void css_serialize_name(const css_char *name, Py_ssize_t len, int mode, int exponent, css_buf *out) {
     int escape_first = 0;
     if (mode != CSS_SPELL_HASH) {
         css_char first = name[0];
@@ -288,12 +287,11 @@ static int css_serialize_name(const css_char *name, Py_ssize_t len, int mode, in
             code_point = 0xFEFF;
             pos += 2;
         }
-        ends_hex = hex;
         if (hex) {
             char digits[8];
             int written = snprintf(digits, sizeof(digits), "\\%x", (unsigned int)code_point);
             cbuf_put_run(out, (const css_char *)digits, written);
-            if (pos + 1 < len && css_is_hex(name[pos + 1])) {
+            if (pos + 1 == len || css_is_hex(name[pos + 1])) {
                 cbuf_putc(out, ' ');
             }
             continue;
@@ -303,54 +301,6 @@ static int css_serialize_name(const css_char *name, Py_ssize_t len, int mode, in
         }
         cbuf_putc(out, byte);
     }
-    return ends_hex;
-}
-
-static int css_is_closer(const css_token *token) {
-    return token->kind == CSS_DELIM && (token->delim == ')' || token->delim == ']' || token->delim == '}' ||
-                                        token->delim == ';' || token->delim == ',');
-}
-
-static int css_is_skippable(const css_token *token) {
-    return token->kind == CSS_WS || token->kind == CSS_COMMENT || css_is_closer(token);
-}
-
-/* The space that terminates a hex escape (CSS Syntax 3 §4.3.7 consumes it as part of the escape) is dropped when the
-   next emitted character cannot continue the escape: a closer or the end of the input. A closer outside every block or
-   group is a stray the minifier drops, so the separator it leaves stays only when an identifier follows the strays.
-   Whitespace separating the name from a following token is kept, since it is then the emitted character. Returns
-   whether the terminator stays; *span_end moves past the whitespace and comments a dropped terminator takes with it. */
-static int css_name_terminator(const token_vec *tokens, Py_ssize_t index, Py_ssize_t depth, const css_char *view_end,
-                               const css_char **span_end) {
-    Py_ssize_t next = index + 1;
-    while (next < tokens->len && (tokens->items[next].kind == CSS_WS || tokens->items[next].kind == CSS_COMMENT)) {
-        next++;
-    }
-    if (next == tokens->len) {
-        *span_end = view_end;
-        return 0;
-    }
-    const css_token *token = &tokens->items[next];
-    int closer = css_is_closer(token);
-    if (closer && depth == 0) {
-        Py_ssize_t after = next;
-        while (after < tokens->len && css_is_skippable(&tokens->items[after])) {
-            after++;
-        }
-        if (after < tokens->len && css_is_ident(tokens->items[after].text[0])) {
-            return 1;
-        }
-        *span_end = after < tokens->len ? tokens->items[after].text : view_end;
-        return 0;
-    }
-    if (next == index + 1) {
-        return 0;
-    }
-    if (!closer && (css_is_ident(token->text[0]) || (token->kind == CSS_DELIM && token->delim == '('))) {
-        return 1;
-    }
-    *span_end = token->text;
-    return 0;
 }
 
 /* Preserve hash type and raw @charset spelling: encoding sniffing precedes tokenization
@@ -359,15 +309,8 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
     css_buf decoded = {NULL, 0, 0, tokens->oom};
     Py_ssize_t copied = 0;
     int changed = 0;
-    Py_ssize_t depth = 0;
     for (Py_ssize_t index = 0; index < tokens->len; index++) {
         const css_token *token = &tokens->items[index];
-        if (token->kind == CSS_DELIM && (token->delim == '(' || token->delim == '[' || token->delim == '{')) {
-            depth++;
-        } else if (token->kind == CSS_DELIM && (token->delim == ')' || token->delim == ']' || token->delim == '}') &&
-                   depth > 0) {
-            depth--;
-        }
         Py_ssize_t prefix = token->kind == CSS_AT || token->kind == CSS_HASH;
         Py_ssize_t name_len = token->text_len - prefix;
         if (token->kind == CSS_NUM) {
@@ -384,6 +327,16 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
         decoded.len = 0;
         if ((!starts_ident && token->kind != CSS_HASH) || !css_decode_name(name, name_len, &decoded) ||
             (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0)) {
+            /* a name kept as written still gets the space closing a hex escape at its end, as a spelled one does,
+               unless a `;`, `{`, `}` or the end of the input follows it, where no output can put whitespace after it */
+            const css_char *after = name + name_len;
+            if (css_hex_escape_ends(name, name_len) && after < view + length && *after != ';' && *after != '{' &&
+                *after != '}') {
+                cbuf_put_run(spelled, view + copied, name + name_len - view - copied);
+                cbuf_putc(spelled, ' ');
+                copied = name - view + name_len;
+                changed = 1;
+            }
             continue;
         }
         if (*decoded.oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -394,17 +347,12 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
                                                   memchr(token->text, 'E', (size_t)token->text_len) != NULL);
         cbuf_put_run(spelled, view + copied, name - view - copied);
         Py_ssize_t written = spelled->len;
-        const css_char *span_end = name + name_len;
-        int ends_hex = css_serialize_name(decoded.data, decoded.len, mode, exponent, spelled);
-        if (ends_hex && css_name_terminator(tokens, index, depth, view + length, &span_end)) {
-            cbuf_putc(spelled, ' ');
-        }
-        Py_ssize_t span = span_end - name;
+        css_serialize_name(decoded.data, decoded.len, mode, exponent, spelled);
         if (*spelled->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             break;           /* GCOVR_EXCL_LINE */
         }
-        changed |= spelled->len - written != span || memcmp(spelled->data + written, name, (size_t)span) != 0;
-        copied = span_end - view;
+        changed |= spelled->len - written != name_len || memcmp(spelled->data + written, name, (size_t)name_len) != 0;
+        copied = name - view + name_len;
     }
     cbuf_free(&decoded);
     cbuf_put_run(spelled, view + copied, length - copied);

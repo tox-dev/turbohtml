@@ -621,8 +621,10 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             Py_ssize_t body_end;
             int unwrap = allow_url_string && css_url_unwraps(token, &body_start, &body_end);
             css_char last = out->len > mark ? out->data[out->len - 1] : '(';
-            if (pending_ws && !unwrap && last != '(' && last != ',' &&
-                !((last == '"' || last == '\'') && css_prelude_space_optional(vec, index, allow_url_string))) {
+            /* a quote no backslash escapes closes a string, and nothing joins a closed string */
+            if (pending_ws && !unwrap &&
+                ((out->len > mark && css_ends_in_escape(out->data, out->len)) ||
+                 (last != '(' && last != ',' && last != '"' && last != '\''))) {
                 cbuf_putc(out, ' ');
             }
             pending_ws = 0;
@@ -643,15 +645,16 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             continue;
         }
         if (token->kind == CSS_DELIM && (token->delim == ':' || token->delim == ',')) {
-            css_rtrim(out);
+            css_rtrim_name_end(out);
             cbuf_putc(out, token->delim);
             pending_ws = 0;
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == '(') {
-            if (pending_ws && out->len > mark && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' &&
-                !((out->data[out->len - 1] == '"' || out->data[out->len - 1] == '\'') &&
-                  css_prelude_space_optional(vec, index, allow_url_string))) {
+            if (pending_ws && out->len > mark &&
+                (css_ends_in_escape(out->data, out->len) ||
+                 (out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' && out->data[out->len - 1] != '"' &&
+                  out->data[out->len - 1] != '\''))) {
                 cbuf_putc(out, ' ');
             }
             cbuf_putc(out, '(');
@@ -659,7 +662,7 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == ')') {
-            css_rtrim(out);
+            css_rtrim_name_end(out);
             cbuf_putc(out, ')');
             pending_ws = 0;
             continue;
@@ -685,9 +688,7 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
                        css_prelude_space_optional(vec, index, allow_url_string));
         /* with no source whitespace, shortening a number (dropping a zero unit or sign) can glue it onto the previous
            token to read as one different token (CSS Syntax 3 §9.1), so keep the boundary the value path keeps */
-        if (spaced ||
-            (out->len > mark &&
-             css_would_merge(out->data[out->len - 1], css_ends_in_name(out->data, out->len), next_text, next_len))) {
+        if (spaced || (out->len > mark && css_would_merge_after(out->data, out->len, 0, next_text, next_len))) {
             cbuf_putc(out, ' ');
         }
         pending_ws = 0;
@@ -697,9 +698,6 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
         return;
     }
     if (out->data[mark] == '(') {
-        return;
-    }
-    if (css_ends_in_name(out->data, mark) && !css_is_ident(out->data[mark])) {
         return;
     }
     switch (out->data[mark]) {
@@ -726,7 +724,7 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
 CSS_NOINLINE static void css_close_prelude_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
     css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
     css_collect_open_blocks(vec, start, end, 0, &blocks);
-    css_blocks_close(&blocks, out);
+    css_blocks_close_at_end(&blocks, out);
 }
 
 /* Same-query @media blocks merge only in a rule list at most this deep. Joining two blocks re-minifies their text, and
@@ -1816,27 +1814,8 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
    leaves the last token a name, or whitespace. The text is trimmed, so whitespace there belongs to a token: an escape
    (`\ `, or the whitespace closing a hex escape, CSS Syntax 3 §4.3.7) or a bad string, and a space after it keeps the
    next node out of that token either way. */
-static int css_ends_in_hex_escape(const css_char *text, Py_ssize_t len) {
-    Py_ssize_t digits = 0;
-    while (digits < len && css_is_hex(text[len - 1 - digits])) {
-        digits++;
-    }
-    if (digits == 0) {
-        return 0;
-    }
-    Py_ssize_t slash = len - digits;
-    Py_ssize_t backslashes = 0;
-    while (backslashes < slash && text[slash - 1 - backslashes] == '\\') {
-        backslashes++;
-    }
-    return backslashes % 2 == 1;
-}
-
 static int css_ends_in_name(const css_char *text, Py_ssize_t len) {
     if (css_is_ws(text[len - 1])) {
-        return 1;
-    }
-    if (css_ends_in_hex_escape(text, len)) {
         return 1;
     }
     Py_ssize_t backslashes = 0;
@@ -1844,6 +1823,25 @@ static int css_ends_in_name(const css_char *text, Py_ssize_t len) {
         backslashes++;
     }
     return backslashes % 2 == 1;
+}
+
+/* Whether text written straight after the len code points of out joins a name whose spelling depends on where it
+   ends or starts, so that the next pass, reading the two as one name, spells it differently (css_serialize_name):
+   whitespace closes a hex escape only before a hex digit or at the end of a name, a lone `-` or `--` is escaped only
+   while nothing follows it, and a name holding an escape is spelled from its decoded whole, where a leading `-`, digit,
+   or unit `e` before a digit is escaped only while nothing precedes it. */
+static int css_join_respells(const css_char *out, Py_ssize_t len, const css_char *text, Py_ssize_t text_len) {
+    Py_ssize_t pos = css_starts_number(text, 0, text_len) ? css_scan_number(text, 0, text_len) : 0;
+    while (pos < text_len && text[pos] != '\\' && css_is_ident(text[pos])) {
+        pos++;
+    }
+    if (pos < text_len && text[pos] == '\\') {
+        return 1;
+    }
+    if (css_ends_in_hex_close(out, len)) {
+        return !css_is_hex(text[0]);
+    }
+    return out[len - 1] == '-' && (css_escapes(out, len - 1) || (out[len - 2] == '-' && css_escapes(out, len - 2)));
 }
 
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
@@ -1953,10 +1951,17 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             prev_stray = 0;
         } else {
             const css_char *text = pool->data + item->text_off;
-            if (prev_stray &&
-                css_would_merge(out->data[out->len - 1], css_ends_in_name(out->data, out->len), text, item->text_len)) {
+            if ((prev_stray || after_stray) && css_hex_escape_ends(out->data, out->len)) {
+                /* the `;` or `}` that kept the spelling pass from closing this hex escape is gone, so the next pass
+                   closes it */
+                cbuf_putc(out, ' ');
+            }
+            if ((prev_stray || (after_stray && css_join_respells(out->data, out->len, text, item->text_len))) &&
+                css_would_merge_after(out->data, out->len, css_ends_in_name(out->data, out->len), text,
+                                      item->text_len)) {
                 /* nothing separates a node from the stray text before it, and the next pass reads the two as one
-                   stray text: a token the two would form there gets spelled as a whole */
+                   stray text: a token the two would form there gets spelled as a whole. After an at-statement the two
+                   join the same way, which keeps the joined name's spelling unless css_join_respells changes it */
                 cbuf_putc(out, ' ');
             }
             cbuf_put_run(out, text, item->text_len);

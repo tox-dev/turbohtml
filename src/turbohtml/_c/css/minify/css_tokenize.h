@@ -354,7 +354,7 @@ static int css_would_merge(css_char last, int last_is_ident, const css_char *nex
     case '/':
         return first == '*';
     default:
-        return !last_is_ident && css_is_digit(last) && (first == '%' || fraction);
+        return css_is_digit(last) && (first == '%' || fraction);
     }
 }
 
@@ -601,11 +601,7 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                    (css_is_hex(source[pos + 2]) || source[pos + 2] == '?')) {
             Py_ssize_t scan = pos + 2;
             Py_ssize_t digits = 0;
-            while (scan < length && digits < 6 && css_is_hex(source[scan])) {
-                scan++;
-                digits++;
-            }
-            while (scan < length && digits < 6 && source[scan] == '?') {
+            while (scan < length && digits < 6 && (css_is_hex(source[scan]) || source[scan] == '?')) {
                 scan++;
                 digits++;
             }

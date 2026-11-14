@@ -628,6 +628,36 @@ static int css_escapes(const css_char *text, Py_ssize_t end) {
     return (end - start) % 2;
 }
 
+/* Whether a hex escape, which takes up to six hex digits, ends right before text[end], so that whitespace there would
+   close it (CSS Syntax 3 §4.3.7). */
+static int css_hex_escape_ends(const css_char *text, Py_ssize_t end) {
+    Py_ssize_t digits = 0;
+    while (digits < 6 && digits < end && css_is_hex(text[end - 1 - digits])) {
+        digits++;
+    }
+    return digits > 0 && css_escapes(text, end - digits);
+}
+
+/* Whether text ends in the whitespace closing a hex escape, where a CRLF counts as one (CSS Syntax 3 §3.3). */
+static int css_ends_in_hex_close(const css_char *text, Py_ssize_t len) {
+    Py_ssize_t last = len - 1 - (len > 1 && text[len - 1] == '\n' && text[len - 2] == '\r');
+    return css_is_ws(text[last]) && css_hex_escape_ends(text, last);
+}
+
+/* Whether the last code point of text belongs to a name through an escape: one a backslash escapes, or the whitespace
+   closing a hex escape. Such a name runs on into a following name code point although its last byte is no name code
+   point or reads as a delimiter (CSS Syntax 3 §4.3.7, §4.3.11). */
+static int css_ends_in_escape(const css_char *text, Py_ssize_t len) {
+    return css_escapes(text, len - 1) || css_ends_in_hex_close(text, len);
+}
+
+/* css_would_merge for text written straight after the len code points of out, which may end in an escape. */
+static int css_would_merge_after(const css_char *out, Py_ssize_t len, int last_is_ident, const css_char *next,
+                                 Py_ssize_t next_len) {
+    return (css_ends_in_escape(out, len) && css_is_ident(next[0])) ||
+           css_would_merge(out[len - 1], last_is_ident, next, next_len);
+}
+
 /* Whether a string token ends in its own closing quote, rather than before a newline or at the end of input. */
 static int css_string_closed(const css_char *text, Py_ssize_t len) {
     return len > 1 && text[len - 1] == text[0] && !css_escapes(text, len - 1);
@@ -1053,6 +1083,15 @@ static void css_blocks_close(css_blocks *blocks, css_buf *out) {
     cbuf_free(&blocks->deep);
 }
 
+/* css_blocks_close for closers written where the input ends: the spelling pass gives a name ending in a hex escape its
+   closing space before a closer the input writes, so one written here gets that space too. */
+static void css_blocks_close_at_end(css_blocks *blocks, css_buf *out) {
+    if (blocks->len > 0 && css_hex_escape_ends(out->data, out->len)) {
+        cbuf_putc(out, ' ');
+    }
+    css_blocks_close(blocks, out);
+}
+
 /* Scans that see only parentheses count them, since only a `)` closes one; the first `[` or `{` hands the scan to
    css_scan_stacked. Starting at that opener, with parens_open `(` blocks around it, return the index of the first
    delimiter in stops outside every block, or end. Kept out of line so the counting loops stay small. */
@@ -1184,11 +1223,18 @@ static void css_rtrim(css_buf *buffer) {
     }
 }
 
+/* css_rtrim that keeps the space closing a hex escape. The spelling pass writes one after every name ending in a hex
+   escape, and text kept as written (stray text) keeps it, so dropping it here spells the name differently once the
+   next pass reads the output as such text. */
+static void css_rtrim_name_end(css_buf *buffer) {
+    if (buffer->len == 0 || !css_ends_in_hex_close(buffer->data, buffer->len)) {
+        css_rtrim(buffer);
+    }
+}
+
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
                                  Py_ssize_t name_len, css_buf *out, int *raw_fallback);
 static int css_is_ident_string(const css_char *text, Py_ssize_t len);
-static int css_ends_in_name(const css_char *text, Py_ssize_t len);
-static int css_ends_in_hex_escape(const css_char *text, Py_ssize_t len);
 CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args);
 CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out);
 

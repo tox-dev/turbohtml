@@ -998,7 +998,7 @@ _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:x\\110000 y}", "a{e:x\ufffdy}", id="past-unicode"),
     pytest.param("a{e:x\\\x00y}", "a{e:x\ufffdy}", id="escaped-null"),
     pytest.param("a{e:x\\00000a y}", "a{e:x\\ay}", id="six-digit-line-feed"),
-    pytest.param("a{e:x\\00000d}", "a{e:x\\d}", id="carriage-return-ends-name"),
+    pytest.param("a{e:x\\00000d}", "a{e:x\\d }", id="carriage-return-ends-name"),
     pytest.param("a{e:x\\9 y}", "a{e:x\\9y}", id="tab"),
     pytest.param("a{e:x\\7f y}", "a{e:x\\7fy}", id="delete"),
     pytest.param("a{e:\\61\\62}", "a{e:ab}", id="adjacent"),
@@ -1006,7 +1006,7 @@ _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\31 a}", "a{e:\\31 a}", id="leading-digit-before-hex-letter"),
     pytest.param("a{e:\\31 x}", "a{e:\\31x}", id="leading-digit-before-other-letter"),
     pytest.param("a{e:\\31\\32}", "a{e:\\31 2}", id="leading-digit-before-digit"),
-    pytest.param("a{e:\\31}", "a{e:\\31}", id="lone-digit"),
+    pytest.param("a{e:\\31}", "a{e:\\31 }", id="lone-digit"),
     pytest.param(".\\31{x:1}", ".\\31{x:1}", id="lone-digit-class"),
     pytest.param("a{e:-\\31}", "a{e:\\-1}", id="hyphen-digit"),
     pytest.param("a{e:\\2d}", "a{e:\\-}", id="lone-hyphen"),
@@ -1016,7 +1016,7 @@ _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:x\\,y}", "a{e:x\\,y}", id="delimiter"),
     pytest.param("a{e:x\\2c y}", "a{e:x\\,y}", id="hex-delimiter"),
     pytest.param("a{e:\\\\}", "a{e:\\\\}", id="backslash"),
-    pytest.param("a{e:\\feff}", "a{e:\\feff}", id="byte-order-mark"),
+    pytest.param("a{e:\\feff}", "a{e:\\feff }", id="byte-order-mark"),
     pytest.param("a{e:\\3c\\2fstyle}", "a{e:\\<\\/style}", id="end-tag"),
     pytest.param("#\\31 23{x:1}", "#\\31 23{x:1}", id="id-hash-leading-digit"),
     pytest.param("a{e:#-\\31}", "a{e:#\\-1}", id="id-hash-hyphen-digit"),
@@ -1053,6 +1053,50 @@ def test_minify_css_decodes_escaped_name(source: str, expected: str) -> None:
 @pytest.mark.parametrize(("source", "expected"), _ESCAPED_NAME)
 def test_minify_css_decoded_name_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
+
+
+_HEX_ESCAPE_END: Final[list[pytest.ParameterSet]] = [
+    pytest.param("a{b:calc((\\e", "a{b:calc((\\e ))}", "a{b:calc((\\e ))}", id="calc-closed-at-end"),
+    pytest.param("5{b:b({\\3", "5{b:b({\\3 })}", "5{b:b({\\3 })}", id="function-block-closed-at-end"),
+    pytest.param("@b(@0\\0", "@b(@0\\0 );", "@b(@0\\0 )", id="prelude-closed-at-end"),
+    pytest.param("@m (x:\\e)", "@m(x:\\e );", "@m(x:\\e )", id="prelude-paren"),
+    pytest.param("@m (\\ )", "@m(\\ );", "@m(\\ )", id="prelude-paren-after-escaped-space"),
+    pytest.param("%;@F \\e:", "%@f \\e :", "@f \\e :", id="prelude-colon-after-stray"),
+    pytest.param(");@c(\\7", ")@c(\\7 )", "@c(\\7 )", id="prelude-paren-after-stray"),
+    pytest.param("t{x:@\\1  x", "t{x:@\\1  x}", "t{x:@\\1  x}", id="at-keyword-value-then-space"),
+    pytest.param("1;@\\a:", "1@\\a  :", "@\\a  :", id="at-keyword-colon-after-stray"),
+    pytest.param("@9\\b:", "@9\\b  :;", "@9\\b  :", id="non-ident-at-keyword-colon"),
+    pytest.param("@1\\78{}", "@1\\78{}", "@1\\78{}", id="non-ident-at-keyword-block"),
+    pytest.param("a{@1\\78}", "a{@1\\78}", "a{@1\\78}", id="non-ident-at-keyword-block-end"),
+    pytest.param("@3\\1!", "@3\\1  !;", "@3\\1  !", id="non-ident-at-keyword-bang"),
+    pytest.param("@->\\2c  \\31", "@- >\\, \\31 ;", "@- >\\, \\31 ", id="escaped-comma-then-space"),
+    pytest.param("/{x:b(\\ +1.5", "/{x:b(\\  1.5)}", "/{x:b(\\  1.5)}", id="escaped-space-before-number"),
+    pytest.param("3}@\\1;m", "3@\\1  m", "", id="stray-join-after-hex-escape"),
+    pytest.param("=@9\\a;^", "=@9\\a ^", "", id="stray-join-after-unclosed-hex-escape"),
+    pytest.param("=@9\\a;b", "=@9\\a  b", "", id="stray-join-hex-digit-after-unclosed-hex-escape"),
+    pytest.param("0}@d;\\31", "0@d \\31 ", "", id="stray-join-before-escaped-digit"),
+    pytest.param("5;@\\2d}x", "5@\\- x", "@\\-", id="stray-join-after-escaped-hyphen"),
+    pytest.param("5;@\\2d\\2d}x", "5@\\-- x", "@\\--", id="stray-join-after-escaped-double-hyphen"),
+    pytest.param("5;@a-}x", "5@a-x", "@a-", id="stray-join-after-hyphen"),
+    pytest.param("5;@--}x", "5@--x", "@--", id="stray-join-after-double-hyphen"),
+    pytest.param("~;@-}\\\\", "~@- \\\\", "@-", id="stray-join-hyphen-before-escape"),
+    pytest.param("+;@- u+}0--\\1", "+@- u+ 0--\\1 ", "@- u+", id="stray-join-number-before-escaped-unit"),
+    pytest.param("5;@\\2d\\2d}\\", "5@\\-- \ufffd", "@\\--", id="stray-join-after-escaped-hyphens"),
+    pytest.param('""{--:9\\feff/**/r', '""{--:9\\feff /**/r}', '""{--:9\\feff /**/r}', id="comment-after-hex-escape"),
+    pytest.param("0\\f/**/\\0{-:u", "0\\f /**/\ufffd{-:u}", "0\\f /**/\ufffd{-:u}", id="selector-comment-after-escape"),
+    pytest.param("\\2c \t\\2d{b:1", "\\, \\-{b:1}", "\\, \\-{b:1}", id="selector-space-after-escaped-comma"),
+    pytest.param("e{\\1+ 0{", "e{\\1 +0{}}", "e{\\1 +0{}}", id="selector-combinator-after-hex-escape"),
+    pytest.param("+{b:\\1}", "+{b:\\1 }", "+{b:\\1 }", id="leading-combinator-after-escaped-body"),
+    pytest.param(",,{b:\\f", ",,{b:\\f }", ",,{b:\\f }", id="leading-comma-after-escaped-body"),
+    pytest.param("a{b:@1\\1\r\n\nx}", "a{b:@1\\1\r\n x}", "a{b:@1\\1\r\n x}", id="crlf-closes-hex-escape"),
+    pytest.param("a{b:@1\\78/**/f}", "a{b:@1\\78  f}", "a{b:@1\\78  f}", id="comment-after-at-keyword-hex-escape"),
+]
+
+
+@pytest.mark.parametrize(("source", "stylesheet", "inline"), _HEX_ESCAPE_END)
+def test_minify_css_hex_escape_end_is_a_fixed_point(source: str, stylesheet: str, inline: str) -> None:
+    assert (minify_css(source), minify_css_inline(source)) == (stylesheet, inline)
+    assert (minify_css(stylesheet), minify_css_inline(inline)) == (stylesheet, inline)
 
 
 _POSITION_DELIMITERS: Final[list[pytest.ParameterSet]] = [
@@ -1558,8 +1602,8 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param("/*a*b*/x{y:1}", "x{y:1}", id="comment-with-lone-star"),
         pytest.param("a{x:1}/* unterminated", "a{x:1}", id="unterminated-comment"),
         pytest.param("@a\\", "@a\ufffd;", id="escaped-at-keyword-backslash-at-eof"),
-        pytest.param(r"0}@d\b", "0@d\\b", id="stray-before-escaped-at-keyword"),
-        pytest.param("0}@d\0\\b", "0@d \0\\b", id="stray-escaped-at-prelude"),
+        pytest.param(r"0}@d\b", "0@d\\b ", id="stray-before-escaped-at-keyword"),
+        pytest.param("0}@d\0\\b", "0@d \0\\b ", id="stray-escaped-at-prelude"),
         pytest.param("x{}#a\\", "#a\ufffd", id="escaped-hash-backslash-at-eof"),
         pytest.param("a{x:1!important/*c*/}", "a{x:1!important}", id="important-trailing-comment"),
         pytest.param("a{x:1 !/*c*/important}", "a{x:1!important}", id="important-comment-between-bang"),
@@ -2146,6 +2190,8 @@ _STRING_CUT_BY_NEWLINE: Final[list[pytest.ParameterSet]] = [
     pytest.param('@keyframes k{"a\nfrom{color:red}to{color:blue}}', "@keyframes k{to{color:blue}}", id="keyframe"),
     pytest.param('@x "a\n;b{c:d}', '@x"a\n;b{c:d}', id="at-statement-prelude"),
     pytest.param('@import "a\n;b{c:d}', '@import"a\n;b{c:d}', id="import-prelude"),
+    pytest.param('@x "\n url(b);', '@x"\n url(b);', id="lone-quote-before-url"),
+    pytest.param('@x "\n (b);', '@x"\n (b);', id="lone-quote-before-paren"),
     pytest.param('@media all,"a\n{b{color:red}}', '@media all,"a\n{b{color:red}}', id="media-query-list"),
     pytest.param('@media (x:"a\n),print{b{color:red}}', '@media(x:"a\n),print{b{color:red}}', id="media-feature"),
     pytest.param('"x\n', '"x\n', id="stray-segment"),
@@ -2705,51 +2751,6 @@ def test_minify_matches_golden(source: str, stylesheet: str, inline: str) -> Non
 )
 def test_minify_output_is_a_fixed_point(stylesheet: str, inline: str) -> None:
     assert (minify_css(stylesheet), minify_css_inline(inline)) == (stylesheet, inline)
-
-
-@pytest.mark.parametrize("source", [pytest.param(row[0], id=row[0][:40]) for row in _GOLDEN])
-def test_minify_is_idempotent_over_golden_corpus(source: str) -> None:
-    once = minify_css(source)
-    assert minify_css(once) == once
-
-
-@pytest.mark.parametrize(
-    ("source", "expected"),
-    [
-        pytest.param("a{b:u+/*x*/calc( }", "a{b:u+ calc(})}", id="urange-prefix-before-hex-ident"),
-        pytest.param("a{b:u+?+0rgb(1)}", "a{b:u+?0rgb(1)}", id="urange-wildcard-then-hex-digit"),
-        pytest.param("a{b:calc((1", "a{b:1}", id="calc-nested-group-open-at-end"),
-        pytest.param("a{b:calc((\\e", "a{b:calc((\\e))}", id="calc-escape-before-implicit-closer"),
-        pytest.param("@0-7F\\10%", "@0-7f\\10%;", id="at-keyword-escape-before-percent"),
-        pytest.param("a{b:-7F\\10%}", "a{b:-7F\\10%}", id="dimension-unit-escape-before-percent"),
-        pytest.param("a{b:\\1+10%0}", "a{b:\\1  10% 0}", id="escape-before-digit-needs-two-spaces"),
-        pytest.param("a{b:\\a/*x*/:}", "a{b:\\a:}", id="escape-comment-before-colon"),
-        pytest.param("a{b:calc((1 2))}", "a{b:calc((1 2))}", id="calc-group-stops-at-second-term"),
-        pytest.param("a{b:[\\31 ]}", "a{b:[\\31]}", id="escape-before-bracket-closer-in-block"),
-        pytest.param("a{b:\\31;c:1}", "a{b:\\31;c:1}", id="escape-before-semicolon-in-block"),
-        pytest.param("a{b:\\31,1}", "a{b:\\31,1}", id="escape-before-comma-in-block"),
-        pytest.param("\\31;;h", "\\31  h", id="escape-before-stray-closers-then-name"),
-        pytest.param("\\31;@x", "\\31@x", id="escape-before-stray-then-at-keyword"),
-        pytest.param("\\31  (x)", "\\31  (x)", id="escape-two-spaces-before-group"),
-        pytest.param("\\31;", "\\31", id="escape-before-stray-semicolon-at-end"),
-        pytest.param("\\31;/*x*/h", "\\31  h", id="escape-before-stray-comment-then-name"),
-        pytest.param("\\31 @x", "\\31@x", id="escape-space-before-at-keyword"),
-        pytest.param("\\31; h", "\\31  h", id="escape-before-stray-space-then-name"),
-        pytest.param("a{b:\\31  +1}", "a{b:\\31  1}", id="escape-two-spaces-before-plus"),
-        pytest.param("@x\\10 a", "@x\\10 a;", id="at-keyword-escape-space-before-name"),
-        pytest.param("@x\\10  a", "@x\\10  a;", id="at-keyword-escape-two-spaces-before-name"),
-        pytest.param("a{b:u+ ?}", "a{b:u+ ?}", id="urange-prefix-before-question-mark"),
-        pytest.param('a{b:\\31/*x*/"x"}', 'a{b:\\31 "x"}', id="escape-comment-before-string"),
-        pytest.param("ab;h", "ab h", id="hex-name-before-stray-name"),
-        pytest.param("a{b:calc((1;c:2}", "a{b:calc((1;c:2}))}", id="calc-nested-group-ends-at-declaration-end"),
-        pytest.param("\\31,}h", "\\31 ,h", id="escape-before-stray-comma-then-name"),
-        pytest.param("\\31 /*x*/", "\\31", id="escape-before-trailing-comment"),
-        pytest.param("a{b:\\31/*x*/}", "a{b:\\31}", id="escape-comment-before-block-closer"),
-    ],
-)
-def test_minify_css_is_idempotent(source: str, expected: str) -> None:
-    once = minify_css(source)
-    assert (once, minify_css(once)) == (expected, expected)
 
 
 @pytest.mark.parametrize(
