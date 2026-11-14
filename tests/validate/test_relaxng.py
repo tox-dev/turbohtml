@@ -15,6 +15,7 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from traced_bytes import PeakBytes
     from work_steps import WorkSteps
@@ -2779,16 +2780,20 @@ def test_rng_wide_group_in_order_scales_linearly(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(validate, (500, 2_000), exponent=1.3)
 
 
-def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes) -> None:
+def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes, tmp_path: Path) -> None:
     # every element's derivative over a choice re-canonicalizes it; while the canonical form was a chain, that cost
     # memory quadratic in the number of alternatives
     script: Final = (
-        "import sys, tracemalloc\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
-        "schema = RelaxNG(sys.argv[1])\ndocument = parse_xml('<doc><a>w0</a></doc>')\n"
+        "import sys, tracemalloc\nfrom pathlib import Path\nfrom turbohtml import parse_xml\n"
+        "from turbohtml.validate import RelaxNG\n"
+        "schema = RelaxNG(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "document = parse_xml('<doc><a>w0</a></doc>')\n"
         "tracemalloc.start()\nschema.validate(document)\nprint(tracemalloc.get_traced_memory()[1])\n"
     )
     source: Final = wrap(f"<choice>{_repeat(_SAME_NAME_ELEMENT, 1_000)}</choice>")
-    assert peak_bytes(script, (source,)) < 64 * len(source)
+    schema_file: Final = tmp_path / "schema.rng"
+    schema_file.write_text(source, encoding="utf-8")
+    assert peak_bytes(script, (str(schema_file),)) < 64 * len(source)
 
 
 @pytest.mark.parametrize("count", [2, 3, 8, 9, 10, 17])
