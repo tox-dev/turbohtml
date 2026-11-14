@@ -871,7 +871,7 @@ def test_computed_style_longhand_css_wide_keyword_token_boundaries(value: str) -
         pytest.param("inherit_foo", id="underscore-suffix"),
         pytest.param("inherité", id="non-ascii-suffix"),
         pytest.param("inherit-foo", id="hyphen-suffix"),
-        pytest.param("indigo", id="ordinary-word"),
+        pytest.param("indigo", id="unrelated-word"),
         pytest.param("unit", id="unit"),
         pytest.param("unite", id="unite"),
     ],

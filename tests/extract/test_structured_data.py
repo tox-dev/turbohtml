@@ -1552,7 +1552,9 @@ def test_json_ld_foreign_script_uses_own_text_only(html: str, expected: list[dic
 @pytest.mark.parametrize("root", ["svg", "math"])
 def test_json_ld_script_staircase_yields_one_block_per_script(root: str) -> None:
     blocks: Final = [{f"k{index}": index} for index in range(80)]
-    staircase: Final = "".join(f'<script type="application/ld+json">{json.dumps(block)}' for block in blocks)
+    staircase: Final = (
+        "".join(f'<script type="application/ld+json">{json.dumps(block)}' for block in blocks) + "\n" * 1000
+    )
     document: Final = parse(f"<{root}>{staircase}")
     assert document.json_ld() == blocks
     assert document.structured_data().json_ld == blocks

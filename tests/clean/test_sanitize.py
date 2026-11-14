@@ -2686,17 +2686,19 @@ def test_annotation_xml_encoding_selects_integration_point(html: str, expected: 
 @pytest.mark.parametrize(
     "encoding",
     [
-        pytest.param(' encoding="text/html"', id="text-html"),
-        pytest.param(' encoding="application/xhtml+xml"', id="application-xhtml-xml"),
+        pytest.param(' ENCODING="Text/HTML"', id="text-html"),
+        pytest.param(' Encoding="Application/XHTML+XML"', id="application-xhtml-xml"),
     ],
 )
 def test_annotation_xml_integration_check_is_linear_in_children(encoding: str, work_steps: WorkSteps) -> None:
-    def markup(count: int) -> str:
-        attributes = " ".join(f"a{index}" for index in range(count))
-        return f"<math><annotation-xml {attributes}{encoding}>{'<i>x</i>' * count}"
+    policy: Final = replace(_ENCODING_POLICY, attribute_prefixes=frozenset({"data-"}))
 
-    work_steps.assert_linear(lambda n: partial(sanitize, markup(n)), (500, 2000))
-    assert work_steps(partial(sanitize, markup(500))) >= 500
+    def markup(count: int) -> str:
+        attributes = " ".join(f"data-{index:x}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'tx<b>n</b>' * count}"
+
+    work_steps.assert_linear(lambda n: partial(sanitize, markup(n), policy), (500, 2000))
+    assert work_steps(partial(sanitize, markup(500), policy)) >= 500
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
