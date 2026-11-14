@@ -507,20 +507,16 @@ def test_late_start_tag_merges_attributes_onto_a_bare_element(markup: str, expec
 
 
 @pytest.mark.parametrize("tag", ["html", "body"])
-def test_repeated_start_tags_merge_attributes_in_linear_memory(tag: str) -> None:
-    # the arena frees nothing before the tree does, so every merge that copies the attribute array to an exact size
-    # keeps the superseded copies alive; PyPy has no tracemalloc to read the peak from
-    tracing: Final = pytest.importorskip("tracemalloc")
-    source: Final = "".join(f"<{tag} x{index}={index}>" for index in range(2000))
-    tracing.start()
-    try:
-        element = parse(source).find(tag)
-        peak: Final[int] = tracing.get_traced_memory()[1]
-    finally:
-        tracing.stop()
+def test_repeated_start_tags_merge_attributes_in_linear_steps(tag: str, work_steps: WorkSteps) -> None:
+    # the arena frees nothing before the tree does, so a merge that copied the attribute array on every start tag
+    # would keep each copy alive and add its elements to the steps, growing the work quadratically
+    def source(count: int) -> str:
+        return "".join(f"<{tag} x{index}={index}>" for index in range(count))
+
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+    element = parse(source(2000)).find(tag)
     assert element is not None
     assert list(element.attrs.items()) == [(f"x{index}", str(index)) for index in range(2000)]
-    assert peak < 8 * 1024 * 1024, f"merging 2000 attributes peaked at {peak} bytes"
 
 
 def test_repeated_start_tags_merge_into_spare_attribute_slots() -> None:
