@@ -11,8 +11,8 @@ renders at 1 KiB and doubles three times; a target is super-linear when its time
 and stays so while retests pool more samples. Targets that emit text also carry a ``len(out) <= k * len(in) + c`` bound.
 
 ``regressions`` re-scores the committed list of past super-linear inputs (``amplify_regressions.json``): fast, public,
-and the per-PR gate. ``search`` draws shapes from literals harvested out of the C sources for a wall-clock budget, in a
-worker process so a hang or a crash still leaves its input behind.
+and the per-PR gate. ``search`` draws shapes from literals harvested out of the C sources for a wall-clock budget or a
+fixed ``--shapes`` count, in a worker process so a hang or a crash still leaves its input behind.
 
 A finding lands in ``--crash-dir`` as ``crash-<sha256>.json`` and the log names it only by target, shape kind and hash,
 because CI logs on a public repository are public; the seed stays out of the log too, since with the public code it
@@ -30,6 +30,7 @@ import gc
 import hashlib
 import itertools
 import json
+import math
 import multiprocessing
 import os
 import random
@@ -39,8 +40,9 @@ import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from functools import cache
+from multiprocessing.sharedctypes import RawValue
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias
 
 from turbohtml import Document, HTMLParseError, parse, parse_xml, tokenize
 from turbohtml.clean import linkify, minify_css, minify_js, sanitize
@@ -50,6 +52,8 @@ from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
+    from ctypes import c_int
+    from multiprocessing.process import BaseProcess
 
 _JSON: TypeAlias = "dict[str, _JSON] | list[_JSON] | tuple[_JSON, ...] | str | int | float | bool | None"
 
@@ -57,6 +61,7 @@ _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _C_SOURCES: Final[Path] = _ROOT / "src" / "turbohtml" / "_c"
 _REGRESSIONS: Final[Path] = Path(__file__).with_name("amplify_regressions.json")
 _INFLIGHT: Final[str] = "inflight.json"
+_SPAWN_PROCESS: Final[type[BaseProcess]] = multiprocessing.get_context("spawn").Process
 _KINDS: Final[tuple[str, ...]] = ("repeat", "sandwich", "tree")
 _COUNTER: Final[str] = "{n}"
 # comrak quadratic.rs and pulldown-cmark's dos-fuzzer both cap each pattern string at 128 bytes
@@ -89,7 +94,7 @@ _EXPECTED: Final[tuple[type[Exception], ...]] = (ValueError, HTMLParseError, Rec
 _STDERR: Final[int] = 2
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, process: _ProcessFactory = _SPAWN_PROCESS) -> int:
     # Return 0 when every scored shape grows linearly within its output bound, 1 on a finding, 2 on a blind run.
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     modes = parser.add_subparsers(dest="mode", required=True)
@@ -97,6 +102,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     regressions.add_argument("--file", type=Path, default=_REGRESSIONS, help="the regression list (_JSON)")
     search = modes.add_parser("search", help="score shapes drawn from the harvested C literals for a budget")
     search.add_argument("--minutes", type=float, default=1.0, help="wall-clock budget of the search")
+    search.add_argument(
+        "--shapes", type=_shape_count, help="stop after this many shapes instead of the wall-clock budget"
+    )
     search.add_argument(
         "--rng-seed",
         type=int,
@@ -112,7 +120,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     if args.mode == "regressions":
         return _rescore(load_regressions(args.file), args.target)
-    return _search(args.target or sorted(TARGETS), args.minutes, args.rng_seed, args.crash_dir)
+    budget = _Budget(
+        seconds=math.inf if args.shapes is not None else args.minutes * 60,
+        shapes=args.shapes,
+        drawn=RawValue("i", 0),
+    )
+    return _search(args.target or sorted(TARGETS), budget, args.rng_seed, args.crash_dir, process)
+
+
+class _ProcessFactory(Protocol):
+    def __call__(
+        self, *, target: Callable[[Sequence[str], _Budget, str, Path], None], args: tuple[object, ...]
+    ) -> BaseProcess: ...
+
+
+def _shape_count(text: str) -> int:
+    count = int(text)
+    if count < 1:
+        msg = f"must be at least 1, got {count}"
+        raise argparse.ArgumentTypeError(msg)
+    return count
 
 
 def _control_failure() -> str | None:
@@ -409,21 +436,20 @@ def _rescore(rows: list[Regression], targets: Sequence[str] | None) -> int:
     return int(failed > 0)
 
 
-def _search(targets: Sequence[str], minutes: float, rng_seed: int, crash_dir: Path) -> int:
-    # Run the hunt in worker processes until the budget is spent.
+def _search(targets: Sequence[str], budget: _Budget, rng_seed: int, crash_dir: Path, process: _ProcessFactory) -> int:
+    # Run the hunt in worker processes until the shape count or the wall-clock budget is spent.
     #
     # The worker writes each shape to ``inflight.json`` before scoring it, so when the hang watchdog or a crash kills
     # the worker, the shape it died on is still on disk; a fresh worker with its own seed stream takes the rest of the
-    # budget.
+    # budget. A shape count replaces the budget, and the count shared across workers is what ends the restarts.
     crash_dir.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + minutes * 60
+    deadline = time.monotonic() + budget.seconds
     inflight = crash_dir / _INFLIGHT
     status = 0
     restart = 0
     while True:
-        worker = multiprocessing.get_context("spawn").Process(
-            target=_hunt, args=(targets, deadline - time.monotonic(), f"{rng_seed}/{restart}", crash_dir)
-        )
+        remaining = replace(budget, seconds=deadline - time.monotonic())
+        worker = process(target=_hunt, args=(targets, remaining, f"{rng_seed}/{restart}", crash_dir))
         worker.start()
         worker.join()
         log = crash_dir / f"crash-worker-{restart}.log"
@@ -440,7 +466,15 @@ def _search(targets: Sequence[str], minutes: float, rng_seed: int, crash_dir: Pa
         restart += 1
 
 
-def _hunt(targets: Sequence[str], seconds: float, seed: str, crash_dir: Path) -> None:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Budget:
+    # Wall-clock seconds and a shape count for the whole search, with the shared counter that enforces the count.
+    seconds: float
+    shapes: int | None
+    drawn: c_int
+
+
+def _hunt(targets: Sequence[str], budget: _Budget, seed: str, crash_dir: Path) -> None:
     # the watchdog's traceback and an unexpected exception may quote the input, so stderr goes to the private dir
     with (crash_dir / f"crash-worker-{seed.rpartition('/')[2]}.log").open("w", encoding="utf-8") as log:
         os.dup2(log.fileno(), _STDERR)
@@ -449,11 +483,12 @@ def _hunt(targets: Sequence[str], seconds: float, seed: str, crash_dir: Path) ->
     inflight = crash_dir / _INFLIGHT
     tried: collections.Counter[str] = collections.Counter()
     found = capped = 0
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+    deadline = time.monotonic() + budget.seconds
+    while time.monotonic() < deadline and (budget.shapes is None or budget.drawn.value < budget.shapes):
         name = rng.choice(targets)
         shape = _draw(rng, literals[name])
         fields = asdict(shape)
+        budget.drawn.value += 1  # counted before scoring, so the shape that kills a worker still uses up the cap
         inflight.write_text(json.dumps({"target": name, "shape": fields, "rng-seed": seed}), encoding="utf-8")
         target = TARGETS[name]
         result = score(target.run, shape)
