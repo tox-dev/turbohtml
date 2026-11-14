@@ -397,6 +397,32 @@ def test_transform_identity_copy() -> None:
     assert transform(sheet, turbohtml.parse_xml(source)) == source
 
 
+def test_transform_identity_copy_of_many_attributes() -> None:
+    body = (
+        '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*"/>'
+        '<xsl:if test="self::a"><xsl:attribute name="n7">last</xsl:attribute></xsl:if>'
+        '<xsl:apply-templates select="node()"/></xsl:copy></xsl:template>'
+    )
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
+    attrs = [f'n{index}="{index}"' for index in range(70)]
+    source = f"<a {' '.join(attrs)}><b {' '.join(attrs[:3])}/></a>"
+    attrs[7] = 'n7="last"'  # the later xsl:attribute replaces the copied one where it stands
+    assert transform(sheet, turbohtml.parse_xml(source)) == f"<a {' '.join(attrs)}><b {' '.join(attrs[:3])}/></a>"
+
+
+def test_transform_identity_copy_stays_linear_in_attributes(work_steps: WorkSteps) -> None:
+    body = (
+        '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*|node()"/></xsl:copy></xsl:template>'
+    )
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
+    work_steps.assert_linear(
+        lambda count: partial(
+            transform, sheet, turbohtml.parse_xml("<r {}/>".format(" ".join(f"n{index}=''" for index in range(count))))
+        ),
+        (1000, 4000),
+    )
+
+
 def test_transform_copy_of_comment_and_pi() -> None:
     body = (
         '<xsl:template match="/"><out>'
