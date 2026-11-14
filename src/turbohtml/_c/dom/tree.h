@@ -558,9 +558,10 @@ Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 PyObject *th_node_text_string(th_tree *tree, th_node *node);
 
 /* Gather node's concatenated descendant text into a caller-sized, reusable UCS4
-   buffer (no allocation, no str), for the find(text=) literal/exact C scan. Returns -1
-   when realizing a zero-copy text span fails. */
-int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf);
+   buffer (no allocation, no str), for the find(text=) literal/exact C scan. Stores the
+   count of code points gathered in out_len; returns -1 when realizing a zero-copy text
+   span fails. */
+int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf, Py_ssize_t *out_len);
 
 /* Serialize node and its subtree as HTML (the WHATWG fragment serialization).
    For the document node this is the whole-document markup. PyMem-allocated;

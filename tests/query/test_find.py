@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import gc
+import itertools
 import re
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Final
 from weakref import finalize
 
@@ -14,6 +16,8 @@ from turbohtml.clean import collapse_whitespace_node
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import TypeAlias
+
+    from work_steps import WorkSteps
 
     Filter: TypeAlias = "str | re.Pattern[str] | bool | Callable[[str | None], bool] | list[Filter]"
 
@@ -1163,3 +1167,219 @@ def test_attribute_filter_snapshot_releases_on_error() -> None:
         parse('<p data-a="a" data-b="b"></p>').find_all("p", attrs=attrs)
     gc.collect()
     assert released == ["released"]
+
+
+# A candidate's text is a slice of each ancestor's, so reading every candidate from its own subtree reads a node once
+# per candidate around it. Once those reads have cost several walks of the tree, a str or literal-regex search takes
+# every element's verdict from one walk instead. _NEST nested elements are enough to get there.
+_NEST: Final[int] = 5_000
+_NEST_DOC: Final[str] = f"<r><s/>{'<li>' * _NEST}go{'</li>' * _NEST}<b>go</b><b>x<i/></b><e/></r>"
+_NESTED: Final[list[str]] = ["li"] * _NEST
+
+
+@pytest.mark.parametrize(
+    ("axis", "text_filter", "tags"),
+    [
+        pytest.param(Axis.DESCENDANTS, "go", [*_NESTED, "b"], id="descendants-exact"),
+        pytest.param(Axis.DESCENDANTS, re.compile(r"go"), ["r", *_NESTED, "b"], id="descendants-literal-regex"),
+        pytest.param(Axis.DESCENDANTS, "", ["s", "i", "e"], id="descendants-empty-exact"),
+        pytest.param(
+            Axis.DESCENDANTS, re.compile(r""), ["r", "s", *_NESTED, "b", "b", "i", "e"], id="descendants-empty-regex"
+        ),
+        pytest.param(Axis.DESCENDANTS, "x", ["b"], id="descendants-exact-after-nest"),
+        pytest.param(Axis.DESCENDANTS, "og", [], id="descendants-exact-same-length"),
+        pytest.param(Axis.DESCENDANTS, re.compile(r"og"), ["r"], id="descendants-needle-across-elements"),
+        pytest.param(Axis.DESCENDANTS, re.compile(r"gog"), ["r"], id="descendants-needle-overlapping-itself"),
+        pytest.param(Axis.ANCESTORS, "go", _NESTED[1:], id="ancestors-exact"),
+        pytest.param(Axis.ANCESTORS, re.compile(r"go"), [*_NESTED[1:], "r"], id="ancestors-literal-regex"),
+        pytest.param(Axis.FOLLOWING, "go", [*_NESTED, "b"], id="following-exact"),
+        pytest.param(Axis.FOLLOWING, re.compile(r"x"), ["b"], id="following-literal-regex"),
+        pytest.param(Axis.PRECEDING, "go", ["b", *_NESTED], id="preceding-exact"),
+        pytest.param(Axis.PRECEDING, re.compile(r"go"), ["b", *_NESTED], id="preceding-literal-regex"),
+    ],
+)
+def test_text_of_nested_candidates(axis: Axis, text_filter: Filter, tags: list[str]) -> None:
+    assert _tags(_nest_origin(axis).find_all(text=text_filter, axis=axis)) == tags
+
+
+def _nest_origin(axis: Axis) -> Document | Element:
+    document: Final = parse_xml(_NEST_DOC)
+    _el(document.find("i")).append(Text(""))  # an empty Text adds nothing to any element's text
+    if axis is Axis.ANCESTORS:
+        return document.find_all("li")[-1]
+    if axis is Axis.FOLLOWING:
+        return _el(document.find("s"))
+    if axis is Axis.PRECEDING:
+        return _el(document.find("e"))
+    return document
+
+
+@pytest.mark.parametrize(
+    "text_filter",
+    [
+        pytest.param("in stock", id="exact"),
+        pytest.param(re.compile(r"in stock"), id="literal-regex"),
+    ],
+)
+def test_text_of_nested_candidates_scales_linearly(text_filter: Filter, work_steps: WorkSteps) -> None:
+    # each nested read walks the chain below it again, so the steps grow with its square until the text_index takes over
+    work_steps.assert_linear(
+        lambda depth: partial(parse_xml(_section_chain(depth)).find_all, text=text_filter), (2_000, 8_000)
+    )
+
+
+def _section_chain(depth: int) -> str:
+    return f"<main>{'<section><hr/>' * depth}back order{'<hr/></section>' * depth}</main>"
+
+
+def test_text_of_many_short_candidates_scale_linearly(work_steps: WorkSteps) -> None:
+    # each candidate's first node is its text, so its read is one step and the reads never build a table
+    work_steps.assert_linear(
+        lambda n: partial(parse_xml(f"<main>{'<li>x</li>' * n}</main>").find_all, text="x"), (2_000, 8_000)
+    )
+
+
+_LATE_DOC: Final[str] = f"<r>{'<li>' * _NEST}go{'</li>' * _NEST}<b>x</b><b>x</b></r>"
+
+
+@pytest.mark.parametrize(
+    ("search", "tags"),
+    [
+        pytest.param(lambda document: [_el(document.find(text="x"))], ["b"], id="find"),
+        pytest.param(lambda document: document.find_all(text="x", limit=1), ["b"], id="find-all-limit"),
+        pytest.param(lambda document: document.find_all(text="x"), ["b", "b"], id="find-all"),
+    ],
+)
+def test_text_past_nested_candidates(search: Callable[[Document], list[Element]], tags: list[str]) -> None:
+    assert _tags(search(parse_xml(_LATE_DOC))) == tags
+
+
+def test_text_search_past_nested_candidates_raises_from_filter() -> None:
+    def fail_at_b(name: str | None) -> bool:
+        if name == "b":
+            raise LookupError
+        return True
+
+    with pytest.raises(LookupError):
+        parse_xml(_LATE_DOC).find_all(fail_at_b, text="x")
+
+
+def test_text_of_nested_candidates_moved_by_a_filter() -> None:
+    document: Final = parse_xml(f"<r><m/>{'<li>' * _NEST}go{'</li>' * _NEST}<t/><u/></r>")
+    present: Final = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
+    moved: Final = _el(document.find("m"))
+    target: Final = _el(document.find("t"))
+    dropped: Final = _el(document.find("u"))
+
+    def move_at_target(name: str | None) -> bool:
+        if name == "t":
+            target.append(moved)
+            dropped.extract()
+        return True
+
+    # the result of a search whose callable edits the tree is unspecified; m is judged before the callable moves it, so
+    # it stays in the result, and the search must still finish with elements the document held
+    tags: Final = _tags(document.find_all(move_at_target, text=""))
+    assert "m" in tags
+    assert set(tags) <= present
+
+
+def test_text_of_nested_ancestors_moved_by_a_filter() -> None:
+    document: Final = parse_xml(_NEST_DOC)
+    chain: Final = document.find_all("li")
+    present: Final = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
+    end: Final = _el(document.find("e"))
+    calls: Final = itertools.count(1)
+
+    def move_late(_name: str | None) -> bool:
+        if next(calls) == _NEST - 1_000:
+            end.append(chain[999])
+        return True
+
+    # the climb meets the moved element after the ancestors that were above it, so the result is unspecified here too;
+    # the nearest ancestor is judged before any move, so it stays in the result
+    tags: Final = _tags(chain[-1].find_all(move_late, text="go", axis=Axis.ANCESTORS))
+    assert tags[0] == "li"
+    assert set(tags) <= present
+
+
+@pytest.mark.parametrize(
+    "text_filter",
+    [pytest.param("tail", id="exact"), pytest.param(re.compile(r"tail"), id="literal-regex")],
+)
+def test_text_of_chain_after_a_filter_adds_an_element_scales_linearly(
+    text_filter: Filter, work_steps: WorkSteps
+) -> None:
+    # the element the filter adds is one the table does not hold, so the chain after it must be weighed again
+    work_steps.assert_linear(lambda depth: _chain_after_an_added_element(depth, text_filter), (2_000, 8_000))
+
+
+def _chain_after_an_added_element(depth: int, text_filter: Filter) -> Callable[[], object]:
+    document: Final = parse_xml(f"<r>{'<d>' * depth}tail{'</d>' * depth}<t/>{'<e>' * depth}tail{'</e>' * depth}</r>")
+    target: Final = _el(document.find("t"))
+
+    def add(name: str | None) -> bool:
+        if name == "t" and not target.children:
+            target.set_inner_html("<b>tail</b>")
+        return True
+
+    return partial(document.find_all, add, text=text_filter)
+
+
+@pytest.mark.parametrize(
+    "text_filter",
+    [pytest.param("tail", id="exact"), pytest.param(re.compile(r"tail"), id="literal-regex")],
+)
+def test_text_of_chain_detached_by_a_filter_scales_linearly(text_filter: Filter, work_steps: WorkSteps) -> None:
+    # the callable detaches the element it adds while the search is judging it, so its own chain is read in a table
+    work_steps.assert_linear(lambda depth: _chain_detached_by_a_filter(depth, text_filter), (2_000, 8_000))
+
+
+def _chain_detached_by_a_filter(depth: int, text_filter: Filter) -> Callable[[], object]:
+    document: Final = parse_xml(f"<r>{'<d>' * depth}tail{'</d>' * depth}<t/></r>")
+    target: Final = _el(document.find("t"))
+
+    def add_and_detach(name: str | None) -> bool:
+        if name == "t" and not target.children:
+            target.set_inner_html(f"<b>{'<f>' * depth}tail{'</f>' * depth}</b>")
+        if name == "b":
+            _el(document.find("b")).extract()
+        return True
+
+    return partial(document.find_all, add_and_detach, text=text_filter)
+
+
+_ADDED_DOC: Final[str] = f"<r>{'<li>' * _NEST}go{'</li>' * _NEST}<t/></r>"
+
+
+@pytest.mark.parametrize(
+    ("text_filter", "markup", "limit", "tags"),
+    [
+        pytest.param("go", "<b>go</b><c>go</c>", None, ["r", *_NESTED, "b", "c"], id="exact"),
+        pytest.param(re.compile(r"go"), "<b>go</b><c>go</c>", None, ["r", *_NESTED, "b", "c"], id="literal-regex"),
+        pytest.param("go", "<b>no</b><c>go</c>", None, ["r", *_NESTED, "c"], id="exact-added-fails"),
+        pytest.param("go", "<b>go</b><c>go</c>", _NEST + 2, ["r", *_NESTED, "b"], id="exact-limit-at-added"),
+    ],
+)
+def test_text_of_candidates_added_by_a_filter_past_the_nest(
+    text_filter: Filter, markup: str, limit: int | None, tags: list[str]
+) -> None:
+    document: Final = parse_xml(_ADDED_DOC)
+    # the table holds no verdict for an element added after it was built, so that element is read from its subtree
+    assert _tags(document.find_all(_add_at_target(document, markup), text=text_filter, limit=limit)) == tags
+
+
+def _add_at_target(document: Document, markup: str) -> Callable[[str | None], bool]:
+    target: Final = _el(document.find("t"))
+
+    def add(name: str | None) -> bool:
+        if name == "t" and not target.children:
+            target.set_inner_html(markup)
+        return name != "t"  # the table's verdict for t predates the edit, which leaves it unspecified
+
+    return add
+
+
+def test_first_text_match_added_by_a_filter_past_the_nest() -> None:
+    document: Final = parse_xml(_ADDED_DOC)
+    assert _el(document.find(_add_at_target(document, "<b>x</b>"), text="x")).tag == "b"
