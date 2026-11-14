@@ -6,6 +6,7 @@
 
 #include "core/node_map.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/nodes.h"
 #include "css/select/selector.h"
 
@@ -492,6 +493,7 @@ static Py_ssize_t sort_tree_roots(th_node **group, Py_ssize_t group_count) {
             return -1;                                                  /* GCOVR_EXCL_LINE */
         }
         for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
+            TH_WORK_STEP();
             mark = root_mark(&marks, parent);
             if (mark != NULL) {
                 mark->value += ROOT_MARK_CHILD;
@@ -506,12 +508,14 @@ static Py_ssize_t sort_tree_roots(th_node **group, Py_ssize_t group_count) {
     /* The lowest common ancestor is the highest node above a root that is a root or has two marked children. */
     th_node *top = group[0];
     for (th_node *node = top->parent; node != NULL; node = node->parent) {
+        TH_WORK_STEP();
         if (th_node_map_find(&marks, node) != ROOT_MARK_CHILD) {
             top = node;
         }
     }
     Py_ssize_t kept = 0;
     for (th_node *node = top;;) {
+        TH_WORK_STEP();
         if ((th_node_map_find(&marks, node) & ROOT_MARK_SELECTED) == 0) {
             node = node->first_child;
         } else {
@@ -634,9 +638,11 @@ static th_node *index_root_top(th_node_map *climbed, multi_root *roots, Py_ssize
     th_node *first = top;
     Py_ssize_t earlier = 0;
     while (top->parent != NULL && (earlier = th_node_map_find(climbed, top)) == 0) {
+        TH_WORK_STEP();
         top = top->parent;
     }
     for (th_node *node = first; node != top; node = node->parent) {
+        TH_WORK_STEP();
         if (th_node_map_insert(climbed, node, index + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return NULL;                                        /* GCOVR_EXCL_LINE */
         }

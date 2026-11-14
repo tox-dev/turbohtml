@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-import time
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -14,6 +14,8 @@ from turbohtml.query import Query, SelectorSyntaxError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -567,25 +569,14 @@ def test_find_groups_deep_roots_by_the_tree_they_are_in(order: str, first: str, 
 @pytest.mark.parametrize(
     "markup",
     [
-        pytest.param(f"<r>{'<s>' * 50000}<t/>{'</s>' * 50000}</r>", id="nested"),
-        pytest.param(f"<r>{'<x>' * 50000}{'<s><t/></s>' * 50000}{'</x>' * 50000}</r>", id="below-a-chain"),
-        pytest.param(f"<r>{'<x><s><t/></s></x>' * 50000}</r>", id="across-a-wide-parent"),
+        pytest.param(lambda n: f"<r>{'<s>' * n}<t/>{'</s>' * n}</r>", id="nested"),
+        pytest.param(lambda n: f"<r>{'<x>' * n}{'<s><t/></s>' * n}{'</x>' * n}</r>", id="below-a-chain"),
+        pytest.param(lambda n: f"<r>{'<x><s><t/></s></x>' * n}</r>", id="across-a-wide-parent"),
     ],
 )
-def test_find_across_deep_or_wide_roots_in_linear_time(markup: str) -> None:
-    # find() must stay within a constant factor of walking the same document, so a climb per root cannot hide behind
-    # a small input size.
-    document: Final = turbohtml.parse_xml(markup)
-    sections: Final = Query(document)("s")
-    start = time.perf_counter()
-    found: Final = sections.find("t")
-    find_seconds = time.perf_counter() - start
-    start = time.perf_counter()
-    document.select("s")
-    walk_seconds = time.perf_counter() - start
-    # the floor keeps timer noise on a fast walk from failing the bound
-    assert find_seconds <= 40 * max(walk_seconds, 0.01)
-    assert len(found) == markup.count("<t/>")
+def test_find_across_deep_or_wide_roots_scales_linearly(markup: Callable[[int], str], work_steps: WorkSteps) -> None:
+    # Counted steps rather than seconds: a wall-clock budget is flaky on shared runners.
+    work_steps.assert_linear(lambda n: partial(Query(turbohtml.parse_xml(markup(n)))("s").find, "t"), (500, 2000))
 
 
 @pytest.mark.parametrize(

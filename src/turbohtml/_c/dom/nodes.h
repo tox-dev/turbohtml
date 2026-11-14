@@ -9,6 +9,7 @@
 
 #include "core/ascii.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "dom/ownership.h"
 #include "query/xpath/xpath.h"
@@ -566,6 +567,7 @@ static inline int is_ancestor(th_node *candidate, th_node *node) {
 static inline Py_ssize_t node_index(th_node *node) {
     Py_ssize_t index = 0;
     for (th_node *previous = node->prev_sibling; previous != NULL; previous = previous->prev_sibling) {
+        TH_WORK_STEP();
         index++;
     }
     return index;
@@ -574,6 +576,7 @@ static inline Py_ssize_t node_index(th_node *node) {
 /* A shadow root, document, or detached node can each top a connected tree. */
 static inline th_node *node_root(th_node *node) {
     while (node->parent != NULL) {
+        TH_WORK_STEP();
         node = node->parent;
     }
     return node;
