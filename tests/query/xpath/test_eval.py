@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import timeit
 from functools import partial
 from operator import ge, gt, le, lt
 from types import MappingProxyType
@@ -912,6 +913,82 @@ def test_long_compound_selector_evaluates() -> None:
 def test_deep_boolean_chain_operand_still_raises(doc: turbohtml.Node) -> None:
     with pytest.raises(XPathDepthError, match="nested too deeply"):
         doc.xpath(f"1=1 and ({'+'.join(['1'] * 5000)}) and 1=1")
+
+
+# A path tested for emptiness only needs one node of its last step. The walk has to stop at that node, or the work grows
+# quadratically with the length of a sibling list.
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("//li[following-sibling::li]", id="predicate"),
+        pytest.param("//li[not(following-sibling::li)]", id="not"),
+        pytest.param("//li[boolean(following-sibling::*)]", id="boolean"),
+        pytest.param("//li[@id or following::li]", id="or"),
+        pytest.param("//li[following::li and ../li]", id="and"),
+        pytest.param("//li[preceding-sibling::li]", id="preceding-sibling"),
+        pytest.param("//li[not(preceding::li)]", id="preceding"),
+        pytest.param(css_to_xpath("li:last-child", prefix="//"), id="css-last-child"),
+    ],
+)
+def test_a_path_tested_for_emptiness_grows_linearly(expression: str) -> None:
+    # Growth is about 8 for a walk that stops early and about 64 for one that collects the axis. The floor keeps timer
+    # noise on the short list from inflating the ratio.
+    small: Final = parse(f"<ul>{'<li>x' * 2_000}</ul>")
+    large: Final = parse(f"<ul>{'<li>x' * 16_000}</ul>")
+    growth: Final = _best_seconds(large, expression) / max(_best_seconds(small, expression), 0.05)
+    assert growth < 24
+
+
+def _best_seconds(document: Document, expression: str) -> float:
+    return min(timeit.repeat(partial(document.xpath, expression), number=1, repeat=3))
+
+
+@pytest.mark.parametrize("context", ["//*", "//@*", "//text()", "//*/namespace::*"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "self::b",
+        "child::b",
+        "descendant::b",
+        "descendant-or-self::b",
+        "descendant-or-self::node()",
+        "parent::b",
+        "ancestor::b",
+        "ancestor-or-self::b",
+        "ancestor-or-self::node()",
+        "following-sibling::b",
+        "preceding-sibling::b",
+        "following::b",
+        "preceding::b",
+        "attribute::x",
+        "namespace::*",
+        "node()",
+        "b/i",
+        "*//i",
+        "*[2]",
+        "following-sibling::*[@x][last()]",
+        "preceding::*[i][1]/@x",
+        "(b | i)/..",
+        "$nodes/b",
+        "/r/i",
+    ],
+)
+def test_a_path_tested_for_emptiness_agrees_with_its_count(context: str, path: str) -> None:
+    document: Final = parse_xml(
+        '<r><b x="1"><i/>t<b><i x="2"/><b/></b></b><i><b/><!--c--></i><a><b x="3"/><i/><b><i/></b></a><i x="4"/></r>'
+    )
+    nodes: Final = document.xpath("//i")
+    checks: Final = (
+        (path, f"count({path}) > 0"),
+        (f"not({path})", f"count({path}) = 0"),
+        (f"boolean({path})", f"count({path}) > 0"),
+        (f"{path} and @x", f"count({path}) > 0 and @x"),
+        (f"@x or {path}", f"@x or count({path}) > 0"),
+    )
+    tested: Final = [document.xpath(f"{context}[{test}]", nodes=nodes) for test, _ in checks]
+    counted: Final = [document.xpath(f"{context}[{count}]", nodes=nodes) for _, count in checks]
+    assert tested == counted
+    assert document.xpath(f"boolean({path})", nodes=nodes) is document.xpath(f"count({path}) > 0", nodes=nodes)
 
 
 def test_long_union_in_predicate_needs_no_c_stack() -> None:

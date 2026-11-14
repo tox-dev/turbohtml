@@ -1475,9 +1475,10 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
 }
 
 /* Evaluate a compiled program against the current node with the current scope and
-   the XSLT extension functions. Returns the xp_eval status; fills *out on success. */
-static int eval_program(engine *eng, const xp_program *prog, th_node *context, Py_ssize_t pos, Py_ssize_t size,
-                        xp_result *out) {
+   the XSLT extension functions. Returns the xp_eval status; fills *out on success.
+   condition is set when the caller only converts *out to a boolean (xp_eval_condition_at). */
+static int eval_program_as(engine *eng, const xp_program *prog, th_node *context, Py_ssize_t pos, Py_ssize_t size,
+                           xp_result *out, int condition) {
     xp_binding storage[16];
     xp_binding *bindings = storage;
     if (prog->has_variables && eng->scope_len > 16) {
@@ -1493,7 +1494,10 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
         scope_bindings(eng, bindings, &vars);
     }
     const char *feature = NULL;
-    int status = xp_eval_at(prog, eng->src_tree, context, pos, size, &vars, NULL, xslt_extension, eng, out, &feature);
+    int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, pos, size, &vars, NULL, xslt_extension,
+                                                  eng, out, &feature)
+                           : xp_eval_at(prog, eng->src_tree, context, pos, size, &vars, NULL, xslt_extension, eng, out,
+                                        &feature);
     if (bindings != storage) {
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
@@ -1508,6 +1512,11 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
         }
     }
     return status;
+}
+
+static int eval_program(engine *eng, const xp_program *prog, th_node *context, Py_ssize_t pos, Py_ssize_t size,
+                        xp_result *out) {
+    return eval_program_as(eng, prog, context, pos, size, out, 0);
 }
 
 /* ---- key tables ----------------------------------------------------------- */
@@ -2666,7 +2675,7 @@ static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
-    int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
+    int status = eval_program_as(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value, 1);
     if (status < 0) {
         return fail_py(eng);
     }
