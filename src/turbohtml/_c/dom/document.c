@@ -535,12 +535,16 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
         /* The remainder is a relative reference, so no scheme scan may read it again; "./" keeps a first segment that
            holds a colon a path (RFC 3986 section 4.2). */
         PyObject *relative = PyUnicode_Substring(target, colon + 1, target_len);
-        if (relative != NULL && url_first_segment_colon(relative)) { /* GCOVR_EXCL_BR_LINE: NULL on allocation only */
-            Py_SETREF(relative, th_str_format("./%U", relative));
-        }
         if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (url_first_segment_colon(relative)) {
+            Py_SETREF(relative, th_str_format("./%U", relative));
+            if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
+                Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         }
         PyObject *resolved =
             url_join_encoded_dot_segments(normalized_base == NULL ? base : normalized_base, relative, literalized);
