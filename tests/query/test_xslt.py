@@ -2912,6 +2912,12 @@ _CYCLE_HINT: Final[str] = "; remove one of these use-attribute-sets references"
             id="cycle-through-redefinition",
         ),
         pytest.param(
+            '<xsl:attribute-set name="s" use-attribute-sets="t"/><xsl:attribute-set name="s"/>'
+            '<xsl:attribute-set name="t" use-attribute-sets="s"/>',
+            f"ValueError: circular xsl:attribute-set reference: s -> t -> s{_CYCLE_HINT}",
+            id="cycle-through-earlier-definition",
+        ),
+        pytest.param(
             f"""{
                 "".join(
                     f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
@@ -5441,6 +5447,14 @@ def test_transform_strip_space_reaches_deep_descendants_and_restores_source() ->
             '<item xsl:use-attribute-sets="target other target"/>',
             '<out><item a="1" b="3"/></out>',
             id="attribute-set-duplicates-named-twice",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="outer" use-attribute-sets="target"/>'
+            '<xsl:attribute-set name="target"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+            '<xsl:attribute-set name="target"><xsl:attribute name="b">2</xsl:attribute></xsl:attribute-set>',
+            '<item xsl:use-attribute-sets="outer"/>',
+            '<out><item a="1" b="2"/></out>',
+            id="attribute-set-duplicates-used-before-definition",
         ),
         pytest.param("", '<item xsl:use-attribute-sets="missing"/>', "<out><item/></out>", id="missing-attribute-set"),
         pytest.param(
