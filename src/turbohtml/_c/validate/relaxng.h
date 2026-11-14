@@ -10,9 +10,11 @@
 #ifndef TURBOHTML_VALIDATE_RELAXNG_H
 #define TURBOHTML_VALIDATE_RELAXNG_H
 
+/* The step bodies inline into the hot walk and into their memo functions. A debug build keeps one copy, as
+   CSS_FORCEINLINE does, because gcc counts a body's branches once per copy and the coverage gate needs them all. */
 #if defined(_MSC_VER)
 #define RNG_FORCEINLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
+#elif defined(__OPTIMIZE__)
 #define RNG_FORCEINLINE inline __attribute__((always_inline))
 #else
 #define RNG_FORCEINLINE inline
