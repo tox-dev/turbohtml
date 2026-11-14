@@ -238,7 +238,7 @@ jobs:
   wheels-gate:
     name: 🏗️ wheels - ${{ matrix.label }}
     needs: wheels
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -290,8 +290,9 @@ jobs:
     steps:
       - name: 🚦 Require all jobs to succeed
         env:
+          EVENT: ${{ github.event_name }}
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: jq -e 'all(.[]; .result == "success")' <<<"$NEEDS_JSON"
+        run: jq -e 'all(.[]; .result == "success" or (.result == "skipped" and env.EVENT == "pull_request"))' <<<"$NEEDS_JSON"
   publish:
     name: 🚀 Publish ${{ matrix.artifact }}
     needs:
