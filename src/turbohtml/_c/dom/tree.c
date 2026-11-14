@@ -446,7 +446,7 @@ static int stack_at_depth_cap(const th_tree *tree) {
 }
 
 static int stack_push(th_tree *tree, th_node *node) {
-    if (stack_at_depth_cap(tree)) {
+    if (tree->open_len >= TH_MAX_TREE_DEPTH) {
         /* Runaway nesting: leave the element in the DOM (it was already inserted under
            the deepest open element) but do not descend into it, so subsequent start
            tags become its siblings. This bounds tree depth the way browsers do, which
