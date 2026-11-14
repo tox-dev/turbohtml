@@ -1748,7 +1748,9 @@ def test_encode(html: str, selector: str, call: Callable[[Node], bytes], expecte
     ("html", "kwargs", "exception"),
     [
         pytest.param("<p>x</p>", {"encoding": "not-a-codec"}, LookupError, id="unknown-encoding"),
-        pytest.param("<p>\x1b</p>", {"encoding": "not-a-codec"}, LookupError, id="unknown-encoding-shift-code"),
+        pytest.param(
+            "<p>\x1b</p>", {"encoding": "iso-2022-not-a-codec"}, LookupError, id="unknown-encoding-shift-code"
+        ),
         # the default WHATWG formatter keeps é literal, so ascii cannot represent it
         pytest.param("<p>café</p>", {"encoding": "ascii"}, UnicodeEncodeError, id="unencodable-character"),
     ],
@@ -2106,7 +2108,7 @@ def test_encode_iso_2022_reports_the_first_shift_code(text: str) -> None:
 
 
 def test_encode_iso_2022_jp_round_trips_without_a_shift_code() -> None:
-    doc: Final = parse('<a title="日本語">x</a>a " data-after="1" b')
+    doc: Final = parse("<p>日本語</p><p>tail</p>")
     assert parse(doc.encode("iso-2022-jp"), encoding="iso-2022-jp").serialize() == doc.serialize()
 
 
@@ -2123,13 +2125,14 @@ _UTF8: Final[codecs.CodecInfo] = codecs.lookup("utf-8")
     [
         pytest.param(cast("codecs.CodecInfo", tuple(_UTF8)), id="plain-tuple"),
         pytest.param(codecs.CodecInfo(*_UTF8, name=None), id="nameless-codec-info"),
+        pytest.param(_UTF8, id="named-utf-8"),
     ],
 )
-def test_encode_keeps_a_shift_code_in_a_codec_without_a_name(info: codecs.CodecInfo) -> None:
-    search: Final = {"turbohtml_nameless": info}.get
+def test_encode_keeps_a_shift_code_in_a_codec_that_is_not_iso_2022(info: codecs.CodecInfo) -> None:
+    search: Final = {"turbohtml_2022_nameless": info}.get
     codecs.register(search)
     try:
-        assert parse("<p>\x1b").select("p")[0].encode("turbohtml_nameless") == b"<p>\x1b</p>"
+        assert parse("<p>\x1b").select("p")[0].encode("turbohtml_2022_nameless") == b"<p>\x1b</p>"
     finally:
         codecs.unregister(search)
 

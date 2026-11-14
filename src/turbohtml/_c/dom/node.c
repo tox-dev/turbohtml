@@ -2405,7 +2405,7 @@ TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args
 }
 
 /* Whether encoding resolves to one of CPython's ISO-2022 codecs (iso2022_jp and its variants, iso2022_kr): 1 or 0, or
-   -1 with the registry's LookupError set. The registry answers, so every alias it accepts for them is covered. */
+   -1 with the registry's LookupError set. */
 static int codec_is_iso2022(const char *encoding) {
     PyObject *codecs = PyImport_ImportModule("codecs");
     /* GCOVR_EXCL_BR_START: the untested arm requires the codecs module to fail to import */
@@ -2438,15 +2438,20 @@ static Py_ssize_t shift_code_find(PyObject *text) {
     return first;
 }
 
+static int label_may_be_iso2022(const char *encoding) {
+    return strstr(encoding, "2022") != NULL;
+}
+
 /* CPython's ISO-2022 encoders write U+000E, U+000F and U+001B unchanged, and a decoder reads those bytes as shift
    codes that change how the bytes after them are read, so markup holding one would not read back as serialized. The
    WHATWG ISO-2022-JP encoder errors on all three for that reason
    (https://encoding.spec.whatwg.org/#iso-2022-jp-encoder), so under those codecs they are characters the encoding
    cannot represent: a strict encode raises UnicodeEncodeError, and charrefs writes them the way "xmlcharrefreplace"
-   writes every other such character. Markup without one never pays for the codec lookup. */
+   writes every other such character. Only a label containing "2022" pays for the scan, because CPython gives every
+   ISO-2022 codec name and alias that substring. */
 PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs) {
     const char *errors = charrefs ? "xmlcharrefreplace" : NULL;
-    Py_ssize_t shift = shift_code_find(text);
+    Py_ssize_t shift = label_may_be_iso2022(encoding) ? shift_code_find(text) : -1;
     int iso2022 = shift < 0 ? 0 : codec_is_iso2022(encoding);
     if (iso2022 < 0) {
         return NULL;
