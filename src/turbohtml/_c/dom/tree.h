@@ -547,6 +547,11 @@ Py_UCS4 *th_node_data(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 /* The concatenated character data of every Text descendant of node, in document
    order. PyMem-allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+/* The concatenated character data of node's Text children only, in order (the
+   DOM "child text content"). Every Text node has one parent, so reading it for
+   each element of a walk stays linear, where th_node_text on nested elements
+   reads the innermost text once per ancestor. */
+Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 PyObject *th_node_text_string(th_tree *tree, th_node *node);
 
 /* Gather node's concatenated descendant text into a caller-sized, reusable UCS4

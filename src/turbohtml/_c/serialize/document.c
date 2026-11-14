@@ -1005,6 +1005,16 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
+Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
+    sbuf out = {NULL, 0, 0, 0};
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_TEXT) {
+            sbuf_put_ucs4(&out, need_text(tree, child), child->text_len);
+        }
+    }
+    return sbuf_finish(&out, out_len);
+}
+
 PyObject *th_node_text_string(th_tree *tree, th_node *root) {
     sbuf snapshot = {NULL, 0, 0, 0};
     Py_UCS4 bits = 0;

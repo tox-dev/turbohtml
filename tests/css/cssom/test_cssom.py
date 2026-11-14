@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import time
+import tracemalloc
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -1445,3 +1446,40 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
     document: Final = parse('<div style="color:red"><i></i><i></i></div><div style="color:blue"><i></i><i></i></div>')
     nodes: Final = document.select("div,i")
     assert tuple(computed_style(nodes[index])["color"] for index in order) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<svg><style>p{color:<tspan>red</tspan>}</style></svg><p></p>",
+            {"color": "canvastext"},
+            id="element-child-text-not-sheet",
+        ),
+        pytest.param(
+            "<svg><style>p{color:<style>red}</style></style></svg><p></p>",
+            {"color": "canvastext"},
+            id="nested-style-not-in-outer-sheet",
+        ),
+        pytest.param(
+            "<svg><style>p{top:1px}<style>p{color:red}</style>p{left:2px}</style></svg><p></p>",
+            {"top": "1px", "color": "red", "left": "2px"},
+            id="nested-style-own-sheet",
+        ),
+    ],
+)
+def test_computed_style_foreign_style_reads_its_text_children_only(html: str, expected: dict[str, str]) -> None:
+    # in foreign content <style> elements nest; each is a sheet of its own text children, not of its descendants' text
+    style: Final = computed_style(parse(html).select("p")[0])
+    assert {name: style[name] for name in expected} == expected
+
+
+def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
+    document: Final = parse(f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>")
+    tracemalloc.start()
+    try:
+        computed_style(document.select("p")[0])
+        peak: Final = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 * 1024 * 1024, peak
