@@ -1056,6 +1056,56 @@ def test_minify_css_decoded_name_is_a_fixed_point(source: str, expected: str) ->
     assert minify_css(minify_css(source)) == expected
 
 
+_HEX_ESCAPE_END: Final[list[pytest.ParameterSet]] = [
+    pytest.param("a{b:calc((\\e", "a{b:calc((\\e ))}", "a{b:calc((\\e ))}", id="calc-closed-at-end"),
+    pytest.param("5{b:b({\\3", "5{b:b({\\3 })}", "5{b:b({\\3 })}", id="function-block-closed-at-end"),
+    pytest.param("@b(@0\\0", "@b(@0\\0 );", "@b(@0\\0 )", id="prelude-closed-at-end"),
+    pytest.param("@m (x:\\e)", "@m(x:\\e );", "@m(x:\\e )", id="prelude-paren"),
+    pytest.param("@m (\\ )", "@m(\\ );", "@m(\\ )", id="prelude-paren-after-escaped-space"),
+    pytest.param("%;@F \\e:", "%@f \\e :", "@f \\e :", id="prelude-colon-after-stray"),
+    pytest.param(");@c(\\7", ")@c(\\7 )", "@c(\\7 )", id="prelude-paren-after-stray"),
+    pytest.param("t{x:@\\1  x", "t{x:@\\1  x}", "t{x:@\\1  x}", id="at-keyword-value-then-space"),
+    pytest.param("1;@\\a:", "1@\\a  :", "@\\a  :", id="at-keyword-colon-after-stray"),
+    pytest.param("@9\\b:", "@9\\b  :;", "@9\\b  :", id="non-ident-at-keyword-colon"),
+    pytest.param("@1\\78{}", "@1\\78{}", "@1\\78{}", id="non-ident-at-keyword-block"),
+    pytest.param("a{@1\\78}", "a{@1\\78}", "a{@1\\78}", id="non-ident-at-keyword-block-end"),
+    pytest.param("@3\\1!", "@3\\1  !;", "@3\\1  !", id="non-ident-at-keyword-bang"),
+    pytest.param("@->\\2c  \\31", "@- >\\, \\31 ;", "@- >\\, \\31 ", id="escaped-comma-then-space"),
+    pytest.param("/{x:b(\\ +1.5", "/{x:b(\\  1.5)}", "/{x:b(\\  1.5)}", id="escaped-space-before-number"),
+    pytest.param("3}@\\1;m", "3@\\1  m", "", id="stray-join-after-hex-escape"),
+    pytest.param("=@9\\a;^", "=@9\\a ^", "", id="stray-join-after-unclosed-hex-escape"),
+    pytest.param("=@9\\a;b", "=@9\\a  b", "", id="stray-join-hex-digit-after-unclosed-hex-escape"),
+    pytest.param("0}@d;\\31", "0@d \\31 ", "", id="stray-join-before-escaped-digit"),
+    pytest.param("5;@\\2d}x", "5@\\- x", "@\\-", id="stray-join-after-escaped-hyphen"),
+    pytest.param("5;@\\2d\\2d}x", "5@\\-- x", "@\\--", id="stray-join-after-escaped-double-hyphen"),
+    pytest.param("5;@a-}x", "5@a-x", "@a-", id="stray-join-after-hyphen"),
+    pytest.param("5;@--}x", "5@--x", "@--", id="stray-join-after-double-hyphen"),
+    pytest.param("~;@-}\\\\", "~@- \\\\", "@-", id="stray-join-hyphen-before-escape"),
+    pytest.param("+;@- u+}0--\\1", "+@- u+ 0--\\1 ", "@- u+", id="stray-join-number-before-escaped-unit"),
+    pytest.param("5;@\\2d\\2d}\\", "5@\\-- \ufffd", "@\\--", id="stray-join-after-escaped-hyphens"),
+    pytest.param('""{--:9\\feff/**/r', '""{--:9\\feff /**/r}', '""{--:9\\feff /**/r}', id="comment-after-hex-escape"),
+    pytest.param("0\\f/**/\\0{-:u", "0\\f /**/\ufffd{-:u}", "0\\f /**/\ufffd{-:u}", id="selector-comment-after-escape"),
+    pytest.param("\\2c \t\\2d{b:1", "\\, \\-{b:1}", "\\, \\-{b:1}", id="selector-space-after-escaped-comma"),
+    pytest.param("e{\\1+ 0{", "e{\\1 +0{}}", "e{\\1 +0{}}", id="selector-combinator-after-hex-escape"),
+    pytest.param(".\\31 > b{c:d}", ".\\31>b{c:d}", ".\\31>b{c:d}", id="combinator-after-hex-escape-unchanged"),
+    pytest.param(".\\31 ,.x{}", "", ".\\31,.x{}", id="comma-after-hex-escape-unchanged"),
+    pytest.param("\\1+ a{c:d}", "\\1+a{c:d}", "\\1+a{c:d}", id="plus-before-name-after-hex-escape-unchanged"),
+    pytest.param("a\\1 +{b:c}", "a\\1+{b:c}", "a\\1+{b:c}", id="plus-at-end-after-hex-escape"),
+    pytest.param("\\1+ .5{c:d}", "\\1 +.5{c:d}", "\\1 +.5{c:d}", id="plus-before-fraction-after-hex-escape"),
+    pytest.param("\\1+ -1{c:d}", "\\1+-1{c:d}", "\\1+-1{c:d}", id="plus-before-signed-number-after-hex-escape"),
+    pytest.param("+{b:\\1}", "+{b:\\1 }", "+{b:\\1 }", id="leading-combinator-after-escaped-body"),
+    pytest.param(",,{b:\\f", ",,{b:\\f }", ",,{b:\\f }", id="leading-comma-after-escaped-body"),
+    pytest.param("a{b:@1\\1\r\n\nx}", "a{b:@1\\1\r\n x}", "a{b:@1\\1\r\n x}", id="crlf-closes-hex-escape"),
+    pytest.param("a{b:@1\\78/**/f}", "a{b:@1\\78  f}", "a{b:@1\\78  f}", id="comment-after-at-keyword-hex-escape"),
+]
+
+
+@pytest.mark.parametrize(("source", "stylesheet", "inline"), _HEX_ESCAPE_END)
+def test_minify_css_hex_escape_end_is_a_fixed_point(source: str, stylesheet: str, inline: str) -> None:
+    assert (minify_css(source), minify_css_inline(source)) == (stylesheet, inline)
+    assert (minify_css(stylesheet), minify_css_inline(inline)) == (stylesheet, inline)
+
+
 _POSITION_DELIMITERS: Final[list[pytest.ParameterSet]] = [
     pytest.param("left ~ .5px", "left~.5px", id="tilde"),
     pytest.param("left / .5px", "left/.5px", id="slash"),
@@ -2167,6 +2217,8 @@ _STRING_CUT_BY_NEWLINE: Final[list[pytest.ParameterSet]] = [
     pytest.param('@keyframes k{"a\nfrom{color:red}to{color:blue}}', "@keyframes k{to{color:blue}}", id="keyframe"),
     pytest.param('@x "a\n;b{c:d}', '@x"a\n;b{c:d}', id="at-statement-prelude"),
     pytest.param('@import "a\n;b{c:d}', '@import"a\n;b{c:d}', id="import-prelude"),
+    pytest.param('@x "\n url(b);', '@x"\n url(b);', id="lone-quote-before-url"),
+    pytest.param('@x "\n (b);', '@x"\n (b);', id="lone-quote-before-paren"),
     pytest.param('@media all,"a\n{b{color:red}}', '@media all,"a\n{b{color:red}}', id="media-query-list"),
     pytest.param('@media (x:"a\n),print{b{color:red}}', '@media(x:"a\n),print{b{color:red}}', id="media-feature"),
     pytest.param('"x\n', '"x\n', id="stray-segment"),
