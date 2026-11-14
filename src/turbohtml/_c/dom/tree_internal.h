@@ -109,6 +109,9 @@ struct th_tree {
     uint64_t depth_key;         /* structure_version + 1 when depth_walked was computed; 0 before the first walk */
     th_node *depth_root;        /* the root depth_walked was measured from */
     Py_ssize_t depth_walked;    /* deepest node below depth_root at depth_key */
+    uint64_t reach_key;         /* structure_version + 1 when reach_result was computed; 0 before the first walk */
+    th_node *reach_origin;      /* the origin reach_result was measured from */
+    int reach_result;           /* whether a node lies TH_HAS_MEMO_DEPTH levels below reach_origin */
     th_node **afe;              /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     th_node *merged_text_node;

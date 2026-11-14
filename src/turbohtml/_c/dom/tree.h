@@ -536,7 +536,11 @@ int th_tree_scripting(const th_tree *tree);
    caller holds the handle's critical section. */
 th_node *th_node_root(th_node *node);
 Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root);
-int th_tree_depth_reaches(th_tree *tree, th_node *origin, Py_ssize_t depth);
+/* The depth below a query origin at which the :has() subtree memo starts to pay. */
+#define TH_HAS_MEMO_DEPTH 24
+/* Whether some node lies at least TH_HAS_MEMO_DEPTH levels below origin. Answered from the parser's peak when that
+   already reaches the depth, and otherwise from a walk of origin's subtree cached per structure_version and origin. */
+int th_tree_depth_reaches(th_tree *tree, th_node *origin);
 void th_tree_structure_changed(th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 

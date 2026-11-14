@@ -347,6 +347,7 @@ static Py_ssize_t th_tree_walk_depth(th_node *document) {
     Py_ssize_t depth = 0;
     th_node *node = document;
     for (;;) {
+        TH_WORK_STEP();
         if (node->first_child != NULL) {
             node = node->first_child;
             depth++;
@@ -385,8 +386,44 @@ Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root) {
     return tree->max_depth > tree->depth_walked ? tree->max_depth : tree->depth_walked;
 }
 
-int th_tree_depth_reaches(th_tree *tree, th_node *origin, Py_ssize_t depth) {
-    return tree->max_depth >= depth || th_tree_max_depth(tree, th_node_root(origin)) >= depth;
+/* Whether some descendant of origin sits at least TH_HAS_MEMO_DEPTH levels below it. Walks down the first-child
+   chain and stops at the first node that deep, so a subtree that is deep costs only its first levels. */
+static int th_subtree_reaches(th_node *origin) {
+    Py_ssize_t depth = 0;
+    th_node *node = origin;
+    for (;;) {
+        TH_WORK_STEP();
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            if (++depth >= TH_HAS_MEMO_DEPTH) {
+                return 1;
+            }
+            continue;
+        }
+        while (node != origin && node->next_sibling == NULL) {
+            node = node->parent;
+            depth--;
+        }
+        if (node == origin) {
+            return 0;
+        }
+        node = node->next_sibling;
+    }
+}
+
+int th_tree_depth_reaches(th_tree *tree, th_node *origin) {
+    if (tree->max_depth >= TH_HAS_MEMO_DEPTH) {
+        return 1;
+    }
+    if (tree->reach_key == tree->structure_version + 1 && tree->reach_origin == origin) {
+        assert(tree->reach_result == th_subtree_reaches(origin)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; a
+                                                                     mutation path that skipped its version bump */
+    } else {
+        tree->reach_result = th_subtree_reaches(origin);
+        tree->reach_origin = origin;
+        tree->reach_key = tree->structure_version + 1;
+    }
+    return tree->reach_result;
 }
 
 int th_tree_failed(const th_tree *tree) {

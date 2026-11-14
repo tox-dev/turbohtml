@@ -218,9 +218,9 @@ int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth);
    while a deep nested chain -- the O(n^2) trigger -- collapses to amortized O(1) per
    candidate. Each anchor pays at most this many un-memoized levels before it reaches a
    populated deeper node, bounding its work at O(depth) total. */
-#define SEL_HAS_MEMO_MIN_DESCENT 24
+#define SEL_HAS_MEMO_MIN_DESCENT TH_HAS_MEMO_DEPTH
 static inline int selector_query_uses_has_memo(const sel_compiled *compiled, th_node *origin) {
-    return compiled->has_relational && th_tree_depth_reaches(compiled->tree, origin, SEL_HAS_MEMO_MIN_DESCENT);
+    return compiled->has_relational && th_tree_depth_reaches(compiled->tree, origin);
 }
 /* Whether the selector writes :scope anywhere, so a match depends on the scope element. */
 int selector_uses_scope(const sel_compiled *compiled);

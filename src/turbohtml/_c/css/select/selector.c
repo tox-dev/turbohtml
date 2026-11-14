@@ -2402,6 +2402,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
     th_node *current = node;
     int current_descent = descent;
     for (;;) {
+        TH_WORK_STEP();
         th_node *child = sel_first_element_child(current);
         if (child != NULL) {
             current = child;

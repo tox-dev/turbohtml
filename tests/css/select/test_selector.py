@@ -851,6 +851,31 @@ def _chain_grown_after_query(depth: int) -> Element:
 
 
 @pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda card: card.select("section:has(img)"), id="select"),
+        pytest.param(lambda card: card.select_one("section:has(img)"), id="select-one"),
+        pytest.param(lambda card: card.remove("section:has(img)"), id="remove"),
+    ],
+)
+def test_scoped_has_after_each_mutation_scales_linearly(
+    query: Callable[[Element], object], work_steps: WorkSteps
+) -> None:
+    def loop(size: int) -> Callable[[], None]:
+        markup: Final = "<div class=card><section><p>x</p><img></section></div>" * size
+        cards: Final = parse(f"<body>{markup}</body>").select(".card")
+
+        def run() -> None:
+            for card in cards:
+                card.append(Element("span"))
+                query(card)
+
+        return run
+
+    work_steps.assert_linear(loop, (1000, 4000))
+
+
+@pytest.mark.parametrize(
     "selector",
     [
         pytest.param("", id="empty"),
