@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
+import time
 from io import BytesIO
 from typing import TYPE_CHECKING, Final, cast
 
@@ -1010,6 +1011,115 @@ def test_html_c14n_1_1_rejects_invalid_ancestor_base_with_many_attributes() -> N
     node = _one(f'<div xml:base="http://[bad"><p xml:base="x" {attributes}></p></div>', "p")
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         node.canonicalize(Canonical(version="1.1"))
+
+
+# The fixup joins each ancestor's xml:base onto the value built from the ancestors above it. These chains carry that
+# value past the point where it moves into the chain representation, and put parent segments, dot segments and schemes
+# through the joins.
+@pytest.mark.parametrize(
+    ("bases", "apex", "expected"),
+    [
+        pytest.param(["kin/"] * 40, "", f"{'kin/' * 40}", id="exact-length-crossing"),
+        pytest.param(["pq/"] * 60, f"{'../' * 30}w", f"{'pq/' * 30}w", id="parents-kept"),
+        pytest.param(["/rt/", "lz"], f"{'../' * 25}v", "/v", id="parents-dropped-under-root"),
+        pytest.param(["http://h.example/p", "", ""], f"?{'z' * 150}", f"http://h.example/p?{'z' * 150}", id="query"),
+        pytest.param(
+            ["jk/"] * 6,
+            f"https://g.example/{'m' * 150}",
+            f"https://g.example/{'m' * 150}",
+            id="absolute-apex",
+        ),
+        pytest.param(
+            ["s:", "t/", "t/", "t/"],
+            f"//h.example/{'n' * 150}",
+            f"s://h.example/{'n' * 150}",
+            id="authority-takes-scheme",
+        ),
+        pytest.param(
+            ["qd/", "yd/", "xd/", "wd"],
+            f"../a:b/{'r' * 150}",
+            f"a:b/{'r' * 150}",
+            id="segment-becomes-scheme",
+        ),
+        pytest.param(["jk/"] * 3, f"/{'h' * 130}//d", f"/{'h' * 130}//d", id="rooted-keeps-empty-segment"),
+        pytest.param(["", "", f"p//{'h' * 130}"], "", f"p/{'h' * 130}", id="relative-drops-empty-segment"),
+        pytest.param(["", "", f"{'h' * 130}/."], "", f"{'h' * 130}/", id="trailing-dot"),
+        pytest.param(["", "", f"{'h' * 130}/x/.."], "", f"{'h' * 130}/", id="trailing-parent"),
+        pytest.param(["", "", f"{'h' * 130}/./"], "", f"{'h' * 130}/", id="trailing-dot-directory"),
+        pytest.param(["", "", f"{'h' * 130}/a../../"], "", f"{'h' * 130}/", id="parent-after-dotted-name"),
+        pytest.param(["gh/", "gh/"], f"ij/.x/{'e' * 130}", f"gh/gh/ij/.x/{'e' * 130}", id="two-character-segments"),
+        pytest.param(["u", f"{'w/' * 40}", ""], f"{'../' * 40}y", "y", id="emptied-then-replaced"),
+        pytest.param(["", "", "g/"], f"{'e' * 130}?q", f"g/{'e' * 130}?q", id="query-after-path"),
+        pytest.param(["pq/"] * 5, f"{'../' * 60}", f"{'../' * 55}", id="parents-remain-after-joins"),
+        pytest.param(
+            ["/rt/", "pq/", "pq/", "pq/", "pq/"], f"{'../' * 60}", "/", id="parents-dropped-by-rooted-ancestor"
+        ),
+    ],
+)
+def test_xml_c14n_1_1_joins_ancestor_bases(bases: list[str], apex: str, expected: str) -> None:
+    assert _fixed_base(bases, apex) == f'<s xml:base="{expected}"></s>'.encode()
+
+
+def _fixed_base(bases: list[str], apex: str) -> bytes:
+    opening = "".join(f'<a xml:base="{base}">' for base in bases)
+    node = parse_xml(f'{opening}<s xml:base="{apex}"/>{"</a>" * len(bases)}').select_one("s")
+    assert node is not None
+    return node.canonicalize(Canonical(version="1.1"))
+
+
+def test_xml_c14n_1_1_drops_base_that_deep_ancestors_empty() -> None:
+    assert _fixed_base([f"{'w/' * 30}", ""], f"{'../' * 30}") == b"<s></s>"
+
+
+@pytest.mark.parametrize(
+    ("inner", "apex"),
+    [
+        pytest.param(["gh/"], f"http://x.example/{'k' * 150}", id="absolute"),
+        pytest.param(["gh/", "gh/"], f"http://x.example/{'k' * 150}", id="absolute-settled"),
+        pytest.param(["gh/", "gh/"], "k" * 150, id="relative"),
+    ],
+)
+def test_xml_c14n_1_1_rejects_invalid_outer_base_above_long_value(inner: list[str], apex: str) -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        _fixed_base(["http://[::1/", *inner], apex)
+
+
+def test_html_c14n_1_1_joins_ancestor_bases_at_depth() -> None:
+    wrapper: Final = '<aside xml:base="ub/">'
+    node = _one(f"{wrapper * 120}<em></em>", "em")
+    assert node.canonicalize(Canonical(version="1.1")) == f'<em xml:base="{"ub/" * 120}"></em>'.encode()
+
+
+def test_xml_c14n_1_1_fixup_time_stays_near_reference() -> None:
+    assert _chain_to_reference_ratio(parse_xml, "a", "s", "seg/" * 5, 6_000) < 2.0
+
+
+# The reference is the same chain with the values on xml:lang, which the fixup does not join. The floor keeps the ratio
+# finite when the reference is too quick to time.
+def _chain_to_reference_ratio(
+    parse_markup: Callable[[str], Document], element: str, leaf: str, value: str, depth: int
+) -> float:
+    opening = f'<{element} xml:base="{value}">'
+    chain = f"{opening * depth}<{leaf}></{leaf}>{f'</{element}>' * depth}"
+    reference = chain.replace("xml:base", "xml:lang")
+    chain_node = parse_markup(chain).select_one(leaf)
+    reference_node = parse_markup(reference).select_one(leaf)
+    assert chain_node is not None
+    assert reference_node is not None
+    return _fastest_canonicalize(chain_node) / max(_fastest_canonicalize(reference_node), 0.01)
+
+
+def _fastest_canonicalize(node: Element) -> float:
+    fastest = float("inf")
+    for _ in range(3):
+        start = time.process_time()
+        node.canonicalize(Canonical(version="1.1"))
+        fastest = min(fastest, time.process_time() - start)
+    return fastest
+
+
+def test_html_c14n_1_1_fixup_time_stays_near_reference() -> None:
+    assert _chain_to_reference_ratio(parse, "section", "em", "seg/" * 250, 500) < 2.0
 
 
 def test_xml_c14n_comment_is_omitted_without_option() -> None:
