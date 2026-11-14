@@ -1596,6 +1596,7 @@ static int reach_stops_at(const th_node *node) {
 /* Marks node and its ancestors up to the next reach_stops_at boundary, for a flagged child just attached under node. */
 void th_node_mark_ancestors(th_node *node) {
     while (node != NULL && !node->reaches_selectedcontent && !reach_stops_at(node)) {
+        TH_WORK_STEP();
         node->reaches_selectedcontent = 1;
         node = node->parent;
     }
@@ -1650,6 +1651,7 @@ static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
     cache->target_count = 0;
     th_node *node = root->first_child;
     while (node != NULL) {
+        TH_WORK_STEP();
         if (disables_selectedcontent(node)) {
             if (node->atom == TH_TAG_SELECTEDCONTENT && !node_has_attr(node, TH_ATTR_DISABLED)) {
                 select_cache_add_target(tree, cache, node);
@@ -1660,6 +1662,7 @@ static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
             continue;
         }
         while (node != root && node->next_sibling == NULL) {
+            TH_WORK_STEP();
             node = node->parent;
         }
         node = node == root ? NULL : node->next_sibling;
@@ -1728,6 +1731,7 @@ static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
 /* The select whose target walk reaches node: the nearest boundary at or above it, when that boundary is a select. */
 static th_node *select_reaching(th_node *node) {
     for (; node != NULL; node = node->parent) {
+        TH_WORK_STEP();
         if (reach_stops_at(node)) {
             return is_html_element(node, TH_TAG_SELECT) ? node : NULL;
         }
@@ -1740,6 +1744,7 @@ static th_node *select_reaching(th_node *node) {
 static void select_cache_collect(th_tree *tree, th_select_cache *cache, th_node *block) {
     th_node *node = block->first_child;
     while (node != NULL && cache->target_count < MAX_CLONE_TARGETS) {
+        TH_WORK_STEP();
         if (node->reaches_selectedcontent && is_html_element(node, TH_TAG_SELECTEDCONTENT)) {
             select_cache_add_target(tree, cache, node);
         } else {
@@ -1750,6 +1755,7 @@ static void select_cache_collect(th_tree *tree, th_select_cache *cache, th_node 
             }
         }
         while (node != block && node->next_sibling == NULL) {
+            TH_WORK_STEP();
             node = node->parent;
         }
         node = node == block ? NULL : node->next_sibling;
