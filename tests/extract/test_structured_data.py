@@ -6,7 +6,7 @@ from typing import Final
 import pytest
 
 import turbohtml
-from turbohtml import Document, RdfaItem, StructuredData, parse
+from turbohtml import Document, Element, RdfaItem, StructuredData, Text, parse
 from turbohtml.extract import MicrodataItem, OpenGraph, microdata, opengraph
 
 
@@ -1555,3 +1555,11 @@ def test_json_ld_nested_foreign_script_is_decoded_once(root: str) -> None:
     document: Final = parse(f"<{root}>{'<script type=application/ld+json>' * 500}[{'[],' * 99}[]]")
     assert document.json_ld() == [[[]] * 100]
     assert document.structured_data().json_ld == [[[]] * 100]
+
+
+def test_json_ld_html_script_drops_text_of_appended_element() -> None:
+    document: Final = parse('<script type="application/ld+json">[1</script>')
+    script: Final = document.select_one("script")
+    assert isinstance(script, Element)
+    script.append(Element("i", children=[Text(",2]")]))
+    assert document.json_ld() == []

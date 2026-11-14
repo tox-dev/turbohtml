@@ -1483,3 +1483,13 @@ def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> Non
     finally:
         tracemalloc.stop()
     assert peak < 16 * 1024 * 1024, peak
+
+
+def test_computed_style_html_style_drops_text_of_appended_element() -> None:
+    document: Final = parse("<style>p{color:</style><p></p>")
+    style: Final = document.select_one("style")
+    paragraph: Final = document.select_one("p")
+    assert isinstance(style, Element)
+    assert isinstance(paragraph, Element)
+    style.append(Element("b", children=[Text("red}")]))
+    assert computed_style(paragraph)["color"] == "canvastext"
