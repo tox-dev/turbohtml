@@ -6,6 +6,12 @@
    the free-threaded build. These sources use only public, version-portable
    APIs, so they build on CPython 3.11 through 3.15. */
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include "core/common.h"
 #include "core/hash.h"
 #include "core/vec.h"
@@ -313,7 +319,14 @@ static PyMethodDef html_methods[] = {
    interpreter that executes the module stores the same key. */
 uint64_t th_name_hash_key[2];
 
-static int name_hash_key_init(void) {
+#if defined(_WIN32)
+static SRWLOCK name_hash_key_lock = SRWLOCK_INIT;
+#else
+static pthread_mutex_t name_hash_key_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+static int name_hash_key_ready;
+
+static int name_hash_key_compute(void) {
     static const char *const salts[2] = {"turbohtml:name-hash:0", "turbohtml:name-hash:1"};
     for (int index = 0; index < 2; index++) {
         PyObject *salt = PyBytes_FromString(salts[index]);
@@ -324,6 +337,27 @@ static int name_hash_key_init(void) {
         Py_DECREF(salt);
     }
     return 0;
+}
+
+/* Every interpreter that executes the module runs this, possibly on another thread, so the key is written under a
+   process-wide lock and read only after it: the lock's release publishes the words to every later caller. */
+static int name_hash_key_init(void) {
+#if defined(_WIN32)
+    AcquireSRWLockExclusive(&name_hash_key_lock);
+#else
+    pthread_mutex_lock(&name_hash_key_lock);
+#endif
+    int status = 0;
+    if (!name_hash_key_ready) {
+        status = name_hash_key_compute();
+        name_hash_key_ready = status == 0;
+    }
+#if defined(_WIN32)
+    ReleaseSRWLockExclusive(&name_hash_key_lock);
+#else
+    pthread_mutex_unlock(&name_hash_key_lock);
+#endif
+    return status;
 }
 
 static int publish_native_names(PyObject *module) {

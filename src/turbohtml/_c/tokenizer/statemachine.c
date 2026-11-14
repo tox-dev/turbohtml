@@ -256,6 +256,7 @@ struct th_tokenizer {
     th_attr_slot *attr_seen;  /* per-tag open-addressing set of kept attribute names */
     Py_ssize_t attr_seen_cap; /* power-of-two slot count, 0 until the first attribute */
     uint64_t attr_epoch;      /* current tag generation; other epochs mark empty slots */
+    int attr_keyed;           /* 1 once the duplicate index has switched to th_name_hash, for good */
 
     th_buf last_tag; /* last emitted start tag name, for appropriate end tags */
     th_buf temp;     /* spec "temporary buffer" for raw-text end tags and script */
@@ -782,7 +783,6 @@ static void new_attr(th_tokenizer *self) {
     buf_reset(&attr->name);
     buf_reset(&attr->value);
     attr->has_value = 0;
-    attr->name_hashed = 0;
     if (self->capture_locations) {
         /* the cursor sits on the first name code point (or the '=' a name may open
            with); the end span is filled as the name and any value complete */
@@ -821,18 +821,13 @@ static int attr_name_dup(const th_attr *a, const th_attr *b) {
     return 1;
 }
 
-/* The keyed hash (core/hash.h) of a name's raw storage bytes; the key keeps a
-   document from choosing names whose slots in attr_seen_probe's table form one
-   probe run. Equal names share width and content (buffers reset to the 1-byte
-   kind and promote only on demand), so equal names always hash equal; a hash
-   collision between distinct names is resolved by attr_name_dup. */
-static uint32_t attr_name_hash(const th_buf *name) {
-    return th_name_hash(name->data, name->len * name->kind);
+/* The name hash the duplicate index is in: FNV-1a over the raw storage bytes on the fast path, th_name_hash once the
+   index has rekeyed. Equal names share width and content (buffers reset to the 1-byte kind and promote only on demand),
+   so equal names always hash equal; a collision between distinct names is resolved by attr_name_dup. */
+static uint32_t attr_name_hash(const th_tokenizer *self, const th_buf *name) {
+    Py_ssize_t bytes = name->len * name->kind;
+    return self->attr_keyed ? th_name_hash(name->data, bytes) : th_fnv1a_bytes(name->data, bytes);
 }
-
-/* Tags with at most this many attributes are checked pairwise, which costs at most this many comparisons per attribute.
-   Only a longer tag pays for the keyed hash and the index. */
-enum { TH_ATTR_SCAN_LIMIT = 4 };
 
 /* Seat attrs[index] in the duplicate index under its name hash, at the current epoch. */
 static void attr_seat(th_tokenizer *self, const th_attr *attrs, Py_ssize_t index) {
@@ -845,30 +840,49 @@ static void attr_seat(th_tokenizer *self, const th_attr *attrs, Py_ssize_t index
     self->attr_seen[slot].index = index;
 }
 
-/* Return 1 when the tag already carries attrs[cur]'s name, else record cur and return 0. Past the scan limit the index
-   is open addressing keyed by the name hash, so a tag with n distinct attributes costs O(n). When the table crosses
-   half full it doubles and re-seats attrs[0, cur), which are exactly the distinct names kept so far, since a dropped
-   duplicate never holds a permanent slot; the fresh table is zeroed to epoch 0, which no tag uses. The names below the
-   limit are seated once, when the tag reaches it, so a repeated duplicate at the limit does not seat them again. */
-static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
+/* Return 1 when attrs[cur]'s name is already in the index, else record cur and return 0. On the fast hash a probe run
+   longer than TH_FAST_PROBE_LIMIT sets *overflow and records nothing. */
+static int attr_seen_lookup(th_tokenizer *self, Py_ssize_t cur, int *overflow) {
     th_attr *attrs = self->tok.attrs;
-    for (Py_ssize_t index = 0; index < cur && cur <= TH_ATTR_SCAN_LIMIT; index++) {
-        if (attr_name_dup(&attrs[index], &attrs[cur])) {
+    Py_ssize_t mask = self->attr_seen_cap - 1;
+    Py_ssize_t slot = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
+    Py_ssize_t probes = 0;
+    while (self->attr_seen[slot].epoch == self->attr_epoch) {
+        TH_WORK_STEP();
+        if (!self->attr_keyed && ++probes > TH_FAST_PROBE_LIMIT) {
+            *overflow = 1;
+            return 0;
+        }
+        if (attr_name_dup(&attrs[self->attr_seen[slot].index], &attrs[cur])) {
             return 1;
         }
+        slot = (slot + 1) & mask;
     }
-    if (cur < TH_ATTR_SCAN_LIMIT) {
-        return 0;
+    self->attr_seen[slot].epoch = self->attr_epoch;
+    self->attr_seen[slot].index = cur;
+    return 0;
+}
+
+/* Switch the duplicate index to the keyed hash for good: rehash attrs[0, cur] and rebuild the index from the names
+   already kept, which are exactly attrs[0, cur) since a dropped duplicate never holds a slot. */
+static void attr_seen_rekey(th_tokenizer *self, Py_ssize_t cur) {
+    th_attr *attrs = self->tok.attrs;
+    self->attr_keyed = 1;
+    for (Py_ssize_t index = 0; index <= cur; index++) {
+        attrs[index].name_hash = attr_name_hash(self, &attrs[index].name);
     }
-    if (cur == TH_ATTR_SCAN_LIMIT) {
-        for (Py_ssize_t index = 0; index < cur; index++) {
-            attrs[index].name_hash = attr_name_hash(&attrs[index].name);
-            attrs[index].name_hashed = 1;
-        }
+    memset(self->attr_seen, 0, (size_t)self->attr_seen_cap * sizeof(*self->attr_seen));
+    for (Py_ssize_t index = 0; index < cur; index++) {
+        attr_seat(self, attrs, index);
     }
-    attrs[cur].name_hash = attr_name_hash(&attrs[cur].name);
-    attrs[cur].name_hashed = 1;
-    int reseat = cur == TH_ATTR_SCAN_LIMIT;
+}
+
+/* Return 1 when the tag already carries attrs[cur]'s name, else record cur and return 0. The index is open addressing
+   under the name hash, so a tag with n distinct attributes costs O(n). It doubles, looping until the load factor is at
+   most 1/2, and re-seats attrs[0, cur) when it does. */
+static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
+    th_attr *attrs = self->tok.attrs;
+    attrs[cur].name_hash = attr_name_hash(self, &attrs[cur].name);
     if (cur * 2 >= self->attr_seen_cap) { /* keep the load factor <= 1/2 */
         Py_ssize_t cap = self->attr_seen_cap ? self->attr_seen_cap * 2 : 16;
         th_attr_slot *table = PyMem_New(th_attr_slot, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
@@ -880,25 +894,17 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
         PyMem_Free(self->attr_seen);
         self->attr_seen = table;
         self->attr_seen_cap = cap;
-        reseat = 1;
-    }
-    if (reseat) {
         for (Py_ssize_t index = 0; index < cur; index++) {
             attr_seat(self, attrs, index);
         }
     }
-    Py_ssize_t mask = self->attr_seen_cap - 1;
-    Py_ssize_t slot = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
-    while (self->attr_seen[slot].epoch == self->attr_epoch) {
-        TH_WORK_STEP();
-        if (attr_name_dup(&attrs[self->attr_seen[slot].index], &attrs[cur])) {
-            return 1;
-        }
-        slot = (slot + 1) & mask;
+    int overflow = 0;
+    int dup = attr_seen_lookup(self, cur, &overflow);
+    if (overflow) {
+        attr_seen_rekey(self, cur);
+        dup = attr_seen_lookup(self, cur, &overflow);
     }
-    self->attr_seen[slot].epoch = self->attr_epoch;
-    self->attr_seen[slot].index = cur;
-    return 0;
+    return dup;
 }
 
 /* Extend the current attribute's source span to the cursor (a no-op unless

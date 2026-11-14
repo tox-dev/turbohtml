@@ -74,6 +74,20 @@ static inline uint32_t th_name_hash(const void *data, Py_ssize_t len) {
     return (uint32_t)(state[0] ^ state[1] ^ state[2] ^ state[3]);
 }
 
+/* FNV-1a over the bytes: the unkeyed fast path every name table starts on. Only a table whose probe runs overflow
+   TH_FAST_PROBE_LIMIT switches, for good, to th_name_hash, so a document can cost a bounded probe run once per insert
+   before the switch and never after it. */
+#define TH_FAST_PROBE_LIMIT 16
+
+static inline uint32_t th_fnv1a_bytes(const void *data, Py_ssize_t len) {
+    const unsigned char *bytes = data;
+    uint32_t hash = 2166136261u;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hash = (hash ^ bytes[index]) * 16777619u;
+    }
+    return hash;
+}
+
 /* The splitmix64 finalizer of a fixed-width integer key (a code point, a packed trigram) under the same key, for the
    tables probed once per input character, where the rounds of th_name_hash would show. The key hides which integers
    share a slot. */
