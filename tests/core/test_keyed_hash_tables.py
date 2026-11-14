@@ -86,6 +86,23 @@ def _css_path(names: list[str]) -> Callable[[], object]:
     return document.select("p")[0].css_path
 
 
+def _radio_group(names: list[str]) -> Callable[[], object]:
+    ids: Final = "".join(f"<p id={name}>" for name in names)
+    radios: Final = "".join(f"<input type=radio name=g checked form={name}>" for name in names)
+    document: Final = turbohtml.parse(f"{ids}{radios}<input type=radio name=g>")
+    target: Final = document.select("input")[-1]
+
+    def check() -> None:
+        target.checked = True
+
+    return check
+
+
+def _css_rule_selectors(names: list[str]) -> Callable[[], object]:
+    source: Final = "".join(f"{name}{{order:{index}}}" for index, name in enumerate(names))
+    return lambda: minify_css(source)
+
+
 @pytest.mark.parametrize(
     ("fnv", "build"),
     [
@@ -98,6 +115,8 @@ def _css_path(names: list[str]) -> Callable[[], object]:
         pytest.param(_FNV32, _microdata, id="microdata-ids"),
         pytest.param(_FNV32, _shadow_slots, id="shadow-slot-names"),
         pytest.param(_FNV64, _css_path, id="css-path-ids"),
+        pytest.param(_FNV64, _radio_group, id="radio-group-form-ids"),
+        pytest.param(_FNV32, _css_rule_selectors, id="css-rule-selectors"),
     ],
 )
 def test_names_on_one_home_slot_stay_within_the_step_budget(
@@ -105,15 +124,6 @@ def test_names_on_one_home_slot_stay_within_the_step_budget(
 ) -> None:
     collide = ["".join(choice) for choice in itertools.product(*_block_pairs(fnv, _STEPS))]
     work_steps.assert_within(build(collide), build(_spread(len(collide), len(collide[0]))), factor=_FACTOR)
-
-
-def test_attribute_lookup_after_the_name_table_moved_to_the_keyed_hash() -> None:
-    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
-    document: Final = turbohtml.parse(_attribute_tag(names))
-
-    found = (document.select(f"i[{names[-1]}]"), document.select("i[absent]"))
-
-    assert (len(found[0]), len(found[1])) == (1, 0)
 
 
 def _block_pairs(fnv: tuple[int, int], steps: int) -> list[tuple[str, str]]:
@@ -139,6 +149,15 @@ def _block_pairs(fnv: tuple[int, int], steps: int) -> list[tuple[str, str]]:
 def _spread(count: int, length: int) -> list[str]:
     rng: Final = random.Random(1)  # ruff: ignore[suspicious-non-cryptographic-random-usage]  # reproducible input
     return ["".join(rng.choices(string.ascii_lowercase, k=length)) for _ in range(count)]
+
+
+def test_attribute_lookup_after_the_name_table_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
+    document: Final = turbohtml.parse(_attribute_tag(names))
+
+    found = (document.select(f"i[{names[-1]}]"), document.select("i[absent]"))
+
+    assert (len(found[0]), len(found[1])) == (1, 0)
 
 
 def _attribute_misses(
@@ -228,6 +247,18 @@ def test_translate_characters_on_one_home_slot_stay_within_the_step_budget(work_
     )
 
 
+def _translate(characters: list[str]) -> Callable[[], object]:
+    source: Final = "".join(characters)
+    document: Final = turbohtml.parse_xml(f"<r>{source * 8}</r>")
+    return lambda: document.xpath(f"translate(string(/r), '{source}', '{source[::-1]}')")
+
+
+def _code_points(start: int, stride: int) -> list[str]:
+    # Code points from start in steps of stride, skipping the surrogates and the two noncharacters XML rejects.
+    points = (point for point in range(start, 0x110000, stride) if not 0xD800 <= point <= 0xDFFF)
+    return [chr(point) for point in itertools.islice(points, _TRANSLATE_FROM) if point & 0xFFFE != 0xFFFE]
+
+
 def test_translate_misses_along_lined_up_homes_stay_within_the_step_budget(work_steps: WorkSteps) -> None:
     # Every from character on its own home, the homes in one run that wraps past the last slot, and a text of absent
     # characters on the same homes: each miss walks to the end of the run although no character sits away from home.
@@ -237,17 +268,6 @@ def test_translate_misses_along_lined_up_homes_stay_within_the_step_budget(work_
         _translate_misses(_code_points(0x400, 1), _code_points(0x800, 1)),
         factor=_FACTOR,
     )
-
-
-def test_translate_keeps_a_short_lined_up_run() -> None:
-    source: Final = "".join(_on_homes(range(40), _TRANSLATE_CAPACITY)) + "".join(chr(0x3000 + 7 * i) for i in range(60))
-    target: Final = "".join(chr(0x4000 + index) for index in range(len(source)))
-    text: Final = (source + "xyz") * 4
-    document: Final = turbohtml.parse_xml(f"<r>{text}</r>")
-
-    result = document.xpath(f"translate(string(/r), '{source}', '{target}')")
-
-    assert result == text.translate(str.maketrans(source, target))
 
 
 def _translate_misses(source: list[str], misses: list[str]) -> Callable[[], object]:
@@ -261,13 +281,12 @@ def _on_homes(homes: range, offset: int) -> list[str]:
     return [chr(home % _TRANSLATE_CAPACITY * inverse % _TRANSLATE_CAPACITY + offset) for home in homes]
 
 
-def _translate(characters: list[str]) -> Callable[[], object]:
-    source: Final = "".join(characters)
-    document: Final = turbohtml.parse_xml(f"<r>{source * 8}</r>")
-    return lambda: document.xpath(f"translate(string(/r), '{source}', '{source[::-1]}')")
+def test_translate_keeps_a_short_lined_up_run() -> None:
+    source: Final = "".join(_on_homes(range(40), _TRANSLATE_CAPACITY)) + "".join(chr(0x3000 + 7 * i) for i in range(60))
+    target: Final = "".join(chr(0x4000 + index) for index in range(len(source)))
+    text: Final = f"{source}xyz" * 4
+    document: Final = turbohtml.parse_xml(f"<r>{text}</r>")
 
+    result = document.xpath(f"translate(string(/r), '{source}', '{target}')")
 
-def _code_points(start: int, stride: int) -> list[str]:
-    # Code points from start in steps of stride, skipping the surrogates and the two noncharacters XML rejects.
-    points = (point for point in range(start, 0x110000, stride) if not 0xD800 <= point <= 0xDFFF)
-    return [chr(point) for point in itertools.islice(points, _TRANSLATE_FROM) if point & 0xFFFE != 0xFFFE]
+    assert result == text.translate(str.maketrans(source, target))
