@@ -1137,6 +1137,8 @@ def test_minify_css_background_attachment_cardinality(value: str, expected: str)
         pytest.param("repeat-x repeat", "repeat-x repeat", id="axis-repeat-plus-repeat"),
         pytest.param("border-box padding-box border-box", "border-box padding-box border-box", id="extra-box"),
         pytest.param("/ auto", "/auto", id="size-without-position"),
+        pytest.param("/", "/", id="lone-size-separator"),
+        pytest.param("x auto,/", "x auto,/", id="lone-size-separator-after-auto-layer"),
         pytest.param("left transparent top", "left transparent top", id="split-position"),
         pytest.param("url(x) / auto", "url(x)/auto", id="size-after-image"),
         pytest.param("unknown scroll", "unknown", id="unrecognized-keyword"),
