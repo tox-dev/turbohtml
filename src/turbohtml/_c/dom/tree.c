@@ -482,6 +482,13 @@ static int stack_push(th_tree *tree, th_node *node) {
     return 1;
 }
 
+/* stack_push reports success even when the depth cap keeps the node off the stack */
+static int stack_push_kept(th_tree *tree, th_node *node) {
+    Py_ssize_t open_len_before = tree->open_len;
+    stack_push(tree, node);
+    return tree->open_len != open_len_before;
+}
+
 static void maybe_clone_option(th_tree *tree, th_node *option);
 static int name_matches(const th_node *node, const th_token *token, int fold);
 
@@ -1644,19 +1651,32 @@ static void select_cache_add_target(th_tree *tree, th_select_cache *cache, th_no
     cache->targets[cache->target_count++] = target;
 }
 
+static th_node *option_nearest_select(th_node *option);
+
 /* Collect the select's enabled descendant selectedcontent elements ("update a select's
    descendant selectedcontent elements"): every selectedcontent whose nearest ancestor
    select is this one (not nested under an inner select/option/selectedcontent) and that
-   carries no disabled attribute. The buffer is reused across refills. */
-static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
+   carries no disabled attribute. The same walk returns the option the select shows, as
+   the selectedness setting algorithm picks it from the options so far: the last selected
+   one, else the first enabled one. */
+static th_node *select_cache_fill(th_tree *tree, th_select_cache *cache) {
     th_node *root = cache->select;
-    cache->target_count = 0;
+    th_node *first_enabled = NULL;
+    th_node *last_selected = NULL;
     th_node *node = root->first_child;
     while (node != NULL) {
         TH_WORK_STEP();
         if (disables_selectedcontent(node)) {
-            if (node->atom == TH_TAG_SELECTEDCONTENT && !node_has_attr(node, TH_ATTR_DISABLED)) {
-                select_cache_add_target(tree, cache, node);
+            if (node->atom == TH_TAG_SELECTEDCONTENT) {
+                if (!node_has_attr(node, TH_ATTR_DISABLED)) {
+                    select_cache_add_target(tree, cache, node);
+                }
+            } else if (node->atom == TH_TAG_OPTION && (node->parent == root || option_nearest_select(node) == root)) {
+                if (node_has_attr(node, TH_ATTR_SELECTED)) {
+                    last_selected = node;
+                } else if (first_enabled == NULL && !option_is_disabled(cache, node)) {
+                    first_enabled = node;
+                }
             }
         } else if (node->type != TH_NODE_CONTENT && node->first_child != NULL) {
             /* a template's content fragment holds its own selectedcontent, not the select's */
@@ -1670,14 +1690,22 @@ static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
         node = node == root ? NULL : node->next_sibling;
     }
     cache->disabled = (uint8_t)select_disabled_by_ancestor(root);
-    cache->valid = 1;
+    return last_selected != NULL ? last_selected : first_enabled;
 }
 
-/* The select's cached selectedcontent targets, filled on first use and refilled after
-   the adoption agency moved nodes under it. Every popped selected option needs them,
-   and finding them walks the select's subtree, so without the cache a run of options
-   costs quadratic time. */
-static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
+/* The select's position in the caches, 0 when it has no cache. */
+static Py_ssize_t select_cache_slot(th_select_state *state, const th_node *select) {
+    if (select != state->last_select) {
+        state->last_select = select;
+        /* a select created after the newest cache has none, so only an older one needs the hash probe */
+        state->last_slot = select->seq >= state->fresh_seq ? 0 : th_node_map_find(&state->index, select);
+    }
+    return state->last_slot;
+}
+
+/* Creates the select's cache when it gains its first selectedcontent, lists its enabled selectedcontent elements and
+   reads the option it shows from the options it holds so far. */
+static th_select_cache *select_cache_insert(th_tree *tree, th_node *select) {
     if (tree->select_state == NULL) {
         tree->select_state = PyMem_Calloc(1, sizeof(th_select_state));
         if (tree->select_state == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1686,47 +1714,42 @@ static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
         }
     }
     th_select_state *state = tree->select_state;
-    Py_ssize_t slot = th_node_map_find(&state->index, select);
-    if (slot == 0) {
-        if (state->count == state->cap) {
-            size_t cap;
-            size_t bytes;
-            int grew =
-                th_grow_cap((size_t)state->count + 1, (size_t)state->cap, 8, sizeof(th_select_cache), &cap, &bytes);
-            if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow cannot be forced from a test */
-                tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-                return NULL;      /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-            }
-            th_select_cache *grown = PyMem_Realloc(state->caches, bytes);
-            if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-                return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-            }
-            state->caches = grown;
-            state->cap = (Py_ssize_t)cap;
+    if (state->count == state->cap) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)state->count + 1, (size_t)state->cap, 8, sizeof(th_select_cache), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow cannot be forced from a test */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return NULL;      /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
         }
-        /* counted only once indexed: a failed insert must leave no uninitialized cache for select_cache_free */
-        slot = state->count + 1;
-        if (th_node_map_insert(&state->index, select, slot) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        th_select_cache *grown = PyMem_Realloc(state->caches, bytes);
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        state->count = slot;
-        th_select_cache *cache = &state->caches[slot - 1];
-        cache->select = select;
-        cache->targets = NULL;
-        cache->target_count = 0;
-        cache->target_cap = 0;
-        cache->selected = NULL;
-        cache->optgroup = NULL;
-        cache->optgroup_disabled = 0;
-        cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
-        cache->valid = 0;
+        state->caches = grown;
+        state->cap = (Py_ssize_t)cap;
     }
+    /* counted only once indexed: a failed insert must leave no uninitialized cache for select_cache_free */
+    Py_ssize_t slot = state->count + 1;
+    if (th_node_map_insert(&state->index, select, slot) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    state->count = slot;
+    state->fresh_seq = tree->node_seq;
+    state->last_select = select;
+    state->last_slot = slot;
     th_select_cache *cache = &state->caches[slot - 1];
-    if (!cache->valid) {
-        select_cache_fill(tree, cache);
-    }
+    cache->select = select;
+    cache->targets = NULL;
+    cache->target_count = 0;
+    cache->target_cap = 0;
+    cache->filled = 0;
+    cache->optgroup = NULL;
+    cache->optgroup_disabled = 0;
+    cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
+    cache->selected = select_cache_fill(tree, cache);
     return cache;
 }
 
@@ -1768,18 +1791,17 @@ static void select_cache_collect(th_tree *tree, th_select_cache *cache, th_node 
    move still reaches it, and its targets are already listed. Only a block that a gate removed from the open
    elements was out of reach before, so only that case is handled here. */
 static void select_cache_block_gained(th_tree *tree, th_node *block) {
-    th_select_state *state = tree->select_state;
-    if (state == NULL) {
-        return;
-    }
     th_node *select = select_reaching(block);
     if (select == NULL) {
         return;
     }
-    Py_ssize_t slot = th_node_map_find(&state->index, select);
-    if (slot != 0) {
-        select_cache_collect(tree, &state->caches[slot - 1], block);
+    th_select_state *state = tree->select_state;
+    Py_ssize_t slot = state != NULL ? select_cache_slot(state, select) : 0;
+    if (slot == 0) {
+        select_cache_insert(tree, select);
+        return;
     }
+    select_cache_collect(tree, &state->caches[slot - 1], block);
 }
 
 static void select_cache_free(th_tree *tree) {
@@ -1820,30 +1842,27 @@ static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) 
     const th_node *from = src;
     th_node *copy = dst;
     for (;;) {
+        th_node *parent;
         if (from->first_child != NULL) {
             from = from->first_child;
-            th_node *child = copy_node_in_tree(tree, (th_node *)from);
-            if (child == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            parent = copy;
+        } else {
+            while (from != src && from->next_sibling == NULL) {
+                from = from->parent;
+                copy = copy->parent;
             }
-            node_append(copy, child);
-            copy = child;
-            continue;
+            if (from == src) {
+                return;
+            }
+            from = from->next_sibling;
+            parent = copy->parent;
         }
-        while (from != src && from->next_sibling == NULL) {
-            from = from->parent;
-            copy = copy->parent;
+        /* one copy site, so the copy inlines into the walk */
+        copy = copy_node_in_tree(tree, (th_node *)from);
+        if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        if (from == src) {
-            return;
-        }
-        from = from->next_sibling;
-        th_node *sibling = copy_node_in_tree(tree, (th_node *)from);
-        if (sibling == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        node_append(copy->parent, sibling);
-        copy = sibling;
+        node_append(parent, copy);
     }
 }
 
@@ -1890,46 +1909,115 @@ static th_node *select_cache_shown_option(const th_select_cache *cache) {
     return option != NULL && option_nearest_select(option) == cache->select ? option : NULL;
 }
 
-/* "Update descendant selectedcontent elements for an option": when the option the
-   select shows is popped, its children are mirrored into the select's enabled
-   selectedcontent elements. */
-static void maybe_clone_option(th_tree *tree, th_node *option) {
-    th_node *select = option_nearest_select(option);
-    if (select == NULL) {
-        return;
+/* Removes the options of select that a copy carries into target. The copy lifts them out of the option they were
+   nested in, which kept them off the select's list; reparsing the output would pop them inside the target and let
+   them replace its content, so the target keeps the rest of the copy without them. */
+static void target_drop_options(th_node *select, th_node *target) {
+    th_node *node = target->first_child;
+    while (node != NULL) {
+        TH_WORK_STEP();
+        int option = is_html_element(node, TH_TAG_OPTION);
+        if (!option && node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        th_node *dropped = option && option_nearest_select(node) == select ? node : NULL;
+        while (node != target && node->next_sibling == NULL) {
+            TH_WORK_STEP();
+            node = node->parent;
+        }
+        node = node == target ? NULL : node->next_sibling;
+        if (dropped != NULL) {
+            node_remove(dropped);
+        }
     }
-    th_select_cache *cache = select_cache_get(tree, select);
-    if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-        return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-    }
-    if (cache->multiple) {
-        return;
-    }
-    /* the selectedness setting algorithm: the last selected option wins, and the first
-       enabled one is selected only while no option is */
-    if (!node_has_attr(option, TH_ATTR_SELECTED) &&
-        (option_is_disabled(cache, option) || select_cache_shown_option(cache) != NULL)) {
-        return;
-    }
-    cache->selected = option;
-    if (cache->target_count == 0 || cache->disabled) {
-        return;
-    }
-    for (Py_ssize_t index = 0; index < cache->target_count; index++) {
+}
+
+/* Replaces the children of the unfilled targets with a copy of option. Children the parser gave a target are
+   dropped, not kept beside the copy: browsers keep them, but then reparsing the output changes the tree, so this
+   departs from browser output on purpose. */
+static void replace_target_children(th_tree *tree, th_select_cache *cache, th_node *option) {
+    for (Py_ssize_t index = cache->filled; index < cache->target_count; index++) {
         th_node *target = cache->targets[index];
         while (target->first_child != NULL) {
             node_remove(target->first_child);
         }
         deep_copy_children(tree, option, target);
     }
+    cache->filled = (uint8_t)cache->target_count;
+}
+
+/* Makes option the shown option when the selectedness setting algorithm picks it, and returns its select's cache;
+   NULL when it is not picked. Only a select that holds a selectedcontent has a cache: the rest have nothing to copy
+   into, and a cache made later reads the shown option from the tree, so callers skip the call while no select has
+   one. */
+static th_select_cache *select_cache_pick(th_select_state *state, th_node *option) {
+    /* an option whose parent is the select looked up last belongs to it, without the ancestor walk */
+    th_node *select = option->parent;
+    if (select != state->last_select) {
+        select = option_nearest_select(option);
+        if (select == NULL) {
+            return NULL;
+        }
+    }
+    Py_ssize_t slot = select_cache_slot(state, select);
+    if (slot == 0) {
+        return NULL;
+    }
+    th_select_cache *cache = &state->caches[slot - 1];
+    if (cache->multiple) {
+        return NULL;
+    }
+    /* the selectedness setting algorithm: the last selected option wins, and the first
+       enabled one is selected only while no option is */
+    if (!node_has_attr(option, TH_ATTR_SELECTED) &&
+        (option_is_disabled(cache, option) || select_cache_shown_option(cache) != NULL)) {
+        return NULL;
+    }
+    cache->selected = option;
+    cache->filled = 0;
+    return cache;
+}
+
+/* "Update descendant selectedcontent elements for an option": when the option the
+   select shows is popped, its children are mirrored into the select's enabled
+   selectedcontent elements. The copy waits for select_cache_finish, which makes it once
+   for the option shown last, unless the option sits inside a selectedcontent: there the
+   copy removes it at once and the parser appends what follows to the copy. */
+static void maybe_clone_option(th_tree *tree, th_node *option) {
+    if (tree->select_state == NULL) {
+        return;
+    }
+    th_select_cache *cache = select_cache_pick(tree->select_state, option);
+    if (cache == NULL || cache->disabled) {
+        return;
+    }
+    for (const th_node *ancestor = option->parent; ancestor != cache->select; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        if (is_html_element(ancestor, TH_TAG_SELECTEDCONTENT)) {
+            replace_target_children(tree, cache, option);
+            /* the copy removed it, so a reparse never lists it and picks from the options left; the finish does the
+               same */
+            if (option_nearest_select(option) != cache->select) {
+                tree->select_state->recheck = 1;
+            }
+            return;
+        }
+    }
 }
 
 /* The selectedcontent post-connection steps: a selectedcontent inserted under a select
-   it is enabled for joins the select's clone targets, while the cap leaves room, and
-   copies the option the select already shows. A select with no cache has had no option
-   closed, so it shows none. The walk stops at an ancestor option, so a chain of nested
-   options stays O(1) each. */
+   it is enabled for joins the select's targets, while the cap leaves room. It stays
+   pending until select_cache_finish, which runs after the parser has appended the
+   element's own children and replaces them. A browser keeps those children beside the
+   copy; dropping them keeps reparsed output unchanged. A select with no cache yet builds
+   one here, which lists the new element with the rest. The walk stops at an ancestor
+   option, so a chain of nested options stays O(1) each. */
 static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
+    /* selectedcontent_flagged set the flag exactly when the element carries no disabled attribute */
+    if (!selectedcontent->reaches_selectedcontent) {
+        return;
+    }
     th_node *select = selectedcontent->parent;
     while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
         /* a template's content fragment holds its own selectedcontent, not the select's */
@@ -1938,25 +2026,132 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
         }
         select = select->parent;
     }
-    Py_ssize_t slot = select != NULL ? th_node_map_find(&tree->select_state->index, select) : 0;
-    if (slot == 0 || node_has_attr(selectedcontent, TH_ATTR_DISABLED)) {
+    if (select == NULL) {
         return;
     }
-    th_select_cache *cache = &tree->select_state->caches[slot - 1];
+    th_select_state *state = tree->select_state;
+    Py_ssize_t slot = state != NULL ? select_cache_slot(state, select) : 0;
+    if (slot == 0) {
+        select_cache_insert(tree, select);
+        return;
+    }
+    th_select_cache *cache = &state->caches[slot - 1];
     if (cache->target_count == MAX_CLONE_TARGETS) {
         return;
     }
-    /* listed even while the cache is invalid, so the cap counts every late target */
     select_cache_add_target(tree, cache, selectedcontent);
-    th_node *option = select_cache_shown_option(cache);
-    if (option != NULL && !cache->disabled) {
-        deep_copy_children(tree, option, selectedcontent);
+}
+
+/* The option the select shows as a parse of its current subtree would pick it: the last selected one, else the
+   first enabled one. Only the select's own options count, as in option_nearest_select. */
+static th_node *select_scan_option(th_select_cache *cache) {
+    th_node *root = cache->select;
+    th_node *first_enabled = NULL;
+    th_node *last_selected = NULL;
+    th_node *node = root->first_child;
+    while (node != NULL) {
+        TH_WORK_STEP();
+        if (is_html_element(node, TH_TAG_OPTION)) {
+            if (option_nearest_select(node) == root) {
+                if (node_has_attr(node, TH_ATTR_SELECTED)) {
+                    last_selected = node;
+                } else if (first_enabled == NULL && !option_is_disabled(cache, node)) {
+                    first_enabled = node;
+                }
+            }
+        } else if (node->type != TH_NODE_CONTENT && !is_html_element(node, TH_TAG_SELECT) &&
+                   node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            TH_WORK_STEP();
+            node = node->parent;
+        }
+        node = node == root ? NULL : node->next_sibling;
     }
+    return last_selected != NULL ? last_selected : first_enabled;
+}
+
+/* Whether option sits inside one of the select's targets, where a copy into that target removes it. */
+static int option_in_target(const th_select_cache *cache, const th_node *option) {
+    for (const th_node *ancestor = option->parent; ancestor != cache->select; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        if (is_html_element(ancestor, TH_TAG_SELECTEDCONTENT)) {
+            for (Py_ssize_t index = 0; index < cache->target_count; index++) {
+                if (cache->targets[index] == ancestor) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/* Runs once the parse has ended and gives each pending target the copy of the shown option. After the adoption
+   agency moved nodes or an option removed itself with its copy, the shown option is read from the tree again, as a
+   reparse of the output picks it. A pick inside a target removes itself and every option the targets held, and its
+   copy leaves out the options nested in it, so the second read finds an option outside the targets, or none. */
+static void select_cache_finish(th_tree *tree) {
+    th_select_state *state = tree->select_state;
+    if (state == NULL) {
+        return;
+    }
+    /* read once: the copies below allocate nodes, so the compiler would reload these after every one */
+    const uint8_t recheck = state->recheck;
+    const th_select_cache *end = state->caches + state->count;
+    for (th_select_cache *cache = state->caches; cache != end; cache++) {
+        if (cache->disabled || cache->multiple) {
+            continue;
+        }
+        /* only the adoption agency and a copy that removed its option take the shown option out of its select, and
+           both ask for the recheck */
+        if (!recheck) {
+            if (cache->selected != NULL && cache->filled != cache->target_count) {
+                replace_target_children(tree, cache, cache->selected);
+            }
+            continue;
+        }
+        for (;;) {
+            th_node *option = select_scan_option(cache);
+            if (option == NULL) {
+                break;
+            }
+            /* an option inside a target is copied even when it was shown already: the adoption agency can bring it
+               back after its copy removed it */
+            int in_target = option_in_target(cache, option);
+            if (option != cache->selected || in_target) {
+                cache->selected = option;
+                cache->filled = 0;
+            }
+            if (cache->filled == cache->target_count) {
+                break;
+            }
+            replace_target_children(tree, cache, option);
+            if (!in_target) {
+                break;
+            }
+            for (Py_ssize_t target = 0; target < cache->target_count; target++) {
+                target_drop_options(cache->select, cache->targets[target]);
+            }
+        }
+    }
+}
+
+/* The afe_hash() of each list entry, cached in the same allocation right after the entries so th_tree keeps its size:
+   0 for an entry pushed while the hash set was unused, never read for a marker. */
+static inline uint64_t *afe_keys(const th_tree *tree) {
+    return (uint64_t *)(tree->afe + tree->afe_cap);
 }
 
 /* Remove the active-formatting-elements entry at index, shifting the tail down. */
 static void afe_remove_at(th_tree *tree, Py_ssize_t index) {
-    memmove(&tree->afe[index], &tree->afe[index + 1], (size_t)(tree->afe_len - index - 1) * sizeof(th_node *));
+    size_t tail = (size_t)(tree->afe_len - index - 1);
+    if (tail > 0) {
+        memmove(&tree->afe[index], &tree->afe[index + 1], tail * sizeof(th_node *));
+        uint64_t *keys = afe_keys(tree);
+        memmove(&keys[index], &keys[index + 1], tail * sizeof(uint64_t));
+    }
     tree->afe_len--;
     if (tree->afe_len == 0) {
         tree->afe_hash_valid = 0;
@@ -1974,6 +2169,7 @@ static uint64_t afe_hash(const th_node *node) {
     uint64_t hash = UINT64_C(14695981039346656037) ^ node->atom;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         const th_node_attr *attr = &node->attrs[index];
+        TH_WORK_STEPS_ADD(attr->value_len);
         hash = (hash ^ attr->name_atom) * UINT64_C(1099511628211);
         hash = (hash ^ (uint64_t)attr->value_len) * UINT64_C(1099511628211);
         for (Py_ssize_t offset = 0; offset < attr->value_len; offset++) {
@@ -1983,77 +2179,169 @@ static uint64_t afe_hash(const th_node *node) {
     return hash | 1;
 }
 
-static int afe_hash_add(th_tree *tree, const th_node *node) {
+/* Below this many entries after the last marker a push compares against them directly and leaves the hash set unused:
+   hashing every pushed element costs more than scanning a short segment, and few documents list more. */
+#define AFE_SCAN_LIMIT 8
+#define AFE_HASH_MIN_CAPACITY 32
+
+/* Whether at least AFE_SCAN_LIMIT entries follow the last marker. */
+static inline int afe_segment_is_long(const th_tree *tree) {
+    if (tree->afe_len < AFE_SCAN_LIMIT) {
+        return 0;
+    }
+    for (Py_ssize_t index = tree->afe_len - AFE_SCAN_LIMIT; index < tree->afe_len; index++) {
+        if (tree->afe[index] == NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Index of the first entry after the last marker: the only entries the Noah's Ark scan reads. */
+static Py_ssize_t afe_segment_start(const th_tree *tree) {
+    Py_ssize_t index = tree->afe_len;
+    while (index > 0 && tree->afe[index - 1] != NULL) {
+        index--;
+    }
+    return index;
+}
+
+static int afe_hash_insert(th_tree *tree, uint64_t key);
+
+/* Refill the set with the keys of the entries from start on, hashing only those pushed while the set was unused. The
+   table first shrinks to the smallest size that holds them under a quarter load (its buffer keeps the allocation), so
+   a reseed takes time in the length of the segment, not in the largest table the parse has needed. */
+static int afe_hash_reseed(th_tree *tree, Py_ssize_t start) {
+    size_t live = (size_t)(tree->afe_len - start);
+    while (tree->afe_hash_capacity > AFE_HASH_MIN_CAPACITY && tree->afe_hash_capacity / 8 > live) {
+        tree->afe_hash_capacity /= 2;
+    }
+    if (tree->afe_hash_capacity > 0) {
+        TH_WORK_STEPS_ADD(tree->afe_hash_capacity);
+        memset(tree->afe_hashes, 0, tree->afe_hash_capacity * sizeof(uint64_t));
+    }
+    tree->afe_hash_count = 0;
+    uint64_t *keys = afe_keys(tree);
+    for (Py_ssize_t index = start; index < tree->afe_len; index++) {
+        if (keys[index] == 0) {
+            keys[index] = afe_hash(tree->afe[index]);
+        }
+        if (afe_hash_insert(tree, keys[index]) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return 0;
+}
+
+static int afe_hash_insert(th_tree *tree, uint64_t key) {
     if (tree->afe_hash_count >= tree->afe_hash_capacity / 2) {
-        size_t capacity;
-        size_t bytes;
-        /* GCOVR_EXCL_BR_START: allocation-size overflow */
-        if (!th_grow_cap(tree->afe_hash_capacity + 1, tree->afe_hash_capacity, 32, sizeof(uint64_t), &capacity,
-                         &bytes)) {
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
-            return -1;        /* GCOVR_EXCL_LINE: allocation-size overflow */
-        }
-        /* GCOVR_EXCL_BR_STOP */
-        uint64_t *hashes = PyMem_Calloc(capacity, sizeof(uint64_t));
-        if (hashes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        for (size_t index = 0; index < tree->afe_hash_capacity; index++) {
-            uint64_t hash = tree->afe_hashes[index];
-            if (hash != 0) {
-                size_t slot = (size_t)hash & (capacity - 1);
-                while (hashes[slot] != 0) {
-                    slot = (slot + 1) & (capacity - 1);
+        /* An entry that leaves the list keeps its key in the set. Once such keys fill half the table, reseed it from
+           the segment instead of growing it, so the table and its probe runs stay bounded by the segment and not by
+           every element the list has held. The reseed leaves the count under half the shrunk table, so it grows
+           nothing. */
+        if (tree->afe_hash_count > 64) {
+            Py_ssize_t start = afe_segment_start(tree);
+            if (tree->afe_hash_count > 2 * (size_t)(tree->afe_len - start) + 64) {
+                if (afe_hash_reseed(tree, start) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                hashes[slot] = hash;
             }
         }
-        PyMem_Free(tree->afe_hashes);
-        tree->afe_hashes = hashes;
-        tree->afe_hash_capacity = capacity;
+        if (tree->afe_hash_count >= tree->afe_hash_capacity / 2) {
+            size_t capacity;
+            size_t bytes;
+            /* GCOVR_EXCL_BR_START: allocation-size overflow */
+            if (!th_grow_cap(tree->afe_hash_capacity + 1, tree->afe_hash_capacity, AFE_HASH_MIN_CAPACITY,
+                             sizeof(uint64_t), &capacity, &bytes)) {
+                tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
+                return -1;        /* GCOVR_EXCL_LINE: allocation-size overflow */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            uint64_t *hashes = PyMem_Calloc(capacity, sizeof(uint64_t));
+            if (hashes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            for (size_t index = 0; index < tree->afe_hash_capacity; index++) {
+                uint64_t hash = tree->afe_hashes[index];
+                if (hash != 0) {
+                    size_t slot = (size_t)hash & (capacity - 1);
+                    while (hashes[slot] != 0) {
+                        TH_WORK_STEP();
+                        slot = (slot + 1) & (capacity - 1);
+                    }
+                    hashes[slot] = hash;
+                }
+            }
+            PyMem_Free(tree->afe_hashes);
+            tree->afe_hashes = hashes;
+            tree->afe_hash_capacity = capacity;
+        }
     }
-    uint64_t hash = afe_hash(node);
-    size_t slot = (size_t)hash & (tree->afe_hash_capacity - 1);
+    size_t slot = (size_t)key & (tree->afe_hash_capacity - 1);
     while (tree->afe_hashes[slot] != 0) {
-        if (tree->afe_hashes[slot] == hash) {
+        TH_WORK_STEP();
+        if (tree->afe_hashes[slot] == key) {
             return 1;
         }
         slot = (slot + 1) & (tree->afe_hash_capacity - 1);
     }
-    tree->afe_hashes[slot] = hash;
+    tree->afe_hashes[slot] = key;
     tree->afe_hash_count++;
     return 0;
 }
 
+/* Make room for one more entry in a full list, moving the cached keys up behind the larger entry array. */
+static int afe_grow(th_tree *tree) {
+    size_t full = (size_t)tree->afe_cap;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap(full + 1, full, 16, sizeof(th_node *) + sizeof(uint64_t), &cap, &bytes);
+    if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    }
+    th_node **grown = PyMem_Realloc(tree->afe, bytes);
+    if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    if (full > 0) {
+        memmove(grown + cap, grown + full, full * sizeof(uint64_t));
+    }
+    tree->afe = grown;
+    tree->afe_cap = (Py_ssize_t)cap;
+    return 1;
+}
+
+/* The hash set comes into use (afe_hash_valid) once the segment after the last marker is long, and leaves it when the
+   list clears back to a marker or empties. In use, it holds the key of every entry after the last marker, plus keys of
+   entries that have left the list or sit before that marker, so a miss proves the segment holds no equal entry and a
+   hit runs the exact comparison. */
 static int afe_push(th_tree *tree, th_node *node) {
-    if (!tree->afe_hash_valid) {
-        if (tree->afe_hash_capacity > 0) {
-            memset(tree->afe_hashes, 0, tree->afe_hash_capacity * sizeof(uint64_t));
-        }
-        tree->afe_hash_count = 0;
-        for (Py_ssize_t index = 0; index < tree->afe_len; index++) {
-            if (tree->afe[index] != NULL) {
-                /* GCOVR_EXCL_BR_START: allocation failure */
-                if (afe_hash_add(tree, tree->afe[index]) < 0) {
-                    return 0; /* GCOVR_EXCL_LINE: allocation-failure path */
-                }
-                /* GCOVR_EXCL_BR_STOP */
+    uint64_t key = 0;
+    int seen = 1;
+    if (tree->afe_hash_valid || afe_segment_is_long(tree)) {
+        if (!tree->afe_hash_valid) {
+            if (afe_hash_reseed(tree, afe_segment_start(tree)) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return 0;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
             }
+            tree->afe_hash_valid = 1;
         }
-        tree->afe_hash_valid = 1;
+        key = afe_hash(node);
+        seen = afe_hash_insert(tree, key);
+        if (seen < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
-    int seen = afe_hash_add(tree, node);
-    if (seen < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    /* Hash collisions retain the full duplicate comparison. */
+    /* A short segment, or a hash hit, runs the full duplicate comparison. */
     if (seen) {
         /* Noah's Ark: at most three earlier entries with the same name+attributes
            may precede a new one before the oldest is dropped. */
         int matches = 0;
         Py_ssize_t earliest = -1;
         for (Py_ssize_t index = tree->afe_len - 1; index >= 0; index--) {
+            TH_WORK_STEP();
             th_node *entry = tree->afe[index];
             if (entry == NULL) {
                 break; /* stop at the marker */
@@ -2080,41 +2368,20 @@ static int afe_push(th_tree *tree, th_node *node) {
         }
     }
     if (tree->afe_len == tree->afe_cap) {
-        size_t cap;
-        size_t bytes;
-        int grew = th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-            return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        if (!afe_grow(tree)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        th_node **grown = PyMem_Realloc(tree->afe, bytes);
-        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-            return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        tree->afe = grown;
-        tree->afe_cap = (Py_ssize_t)cap;
     }
+    afe_keys(tree)[tree->afe_len] = key;
     tree->afe[tree->afe_len++] = node;
     return 1;
 }
 
 static void afe_push_marker(th_tree *tree) {
     if (tree->afe_len == tree->afe_cap) {
-        size_t cap;
-        size_t bytes;
-        int grew = th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-            return;           /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        if (!afe_grow(tree)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        th_node **grown = PyMem_Realloc(tree->afe, bytes);
-        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-            return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        tree->afe = grown;
-        tree->afe_cap = (Py_ssize_t)cap;
     }
     tree->afe[tree->afe_len++] = NULL;
 }
@@ -2287,8 +2554,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
            takes its place */
         th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
-        th_node *old_select =
-            furthest->reaches_selectedcontent && tree->select_state != NULL ? select_reaching(furthest->parent) : NULL;
+        th_node *old_select = furthest->reaches_selectedcontent ? select_reaching(furthest->parent) : NULL;
         th_node *node, *last = furthest;
         Py_ssize_t node_idx = furthest_idx;
         /* The inner loop runs until it reaches the formatting element; the
@@ -2313,7 +2579,11 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
                 node_afe = -1;
             }
             if (node_afe < 0) {
-                /* not in the list: remove from the stack and continue */
+                /* not in the list: remove from the stack and continue; an option removed this way is never popped, so
+                   it is picked here, the selection the reparse of its select would make */
+                if (tree->select_state != NULL && is_html_element(node, TH_TAG_OPTION)) {
+                    select_cache_pick(tree->select_state, node);
+                }
                 stack_remove_at(tree, node_idx);
                 continue;
             }
@@ -2353,6 +2623,9 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             child = next;
         }
         node_append(furthest, fmt_clone);
+        if (tree->select_state != NULL) {
+            tree->select_state->recheck = 1;
+        }
         if (furthest->reaches_selectedcontent && old_select == NULL) {
             select_cache_block_gained(tree, furthest);
         }
@@ -2361,27 +2634,10 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         if (fi < bookmark) {
             bookmark--;
         }
+        /* the clone hashes as fmt did, so it takes over fmt's key */
+        uint64_t fmt_key = afe_keys(tree)[fi];
+        /* removing fmt frees the slot the clone takes below, so the list needs no room */
         afe_remove_at(tree, fi);
-        /* GCOVR_EXCL_START: the list just shrank by one (fmt removed) before this single
-           re-insert, so afe_len < afe_cap here and the grow never fires */
-        if (tree->afe_len == tree->afe_cap) {
-            size_t cap;
-            size_t bytes;
-            int grew =
-                th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
-            if (!grew) {
-                tree->failed = 1;
-                return 1;
-            }
-            th_node **grown = PyMem_Realloc(tree->afe, bytes);
-            if (grown == NULL) {
-                tree->failed = 1;
-                return 1;
-            }
-            tree->afe = grown;
-            tree->afe_cap = (Py_ssize_t)cap;
-        }
-        /* GCOVR_EXCL_STOP */
         /* GCOVR_EXCL_START: the bookmark is kept within [0, afe_len] by the loop above; these are defensive clamps */
         if (bookmark < 0) {
             bookmark = 0;
@@ -2390,8 +2646,12 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             bookmark = tree->afe_len;
         }
         /* GCOVR_EXCL_STOP */
-        memmove(&tree->afe[bookmark + 1], &tree->afe[bookmark], (size_t)(tree->afe_len - bookmark) * sizeof(th_node *));
+        size_t moved = (size_t)(tree->afe_len - bookmark);
+        memmove(&tree->afe[bookmark + 1], &tree->afe[bookmark], moved * sizeof(th_node *));
         tree->afe[bookmark] = fmt_clone;
+        uint64_t *keys = afe_keys(tree);
+        memmove(&keys[bookmark + 1], &keys[bookmark], moved * sizeof(uint64_t));
+        keys[bookmark] = fmt_key;
         tree->afe_len++;
         /* remove fmt from the stack, insert the clone below furthest */
         Py_ssize_t fs = stack_index_of(tree, fmt);
@@ -3251,7 +3511,9 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
         uint16_t atom = tok_atom(tok);
         if (atom == TH_TAG_FRAMESET) {
             th_node *fs = insert_element(tree, tok);
-            stack_push(tree, fs);
+            if (!stack_push_kept(tree, fs)) {
+                tree->refused_frameset_count++;
+            }
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_FRAME) {
@@ -3270,6 +3532,10 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
     }
     /* a DOCTYPE is ignored before the switch, so the kind!=end-tag branch here is dead */
     if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_FRAMESET) { /* GCOVR_EXCL_BR_LINE */
+        if (tree->refused_frameset_count > 0) {
+            tree->refused_frameset_count--;
+            return TH_DRAIN_NEXT;
+        }
         if (current_node(tree)->atom != TH_TAG_HTML) {
             stack_pop(tree);
         }
@@ -3701,13 +3967,10 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                       other element is ignored in HTML content) */
         }
         stack_push(tree, node);
-        /* every HTML selectedcontent the parser creates lands here, so a select cached before
-           it arrived learns of it without a test on every other element's insert or push */
+        /* every HTML selectedcontent the parser creates lands here, so its select learns of it as it arrives */
         if (atom == TH_TAG_SELECTEDCONTENT) {
             selectedcontent_flagged(node);
-            if (tree->select_state != NULL) {
-                selectedcontent_inserted(tree, node);
-            }
+            selectedcontent_inserted(tree, node);
         }
         return TH_DRAIN_NEXT;
     }
@@ -4583,7 +4846,8 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
 }
 
 /* Stop parsing at EOF: pop the remaining open elements, which runs the
-   option-into-selectedcontent clone for a still-open selected option. */
+   option-into-selectedcontent clone for a still-open selected option, then settles
+   the late selectedcontent elements, whose children are complete only now. */
 static void run_close(th_tree *tree) {
     /* EOF closes the remaining open elements; none was closed by an end tag. The
        last token buffer may still hold a partial tag the tokenizer never emitted
@@ -4593,6 +4857,7 @@ static void run_close(th_tree *tree) {
     while (tree->open_len > 0) {
         stack_pop_any(tree);
     }
+    select_cache_finish(tree);
     select_cache_free(tree);
 }
 

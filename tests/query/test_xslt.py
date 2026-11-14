@@ -807,6 +807,18 @@ def test_transform_generate_id_is_stable_per_node() -> None:
     assert _run("<r><n/></r>", body) == "true"
 
 
+def test_transform_generate_id_does_not_depend_on_node_address() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="//*"><xsl:value-of select="generate-id()"/>'
+        "<xsl:text> </xsl:text></xsl:for-each></xsl:template>"
+    )
+    convert = Transform(_sheet(body))
+    first, second = parse_xml("<r><n/><n/></r>"), parse_xml("<r><n/><n/></r>")  # both alive, so no shared address
+    ids = convert(first).split()
+    assert len(set(ids)) == 3
+    assert convert(second).split() == ids
+
+
 def test_transform_generate_id_empty_for_empty_node_set() -> None:
     body = '<xsl:template match="/">[<xsl:value-of select="generate-id(//missing)"/>]</xsl:template>'
     assert _run("<r/>", body) == "[]"
@@ -1097,6 +1109,47 @@ def test_transform_deep_recursive_named_template_raises_cleanly() -> None:
 def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, message: str) -> None:
     with pytest.raises(RecursionError, match=message):
         _run(f"<r>{'<n>' * 600}x{'</n>' * 600}</r>", body)
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 14) and sys.platform != "linux",
+    reason="before CPython 3.14 only Linux builds read the thread's real C stack bounds",
+)
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:call-template name="loop"/></xsl:template>'
+            '<xsl:template name="loop"><xsl:call-template name="loop"/></xsl:template>',
+            id="named-template",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:variable name="v"><xsl:apply-templates select="."/></xsl:variable>'
+            '<xsl:value-of select="$v"/></xsl:template>',
+            id="variable-body",
+        ),
+    ],
+)
+def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
+    # a stack overflow kills the interpreter, so the transform runs in a subprocess and the crash becomes a failure
+    code = (
+        "import sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.transform import transform\n"
+        "stylesheet = sys.stdin.read()\n"
+        "def run():\n"
+        "    try:\n        transform(parse_xml(stylesheet), parse_xml('<r/>'))\n"
+        "    except RecursionError as exc:\n        print(type(exc).__name__)\n"
+        "threading.stack_size(112 * 1024)\n"
+        "worker = threading.Thread(target=run)\nworker.start()\nworker.join()\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
+        [sys.executable, "-c", code],
+        input=_oracle_sheet(body),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, "RecursionError\n"), result.stderr
 
 
 def test_transform_anchored_patterns() -> None:

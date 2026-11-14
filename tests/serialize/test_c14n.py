@@ -720,6 +720,129 @@ def test_xml_c14n_exclusive_forced_prefix_rebound_without_use() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("source", "exclusive", "expected"),
+    [
+        pytest.param(
+            '<r><a xmlns:p="urn:a"><p:x/></a><b xmlns:p="urn:b"><p:x/></b><c/></r>',
+            False,
+            b'<r><a xmlns:p="urn:a"><p:x></p:x></a><b xmlns:p="urn:b"><p:x></p:x></b><c></c></r>',
+            id="inclusive-sibling-bindings",
+        ),
+        pytest.param(
+            '<r><a xmlns:p="urn:a"><p:x/></a><b xmlns:p="urn:b"><p:x/></b><c/></r>',
+            True,
+            b'<r><a><p:x xmlns:p="urn:a"></p:x></a><b><p:x xmlns:p="urn:b"></p:x></b><c></c></r>',
+            id="exclusive-sibling-bindings",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:a"><a xmlns:p="urn:b"/><b xmlns:p="urn:a"/><p:c/></r>',
+            False,
+            b'<r xmlns:p="urn:a"><a xmlns:p="urn:b"></a><b></b><p:c></p:c></r>',
+            id="inclusive-shadowed-binding-restored",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:a"><p:a><p:b xmlns:p="urn:b"/><p:c/></p:a></r>',
+            True,
+            b'<r><p:a xmlns:p="urn:a"><p:b xmlns:p="urn:b"></p:b><p:c></p:c></p:a></r>',
+            id="exclusive-shadowed-use-restored",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:a p:x="1" p:y="2"/></r>',
+            True,
+            b'<r><p:a xmlns:p="urn:p" p:x="1" p:y="2"></p:a></r>',
+            id="exclusive-prefix-used-three-times",
+        ),
+        pytest.param(
+            '<r><a xmlns="urn:a"/></r>',
+            True,
+            b'<r><a xmlns="urn:a"></a></r>',
+            id="exclusive-new-default-under-unbound-use",
+        ),
+    ],
+)
+def test_xml_c14n_scope_follows_open_elements(source: str, expected: bytes, *, exclusive: bool) -> None:
+    assert parse_xml(source).canonicalize(Canonical(exclusive=exclusive)) == expected
+
+
+def test_xml_c14n_apex_inherits_nearest_binding() -> None:
+    document = parse_xml('<r xmlns:p="urn:a"><c xmlns:p="urn:b"><p:a/></c></r>')
+    assert document.children[0].children[0].children[0].canonicalize() == b'<p:a xmlns:p="urn:b"></p:a>'
+
+
+@pytest.mark.parametrize("listed", [pytest.param("pp", id="prefix"), pytest.param("#defaults", id="default")])
+def test_xml_c14n_exclusive_forced_prefix_matches_whole_name(listed: str) -> None:
+    source: Final = '<q:r xmlns="urn:d" xmlns:p="urn:p" xmlns:q="urn:q"><q:a/></q:r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=(listed,))) == (
+        b'<q:r xmlns:q="urn:q"><q:a></q:a></q:r>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "expected"),
+    [
+        pytest.param('<r xmlns:p="urn:p"/>', "r", b'<r xmlns:p="urn:p" q:x="1"></r>', id="never-declared"),
+        pytest.param(
+            '<r><a xmlns:q="urn:q"/><b/></r>',
+            "b",
+            b'<r><a xmlns:q="urn:q"></a><b q:x="1"></b></r>',
+            id="declared-by-closed-sibling",
+        ),
+    ],
+)
+def test_xml_c14n_assigned_attribute_with_unbound_prefix(source: str, target: str, expected: bytes) -> None:
+    document: Final = parse_xml(source)
+    element = document.find(target)
+    assert element is not None
+    element.attrs["q:x"] = "1"
+    assert document.canonicalize() == expected
+
+
+def test_xml_c14n_assigned_attribute_with_unbound_prefix_and_no_declaration() -> None:
+    root = cast("Element", parse_xml('<r xmlns:p="urn:p"/>').children[0])
+    del root.attrs["xmlns:p"]
+    root.attrs["q:x"] = "1"
+    assert root.canonicalize() == b'<r q:x="1"></r>'
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        pytest.param("q:a", b'<r><q:a></q:a><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="unbound-prefix"),
+        pytest.param(":a", b'<r><:a></:a><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="empty-prefix"),
+    ],
+)
+def test_xml_c14n_exclusive_inserted_element_name(tag: str, expected: bytes) -> None:
+    root = cast("Element", parse_xml('<r><b xmlns:q="urn:q"><q:c/></b></r>').children[0])
+    root.insert(0, Element(tag))
+    assert root.canonicalize(Canonical(exclusive=True)) == expected
+
+
+def _declarations_in_scope(size: int) -> str:
+    declarations = " ".join(f'xmlns:n{index}="http://example.com/{index}"' for index in range(size))
+    items = "".join(f'<item n{index}:k="v"/>' for index in range(size))
+    return f"<doc><list {declarations}>{items}</list></doc>"
+
+
+def _prefixed_depth(size: int) -> str:
+    return f'<s:node xmlns:s="http://example.com/s">{"<s:node>" * size}{"</s:node>" * size}</s:node>'
+
+
+@pytest.mark.parametrize("exclusive", [pytest.param(False, id="inclusive"), pytest.param(True, id="exclusive")])
+@pytest.mark.parametrize(
+    ("build", "sizes"),
+    [
+        pytest.param(_declarations_in_scope, (200, 400), id="declarations-in-scope"),
+        pytest.param(_prefixed_depth, (2_000, 4_000), id="depth"),
+    ],
+)
+def test_xml_c14n_namespace_scope_steps_grow_linearly(
+    build: Callable[[int], str], sizes: tuple[int, int], work_steps: WorkSteps, *, exclusive: bool
+) -> None:
+    options: Final = Canonical(exclusive=exclusive)
+    work_steps.assert_linear(lambda size: partial(parse_xml(build(size)).canonicalize, options), sizes)
+
+
 def test_xml_c14n_apex_uses_nearest_xml_attribute() -> None:
     document = parse_xml('<r xmlns:p="urn:p" xml:lang="en"><a xml:lang="fr"><p:b/></a></r>')
     assert document.children[0].children[0].children[0].canonicalize() == (b'<p:b xmlns:p="urn:p" xml:lang="fr"></p:b>')
