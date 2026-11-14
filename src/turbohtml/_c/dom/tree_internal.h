@@ -102,6 +102,7 @@ struct th_tree {
     uint16_t ctx_atom; /* the fragment context element's atom (reset uses it) */
     int scope_result;
     int open_p_count;
+    int refused_frameset_count; /* framesets the depth cap kept off the stack; their </frameset> must not pop */
     Py_ssize_t open_cap;
     Py_ssize_t max_depth; /* peak open-element nesting seen while parsing; a cheap O(1)
                              lower bound on element depth that gates the :has() subtree memo */
