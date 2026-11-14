@@ -6,6 +6,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h"
+#include "core/node_map.h"
 #include "core/vec.h"
 #include "url/url.h"
 
@@ -77,6 +78,7 @@ typedef struct {
     int bleach_raw_urls;
     bleach_origin *bleach_origins;
     Py_ssize_t bleach_origin_count;
+    th_node_map integration_points; /* annotation-xml parent -> 1 (not an integration point) or 2 (is one) */
 } sanitizer;
 
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args);
@@ -2628,6 +2630,23 @@ static int is_html_integration_point(const th_node *node) {
     return 0;
 }
 
+/* An annotation-xml parent's answer is memoized for the walk: the parent's attributes settle in its own sanitize step,
+   which runs before any child is checked against it, so the first answer holds for every later child. */
+static int cached_integration_point(sanitizer *s, const th_node *parent) {
+    if (parent->atom != TH_TAG_ANNOTATION_XML) {
+        return is_html_integration_point(parent);
+    }
+    Py_ssize_t known = th_node_map_find(&s->integration_points, parent);
+    if (known != 0) {
+        return known == 2;
+    }
+    int answer = is_html_integration_point(parent);
+    if (th_node_map_insert(&s->integration_points, parent, answer ? 2 : 1) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return answer;                                                            /* GCOVR_EXCL_LINE */
+    }
+    return answer;
+}
+
 /* Is the element's namespace reachable from its parent's? The (element, namespace, parent) triples the HTML parser can
    legitimately produce, per the WHATWG foreign-content and integration-point rules (DOMPurify's _checkValidNamespace
    equivalent): enter SVG only through <svg>, MathML only through <math>, and return to HTML only through an integration
@@ -2635,7 +2654,7 @@ static int is_html_integration_point(const th_node *node) {
    HTML element reparented under SVG/MathML, or a foreign element escaped into HTML content where its children would
    reparse as HTML -- fails, and is then dropped like any disallowed node (mXSS defense-in-depth). Returns 1 reachable,
    0 confused. The balancer passes the parent the element will have once its escaped ancestors are gone. */
-static inline int namespace_reachable_under(const th_node *element, const th_node *parent) {
+static inline int namespace_reachable_under(sanitizer *s, const th_node *element, const th_node *parent) {
     /* a fragment or document root carries the HTML namespace, so reading parent->ns needs no element-type guard */
     uint8_t parent_ns = parent->ns;
     uint8_t ns = element->ns;
@@ -2649,23 +2668,23 @@ static inline int namespace_reachable_under(const th_node *element, const th_nod
     }
     if (ns == TH_NS_MATHML) {
         /* from HTML only <math> enters MathML; from SVG only a <math> under an HTML integration point */
-        return element->atom == TH_TAG_MATH && (parent_ns == TH_NS_HTML || is_html_integration_point(parent));
+        return element->atom == TH_TAG_MATH && (parent_ns == TH_NS_HTML || cached_integration_point(s, parent));
     }
     /* an HTML element under a foreign parent is reachable only at an integration point */
     if (parent_ns == TH_NS_SVG) {
-        return is_html_integration_point(parent);
+        return cached_integration_point(s, parent);
     }
     if (is_mathml_text_point(parent)) {
         /* a text point parses an mglyph or malignmark start tag as MathML, so an HTML one there (foster-parented out
            of a table) turns MathML on reparse and takes its children with it */
         return element->atom != TH_TAG_MGLYPH && element->atom != TH_TAG_MALIGNMARK;
     }
-    return is_html_integration_point(parent);
+    return cached_integration_point(s, parent);
 }
 
 /* The walk only reaches an element through its parent, so element->parent is never NULL here. */
-static inline int namespace_reachable(const th_node *element) {
-    return namespace_reachable_under(element, element->parent);
+static inline int namespace_reachable(sanitizer *s, const th_node *element) {
+    return namespace_reachable_under(s, element, element->parent);
 }
 
 /* Rename an element to a transform's target tag and add its extra attributes when the policy maps the element's current
@@ -2827,7 +2846,7 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
     }
     /* defense in depth: a node whose namespace is unreachable from its parent's is a namespace-confusion mutation, not
        anything the parser produced, so drop it like any disallowed node even when the allowlist would admit its name */
-    if (allowed > 0 && !namespace_reachable(element)) {
+    if (allowed > 0 && !namespace_reachable(s, element)) {
         allowed = 0;
     }
     int status = 0;
@@ -3034,7 +3053,7 @@ static TH_WALK_INLINE int settle_range(sanitizer *s, th_node *parent, th_node *b
             cursor = cursor->next_sibling;
             continue;
         }
-        int reachable = namespace_reachable(cursor);
+        int reachable = namespace_reachable(s, cursor);
         if (reachable && !(balance && balancer_structurally_unstable(cursor))) {
             if (deep) {
                 if (balance_subtree(s, cursor, subtree_foster) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
@@ -3147,11 +3166,12 @@ typedef struct {
 static void *grow_one(void *items, Py_ssize_t *capacity, size_t size);
 static inline int balancer_passes(const th_node *element, uint32_t bits, uint32_t rule);
 static inline int balancer_shapes_context(const th_node *element, uint32_t rule);
-static TH_NOINLINE uint32_t balance_enter(balance_walk *walk, balanced_frame *frames, Py_ssize_t depth, uint32_t rule);
+static TH_NOINLINE uint32_t balance_enter(sanitizer *s, balance_walk *walk, balanced_frame *frames, Py_ssize_t depth,
+                                          uint32_t rule);
 static inline int balance_leave(sanitizer *s, balance_walk *walk, const balanced_frame *frames, Py_ssize_t depth,
                                 th_node *parent, th_node *before);
-static int balancer_unstable_in_walk(const th_node *element, uint32_t bits, uint32_t rule, const balanced_frame *frames,
-                                     Py_ssize_t depth, const th_node *root);
+static int balancer_unstable_in_walk(sanitizer *s, const th_node *element, uint32_t bits, uint32_t rule,
+                                     const balanced_frame *frames, Py_ssize_t depth, const th_node *root);
 static const th_node *balancer_view_parent(const balanced_frame *frames, Py_ssize_t depth, const th_node *root);
 static TH_NOINLINE int balance_hoisted_range(sanitizer *s, const balance_walk *walk, const balanced_frame *frames,
                                              Py_ssize_t depth, th_node *parent, th_node *before);
@@ -3391,7 +3411,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
                 bits |= CONTEXT_PARENT_GONE;
             }
         } else {
-            bits = balance_enter(&walk, frames, depth, rule);
+            bits = balance_enter(s, &walk, frames, depth, rule);
             if (bits == BALANCE_FAILED) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyMem_Free(frames);        /* GCOVR_EXCL_LINE: allocation-failure path */
                 PyMem_Free(walk.verdicts); /* GCOVR_EXCL_LINE */
@@ -3436,7 +3456,8 @@ static inline int balancer_shapes_context(const th_node *element, uint32_t rule)
 
 /* Judge the kept element just pushed on frames[depth - 1], which balancer_passes did not settle: record its role.
    Returns the bits its children sit in, or BALANCE_FAILED. */
-static TH_NOINLINE uint32_t balance_enter(balance_walk *walk, balanced_frame *frames, Py_ssize_t depth, uint32_t rule) {
+static TH_NOINLINE uint32_t balance_enter(sanitizer *s, balance_walk *walk, balanced_frame *frames, Py_ssize_t depth,
+                                          uint32_t rule) {
     balanced_frame *frame = &frames[depth - 1];
     th_node *element = frame->element;
     uint32_t bits = frame->context_bits;
@@ -3445,7 +3466,7 @@ static TH_NOINLINE uint32_t balance_enter(balance_walk *walk, balanced_frame *fr
         walk->spoiled |= (bits & CONTEXT_RECORD) != 0;
         return bits | CONTEXT_QUIET;
     }
-    if (!balancer_unstable_in_walk(element, bits, rule, frames, depth - 1, walk->root)) {
+    if (!balancer_unstable_in_walk(s, element, bits, rule, frames, depth - 1, walk->root)) {
         return (bits & CONTEXT_RECORD) | CONTEXT_PENDING;
     }
     if (!(bits & CONTEXT_RECORD)) {
@@ -3466,13 +3487,13 @@ static TH_NOINLINE uint32_t balance_enter(balance_walk *walk, balanced_frame *fr
 
 /* Whether the walk must escape a kept `element` that sits in `bits`: balancer_context_breaks, plus the namespace check
    when the element's parent goes, so it lands under a different one. */
-static int balancer_unstable_in_walk(const th_node *element, uint32_t bits, uint32_t rule, const balanced_frame *frames,
-                                     Py_ssize_t depth, const th_node *root) {
+static int balancer_unstable_in_walk(sanitizer *s, const th_node *element, uint32_t bits, uint32_t rule,
+                                     const balanced_frame *frames, Py_ssize_t depth, const th_node *root) {
     if (!(bits & CONTEXT_PARENT_GONE)) {
         return balancer_context_breaks(element, (balance_context){element->parent, bits}, rule);
     }
     const th_node *parent = balancer_view_parent(frames, depth, root);
-    return !namespace_reachable_under(element, parent) ||
+    return !namespace_reachable_under(s, element, parent) ||
            balancer_context_breaks(element, (balance_context){parent, bits}, rule);
 }
 
@@ -3988,8 +4009,8 @@ static int balancer_structurally_unstable(const th_node *element) {
            balancer_formatting_reopens(element) || balancer_table_part_orphaned(element);
 }
 
-static int balancer_element_unstable(const th_node *element) {
-    return !namespace_reachable(element) || balancer_structurally_unstable(element);
+static int balancer_element_unstable(sanitizer *s, const th_node *element) {
+    return !namespace_reachable(s, element) || balancer_structurally_unstable(element);
 }
 
 /* balancer_structurally_unstable, reading each ancestor scan's answer from `context` rather than walking the ancestors,
@@ -4236,7 +4257,7 @@ static int balance_subtree_scanning(sanitizer *s, th_node *root, int foster) {
     while (node != NULL) {
         th_node *parent = node->parent;
         if (node->type == TH_NODE_ELEMENT) {
-            if (balancer_element_unstable(node)) {
+            if (balancer_element_unstable(s, node)) {
                 th_node *before = node->prev_sibling;
                 s->balance_edited = 1;
                 if (escape_element(s, node) < 0) { /* GCOVR_EXCL_BR_LINE: escape only fails on allocation */
@@ -4361,7 +4382,7 @@ static int balance_range(sanitizer *s, th_node *first, th_node *stop, balance_co
             continue;
         }
         if (node->type == TH_NODE_ELEMENT) {
-            if (!namespace_reachable_under(node, context.parent) ||
+            if (!namespace_reachable_under(s, node, context.parent) ||
                 balancer_structurally_unstable_in(node, context, balancer_rule(node->atom))) {
                 th_node *parent = node->parent;
                 th_node *before = node->prev_sibling;
@@ -5015,6 +5036,7 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
     }
     Py_XDECREF(s.prefix_tuple);
     PyMem_Free(s.bleach_origins);
+    PyMem_Free(s.integration_points.entries);
     Py_DECREF(s.star);
     Py_DECREF(s.re_search);
     if (failed) {
