@@ -158,9 +158,14 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
                                 (css_is_hex(text[0]) || text[0] == '?');
             if (!negative_after_number &&
                 (urange_prefix || !glued ||
-                 css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT, pool->data + comp->off,
-                                 comp->len))) {
+                 css_would_merge(pool->data[prev->off + prev->len - 1],
+                                 prev->kind == CK_IDENT ||
+                                     (prev->kind == CK_DIM && css_ends_in_name(pool->data + prev->off, prev->len)),
+                                 pool->data + comp->off, comp->len))) {
                 cbuf_putc(out, ' ');
+                if (css_ends_in_hex_escape(pool->data + prev->off, prev->len) && css_is_ident(text[0])) {
+                    cbuf_putc(out, ' ');
+                }
             }
         }
         cbuf_put_run(out, pool->data + comp->off, comp->len);

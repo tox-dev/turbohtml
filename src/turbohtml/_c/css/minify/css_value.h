@@ -1184,6 +1184,8 @@ static void css_rtrim(css_buf *buffer) {
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
                                  Py_ssize_t name_len, css_buf *out, int *raw_fallback);
 static int css_is_ident_string(const css_char *text, Py_ssize_t len);
+static int css_ends_in_name(const css_char *text, Py_ssize_t len);
+static int css_ends_in_hex_escape(const css_char *text, Py_ssize_t len);
 CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args);
 CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out);
 

@@ -354,7 +354,7 @@ static int css_would_merge(css_char last, int last_is_ident, const css_char *nex
     case '/':
         return first == '*';
     default:
-        return css_is_digit(last) && (first == '%' || fraction);
+        return !last_is_ident && css_is_digit(last) && (first == '%' || fraction);
     }
 }
 

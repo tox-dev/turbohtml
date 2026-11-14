@@ -685,7 +685,9 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
                        css_prelude_space_optional(vec, index, allow_url_string));
         /* with no source whitespace, shortening a number (dropping a zero unit or sign) can glue it onto the previous
            token to read as one different token (CSS Syntax 3 §9.1), so keep the boundary the value path keeps */
-        if (spaced || (out->len > mark && css_would_merge(out->data[out->len - 1], 0, next_text, next_len))) {
+        if (spaced ||
+            (out->len > mark &&
+             css_would_merge(out->data[out->len - 1], css_ends_in_name(out->data, out->len), next_text, next_len))) {
             cbuf_putc(out, ' ');
         }
         pending_ws = 0;
@@ -695,6 +697,9 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
         return;
     }
     if (out->data[mark] == '(') {
+        return;
+    }
+    if (css_ends_in_name(out->data, mark) && !css_is_ident(out->data[mark])) {
         return;
     }
     switch (out->data[mark]) {
@@ -1811,8 +1816,27 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
    leaves the last token a name, or whitespace. The text is trimmed, so whitespace there belongs to a token: an escape
    (`\ `, or the whitespace closing a hex escape, CSS Syntax 3 §4.3.7) or a bad string, and a space after it keeps the
    next node out of that token either way. */
+static int css_ends_in_hex_escape(const css_char *text, Py_ssize_t len) {
+    Py_ssize_t digits = 0;
+    while (digits < 6 && digits < len && css_is_hex(text[len - 1 - digits])) {
+        digits++;
+    }
+    if (digits == 0) {
+        return 0;
+    }
+    Py_ssize_t slash = len - digits;
+    Py_ssize_t backslashes = 0;
+    while (backslashes < slash && text[slash - 1 - backslashes] == '\\') {
+        backslashes++;
+    }
+    return backslashes % 2 == 1;
+}
+
 static int css_ends_in_name(const css_char *text, Py_ssize_t len) {
     if (css_is_ws(text[len - 1])) {
+        return 1;
+    }
+    if (css_ends_in_hex_escape(text, len)) {
         return 1;
     }
     Py_ssize_t backslashes = 0;
