@@ -1,0 +1,2 @@
+Fix a ``selectedcontent`` after its option keeping its own children beside the copy, so serialized output no longer
+changes when reparsed.
