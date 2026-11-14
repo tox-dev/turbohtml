@@ -17,6 +17,7 @@
 
 #include "data/attr_atom.h"
 #include "core/ascii.h"
+#include "core/work_steps.h"
 #include "css/cssom/cssom.h"
 #include "dom/nodes.h"
 #include "css/select/selector.h"
@@ -572,6 +573,7 @@ static Py_ssize_t css_scan_to(const Py_UCS4 *data, Py_ssize_t pos, Py_ssize_t en
     Py_ssize_t depth = 0;
     Py_ssize_t found = end;
     while (pos < end) {
+        TH_WORK_STEP();
         Py_UCS4 cur = data[pos];
         unsigned char class_of = cur < 128 ? CSS_SCAN_CLASS[cur] : 0;
         if (class_of == 0) {

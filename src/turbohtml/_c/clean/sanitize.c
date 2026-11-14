@@ -8,6 +8,7 @@
 #include "core/common.h"
 #include "core/node_map.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "url/url.h"
 
 #include "dom/nodes.h"
@@ -2053,6 +2054,7 @@ static const th_src_attr *bleach_source_attr(const th_src_loc *location, const t
     Py_ssize_t count = location->attr_count;
     Py_ssize_t slot = attr - element->attrs;
     for (Py_ssize_t seen = 0; seen < count; seen++, slot++) { /* GCOVR_EXCL_BR_LINE: tokenizer supplies the span */
+        TH_WORK_STEP();
         const th_src_attr *source = &location->attrs[slot % count];
         if (source->name_atom == attr->name_atom) {
             return source;
@@ -2620,6 +2622,7 @@ static int is_html_integration_point(const th_node *node) {
     }
     /* a reparse keeps the first of duplicate attributes, so the first encoding decides */
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        TH_WORK_STEP();
         const th_node_attr *attr = &node->attrs[index];
         if (attr->name_atom == TH_ATTR_ENCODING) {
             /* a bare attribute has a NULL value of length 0, which the length check rejects before any read */
