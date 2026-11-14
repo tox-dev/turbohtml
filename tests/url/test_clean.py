@@ -597,6 +597,11 @@ def test_clean_accepts_unpaired_userinfo_bracket() -> None:
         pytest.param("http://test.org/?this_affiliate=0", "http://test.org/", id="generic-affiliate"),
         pytest.param("http://test.org/?gclid=1&page=2", "http://test.org/?page=2", id="clid-suffix-family"),
         pytest.param("http://test.org/?%75tm_source=1", "http://test.org/", id="percent-encoded-tracker-name"),
+        pytest.param(
+            "http://test.org/?page=2&twclid%00abcdefghi=1",
+            "http://test.org/?page=2&twclid%00abcdefghi=1",
+            id="tracker-name-then-encoded-nul-kept",
+        ),
         pytest.param("http://test.net/foo?testid=1", "http://test.net/foo?testid=1", id="id-inside-word-kept"),
         pytest.param(
             "http://test.org/?café=1",
@@ -640,6 +645,11 @@ def test_normalize_query_cleaning(url: str, expected: str) -> None:
             id="query-shaped-fragment-scrubbed",
         ),
         pytest.param("http://test.org/#delta=4", "http://test.org/#delta=4", id="non-tracker-pair-kept"),
+        pytest.param(
+            "http://test.org/#twclid%00abcdefghi=1",
+            "http://test.org/#twclid%00abcdefghi=1",
+            id="tracker-name-then-encoded-nul-kept",
+        ),
         pytest.param(
             "http://test.net/foo.html#:~:text=night-,vision",
             "http://test.net/foo.html#:~:text=night-,vision",

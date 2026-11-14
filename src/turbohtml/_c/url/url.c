@@ -1835,8 +1835,10 @@ static int tracker_name_known(const char *key, size_t len) {
     while (low < high) {
         size_t mid = low + (high - low) / 2;
         int order = strncmp(TRACKER_NAMES[mid], key, len);
-        if (order == 0 && TRACKER_NAMES[mid][len] != '\0') {
-            order = 1;
+        if (order == 0) {
+            /* a NUL inside the key (a decoded %00) can end the match early, so the lengths break the tie */
+            size_t name_len = strlen(TRACKER_NAMES[mid]);
+            order = (name_len > len) - (name_len < len);
         }
         if (order == 0) {
             return 1;
