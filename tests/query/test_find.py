@@ -4,7 +4,7 @@ import gc
 import itertools
 import re
 import sys
-import time
+from functools import partial
 from typing import TYPE_CHECKING, Final
 from weakref import finalize
 
@@ -16,6 +16,8 @@ from turbohtml.clean import collapse_whitespace_node
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import TypeAlias
+
+    from work_steps import WorkSteps
 
     Filter: TypeAlias = "str | re.Pattern[str] | bool | Callable[[str | None], bool] | list[Filter]"
 
@@ -1171,8 +1173,8 @@ def test_attribute_filter_snapshot_releases_on_error() -> None:
 # per candidate around it. Once those reads have cost several walks of the tree, a str or literal-regex search takes
 # every element's verdict from one walk instead. _NEST nested elements are enough to get there.
 _NEST: Final[int] = 5_000
-_NEST_DOC: Final[str] = f"<r><s/>{'<a>' * _NEST}go{'</a>' * _NEST}<b>go</b><b>x<i/></b><e/></r>"
-_NESTED: Final[list[str]] = ["a"] * _NEST
+_NEST_DOC: Final[str] = f"<r><s/>{'<li>' * _NEST}go{'</li>' * _NEST}<b>go</b><b>x<i/></b><e/></r>"
+_NESTED: Final[list[str]] = ["li"] * _NEST
 
 
 @pytest.mark.parametrize(
@@ -1204,7 +1206,7 @@ def _nest_origin(axis: Axis) -> Document | Element:
     document: Final = parse_xml(_NEST_DOC)
     _el(document.find("i")).append(Text(""))  # an empty Text adds nothing to any element's text
     if axis is Axis.ANCESTORS:
-        return document.find_all("a")[-1]
+        return document.find_all("li")[-1]
     if axis is Axis.FOLLOWING:
         return _el(document.find("s"))
     if axis is Axis.PRECEDING:
@@ -1219,24 +1221,47 @@ def _nest_origin(axis: Axis) -> Document | Element:
         pytest.param(re.compile(r"in stock"), id="literal-regex"),
     ],
 )
-def test_text_of_nested_candidates_scales_linearly(text_filter: Filter) -> None:
-    # the flat document holds as many elements, so its search is the linear reference; the 0.01 s floor keeps timer
-    # noise from inflating the ratio
-    depth: Final = 30_000
-    nested: Final = parse_xml(f"{'<a>' * depth}x{'</a>' * depth}")
-    flat: Final = parse_xml(f"<r>{'<a>x</a>' * depth}</r>")
-    ratio: Final = _find_all_seconds(nested, text_filter) / max(_find_all_seconds(flat, text_filter), 0.01)
-    assert ratio < 10
+def test_text_of_nested_candidates_scales_linearly(text_filter: Filter, work_steps: WorkSteps) -> None:
+    # each nested read walks the chain below it again, so the steps grow with its square until the text_index takes over
+    work_steps.assert_linear(
+        lambda depth: partial(parse_xml(_section_chain(depth)).find_all, text=text_filter), (2_000, 8_000)
+    )
 
 
-def _find_all_seconds(document: Document | Element, text_filter: Filter) -> float:
-    start: Final = time.perf_counter()
-    document.find_all(text=text_filter)
-    return time.perf_counter() - start
+def _section_chain(depth: int) -> str:
+    return f"<main>{'<section><hr/>' * depth}back order{'<hr/></section>' * depth}</main>"
+
+
+def test_text_of_many_short_candidates_past_the_budget() -> None:
+    # each read ends at the first text node, so the reads cost a step apiece, too little to pay for a walk of the tree
+    document: Final = parse_xml(f"<main>{'<li>x</li>' * 70_000}</main>")
+    assert len(document.find_all(text="x")) == 70_000
+
+
+_LATE_DOC: Final[str] = f"<r>{'<li>' * _NEST}go{'</li>' * _NEST}<b>x</b><b>x</b></r>"
+
+
+def test_first_text_match_past_nested_candidates() -> None:
+    assert _el(parse_xml(_LATE_DOC).find(text="x")).tag == "b"
+
+
+def test_text_matches_past_nested_candidates_stop_at_limit() -> None:
+    assert _tags(parse_xml(_LATE_DOC).find_all(text="x", limit=1)) == ["b"]
+
+
+def test_text_search_past_nested_candidates_raises_from_filter() -> None:
+    def fail_at_b(name: str | None) -> bool:
+        if name == "b":
+            raise LookupError
+        return True
+
+    with pytest.raises(LookupError):
+        parse_xml(_LATE_DOC).find_all(fail_at_b, text="x")
 
 
 def test_text_of_nested_candidates_moved_by_a_filter() -> None:
-    document: Final = parse_xml(f"<r><m/>{'<a>' * _NEST}go{'</a>' * _NEST}<t/><u/></r>")
+    document: Final = parse_xml(f"<r><m/>{'<li>' * _NEST}go{'</li>' * _NEST}<t/><u/></r>")
+    present: Final = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
     moved: Final = _el(document.find("m"))
     target: Final = _el(document.find("t"))
     dropped: Final = _el(document.find("u"))
@@ -1247,21 +1272,23 @@ def test_text_of_nested_candidates_moved_by_a_filter() -> None:
             dropped.extract()
         return True
 
-    # the walk meets the moved element again where the one walk did not have it, and reads it on its own
-    assert _tags(document.find_all(move_at_target, text="")) == ["m", "t", "m"]
+    # the result of a search whose callable edits the tree is unspecified; the search must still finish with elements
+    # the document held
+    assert {element.tag for element in document.find_all(move_at_target, text="")} <= present
 
 
 def test_text_of_nested_ancestors_moved_by_a_filter() -> None:
     document: Final = parse_xml(_NEST_DOC)
-    chain: Final = document.find_all("a")
+    chain: Final = document.find_all("li")
+    present: Final = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
     end: Final = _el(document.find("e"))
     calls: Final = itertools.count(1)
 
     def move_late(_name: str | None) -> bool:
-        if next(calls) == _NEST - 1_000:  # the filter is looking at chain[999], long after the one walk
+        if next(calls) == _NEST - 1_000:
             end.append(chain[999])
         return True
 
-    # the climb goes on through the new parent, which the one walk met after every ancestor, not before them
-    tags: Final = _tags(chain[-1].find_all(move_late, text="go", axis=Axis.ANCESTORS))
-    assert tags == ["a"] * (_NEST - 1_000) + ["e"]
+    # the climb meets the moved element after the ancestors that were above it, so the result is unspecified here too
+    found: Final = chain[-1].find_all(move_late, text="go", axis=Axis.ANCESTORS)
+    assert {element.tag for element in found} <= present

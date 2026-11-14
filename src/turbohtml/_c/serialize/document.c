@@ -1069,10 +1069,11 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
 }
 
 /* Copy every descendant Text node's code points of node into buf at pos, realizing
-   zero-copy spans on the way; the caller sizes buf to the subtree's text length.
-   The find(text=) C scan reuses one buffer across candidates so no per-node str is
-   built; a Text or Content child of a content fragment is descended like an element. */
-static int collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
+   zero-copy spans on the way; the caller sizes buf to at least the subtree's text
+   length. The find(text=) C scan reuses one buffer across candidates so no per-node
+   str is built; a Text or Content child of a content fragment is descended like an
+   element. Returns the count of code points copied. */
+static Py_ssize_t collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
     Py_ssize_t pos = 0;
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type == TH_NODE_TEXT) {
@@ -1084,10 +1085,10 @@ static int collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
             pos += node->text_len;
         }
     }
-    return 0;
+    return pos;
 }
 
-int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
+Py_ssize_t th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
     return collect_text_into(tree, node, buf);
 }
 
