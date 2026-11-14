@@ -2769,10 +2769,37 @@ static int apply_transform(sanitizer *s, th_node *element, PyObject **tag) {
     return 1;
 }
 
+/* A reparse reads a textarea's content as RCDATA up to the first `</textarea`, and an svg or math as foreign content,
+   so a <style> body or a comment below one is markup there. The parser never builds those shapes; a transform_tags
+   rename, an XML tree or a built tree does. A bit also stays set below an element the balancer escapes, which
+   over-approximates. */
+enum {
+    REPARSE_RCDATA = 1 << 0,
+    REPARSE_FOREIGN = 1 << 1,
+};
+
+static inline uint8_t reparse_below(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_TEXTAREA:
+        return REPARSE_RCDATA;
+    case TH_TAG_SVG:
+    case TH_TAG_MATH:
+        return REPARSE_FOREIGN;
+    default:
+        return 0;
+    }
+}
+
+/* reparse_below for a walk's root, kept without being judged: an element, or the document of a parsed str. */
+static uint8_t reparse_below_root(const th_node *root) {
+    return root->type == TH_NODE_ELEMENT && root->ns == TH_NS_HTML ? reparse_below(reparsed_atom(root)) : 0;
+}
+
 /* Keep, escape, strip, or remove one element according to the policy. parent_kept is
    1 when the element's parent is itself being kept; an allowlisted foreign (SVG/MathML)
    element is kept only then, so it never outlives its namespace context (e.g. an svg
-   <a> must not survive into HTML as a live anchor when its <svg> is escaped). */
+   <a> must not survive into HTML as a live anchor when its <svg> is escaped). *reparse
+   holds the REPARSE_* bits of the element's ancestors and gains the element's own bit when kept. */
 enum sanitize_action { SANITIZE_DONE, SANITIZE_KEEP_CHILDREN, SANITIZE_STRIP_CHILDREN, SANITIZE_ESCAPE_CHILDREN };
 
 /* The tbody, tr, and colgroup the tree builder implies around table content. The source did not write their tags, so a
@@ -2811,7 +2838,7 @@ static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyO
     return 0;
 }
 
-static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int parent_kept,
+static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int parent_kept, uint8_t *reparse,
                                            enum sanitize_action *action) {
     int is_html = element->ns == TH_NS_HTML;
     PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, element->text, element->text_len);
@@ -2830,9 +2857,11 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
        raw-text elements in any namespace, and a foreign element also needs kept
        context so it stays inside real foreign markup. An HTML <style> is exempt from
        the unsafe-tag block: a policy that allowlists it keeps it with its body scrubbed
-       against css_properties (like a `style` attribute), rather than dropping its CSS. */
+       against css_properties (like a `style` attribute), rather than dropping its CSS.
+       The exemption ends where a reparse would not read the body as raw text (inside a
+       textarea, or an HTML svg or math), so the scrubbed CSS would be live markup. */
     uint16_t atom = reparsed_atom(element);
-    int style_element = atom == TH_TAG_STYLE && is_html;
+    int style_element = atom == TH_TAG_STYLE && is_html && !*reparse;
     int allowed = ((is_unsafe_tag(atom) && !style_element) || is_unsafe_svg_animation(element))
                       ? 0
                       : PySet_Contains(s->tags, tag);
@@ -2880,6 +2909,9 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
             status = -1;
         } else {
             *action = SANITIZE_KEEP_CHILDREN;
+            if (is_html) {
+                *reparse |= reparse_below(atom);
+            }
         }
     } else {
         status = dispose_disallowed(s, element, tag, table_wrapper, action);
@@ -3166,6 +3198,7 @@ typedef struct {
     uint8_t action;        /* enum sanitize_action */
     uint8_t parent_kept;   /* whether the element's own parent is kept */
     uint8_t role;          /* enum balance_role */
+    uint8_t reparse;       /* the REPARSE_* bits the element and its siblings sit in */
 } balanced_frame;
 
 /* The balancing state a walk keeps apart from its context bits, read only off the common path. */
@@ -3201,6 +3234,7 @@ typedef struct {
     th_node *next;
     enum sanitize_action action;
     int parent_kept;
+    uint8_t reparse;
 } sanitize_frame;
 
 /* Whether a frame from the top one, the parent of the range an unwrap just hoisted, down to the `table` that range's
@@ -3234,6 +3268,7 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     sanitize_frame *frames = NULL;
     Py_ssize_t depth = 0;
     Py_ssize_t capacity = 0;
+    uint8_t reparse = reparse_below_root(parent);
     th_node *child = parent->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3259,13 +3294,15 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 /* GCOVR_EXCL_BR_STOP */
             }
             parent_kept = frame.parent_kept;
+            reparse = frame.reparse;
             child = frame.next;
             continue;
         }
         th_node *next = child->next_sibling;
         if (child->type == TH_NODE_ELEMENT) {
             enum sanitize_action action;
-            if (sanitize_element(s, child, parent_kept, &action) < 0) {
+            uint8_t reparse_inside = reparse;
+            if (sanitize_element(s, child, parent_kept, &reparse_inside, &action) < 0) {
                 PyMem_Free(frames);
                 return -1;
             }
@@ -3289,13 +3326,14 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                     frames = resized;
                     capacity = (Py_ssize_t)grown;
                 }
-                frames[depth++] = (sanitize_frame){child, next, action, parent_kept};
+                frames[depth++] = (sanitize_frame){child, next, action, parent_kept, reparse};
                 parent_kept = action == SANITIZE_KEEP_CHILDREN;
+                reparse = reparse_inside;
                 child = child->first_child;
                 continue;
             }
         } else if (child->type == TH_NODE_COMMENT) {
-            if (s->strip_comments) {
+            if (s->strip_comments || (reparse & REPARSE_RCDATA)) {
                 th_node_remove(child); /* dropping a leaf joins no nesting, so the balancer need not revisit here */
             }
         } else if (child->type != TH_NODE_TEXT) {
@@ -3305,10 +3343,12 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     }
 }
 
-/* A non-element node has nothing below it to walk: drop a comment when the policy strips them, and anything but text,
-   which never belongs in a sanitized fragment. A dropped leaf joins no nesting, so the balancer need not revisit it. */
-static inline void sanitize_leaf(const sanitizer *s, th_node *node) {
-    if (node->type != TH_NODE_TEXT && (node->type != TH_NODE_COMMENT || s->strip_comments)) {
+/* A non-element node has nothing below it to walk: drop a comment when the policy strips them or a reparse would read
+   it as a textarea's text, and anything but text, which never belongs in a sanitized fragment. A dropped leaf joins no
+   nesting, so the balancer need not revisit it. */
+static inline void sanitize_leaf(const sanitizer *s, th_node *node, uint8_t reparse) {
+    if (node->type != TH_NODE_TEXT &&
+        (node->type != TH_NODE_COMMENT || s->strip_comments || (reparse & REPARSE_RCDATA))) {
         th_node_remove(node); /* comment, doctype, processing instruction, CDATA */
     }
 }
@@ -3325,6 +3365,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
     balance_walk walk = {root, NULL, 0, 0, 0, 0};
     uint32_t bits = balancer_child_bits(root, 0);
     int parent_kept = 1; /* the root is kept context */
+    uint8_t reparse = reparse_below_root(root);
     th_node *child = root->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3365,17 +3406,19 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
             }
             bits = frame->context_bits;
             parent_kept = frame->parent_kept;
+            reparse = frame->reparse;
             child = frame->next;
             continue;
         }
         th_node *next = child->next_sibling;
         if (child->type != TH_NODE_ELEMENT) {
-            sanitize_leaf(s, child);
+            sanitize_leaf(s, child, reparse);
             child = next;
             continue;
         }
         enum sanitize_action action;
-        if (sanitize_element(s, child, parent_kept, &action) < 0) {
+        uint8_t reparse_inside = reparse;
+        if (sanitize_element(s, child, parent_kept, &reparse_inside, &action) < 0) {
             PyMem_Free(frames);
             PyMem_Free(walk.verdicts);
             return -1;
@@ -3397,7 +3440,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
                and it takes a frame only when an element child follows */
             while (first_element != NULL && first_element->type != TH_NODE_ELEMENT) {
                 th_node *following = first_element->next_sibling;
-                sanitize_leaf(s, first_element);
+                sanitize_leaf(s, first_element, reparse_inside);
                 first_element = following;
             }
             if (first_element == NULL) {
@@ -3415,8 +3458,9 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
             frames = grown;
         }
         balanced_frame *frame = &frames[depth++];
-        *frame = (balanced_frame){child, next, bits, (uint8_t)action, (uint8_t)parent_kept, ROLE_NONE};
+        *frame = (balanced_frame){child, next, bits, (uint8_t)action, (uint8_t)parent_kept, ROLE_NONE, reparse};
         parent_kept = action == SANITIZE_KEEP_CHILDREN;
+        reparse = reparse_inside;
         if (settled) {
             if (!(bits & CONTEXT_QUIET) && balancer_shapes_context(child, rule)) {
                 bits = (bits & CONTEXT_RECORD) | CONTEXT_PENDING;

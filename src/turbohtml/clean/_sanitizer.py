@@ -284,7 +284,8 @@ class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public
 
     :param allow_fragment_urls: keep fragment-only URLs even when relative URLs are disallowed.
     :param on_disallowed_tag: how to treat a tag not in ``tags`` (:class:`OnDisallowed`: escape, strip, or remove).
-    :param strip_comments: drop HTML comments from the output.
+    :param strip_comments: drop HTML comments from the output. A comment inside a ``<textarea>`` is always dropped,
+        because a parser reads its text there as the textarea's content.
     :param add_link_rel: ``rel`` tokens forced onto every kept ``<a href>`` (e.g. ``noopener``).
     :param attribute_filter: an optional rewrite for each surviving attribute, returning a replacement value or
         ``None`` to drop it. The replacement passes through the safety checks before serialization.
@@ -301,6 +302,9 @@ class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public
         The non-configurable baseline also drops ``behavior`` and ``-moz-binding``. CSS escapes are decoded before
         these checks, while function-like text inside strings and comments remains inert. Selectors and block nesting
         remain.
+
+        A ``<style>`` inside a ``<textarea>`` or an HTML-namespace ``<svg>`` or ``<math>`` is not kept, because a
+        reparse does not read its body as raw text there.
 
     :param attribute_prefixes: allow any attribute whose name starts with one of these prefixes (e.g. ``"data-"`` for
         every ``data-*``), on top of the exact-name and ``"*"`` matches in ``attributes``.
