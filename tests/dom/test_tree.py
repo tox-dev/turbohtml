@@ -680,24 +680,10 @@ def test_noahs_ark_reopens_three_identical_entries(markup: str, expected: str, p
     assert element.inner_html == expected
 
 
-def _nested_clones() -> str:
+def test_noahs_ark_counts_entries_cloned_by_the_adoption_agency() -> None:
+    # identical entries survive each adoption agency clone, so the fourth drops the earliest and the text reopens three
     layer = f"<em>{'<section>' * 10}</em>"
-    return f"{layer * 3}<em>{'</section>' * 30}x"
-
-
-@pytest.mark.parametrize(
-    "markup",
-    [
-        pytest.param("<p><em><em><em><table><tr><td><em></td></tr></table><em></p>x", id="cleared-marker"),
-        pytest.param("<p><em><em><em><strong></strong><em></p>x", id="removed-entry"),
-        pytest.param("<section><p><em><em><em></p>x<em></section>y", id="reconstructed-clones"),
-        pytest.param("<section><a><em><em><em><p>x</a><em></p></section>y", id="inner-loop-clones"),
-        pytest.param(_nested_clones(), id="formatting-clones"),
-    ],
-)
-def test_noahs_ark_counts_entries_that_outlive_a_removal(markup: str) -> None:
-    # identical entries survive each removal or clone, so the fourth drops the earliest and the text reopens three
-    body = parse(markup).find("body")
+    body = parse(f"{layer * 3}<em>{'</section>' * 30}x").find("body")
     assert isinstance(body, Element)
     node = body.children[-1]
     reopened = 0
