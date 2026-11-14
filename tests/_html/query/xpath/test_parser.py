@@ -371,17 +371,19 @@ def test_failed_argument_does_not_link_next_argument(expr: str, message: str) ->
 
 
 def test_failed_argument_does_not_link_next_argument_in_large_arena() -> None:
-    # a write before a large arena faults, so the parse runs in a subprocess
+    # a write before a large arena faults, so the parse runs in a subprocess; the expression goes over stdin
+    # because it exceeds the Windows command line limit
     code = (
         "import sys\n"
         "from turbohtml import _html\n"
         "try:\n"
-        "    _html._xpath_parse(sys.argv[1])\n"
+        "    _html._xpath_parse(sys.stdin.read())\n"
         "except ValueError as error:\n"
         "    print(error)\n"
     )
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
-        [sys.executable, "-c", code, f"concat(@a, 'b', {'name(),' * 12000} $ , 'c')"],
+        [sys.executable, "-c", code],
+        input=f"concat(@a, 'b', {'name(),' * 12000} $ , 'c')",
         capture_output=True,
         text=True,
         timeout=120,
