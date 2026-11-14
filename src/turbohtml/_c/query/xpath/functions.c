@@ -673,7 +673,7 @@ static int regex_test(xp_ctx *ctx, xp_result *args, int argc, xp_result *out) {
     Py_UCS4 *owned_pattern;
     int failed = string_arg(ctx->tree, &args[1], &pattern, &pattern_len, &owned_pattern);
     Py_UCS4 *input = to_string(ctx->tree, &args[0], &input_len);
-    struct xr_cache **cache = NULL;
+    xr_cache *cache = NULL;
     /* GCOVR_EXCL_BR_START: alloc */
     if (failed < 0 || input == NULL || regex_flags(ctx->tree, argc >= 3 ? &args[2] : NULL, &flags, &global) < 0 ||
         (cache = xp_regex_cache(ctx)) == NULL) {
@@ -707,7 +707,7 @@ static int regex_replace(xp_ctx *ctx, xp_result *args, int argc, int exslt, xp_r
     Py_UCS4 *pattern = to_string(ctx->tree, &args[1], &pattern_len);
     Py_UCS4 *input = to_string(ctx->tree, &args[0], &input_len);
     Py_UCS4 *replacement = to_string(ctx->tree, &args[exslt ? 3 : 2], &replacement_len);
-    struct xr_cache **cache = NULL;
+    xr_cache *cache = NULL;
     /* GCOVR_EXCL_BR_START: alloc */
     if (pattern == NULL || input == NULL || replacement == NULL ||
         regex_flags(ctx->tree, flags_arg, &flags, &global) < 0 || (cache = xp_regex_cache(ctx)) == NULL) {

@@ -242,7 +242,7 @@ static inline int xp_before_python(xp_ctx *ctx) {
 }
 
 /* The evaluation's regex cache slot, or NULL with MemoryError set. */
-struct xr_cache **xp_regex_cache(xp_ctx *ctx);
+struct xr_cache *xp_regex_cache(xp_ctx *ctx);
 
 #ifdef TH_OPERATION_LIMIT
 /* Fuzz builds pass -DTH_OPERATION_LIMIT so a super-linear expression stops with a ValueError instead of a timeout that

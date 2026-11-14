@@ -747,7 +747,7 @@ static TH_NOINLINE int climb_ancestors(xp_nodeset *out, const xn *step, const st
    numbered together the first time two of them need ordering, so a set that keeps meeting one long sibling list walks
    it once per evaluation. */
 struct xp_caches {
-    struct xr_cache *regex;
+    xr_cache regex;
     th_node_map positions;
 };
 
@@ -758,7 +758,7 @@ static xp_caches *caches_get(xp_caches **caches) {
     return *caches;
 }
 
-struct xr_cache **xp_regex_cache(xp_ctx *ctx) {
+xr_cache *xp_regex_cache(xp_ctx *ctx) {
     xp_caches *caches = caches_get(ctx->caches);
     if (caches == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
@@ -922,7 +922,7 @@ typedef struct {
 
 /* item_order's answer for every pair, read from the ranks. node_before finds no link between two separate trees and
    answers 1 both ways, so this does too: qsort then makes the same moves on a set that spans trees as it always has. */
-static int ranked_order(const void *pa, const void *pb) {
+static TH_NOINLINE int ranked_order(const void *pa, const void *pb) {
     const ranked_item *left = pa;
     const ranked_item *right = pb;
     TH_WORK_STEP();
@@ -962,6 +962,12 @@ static int child_order(const void *pa, const void *pb) {
     return (left->position > right->position) - (left->position < right->position);
 }
 
+/* One copy of the map insert for the ranking path, which only unusual sets reach. Inlined at each site, its growth
+   counts against the LTO unit-growth budget and pushes unrelated hot inlines (the selector matcher's) over it. */
+static TH_NOINLINE int rank_map_insert(th_node_map *map, struct th_node *node, Py_ssize_t value) {
+    return th_node_map_insert(map, node, value);
+}
+
 static Py_ssize_t skeleton_add(order_skeleton *skeleton, struct th_node *node) {
     if (skeleton->len == skeleton->cap) {
         size_t cap;
@@ -975,8 +981,8 @@ static Py_ssize_t skeleton_add(order_skeleton *skeleton, struct th_node *node) {
         skeleton->items = grown;
         skeleton->cap = (Py_ssize_t)cap;
     }
-    if (th_node_map_insert(&skeleton->index, node, skeleton->len + 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        return -1;                                                           /* GCOVR_EXCL_LINE */
+    if (rank_map_insert(&skeleton->index, node, skeleton->len + 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                        /* GCOVR_EXCL_LINE */
     }
     skeleton->items[skeleton->len] = (order_vertex){node, -1, -1, -1, 0, 0};
     return skeleton->len++;
@@ -993,8 +999,8 @@ static Py_ssize_t sibling_position(xp_caches **caches, struct th_node *node) {
         Py_ssize_t index = 0;
         for (struct th_node *child = node->parent->first_child; child != NULL; child = child->next_sibling) {
             TH_WORK_STEP();
-            if (th_node_map_insert(&owner->positions, child, ++index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                                   /* GCOVR_EXCL_LINE */
+            if (rank_map_insert(&owner->positions, child, ++index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                                /* GCOVR_EXCL_LINE */
             }
         }
         position = th_node_map_find(&owner->positions, node);
@@ -1123,7 +1129,7 @@ static int rank_items(xp_caches **caches, ranked_item *items, Py_ssize_t len) {
 }
 
 /* The items of both sets, target's first, ranked together; NULL on allocation failure. */
-static ranked_item *rank_sets(xp_caches **caches, const xp_nodeset *target, const xp_nodeset *source) {
+static TH_NOINLINE ranked_item *rank_sets(xp_caches **caches, const xp_nodeset *target, const xp_nodeset *source) {
     Py_ssize_t len = target->len + source->len;
     ranked_item *ranked = PyMem_Malloc((size_t)len * sizeof(*ranked));
     if (ranked == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -2315,23 +2321,30 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
         result_number(out, expr->num);
         return 0;
     case XN_LIT: {
-        Py_UCS4 *text = ucs4_dup(expr->str, expr->str_len);
+        /* Copied here rather than through ucs4_dup: reading the literal from expr after the allocation keeps its
+           pointer and length out of registers that this path would otherwise have to save. */
+        Py_UCS4 *text = PyMem_Malloc((size_t)expr->str_len * sizeof(Py_UCS4));
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;      /* GCOVR_EXCL_LINE */
+        }
+        if (expr->str_len) {
+            memcpy(text, expr->str, (size_t)expr->str_len * sizeof(Py_UCS4));
         }
         result_string(out, text, expr->str_len);
         return 0;
     }
     case XN_VAR: {
-        for (Py_ssize_t index = 0; ctx->vars != NULL && index < ctx->vars->len; index++) {
-            const xp_binding *binding = &ctx->vars->items[index];
-            if (binding->name_len == expr->str_len &&
-                memcmp(binding->name, expr->str, (size_t)expr->str_len * sizeof(Py_UCS4)) == 0) {
-                return copy_result(ctx, &binding->value, out);
-            }
+        const xp_binding *binding = ctx->vars == NULL ? NULL : ctx->vars->items;
+        const xp_binding *end = ctx->vars == NULL ? NULL : binding + ctx->vars->len;
+        while (binding != end && (binding->name_len != expr->str_len ||
+                                  memcmp(binding->name, expr->str, (size_t)expr->str_len * sizeof(Py_UCS4)) != 0)) {
+            binding++;
         }
-        *ctx->feature = "a reference to an unbound variable";
-        return -3;
+        if (binding == end) {
+            *ctx->feature = "a reference to an unbound variable";
+            return -3;
+        }
+        return copy_result(ctx, &binding->value, out);
     }
     case XN_PATH: {
         xp_nodeset ns = {0};
@@ -2463,12 +2476,10 @@ int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *ou
     return rc;
 }
 
-/* Out of line, like xr_cache_free, and only called on caches that exist: the entry points LTO inlines into the XSLT
-   callers then keep the one test they had when only regexes were cached. */
+/* Out of line, and only called on caches that exist: inlined, it made LTO stop inlining xp_eval_at into the XSLT
+   callers, which cost 6.4% on the transform-key benchmark. */
 static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
-    if (caches->regex != NULL) {
-        xr_cache_free(caches->regex);
-    }
+    xr_cache_clear(&caches->regex);
     PyMem_Free(caches->positions.entries);
     PyMem_Free(caches);
 }
