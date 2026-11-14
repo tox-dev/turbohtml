@@ -1218,7 +1218,7 @@ CSS_NOINLINE static Py_ssize_t css_transform_comma(token_vec *vec, Py_ssize_t st
         }
         if (token->delim == '(') {
             depth++;
-        } else if (token->delim == ')' && depth > 0) {
+        } else if (token->delim == ')') { /* the call's own `)` ends the range, so no `)` here closes past it */
             depth--;
         } else if (token->delim == ',' && depth == 0) {
             if (comma < end) { /* more than two arguments: not a form we collapse */

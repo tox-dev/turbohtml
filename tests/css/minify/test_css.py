@@ -415,6 +415,9 @@ def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
             id="transform-drop-zero-arg-after-string",
         ),
         pytest.param("a{transform:scale(3,4,5)}", "a{transform:scale(3,4,5)}", id="transform-three-args-kept"),
+        pytest.param("a{transform:scale({k},{k})}", "a{transform:scale({k})}", id="transform-equal-brace-args"),
+        pytest.param("a{transform:scale([k])}", "a{transform:scale([k])}", id="transform-block-one-arg"),
+        pytest.param("a{transform:scale([k],2,2)}", "a{transform:scale([k],2,2)}", id="transform-block-three-args"),
         pytest.param(
             'a{b:scale("m,"m);c:"}"}d{e:"n"}',
             'a{b:scale("m,"m);c:"}"}d{e:"n"}',
