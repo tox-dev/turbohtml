@@ -16,12 +16,18 @@
 
 #if defined(_MSC_VER)
 #define TH_NOINLINE __declspec(noinline)
-#define TH_JOIN_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
 #define TH_NOINLINE __attribute__((noinline))
-#define TH_JOIN_INLINE inline __attribute__((always_inline))
 #else
 #define TH_NOINLINE
+#endif
+
+/* The coverage build compiles at -O0, where a forced copy in each caller would split gcov's branch counts. */
+#if defined(_MSC_VER)
+#define TH_JOIN_INLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_JOIN_INLINE inline __attribute__((always_inline))
+#else
 #define TH_JOIN_INLINE inline
 #endif
 
