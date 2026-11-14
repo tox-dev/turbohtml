@@ -415,3 +415,11 @@ jobs:
         uses: tox-dev/github-workflows/required-checks@6.8.0
         with:
           needs: ${{ toJSON(needs) }}
+          allow-skipped: |
+            ${{ github.event_name == 'pull_request' && 'hooks' || '' }}
+            ${{ github.event_name == 'pull_request' && 'release' || '' }}
+            ${{ github.event_name == 'pull_request' && 'pypy' || '' }}
+            ${{ github.event_name == 'pull_request' && 'scalar' || '' }}
+            ${{ github.event_name == 'pull_request' && 'preprocess-identity' || '' }}
+            ${{ github.event_name == 'pull_request' && 'warnings-msvc' || '' }}
+            ${{ github.event_name == 'pull_request' && 'tsan' || '' }}

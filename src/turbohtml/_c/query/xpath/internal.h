@@ -171,6 +171,13 @@ typedef struct {
     uint64_t next_id;
 } xp_live_registry;
 
+/* What one evaluation caches (eval.c): compiled regexes and the sibling positions the document-order sort numbered.
+   Allocated on first use, shared by the predicate contexts, and freed when the evaluation ends. */
+typedef struct xp_caches xp_caches;
+
+/* Drop the sibling positions once Python runs, since Python can move nodes. */
+void xp_order_forget(xp_caches *caches);
+
 typedef struct {
     struct th_tree *tree;
     struct th_node *node;
@@ -183,7 +190,7 @@ typedef struct {
     xp_extension_fn extension;
     void *extension_ctx;
     int depth; /* current eval_expr recursion depth, capped at XP_MAX_DEPTH */
-    struct xr_cache **regex_cache;
+    xp_caches **caches;
     xp_live_registry *live;
     xp_before_python_fn before_python;
     xp_name_test_fn name_test;
@@ -227,8 +234,15 @@ static inline void xp_live_changed(xp_ctx *ctx) {
 }
 
 static inline int xp_before_python(xp_ctx *ctx) {
-    return ctx->before_python == NULL ? 0 : ctx->before_python(ctx->extension_ctx, ctx->live->current);
+    if (ctx->before_python == NULL) {
+        return 0;
+    }
+    xp_order_forget(*ctx->caches);
+    return ctx->before_python(ctx->extension_ctx, ctx->live->current);
 }
+
+/* The evaluation's regex cache slot, or NULL with MemoryError set. */
+struct xr_cache *xp_regex_cache(xp_ctx *ctx);
 
 #ifdef TH_OPERATION_LIMIT
 /* Fuzz builds pass -DTH_OPERATION_LIMIT so a super-linear expression stops with a ValueError instead of a timeout that
