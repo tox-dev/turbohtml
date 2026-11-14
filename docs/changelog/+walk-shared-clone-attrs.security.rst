@@ -1,2 +1,2 @@
-Parsing and SAX event iteration no longer cost time and memory quadratic in the input when an element's attributes are
-copied many times.
+Building a tree with parse_into or walking SAX events no longer costs time and memory quadratic in the input when
+attributes are copied many times.
