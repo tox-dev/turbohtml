@@ -1747,7 +1747,9 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
             }
             const css_specificity *specificities = current->specificities + offset;
             offset += compiled->count;
-            ctx.has_memo = selector_uses_has_memo(compiled) ? &cache->has_memo : NULL;
+            ctx.has_memo = compiled->has_relational && th_tree_depth_reaches(tree, th_node_root(element))
+                               ? &cache->has_memo
+                               : NULL;
             int best_a = -1;
             int best_b = 0;
             int best_c = 0;

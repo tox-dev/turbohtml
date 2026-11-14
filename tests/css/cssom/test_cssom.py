@@ -292,6 +292,22 @@ def test_computed_style_later_source_order_wins_on_a_tie() -> None:
     assert _style("<p></p>", css="p { color: red } p { color: blue }", tag="p")["color"] == "blue"
 
 
+def test_computed_style_has_rule_is_answered_for_each_element_of_one_tree() -> None:
+    document = parse("<style>div:has(b) { color: red }</style><div><b>x</b></div><div>y</div><div><b>z</b></div>")
+    first, middle, last = (computed_style(div)["color"] for div in document.select("div"))
+    assert first == last == "red"
+    assert middle != "red"
+
+
+def test_computed_style_has_rule_after_detaching_a_subtree_of_the_same_tree() -> None:
+    document = parse("<style>div:has(b) { color: red }</style><div><b>x</b></div><div><b>y</b></div>")
+    detached = document.select("b")[1].extract()
+    assert computed_style(detached)["color"] != "red"
+    kept, emptied = document.select("div")
+    assert computed_style(kept)["color"] == "red"
+    assert computed_style(emptied)["color"] != "red"
+
+
 @pytest.mark.parametrize(
     ("type_attribute", "expected"),
     [

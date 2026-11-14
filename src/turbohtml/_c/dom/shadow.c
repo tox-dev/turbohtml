@@ -610,7 +610,7 @@ TH_NODE_API(static, PyObject *, shadow_root_set_inner_html, (PyObject * self, Py
             error = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
             break;          /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(root, copy);
+        th_node_append_child(tree_of(self), root, copy);
     }
     Py_END_CRITICAL_SECTION();
     th_tree_free(fragment);

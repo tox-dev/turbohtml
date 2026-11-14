@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
@@ -795,6 +796,83 @@ def test_has_memo_deep_remove_and_prune() -> None:
     kept = parse(_nested_divs(40))
     kept.prune("div:has(a)")
     assert len(kept.select("div")) == 40
+
+
+def _deep_xml(depth: int) -> Document:
+    return parse_xml(f"{'<group>' * depth}<item/>{'</group>' * depth}")
+
+
+def _deep_appended(depth: int) -> Element:
+    root: Final = Element("root")
+    innermost = root
+    for _ in range(depth):
+        child = Element("group")
+        innermost.append(child)
+        innermost = child
+    innermost.append(Element("item"))
+    return root
+
+
+# A descendant :has() miss visits each anchor's subtree, which without the memo sums to quadratic steps on a
+# chain. The memo answers every element in amortized constant time, so the counted steps grow linearly with depth.
+_NESTED_DEPTH: Final[int] = 4_000
+
+
+@pytest.mark.parametrize(
+    "build", [pytest.param(_deep_xml, id="parse-xml"), pytest.param(_deep_appended, id="mutation-api")]
+)
+def test_has_memo_deep_tree_not_from_html_parser(
+    build: Callable[[int], Document | Element], work_steps: WorkSteps
+) -> None:
+    tree: Final = build(_NESTED_DEPTH)
+    assert len(tree.select("group:has(item)")) == _NESTED_DEPTH
+    assert len(tree.select("group:has(> item)")) == 1
+    assert tree.select("group:has(entry)") == []
+    work_steps.assert_linear(lambda size: partial(build(size).select, "group:has(entry)"), (1000, _NESTED_DEPTH))
+
+
+def test_has_memo_deepening_mutation_after_query(work_steps: WorkSteps) -> None:
+    assert len(_chain_grown_after_query(_NESTED_DEPTH).select("group:has(item)")) == _NESTED_DEPTH
+    work_steps.assert_linear(
+        lambda size: partial(_chain_grown_after_query(size).select, "group:has(entry)"), (1000, _NESTED_DEPTH)
+    )
+
+
+def _chain_grown_after_query(depth: int) -> Element:
+    root: Final = Element("root")
+    assert root.select("group:has(item)") == []
+    innermost = root
+    for _ in range(depth):
+        child: Final = Element("group")
+        innermost.append(child)
+        innermost = child
+    innermost.append(Element("item"))
+    return root
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda card: card.select("section:has(img)"), id="select"),
+        pytest.param(lambda card: card.select_one("section:has(img)"), id="select-one"),
+        pytest.param(lambda card: card.remove("section:has(img)"), id="remove"),
+    ],
+)
+def test_scoped_has_after_each_mutation_scales_linearly(
+    query: Callable[[Element], object], work_steps: WorkSteps
+) -> None:
+    def loop(size: int) -> Callable[[], None]:
+        markup: Final = "<div class=card><section><p>x</p><img></section></div>" * size
+        cards: Final = parse(f"<body>{markup}</body>").select(".card")
+
+        def run() -> None:
+            for card in cards:
+                card.append(Element("span"))
+                query(card)
+
+        return run
+
+    work_steps.assert_linear(loop, (1000, 4000))
 
 
 @pytest.mark.parametrize(

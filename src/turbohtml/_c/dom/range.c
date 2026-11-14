@@ -131,7 +131,7 @@ static th_node *split_data_node(th_tree *tree, th_node *node, Py_ssize_t offset)
     if (replace_data_delete(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_node_insert_before(node->parent, tail, node->next_sibling);
+    th_node_insert_before(tree, node->parent, tail, node->next_sibling);
     return tail;
 }
 
@@ -145,7 +145,7 @@ static void adopt_fragment_children(th_tree *tree, th_node *parent, th_node *fra
     while (fragment->first_child != NULL) {
         th_node *child = fragment->first_child;
         th_node_remove_silent(tree, child);
-        th_node_append_child(parent, child);
+        th_node_append_child(tree, parent, child);
     }
 }
 
@@ -277,7 +277,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
         if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, piece);
+        th_node_append_child(tree, fragment, piece);
         if (replace_data_delete(tree, start_node, start_offset, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;                                                           /* GCOVR_EXCL_LINE: OOM path */
         }
@@ -305,7 +305,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, piece);
+        th_node_append_child(tree, fragment, piece);
         /* replace_data_delete only fails on OOM */
         if (replace_data_delete(tree, start_node, start_offset, start_node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             PyMem_Free(contained);                                                           /* GCOVR_EXCL_LINE: OOM */
@@ -317,7 +317,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, clone);
+        th_node_append_child(tree, fragment, clone);
         th_node *sub = do_extract(tree, start_node, start_offset, first, node_length(first));
         if (sub == NULL) {         /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -327,7 +327,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
     }
     for (Py_ssize_t index = 0; index < contained_count; index++) {
         th_node_remove_silent(tree, contained[index]);
-        th_node_append_child(fragment, contained[index]);
+        th_node_append_child(tree, fragment, contained[index]);
     }
     PyMem_Free(contained);
     if (last != NULL && is_char_data(last)) {
@@ -339,7 +339,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
         if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, piece);
+        th_node_append_child(tree, fragment, piece);
         if (replace_data_delete(tree, end_node, 0, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;                                              /* GCOVR_EXCL_LINE: OOM path */
         }
@@ -348,7 +348,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, clone);
+        th_node_append_child(tree, fragment, clone);
         th_node *sub = do_extract(tree, last, 0, end_node, end_offset);
         if (sub == NULL) { /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -380,7 +380,7 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
         if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, piece);
+        th_node_append_child(tree, fragment, piece);
         return fragment;
     }
     th_node *common = common_ancestor(start_node, end_node);
@@ -405,14 +405,14 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, piece);
+        th_node_append_child(tree, fragment, piece);
     } else if (first != NULL) {
         th_node *clone = th_tree_copy_node_shallow(tree, tree, first);
         if (clone == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, clone);
+        th_node_append_child(tree, fragment, clone);
         th_node *sub = do_clone(tree, start_node, start_offset, first, node_length(first));
         if (sub == NULL) {         /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -426,7 +426,7 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, copy);
+        th_node_append_child(tree, fragment, copy);
     }
     PyMem_Free(contained);
     if (last != NULL && is_char_data(last)) {
@@ -438,13 +438,13 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
         if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, piece);
+        th_node_append_child(tree, fragment, piece);
     } else if (last != NULL) {
         th_node *clone = th_tree_copy_node_shallow(tree, tree, last);
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(fragment, clone);
+        th_node_append_child(tree, fragment, clone);
         th_node *sub = do_clone(tree, last, 0, end_node, end_offset);
         if (sub == NULL) { /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -928,6 +928,7 @@ static PyObject *extract_or_delete(PyObject *self, int discard) {
         }
         th_node *fragment =
             do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        handle_drop_index(range->start_handle);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -1084,14 +1085,15 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
         while (linked->first_child != NULL) {
             th_node *child = linked->first_child;
             th_node_remove_silent(((HandleObject *)range->start_handle)->tree, child);
-            th_node_insert_before(parent, child, reference);
+            th_node_insert_before(((HandleObject *)range->start_handle)->tree, parent, child, reference);
         }
     } else {
-        th_node_insert_before(parent, linked, reference);
+        th_node_insert_before(((HandleObject *)range->start_handle)->tree, parent, linked, reference);
     }
     if (range_is_collapsed(range)) {
         store_end(range, range->start_handle, parent, new_offset);
     }
+    handle_drop_index(range->start_handle);
     return linked;
 }
 
@@ -1182,6 +1184,7 @@ TH_NODE_API(static, PyObject *, range_surround_contents, (PyObject * self, PyObj
         }
         th_node *fragment =
             do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        handle_drop_index(range->start_handle);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */

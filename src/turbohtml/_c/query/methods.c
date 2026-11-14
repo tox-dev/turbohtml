@@ -131,9 +131,12 @@ restart:;
             selector_free(entry.compiled);
             entry.compiled = fresh;
             entry.attr_gen = gen;
+            handle->sel_cache[index] = entry;
         }
-        memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
-        handle->sel_cache[0] = entry;
+        if (index > 0) {
+            memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
+            handle->sel_cache[0] = entry;
+        }
         return entry.compiled;
     }
     if (handle->sel_cache_len == SEL_CACHE_CAP) {
@@ -187,9 +190,13 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
     sel_default_memo default_memo = {0};
     sel_sibling_memo memo = {0};
     HandleObject *handle_obj = (HandleObject *)handle;
-    sel_ctx ctx = {
-        compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-        &default_memo,  &memo};
+    sel_ctx ctx = {compiled->tree,
+                   origin,
+                   compiled->quirks,
+                   selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
+                   &nth_memo,
+                   &default_memo,
+                   &memo};
     if (selector_use_index(handle_obj, origin, compiled)) {
         Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
         for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -219,7 +226,9 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
             }
         }
     }
-    sel_memo_free(&memo.table);
+    if (memo.table.slots != NULL) {
+        sel_memo_free(&memo.table);
+    }
     if (error) { /* GCOVR_EXCL_START: append_wrapped failed to allocate */
         return -1;
     } /* GCOVR_EXCL_STOP */
@@ -739,9 +748,13 @@ retry:;
     } else {
         th_node *origin = ((NodeObject *)self)->node;
         const sel_simple *single = sel_single_simple(compiled);
-        sel_ctx ctx = {
-            compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-            &default_memo,  &memo};
+        sel_ctx ctx = {compiled->tree,
+                       origin,
+                       compiled->quirks,
+                       selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
+                       &nth_memo,
+                       &default_memo,
+                       &memo};
         if (selector_use_index(handle_obj, origin, compiled)) {
             Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
             for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -2275,84 +2288,29 @@ retry:;
     return 0;
 }
 
-/* One entry in prune()'s keep set: a node the prune must retain. full marks a
-   match, whose whole subtree stays; a cleared full marks an ancestor of a match,
-   whose other children are still pruned. */
-typedef struct {
-    th_node *node;
-    int full;
-} prune_keep;
+/* prune()'s keep map values. A match keeps its whole subtree; an ancestor of a match keeps only
+   the path to its matches, so its other children are still pruned. Zero marks a removed node. */
+enum prune_mark {
+    PRUNE_ANCESTOR = 1,
+    PRUNE_MATCH = 2,
+};
 
-/* Append (node, full) to the keep buffer, doubling its capacity on demand.
-   Returns 0, or -1 on allocation failure. */
-static int prune_push(prune_keep **buffer, Py_ssize_t *count, Py_ssize_t *capacity, th_node *node, int full) {
-    if (*count == *capacity) {
-        size_t cap;
-        size_t bytes;
-        int grew = th_grow_cap((size_t)*capacity + 1, (size_t)*capacity, 16, sizeof(prune_keep), &cap, &bytes);
-        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-        }
-        prune_keep *resized = PyMem_Realloc(*buffer, bytes);
-        if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: a realloc failure cannot be forced from a test */
-            return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        *buffer = resized;
-        *capacity = (Py_ssize_t)cap;
-    }
-    (*buffer)[*count].node = node;
-    (*buffer)[*count].full = full;
-    (*count)++;
-    return 0;
-}
-
-/* Order keep entries by node address so prune_kept can binary-search them. */
-static int prune_compare(const void *left, const void *right) {
-    uintptr_t left_node = (uintptr_t)((const prune_keep *)left)->node;
-    uintptr_t right_node = (uintptr_t)((const prune_keep *)right)->node;
-    if (left_node < right_node) {
-        return -1;
-    }
-    return left_node > right_node ? 1 : 0;
-}
-
-/* Binary-search the address-sorted keep set; on a hit set *full and return 1. */
-static int prune_kept(const prune_keep *keep, Py_ssize_t count, th_node *node, int *full) {
-    Py_ssize_t low = 0;
-    Py_ssize_t high = count;
-    uintptr_t target = (uintptr_t)node;
-    while (low < high) {
-        Py_ssize_t mid = low + (high - low) / 2;
-        uintptr_t at = (uintptr_t)keep[mid].node;
-        if (at < target) {
-            low = mid + 1;
-        } else if (at > target) {
-            high = mid;
-        } else {
-            *full = keep[mid].full;
-            return 1;
-        }
-    }
-    return 0;
-}
-
-/* Record a match and its ancestor chain up to (but excluding) origin in the keep
-   set. Returns 0, or -1 on allocation failure. */
-static int prune_keep_match(prune_keep **buffer, Py_ssize_t *count, Py_ssize_t *capacity, th_node *node,
-                            th_node *origin, th_node_map *ancestors) {
-    if (prune_push(buffer, count, capacity, node, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+/* Record a match and its ancestor chain up to (but excluding) origin in the keep map. A match
+   precedes its descendants in document order, so it is never recorded yet; an ancestor that is
+   already recorded has its own chain recorded too, which ends the walk. Returns 0, or -1 on
+   allocation failure. */
+static int prune_keep_match(th_node_map *keep, th_node *node, th_node *origin) {
+    if (th_node_map_insert(keep, node, PRUNE_MATCH) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (th_node *ancestor = node->parent; ancestor != origin; ancestor = ancestor->parent) {
-        if (th_node_map_find(ancestors, ancestor) != 0) {
+        if (th_node_map_find(keep, ancestor) != 0) {
             break;
         }
-        if (th_node_map_insert(ancestors, ancestor, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory();                                 /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
-        } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
-        if (prune_push(buffer, count, capacity, ancestor, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (th_node_map_insert(keep, ancestor, PRUNE_ANCESTOR) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                                                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     return 0;
@@ -2365,21 +2323,21 @@ static inline void query_unlink(th_tree *tree, th_node *node, int iterators) {
     if (iterators) {
         th_node_remove_silent(tree, node);
     } else {
-        th_node_remove(node);
+        th_node_remove(tree, node);
     }
 }
 
 /* Remove every node under origin that keep does not hold. Removing one node rewires only links outside the nodes
    still to visit, and subtree_after reads them before the remove, so no snapshot pointer goes stale. */
-static void prune_unkept(th_tree *tree, th_node *origin, const prune_keep *keep, Py_ssize_t unique, int iterators) {
+static void prune_unkept(th_tree *tree, th_node *origin, const th_node_map *keep, int iterators) {
     th_node *node = origin->first_child;
     while (node != NULL) {
-        int full = 0;
-        if (!prune_kept(keep, unique, node, &full)) {
+        Py_ssize_t mark = th_node_map_find(keep, node);
+        if (mark == 0) {
             th_node *after = subtree_after(node, origin);
             query_unlink(tree, node, iterators);
             node = after;
-        } else if (full) {
+        } else if (mark == PRUNE_MATCH) {
             node = subtree_after(node, origin); /* a match: keep its whole subtree, skip it */
         } else {
             node = node->first_child; /* an ancestor of a match always has a child to descend into */
@@ -2394,10 +2352,7 @@ TH_NODE_API(, PyObject *, node_prune, (PyObject * self, PyObject *arg), (self, a
     }
 retry:;
     PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
-    prune_keep *keep = NULL;
-    th_node_map ancestors = {0};
-    Py_ssize_t count = 0;
-    Py_ssize_t capacity = 0;
+    th_node_map keep = {0};
     int error = 0;
     int moved = 0;
     sel_nth_memo nth_memo = {0};
@@ -2416,9 +2371,13 @@ retry:;
            may run here; matching alone never rewires a node, so the snapshot lets
            pass 2 edit in pure C without dereferencing a stale pointer. */
         const sel_simple *single = sel_single_simple(compiled);
-        sel_ctx ctx = {
-            compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-            &default_memo,  &memo};
+        sel_ctx ctx = {compiled->tree,
+                       origin,
+                       compiled->quirks,
+                       selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
+                       &nth_memo,
+                       &default_memo,
+                       &memo};
         for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
             if (node->type != TH_NODE_ELEMENT) {
                 continue;
@@ -2427,32 +2386,19 @@ retry:;
                 continue;
             }
             /* GCOVR_EXCL_BR_START: allocation failure */
-            if (prune_keep_match(&keep, &count, &capacity, node, origin, &ancestors) < 0) {
+            if (prune_keep_match(&keep, node, origin) < 0) {
                 /* GCOVR_EXCL_BR_STOP */
                 error = 1; /* GCOVR_EXCL_LINE: allocation path */
                 break;     /* GCOVR_EXCL_LINE: allocation path */
             }
         }
         if (!error) { /* GCOVR_EXCL_BR_LINE: the false arm is the pass-1 allocation-failure bail, unforceable */
-            /* Sort by address and fold duplicates so a node that is both a match and
-               an ancestor of a deeper match keeps its whole subtree (full wins). */
-            if (count > 0) {
-                qsort(keep, (size_t)count, sizeof(prune_keep), prune_compare);
-            }
-            Py_ssize_t unique = 0;
-            for (Py_ssize_t read = 0; read < count; read++) {
-                if (unique > 0 && keep[unique - 1].node == keep[read].node) {
-                    keep[unique - 1].full |= keep[read].full;
-                } else {
-                    keep[unique++] = keep[read];
-                }
-            }
             /* Pass 2: pure-C edit (see prune_unkept). */
             handle_drop_index(handle);
             if (th_tree_has_iterators(tree_of(self))) {
-                prune_unkept(tree_of(self), origin, keep, unique, 1);
+                prune_unkept(tree_of(self), origin, &keep, 1);
             } else {
-                prune_unkept(tree_of(self), origin, keep, unique, 0);
+                prune_unkept(tree_of(self), origin, &keep, 0);
             }
         }
     }
@@ -2462,8 +2408,7 @@ retry:;
         goto retry;
     }
     sel_memo_free(&memo.table);
-    PyMem_Free(keep);
-    PyMem_Free(ancestors.entries);
+    PyMem_Free(keep.entries);
     if (error) {
         return NULL;
     }
@@ -2517,7 +2462,7 @@ static void unwrap_matches(th_tree *tree, const node_snapshot *snapshot, int ite
         while (node->first_child != NULL) {
             th_node *child = node->first_child;
             query_unlink(tree, child, iterators);
-            th_node_insert_before(parent, child, node);
+            th_node_insert_before(tree, parent, child, node);
         }
         query_unlink(tree, node, iterators);
     }
@@ -2533,9 +2478,13 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
     sel_sibling_memo memo = {0}; /* shared across the walk so :has() and ~ memoize their scans */
-    sel_ctx ctx = {
-        compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-        &default_memo,  &memo};
+    sel_ctx ctx = {compiled->tree,
+                   origin,
+                   compiled->quirks,
+                   selector_query_uses_has_memo(compiled, origin) ? &memo.table : NULL,
+                   &nth_memo,
+                   &default_memo,
+                   &memo};
     int result = 0;
     for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
         if (node->type != TH_NODE_ELEMENT) {

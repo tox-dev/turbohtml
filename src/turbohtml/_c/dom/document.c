@@ -3216,7 +3216,7 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
             Py_DECREF(node);
             return NULL;
         }
-        th_node_append_child(parent, child);
+        th_node_append_child(tree_of(node), parent, child);
     }
     return node;
 }
