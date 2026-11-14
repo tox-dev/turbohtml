@@ -110,7 +110,7 @@ and ``nobr`` re-entry; foster parenting, the implied ``tbody``/``tr``/``colgroup
 ``colgroup`` keeps, a hidden ``input`` included; the foreign-content integration points. An implied ``tbody``, ``tr``,
 or ``colgroup`` the policy omits is never written, and no ``on_disallowed_tag`` mode removes content with it. A browser
 re-creates that wrapper on re-parse, which can merge adjacent unwrapped row groups and move whitespace or a comment
-after a cell run into the re-created row. The output stays inert and idempotent, but it is not a re-parse fixpoint.
+after a cell run into the re-created row. The output stays inert and, without ``transform_tags``, idempotent, but it is not a re-parse fixpoint.
 
 One difference remains: whitespace-only text inside a ``form`` that sits directly in a table can re-parse one position
 over, as the form's sibling. XML output skips the balancer, since the XML serializer round-trips through
