@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Final, TypeVar
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
+sys.path.append(str(Path(__file__).parent))  # spawned search workers import amplify_seam by name
 
 from traced_bytes import PeakBytes, RetainedBytes
 from work_steps import WorkSteps
