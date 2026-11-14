@@ -441,8 +441,12 @@ static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
 }
 
+static int stack_at_depth_cap(const th_tree *tree) {
+    return tree->open_len >= TH_MAX_TREE_DEPTH;
+}
+
 static int stack_push(th_tree *tree, th_node *node) {
-    if (tree->open_len >= TH_MAX_TREE_DEPTH) {
+    if (stack_at_depth_cap(tree)) {
         /* Runaway nesting: leave the element in the DOM (it was already inserted under
            the deepest open element) but do not descend into it, so subsequent start
            tags become its siblings. This bounds tree depth the way browsers do, which
@@ -476,6 +480,13 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->max_depth = tree->open_len;
     }
     return 1;
+}
+
+/* stack_push reports success even when the depth cap keeps the node off the stack */
+static int stack_push_kept(th_tree *tree, th_node *node) {
+    Py_ssize_t open_len_before = tree->open_len;
+    stack_push(tree, node);
+    return tree->open_len != open_len_before;
 }
 
 static void maybe_clone_option(th_tree *tree, th_node *option);
@@ -3176,9 +3187,10 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_TEMPLATE) {
             th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
-            afe_push_marker(tree);
-            tmpl_push(tree, M_IN_TEMPLATE);
+            if (stack_push_kept(tree, node)) {
+                afe_push_marker(tree);
+                tmpl_push(tree, M_IN_TEMPLATE);
+            }
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
@@ -3682,7 +3694,9 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_TEMPLATE) {
             th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
+            if (!stack_push_kept(tree, node)) {
+                return TH_DRAIN_NEXT;
+            }
             afe_push_marker(tree);
             tmpl_push(tree, M_IN_TEMPLATE);
             dc->mode = M_IN_TEMPLATE;
@@ -3926,25 +3940,32 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_CAPTION) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-            afe_push_marker(tree);
             th_node *node = insert_element(tree, tok);
-            stack_push(tree, node);
+            if (!stack_push_kept(tree, node)) {
+                return TH_DRAIN_NEXT;
+            }
+            afe_push_marker(tree);
             dc->mode = M_IN_CAPTION;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_COLGROUP) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             th_node *node = insert_element(tree, tok);
-            stack_push(tree, node);
+            if (!stack_push_kept(tree, node)) {
+                return TH_DRAIN_NEXT;
+            }
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_COL) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-            {
-                th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
-                stack_push(tree, cg);
+            if (stack_at_depth_cap(tree)) {
+                /* no colgroup can be opened at the cap, so the col stays a child of the table */
+                insert_void_element(tree, tok);
+                return TH_DRAIN_NEXT;
             }
+            th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
+            stack_push(tree, cg);
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_REPROCESS;
         }
@@ -4193,10 +4214,8 @@ static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
             th_node *node = insert_element(tree, tok);
-            Py_ssize_t open_len_before = tree->open_len;
-            stack_push(tree, node);
             /* A cell outside the depth-capped stack cannot be closed in cell mode. */
-            if (tree->open_len == open_len_before) {
+            if (!stack_push_kept(tree, node)) {
                 return TH_DRAIN_NEXT;
             }
             afe_push_marker(tree);
@@ -4466,7 +4485,9 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
              dc->mode == M_IN_COLUMN_GROUP || dc->mode == M_IN_CAPTION) &&
             tok_atom(tok) == TH_TAG_TEMPLATE) {
             th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
+            if (!stack_push_kept(tree, node)) {
+                goto token_done;
+            }
             afe_push_marker(tree);
             tmpl_push(tree, M_IN_TEMPLATE);
             dc->mode = M_IN_TEMPLATE;

@@ -1,0 +1,2 @@
+Keep content after a refused ``<colgroup>``, ``<col>``, ``<caption>`` or ``<template>`` at the nesting limit, and keep a
+refused ``<col>`` as a child of its table.
