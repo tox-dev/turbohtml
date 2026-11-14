@@ -1012,49 +1012,71 @@ def test_html_c14n_1_1_rejects_invalid_ancestor_base_with_many_attributes() -> N
         node.canonicalize(Canonical(version="1.1"))
 
 
-# Each ancestor's xml:base is joined onto everything joined so far, so the fixup reads the inner value once per ancestor
-# above it; the two joins here read 2 * len(inner) + len("c/") code points, and 1,048,576 is what one fixup may read.
-def test_xml_c14n_1_1_accepts_ancestor_base_joins_at_budget() -> None:
-    node = parse_xml(f'<r xml:base="c/"><a xml:base="{"b" * 524_287}"><s/></a></r>').select_one("s")
-    assert node is not None
-    assert node.canonicalize(Canonical(version="1.1")) == f'<s xml:base="c/{"b" * 524_287}"></s>'.encode()
+_LONG: Final[str] = "c" * 200
 
 
-def test_xml_c14n_1_1_rejects_ancestor_base_joins_past_budget() -> None:
-    node = parse_xml(f'<r xml:base="c/"><a xml:base="{"b" * 524_288}"><s/></a></r>').select_one("s")
+# Each fixup joins the apex's xml:base onto every ancestor's, outermost listed first, and a join reads only what it can
+# change, so thousands of nested values resolve; the long values push the joined value past the short-value path.
+@pytest.mark.parametrize(
+    ("bases", "apex", "expected"),
+    [
+        pytest.param(
+            ["bbbbbbbbbbbbbbbbbbbb/"] * 1_000,
+            "c" * 2_000,
+            f"{'bbbbbbbbbbbbbbbbbbbb/' * 1_000}{'c' * 2_000}",
+            id="nested-relative",
+        ),
+        pytest.param([""] * 1_000, "c" * 2_000, "c" * 2_000, id="nested-empty"),
+        pytest.param(["b/"] * 300, "c", f"{'b/' * 300}c", id="many-short"),
+        pytest.param(["a"] * 300, f"{'../' * 200}x", f"{'../' * 200}x", id="parents-kept"),
+        pytest.param(["/r/", "a"], f"{'../' * 200}x", "/x", id="parents-dropped-under-root"),
+        pytest.param(["http://h/p", "", ""], f"?{'q' * 200}", f"http://h/p?{'q' * 200}", id="query"),
+        pytest.param(["b/"] * 5, f"http://x/{_LONG}", f"http://x/{_LONG}", id="absolute"),
+        pytest.param(["s:", "b/", "b/", "b/"], f"//h/{_LONG}", f"s://h/{_LONG}", id="authority-takes-scheme"),
+        pytest.param(["q/", "y/", "x/", "w"], f"../a:b/{_LONG}", f"a:b/{_LONG}", id="segment-becomes-scheme"),
+        pytest.param(["b/"] * 3, f"/{_LONG}//d", f"/{_LONG}//d", id="rooted-keeps-empty-segment"),
+        pytest.param(["", "", f"x//{_LONG}"], "", f"x/{_LONG}", id="relative-drops-empty-segment"),
+        pytest.param(["", "", f"{_LONG}/."], "", f"{_LONG}/", id="trailing-dot"),
+        pytest.param(["", "", f"{_LONG}/x/.."], "", f"{_LONG}/", id="trailing-parent"),
+        pytest.param(["", "", f"{_LONG}/./"], "", f"{_LONG}/", id="trailing-dot-directory"),
+        pytest.param(["", "", f"{_LONG}/a../../"], "", f"{_LONG}/", id="parent-after-dotted-name"),
+        pytest.param(["b/", "b/"], f"ab/.x/{_LONG}", f"b/b/ab/.x/{_LONG}", id="two-character-segments"),
+        pytest.param(["y", "x/" * 50, ""], "../" * 50, "y", id="emptied-then-replaced"),
+        pytest.param(["", "", "b/"], f"{_LONG}?q", f"b/{_LONG}?q", id="query-after-path"),
+    ],
+)
+def test_xml_c14n_1_1_joins_deep_ancestor_bases(bases: list[str], apex: str, expected: str) -> None:
+    assert _fixed_base(bases, apex) == f'<s xml:base="{expected}"></s>'.encode()
+
+
+def _fixed_base(bases: list[str], apex: str) -> bytes:
+    opening = "".join(f'<a xml:base="{base}">' for base in bases)
+    node = parse_xml(f'{opening}<s xml:base="{apex}"/>{"</a>" * len(bases)}').select_one("s")
     assert node is not None
-    with pytest.raises(ValueError, match="xml:base attributes above the subtree exceeds the limit of 1048576"):
-        node.canonicalize(Canonical(version="1.1"))
+    return node.canonicalize(Canonical(version="1.1"))
+
+
+def test_xml_c14n_1_1_drops_base_that_deep_ancestors_empty() -> None:
+    assert _fixed_base(["x/" * 50, ""], "../" * 50) == b"<s></s>"
 
 
 @pytest.mark.parametrize(
-    "wrapper",
+    ("inner", "apex"),
     [
-        pytest.param('<a xml:base="bbbbbbbbbbbbbbbbbbbb/">', id="nested-relative"),
-        pytest.param('<a xml:base="">', id="nested-empty"),
+        pytest.param(["b/"], f"http://x/{_LONG}", id="absolute"),
+        pytest.param(["b/", "b/"], f"http://x/{_LONG}", id="absolute-settled"),
+        pytest.param(["b/", "b/"], _LONG, id="relative"),
     ],
 )
-def test_xml_c14n_1_1_rejects_deep_ancestor_base_chain(wrapper: str) -> None:
-    source: Final = f'{wrapper * 1_000}<s xml:base="{"c" * 2_000}"/>{"</a>" * 1_000}'
-    node = parse_xml(source).select_one("s")
-    assert node is not None
-    with pytest.raises(ValueError, match="xml:base attributes above the subtree exceeds the limit of 1048576"):
-        node.canonicalize(Canonical(version="1.1"))
-    assert node.canonicalize() == f'<s xml:base="{"c" * 2_000}"></s>'.encode()
+def test_xml_c14n_1_1_rejects_invalid_outer_base_above_long_value(inner: list[str], apex: str) -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        _fixed_base(["http://[::1/", *inner], apex)
 
 
-def test_xml_c14n_1_1_combines_many_short_ancestor_bases() -> None:
-    wrapper: Final = '<a xml:base="b/">'
-    node = parse_xml(f'{wrapper * 300}<s xml:base="c"/>{"</a>" * 300}').select_one("s")
-    assert node is not None
-    assert node.canonicalize(Canonical(version="1.1")) == f'<s xml:base="{"b/" * 300}c"></s>'.encode()
-
-
-def test_html_c14n_1_1_rejects_deep_ancestor_base_chain() -> None:
+def test_html_c14n_1_1_joins_deep_ancestor_bases() -> None:
     wrapper: Final = '<div xml:base="bbbbbbbbbbbbbbbbbbbb/">'
     node = _one(f"{wrapper * 400}<p></p>", "p")
-    with pytest.raises(ValueError, match="xml:base attributes above the subtree exceeds the limit of 1048576"):
-        node.canonicalize(Canonical(version="1.1"))
+    assert node.canonicalize(Canonical(version="1.1")) == f'<p xml:base="{"bbbbbbbbbbbbbbbbbbbb/" * 400}"></p>'.encode()
 
 
 def test_xml_c14n_comment_is_omitted_without_option() -> None:
