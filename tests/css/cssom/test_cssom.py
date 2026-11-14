@@ -1371,6 +1371,14 @@ def test_computed_style_sibling_positions(
     assert tuple(computed_style(node)["color"] for node in nodes[order]) == expected[order]
 
 
+def test_computed_style_nth_offset_near_int_min_matches_nothing() -> None:
+    # a = -1 with b = -(INT_MAX - 2): for the third child, index - b is one past INT_MAX
+    document: Final = parse(f"<style>p{{color:blue}}p:nth-child(-n-{2**31 - 3}){{color:red}}</style><i></i><i></i><p>x")
+    paragraph: Final = document.select_one("p")
+    assert isinstance(paragraph, Element)
+    assert computed_style(paragraph)["color"] == "blue"
+
+
 def test_computed_style_sibling_positions_after_insertion() -> None:
     document: Final = parse("<style>i{color:blue}i:nth-child(odd){color:red}</style><i></i><i></i><i></i>")
     nodes: Final = document.select("i")

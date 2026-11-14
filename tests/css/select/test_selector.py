@@ -2185,3 +2185,26 @@ def test_closest_scope_from_text_of_detached_element() -> None:
     detached: Final = parse("<div>text</div>").select("div")[0].extract()
     assert detached.children[0].closest(":scope") is None
     assert detached.children[0].closest(":not(:scope)") == detached
+
+
+@pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child", "nth-of-type", "nth-last-of-type"])
+@pytest.mark.parametrize(
+    "offset", [pytest.param(2**31 - 4, id="fourth-child"), pytest.param(2**31 - 3, id="third-child")]
+)
+def test_nth_with_an_offset_near_int_min_matches_nothing(pseudo: str, offset: int) -> None:
+    document: Final = parse("<ul><li>1<li>2<li>3<li>4</ul>")
+    assert document.select(f"li:{pseudo}(-n-{offset})") == []
+
+
+@pytest.mark.parametrize(
+    ("selector", "texts"),
+    [
+        pytest.param("li:nth-child(4294967299)", [], id="fixed-index"),
+        pytest.param("li:nth-child(4294967298n+1)", ["1"], id="step"),
+        pytest.param("li:nth-child(-n+4294967299)", ["1", "2", "3"], id="positive-offset"),
+        pytest.param("li:nth-child(n-4294967299)", ["1", "2", "3"], id="negative-offset"),
+    ],
+)
+def test_nth_integer_beyond_int_range_saturates(selector: str, texts: list[str]) -> None:
+    document: Final = parse("<ul><li>1<li>2<li>3</ul>")
+    assert [element.text for element in document.select(selector)] == texts
