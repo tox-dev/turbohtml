@@ -356,9 +356,10 @@ def test_deeply_nested_expression_is_rejected(expr: str) -> None:
             r"expected a name after '\$' at offset \d+ near ','",
             id="missing-variable-name",
         ),
-        # the cap trips at the comma that follows the failed argument, where the next argument would be linked
+        # the cap (XP_MAX_DEPTH, 64) trips at the comma after the failed argument, where the next argument would be
+        # linked; the predicate and the first argument take two of its levels
         pytest.param(
-            f"a[concat(@id, {'( ' * 1022}, 'z')]",
+            f"a[concat(@id, {'( ' * (64 - 2)}, 'z')]",
             r"nested too deeply at offset \d+ near ','",
             id="depth-cap",
         ),

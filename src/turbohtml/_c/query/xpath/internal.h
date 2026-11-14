@@ -161,8 +161,26 @@ int xp_name_eq(const lexer *lx, const char *kw);
 /* An upper bound on parser nesting and evaluator recursion. A single group or
    operator level costs a bounded number of C stack frames, so this caps the stack a
    pathological expression -- deeply nested groups, or a long left-associative operator
-   spine -- can consume before it faults (issue #421). */
-#define XP_MAX_DEPTH TH_DEPTH_LIMIT(1024)
+   spine -- can consume before it faults (issue #421). A level is up to ~0.65 KiB of
+   frames with clang -O2, ~0.95 KiB with gcc -O3 and LTO and 1.1 to 1.5 KiB unoptimized,
+   so 64 of them take 40 to 60 KiB in an optimized build: under half of the 128 KiB
+   stack a musl thread starts with, which leaves a Python callback made from the deepest
+   level the margin CPython keeps, and an unoptimized build fits that stack too. The
+   1024 levels this used to admit overflowed any thread stack below 2 MiB. The counter
+   measures stack rather than syntax: what recurses through more frames than one level's
+   charges the extra levels below. It is not a TH_DEPTH_LIMIT: a tenth of it is six
+   levels, fewer than a predicate inside a predicate or the class test css_to_xpath
+   writes takes, and 64 levels already fire on an expression of a hundred characters. */
+#define XP_MAX_DEPTH 64
+
+/* What the evaluator charges on top of the level eval_expr counts. A function call
+   keeps its frame under its arguments and a location path its step state under its
+   base expression and its predicates (XP_HELD_DEPTH), and a predicate its context
+   under its expression (XP_PREDICATE_DEPTH): each weighs about one more level. The
+   charge is a constant in the guard of the expression evaluated under that frame, so
+   no call or path pays for it separately. */
+#define XP_HELD_DEPTH 1
+#define XP_PREDICATE_DEPTH 1
 
 /* The evaluation context: the tree, the current node, its 1-based proximity
    position and the context size, plus where to report an unimplemented feature. */
@@ -296,6 +314,8 @@ static inline int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp
 static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     return eval_guarded(prog, idx, ctx, out, 1);
 }
+/* eval_guarded for a function argument or a path base, charged XP_HELD_DEPTH for the frame beneath it. */
+int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
