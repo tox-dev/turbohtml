@@ -525,7 +525,9 @@ def test_adoption_agency_move_keeps_the_selectedcontent_targets(markup: str, bod
 
 def test_adoption_agency_inside_a_select_with_options_stays_linear(work_steps: WorkSteps) -> None:
     cycle = "<em><section>w</em></section><option>z</option>"
-    work_steps.assert_linear(lambda n: partial(parse, f"<select>{cycle * n}</select>"), (1000, 4000))
+    work_steps.assert_linear(
+        lambda n: partial(parse, f"<select><button><selectedcontent></button>{cycle * n}</select>"), (1000, 4000)
+    )
 
 
 @pytest.mark.parametrize(
@@ -540,7 +542,9 @@ def test_adoption_agency_inside_a_select_with_options_stays_linear(work_steps: W
 )
 def test_adoption_agency_move_with_selectedcontent_stays_linear(block: str, work_steps: WorkSteps) -> None:
     cycle = f"<span></span>{block}"
-    work_steps.assert_linear(lambda n: partial(parse, f"<select>{cycle * n}</select>"), (1000, 4000))
+    work_steps.assert_linear(
+        lambda n: partial(parse, f"<select><button><selectedcontent></button>{cycle * n}</select>"), (1000, 4000)
+    )
 
 
 @pytest.mark.parametrize(
@@ -992,3 +996,89 @@ def test_filled_selectedcontent_is_copied_once(retained_bytes: RetainedBytes) ->
     assert len(filled.find_all("b")) == 10_000
     assert len(plain.find_all("b")) == 5000
     assert filled_bytes < 2.5 * plain_bytes
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select><button><selectedcontent><option>a</option><option>b</option></selectedcontent></button>"
+            "<option><em>c</em></option></select>",
+            "<select><button><selectedcontent><em>c</em></selectedcontent></button><option><em>c</em></option></select>",
+            id="option-in-a-target-before-a-later-option",
+        ),
+        pytest.param(
+            "<select><selectedcontent><option>a<option>b</selectedcontent><option><i>c</i>",
+            "<select><selectedcontent><i>c</i></selectedcontent><option><i>c</i></option></select>",
+            id="option-closed-by-the-end-of-a-target",
+        ),
+        pytest.param(
+            "<select><i><option selected>u<div><option selected><hr></i><button><selectedcontent>",
+            '<select><i><option selected="">u</option></i><div><i><option selected=""></option><hr></i>'
+            "<button><selectedcontent></selectedcontent></button></div></select>",
+            id="selected-option-moved-in-by-the-adoption-agency",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent><option>a<option><span><option>z</span></option></selectedcontent>"
+            "</button></select>",
+            "<select><button><selectedcontent>z</selectedcontent></button></select>",
+            id="copy-would-carry-the-select-option",
+        ),
+        pytest.param(
+            "<select><selectedcontent><option selected>a<option><em><option>b",
+            "<select><selectedcontent>b</selectedcontent></select>",
+            id="copy-of-an-option-nested-in-an-option",
+        ),
+        pytest.param(
+            "<select><selectedcontent><option>a<option><em><option>b<i><option>c",
+            "<select><selectedcontent>b<i></i></selectedcontent></select>",
+            id="option-in-the-target-is-dropped",
+        ),
+        pytest.param(
+            "<select><selectedcontent><option>a<option><em><option>b<datalist><option>c",
+            "<select><selectedcontent>b<datalist><option>c</option></datalist></selectedcontent></select>",
+            id="option-in-a-datalist-is-kept",
+        ),
+        pytest.param(
+            "<select><selectedcontent><em><div><option>w</option></em></selectedcontent></select>",
+            "<select><selectedcontent>w</selectedcontent></select>",
+            id="option-moved-back-into-a-target",
+        ),
+        pytest.param(
+            "<select><selectedcontent><option>a</option></selectedcontent>"
+            "<selectedcontent disabled><option selected>v</option></selectedcontent></select>",
+            '<select><selectedcontent>v</selectedcontent><selectedcontent disabled=""><option selected="">v</option>'
+            "</selectedcontent></select>",
+            id="shown-option-in-a-disabled-selectedcontent",
+        ),
+        pytest.param(
+            "<select><selectedcontent></selectedcontent><selectedcontent disabled><option selected>v</option>"
+            "</selectedcontent><b><p></b>",
+            '<select><selectedcontent>v</selectedcontent><selectedcontent disabled=""><option selected="">v</option>'
+            "</selectedcontent><b></b><p><b></b></p></select>",
+            id="filled-targets-keep-the-shown-option",
+        ),
+        pytest.param(
+            "<select><option selected>k</option><button><p><selectedcontent><option selected>m<div><option>n<b>",
+            '<select><option selected="">k</option><button><p><selectedcontent>k</selectedcontent></p>'
+            "<div><option>n<b></b></option></div></button></select>",
+            id="shown-option-kept-over-a-later-selected-one",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent>keep</selectedcontent></button><em><option selected>e<div></em><option>f",
+            '<select><button><selectedcontent>e</selectedcontent></button><em><option selected="">e</option></em>'
+            "<div><em></em><option>f</option></div></select>",
+            id="adoption-agency-pick-replaces-the-content",
+        ),
+    ],
+)
+def test_selectedcontent_copy_is_reparse_stable(markup: str, body: str) -> None:
+    once = parse(markup).html
+    assert once == f"<html><head></head><body>{body}</body></html>"
+    assert parse(once).html == once
+
+
+def test_option_chain_nested_in_a_target_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(parse, f"<select><selectedcontent><option>{'<b><option>' * n}"), (1000, 4000)
+    )
