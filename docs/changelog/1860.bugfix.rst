@@ -1,0 +1,1 @@
+Sanitized output no longer includes the implied tbody, tr, or colgroup tags a policy omits, so sanitizing it again changes nothing.

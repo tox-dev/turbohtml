@@ -41,6 +41,8 @@ class OnDisallowed(Enum):
 
     ``ESCAPE`` renders the tag as visible text (``<x>`` becomes ``&lt;x&gt;``), the safe bleach default that keeps the
     content readable; ``STRIP`` drops the tag but keeps its children; ``REMOVE`` drops the tag and its whole subtree.
+    An implied ``tbody``, ``tr``, or ``colgroup`` the policy omits is never written and keeps its children in every
+    mode, since the source did not write it.
 
     :cvar ESCAPE: render the tag as visible text.
     :cvar STRIP: drop the tag but keep its children.

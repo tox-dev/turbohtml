@@ -106,7 +106,9 @@ A balancer closes it. It escapes to inert text any kept element the output would
 non-whitespace table text out of the table, where a browser puts it. The rules are a browser's own: implied end tags and
 the list-item, option, select, button, heading, ruby, and block auto-close; the form-element pointer; ``a`` and ``nobr``
 re-entry; foster parenting, the implied ``tbody``/``tr``/``colgroup`` wrappers, and what a table or ``colgroup`` keeps,
-a hidden ``input`` included; the foreign-content integration points.
+a hidden ``input`` included; the foreign-content integration points. An implied ``tbody``, ``tr``, or ``colgroup`` the
+policy omits is never written: a browser supplies it on re-parse, so the rows and cells it holds stay in place, and no
+``on_disallowed_tag`` mode removes content with it.
 
 One difference remains: whitespace-only text inside a ``form`` that sits directly in a table can re-parse one position
 over, as the form's sibling. XML output skips the balancer, since the XML serializer round-trips through
