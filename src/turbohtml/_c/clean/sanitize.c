@@ -2867,7 +2867,7 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
        The exemption ends where a reparse would not read the body as raw text (inside a
        textarea, or an HTML svg or math), so the scrubbed CSS would be live markup. */
     uint16_t atom = reparsed_atom(element);
-    int style_element = atom == TH_TAG_STYLE && is_html && !reparse_context(root, stack, depth, balanced, NULL);
+    int style_element = atom == TH_TAG_STYLE && is_html;
     int allowed = ((is_unsafe_tag(atom) && !style_element) || is_unsafe_svg_animation(element))
                       ? 0
                       : PySet_Contains(s->tags, tag);
@@ -2899,6 +2899,10 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
     /* defense in depth: a node whose namespace is unreachable from its parent's is a namespace-confusion mutation, not
        anything the parser produced, so drop it like any disallowed node even when the allowlist would admit its name */
     if (allowed > 0 && !namespace_reachable(s, element)) {
+        allowed = 0;
+    }
+    /* checked last, so only an allowlisted <style> pays for the frame scan */
+    if (allowed > 0 && style_element && reparse_context(root, stack, depth, balanced, NULL)) {
         allowed = 0;
     }
     int status = 0;
