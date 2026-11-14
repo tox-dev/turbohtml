@@ -113,17 +113,16 @@ def _block_pairs(fnv: tuple[int, int], steps: int) -> list[tuple[str, str]]:
     state = basis & _LOW
     pairs: list[tuple[str, str]] = []
     for _ in range(steps):
-        seen: dict[int, str] = {}
+        groups: dict[int, list[str]] = {}
         for letters in itertools.product(string.ascii_lowercase, repeat=3):
             block = "".join(letters)
             low = state
             for char in block:
                 low = ((low ^ ord(char)) * prime) & _LOW
-            if low in seen:
-                pairs.append((seen[low], block))
-                state = low
-                break
-            seen[low] = block
+            groups.setdefault(low, []).append(block)
+        shared = next(key for key, blocks in groups.items() if len(blocks) >= 2)
+        pairs.append((groups[shared][0], groups[shared][1]))
+        state = shared
     return pairs
 
 
