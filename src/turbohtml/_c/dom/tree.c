@@ -1529,11 +1529,23 @@ static int is_html_element(const th_node *node, uint16_t atom) {
 }
 
 /* An option is disabled by its own disabled attribute or by sitting directly in a
-   disabled optgroup ("a disabled option"), so "reset a select's selectedness" skips it. */
-static int option_is_disabled(const th_node *option) {
+   disabled optgroup ("a disabled option"), so "reset a select's selectedness" skips it.
+   The options of one optgroup close in turn and share it as their parent, and the parser
+   never changes an open optgroup's attributes, so the select caches the last answer
+   instead of searching the attributes once per option. */
+static int option_is_disabled(th_select_cache *cache, const th_node *option) {
+    if (node_has_attr(option, TH_ATTR_DISABLED)) {
+        return 1;
+    }
     th_node *parent = option->parent;
-    return node_has_attr(option, TH_ATTR_DISABLED) ||
-           (is_html_element(parent, TH_TAG_OPTGROUP) && node_has_attr(parent, TH_ATTR_DISABLED));
+    if (!is_html_element(parent, TH_TAG_OPTGROUP)) {
+        return 0;
+    }
+    if (cache->optgroup != parent) {
+        cache->optgroup = parent;
+        cache->optgroup_disabled = (uint8_t)node_has_attr(parent, TH_ATTR_DISABLED);
+    }
+    return cache->optgroup_disabled;
 }
 
 /* An HTML select, option, or selectedcontent element: a selectedcontent below one
@@ -1665,6 +1677,8 @@ static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
         cache->target_count = 0;
         cache->target_cap = 0;
         cache->selected = NULL;
+        cache->optgroup = NULL;
+        cache->optgroup_disabled = 0;
         cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
         cache->valid = 0;
     }
@@ -1818,7 +1832,7 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
     /* the selectedness setting algorithm: the last selected option wins, and the first
        enabled one is selected only while no option is */
     if (!node_has_attr(option, TH_ATTR_SELECTED) &&
-        (option_is_disabled(option) || select_cache_shown_option(cache) != NULL)) {
+        (option_is_disabled(cache, option) || select_cache_shown_option(cache) != NULL)) {
         return;
     }
     cache->selected = option;
