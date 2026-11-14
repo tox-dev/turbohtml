@@ -1158,3 +1158,34 @@ def test_recheck_scan_skips_a_select_nested_in_foreign_content() -> None:
         "</selectedcontent></select></body></html>"
     )
     assert parse(once).html == once
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select><selectedcontent disabled><option>a</option></selectedcontent><selectedcontent></selectedcontent>"
+            "</select>",
+            '<select><selectedcontent disabled=""><option>a</option></selectedcontent>'
+            "<selectedcontent></selectedcontent></select>",
+            id="disabled-selectedcontent-found-by-the-fill",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><svg><foreignObject><option>a</option></foreignObject></svg>"
+            "</select>",
+            "<select><button><selectedcontent>a</selectedcontent></button><svg><foreignObject><option>a</option>"
+            "</foreignObject></svg></select>",
+            id="option-under-a-foreign-element",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><option selected>a<option><em><option>b<option>c",
+            '<select><button><selectedcontent>a</selectedcontent></button><option selected="">a</option>'
+            "<option><em><option>b</option><option>c</option></em></option></select>",
+            id="shown-option-found-by-the-recheck-scan",
+        ),
+    ],
+)
+def test_coverage_inputs_for_the_fill_and_scan_are_reparse_stable(markup: str, body: str) -> None:
+    once = parse(markup).html
+    assert once == f"<html><head></head><body>{body}</body></html>"
+    assert parse(once).html == once
