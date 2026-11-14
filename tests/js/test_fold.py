@@ -67,9 +67,11 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param("x=a??(b??c)", "x=a??b??c", id="nullish-chain-rotates"),
         pytest.param("x=a&&(b&&(c&&d))", "x=a&&b&&c&&d", id="and-chain-rotates-deep"),
         pytest.param("x=a&&((b&&c)&&d)", "x=a&&b&&c&&d", id="and-chain-rotates-left-nested"),
+        pytest.param("y=(p??q)??(r??s)", "y=p??q??r??s", id="nullish-chain-rotates-onto-left-chain"),
         pytest.param("x=a&&(b||c)", "x=a&&(b||c)", id="mixed-op-kept"),
         pytest.param("x=a??(b&&c)", "x=a??(b&&c)", id="nullish-and-mix-kept"),
         pytest.param("if(a)b&&c", "a&&b&&c", id="if-chain-rotates"),
+        pytest.param("if(!p&&!(q||r&&s))t()", "p||q||r&&s||t()", id="if-negated-test-chain-rotates"),
         pytest.param("x=a?a:b||c", "x=a||b||c", id="cond-self-or-chain-rotates"),
         # same-type operands make loose equality strict (7.2.14 step 1), so === weakens to ==; an
         # operand of unknown static type (a name, member, or literal against a name) keeps ===
@@ -1847,3 +1849,18 @@ def test_compress_keeps_immutable_binding_writes(source: str, expected: str) -> 
 )
 def test_fold_and_compress_preserve_behavior(source: str, expected: str, options: JSMinify) -> None:
     assert (_run(source), _run(minify_js(source, options))) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        pytest.param("a&&", id="and"),
+        pytest.param("a||", id="or"),
+        pytest.param("a??", id="nullish"),
+        pytest.param("(a&&a&&a)&&", id="grouped-and"),
+        pytest.param("(a||a||a)||", id="grouped-or"),
+        pytest.param("(a??a??a)??", id="grouped-nullish"),
+    ],
+)
+def test_long_logical_chain_folds_in_linear_steps(link: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, f"x={link * n}a"), (200, 800))

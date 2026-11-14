@@ -310,6 +310,8 @@ def test_inline_script_with_invalid_identifier_escape_stays_verbatim() -> None:
         pytest.param("+".join(["1"] * 4000), id="binary-operator-spine"),
         pytest.param(f"a{'.a' * 4000}", id="member-access-chain"),
         pytest.param(f"new x{'.a' * 4000}", id="new-callee-member-chain"),
+        pytest.param(f"f({'class extends ' * 4000}Y{'{ } ' * 4000})", id="class-heritage-chain"),
+        pytest.param(f"x = {'class extends new ' * 4000}Y{'{ } ' * 4000}", id="class-heritage-new-chain"),
     ],
 )
 def test_deep_nesting_is_rejected(source: str) -> None:
