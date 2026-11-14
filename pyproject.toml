@@ -526,9 +526,6 @@ matrix.platforms = [ "linux_x86_64", "linux_aarch64", "macos_arm64", "windows_am
 # release-creator 4.4.0 needs a seven-day cutoff exception.
 # expires 2026-11-17
 packages.release-creator.uploaded-prior-to = 2026-11-02T21:45:00Z
-# ty 0.0.99, which renamed unresolved-import to import-not-found, needs one through 2026-11-13.
-# expires 2026-11-13
-packages.ty.uploaded-prior-to = 2026-11-06T10:14:00Z
 # python-sbom 0.2.0 needs a seven-day cutoff exception.
 # expires 2026-11-16
 packages.python-sbom.uploaded-prior-to = 2026-11-09T19:56:00Z
