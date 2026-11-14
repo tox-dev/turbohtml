@@ -926,5 +926,19 @@
       "tail": "')",
       "counter": true
     }
+  },
+  {
+    "name": "js-logical-chain-rotation",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1890",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "x=",
+      "left": "(a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a||a)||",
+      "tail": "a"
+    }
   }
 ]

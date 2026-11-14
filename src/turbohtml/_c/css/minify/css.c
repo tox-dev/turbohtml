@@ -327,6 +327,16 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
         decoded.len = 0;
         if ((!starts_ident && token->kind != CSS_HASH) || !css_decode_name(name, name_len, &decoded) ||
             (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0)) {
+            /* a name kept as written still gets the space closing a hex escape at its end, as a spelled one does,
+               unless a `;`, `{`, `}` or the end of the input follows it, where no output can put whitespace after it */
+            const css_char *after = name + name_len;
+            if (css_hex_escape_ends(name, name_len) && after < view + length && *after != ';' && *after != '{' &&
+                *after != '}') {
+                cbuf_put_run(spelled, view + copied, name + name_len - view - copied);
+                cbuf_putc(spelled, ' ');
+                copied = name - view + name_len;
+                changed = 1;
+            }
             continue;
         }
         if (*decoded.oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
