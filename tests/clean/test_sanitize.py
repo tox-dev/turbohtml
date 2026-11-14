@@ -95,26 +95,12 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
     assert sanitize_node(root, Policy(tags=frozenset({"div", "tr", "td", "span"}))).html == expected
 
 
-def test_deep_unwrap_agrees_between_string_and_node_walks() -> None:
-    # both walks defer the settle of an unwrap this deep, so each judges the blockquote once the p above it is gone
-    source: Final = f"{'<section>' * 40}<p><object><blockquote>x"
-    expected: Final = f"{'&lt;section&gt;' * 40}&lt;p&gt;&lt;object&gt;<blockquote>x</blockquote>"
-    assert (sanitize(source), sanitize_node(parse_fragment(source)).inner_html) == (expected, expected)
-
-
-def test_deep_unwrap_under_kept_ancestors_is_balanced_after_the_walk() -> None:
-    # no shallower unwrap re-checks the list item the object hid, so the pass after the walk has to escape it
-    source: Final = f"{'<div>' * 40}<li><object><li>x"
-    expected: Final = f"{'<div>' * 40}<li>&lt;object&gt;&lt;li&gt;x</li>{'</div>' * 40}"
-    policy: Final = Policy(tags=frozenset({"div", "li"}))
-    assert (sanitize(source, policy), sanitize_node(parse_fragment(source), policy).inner_html) == (expected, expected)
-
-
-def test_deep_unwrap_is_balanced_past_an_element_that_escapes_to_nothing() -> None:
-    # the deferred object unwrap exposes links behind an implied, empty one: the later passes have to reach them too
-    source: Final = f"<dd>{'<u>' * 31}<a><object><b><a><dt><dl><dl><a></b>"
-    once: Final = sanitize(source)
-    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source)).inner_html) == (once, once)
+def test_nested_unwrap_reaches_link_after_empty_escape() -> None:
+    # the node entry point has to reparse to its own output at this depth, as the string entry point does
+    source: Final = f"{'<q><em>' * 18}<nobr><object><s><nobr><dt><ol><li>x</nobr></s>"
+    policy: Final = Policy(tags=frozenset({"q", "em", "nobr", "object", "s", "dt", "ol", "li"}))
+    once: Final = sanitize(source, policy)
+    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
 
 def test_deep_unwrap_in_table_context_settles_in_place() -> None:
@@ -122,7 +108,8 @@ def test_deep_unwrap_in_table_context_settles_in_place() -> None:
     source: Final = f"{'<div>' * 40}<table><tr><td>x"
     policy: Final = Policy(tags=frozenset({"table", "td"}))
     once: Final = sanitize(source, policy)
-    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
+    reparsed = sanitize_node(parse_fragment(once), policy).inner_html
+    assert (reparsed, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
 
 @pytest.mark.parametrize(
@@ -217,23 +204,23 @@ def test_escape_node_end_tags_follow_its_markup(node: Element | Document, expect
     [
         pytest.param(
             "<table><tr><td>1</td></tr></table>",
-            "<table><tbody><tr><td>1</td></tr></tbody></table>",
+            "<table><tr><td>1</td></tr></table>",
             id="implied-tbody",
         ),
         pytest.param(
             "<table><td>1</td></table>",
-            "<table><tbody><tr><td>1</td></tr></tbody></table>",
+            "<table><tr><td>1</td></tr></table>",
             id="implied-tbody-allowed-implied-tr",
         ),
-        pytest.param("<table><col></table>", "<table><colgroup><col></colgroup></table>", id="implied-colgroup"),
+        pytest.param("<table><col></table>", "<table><col></table>", id="implied-colgroup"),
         pytest.param(
             "<table><tbody><tr><td>1</td></tr></tbody></table>",
-            "&lt;tbody&gt;&lt;/tbody&gt;<table><tbody><tr><td>1</td></tr></tbody></table>",
+            "&lt;tbody&gt;&lt;/tbody&gt;<table><tr><td>1</td></tr></table>",
             id="source-tbody",
         ),
         pytest.param(
             "<table><tr><td>1</td></tr></tbody></table>",
-            "&lt;/tbody&gt;<table><tbody><tr><td>1</td></tr></tbody></table>",
+            "&lt;/tbody&gt;<table><tr><td>1</td></tr></table>",
             id="implied-tbody-source-end-tag",
         ),
         pytest.param("a</p>b", "a&lt;/p&gt;b", id="stray-p-end-tag"),
@@ -241,9 +228,9 @@ def test_escape_node_end_tags_follow_its_markup(node: Element | Document, expect
     ],
 )
 def test_escape_reproduces_only_source_start_tags(html: str, expected: str) -> None:
-    # a disallowed tbody is escaped only where the source wrote it (and a disallowed tbody's escaped text, being flow
-    # content in a table, foster-parents out before it), while the parse-stability balancer re-creates the tbody/tr/
-    # colgroup a browser implies on re-parse, so the kept table round-trips; a stray </p> or </br> stays escaped text
+    # a disallowed tbody is escaped only where the source wrote it, and its escaped text, being flow content in a table,
+    # foster-parents out before the table; an implied tbody/tr/colgroup the policy omits is never written, since a
+    # browser supplies it on re-parse, so kept rows and cells stay in place; a stray </p> or </br> stays escaped text
     assert sanitize(html, Policy(tags=frozenset({"table", "tr", "td", "col"}))) == expected
 
 
@@ -264,11 +251,146 @@ def test_escape_document_skeleton_synthesized_at_eof_is_silent() -> None:
     assert not sanitize_node(parse(""), Policy.strict()).serialize()
 
 
-def test_escape_renamed_implied_element_is_re_implied_for_stability() -> None:
-    # the transform renames the parser's implied tbody to a disallowed section, which is dropped, but the balancer
-    # re-implies the tbody a browser needs, so the kept table still round-trips rather than losing its row group
-    policy = Policy(tags=frozenset({"table", "tr", "td"}), transform_tags={"tbody": "section"})
-    assert sanitize("<table><tr><td>1</td></tr></table>", policy) == "<table><tbody><tr><td>1</td></tr></tbody></table>"
+@pytest.mark.parametrize(
+    "disposition",
+    [
+        pytest.param(OnDisallowed.ESCAPE, id="escape"),
+        pytest.param(OnDisallowed.STRIP, id="strip"),
+        pytest.param(OnDisallowed.REMOVE, id="remove"),
+    ],
+)
+def test_renamed_implied_element_is_unwrapped_in_every_mode(disposition: OnDisallowed) -> None:
+    # the transform renames the parser's implied tbody to a disallowed section, which is unwrapped like any omitted
+    # wrapper in every mode: its rows stay in the table and no tag for it is written
+    policy = Policy(
+        tags=frozenset({"table", "tr", "td"}), transform_tags={"tbody": "section"}, on_disallowed_tag=disposition
+    )
+    assert sanitize("<table><tr><td>1</td></tr></table>", policy) == "<table><tr><td>1</td></tr></table>"
+
+
+_OMITTED_WRAPPER_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "<table><td>x",
+        Policy(tags=frozenset({"table", "td"})),
+        "<table><td>x</td></table>",
+        id="cell-without-row",
+    ),
+    pytest.param(
+        "<table><tr><td>x",
+        Policy(tags=frozenset({"table", "td"})),
+        "&lt;tr&gt;<table><td>x</td></table>",
+        id="escaped-row-leaves-cell",
+    ),
+    pytest.param(
+        "<table><tfoot><tr><td>x</td></tr></tfoot></table>",
+        Policy(tags=frozenset({"table", "td"})),
+        "&lt;tfoot&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tfoot&gt;<table><td>x</td></table>",
+        id="escaped-foot-leaves-cell",
+    ),
+    pytest.param(
+        "<table><caption>c</caption><td>x",
+        Policy(tags=frozenset({"table", "td"})),
+        "&lt;caption&gt;c&lt;/caption&gt;<table><td>x</td></table>",
+        id="escaped-caption-leaves-cell",
+    ),
+    pytest.param(
+        "<table><td><table><td>inner",
+        Policy(tags=frozenset({"table", "td"})),
+        "<table><td><table><td>inner</td></table></td></table>",
+        id="nested-tables",
+    ),
+    pytest.param(
+        "<table><td>x",
+        Policy(tags=frozenset({"table", "tr", "td"})),
+        "<table><tr><td>x</td></tr></table>",
+        id="tbody-omitted-keeps-row",
+    ),
+    pytest.param(
+        "<table><td>x",
+        Policy(tags=frozenset({"table", "tbody", "td"})),
+        "<table><tbody><td>x</td></tbody></table>",
+        id="tr-omitted-keeps-group",
+    ),
+    pytest.param(
+        "<table><col><td>x",
+        Policy(tags=frozenset({"table", "col", "td"})),
+        "<table><col><td>x</td></table>",
+        id="colgroup-omitted-keeps-col",
+    ),
+    pytest.param(
+        "<table><thead><tr><td>x</td></tr></thead></table>",
+        Policy(tags=frozenset({"table", "thead", "td"})),
+        "&lt;tr&gt;&lt;/tr&gt;<table><thead><td>x</td></thead></table>",
+        id="escaped-row-under-thead",
+    ),
+    pytest.param(
+        "<table><tr><td>x</td></tr></table>",
+        Policy(tags=frozenset({"table", "td"}), on_disallowed_tag=OnDisallowed.STRIP),
+        "<table><td>x</td></table>",
+        id="strip-keeps-cell",
+    ),
+    pytest.param(
+        "<table><td>x</td></table>",
+        Policy(tags=frozenset({"table", "td"}), on_disallowed_tag=OnDisallowed.REMOVE),
+        "<table><td>x</td></table>",
+        id="remove-keeps-cell",
+    ),
+    pytest.param(
+        "<table><tbody><tr><td>x</td></tr></tbody></table>",
+        Policy(tags=frozenset({"table", "tbody", "tr", "td"})),
+        "<table><tbody><tr><td>x</td></tr></tbody></table>",
+        id="allowed-structure-unchanged",
+    ),
+    pytest.param(
+        "<select><option>a<option>b",
+        Policy(tags=frozenset({"select", "option"})),
+        "<select><option>a</option><option>b</option></select>",
+        id="select-unchanged",
+    ),
+    pytest.param(
+        "<table><td>x</td></tr></table>",
+        Policy(tags=frozenset({"table", "td"}), on_disallowed_tag=OnDisallowed.REMOVE),
+        "<table><td>x</td></table>",
+        id="remove-stray-row-end",
+    ),
+    pytest.param(
+        "<table><tr><td>x</td></tr></tbody></table>",
+        Policy(tags=frozenset({"table", "tr", "td"}), on_disallowed_tag=OnDisallowed.REMOVE),
+        "<table><tr><td>x</td></tr></table>",
+        id="remove-row-group-end",
+    ),
+    pytest.param(
+        "<table><col></colgroup></table>",
+        Policy(tags=frozenset({"table", "col"}), on_disallowed_tag=OnDisallowed.REMOVE),
+        "<table><col></table>",
+        id="remove-colgroup-end",
+    ),
+    pytest.param(
+        "<table><tr><td>1</td></tr></table>",
+        Policy(tags=frozenset({"table", "tr", "td"})),
+        "<table><tr><td>1</td></tr></table>",
+        id="row-without-group-kept",
+    ),
+]
+
+
+@pytest.mark.parametrize(("html", "policy", "expected"), _OMITTED_WRAPPER_CASES)
+def test_omitted_implied_wrapper_is_not_written(html: str, policy: Policy, expected: str) -> None:
+    # an implied tbody/tr/colgroup the policy omits is never written and removes no content, so the output names only
+    # allowed tags, and sanitizing it again, from a string or from a parsed node, returns it unchanged
+    once = sanitize(html, policy)
+    assert once == expected
+    assert sanitize(once, policy) == once
+    assert sanitize_node(parse_fragment(html), policy).inner_html == expected
+    assert sanitize_node(parse_fragment(once), policy).inner_html == once
+
+
+def test_omitted_implied_wrapper_on_a_built_tree_is_not_written() -> None:
+    # a built table has no parser-implied tbody, so the balancer wraps its cell and the wrapper is unwrapped afterwards
+    policy = Policy(tags=frozenset({"table", "td"}))
+    once = sanitize_node(E.table(E.td("x")), policy).html
+    assert once == "<table><td>x</td></table>"
+    assert sanitize_node(parse_fragment(once), policy).inner_html == once
 
 
 @pytest.mark.parametrize(
@@ -2564,17 +2686,19 @@ def test_annotation_xml_encoding_selects_integration_point(html: str, expected: 
 @pytest.mark.parametrize(
     "encoding",
     [
-        pytest.param(' encoding="text/html"', id="text-html"),
-        pytest.param(' encoding="application/xhtml+xml"', id="application-xhtml-xml"),
+        pytest.param(' ENCODING="Text/HTML"', id="text-html"),
+        pytest.param(' Encoding="Application/XHTML+XML"', id="application-xhtml-xml"),
     ],
 )
 def test_annotation_xml_integration_check_is_linear_in_children(encoding: str, work_steps: WorkSteps) -> None:
-    def markup(count: int) -> str:
-        attributes = " ".join(f"a{index}" for index in range(count))
-        return f"<math><annotation-xml {attributes}{encoding}>{'<i>x</i>' * count}"
+    policy: Final = replace(_ENCODING_POLICY, attribute_prefixes=frozenset({"data-"}))
 
-    work_steps.assert_linear(lambda n: partial(sanitize, markup(n)), (500, 2000))
-    assert work_steps(partial(sanitize, markup(500))) >= 500
+    def markup(count: int) -> str:
+        attributes = " ".join(f"data-{index:x}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'tx<b>n</b>' * count}"
+
+    work_steps.assert_linear(lambda n: partial(sanitize, markup(n), policy), (500, 2000))
+    assert work_steps(partial(sanitize, markup(500), policy)) >= 500
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
@@ -3144,12 +3268,6 @@ _PARSE_STABLE_CASES: Final[list[pytest.ParameterSet]] = [
         id="table-text-foster-parented",
     ),
     pytest.param(
-        "<table><tr><td>1</td></tr></table>",
-        Policy(tags=frozenset({"table", "tr", "td"})),
-        "<table><tbody><tr><td>1</td></tr></tbody></table>",
-        id="table-implied-tbody",
-    ),
-    pytest.param(
         "<table><tr><td>x",
         Policy(tags=frozenset({"td"}), on_disallowed_tag=OnDisallowed.STRIP),
         "&lt;td&gt;x",
@@ -3298,7 +3416,6 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<table><thead>x", frozenset({"table"}), id="text-in-thead"),
     pytest.param("<table><tfoot>y", frozenset({"table"}), id="text-in-tfoot"),
     pytest.param("<table><tbody>z", frozenset({"table"}), id="text-in-tbody"),
-    pytest.param("<table><tr>q", frozenset({"table", "tr"}), id="text-in-row"),
     pytest.param("<table> </table>", frozenset({"table"}), id="whitespace-in-table-kept"),
     pytest.param("<table><style>x</style>", frozenset({"table", "style"}), id="style-kept-in-table"),
     pytest.param("<table><form>q", frozenset({"table", "form"}), id="form-kept-in-table"),
@@ -3318,16 +3435,18 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<math><mi><li>x", frozenset({"math", "mi", "li"}), id="li-under-foreign"),
     pytest.param("<applet><a>x", frozenset({"applet", "a"}), id="link-under-applet-marker"),
     pytest.param("<marquee><a>x", frozenset({"marquee", "a"}), id="link-under-marquee-marker"),
-    pytest.param("<table><td><a>x", frozenset({"table", "td", "a"}), id="link-under-cell-marker"),
-    pytest.param("<table><th><a>x", frozenset({"table", "th", "a"}), id="link-under-header-cell-marker"),
     pytest.param("<table><caption><a>x", frozenset({"table", "caption", "a"}), id="link-under-caption-marker"),
     # escaping a barrier also exposes the hoisted content's own descendants, not just its top level, to a new scan
     pytest.param("<li><header><b><li>x", frozenset({"li", "b"}), id="li-behind-unwrapped-barrier"),
     pytest.param("<dd><header><b><dt>x", frozenset({"dd", "dt", "b"}), id="dt-behind-unwrapped-barrier"),
     pytest.param("<p><button><b><div>x", frozenset({"p", "b", "div"}), id="block-behind-unwrapped-button"),
     pytest.param("<a><object><b><a>x", frozenset({"a", "b"}), id="link-behind-unwrapped-marker"),
-    # the implied link under the li escapes to nothing, and the scan must still reach the link under the ul
-    pytest.param("<a><object><b><a><li><ul></a></b>", frozenset({"a", "b", "li", "ul"}), id="link-after-empty-escape"),
+    # the nested link follows an emptied item, so the later scan has to step past that item
+    pytest.param(
+        "<nobr><object><s><nobr><dd><ul><li>x</nobr></s>",
+        frozenset({"dd", "li", "nobr", "object", "s", "ul"}),
+        id="nobr-behind-empty-escape",
+    ),
     pytest.param("<nobr><object><b><nobr>x", frozenset({"nobr", "b"}), id="nobr-behind-unwrapped-marker"),
     pytest.param("<button><select><i><button>x", frozenset({"button"}), id="button-in-button"),
     pytest.param("<optgroup><optgroup>", frozenset({"optgroup"}), id="nested-optgroup-reopens"),
@@ -3356,6 +3475,60 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<dt><p><isindex><dd>x", frozenset({"dt", "p", "dd"}), id="closed-p-pops-list-barrier"),
     pytest.param("<li><p><isindex><li>x", frozenset({"li", "p"}), id="closed-p-pops-list-item-barrier"),
 ]
+
+
+_OMITTED_WRAPPER_RULES: Final[list[pytest.ParameterSet]] = [
+    pytest.param("<table><tr>q", frozenset({"table", "tr"}), id="text-in-row"),
+    pytest.param("<table><td><a>x", frozenset({"table", "td", "a"}), id="link-under-cell-marker"),
+    pytest.param("<table><th><a>x", frozenset({"table", "th", "a"}), id="link-under-header-cell-marker"),
+]
+_OMITTED_WRAPPER_TREES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        lambda: E.div(E.table(E.th("c"))),
+        frozenset({"div", "table", "th"}),
+        "<div><table><th>c</th></table></div>",
+        id="header-cell-wraps",
+    ),
+    pytest.param(
+        lambda: E.div(E.table(E.tr(E.div("d")))),
+        frozenset({"table", "tr", "div"}),
+        "<div>&lt;div&gt;d&lt;/div&gt;<table><tr></tr></table></div>",
+        id="flow-direct-in-row",
+    ),
+    pytest.param(
+        lambda: E.div(E.span(E.table(E.td("x")))),
+        frozenset({"div", "table", "td"}),
+        "<div>&lt;span&gt;<table><td>x</td></table>&lt;/span&gt;</div>",
+        id="table-under-an-escaped-inline",
+    ),
+    pytest.param(
+        lambda: E.div(E.table(E.tr(E.td(_svg_child_named("g"))))),
+        frozenset({"div", "table", "tr", "td", "svg", "g"}),
+        "<div><table><tr><td><svg><g></g></svg></td></tr></table></div>",
+        id="foreign-content-in-a-cell",
+    ),
+]
+
+
+@pytest.mark.parametrize(("payload", "tags"), _OMITTED_WRAPPER_RULES)
+def test_omitted_wrapper_rule_is_idempotent(payload: str, tags: frozenset[str]) -> None:
+    # the serialized output is not a fixpoint here: a browser re-creates the tbody or tr the policy omits, so sanitizing
+    # the output, from a string or from a parsed node, must return it unchanged
+    policy = Policy(tags=tags)
+    once = sanitize(payload, policy)
+    assert sanitize(once, policy) == once, f"not idempotent: {once!r}"
+    node_once = sanitize_node(parse_fragment(payload), policy).inner_html
+    assert sanitize_node(parse_fragment(node_once), policy).inner_html == node_once, f"not idempotent: {node_once!r}"
+    assert _live_danger(once) == []
+
+
+@pytest.mark.parametrize(("build", "tags", "expected"), _OMITTED_WRAPPER_TREES)
+def test_omitted_wrapper_tree_is_idempotent(build: Callable[[], Element], tags: frozenset[str], expected: str) -> None:
+    policy = Policy(tags=tags)
+    once = sanitize_node(build(), policy).html
+    assert once == expected
+    assert sanitize_node(parse_fragment(once), policy).inner_html == once
+    assert _live_danger(once) == []
 
 
 @pytest.mark.parametrize(("payload", "tags"), _PARSE_STABLE_RULES)
@@ -3394,9 +3567,7 @@ _BUILT_TREE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(E.div(E.li(E.div(E.li("x")))), frozenset({"li", "div"}), id="li-through-div"),
     pytest.param(E.div(E.li(E.address(E.li("x")))), frozenset({"li", "address"}), id="li-through-address"),
     pytest.param(E.div(E.li(E.p(E.li("x")))), frozenset({"li", "p"}), id="li-through-p"),
-    pytest.param(E.div(E.table(E.th("c"))), frozenset({"table", "th"}), id="header-cell-wraps"),
     pytest.param(E.div(E.table(E.div("k"))), frozenset({"table", "div"}), id="flow-direct-in-table"),
-    pytest.param(E.div(E.table(E.tr(E.div("d")))), frozenset({"table", "tr", "div"}), id="flow-direct-in-row"),
     pytest.param(E.div(E.table(E.tbody("z"))), frozenset({"table", "tbody"}), id="text-in-tbody"),
     pytest.param(E.div(E.select(E.div(E.select("x")))), frozenset({"select", "div"}), id="select-nested-through-div"),
     pytest.param(_svg_in_table(), frozenset({"div", "table", "svg"}), id="foreign-in-table"),
@@ -3506,12 +3677,6 @@ _BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
         id="option-judged-past-a-recorded-item",
     ),
     pytest.param(
-        lambda: E.div(E.span(E.table(E.td("x")))),
-        frozenset({"div", "table", "td"}),
-        "<div>&lt;span&gt;<table><tbody><tr><td>x</td></tr></tbody></table>&lt;/span&gt;</div>",
-        id="table-under-an-escaped-inline",
-    ),
-    pytest.param(
         lambda: E.div(E.span(E.h1(E.em(E.h2("x"))))),
         frozenset({"div", "h1", "h2"}),
         "<div>&lt;span&gt;<h1>&lt;em&gt;&lt;h2&gt;x&lt;/h2&gt;&lt;/em&gt;</h1>&lt;/span&gt;</div>",
@@ -3547,12 +3712,6 @@ _BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
         "<div><form><math><mi>&lt;form&gt;&lt;section&gt;&lt;mglyph&gt;&lt;/mglyph&gt;&lt;/section&gt;&lt;/form&gt;</mi></math>"
         "</form></div>",
         id="hoisted-child-of-an-escaped-form-in-mathml",
-    ),
-    pytest.param(
-        lambda: E.div(E.table(E.tr(E.td(_svg_child_named("g"))))),
-        frozenset({"div", "table", "tr", "td", "svg", "g"}),
-        "<div><table><tbody><tr><td><svg><g></g></svg></td></tr></tbody></table></div>",
-        id="foreign-content-in-a-cell",
     ),
     pytest.param(
         lambda: E.form(E.div("x")),
@@ -3701,35 +3860,33 @@ _ESCAPED_TABLE_ORDER_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tbody><tr><td>x</td></tr></tbody></table>",
         frozenset({"table", "td"}),
-        "&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;<table><tbody><tr><td>x</td></tr></tbody></table>",
+        "&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;<table><td>x</td></table>",
         id="row-group",
     ),
     pytest.param(
         "<table><thead><tr><th>h</th></tr></thead><tfoot><tr><td>f</td></tr></tfoot></table>",
         frozenset({"table", "td", "th"}),
         "&lt;thead&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tfoot&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tfoot&gt;"
-        "<table><tbody><tr><th>h</th></tr></tbody><tbody><tr><td>f</td></tr></tbody></table>",
+        "<table><th>h</th><td>f</td></table>",
         id="head-and-foot",
     ),
     pytest.param(
         "<table><colgroup><col></colgroup><tbody><tr><td>x</td></tr></tbody></table>",
         frozenset({"table", "td", "col"}),
-        "&lt;colgroup&gt;&lt;/colgroup&gt;&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;"
-        "<table><colgroup><col></colgroup><tbody><tr><td>x</td></tr></tbody></table>",
+        "&lt;colgroup&gt;&lt;/colgroup&gt;&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;<table><col><td>x</td></table>",
         id="column-group",
     ),
     pytest.param(
         "<table><tbody><tr><td>a</td></tr><tr><td>b</td></tr></tbody></table>",
         frozenset({"table", "td"}),
-        "&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;"
-        "<table><tbody><tr><td>a</td></tr><tr><td>b</td></tr></tbody></table>",
+        "&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;<table><td>a</td><td>b</td></table>",
         id="two-rows",
     ),
     pytest.param(
         "<table><tbody><tr><td><table><tbody><tr><td>y</td></tr></tbody></table></td></tr></tbody></table>",
         frozenset({"table", "td"}),
-        "&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;<table><tbody><tr><td>&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;"
-        "<table><tbody><tr><td>y</td></tr></tbody></table></td></tr></tbody></table>",
+        "&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;<table><td>&lt;tbody&gt;&lt;tr&gt;&lt;/tr&gt;&lt;/tbody&gt;"
+        "<table><td>y</td></table></td></table>",
         id="nested-table",
     ),
     pytest.param(
@@ -3751,12 +3908,12 @@ def test_escaped_table_parts_keep_document_order(source: str, tags: frozenset[st
 _TABLE_CONTENT_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda: E.div(E.table(E.tbody(E.td("a"), Comment("c"), E.td("b")))),
-        "<div><table><tbody><tr><td>a</td><!--c--><td>b</td></tr></tbody></table></div>",
-        id="comment-between-cells-keeps-one-row",
+        "<div><table><tbody><td>a</td><!--c--><td>b</td></tbody></table></div>",
+        id="comment-between-cells-stays-in-one-group",
     ),
     pytest.param(
         lambda: E.div(E.table(E.col(), "x", E.col())),
-        "<div>x<table><colgroup><col></colgroup><colgroup><col></colgroup></table></div>",
+        "<div>x<table><col><col></table></div>",
         id="text-between-columns-closes-the-group",
     ),
 ]
@@ -3772,7 +3929,7 @@ def test_node_table_root_keeps_escaped_parts_inside() -> None:
     # a table passed in as the root has no sibling slot to foster before, so the escaped tags stay inside it
     policy = Policy(tags=frozenset({"table", "td"}))
     assert sanitize_node(E.table(E.tbody(E.tr(E.td("x")))), policy).html == (
-        "<table>&lt;tbody&gt;&lt;tr&gt;<tbody><tr><td>x</td></tr></tbody>&lt;/tr&gt;&lt;/tbody&gt;</table>"
+        "<table>&lt;tbody&gt;&lt;tr&gt;<td>x</td>&lt;/tr&gt;&lt;/tbody&gt;</table>"
     )
 
 
@@ -3804,18 +3961,18 @@ def test_strip_of_a_barrier_balances_the_hoisted_descendants() -> None:
 
 
 def test_whitespace_hoisted_into_a_table_stays_in_the_table() -> None:
-    # stripping the row group hoists its row and whitespace into the table: the row is re-wrapped in an implied tbody
-    # and the whitespace stays, since a browser keeps whitespace in table text where it is
+    # stripping the row group hoists its row and whitespace into the table: the omitted tbody is not written, and the
+    # whitespace stays, since a browser keeps whitespace in table text where it is
     policy = Policy(tags=frozenset({"table", "tr", "td"}), on_disallowed_tag=OnDisallowed.STRIP)
     once = sanitize("<table><tbody><tr><td>x</td></tr> </tbody></table>", policy)
-    assert once == "<table><tbody><tr><td>x</td></tr></tbody> </table>"
+    assert once == "<table><tr><td>x</td></tr> </table>"
 
 
 def test_comment_hoisted_into_a_table_stays_in_the_table() -> None:
     # a comment is legal table content, so the hoist into the table leaves it in place rather than fostering it out
     policy = Policy(tags=frozenset({"table", "tr", "td"}), on_disallowed_tag=OnDisallowed.STRIP, strip_comments=False)
     once = sanitize("<table><tbody><!--c--><tr><td>x</td></tr></tbody></table>", policy)
-    assert once == "<table><!--c--><tbody><tr><td>x</td></tr></tbody></table>"
+    assert once == "<table><!--c--><tr><td>x</td></tr></table>"
 
 
 def test_xml_output_keeps_a_nesting_only_html_reparsing_changes() -> None:
