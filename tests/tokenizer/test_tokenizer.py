@@ -13,6 +13,7 @@ from turbohtml import Token, Tokenizer, TokenType, tokenize
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from traced_bytes import RetainedBytes
     from work_steps import WorkSteps
 
 
@@ -650,23 +651,18 @@ def test_tag_names_are_lowercased() -> None:
     assert [next(iter(tokenize(document))).tag for document in ("<DIV>", "<SpAn>")] == ["div", "span"]
 
 
-def test_streaming_tokenizer_reclaims_consumed_input() -> None:
+def test_streaming_tokenizer_reclaims_consumed_input(retained_bytes: RetainedBytes) -> None:
     # feed() compacts the consumed prefix, so a long-lived streaming tokenizer stays memory
     # bounded instead of growing its input buffer with every chunk (issue #80).
-    # PyPy ships no _tracemalloc, and its GC frees the buffer on its own schedule, so there is
-    # no peak to assert there; the compaction itself is C and covered by the CPython run.
-    tracemalloc = pytest.importorskip("tracemalloc")
     tokenizer = Tokenizer()
     for _ in range(200):  # warm up so one-time allocations settle out of the measurement
         list(tokenizer.feed("<p>hello world</p>"))
-    tracemalloc.start()
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    retained = tracemalloc.get_traced_memory()[0]
+    retained = retained_bytes(__file__)
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    growth = tracemalloc.get_traced_memory()[0] - retained
-    tracemalloc.stop()
+    growth = retained_bytes(__file__) - retained
     # without compaction the input buffer grows by about 180 KB in the second batch
     assert growth < 100_000, f"streaming feed retained {growth} more bytes"
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -8,7 +7,7 @@ import pytest
 from turbohtml.extract import Extraction, Paragraph, boilerplate
 
 if TYPE_CHECKING:
-    from types import ModuleType
+    from traced_bytes import RetainedBytes
 
 
 _PROSE: Final[str] = (
@@ -265,19 +264,11 @@ def test_boilerplate_classifies_owned_text() -> None:
     ]
 
 
-def test_boilerplate_releases_text_snapshots() -> None:
-    # PyPy lacks tracemalloc and reclaims objects on a different schedule.
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+def test_boilerplate_releases_text_snapshots(retained_bytes: RetainedBytes) -> None:
     page: Final = f'<article><p>{"A comet passes near the Sun. " * 256}<a href="/more">more</a></p></article>'
-    tracing.start()
-    try:
-        for _ in range(128):
-            boilerplate(page)
-        gc.collect()
-        before: Final = tracing.get_traced_memory()[0]
-        for _ in range(128):
-            boilerplate(page)
-        gc.collect()
-        assert tracing.get_traced_memory()[0] - before < 256 * 1024
-    finally:
-        tracing.stop()
+    for _ in range(128):
+        boilerplate(page)
+    before: Final = retained_bytes()
+    for _ in range(128):
+        boilerplate(page)
+    assert retained_bytes() - before < 256 * 1024

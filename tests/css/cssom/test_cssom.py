@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 from functools import partial
 from typing import TYPE_CHECKING, Final
 
@@ -13,8 +12,8 @@ from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from types import ModuleType
 
+    from traced_bytes import PeakBytes, RetainedBytes
     from work_steps import WorkSteps
 
     from turbohtml import Document
@@ -1335,28 +1334,22 @@ def test_computed_style_selector_shared_inputs(case_index: int, expected: tuple[
     assert tuple(computed_style(node)["color"] for node in document.select("div")) == expected
 
 
-def test_computed_style_repeated_missing_has_bounds_retained_memory() -> None:
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+def test_computed_style_repeated_missing_has_keeps_memory_flat(retained_bytes: RetainedBytes) -> None:
     document: Final = parse(
         f"<style>div{{color:blue}}div:has(.absent){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     nodes: Final = tuple(document.select("div"))[:3]
-    tracing.start()
-    try:
+    _compute_style_rounds(nodes, 1)
+    before: Final = retained_bytes()
+    _compute_style_rounds(nodes, 4_096)
+    assert retained_bytes() - before < 32_768
+    assert tuple(computed_style(node)["color"] for node in nodes) == ("blue",) * 3
+
+
+def _compute_style_rounds(nodes: tuple[Element, ...], rounds: int) -> None:
+    for _ in range(rounds):
         for node in nodes:
             computed_style(node)
-        gc.collect()
-        before: Final = tracing.get_traced_memory()[0]
-        for _ in range(1_024):
-            for node in nodes:
-                computed_style(node)
-        gc.collect()
-        retained: Final = tracing.get_traced_memory()[0] - before
-    finally:
-        tracing.stop()
-    assert (tuple(computed_style(node)["color"] for node in nodes), retained < 32_768) == (("blue",) * 3, True), (
-        retained
-    )
 
 
 @pytest.mark.parametrize(
@@ -1465,15 +1458,19 @@ def test_computed_style_foreign_style_reads_its_text_children_only(html: str, ex
     assert {name: style[name] for name in expected} == expected
 
 
-def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
-    document: Final = parse(f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>")
-    tracing.start()
-    try:
-        computed_style(document.select("p")[0])
-        peak: Final = tracing.get_traced_memory()[1]
-    finally:
-        tracing.stop()
+def test_computed_style_nested_foreign_style_stays_within_memory_budget(
+    peak_bytes: PeakBytes,
+) -> None:
+    peak: Final = peak_bytes(
+        "import tracemalloc\n"
+        "from turbohtml import parse\n"
+        "from turbohtml.cssom import computed_style\n"
+        "document = parse('<p></p><svg>' + '<style>' * 200 + 'a{}' * 1000 + '</style>' * 200 + '</svg>')\n"
+        "tracemalloc.start()\n"
+        "computed_style(document.select('p')[0])\n"
+        "print(tracemalloc.get_traced_memory()[1])\n",
+        (),
+    )
     assert peak < 16 * 1024 * 1024, peak
 
 
