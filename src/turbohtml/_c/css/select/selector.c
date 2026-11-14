@@ -6,6 +6,8 @@
 #include "core/work_steps.h"
 #include "css/select/selector.h"
 
+#include <limits.h>
+
 #if defined(_MSC_VER)
 #define TH_NOINLINE __declspec(noinline)
 #elif defined(__GNUC__) || defined(__clang__)
@@ -430,12 +432,14 @@ static int sel_kw(const Py_UCS4 *name, Py_ssize_t len, const char *kw) {
     return 1;
 }
 
-/* Read a run of ASCII digits as a non-negative int; *seen reports any digit. */
+/* Read a run of ASCII digits as a non-negative int, saturating at INT_MAX rather
+   than overflowing; *seen reports any digit. */
 static int sel_read_int(sel_parser *parser, int *seen) {
     int value = 0;
     *seen = 0;
     while (parser->pos < parser->len && parser->src[parser->pos] >= '0' && parser->src[parser->pos] <= '9') {
-        value = value * 10 + (int)(parser->src[parser->pos] - '0');
+        const int digit = (int)(parser->src[parser->pos] - '0');
+        value = value > (INT_MAX - digit) / 10 ? INT_MAX : value * 10 + digit;
         parser->pos++;
         *seen = 1;
     }
@@ -1394,12 +1398,14 @@ static int sel_nth_index(th_node *node, int direction, int of_type, const sel_si
     return index;
 }
 
-/* Whether a 1-based index satisfies An+B for some non-negative n. */
+/* Whether a 1-based index satisfies An+B for some non-negative n. The difference
+   is taken in 64 bits: index - b leaves the int range for a b near INT_MIN, and
+   INT_MIN % -1 is a hardware divide error on x86. */
 static int sel_nth_matches(int a, int b, int index) {
     if (a == 0) {
         return index == b;
     }
-    int diff = index - b;
+    const long long diff = (long long)index - b;
     return diff % a == 0 && diff / a >= 0;
 }
 
