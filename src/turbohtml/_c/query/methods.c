@@ -131,9 +131,12 @@ restart:;
             selector_free(entry.compiled);
             entry.compiled = fresh;
             entry.attr_gen = gen;
+            handle->sel_cache[index] = entry;
         }
-        memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
-        handle->sel_cache[0] = entry;
+        if (index > 0) {
+            memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
+            handle->sel_cache[0] = entry;
+        }
         return entry.compiled;
     }
     if (handle->sel_cache_len == SEL_CACHE_CAP) {
@@ -223,7 +226,9 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
             }
         }
     }
-    sel_memo_free(&memo.table);
+    if (memo.table.slots != NULL) {
+        sel_memo_free(&memo.table);
+    }
     if (error) { /* GCOVR_EXCL_START: append_wrapped failed to allocate */
         return -1;
     } /* GCOVR_EXCL_STOP */
