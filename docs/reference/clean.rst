@@ -387,8 +387,7 @@ Both are value-safe at any baseline; the optional :class:`CSSMinify` ``baseline`
 *syntax* may be.
 
 A minified ``<style>`` body ends where its source ended. A ``<`` keeps a space before a following ``/``, and a
-stylesheet whose minified form would spell a ``</style`` its input lacks, for example by dropping a line continuation
-inside a string, comes back unchanged.
+stylesheet whose minified form would spell a ``</style`` comes back unchanged, whether or not its source spells one.
 
 The minifier descends at most 100 levels: the style sheet is the first, and each ``{}`` block, function call nested in
 another function's arguments, and parenthesis inside ``calc()`` adds one. Past that depth it drops the over-nested block
