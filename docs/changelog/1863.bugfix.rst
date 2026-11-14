@@ -1,2 +1,2 @@
-Keep the content that follows a ``<colgroup>`` or ``<col>`` the parser refuses at its nesting limit, instead of dropping
-it.
+Keep the content that follows a ``<colgroup>``, ``<col>``, ``<caption>`` or ``<template>`` the parser refuses at its
+nesting limit, instead of dropping it.

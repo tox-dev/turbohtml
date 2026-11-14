@@ -1770,23 +1770,42 @@ def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
     assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
 
 
-# mirrors TH_MAX_TREE_DEPTH in src/turbohtml/_c/dom/tree.h
-_DEPTH_CAP: Final[int] = 512
+_CAPPED_PARSES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(parse, _DEPTH_CAP - 3, id="document"),
+    pytest.param(partial(parse_fragment, context="div"), _DEPTH_CAP - 2, id="fragment"),
+]
 
 
+@pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
+@pytest.mark.parametrize("shallower", [pytest.param(0, id="at-cap"), pytest.param(1, id="one-shallower")])
 @pytest.mark.parametrize(
-    ("make", "nesting"),
+    ("prefix", "text"),
     [
-        pytest.param(parse, _DEPTH_CAP - 3, id="document"),
-        pytest.param(partial(parse_fragment, context="div"), _DEPTH_CAP - 2, id="fragment"),
+        pytest.param("<table><colgroup>", "cellafter", id="colgroup"),
+        pytest.param("<table><col id=c1>", "cellafter", id="col"),
+        pytest.param("<table><caption>c</caption>", "ccellafter", id="caption"),
+        pytest.param("<table><template><col></template>", "cellafter", id="template-in-table"),
+        pytest.param("<template><col></template>", "cellafter", id="template-in-body"),
     ],
 )
-@pytest.mark.parametrize("entry", [pytest.param("<colgroup>", id="colgroup"), pytest.param("<col>", id="col")])
-def test_table_column_rejected_at_depth_cap_keeps_later_content(
-    make: Callable[[str], Document | DocumentFragment], nesting: int, entry: str
+def test_table_part_rejected_at_depth_cap_keeps_later_content(
+    make: Callable[[str], Document | DocumentFragment], nesting: int, shallower: int, prefix: str, text: str
 ) -> None:
-    root = make(f"{'<div>' * nesting}<table>{entry}<p>tail")
-    assert root.text == "tail"
+    tail = "<table><col span=2 id=c2><tr><td>cell</td></tr></table><p>after"
+    root = make(f"{'<div>' * (nesting - shallower)}{prefix}{tail}")
+    assert root.text == text
+
+
+@pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
+def test_col_rejected_at_depth_cap_keeps_its_table_and_attributes(
+    make: Callable[[str], Document | DocumentFragment], nesting: int
+) -> None:
+    table = make(f"{'<div>' * nesting}<table><col span=2><col id=c2>").find("table")
+    assert table is not None
+    assert [(child.tag, dict(child.attrs)) for child in table.children if isinstance(child, Element)] == [
+        ("col", {"span": "2"}),
+        ("col", {"id": "c2"}),
+    ]
 
 
 def test_capped_parse_round_trips_through_serialization() -> None:
