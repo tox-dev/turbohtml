@@ -118,12 +118,13 @@ enum {
 typedef struct {
     const char *open;
     const char *close;
-    th_node *node;      /* the wrapped element when it has an HTML fallback, else NULL */
-    Py_ssize_t open_at; /* where the open run was written in out */
-    uint8_t html;       /* enum md_html */
-    uint8_t flags;      /* MD_MARK_* */
-    uint8_t emitted;    /* the open run was written, so the close run must be too */
-    uint8_t spanning;   /* HTML marker for deep nesting */
+    th_node *node;       /* the wrapped element when it has an HTML fallback, else NULL */
+    Py_ssize_t open_at;  /* where the open run was written in out */
+    Py_ssize_t open_len; /* how many code points it takes there: open is UTF-8, so not its strlen */
+    uint8_t html;        /* enum md_html */
+    uint8_t flags;       /* MD_MARK_* */
+    uint8_t emitted;     /* the open run was written, so the close run must be too */
+    uint8_t spanning;    /* HTML marker for deep nesting */
 } md_marker;
 
 /* The layout state one list threads through its items, including the items it
@@ -692,6 +693,7 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
         } else {
             md_puts8(&ctx->out, marker->open);
         }
+        marker->open_len = ctx->out.len - marker->open_at;
         marker->emitted = 1;
         ctx->open_markers++;
         ctx->line_has_content = 1;
@@ -1374,8 +1376,9 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
 
 /* Rewrite a written open run as the element's raw-HTML tag, moving the content after
    it and every recorded output offset past it along. */
-static void md_rewrite_open(md_ctx *ctx, md_marker *marker, Py_ssize_t open_len) {
+static void md_rewrite_open(md_ctx *ctx, md_marker *marker) {
     const char *open = MD_HTML_TAGS[marker->html - 1][0];
+    Py_ssize_t open_len = marker->open_len;
     Py_ssize_t shift = (Py_ssize_t)strlen(open) - open_len;
     const Py_UCS4 *old_data = ctx->out.data;
     sbuf_reserve(&ctx->out, shift);
@@ -1399,6 +1402,7 @@ static void md_rewrite_open(md_ctx *ctx, md_marker *marker, Py_ssize_t open_len)
     ctx->line_start = 0;
     ctx->line_checked = 0;
     marker->open = open;
+    marker->open_len = open_len + shift;
     marker->close = MD_HTML_TAGS[marker->html - 1][1];
 }
 
@@ -1421,8 +1425,10 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
         return;
     }
     const Py_UCS4 *data = ctx->out.data;
-    Py_UCS4 delimiter = (unsigned char)marker->open[0];
-    Py_ssize_t open_len = (Py_ssize_t)strlen(marker->open);
+    /* the run is read back as written: a configured wrapper may be non-ASCII, and out
+       holds it decoded, one element per code point */
+    Py_UCS4 delimiter = data[marker->open_at];
+    Py_ssize_t open_len = marker->open_len;
     /* md_put_close moves a close that would follow a hard break in front of it */
     int moved = ctx->out.len == ctx->break_end && data == ctx->break_data;
     Py_ssize_t close_at = moved ? ctx->break_start : ctx->out.len;
@@ -1470,7 +1476,7 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
            not sum to a multiple of 3, unless both lengths are (CommonMark 6.2 rule 9); with
            the sum a multiple of 3, the opener's length decides both */
         Py_ssize_t open_run = run_end - run_start;
-        Py_ssize_t close_run = close_at - 1 - last + (Py_ssize_t)strlen(marker->close);
+        Py_ssize_t close_run = close_at - 1 - last + open_len; /* a delimiter closes with the run it opens with */
         if (settled && (md_run_closes(before, after, star) || md_run_opens(data[last], follow, star)) &&
             (open_run + close_run) % 3 == 0 && open_run % 3 != 0) {
             settled = 0;
@@ -1502,7 +1508,7 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
         settled = 0;
     }
     if (!settled) {
-        md_rewrite_open(ctx, marker, open_len);
+        md_rewrite_open(ctx, marker);
     }
 }
 
@@ -2715,9 +2721,7 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
             if (!marker->emitted || marker->node == NULL) {
                 continue;
             }
-            const char *open = marker->open;
-            Py_ssize_t open_len = (Py_ssize_t)strlen(open);
-            if (md_edge(ctx->out.data[marker->open_at + open_len]) == MD_EDGE_SPACE) {
+            if (md_edge(ctx->out.data[marker->open_at + marker->open_len]) == MD_EDGE_SPACE) {
                 sbuf_puts(&ctx->out, "<br>");
                 ctx->line_has_content = 1;
                 return;

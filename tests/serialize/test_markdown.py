@@ -3564,6 +3564,24 @@ def test_bullets(html: str, opts: Markdown, expected: str) -> None:
             "!<em>x</em>", Markdown(inline=Markdown.Inline(emphasis="[[")), "![[x[[", id="bang-before-custom-brackets"
         ),
         pytest.param(
+            "<p>a<b>x</b>b</p>",
+            Markdown(inline=Markdown.Inline(strong="•")),
+            "a•x•b",
+            id="strong-non-ascii-short-run",
+        ),
+        pytest.param(
+            "<p>a<i>x</i>b</p>",
+            Markdown(inline=Markdown.Inline(emphasis="é")),
+            "aéxéb",
+            id="emphasis-non-ascii-short-run",
+        ),
+        pytest.param(
+            "<p><b>&nbsp;x<br>y</b></p>",
+            Markdown(inline=Markdown.Inline(strong="•")),
+            "<strong>\u00a0x<br>y</strong>",
+            id="strong-non-ascii-falls-back-to-html",
+        ),
+        pytest.param(
             "<p>a<b>x</b><i>y</i><s>z</s>b</p>",
             Markdown(inline=Markdown.Inline(ignore_emphasis=True)),
             "axyzb",
