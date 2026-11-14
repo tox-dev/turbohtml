@@ -2042,6 +2042,23 @@ static int compare_bleach_origins(const void *left, const void *right) {
     return (first->name_atom > second->name_atom) - (first->name_atom < second->name_atom);
 }
 
+/* The source span the tokenizer recorded for `attr`, a slot of `element`'s attribute array, or NULL when the start tag
+   has none. Removing attributes compacts the array, so the span can sit past the slot. Only URL-valued names are looked
+   up after a removal, and each occurs at most once per tag, so walking forward from the slot, wrapping at the end,
+   keeps the total walk linear in the attribute count. */
+static const th_src_attr *bleach_source_attr(const th_src_loc *location, const th_node *element,
+                                             const th_node_attr *attr) {
+    Py_ssize_t count = location->attr_count;
+    Py_ssize_t slot = attr - element->attrs;
+    for (Py_ssize_t seen = 0; seen < count; seen++, slot++) { /* GCOVR_EXCL_BR_LINE: tokenizer supplies the span */
+        const th_src_attr *source = &location->attrs[slot % count];
+        if (source->name_atom == attr->name_atom) {
+            return source;
+        }
+    }
+    return NULL; /* GCOVR_EXCL_LINE: a parsed attribute has a source span */
+}
+
 static int collect_bleach_origins(sanitizer *s, th_node *root) {
     Py_ssize_t count = 0;
     int has_clone = 0;
@@ -2067,13 +2084,10 @@ static int collect_bleach_origins(sanitizer *s, th_node *root) {
         }
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
             th_node_attr *attr = &node->attrs[index];
-            Py_ssize_t source_count = location->attr_count;
-            for (Py_ssize_t source_index = 0; source_index < source_count; source_index++) { /* GCOVR_EXCL_BR_LINE */
-                if (location->attrs[source_index].name_atom == attr->name_atom) {
-                    s->bleach_origins[s->bleach_origin_count++] =
-                        (bleach_origin){attr->value, attr->name_atom, location->attrs[source_index].span};
-                    break;
-                }
+            const th_src_attr *source = bleach_source_attr(location, node, attr);
+            if (source != NULL) { /* GCOVR_EXCL_BR_LINE: a parsed attribute has a source span */
+                s->bleach_origins[s->bleach_origin_count++] =
+                    (bleach_origin){attr->value, attr->name_atom, source->span};
             }
         }
     }
@@ -2098,12 +2112,9 @@ static PyObject *bleach_raw_value(sanitizer *s, th_node *element, th_node_attr *
     }
     int kind, has_nul;
     const void *data = th_tree_source_data(s->tree, &kind, &has_nul);
-    Py_ssize_t count = location == NULL ? 1 : location->attr_count;
-    for (Py_ssize_t index = 0; index < count; index++) { /* GCOVR_EXCL_BR_LINE */
-        if (location != NULL && location->attrs[index].name_atom != attr->name_atom) {
-            continue;
-        }
-        th_src_span span = location == NULL ? origin_span : location->attrs[index].span;
+    const th_src_attr *source = location == NULL ? NULL : bleach_source_attr(location, element, attr);
+    if (location == NULL || source != NULL) { /* GCOVR_EXCL_BR_LINE: a parsed attribute has a source span */
+        th_src_span span = location == NULL ? origin_span : source->span;
         Py_ssize_t start = span.start_offset + name_length;
         Py_ssize_t end = span.end_offset;
         while (start < end && PyUnicode_READ(kind, data, start) != '=') {
@@ -2259,15 +2270,11 @@ static int bleach_url_has_raw_amp(sanitizer *s, th_node *element, th_node_attr *
         }
         span = found->span;
     } else {
-        Py_ssize_t index = 0;
-        while (index < location->attr_count && /* GCOVR_EXCL_BR_LINE: tokenizer supplies the matching span */
-               location->attrs[index].name_atom != attr->name_atom) {
-            index++;
+        const th_src_attr *source = bleach_source_attr(location, element, attr);
+        if (source == NULL) { /* GCOVR_EXCL_BR_LINE: a parsed attribute has a source span */
+            return 1;         /* GCOVR_EXCL_LINE: tokenizer supplies the matching span */
         }
-        if (index == location->attr_count) { /* GCOVR_EXCL_BR_LINE: a parsed attribute has a source span */
-            return 1;                        /* GCOVR_EXCL_LINE: tokenizer supplies the matching span */
-        }
-        span = location->attrs[index].span;
+        span = source->span;
     }
     int kind, has_nul;
     const void *data = th_tree_source_data(s->tree, &kind, &has_nul);
