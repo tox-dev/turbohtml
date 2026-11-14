@@ -778,6 +778,16 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "ws://gateway.example/x/alt:%2e%2e/t",
             id="remainder-colon-segment",
         ),
+        pytest.param(
+            "ws:x%2e?y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e?y:z", id="colon-after-query-mark"
+        ),
+        pytest.param(
+            "ws:x%2e#y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e#y:z", id="colon-after-fragment-mark"
+        ),
+        pytest.param(
+            "ws:x%2e\\y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e/y:z", id="colon-after-backslash"
+        ),
+        pytest.param("ws:%2e", "ws://gateway.example/x/y", "ws://gateway.example/x/", id="bare-encoded-dot"),
         pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
         pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
         pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
