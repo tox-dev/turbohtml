@@ -342,48 +342,11 @@ void th_tree_structure_changed(th_tree *tree) {
     tree->structure_version++;
 }
 
-static Py_ssize_t th_tree_walk_depth(th_node *document) {
-    Py_ssize_t deepest = 0;
-    Py_ssize_t depth = 0;
-    th_node *node = document;
-    for (;;) {
-        TH_WORK_STEP();
-        if (node->first_child != NULL) {
-            node = node->first_child;
-            depth++;
-            if (depth > deepest) {
-                deepest = depth;
-            }
-            continue;
-        }
-        while (node != document && node->next_sibling == NULL) {
-            node = node->parent;
-            depth--;
-        }
-        if (node == document) {
-            return deepest;
-        }
-        node = node->next_sibling;
-    }
-}
-
 th_node *th_node_root(th_node *node) {
     while (node->parent != NULL) {
         node = node->parent;
     }
     return node;
-}
-
-Py_ssize_t th_tree_max_depth(th_tree *tree, th_node *root) {
-    if (tree->depth_key == tree->structure_version + 1 && tree->depth_root == root) {
-        assert(tree->depth_walked == th_tree_walk_depth(root)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; a
-                                                                   mutation path that skipped its version bump */
-    } else {
-        tree->depth_walked = th_tree_walk_depth(root);
-        tree->depth_root = root;
-        tree->depth_key = tree->structure_version + 1;
-    }
-    return tree->max_depth > tree->depth_walked ? tree->max_depth : tree->depth_walked;
 }
 
 /* Whether some descendant of origin sits at least TH_HAS_MEMO_DEPTH levels below it. Walks down the first-child

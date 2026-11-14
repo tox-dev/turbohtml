@@ -2323,7 +2323,7 @@ static inline void query_unlink(th_tree *tree, th_node *node, int iterators) {
     if (iterators) {
         th_node_remove_silent(tree, node);
     } else {
-        th_node_remove(node);
+        th_node_remove(tree, node);
     }
 }
 
@@ -2462,7 +2462,7 @@ static void unwrap_matches(th_tree *tree, const node_snapshot *snapshot, int ite
         while (node->first_child != NULL) {
             th_node *child = node->first_child;
             query_unlink(tree, child, iterators);
-            th_node_insert_before(parent, child, node);
+            th_node_insert_before(tree, parent, child, node);
         }
         query_unlink(tree, node, iterators);
     }

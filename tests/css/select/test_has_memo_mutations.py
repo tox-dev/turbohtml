@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Element, Range, parse
+from turbohtml import Comment, Element, Range, Text, parse
+from turbohtml.clean import linkify_node, strip_comments_node
 from turbohtml.cssom import computed_style
 from turbohtml.etree import ElementView
 
@@ -19,7 +20,14 @@ if TYPE_CHECKING:
 
 _QUERIES: Final[tuple[str, ...]] = ("div:has(p)", "div:has(> span)", "b:has(i)", "span:has(b)")
 _TAGS: Final[tuple[str, ...]] = ("div", "span", "b", "i")
-_SNIPPETS: Final[tuple[str, ...]] = ("<p>x</p>", "<b><i>y</i></b>", "<span>z</span>", "x")
+_SNIPPETS: Final[tuple[str, ...]] = (
+    "<p>x</p>",
+    "<b><i>y</i></b>",
+    "<span>z</span>",
+    "x",
+    "<!--c-->",
+    "see https://example.com now",
+)
 _CANDIDATES: Final[str] = "body div, body span, body b, body i"
 _STEPS: Final[int] = 90
 
@@ -103,6 +111,26 @@ def _view_mutate(walk: _Walk) -> None:
     view.replace(view[0], ElementView(_tag(walk)))
 
 
+def _comment(walk: _Walk) -> None:
+    _pick(walk).append(Comment("c"))
+
+
+def _text(walk: _Walk) -> None:
+    _pick(walk).append(Text(walk.rng.choice(("a", ""))))
+
+
+def _strip_comments(walk: _Walk) -> None:
+    strip_comments_node(_pick(walk))
+
+
+def _normalize(walk: _Walk) -> None:
+    _pick(walk).normalize()
+
+
+def _linkify(walk: _Walk) -> None:
+    linkify_node(_pick(walk))
+
+
 _OPERATIONS: Final[tuple[Callable[[_Walk], None], ...]] = (
     _deepen,
     _deepen,
@@ -121,6 +149,11 @@ _OPERATIONS: Final[tuple[Callable[[_Walk], None], ...]] = (
     _range_delete,
     _range_surround,
     _view_mutate,
+    _comment,
+    _text,
+    _strip_comments,
+    _normalize,
+    _linkify,
 )
 
 
@@ -186,6 +219,33 @@ def _comparisons(walk: _Walk) -> list[tuple[str, list[str], list[str]]]:
                 [node.html for node in reference_root.select(query)],
             ))
     return pairs
+
+
+@pytest.mark.parametrize(
+    ("chain", "bottom", "mutate"),
+    [
+        pytest.param(23, lambda: Comment("c"), strip_comments_node, id="strip-comments"),
+        pytest.param(23, lambda: Text(""), lambda node: node.normalize(), id="normalize"),
+        pytest.param(22, lambda: Text("see https://example.com now"), linkify_node, id="linkify"),
+    ],
+)
+def test_has_memo_after_mutator_that_changes_depth_matches_fresh_copy(
+    chain: int, bottom: Callable[[], Element | Text | Comment], mutate: Callable[[Element], object]
+) -> None:
+    origin: Final = parse("<body><div id=o></div></body>").select_one("#o")
+    assert isinstance(origin, Element)
+    links: Final[list[Element]] = []
+    innermost: Element = origin
+    for _ in range(chain):
+        child: Final = Element("i")
+        innermost.append(child)
+        links.append(child)
+        innermost = child
+    links[chain - 2].append(Element("b"))
+    innermost.append(bottom())
+    assert len(origin.select("i:has(b)")) == chain - 1
+    mutate(origin)
+    assert len(origin.select("i:has(b)")) == len(copy.deepcopy(origin).select("i:has(b)"))
 
 
 def test_computed_style_two_has_rules_on_one_element_later_wins() -> None:

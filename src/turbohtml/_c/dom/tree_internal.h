@@ -105,10 +105,9 @@ struct th_tree {
     Py_ssize_t open_cap;
     Py_ssize_t max_depth;       /* peak open-element nesting seen while parsing; a cheap O(1)
                                    lower bound on element depth that gates the :has() subtree memo */
-    uint64_t structure_version; /* bumped by handle_drop_index on every structural mutation of a live tree */
-    uint64_t depth_key;         /* structure_version + 1 when depth_walked was computed; 0 before the first walk */
-    th_node *depth_root;        /* the root depth_walked was measured from */
-    Py_ssize_t depth_walked;    /* deepest node below depth_root at depth_key */
+    uint64_t structure_version; /* bumped by each link edit made through the dom/mutate.c primitives (remove, append,
+                                   insert_before and their silent and observed variants); the parser's own edits run
+                                   before any handle queries the tree, so they need no bump */
     uint64_t reach_key;         /* structure_version + 1 when reach_result was computed; 0 before the first walk */
     th_node *reach_origin;      /* the origin reach_result was measured from */
     int reach_result;           /* whether a node lies TH_HAS_MEMO_DEPTH levels below reach_origin */

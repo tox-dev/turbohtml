@@ -208,7 +208,6 @@ int selector_matches_alt(th_node *node, const sel_complex *complex, const sel_ct
    the three out-parameters (they must start zeroed). Shared by _css_specificity and
    the CSSOM cascade. */
 void sel_specificity(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c);
-int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth);
 /* The memo only earns its keep where nesting is deep enough that candidate anchors'
    subtrees overlap heavily -- there the re-walk factor (how many nested anchors re-scan
    a node) dwarfs a hash probe. Shallower than this the direct walk wins, so a candidate

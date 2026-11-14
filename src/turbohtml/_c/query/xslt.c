@@ -2098,7 +2098,7 @@ static int emit_text(engine *eng, th_node *out_parent, const Py_UCS4 *data, Py_s
     if (node == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    th_node_append_child(out_parent, node);
+    th_node_append_child(eng->out_tree, out_parent, node);
     return 0;
 }
 
@@ -2176,7 +2176,7 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
     if (copy == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    th_node_append_child(out_parent, copy);
+    th_node_append_child(eng->out_tree, out_parent, copy);
     return 0;
 }
 
@@ -2205,7 +2205,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
                     if (copy == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
                         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
                     }
-                    th_node_append_child(out_parent, copy);
+                    th_node_append_child(eng->out_tree, out_parent, copy);
                 }
                 return 0;
             }
@@ -2419,8 +2419,8 @@ static int instantiate_without_element(engine *eng, th_node *instruction, th_nod
     }
     while (holder->first_child != NULL) {
         th_node *child = holder->first_child;
-        th_node_remove(child);
-        th_node_append_child(out_parent, child);
+        th_node_remove(eng->out_tree, child);
+        th_node_append_child(eng->out_tree, out_parent, child);
     }
     return 0;
 }
@@ -2447,7 +2447,7 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     if (element == NULL) {                 /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    th_node_append_child(out_parent, element);
+    th_node_append_child(eng->out_tree, out_parent, element);
     Py_ssize_t use_len = 0;
     const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
     if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
@@ -2618,7 +2618,7 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
         if (element == NULL) {                 /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        th_node_append_child(out_parent, element);
+        th_node_append_child(eng->out_tree, out_parent, element);
         Py_ssize_t use_len = 0;
         const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
         if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
@@ -2631,7 +2631,7 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
         if (copy == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        th_node_append_child(out_parent, copy);
+        th_node_append_child(eng->out_tree, out_parent, copy);
         return 0;
     }
     /* The document/root node copies as nothing; its body instantiates into the output. */
@@ -2675,7 +2675,7 @@ static int do_comment(engine *eng, th_node *instruction, th_node *out_parent) {
     if (node == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    th_node_append_child(out_parent, node);
+    th_node_append_child(eng->out_tree, out_parent, node);
     return 0;
 }
 
@@ -2713,7 +2713,7 @@ static int do_pi(engine *eng, th_node *instruction, th_node *out_parent) {
     if (node == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    th_node_append_child(out_parent, node);
+    th_node_append_child(eng->out_tree, out_parent, node);
     return 0;
 }
 
@@ -4768,7 +4768,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
     }
-    th_node_append_child(out_parent, copy);
+    th_node_append_child(eng->out_tree, out_parent, copy);
     return instantiate_body(eng, element, copy);
 }
 
@@ -4894,7 +4894,7 @@ static int emit_literal_text(engine *eng, th_node *out_parent, const th_node *li
     /* The compiled snapshot outlives serialization and result-tree cleanup. */
     node->text = literal->text;
     node->text_len = literal->text_len;
-    th_node_append_child(out_parent, node);
+    th_node_append_child(eng->out_tree, out_parent, node);
     return 0;
 }
 
@@ -5897,7 +5897,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
             if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
                 return -1;      /* GCOVR_EXCL_LINE */
             }
-            th_node_append_child(eng->src_root, copy);
+            th_node_append_child(eng->src_tree, eng->src_root, copy);
         }
         eng->src_tree = eng->source_snapshot;
     }
@@ -6199,7 +6199,7 @@ static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
                     PyMem_Free(frames);                                           /* GCOVR_EXCL_LINE */
                     return -1;                                                    /* GCOVR_EXCL_LINE */
                 }
-                th_node_remove(child);
+                th_node_remove(eng->out_tree, child);
             }
         } else if (child->type == TH_NODE_ELEMENT && /* GCOVR_EXCL_BR_LINE: failure requires allocation exhaustion */
                    strip_push(eng, &frames, &length, &capacity, child, frame->preserve) < 0) {
@@ -6372,9 +6372,9 @@ static void strip_restore(engine *eng) {
     for (Py_ssize_t index = eng->nstripped - 1; index >= 0; index--) {
         struct strip_entry *entry = &eng->stripped[index];
         if (entry->next != NULL) {
-            th_node_insert_before(entry->parent, entry->node, entry->next);
+            th_node_insert_before(eng->out_tree, entry->parent, entry->node, entry->next);
         } else {
-            th_node_append_child(entry->parent, entry->node);
+            th_node_append_child(eng->out_tree, entry->parent, entry->node);
         }
     }
 }

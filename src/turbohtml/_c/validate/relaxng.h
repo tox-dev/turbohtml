@@ -1314,7 +1314,7 @@ static void rng_prune_annotations(th_schema *schema, th_node *container) {
         if (child->type == TH_NODE_ELEMENT) {
             qname name = schema_direct_qname(schema, child);
             if (!u_eq_ascii(name.uri, name.uri_len, RNG_NS)) {
-                th_node_remove(child);
+                th_node_remove(schema->tree, child);
             } else {
                 schema->rng_references |= (u_eq_ascii(name.local, name.local_len, "include") ||
                                            u_eq_ascii(name.local, name.local_len, "externalRef")) &&

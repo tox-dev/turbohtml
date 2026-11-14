@@ -2613,15 +2613,6 @@ int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ct
     return sel_matches_alts(node, compiled->alts, compiled->count, ctx);
 }
 
-/* Whether a query over this compiled selector should build the :has() subtree memo: the
-   selector must contain a :has(), and the tree must nest at least SEL_HAS_MEMO_MIN_DESCENT
-   deep -- only then does a candidate anchor's subtree re-walk (the O(n^2) source) reach far
-   enough to memoize. On shallower trees the direct walk already wins, so the driver leaves
-   ctx->has_memo NULL and the matcher runs the exact pre-memo path with no added per-node cost. */
-int selector_uses_has_memo(const sel_compiled *compiled, Py_ssize_t depth) {
-    return compiled->has_relational && depth >= SEL_HAS_MEMO_MIN_DESCENT;
-}
-
 int selector_uses_scope(const sel_compiled *compiled) {
     int uses_scope = 0;
     for (int alt = 0; alt < compiled->count; alt++) {

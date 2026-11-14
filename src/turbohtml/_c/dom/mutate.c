@@ -448,15 +448,18 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     return 1;
 }
 
-void th_node_remove(th_node *child) {
+void th_node_remove(th_tree *tree, th_node *child) {
+    th_tree_structure_changed(tree);
     node_remove(child);
 }
 
-void th_node_append_child(th_node *parent, th_node *child) {
+void th_node_append_child(th_tree *tree, th_node *parent, th_node *child) {
+    th_tree_structure_changed(tree);
     node_append(parent, child);
 }
 
-void th_node_insert_before(th_node *parent, th_node *child, th_node *ref) {
+void th_node_insert_before(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
+    th_tree_structure_changed(tree);
     node_insert_before(parent, child, ref);
 }
 
@@ -565,6 +568,7 @@ static TH_NOINLINE void run_pre_removing_steps(th_tree *tree, th_node *child) {
 }
 
 void th_node_remove_silent(th_tree *tree, th_node *child) {
+    th_tree_structure_changed(tree);
     if (tree->node_iterator_count > 0) {
         run_pre_removing_steps(tree, child);
     }
@@ -579,6 +583,7 @@ void th_node_remove_observed(th_tree *tree, th_node *child) {
 }
 
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
+    th_tree_structure_changed(tree);
     node_append(parent, child);
     th_mo_child_inserted(tree, parent, child);
 }
@@ -744,6 +749,7 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
 }
 
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
+    th_tree_structure_changed(tree);
     node_insert_before(parent, child, ref);
     th_mo_child_inserted(tree, parent, child);
 }
@@ -1255,7 +1261,7 @@ static inline void normalize_unlink(th_tree *tree, th_node *child, int iterators
     if (iterators) {
         th_node_remove_silent(tree, child);
     } else {
-        node_remove(child);
+        th_node_remove(tree, child);
     }
 }
 

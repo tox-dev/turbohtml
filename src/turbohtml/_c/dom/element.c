@@ -2896,7 +2896,7 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
             copy = NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
             break;                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        th_node_append_child(copy, child_copy);
+        th_node_append_child(((HandleObject *)dest_handle)->tree, copy, child_copy);
     }
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         handle_drop_index(source_handle);
@@ -4086,10 +4086,10 @@ static th_tree *parse_xml_fragment_in_context(PyObject *self, th_node *context, 
     th_node *wrapper = document->first_child;
     while (wrapper->first_child != NULL) {
         th_node *child = wrapper->first_child;
-        th_node_remove(child);
-        th_node_insert_before(document, child, wrapper);
+        th_node_remove(tree_of(self), child);
+        th_node_insert_before(tree_of(self), document, child, wrapper);
     }
-    th_node_remove(wrapper);
+    th_node_remove(tree_of(self), wrapper);
     *keep_alive = source;
     return fragment;
 }

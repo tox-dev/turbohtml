@@ -1496,7 +1496,7 @@ static int replace_anchor_text(th_tree *tree, th_node *anchor, PyObject *text) {
         return -1;                       /* GCOVR_EXCL_LINE */
     }
     if (child != NULL) {
-        th_node_append_child(anchor, child);
+        th_node_append_child(tree, anchor, child);
     }
     return 0;
 }
@@ -1506,7 +1506,7 @@ static void unwrap_anchor(th_tree *tree, th_node *anchor) {
     while (anchor->first_child != NULL) {
         th_node *child = anchor->first_child;
         th_node_remove_silent(tree, child);
-        th_node_insert_before(parent, child, anchor);
+        th_node_insert_before(tree, parent, child, anchor);
     }
     th_node_remove_silent(tree, anchor);
 }
@@ -1614,7 +1614,7 @@ static int append_data_slice(th_tree *tree, th_node *fragment, const Py_UCS4 *po
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text-node arena allocation cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE */
     }
-    th_node_append_child(fragment, text);
+    th_node_append_child(tree, fragment, text);
     return 0;
 }
 
@@ -1652,7 +1652,7 @@ static int append_result(th_tree *tree, th_node *fragment, const Py_UCS4 *points
         status = replace_anchor_text(tree, anchor, result->text);
     }
     if (status == 0) { /* GCOVR_EXCL_BR_LINE: text encoding/arena allocation */
-        th_node_append_child(fragment, anchor);
+        th_node_append_child(tree, fragment, anchor);
     }
     return status;
 }
@@ -1717,8 +1717,8 @@ TH_NODE_API(static, int, apply_text,
             /* no iterator can point into the fragment this call built, so its children move without the steps */
             while (fragment->first_child != NULL) {
                 th_node *child = fragment->first_child;
-                th_node_remove(child);
-                th_node_insert_before(parent, child, node);
+                th_node_remove(tree, child);
+                th_node_insert_before(tree, parent, child, node);
             }
             th_node_remove_silent(tree, node);
         }

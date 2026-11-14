@@ -2282,7 +2282,7 @@ static void view_strip_parsed_nodes(NodeObject *owner, int implicit_paragraphs) 
         if (node->type == TH_NODE_COMMENT ||
             (implicit_paragraphs && node->atom == TH_TAG_P && node->first_child == NULL && node->attr_count == 0 &&
              !th_node_source_position(tree, node, &line, &column))) {
-            th_node_remove(node);
+            th_node_remove(tree_of((PyObject *)owner), node);
         }
         node = following;
     }
@@ -2375,8 +2375,8 @@ static int view_restore_head(NodeObject *owner, PyObject *source) {
         /* GCOVR_EXCL_BR_STOP */
         for (Py_ssize_t index = 0; index < PyList_GET_SIZE(moved); index++) {
             th_node *node = ((NodeObject *)PyList_GET_ITEM(moved, index))->node;
-            th_node_remove(node);
-            th_node_append_child(head, node);
+            th_node_remove(tree_of((PyObject *)owner), node);
+            th_node_append_child(tree_of((PyObject *)owner), head, node);
         }
     }
     Py_DECREF(moved);
@@ -2424,7 +2424,7 @@ static PyObject *view_document_fromstring(PyObject *module, PyObject *source) {
         th_node *following = child->next_sibling;
         if ((child->atom == TH_TAG_HEAD || child->atom == TH_TAG_BODY) && child->first_child == NULL &&
             child->attr_count == 0) {
-            th_node_remove(child);
+            th_node_remove(tree_of(root), child);
         }
         child = following;
     }
