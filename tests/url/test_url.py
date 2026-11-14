@@ -755,34 +755,39 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "HTTPS:%2E/..?q=x", "https://example.org/dir/file", "https://example.org/?q=x", id="uppercase-encoded-dot"
         ),
         pytest.param(
-            "https:https:%2e/x",
-            "https://example.org/dir/file",
-            "https://example.org/dir/https:%2e/x",
-            id="same-scheme-repeated-scheme-is-path",
+            "wss:wss:b:c/%2e%2e/%2e",
+            "wss://relay.example/room/42/q",
+            "wss://relay.example/room/42/",
+            id="remainder-repeats-scheme",
         ),
         pytest.param(
-            "https:http://other.org/%2e",
-            "https://example.org/dir/file",
-            "https://example.org/dir/http://other.org/",
-            id="same-scheme-foreign-url-is-path",
+            "ftp:ws://files.test/q/%2e",
+            "ftp://mirror.example/pub/x",
+            "ftp://mirror.example/pub/ws://files.test/q/",
+            id="remainder-foreign-scheme",
         ),
         pytest.param(
-            "https:mailto:a/%2e%2e/x",
-            "https://example.org/dir/file",
-            "https://example.org/dir/x",
-            id="same-scheme-opaque-url-is-path",
+            "wss:urn:lab/%2E%2E/%2e/zz",
+            "wss://relay.example/room/42/a",
+            "wss://relay.example/room/42/zz",
+            id="remainder-opaque-scheme",
         ),
         pytest.param(
-            "https:foo:%2e%2e/../x", "https://example.org/dir/file", "https://example.org/dir/x", id="same-scheme-colon"
+            "ws:alt:%2e%2e/%2e/t",
+            "ws://gateway.example/x/y",
+            "ws://gateway.example/x/alt:%2e%2e/t",
+            id="remainder-colon-segment",
         ),
         pytest.param(
-            "https:b\\c:d/%2e", "https://example.org/dir/file", "https://example.org/dir/b/c:d/", id="late-colon"
+            "ws:x%2e?y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e?y:z", id="colon-after-query-mark"
         ),
-        pytest.param("https:%2e?a:b", "https://example.org/dir/file", "https://example.org/dir/?a:b", id="query-colon"),
         pytest.param(
-            "https:%2e#a:b", "https://example.org/dir/file", "https://example.org/dir/#a:b", id="fragment-colon"
+            "ws:x%2e#y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e#y:z", id="colon-after-fragment-mark"
         ),
-        pytest.param("https:%2e%2e", "https://example.org/dir/file", "https://example.org/", id="bare-parent"),
+        pytest.param(
+            "ws:x%2e\\y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e/y:z", id="colon-after-backslash"
+        ),
+        pytest.param("ws:%2e", "ws://gateway.example/x/y", "ws://gateway.example/x/", id="bare-encoded-dot"),
         pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
         pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
         pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
@@ -961,13 +966,10 @@ def test_meta_refresh_resolves_encoded_dot_segments() -> None:
     )
 
 
-def test_meta_refresh_same_scheme_keeps_tabbed_url_a_path() -> None:
-    # unlike base_url(), meta_refresh() hands the tab on, and the join's scheme scan reads through it
-    html = '<meta http-equiv=refresh content="0;url=https:ht\ttp://other.org/%2e/x">'
-    assert parse(html).meta_refresh("https://example.org/dir/file") == (
-        0.0,
-        "https://example.org/dir/http://other.org/x",
-    )
+def test_meta_refresh_tab_in_repeated_scheme_keeps_colon_segment() -> None:
+    # WHATWG drops the tab before parsing, so the repeated scheme is a path segment whose colon is not a scheme
+    html = '<meta http-equiv=refresh content="0;url=wss:wss\t:q:r/%2e/s">'
+    assert parse(html).meta_refresh("wss://relay.example/room/42/q") == (0.0, "wss://relay.example/room/42/wss:q:r/s")
 
 
 def test_meta_refresh_resolves_root_backslash_before_trailing_control() -> None:

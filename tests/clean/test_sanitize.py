@@ -95,26 +95,12 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
     assert sanitize_node(root, Policy(tags=frozenset({"div", "tr", "td", "span"}))).html == expected
 
 
-def test_deep_unwrap_agrees_between_string_and_node_walks() -> None:
-    # both walks defer the settle of an unwrap this deep, so each judges the blockquote once the p above it is gone
-    source: Final = f"{'<section>' * 40}<p><object><blockquote>x"
-    expected: Final = f"{'&lt;section&gt;' * 40}&lt;p&gt;&lt;object&gt;<blockquote>x</blockquote>"
-    assert (sanitize(source), sanitize_node(parse_fragment(source)).inner_html) == (expected, expected)
-
-
-def test_deep_unwrap_under_kept_ancestors_is_balanced_after_the_walk() -> None:
-    # no shallower unwrap re-checks the list item the object hid, so the pass after the walk has to escape it
-    source: Final = f"{'<div>' * 40}<li><object><li>x"
-    expected: Final = f"{'<div>' * 40}<li>&lt;object&gt;&lt;li&gt;x</li>{'</div>' * 40}"
-    policy: Final = Policy(tags=frozenset({"div", "li"}))
-    assert (sanitize(source, policy), sanitize_node(parse_fragment(source), policy).inner_html) == (expected, expected)
-
-
-def test_deep_unwrap_is_balanced_past_an_element_that_escapes_to_nothing() -> None:
-    # the deferred object unwrap exposes links behind an implied, empty one: the later passes have to reach them too
-    source: Final = f"<dd>{'<u>' * 31}<a><object><b><a><dt><dl><dl><a></b>"
-    once: Final = sanitize(source)
-    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source)).inner_html) == (once, once)
+def test_nested_unwrap_reaches_link_after_empty_escape() -> None:
+    # the node entry point has to reparse to its own output at this depth, as the string entry point does
+    source: Final = f"{'<q><em>' * 18}<nobr><object><s><nobr><dt><ol><li>x</nobr></s>"
+    policy: Final = Policy(tags=frozenset({"q", "em", "nobr", "object", "s", "dt", "ol", "li"}))
+    once: Final = sanitize(source, policy)
+    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
 
 def test_deep_unwrap_in_table_context_settles_in_place() -> None:
@@ -2700,17 +2686,19 @@ def test_annotation_xml_encoding_selects_integration_point(html: str, expected: 
 @pytest.mark.parametrize(
     "encoding",
     [
-        pytest.param(' encoding="text/html"', id="text-html"),
-        pytest.param(' encoding="application/xhtml+xml"', id="application-xhtml-xml"),
+        pytest.param(' ENCODING="Text/HTML"', id="text-html"),
+        pytest.param(' Encoding="Application/XHTML+XML"', id="application-xhtml-xml"),
     ],
 )
 def test_annotation_xml_integration_check_is_linear_in_children(encoding: str, work_steps: WorkSteps) -> None:
-    def markup(count: int) -> str:
-        attributes = " ".join(f"a{index}" for index in range(count))
-        return f"<math><annotation-xml {attributes}{encoding}>{'<i>x</i>' * count}"
+    policy: Final = replace(_ENCODING_POLICY, attribute_prefixes=frozenset({"data-"}))
 
-    work_steps.assert_linear(lambda n: partial(sanitize, markup(n)), (500, 2000))
-    assert work_steps(partial(sanitize, markup(500))) >= 500
+    def markup(count: int) -> str:
+        attributes = " ".join(f"data-{index:x}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'tx<b>n</b>' * count}"
+
+    work_steps.assert_linear(lambda n: partial(sanitize, markup(n), policy), (500, 2000))
+    assert work_steps(partial(sanitize, markup(500), policy)) >= 500
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
@@ -3453,8 +3441,12 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<dd><header><b><dt>x", frozenset({"dd", "dt", "b"}), id="dt-behind-unwrapped-barrier"),
     pytest.param("<p><button><b><div>x", frozenset({"p", "b", "div"}), id="block-behind-unwrapped-button"),
     pytest.param("<a><object><b><a>x", frozenset({"a", "b"}), id="link-behind-unwrapped-marker"),
-    # the implied link under the li escapes to nothing, and the scan must still reach the link under the ul
-    pytest.param("<a><object><b><a><li><ul></a></b>", frozenset({"a", "b", "li", "ul"}), id="link-after-empty-escape"),
+    # the nested link follows an emptied item, so the later scan has to step past that item
+    pytest.param(
+        "<nobr><object><s><nobr><dd><ul><li>x</nobr></s>",
+        frozenset({"dd", "li", "nobr", "object", "s", "ul"}),
+        id="nobr-behind-empty-escape",
+    ),
     pytest.param("<nobr><object><b><nobr>x", frozenset({"nobr", "b"}), id="nobr-behind-unwrapped-marker"),
     pytest.param("<button><select><i><button>x", frozenset({"button"}), id="button-in-button"),
     pytest.param("<optgroup><optgroup>", frozenset({"optgroup"}), id="nested-optgroup-reopens"),

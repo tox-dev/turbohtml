@@ -685,18 +685,18 @@ def test_heading_end_tag_ignored_across_foreign_scope_boundary(html: str, expect
     ("encoding", "namespace"),
     [
         pytest.param("", Namespace.MATHML, id="mathml"),
-        pytest.param(" encoding=text/html", Namespace.HTML, id="html-integration-point"),
+        pytest.param(' ENCODING="Text/HTML"', Namespace.HTML, id="html-integration-point"),
     ],
 )
 def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespace, work_steps: WorkSteps) -> None:
     def markup(count: int) -> str:
-        attributes = " ".join(f"a{index}" for index in range(count))
-        return f"<math><annotation-xml {attributes}{encoding}>{'<g></g>' * count}"
+        attributes = " ".join(f"data-{index:x}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'tx<mi>n</mi>' * count}"
 
     work_steps.assert_linear(lambda n: partial(parse, markup(n)), (1000, 4000))
     annotation = parse(markup(4000)).find("annotation-xml")
     assert isinstance(annotation, Element)
-    assert len(annotation.children) == 4000
+    assert len(annotation.children) == 8000
     child = annotation.children[-1]
     assert isinstance(child, Element)
     assert child.namespace is namespace
