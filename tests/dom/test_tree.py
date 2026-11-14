@@ -1827,20 +1827,37 @@ def test_formatting_element_survives_table_part_refused_at_depth_cap(markup: str
 
 
 @pytest.mark.parametrize(
-    "markup",
+    ("content", "expected"),
     [
         pytest.param(
-            f"{'<span>' * (_DEPTH_CAP - 4)}<template><br><template><template></template><td>x", id="nested-template"
+            "<template><template></template>x", "<template><template></template>x</template>", id="in-template"
         ),
         pytest.param(
-            f"{'<span>' * (_DEPTH_CAP - 4)}<template><br><template><col><template></template>x", id="table-template"
+            "<template><br><template></template>x", "<template><br><template></template>x</template>", id="in-body"
+        ),
+        pytest.param(
+            "<template><col><template></template></template>x",
+            "<template><col><template></template></template>x",
+            id="in-column-group",
+        ),
+        pytest.param(
+            "<template><br><template><col></template>x",
+            "<template><br><template></template><col>x</template>",
+            id="mode-switched-inside",
         ),
     ],
 )
-def test_refused_template_leaves_no_mode_record(markup: str) -> None:
-    doc = parse(markup)
-    assert "<td>" not in doc.html
-    assert doc.text == "x"
+def test_refused_template_end_tag_closes_only_itself(content: str, expected: str) -> None:
+    # the second template fills the stack, so the third is refused and its content lands beside it
+    outer = parse(f"{'<span>' * (_DEPTH_CAP - 4)}<template>{content}").find("template")
+    assert outer is not None
+    assert outer.inner_html == expected
+
+
+def test_table_closed_under_refused_template_keeps_later_text() -> None:
+    # the end tag closes the table around the refused template, and the outer template resumes in its own mode
+    markup = f"<body><template><table><tr><td>{'<span>' * (_DEPTH_CAP - 7)}<template><table></table>x"
+    assert parse(markup).text == "x"
 
 
 def test_capped_parse_round_trips_through_serialization() -> None:
