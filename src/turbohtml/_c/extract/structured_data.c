@@ -19,6 +19,7 @@
 #include "core/node_map.h"
 
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "tokenizer/xml_names.h"
 #include "dom/nodes.h"
@@ -1214,6 +1215,7 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
     PyObject *pending = NULL;
     Py_ssize_t cursor = 0;
     while (cursor < len) {
+        TH_WORK_STEP();
         while (cursor < len && is_space(value[cursor])) {
             cursor++;
         }
@@ -1296,6 +1298,7 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
    the mapping it had outside the element. -1 only on the excluded failure path. */
 static int restore_prefixes(PyObject *prefixes, PyObject *undo) {
     for (Py_ssize_t index = PyList_GET_SIZE(undo); index > 0; index -= 2) {
+        TH_WORK_STEP();
         PyObject *prefix = PyList_GET_ITEM(undo, index - 2);
         PyObject *shadowed = PyList_GET_ITEM(undo, index - 1);
         int failed = PyDict_SetItem(prefixes, prefix, shadowed) < 0;

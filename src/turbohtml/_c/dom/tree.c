@@ -16,6 +16,7 @@
 #include "core/ascii.h"
 #include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
 #include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
+#include "core/work_steps.h"
 
 #include <string.h>
 
@@ -267,6 +268,7 @@ static uint32_t intern_attr(th_tree *tree, const th_buf *name) {
 /* The interned name's bytes for an atom: the static table for a common atom, the
    per-tree records otherwise. NUL-terminated; *out_len receives the length. */
 const char *th_attr_name(th_tree *tree, uint32_t atom, Py_ssize_t *out_len) {
+    TH_WORK_STEP();
     if (atom < TH_ATTR__DYNAMIC_BASE) {
         const th_attr_entry *entry = &th_attr_table[atom - 1];
         *out_len = entry->name_len;
@@ -966,6 +968,7 @@ static size_t attr_name_slot(uint64_t key, size_t capacity) {
 static void attr_name_place(uint64_t *keys, size_t capacity, uint64_t key) {
     size_t slot = attr_name_slot(key, capacity);
     while (keys[slot] != 0) {
+        TH_WORK_STEP();
         slot = (slot + 1) & (capacity - 1);
     }
     keys[slot] = key;
@@ -977,6 +980,7 @@ static int attr_name_present(const th_attr_names *names, uint64_t key) {
     }
     size_t slot = attr_name_slot(key, names->capacity);
     while (names->keys[slot] != 0) {
+        TH_WORK_STEP();
         if (names->keys[slot] == key) {
             return 1;
         }
@@ -1045,6 +1049,7 @@ static int merge_name_present(const th_attr_names *names, const th_node *node, u
         return attr_name_present(names, attr_name_key(node, atom));
     }
     for (Py_ssize_t inner_index = 0; inner_index < node->attr_count; inner_index++) {
+        TH_WORK_STEP();
         if (node->attrs[inner_index].name_atom == atom) {
             return 1;
         }
@@ -1093,6 +1098,7 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
             return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         if (node->attr_count > 0) { /* an element without attributes has a NULL attrs array */
+            TH_WORK_STEPS_ADD(node->attr_count);
             memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
         }
         node->attr_capacity_shift = 0;
@@ -1517,6 +1523,7 @@ static th_node *node_clone(th_tree *tree, const th_node *src) {
 /* Does the element carry an attribute with this interned name? */
 static int node_has_attr(const th_node *node, uint32_t atom) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        TH_WORK_STEP();
         if (node->attrs[index].name_atom == atom) {
             return 1;
         }

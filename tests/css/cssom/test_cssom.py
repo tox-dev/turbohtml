@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import gc
-import time
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -14,6 +14,8 @@ from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import ModuleType
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -185,22 +187,12 @@ def _computed_color(css: str) -> str:
         pytest.param(_computed_color, "red", id="computed-style"),
     ],
 )
-def test_statement_at_rules_parse_in_linear_time(entry: Callable[[str], str], expected: str) -> None:
+def test_statement_at_rules_parse_in_linear_time(
+    entry: Callable[[str], str], expected: str, work_steps: WorkSteps
+) -> None:
     statement: Final = "@import url(x);"
-    small: Final = _fastest_seconds(entry, f"{statement * 2_000}p {{ color: red }}", expected)
-    large: Final = _fastest_seconds(entry, f"{statement * 8_000}p {{ color: red }}", expected)
-    # the 0.01 s floor makes this a fixed budget on fast builds and a ratio on slow ones
-    assert large / max(small, 0.01) < 8
-
-
-def _fastest_seconds(entry: Callable[[str], str], css: str, expected: str) -> float:
-    best = float("inf")
-    for _ in range(3):
-        start = time.perf_counter()
-        result = entry(css)
-        best = min(best, time.perf_counter() - start)
-        assert result == expected
-    return best
+    work_steps.assert_linear(lambda n: partial(entry, f"{statement * n}p {{ color: red }}"), (500, 2000))
+    assert entry(f"{statement * 2_000}p {{ color: red }}") == expected
 
 
 def test_stylesheet_skips_unterminated_at_block_and_trailing_selector() -> None:

@@ -298,6 +298,9 @@ static PyMethodDef html_methods[] = {
     {"_schema_validate", (PyCFunction)(void (*)(void))turbohtml_schema_validate, METH_VARARGS | METH_KEYWORDS, NULL},
     {"_conformance_check", turbohtml_conformance_check, METH_O, NULL},
     {"_conformance_filter", turbohtml_conformance_filter, METH_VARARGS, NULL},
+#ifdef TH_WORK_STEPS
+    {"_work_steps", turbohtml_work_steps, METH_NOARGS, NULL},
+#endif
     {NULL, NULL, 0, NULL},
 };
 
