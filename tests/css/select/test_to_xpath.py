@@ -141,11 +141,27 @@ def test_syntax_error(selector: str) -> None:
         pytest.param(":is(:scope)", ":scope", id="scope-nested"),
         pytest.param("a, :dir(rtl)", ":dir", id="error-in-later-arm"),
         pytest.param(":dir(rtl), a", ":dir", id="error-in-earlier-arm"),
+        pytest.param(f"{':nth-child(2 of ' * 19}a{')' * 19}", "more than 16777216", id="nth-of-past-cap"),
+        pytest.param(
+            f"{':nth-child(2 of ' * 19}a{')' * 19}:nth-child(2)", "more than 16777216", id="nth-after-the-cap"
+        ),
     ],
 )
 def test_expression_error(selector: str, match: str) -> None:
     with pytest.raises(ExpressionError, match=match):
         css_to_xpath(selector)
+
+
+def test_nesting_just_under_the_cap_is_translated() -> None:
+    assert len(css_to_xpath(f"{':nth-child(2 of ' * 18}a{')' * 18}")) < 16_777_216
+
+
+def test_nested_of_clause_repeats_the_inner_condition() -> None:
+    inner = "((self::a)) and count(preceding-sibling::*[(self::a)]) = 1"
+    assert css_to_xpath("li:nth-child(2n+3 of :nth-child(2 of a))") == (
+        f"descendant-or-self::li[(({inner})) and count(preceding-sibling::*[({inner})]) >= 2"
+        f" and count(preceding-sibling::*[({inner})]) mod 2 = 0]"
+    )
 
 
 def test_syntax_error_is_the_one_unified_selector_error() -> None:
@@ -386,6 +402,8 @@ _SELECTORS: Final[tuple[str, ...]] = (
     "li:nth-child(2n of .c)",
     "li:nth-child(n of .c)",
     "li:nth-last-child(1 of li[class])",
+    "li:nth-child(2 of :nth-child(odd of li))",
+    "li:nth-last-child(-n+2 of :nth-child(2n+3 of li, p):not(.c))",
     # logical pseudo-classes and :has()
     ":is(#first-li, #second-li)",
     "a:is(#name-anchor, #tag-anchor)",

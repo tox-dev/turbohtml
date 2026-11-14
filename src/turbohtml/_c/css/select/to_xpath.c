@@ -16,11 +16,18 @@
 #include "dom/nodes.h"
 #include "css/select/selector.h"
 
+/* The longest expression a selector may translate to, in code points. XPath 1.0 cannot name a subexpression, so every
+   An+B term of :nth-child(An+B of S) spells the condition for S out again, and nesting such clauses multiplies the
+   text by up to three per level; past the cap the selector is reported as untranslatable. */
+#define XT_MAX_OUTPUT ((Py_ssize_t)1 << 24)
+
 typedef struct {
     Py_UCS4 *data;
     Py_ssize_t len;
     Py_ssize_t cap;
-    int failed; /* an allocation failed; emission becomes a no-op */
+    Py_ssize_t limit; /* the length the output may not pass, 0 for no bound */
+    int failed;       /* an allocation failed or the output passed limit; emission becomes a no-op */
+    int overlong;     /* the output passed limit */
 } xt_buf;
 
 typedef struct {
@@ -30,6 +37,11 @@ typedef struct {
 
 static void xt_reserve(xt_buf *buf, Py_ssize_t extra) {
     if (buf->len + extra <= buf->cap) {
+        return;
+    }
+    if (buf->limit != 0 && buf->len + extra > buf->limit) {
+        buf->failed = 1;
+        buf->overlong = 1;
         return;
     }
     size_t cap;
@@ -77,6 +89,16 @@ static void xt_slice(xt_buf *buf, const Py_UCS4 *text, Py_ssize_t length, int fo
     for (Py_ssize_t index = 0; index < length; index++) {
         buf->data[buf->len++] = sel_fold(text[index], fold);
     }
+}
+
+/* Append a copy of the buffer's own run at start; it is named by offset because growing the buffer may move it. */
+static void xt_repeat(xt_buf *buf, Py_ssize_t start, Py_ssize_t length) {
+    xt_reserve(buf, length);
+    if (buf->failed) {
+        return; /* the copy would pass the limit, or an allocation failed */
+    }
+    memcpy(buf->data + buf->len, buf->data + start, (size_t)length * sizeof(Py_UCS4));
+    buf->len += length;
 }
 
 static void xt_int(xt_buf *buf, long value) {
@@ -247,6 +269,27 @@ static void xt_emit_nodetest(xt_ctx *ctx, const sel_simple *test) {
     }
 }
 
+/* The sibling axis an nth-* condition counts over: the detached axis step and, under an 'of S' list, the run of the
+   output that already holds the condition for S (the self test), which the step's predicate repeats. */
+typedef struct {
+    const Py_UCS4 *step;
+    Py_ssize_t step_len;
+    Py_ssize_t of_at;  /* where the 'of S' condition starts in the output */
+    Py_ssize_t of_len; /* its length; 0 without an 'of S' list */
+} xt_axis;
+
+/* Emit the axis of one count() term. The 'of S' predicate is copied from the output rather than translated again,
+   so S is translated once however many terms and nesting levels repeat it. */
+static void xt_emit_axis(xt_ctx *ctx, const xt_axis *axis) {
+    xt_slice(&ctx->out, axis->step, axis->step_len, 0);
+    if (axis->of_len == 0) {
+        return;
+    }
+    xt_char(&ctx->out, '[');
+    xt_repeat(&ctx->out, axis->of_at, axis->of_len);
+    xt_char(&ctx->out, ']');
+}
+
 /* Emit the An+B condition over a sibling count expression (the axis text), following
    the same derivation cssselect documents: with EXPR = count(axis) = position-1, an
    index matches An+B for some n >= 0 iff
@@ -256,7 +299,7 @@ static void xt_emit_nodetest(xt_ctx *ctx, const sel_simple *test) {
    The mod operand is shifted by a non-negative constant so the dividend stays
    non-negative and truncating mod cannot flip its sign. Returns the number of
    condition terms written (0 when every index matches). */
-static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const Py_UCS4 *axis, Py_ssize_t axis_len) {
+static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const xt_axis *axis) {
     long b_minus_1 = (long)nth_b - 1;
     if (nth_a == 1 && b_minus_1 <= 0) {
         return 0; /* n+b with b <= 1 matches every position */
@@ -267,7 +310,7 @@ static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const Py_UCS4 *axis, Py_ssi
     }
     if (nth_a == 0) {
         xt_text(&ctx->out, "count(");
-        xt_slice(&ctx->out, axis, axis_len, 0);
+        xt_emit_axis(ctx, axis);
         xt_text(&ctx->out, ") = ");
         xt_int(&ctx->out, b_minus_1);
         return 1;
@@ -275,7 +318,7 @@ static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const Py_UCS4 *axis, Py_ssi
     int wrote = 0;
     if (nth_a < 0 || b_minus_1 > 0) {
         xt_text(&ctx->out, "count(");
-        xt_slice(&ctx->out, axis, axis_len, 0);
+        xt_emit_axis(ctx, axis);
         xt_text(&ctx->out, nth_a > 0 ? ") >= " : ") <= ");
         xt_int(&ctx->out, b_minus_1);
         wrote = 1;
@@ -291,7 +334,7 @@ static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const Py_UCS4 *axis, Py_ssi
         } else {
             xt_text(&ctx->out, "count(");
         }
-        xt_slice(&ctx->out, axis, axis_len, 0);
+        xt_emit_axis(ctx, axis);
         xt_char(&ctx->out, ')');
         if (shift != 0) {
             xt_text(&ctx->out, " + ");
@@ -308,8 +351,11 @@ static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const Py_UCS4 *axis, Py_ssi
 
 /* Copy the emitted tail of the output (from mark) into a fresh slice and truncate the
    output back, so a fragment can be re-spliced (the nth-* count axis appears in up to
-   two terms). Returns NULL and fails the buffer on allocation failure. */
+   two terms). Returns NULL on a failed buffer, and fails the buffer on allocation failure. */
 static Py_UCS4 *xt_detach(xt_ctx *ctx, Py_ssize_t mark, Py_ssize_t *out_len) {
+    if (ctx->out.failed) {
+        return NULL; /* a failed buffer keeps nothing more, so there is no fragment to splice */
+    }
     *out_len = ctx->out.len - mark; /* never zero: every detached fragment starts with an axis name */
     Py_UCS4 *copy = PyMem_Malloc((size_t)*out_len * sizeof(Py_UCS4));
     if (copy == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -359,22 +405,22 @@ static void xt_nth_pseudo(xt_ctx *ctx, const sel_simple *simple, const sel_compo
         }
     } else {
         xt_char(&ctx->out, '*');
-        if (simple->sub != NULL) {
-            xt_char(&ctx->out, '[');
-            xt_condition_alts(ctx, simple->sub, simple->sub_count);
-            xt_char(&ctx->out, ']');
-        }
     }
-    Py_ssize_t axis_len = 0;
-    Py_UCS4 *axis = xt_detach(ctx, mark, &axis_len);
-    if (axis == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    Py_ssize_t step_len = 0;
+    Py_UCS4 *step = xt_detach(ctx, mark, &step_len);
+    if (step == NULL) {
+        return; /* the buffer failed: the output passed the cap, or an allocation failed */
     }
+    xt_axis axis = {step, step_len, 0, 0};
     int wrote = 0;
-    /* only :nth-child()/:nth-last-child() can carry an 'of S' list, never the of-type pair */
+    /* only :nth-child()/:nth-last-child() can carry an 'of S' list, never the of-type pair; S is translated here
+       alone, and the axis predicates repeat this text, since translating S per use would double the work with every
+       nesting level */
     if (simple->sub != NULL) {
         xt_char(&ctx->out, '(');
+        axis.of_at = ctx->out.len;
         xt_condition_alts(ctx, simple->sub, simple->sub_count);
+        axis.of_len = ctx->out.len - axis.of_at;
         xt_char(&ctx->out, ')');
         wrote = 1;
     }
@@ -382,10 +428,10 @@ static void xt_nth_pseudo(xt_ctx *ctx, const sel_simple *simple, const sel_compo
     if (wrote) {
         xt_text(&ctx->out, " and ");
     }
-    if (xt_nth(ctx, simple->nth_a, simple->nth_b, axis, axis_len) == 0) {
+    if (xt_nth(ctx, simple->nth_a, simple->nth_b, &axis) == 0) {
         ctx->out.len = nth_mark; /* every position matches: drop the dangling " and " */
     }
-    PyMem_Free(axis);
+    PyMem_Free(step);
 }
 
 /* The elements HTML can disable, as a self-test union. */
@@ -903,7 +949,8 @@ static void xt_path_complex(xt_ctx *ctx, const sel_complex *complex) {
 
 /* _css_to_xpath(selector, prefix, /): translate a CSS selector list to XPath 1.0.
    Raises SelectorSyntaxError on a selector the CSS grammar rejects and NotImplementedError
-   on a valid selector XPath 1.0 cannot express; the facade maps the latter to ExpressionError. */
+   on a valid selector XPath 1.0 cannot express or whose expression would pass XT_MAX_OUTPUT;
+   the facade maps the latter to ExpressionError. */
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     PyObject *selector = NULL;
     PyObject *prefix = NULL;
@@ -928,7 +975,7 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
         PyMem_Free(source);         /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    xt_ctx ctx = {{NULL, 0, 0, 0}, NULL};
+    xt_ctx ctx = {{NULL, 0, 0, XT_MAX_OUTPUT, 0, 0}, NULL};
     for (int index = 0; index < count && ctx.error == NULL; index++) {
         if (index > 0) {
             xt_text(&ctx.out, " | ");
@@ -942,6 +989,11 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     PyObject *result = NULL;
     if (ctx.error != NULL) {
         PyErr_SetString(PyExc_NotImplementedError, ctx.error);
+    } else if (ctx.out.overlong) {
+        PyErr_Format(PyExc_NotImplementedError,
+                     "the selector needs more than %zd characters of XPath 1.0; split the selector list, or nest "
+                     "fewer :nth-child(... of S) clauses",
+                     XT_MAX_OUTPUT);
     } else if (!ctx.out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, ctx.out.data, ctx.out.len);
     } else {              /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
@@ -962,7 +1014,7 @@ PyObject *turbohtml_xpath_literal(PyObject *Py_UNUSED(module), PyObject *value) 
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    xt_ctx ctx = {{NULL, 0, 0, 0}, NULL};
+    xt_ctx ctx = {{NULL, 0, 0, 0, 0, 0}, NULL};
     xt_literal(&ctx, text, PyUnicode_GET_LENGTH(value));
     PyMem_Free(text);
     PyObject *result = NULL;

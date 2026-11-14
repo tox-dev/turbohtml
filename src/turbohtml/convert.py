@@ -74,7 +74,8 @@ def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
     :param prefix: prepended to each arm; the default scopes the expression to the context node's subtree, matching
         cssselect.
     :raises SelectorSyntaxError: the selector does not parse.
-    :raises ExpressionError: the selector parses but cannot be expressed in XPath 1.0.
+    :raises ExpressionError: the selector parses but cannot be expressed in XPath 1.0, or its expression would pass
+        16,777,216 characters.
     :returns: the XPath 1.0 expression.
     """
     try:
