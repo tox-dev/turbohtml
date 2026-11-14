@@ -51,6 +51,7 @@ from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
+    from multiprocessing.context import ForkContext, SpawnContext
     from multiprocessing.sharedctypes import Synchronized
 
 _JSON: TypeAlias = "dict[str, _JSON] | list[_JSON] | tuple[_JSON, ...] | str | int | float | bool | None"
@@ -59,6 +60,7 @@ _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _C_SOURCES: Final[Path] = _ROOT / "src" / "turbohtml" / "_c"
 _REGRESSIONS: Final[Path] = Path(__file__).with_name("amplify_regressions.json")
 _INFLIGHT: Final[str] = "inflight.json"
+_SPAWN: Final[SpawnContext] = multiprocessing.get_context("spawn")
 _KINDS: Final[tuple[str, ...]] = ("repeat", "sandwich", "tree")
 _COUNTER: Final[str] = "{n}"
 # comrak quadratic.rs and pulldown-cmark's dos-fuzzer both cap each pattern string at 128 bytes
@@ -91,7 +93,7 @@ _EXPECTED: Final[tuple[type[Exception], ...]] = (ValueError, HTMLParseError, Rec
 _STDERR: Final[int] = 2
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, context: ForkContext | SpawnContext = _SPAWN) -> int:
     # Return 0 when every scored shape grows linearly within its output bound, 1 on a finding, 2 on a blind run.
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     modes = parser.add_subparsers(dest="mode", required=True)
@@ -115,7 +117,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     if args.mode == "regressions":
         return _rescore(load_regressions(args.file), args.target)
-    return _search(args.target or sorted(TARGETS), args.minutes, args.shapes, args.rng_seed, args.crash_dir)
+    budget = _Budget(
+        seconds=math.inf if args.shapes is not None else args.minutes * 60,
+        shapes=args.shapes,
+        drawn=context.Value("i", 0),
+    )
+    return _search(args.target or sorted(TARGETS), budget, args.rng_seed, args.crash_dir, context)
 
 
 def _control_failure() -> str | None:
@@ -412,22 +419,22 @@ def _rescore(rows: list[Regression], targets: Sequence[str] | None) -> int:
     return int(failed > 0)
 
 
-def _search(targets: Sequence[str], minutes: float, shapes: int | None, rng_seed: int, crash_dir: Path) -> int:
+def _search(
+    targets: Sequence[str], budget: _Budget, rng_seed: int, crash_dir: Path, context: ForkContext | SpawnContext
+) -> int:
     # Run the hunt in worker processes until the shape count or the wall-clock budget is spent.
     #
     # The worker writes each shape to ``inflight.json`` before scoring it, so when the hang watchdog or a crash kills
     # the worker, the shape it died on is still on disk; a fresh worker with its own seed stream takes the rest of the
     # budget. A shape count replaces the budget, and the count shared across workers is what ends the restarts.
     crash_dir.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + (math.inf if shapes is not None else minutes * 60)
-    context = multiprocessing.get_context("spawn")
-    drawn = context.Value("i", 0)
+    deadline = time.monotonic() + budget.seconds
     inflight = crash_dir / _INFLIGHT
     status = 0
     restart = 0
     while True:
-        budget = _Budget(seconds=deadline - time.monotonic(), shapes=shapes, drawn=drawn)
-        worker = context.Process(target=_hunt, args=(targets, budget, f"{rng_seed}/{restart}", crash_dir))
+        remaining = replace(budget, seconds=deadline - time.monotonic())
+        worker = context.Process(target=_hunt, args=(targets, remaining, f"{rng_seed}/{restart}", crash_dir))
         worker.start()
         worker.join()
         log = crash_dir / f"crash-worker-{restart}.log"
@@ -446,7 +453,7 @@ def _search(targets: Sequence[str], minutes: float, shapes: int | None, rng_seed
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _Budget:
-    # What one worker may spend: wall-clock seconds, and a shape count shared by every worker of the search.
+    # Wall-clock seconds and a shape count for the whole search, with the shared counter that enforces the count.
     seconds: float
     shapes: int | None
     drawn: Synchronized[int]
