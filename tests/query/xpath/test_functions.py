@@ -1796,10 +1796,11 @@ def test_regex_resolves_each_of_many_group_names() -> None:
 def test_regex_compiles_many_named_groups_in_linear_time() -> None:
     count: Final = 20000
     named: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(count))
-    unnamed: Final = "".join(f"({index % 10})" for index in range(count))
-    # the baseline has the same number of groups without names; the floor keeps a fast baseline from inflating the ratio
-    baseline: Final = max(_compile_seconds(unnamed), 0.01)
-    assert _compile_seconds(named) < 10 * baseline
+    # unnamed groups compile in linear time on every build; 10x more of them keeps the baseline above the 10 ms floor
+    reference_count: Final = 10 * count
+    unnamed: Final = "".join(f"({index % 10})" for index in range(reference_count))
+    per_group_baseline: Final = max(_compile_seconds(unnamed), 0.01) / reference_count
+    assert _compile_seconds(named) / count < 20 * per_group_baseline
 
 
 def _compile_seconds(groups: str) -> float:
