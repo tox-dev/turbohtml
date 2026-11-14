@@ -3396,6 +3396,10 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     Py_DECREF(result);
 }
 
+/* The largest number an ordered list marker holds: CommonMark 5.2 reads one to nine digits as a marker, and a longer
+   number as paragraph text. */
+#define MD_LIST_NUMBER_MAX 999999999
+
 static Py_ssize_t md_list_number_attr(md_ctx *ctx, th_node *node, const char *name, Py_ssize_t fallback) {
     Py_ssize_t length;
     const Py_UCS4 *value = md_attr(ctx->tree, node, name, &length);
@@ -3436,7 +3440,7 @@ static int md_list_number_needs_html(md_ctx *ctx, th_node *node, const char *nam
     if (index < length && value[index] == '-') {
         return index + 1 < length && value[index + 1] >= '0' && value[index + 1] <= '9';
     }
-    return md_list_number_attr(ctx, node, name, 1) > 999999999;
+    return md_list_number_attr(ctx, node, name, 1) > MD_LIST_NUMBER_MAX;
 }
 
 /* Whether a list child is a wrapper around list items (`<ul><div><li>`), which the
@@ -3583,12 +3587,14 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     Py_ssize_t width;
     if (state->ordered) {
         state->number = md_list_number_attr(ctx, child, "value", state->number);
+        /* a marker over nine digits reads as paragraph text, and the item's indented blocks would continue it */
+        if (state->number > MD_LIST_NUMBER_MAX) {
+            state->number = MD_LIST_NUMBER_MAX;
+        }
         width = lead + md_put_decimal(&ctx->out, state->number) + 2;
         sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->delimiter);
         sbuf_putc(&ctx->out, ' ');
-        if (state->number < PY_SSIZE_T_MAX) {
-            state->number++;
-        }
+        state->number++;
     } else {
         sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->bullet);
         sbuf_putc(&ctx->out, ' ');
