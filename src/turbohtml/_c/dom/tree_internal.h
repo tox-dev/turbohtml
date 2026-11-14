@@ -88,7 +88,12 @@ typedef struct {
     Py_ssize_t count;
     Py_ssize_t cap;
     th_node_map index; /* select node -> 1-based position in caches */
-    uint8_t recheck;   /* a shown option may have left its select, so the finish walks every cache */
+    /* the last select looked up and its index value (0 while it has no cache): its options and its selectedcontent
+       ask for the same select in a row, so most lookups skip the hash probe */
+    const th_node *last_select;
+    Py_ssize_t last_slot;
+    uint32_t fresh_seq; /* the tree's node_seq when the newest cache was made: no later node has a cache */
+    uint8_t recheck;    /* a shown option may have left its select, so the finish walks every cache */
 } th_select_state;
 
 typedef struct th_attr_names th_attr_names;

@@ -1689,6 +1689,16 @@ static th_node *select_cache_fill(th_tree *tree, th_select_cache *cache) {
     return last_selected != NULL ? last_selected : first_enabled;
 }
 
+/* The select's position in the caches, 0 when it has no cache. */
+static Py_ssize_t select_cache_slot(th_select_state *state, const th_node *select) {
+    if (select != state->last_select) {
+        state->last_select = select;
+        /* a select created after the newest cache has none, so only an older one needs the hash probe */
+        state->last_slot = select->seq >= state->fresh_seq ? 0 : th_node_map_find(&state->index, select);
+    }
+    return state->last_slot;
+}
+
 /* Creates the select's cache when it gains its first selectedcontent, lists its enabled selectedcontent elements and
    reads the option it shows from the options it holds so far. */
 static th_select_cache *select_cache_insert(th_tree *tree, th_node *select) {
@@ -1723,6 +1733,9 @@ static th_select_cache *select_cache_insert(th_tree *tree, th_node *select) {
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     state->count = slot;
+    state->fresh_seq = tree->node_seq;
+    state->last_select = select;
+    state->last_slot = slot;
     th_select_cache *cache = &state->caches[slot - 1];
     cache->select = select;
     cache->targets = NULL;
@@ -1779,7 +1792,7 @@ static void select_cache_block_gained(th_tree *tree, th_node *block) {
         return;
     }
     th_select_state *state = tree->select_state;
-    Py_ssize_t slot = state != NULL ? th_node_map_find(&state->index, select) : 0;
+    Py_ssize_t slot = state != NULL ? select_cache_slot(state, select) : 0;
     if (slot == 0) {
         select_cache_insert(tree, select);
         return;
@@ -1824,30 +1837,27 @@ static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) 
     const th_node *from = src;
     th_node *copy = dst;
     for (;;) {
+        th_node *parent;
         if (from->first_child != NULL) {
             from = from->first_child;
-            th_node *child = copy_node_in_tree(tree, (th_node *)from);
-            if (child == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            parent = copy;
+        } else {
+            while (from != src && from->next_sibling == NULL) {
+                from = from->parent;
+                copy = copy->parent;
             }
-            node_append(copy, child);
-            copy = child;
-            continue;
+            if (from == src) {
+                return;
+            }
+            from = from->next_sibling;
+            parent = copy->parent;
         }
-        while (from != src && from->next_sibling == NULL) {
-            from = from->parent;
-            copy = copy->parent;
+        /* one copy site, so the copy inlines into the walk */
+        copy = copy_node_in_tree(tree, (th_node *)from);
+        if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        if (from == src) {
-            return;
-        }
-        from = from->next_sibling;
-        th_node *sibling = copy_node_in_tree(tree, (th_node *)from);
-        if (sibling == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        node_append(copy->parent, sibling);
-        copy = sibling;
+        node_append(parent, copy);
     }
 }
 
@@ -1934,17 +1944,18 @@ static void replace_target_children(th_tree *tree, th_select_cache *cache, th_no
 
 /* Makes option the shown option when the selectedness setting algorithm picks it, and returns its select's cache;
    NULL when it is not picked. Only a select that holds a selectedcontent has a cache: the rest have nothing to copy
-   into, and a cache made later reads the shown option from the tree. */
-static th_select_cache *select_cache_pick(th_tree *tree, th_node *option) {
-    th_select_state *state = tree->select_state;
-    if (state == NULL) {
-        return NULL;
+   into, and a cache made later reads the shown option from the tree, so callers skip the call while no select has
+   one. */
+static th_select_cache *select_cache_pick(th_select_state *state, th_node *option) {
+    /* an option whose parent is the select looked up last belongs to it, without the ancestor walk */
+    th_node *select = option->parent;
+    if (select != state->last_select) {
+        select = option_nearest_select(option);
+        if (select == NULL) {
+            return NULL;
+        }
     }
-    th_node *select = option_nearest_select(option);
-    if (select == NULL) {
-        return NULL;
-    }
-    Py_ssize_t slot = th_node_map_find(&state->index, select);
+    Py_ssize_t slot = select_cache_slot(state, select);
     if (slot == 0) {
         return NULL;
     }
@@ -1969,7 +1980,10 @@ static th_select_cache *select_cache_pick(th_tree *tree, th_node *option) {
    for the option shown last, unless the option sits inside a selectedcontent: there the
    copy removes it at once and the parser appends what follows to the copy. */
 static void maybe_clone_option(th_tree *tree, th_node *option) {
-    th_select_cache *cache = select_cache_pick(tree, option);
+    if (tree->select_state == NULL) {
+        return;
+    }
+    th_select_cache *cache = select_cache_pick(tree->select_state, option);
     if (cache == NULL || cache->disabled) {
         return;
     }
@@ -1995,6 +2009,10 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
    one here, which lists the new element with the rest. The walk stops at an ancestor
    option, so a chain of nested options stays O(1) each. */
 static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
+    /* selectedcontent_flagged set the flag exactly when the element carries no disabled attribute */
+    if (!selectedcontent->reaches_selectedcontent) {
+        return;
+    }
     th_node *select = selectedcontent->parent;
     while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
         /* a template's content fragment holds its own selectedcontent, not the select's */
@@ -2003,11 +2021,11 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
         }
         select = select->parent;
     }
-    if (select == NULL || node_has_attr(selectedcontent, TH_ATTR_DISABLED)) {
+    if (select == NULL) {
         return;
     }
     th_select_state *state = tree->select_state;
-    Py_ssize_t slot = state != NULL ? th_node_map_find(&state->index, select) : 0;
+    Py_ssize_t slot = state != NULL ? select_cache_slot(state, select) : 0;
     if (slot == 0) {
         select_cache_insert(tree, select);
         return;
@@ -2074,14 +2092,16 @@ static void select_cache_finish(th_tree *tree) {
     if (state == NULL) {
         return;
     }
-    for (Py_ssize_t index = 0; index < state->count; index++) {
-        th_select_cache *cache = &state->caches[index];
+    /* read once: the copies below allocate nodes, so the compiler would reload these after every one */
+    const uint8_t recheck = state->recheck;
+    const th_select_cache *end = state->caches + state->count;
+    for (th_select_cache *cache = state->caches; cache != end; cache++) {
         if (cache->disabled || cache->multiple) {
             continue;
         }
         /* only the adoption agency and a copy that removed its option take the shown option out of its select, and
            both ask for the recheck */
-        if (!state->recheck) {
+        if (!recheck) {
             if (cache->selected != NULL && cache->filled != cache->target_count) {
                 replace_target_children(tree, cache, cache->selected);
             }
@@ -2472,8 +2492,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             if (node_afe < 0) {
                 /* not in the list: remove from the stack and continue; an option removed this way is never popped, so
                    it is picked here, the selection the reparse of its select would make */
-                if (is_html_element(node, TH_TAG_OPTION)) {
-                    select_cache_pick(tree, node);
+                if (tree->select_state != NULL && is_html_element(node, TH_TAG_OPTION)) {
+                    select_cache_pick(tree->select_state, node);
                 }
                 stack_remove_at(tree, node_idx);
                 continue;
