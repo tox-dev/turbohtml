@@ -87,6 +87,8 @@ typedef struct {
     th_node_map index; /* select node -> 1-based position in caches */
 } th_select_state;
 
+typedef struct th_attr_names th_attr_names;
+
 struct th_tree {
     arena_block *arena;
     th_node *document;
@@ -190,6 +192,8 @@ struct th_tree {
        parsing closes. One pointer keeps th_tree at 512 bytes, inside pymalloc's
        small-object limit, so every parse still allocates its tree from pymalloc. */
     th_select_state *select_state;
+    /* Attribute names of the elements merge_attrs searches by hash, allocated on the first such merge. */
+    th_attr_names *attr_names;
     /* What a failed element construction hands the insertion modes in place of NULL: never linked into the
        document, it absorbs the rest of the failing token's pushes and edits until tree->failed ends the drain, so
        stack_push and the modes need no NULL checks. ctx_atom sits beside scope_atom to keep th_tree at 512 bytes. */

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Final
 
@@ -527,6 +528,51 @@ def test_repeated_start_tags_merge_into_spare_attribute_slots() -> None:
     html.attrs["e"] = "5"
     html.attrs["f"] = "6"
     assert list(html.attrs.items()) == [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5"), ("f", "6")]
+
+
+def test_repeated_start_tag_past_scan_limit_keeps_first_value_and_order() -> None:
+    initial: Final = " ".join(f"a{index}=1" for index in range(10))
+    markup: Final = f"<body {initial}><body a9=2 b=2 a0=3 c=4><body b=5 a9=6 d=7>"
+    body: Final = parse(markup).find("body")
+    assert body is not None
+    assert list(body.attrs.items()) == [(f"a{index}", "1") for index in range(10)] + [
+        ("b", "2"),
+        ("c", "4"),
+        ("d", "7"),
+    ]
+
+
+def test_repeated_html_and_body_past_scan_limit_keep_their_own_names() -> None:
+    html_names: Final = " ".join(f"a{index}=1" for index in range(10))
+    body_names: Final = " ".join(f"b{index}=2" for index in range(9))
+    document: Final = parse(f"<html {html_names}><body {body_names}><html z=3><body a0=9 z=4>")
+    html: Final = document.find("html")
+    body: Final = document.find("body")
+    assert html is not None
+    assert body is not None
+    assert list(html.attrs.items()) == [(f"a{index}", "1") for index in range(10)] + [("z", "3")]
+    assert list(body.attrs.items()) == [(f"b{index}", "2") for index in range(9)] + [("a0", "9"), ("z", "4")]
+
+
+def test_repeated_body_tags_merge_in_time_linear_in_attributes() -> None:
+    # a merge checks each incoming name against the names already on the element, so distinct names on repeated tags
+    # take time quadratic in their count, while one tag with the same names takes time linear in it; the floor keeps
+    # a sub-millisecond baseline from inflating the ratio
+    count: Final = 4000
+    repeated: Final = "".join(f"<body a{index}>" for index in range(count))
+    names: Final = " ".join(f"a{index}" for index in range(count))
+    single: Final = f"<body {names}>"
+    baseline: Final = max(_fastest_parse(single), 0.001)
+    assert _fastest_parse(repeated) < 5 * baseline
+
+
+def _fastest_parse(markup: str) -> float:
+    timings: Final[list[float]] = []
+    for _ in range(3):
+        start: Final = time.perf_counter()
+        parse(markup)
+        timings.append(time.perf_counter() - start)
+    return min(timings)
 
 
 @pytest.mark.parametrize(
