@@ -1105,17 +1105,24 @@ def test_long_address_chains_scan_in_bounded_time(text: str, count: int) -> None
     assert len(LinkDetector(phones=_PHONE_RUNS_US).find(text)) == count
 
 
-# A ratio to a same-size scan without triggers holds across machines, where absolute seconds would not.
+# The reference colons each cost a constant scheme check, so it does the same per-colon work as the chain without the
+# walk; the per-character ratio holds across machines, where absolute seconds would not.
 def test_a_chain_of_tel_uris_without_a_number_scans_in_linear_time() -> None:
     detector = LinkDetector(phones=_PHONE_RUNS_US)
-    start = time.process_time()
-    repetitions = 32768
-    assert detector.find("tel:" * repetitions) == []
-    chain_seconds = time.process_time() - start
-    start = time.process_time()
-    detector.find("tel;" * repetitions)
-    reference_seconds = time.process_time() - start
-    assert chain_seconds / max(reference_seconds, 0.01) < 60
+    chain = "tel:" * 32768
+    reference = "xel:" * 262144
+    chain_per_character = _fastest_seconds(detector, chain) / len(chain)
+    reference_per_character = _fastest_seconds(detector, reference) / len(reference)
+    assert chain_per_character / reference_per_character < 120
+
+
+def _fastest_seconds(detector: LinkDetector, text: str) -> float:
+    timings = []
+    for _ in range(3):
+        start = time.perf_counter()
+        detector.find(text)
+        timings.append(time.perf_counter() - start)
+    return min(timings)
 
 
 @pytest.mark.parametrize(
