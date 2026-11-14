@@ -1949,9 +1949,20 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     }
 }
 
+/* The afe_hash() of each list entry, cached in the same allocation right after the entries so th_tree keeps its size:
+   0 for an entry pushed while the hash set was unused, never read for a marker. */
+static inline uint64_t *afe_keys(const th_tree *tree) {
+    return (uint64_t *)(void *)(tree->afe + tree->afe_cap);
+}
+
 /* Remove the active-formatting-elements entry at index, shifting the tail down. */
 static void afe_remove_at(th_tree *tree, Py_ssize_t index) {
-    memmove(&tree->afe[index], &tree->afe[index + 1], (size_t)(tree->afe_len - index - 1) * sizeof(th_node *));
+    size_t tail = (size_t)(tree->afe_len - index - 1);
+    if (tail > 0) {
+        memmove(&tree->afe[index], &tree->afe[index + 1], tail * sizeof(th_node *));
+        uint64_t *keys = afe_keys(tree);
+        memmove(&keys[index], &keys[index + 1], tail * sizeof(uint64_t));
+    }
     tree->afe_len--;
     if (tree->afe_len == 0) {
         tree->afe_hash_valid = 0;
@@ -1969,6 +1980,7 @@ static uint64_t afe_hash(const th_node *node) {
     uint64_t hash = UINT64_C(14695981039346656037) ^ node->atom;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         const th_node_attr *attr = &node->attrs[index];
+        TH_WORK_STEPS_ADD(attr->value_len);
         hash = (hash ^ attr->name_atom) * UINT64_C(1099511628211);
         hash = (hash ^ (uint64_t)attr->value_len) * UINT64_C(1099511628211);
         for (Py_ssize_t offset = 0; offset < attr->value_len; offset++) {
@@ -1978,85 +1990,169 @@ static uint64_t afe_hash(const th_node *node) {
     return hash | 1;
 }
 
-static int afe_hash_add(th_tree *tree, const th_node *node) {
+/* Below this many entries after the last marker a push compares against them directly and leaves the hash set unused:
+   hashing every pushed element costs more than scanning a short segment, and few documents list more. */
+#define AFE_SCAN_LIMIT 8
+#define AFE_HASH_MIN_CAPACITY 32
+
+/* Whether at least AFE_SCAN_LIMIT entries follow the last marker. */
+static inline int afe_segment_is_long(const th_tree *tree) {
+    if (tree->afe_len < AFE_SCAN_LIMIT) {
+        return 0;
+    }
+    for (Py_ssize_t index = tree->afe_len - AFE_SCAN_LIMIT; index < tree->afe_len; index++) {
+        if (tree->afe[index] == NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Index of the first entry after the last marker: the only entries the Noah's Ark scan reads. */
+static Py_ssize_t afe_segment_start(const th_tree *tree) {
+    Py_ssize_t index = tree->afe_len;
+    while (index > 0 && tree->afe[index - 1] != NULL) {
+        index--;
+    }
+    return index;
+}
+
+static int afe_hash_insert(th_tree *tree, uint64_t key);
+
+/* Refill the set with the keys of the entries from start on, hashing only those pushed while the set was unused. The
+   table first shrinks to the smallest size that holds them under a quarter load (its buffer keeps the allocation), so
+   a reseed takes time in the length of the segment, not in the largest table the parse has needed. */
+static int afe_hash_reseed(th_tree *tree, Py_ssize_t start) {
+    size_t live = (size_t)(tree->afe_len - start);
+    while (tree->afe_hash_capacity > AFE_HASH_MIN_CAPACITY && tree->afe_hash_capacity / 8 > live) {
+        tree->afe_hash_capacity /= 2;
+    }
+    if (tree->afe_hash_capacity > 0) {
+        TH_WORK_STEPS_ADD(tree->afe_hash_capacity);
+        memset(tree->afe_hashes, 0, tree->afe_hash_capacity * sizeof(uint64_t));
+    }
+    tree->afe_hash_count = 0;
+    uint64_t *keys = afe_keys(tree);
+    for (Py_ssize_t index = start; index < tree->afe_len; index++) {
+        if (keys[index] == 0) {
+            keys[index] = afe_hash(tree->afe[index]);
+        }
+        if (afe_hash_insert(tree, keys[index]) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return 0;
+}
+
+static int afe_hash_insert(th_tree *tree, uint64_t key) {
     if (tree->afe_hash_count >= tree->afe_hash_capacity / 2) {
-        size_t capacity;
-        size_t bytes;
-        /* GCOVR_EXCL_BR_START: allocation-size overflow */
-        if (!th_grow_cap(tree->afe_hash_capacity + 1, tree->afe_hash_capacity, 32, sizeof(uint64_t), &capacity,
-                         &bytes)) {
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
-            return -1;        /* GCOVR_EXCL_LINE: allocation-size overflow */
-        }
-        /* GCOVR_EXCL_BR_STOP */
-        uint64_t *hashes = PyMem_Calloc(capacity, sizeof(uint64_t));
-        if (hashes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        for (size_t index = 0; index < tree->afe_hash_capacity; index++) {
-            uint64_t hash = tree->afe_hashes[index];
-            if (hash != 0) {
-                size_t slot = (size_t)hash & (capacity - 1);
-                while (hashes[slot] != 0) {
-                    TH_WORK_STEP();
-                    slot = (slot + 1) & (capacity - 1);
+        /* An entry that leaves the list keeps its key in the set. Once such keys fill half the table, reseed it from
+           the segment instead of growing it, so the table and its probe runs stay bounded by the segment and not by
+           every element the list has held. The reseed leaves the count under half the shrunk table, so it grows
+           nothing. */
+        if (tree->afe_hash_count > 64) {
+            Py_ssize_t start = afe_segment_start(tree);
+            if (tree->afe_hash_count > 2 * (size_t)(tree->afe_len - start) + 64) {
+                if (afe_hash_reseed(tree, start) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                hashes[slot] = hash;
             }
         }
-        PyMem_Free(tree->afe_hashes);
-        tree->afe_hashes = hashes;
-        tree->afe_hash_capacity = capacity;
+        if (tree->afe_hash_count >= tree->afe_hash_capacity / 2) {
+            size_t capacity;
+            size_t bytes;
+            /* GCOVR_EXCL_BR_START: allocation-size overflow */
+            if (!th_grow_cap(tree->afe_hash_capacity + 1, tree->afe_hash_capacity, AFE_HASH_MIN_CAPACITY,
+                             sizeof(uint64_t), &capacity, &bytes)) {
+                tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
+                return -1;        /* GCOVR_EXCL_LINE: allocation-size overflow */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            uint64_t *hashes = PyMem_Calloc(capacity, sizeof(uint64_t));
+            if (hashes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            for (size_t index = 0; index < tree->afe_hash_capacity; index++) {
+                uint64_t hash = tree->afe_hashes[index];
+                if (hash != 0) {
+                    size_t slot = (size_t)hash & (capacity - 1);
+                    while (hashes[slot] != 0) {
+                        TH_WORK_STEP();
+                        slot = (slot + 1) & (capacity - 1);
+                    }
+                    hashes[slot] = hash;
+                }
+            }
+            PyMem_Free(tree->afe_hashes);
+            tree->afe_hashes = hashes;
+            tree->afe_hash_capacity = capacity;
+        }
     }
-    uint64_t hash = afe_hash(node);
-    size_t slot = (size_t)hash & (tree->afe_hash_capacity - 1);
+    size_t slot = (size_t)key & (tree->afe_hash_capacity - 1);
     while (tree->afe_hashes[slot] != 0) {
         TH_WORK_STEP();
-        if (tree->afe_hashes[slot] == hash) {
+        if (tree->afe_hashes[slot] == key) {
             return 1;
         }
         slot = (slot + 1) & (tree->afe_hash_capacity - 1);
     }
-    tree->afe_hashes[slot] = hash;
+    tree->afe_hashes[slot] = key;
     tree->afe_hash_count++;
     return 0;
 }
 
+/* Make room for one more entry in a full list, moving the cached keys up behind the larger entry array. */
+static int afe_grow(th_tree *tree) {
+    size_t full = (size_t)tree->afe_cap;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap(full + 1, full, 16, sizeof(th_node *) + sizeof(uint64_t), &cap, &bytes);
+    if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    }
+    th_node **grown = PyMem_Realloc(tree->afe, bytes);
+    if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    if (full > 0) {
+        memmove(grown + cap, grown + full, full * sizeof(uint64_t));
+    }
+    tree->afe = grown;
+    tree->afe_cap = (Py_ssize_t)cap;
+    return 1;
+}
+
+/* The hash set comes into use (afe_hash_valid) once the segment after the last marker is long, and leaves it when the
+   list clears back to a marker or empties. In use, it holds the key of every entry after the last marker, plus keys of
+   entries that have left the list or sit before that marker, so a miss proves the segment holds no equal entry and a
+   hit runs the exact comparison. */
 static int afe_push(th_tree *tree, th_node *node) {
-    /* An entry leaving the list keeps its hash until the next rebuild. Left alone, the table grows with every
-       formatting element the list has held, and since the low bits of FNV-1a follow the low bits of the input, a
-       document can seat all of them in one probe run that each later push walks. */
-    if (tree->afe_hash_count > 2 * (size_t)tree->afe_len + 64) {
-        tree->afe_hash_valid = 0;
-    }
-    if (!tree->afe_hash_valid) {
-        if (tree->afe_hash_capacity > 0) {
-            memset(tree->afe_hashes, 0, tree->afe_hash_capacity * sizeof(uint64_t));
-        }
-        tree->afe_hash_count = 0;
-        for (Py_ssize_t index = 0; index < tree->afe_len; index++) {
-            if (tree->afe[index] != NULL) {
-                /* GCOVR_EXCL_BR_START: allocation failure */
-                if (afe_hash_add(tree, tree->afe[index]) < 0) {
-                    return 0; /* GCOVR_EXCL_LINE: allocation-failure path */
-                }
-                /* GCOVR_EXCL_BR_STOP */
+    uint64_t key = 0;
+    int seen = 1;
+    if (tree->afe_hash_valid || afe_segment_is_long(tree)) {
+        if (!tree->afe_hash_valid) {
+            if (afe_hash_reseed(tree, afe_segment_start(tree)) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return 0;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
             }
+            tree->afe_hash_valid = 1;
         }
-        tree->afe_hash_valid = 1;
+        key = afe_hash(node);
+        seen = afe_hash_insert(tree, key);
+        if (seen < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
-    int seen = afe_hash_add(tree, node);
-    if (seen < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    /* Hash collisions retain the full duplicate comparison. */
+    /* A short segment, or a hash hit, runs the full duplicate comparison. */
     if (seen) {
         /* Noah's Ark: at most three earlier entries with the same name+attributes
            may precede a new one before the oldest is dropped. */
         int matches = 0;
         Py_ssize_t earliest = -1;
         for (Py_ssize_t index = tree->afe_len - 1; index >= 0; index--) {
+            TH_WORK_STEP();
             th_node *entry = tree->afe[index];
             if (entry == NULL) {
                 break; /* stop at the marker */
@@ -2083,41 +2179,20 @@ static int afe_push(th_tree *tree, th_node *node) {
         }
     }
     if (tree->afe_len == tree->afe_cap) {
-        size_t cap;
-        size_t bytes;
-        int grew = th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-            return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        if (!afe_grow(tree)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        th_node **grown = PyMem_Realloc(tree->afe, bytes);
-        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-            return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        tree->afe = grown;
-        tree->afe_cap = (Py_ssize_t)cap;
     }
+    afe_keys(tree)[tree->afe_len] = key;
     tree->afe[tree->afe_len++] = node;
     return 1;
 }
 
 static void afe_push_marker(th_tree *tree) {
     if (tree->afe_len == tree->afe_cap) {
-        size_t cap;
-        size_t bytes;
-        int grew = th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-            return;           /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        if (!afe_grow(tree)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        th_node **grown = PyMem_Realloc(tree->afe, bytes);
-        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-            return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        tree->afe = grown;
-        tree->afe_cap = (Py_ssize_t)cap;
     }
     tree->afe[tree->afe_len++] = NULL;
 }
@@ -2363,27 +2438,10 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         if (fi < bookmark) {
             bookmark--;
         }
+        /* the clone hashes as fmt did, so it takes over fmt's key */
+        uint64_t fmt_key = afe_keys(tree)[fi];
+        /* removing fmt frees the slot the clone takes below, so the list needs no room */
         afe_remove_at(tree, fi);
-        /* GCOVR_EXCL_START: the list just shrank by one (fmt removed) before this single
-           re-insert, so afe_len < afe_cap here and the grow never fires */
-        if (tree->afe_len == tree->afe_cap) {
-            size_t cap;
-            size_t bytes;
-            int grew =
-                th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
-            if (!grew) {
-                tree->failed = 1;
-                return 1;
-            }
-            th_node **grown = PyMem_Realloc(tree->afe, bytes);
-            if (grown == NULL) {
-                tree->failed = 1;
-                return 1;
-            }
-            tree->afe = grown;
-            tree->afe_cap = (Py_ssize_t)cap;
-        }
-        /* GCOVR_EXCL_STOP */
         /* GCOVR_EXCL_START: the bookmark is kept within [0, afe_len] by the loop above; these are defensive clamps */
         if (bookmark < 0) {
             bookmark = 0;
@@ -2392,8 +2450,12 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             bookmark = tree->afe_len;
         }
         /* GCOVR_EXCL_STOP */
-        memmove(&tree->afe[bookmark + 1], &tree->afe[bookmark], (size_t)(tree->afe_len - bookmark) * sizeof(th_node *));
+        size_t moved = (size_t)(tree->afe_len - bookmark);
+        memmove(&tree->afe[bookmark + 1], &tree->afe[bookmark], moved * sizeof(th_node *));
         tree->afe[bookmark] = fmt_clone;
+        uint64_t *keys = afe_keys(tree);
+        memmove(&keys[bookmark + 1], &keys[bookmark], moved * sizeof(uint64_t));
+        keys[bookmark] = fmt_key;
         tree->afe_len++;
         /* remove fmt from the stack, insert the clone below furthest */
         Py_ssize_t fs = stack_index_of(tree, fmt);
