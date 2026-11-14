@@ -73,7 +73,9 @@ typedef struct {
                        hazard, it re-parses to itself, so only this walk's own edits can unsettle it and
                        settle_hoisted checks those inline. A node entrypoint may hand in a hand-built or
                        post-parse-mutated tree with no such guarantee, so it is always balanced. */
-    int balance_edited; /* settle_hoisted or balance_subtree changed the tree beyond the unwrap that called it */
+    int balance_edited;  /* settle_hoisted or balance_subtree changed the tree beyond the unwrap that called it */
+    int omitted_wrapper; /* the balancer wrapped a run in an implied element the policy omits: unwrap_omitted_implied
+                            removes it once balancing is done */
     int bleach_raw_values;
     int bleach_url_policy;
     int bleach_raw_urls;
@@ -2773,10 +2775,21 @@ static int apply_transform(sanitizer *s, th_node *element, PyObject **tag) {
    <a> must not survive into HTML as a live anchor when its <svg> is escaped). */
 enum sanitize_action { SANITIZE_DONE, SANITIZE_KEEP_CHILDREN, SANITIZE_STRIP_CHILDREN, SANITIZE_ESCAPE_CHILDREN };
 
+/* The tbody, tr, and colgroup the tree builder implies around table content. The source did not write their tags, so a
+   policy that omits one unwraps it, keeping the content the source did write, in every mode. */
+static int implied_table_wrapper(const th_node *element) {
+    return (element->tag_flags & TH_ELEM_IMPLIED) &&
+           (element->atom == TH_TAG_TBODY || element->atom == TH_TAG_TR || element->atom == TH_TAG_COLGROUP);
+}
+
 /* Record a disallowed element and pick its disposition: drop the whole subtree for a content-removal tag (e.g.
-   script/style, so its text never leaks), in REMOVE mode, or for foreign content under STRIP (unwrapping it would
-   invite namespace confusion); otherwise strip or escape it once its children are done. Returns 0, or -1 on error. */
-static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyObject *tag,
+   script/style, so its text never leaks), in REMOVE mode (except for an implied table wrapper), or for foreign content
+   under STRIP (unwrapping it would invite namespace confusion); otherwise strip or escape it once its children are
+   done. An implied table wrapper is unwrapped under REMOVE and STRIP, where it never escapes: its end tag is the
+   source's, so escaping would print it. `table_wrapper` is judged on the source tag, before a transform renames the
+   element.
+   Returns 0, or -1 on error. */
+static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyObject *tag, int table_wrapper,
                                              enum sanitize_action *action) {
     if (record_removed(s, tag, NULL, 0) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
         return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2786,14 +2799,14 @@ static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyO
         return -1;            /* GCOVR_EXCL_LINE */
     }
     *action = SANITIZE_DONE;
-    if (remove_content || s->on_disallowed == ON_REMOVE ||
+    if (remove_content || (s->on_disallowed == ON_REMOVE && !table_wrapper) ||
         (s->on_disallowed == ON_STRIP && element->ns != TH_NS_HTML)) {
         th_node_remove(
             element); /* the whole subtree goes, hoisting nothing, so no nesting the balancer must re-examine */
-    } else if (s->on_disallowed == ON_STRIP) {
-        *action = SANITIZE_STRIP_CHILDREN;
-    } else {
+    } else if (s->on_disallowed == ON_ESCAPE) {
         *action = SANITIZE_ESCAPE_CHILDREN;
+    } else {
+        *action = SANITIZE_STRIP_CHILDREN;
     }
     return 0;
 }
@@ -2805,6 +2818,7 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
     if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    int table_wrapper = implied_table_wrapper(element);
     if (is_html && PyDict_GET_SIZE(s->transform_tags) > 0) {
         if (apply_transform(s, element, &tag) < 0) { /* GCOVR_EXCL_BR_LINE: apply_transform only fails on allocation */
             Py_DECREF(tag);                          /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2868,7 +2882,7 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
             *action = SANITIZE_KEEP_CHILDREN;
         }
     } else {
-        status = dispose_disallowed(s, element, tag, action);
+        status = dispose_disallowed(s, element, tag, table_wrapper, action);
     }
     Py_DECREF(tag);
     return status;
@@ -3075,7 +3089,7 @@ static TH_WALK_INLINE int settle_range(sanitizer *s, th_node *parent, th_node *b
                 return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             enum sanitize_action action;
-            int status = dispose_disallowed(s, cursor, tag, &action);
+            int status = dispose_disallowed(s, cursor, tag, implied_table_wrapper(cursor), &action);
             Py_DECREF(tag);
             if (status == 0 && action != SANITIZE_DONE) { /* GCOVR_EXCL_BR_LINE: dispose only fails on allocation */
                 status = unwrap_element(s, cursor, action);
@@ -4189,12 +4203,29 @@ static int balancer_run_continues(const th_node *node, uint16_t match_a, uint16_
     return node->type != TH_NODE_TEXT || wrapper_atom != TH_TAG_COLGROUP;
 }
 
+/* Whether the tag allowlist keeps the element by its name, as the walk's allowlist does for a parsed one: 1 or 0, or -1
+   on allocation failure. The HTML profile needs no check: the balancer only wraps the children of kept HTML elements,
+   and none are kept while allow_html is off. */
+static int tag_allowed(sanitizer *s, const th_node *element) {
+    PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, element->text, element->text_len);
+    if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int allowed = PySet_Contains(s->tags, tag);
+    Py_DECREF(tag);
+    if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: PySet_Contains never fails on a str key */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    return allowed;
+}
+
 /* Wrap each maximal run of matching HTML children of `parent` between `before` and `stop` (NULL for the first and last
    child) in a freshly implied wrapper element, so a table part the policy left without its required ancestor re-parses
    to where it sits instead of the parser implying the wrapper around it. The wrapper is marked implied and NOT
    closed-by-end-tag, exactly like the tbody/tr/colgroup the tree builder implies: a kept one still serializes with its
-   end tag, but one a later strip orphans escapes to nothing rather than a stray `</tbody>`. Returns 0, or -1 on
-   allocation failure. */
+   end tag, but one a later strip orphans escapes to nothing rather than a stray `</tbody>`. A wrapper the policy omits
+   judges its children in place, and unwrap_omitted_implied removes it after balancing so its tag is never written.
+   Returns 0, or -1 on allocation failure. */
 static int balancer_wrap_runs(sanitizer *s, th_node *parent, th_node *before, th_node *stop, uint16_t match_a,
                               uint16_t match_b, uint16_t wrapper_atom) {
     th_node *child = before != NULL ? before->next_sibling : parent->first_child;
@@ -4208,6 +4239,13 @@ static int balancer_wrap_runs(sanitizer *s, th_node *parent, th_node *before, th
             return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         wrapper->tag_flags = (uint8_t)((wrapper->tag_flags | TH_ELEM_IMPLIED) & ~TH_ELEM_CLOSED_BY_END_TAG);
+        int allowed = tag_allowed(s, wrapper);
+        if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (!allowed) {
+            s->omitted_wrapper = 1;
+        }
         th_node_insert_before(parent, wrapper, child);
         s->balance_edited = 1;
         /* a browser keeps the row or row group open across text it fosters out and a comment, so they stay inside the
@@ -4226,6 +4264,34 @@ static int balancer_wrap_runs(sanitizer *s, th_node *parent, th_node *before, th
             th_node_append_child(wrapper, child);
             child = next;
         }
+    }
+    return 0;
+}
+
+/* Remove each implied HTML element the policy omits from under `root`, once balancing is done, hoisting its children
+   into its place. The balancer judged those children inside the wrapper, which a browser re-creates on re-parse, so the
+   wrapper's tag is never written. Returns 0, or -1 on error. */
+static int unwrap_omitted_implied(sanitizer *s, th_node *root) {
+    th_node *node = root->first_child;
+    while (node != NULL) {
+        th_node *next = node->first_child;
+        if (next == NULL) {
+            th_node *up = node;
+            while (up != root && up->next_sibling == NULL) {
+                up = up->parent;
+            }
+            next = up == root ? NULL : up->next_sibling;
+        }
+        if (node->type == TH_NODE_ELEMENT && implied_table_wrapper(node)) {
+            int allowed = tag_allowed(s, node);
+            if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            if (!allowed && escape_element(s, node) < 0) { /* GCOVR_EXCL_BR_LINE: escape only fails on allocation */
+                return -1;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        node = next;
     }
     return 0;
 }
@@ -5042,6 +5108,9 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
     }
     if (!failed && !s.xml && !balance_in_walk && (balance || s.balance_edited)) {
         failed = balance_subtree(&s, root, 1) < 0;
+    }
+    if (!failed && s.omitted_wrapper) {
+        failed = unwrap_omitted_implied(&s, root) < 0;
     }
     if (!failed && s.strip_templates) {
         failed = strip_tree_templates(&s, root) < 0;
