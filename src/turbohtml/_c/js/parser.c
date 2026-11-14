@@ -271,6 +271,12 @@ static void set_ident(P *parser, int32_t node) {
 static int32_t leaf(P *parser, jm_kind kind) {
     int32_t index = jm_node_new(parser->prog, kind);
     if (kind == JN_IDENT) {
+        /* Only a value-bearing token has text of its own: at a punctuator lx.text still spans the last token that did,
+           so the name read there would be an earlier token's. Punctuators follow the value-bearing kinds in jm_tok, and
+           the end of input has empty text of its own, so a member name there stays empty. */
+        if (parser->lx.kind > JT_TEMPLATE_TAIL) {
+            fail(parser, "expected property name");
+        }
         set_ident(parser, index);
     } else {
         parser->prog->nodes[index].str = parser->lx.text;
