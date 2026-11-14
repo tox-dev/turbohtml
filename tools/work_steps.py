@@ -1,3 +1,5 @@
+"""Count the C core's loop steps around a call and check how they grow or compare to a control."""
+
 from __future__ import annotations
 
 import gc
@@ -28,11 +30,18 @@ class WorkSteps:
         self, build: Callable[[int], Callable[[], object]], sizes: tuple[int, int], *, exponent: float = 1.25
     ) -> None:
         small, large = (self(build(size)) for size in sizes)
-        assert small > 0, "no counted loop ran: the tick is not on this input's path"
-        growth = math.log(large / small) / math.log(sizes[1] / sizes[0])
-        assert growth <= exponent, f"steps {small} -> {large} grow as n^{growth:.2f}"
+        if small <= 0:
+            msg = "no counted loop ran: the tick is not on this input's path"
+            raise AssertionError(msg)
+        if (growth := math.log(large / small) / math.log(sizes[1] / sizes[0])) > exponent:
+            msg = f"steps {small} -> {large} grow as n^{growth:.2f}"
+            raise AssertionError(msg)
 
     def assert_within(self, call: Callable[[], object], control: Callable[[], object], *, factor: float) -> None:
         spent, baseline = self(call), self(control)
-        assert baseline > 0, "the control ran no counted loop"
-        assert spent <= factor * baseline, f"{spent} steps against {baseline} for the linear control"
+        if baseline <= 0:
+            msg = "the control ran no counted loop"
+            raise AssertionError(msg)
+        if spent > factor * baseline:
+            msg = f"{spent} steps against {baseline} for the linear control"
+            raise AssertionError(msg)
