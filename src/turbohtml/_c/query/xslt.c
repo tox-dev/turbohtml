@@ -405,15 +405,20 @@ static size_t strmap_hash(const strmap *map, const Py_UCS4 *str, Py_ssize_t len)
     return map->keyed ? str_keyed_hash(str, len) : str_hash(str, len);
 }
 
-/* Move the entries into new_cap slots under th_name_hash when keyed, else str_hash. Taken in slot order, no entry of
-   a doubled map lands further from its home than it sat before, so the bound strmap_bucket keeps on how far an entry
-   sits holds on. */
+/* Move the entries into new_cap slots under th_name_hash when keyed, else str_hash. The walk starts at an empty slot,
+   so a run that wraps past the end of the array is re-seated in its own order: no entry of a doubled map lands further
+   from its home than it sat before, and the bound strmap_bucket keeps on how far an entry sits holds on. */
 static inline int strmap_move(strmap *map, size_t new_cap, int keyed) {
     strmap_slot *slots = PyMem_Calloc(new_cap, sizeof(strmap_slot));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;       /* GCOVR_EXCL_LINE */
     }
-    for (size_t index = 0; index < map->cap; index++) {
+    size_t start = 0;
+    while (start < map->cap && map->slots[start].used) {
+        start++;
+    }
+    for (size_t step = 0; step < map->cap; step++) {
+        size_t index = (start + step) & (map->cap - 1);
         if (map->slots[index].used) {
             const Py_UCS4 *str = map->slots[index].str;
             Py_ssize_t len = map->slots[index].str_len;
