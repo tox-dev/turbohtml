@@ -93,6 +93,7 @@ static pattern *pat_new(th_schema *schema, int type) {
     }
     memset(pattern, 0, sizeof(*pattern));
     pattern->type = type;
+    schema->pattern_count++;
     pattern->nullable =
         type == P_REF || type == P_CHOICE || type == P_GROUP || type == P_INTERLEAVE || type == P_ONEMORE
             ? -1
@@ -220,7 +221,7 @@ static void memo_reset(patmemo *memo) {
 }
 
 static void memo_begin_event(th_schema *schema) {
-    schema->memo_budget = MEMO_FREE_STEPS;
+    schema->memo_budget = schema->memo_free;
     memo_reset(schema->memo);
 }
 
@@ -1280,6 +1281,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, patt
 static RNG_NOINLINE int rng_nullable_memo(th_schema *schema, pattern *p) {
     pattern *found = memo_find(schema->memo, MEMO_NULLABLE, p, NULL, 0);
     if (found != NULL) {
+        schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return found == schema->p_empty;
     }
     int nullable = rng_nullable_step(schema, p);
@@ -1291,6 +1293,7 @@ static RNG_NOINLINE pattern *rng_text_memo(th_schema *schema, pattern *p, const 
     int memoize = rng_recurses(p);
     pattern *derived = memoize ? memo_find(schema->memo, MEMO_TEXT, p, value, len) : NULL;
     if (derived != NULL) {
+        schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_text_deriv_step(schema, p, value, len);
@@ -1304,6 +1307,7 @@ static RNG_NOINLINE pattern *rng_start_tag_open_memo(th_schema *schema, pattern 
     int memoize = rng_recurses(p);
     pattern *derived = memoize ? memo_find(schema->memo, MEMO_OPEN, p, NULL, 0) : NULL;
     if (derived != NULL) {
+        schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_start_tag_open_step(schema, p, name);
@@ -1318,6 +1322,7 @@ static RNG_NOINLINE pattern *rng_att_memo(th_schema *schema, pattern *p, const q
     int memoize = rng_recurses(p);
     pattern *derived = memoize ? memo_find(schema->memo, MEMO_ATT, p, value, len) : NULL;
     if (derived != NULL) {
+        schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_att_deriv_step(schema, p, name, value, len);
@@ -1331,6 +1336,7 @@ static RNG_NOINLINE pattern *rng_start_tag_close_memo(th_schema *schema, pattern
     int memoize = rng_recurses(p);
     pattern *derived = memoize ? memo_find(schema->memo, MEMO_CLOSE, p, NULL, 0) : NULL;
     if (derived != NULL) {
+        schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_start_tag_close_step(schema, p);
@@ -2683,6 +2689,12 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     memset(memo, 0, 2 * sizeof(*memo));
     schema->memo = memo;
     schema->token_memo = memo + 1;
+    /* Heuristic threshold: a walk longer than twice the schema pattern count probably revisits a node, so the
+       free steps grow with the schema. Patterns made during validation are not counted. */
+    schema->memo_free = MEMO_FREE_STEPS == 0 ? 0
+                        : (Py_ssize_t)schema->pattern_count * 2 > MEMO_FREE_STEPS
+                            ? (Py_ssize_t)schema->pattern_count * 2
+                            : MEMO_FREE_STEPS;
     Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
     if (!rng_nullable(schema, result) && ctx->error_count == before) {

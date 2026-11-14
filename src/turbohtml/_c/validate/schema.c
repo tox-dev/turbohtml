@@ -540,6 +540,8 @@ typedef struct th_schema {
     struct patintern *intern;   /* per-validation pattern hash-consing table; NULL while compiling */
     struct patmemo *memo;       /* per-validation derivative memo; NULL while compiling */
     struct patmemo *token_memo; /* the memo the tokens of a <list> take turns in, one event each */
+    size_t pattern_count;       /* patterns the compiled schema holds, which sizes the free steps */
+    Py_ssize_t memo_free;       /* free steps an event starts with: MEMO_FREE_STEPS, or more for a larger schema */
     Py_ssize_t memo_budget;     /* steps the derivative event in progress may still take without the memo */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
