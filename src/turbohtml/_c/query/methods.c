@@ -332,6 +332,7 @@ TH_NODE_API(, PyObject *, turbohtml_select_limited, (PyObject * module, PyObject
 
 typedef struct {
     NodeObject *node;
+    th_node *top; /* of node's tree, for the later roots whose climb stops at a node this one passed */
     int processed;
     Py_ssize_t next;
     Py_ssize_t tail;
@@ -423,12 +424,6 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
     return out;
 }
 
-static int compare_roots(const void *left, const void *right) {
-    th_node *left_node = *(th_node *const *)left;
-    th_node *right_node = *(th_node *const *)right;
-    return left_node == right_node ? 0 : node_order(left_node, right_node); /* GCOVR_EXCL_BR_LINE: qsort self-compare */
-}
-
 static int sort_sibling_roots(th_node **group, Py_ssize_t group_count) {
     th_node *parent = group[0]->parent;
     for (Py_ssize_t index = 1; index < group_count; index++) {
@@ -466,19 +461,87 @@ static int sort_sibling_roots(th_node **group, Py_ssize_t group_count) {
     return 1;
 }
 
-static int sort_roots(th_node **group, Py_ssize_t group_count) {
+/* A mark's low bit says the node is one of the roots; the rest counts the node's marked children. */
+#define ROOT_MARK_SELECTED 1
+#define ROOT_MARK_CHILD 2
+
+static inline th_node_map_entry *root_mark(const th_node_map *marks, const th_node *node) {
+    if (marks->capacity == 0) {
+        return NULL;
+    }
+    th_node_map_entry *mark = &marks->entries[th_node_map_slot(marks, node)];
+    return mark->node != NULL ? mark : NULL;
+}
+
+/* node_order climbs to the top from both nodes and counts their preceding siblings, so comparing the roots pairwise is
+   quadratic for roots nested in each other or under a wide parent. Mark each root and the ancestors it has not in
+   common with an earlier root instead, then walk the marked nodes in document order from the roots' lowest common
+   ancestor. The walk never enters an unmarked subtree nor a root, so it costs the marked nodes plus the siblings
+   before each one, whatever the size of the tree around them, and it drops the roots inside another root. */
+static Py_ssize_t sort_tree_roots(th_node **group, Py_ssize_t group_count) {
+    th_node_map marks = {0};
+    for (Py_ssize_t index = 0; index < group_count; index++) {
+        th_node *node = group[index];
+        th_node_map_entry *mark = root_mark(&marks, node);
+        if (mark != NULL) {
+            mark->value |= ROOT_MARK_SELECTED;
+            continue;
+        }
+        if (th_node_map_insert(&marks, node, ROOT_MARK_SELECTED) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyMem_Free(marks.entries);                                  /* GCOVR_EXCL_LINE */
+            return -1;                                                  /* GCOVR_EXCL_LINE */
+        }
+        for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
+            mark = root_mark(&marks, parent);
+            if (mark != NULL) {
+                mark->value += ROOT_MARK_CHILD;
+                break;
+            }
+            if (th_node_map_insert(&marks, parent, ROOT_MARK_CHILD) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyMem_Free(marks.entries);                                 /* GCOVR_EXCL_LINE */
+                return -1;                                                 /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    /* The lowest common ancestor is the highest node above a root that is a root or has two marked children. */
+    th_node *top = group[0];
+    for (th_node *node = top->parent; node != NULL; node = node->parent) {
+        if (th_node_map_find(&marks, node) != ROOT_MARK_CHILD) {
+            top = node;
+        }
+    }
+    Py_ssize_t kept = 0;
+    for (th_node *node = top;;) {
+        if ((th_node_map_find(&marks, node) & ROOT_MARK_SELECTED) == 0) {
+            node = node->first_child;
+        } else {
+            group[kept++] = node;
+            /* leave every parent whose marked children are all visited */
+            while (node != top && (root_mark(&marks, node->parent)->value -= ROOT_MARK_CHILD) == 0) {
+                node = node->parent;
+            }
+            if (node == top) {
+                break;
+            }
+            node = node->next_sibling;
+        }
+        while (th_node_map_find(&marks, node) == 0) {
+            node = node->next_sibling;
+        }
+    }
+    PyMem_Free(marks.entries);
+    return kept;
+}
+
+/* Put the roots of one tree in document order and drop those inside another root, whose matches that root already
+   reports. Returns how many are left, or -1 on allocation failure. */
+static Py_ssize_t sort_roots(th_node **group, Py_ssize_t group_count) {
     if (group_count >= 32) {
         int sorted = sort_sibling_roots(group, group_count);
         if (sorted != 0) {
-            return sorted < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return sorted < 0 ? -1 : group_count; /* GCOVR_EXCL_BR_LINE: allocation failure */
         }
-        for (Py_ssize_t index = 1; index < group_count; index++) {
-            if (node_order(group[index], group[index - 1]) < 0) {
-                qsort(group, (size_t)group_count, sizeof(th_node *), compare_roots);
-                break;
-            }
-        }
-        return 0;
+        return sort_tree_roots(group, group_count);
     }
     for (Py_ssize_t index = 1; index < group_count; index++) {
         th_node *node = group[index];
@@ -489,7 +552,14 @@ static int sort_roots(th_node **group, Py_ssize_t group_count) {
         }
         group[position] = node;
     }
-    return 0;
+    /* is_ancestor climbs from each root, which only a group this small can afford */
+    Py_ssize_t kept = 0;
+    for (Py_ssize_t index = 0; index < group_count; index++) {
+        if (kept == 0 || !is_ancestor(group[kept - 1], group[index])) {
+            group[kept++] = group[index];
+        }
+    }
+    return kept;
 }
 
 #ifndef Py_GIL_DISABLED
@@ -553,6 +623,28 @@ static Py_ssize_t index_root_group(th_node_map *groups, th_node *root, Py_ssize_
     return 0;
 }
 
+/* node_root for roots[index]. A climb to the top from every root is quadratic for roots nested in each other, or for
+   siblings below a deep chain, so past the first levels a climb records the nodes it passes under its root and stops
+   at one an earlier root recorded, whose top it shares. Returns NULL on allocation failure. */
+static th_node *index_root_top(th_node_map *climbed, multi_root *roots, Py_ssize_t index) {
+    th_node *top = roots[index].node->node;
+    for (int level = 0; level < 32 && top->parent != NULL; level++) {
+        top = top->parent;
+    }
+    th_node *first = top;
+    Py_ssize_t earlier = 0;
+    while (top->parent != NULL && (earlier = th_node_map_find(climbed, top)) == 0) {
+        top = top->parent;
+    }
+    for (th_node *node = first; node != top; node = node->parent) {
+        if (th_node_map_insert(climbed, node, index + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;                                        /* GCOVR_EXCL_LINE */
+        }
+    }
+    roots[index].top = earlier != 0 ? roots[earlier - 1].top : top;
+    return roots[index].top;
+}
+
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
     PyObject *roots_obj;
     PyObject *selector;
@@ -611,6 +703,7 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
             moved = 1;
         } else {
             th_node_map tops = {0};
+            th_node_map climbed = {0};
             th_node *first_top = NULL;
             Py_ssize_t first_group = 0;
             Py_ssize_t last_group = 0;
@@ -620,7 +713,12 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 if (roots[index].processed || !node_owned_by(candidate, handle)) {
                     continue;
                 }
-                th_node *top = node_root(candidate->node);
+                th_node *top = index_root_top(&climbed, roots, index);
+                if (top == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                    error = 1;        /* GCOVR_EXCL_LINE */
+                    break;            /* GCOVR_EXCL_LINE */
+                }
                 Py_ssize_t head = top == first_top   ? first_group
                                   : first_group == 0 ? 0
                                                      : index_root_group(&tops, top, index + 1);
@@ -645,6 +743,7 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 roots[index].processed = 1;
             }
             PyMem_Free(tops.entries);
+            PyMem_Free(climbed.entries);
             /* Keep tracked-list allocation outside the lifetime of the root grouping. */
             for (Py_ssize_t head = first_group; head != 0; head = roots[head - 1].next_group) {
                 if (error) { /* GCOVR_EXCL_BR_LINE: group-map or result allocation failure */
@@ -657,19 +756,15 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 for (Py_ssize_t member = head; member != 0; member = roots[member - 1].next) {
                     group[group_count++] = roots[member - 1].node->node;
                 }
-                if (sort_roots(group, group_count) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
-                    error = 1;                            /* GCOVR_EXCL_LINE */
-                    break;                                /* GCOVR_EXCL_LINE */
+                group_count = sort_roots(group, group_count);
+                if (group_count < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    PyErr_NoMemory();  /* GCOVR_EXCL_LINE */
+                    error = 1;         /* GCOVR_EXCL_LINE */
+                    break;             /* GCOVR_EXCL_LINE */
                 }
                 batches[tree_first].offset = PyList_GET_SIZE(out);
-                th_node *covered = NULL;
                 for (Py_ssize_t index = 0; index < group_count; index++) {
                     th_node *origin = group[index];
-                    if (covered != NULL && is_ancestor(covered, origin)) {
-                        continue;
-                    }
-                    covered = origin;
                     int append_error =
                         append_selected(out, state, anchor->handle, origin, compiled, 0, sel_single_simple(compiled));
                     if (append_error < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
