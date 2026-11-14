@@ -161,8 +161,25 @@ int xp_name_eq(const lexer *lx, const char *kw);
 /* An upper bound on parser nesting and evaluator recursion. A single group or
    operator level costs a bounded number of C stack frames, so this caps the stack a
    pathological expression -- deeply nested groups, or a long left-associative operator
-   spine -- can consume before it faults (issue #421). */
-#define XP_MAX_DEPTH TH_DEPTH_LIMIT(1024)
+   spine -- can consume before it faults (issue #421). A level is up to ~0.65 KiB of
+   frames with clang -O2, ~0.95 KiB with gcc -O3 and LTO and 1.1 to 1.5 KiB unoptimized,
+   so 64 of them take 40 to 60 KiB in an optimized build: under half of the 128 KiB
+   stack a musl thread starts with, which leaves a Python callback made from the deepest
+   level the margin CPython keeps, and an unoptimized build fits that stack too. The
+   1024 levels this used to admit overflowed any thread stack below 2 MiB. The counter
+   measures stack rather than syntax: what recurses through more frames than one level's
+   charges the extra levels below. It is not a TH_DEPTH_LIMIT: a tenth of it is six
+   levels, fewer than a predicate inside a predicate or the class test css_to_xpath
+   writes takes, and 64 levels already fire on an expression of a hundred characters. */
+#define XP_MAX_DEPTH 64
+
+/* What the evaluator charges on top of the level eval_expr counts. A function call
+   keeps its frame under its arguments, a location path its step state under its base
+   expression and its predicates, and a predicate its context under its expression:
+   each weighs about one more level. */
+#define XP_CALL_DEPTH 1
+#define XP_PATH_DEPTH 1
+#define XP_PREDICATE_DEPTH 1
 
 /* The evaluation context: the tree, the current node, its 1-based proximity
    position and the context size, plus where to report an unimplemented feature. */

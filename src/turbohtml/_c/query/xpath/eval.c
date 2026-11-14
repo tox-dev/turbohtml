@@ -1574,7 +1574,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                 ctx->namespaces,
                 ctx->extension,
                 ctx->extension_ctx,
-                ctx->depth,
+                ctx->depth + XP_PREDICATE_DEPTH,
                 ctx->caches,
                 ctx->live,
                 ctx->before_python,
@@ -1652,6 +1652,18 @@ static int resolve_step_ns(xp_ctx *ctx, const Py_UCS4 *prefix, Py_ssize_t prefix
     return 0;
 }
 
+/* The atom of an XML-namespace attribute: both trees store it under its xml:-prefixed name. Out of line, so the name
+   buffer stays out of the frame each location path keeps on the stack while its predicates recurse. */
+static TH_NOINLINE uint32_t resolve_xml_attr_atom(struct th_tree *tree, const Py_UCS4 *local, Py_ssize_t local_len) {
+    Py_UCS4 qualified[128] = {'x', 'm', 'l', ':'};
+    uint32_t atom = UINT32_MAX;
+    if (local_len < (Py_ssize_t)(sizeof(qualified) / sizeof(qualified[0])) - 4) {
+        memcpy(qualified + 4, local, (size_t)local_len * sizeof(Py_UCS4));
+        atom = resolve_attr_atom(tree, qualified, local_len + 4);
+    }
+    return atom;
+}
+
 /* Resolve a step's name test once: the local part after any prefix, its interned atoms,
    and the namespace the prefix binds. Returns 0, or -3 (with *feature set) for an
    unbound prefix. */
@@ -1681,12 +1693,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
         }
     }
     if (step->axis == AX_ATTRIBUTE && match->xml_ns) {
-        /* both trees store an XML-namespace attribute under its xml:-prefixed name */
-        Py_UCS4 qualified[128] = {'x', 'm', 'l', ':'};
-        if (match->local_len < (Py_ssize_t)(sizeof(qualified) / sizeof(qualified[0])) - 4) {
-            memcpy(qualified + 4, match->local, (size_t)match->local_len * sizeof(Py_UCS4));
-            match->attr_atom = resolve_attr_atom(ctx->tree, qualified, match->local_len + 4);
-        }
+        match->attr_atom = resolve_xml_attr_atom(ctx->tree, match->local, match->local_len);
         match->foreign_only = !th_tree_is_xml(ctx->tree);
     } else if (step->axis == AX_ATTRIBUTE) {
         /* a prefix that binds any other namespace names no attribute a tree carries */
@@ -1864,7 +1871,10 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
 static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out, int exists) {
     xp_nodeset current = {0};
     xp_nodeset following = {0};
-    return eval_path_inner(prog, path_idx, ctx, out, &current, &following, exists);
+    ctx->depth += XP_PATH_DEPTH;
+    int rc = eval_path_inner(prog, path_idx, ctx, out, &current, &following, exists);
+    ctx->depth -= XP_PATH_DEPTH;
+    return rc;
 }
 
 /* Existential comparison of two scalar values (neither a node-set). */
