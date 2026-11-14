@@ -145,6 +145,9 @@ def test_syntax_error(selector: str) -> None:
         pytest.param(
             f"{':nth-child(2 of ' * 19}a{')' * 19}:nth-child(2)", "more than 16777216", id="nth-after-the-cap"
         ),
+        pytest.param(
+            f"{':nth-child(2 of ' * 19}a{')' * 19}[data-x]", "more than 16777216", id="attribute-after-the-cap"
+        ),
     ],
 )
 def test_expression_error(selector: str, match: str) -> None:

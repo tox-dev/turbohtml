@@ -62,8 +62,8 @@ static void xt_reserve(xt_buf *buf, Py_ssize_t extra) {
 
 static void xt_char(xt_buf *buf, Py_UCS4 ch) {
     xt_reserve(buf, 1);
-    if (buf->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    if (buf->failed) {
+        return;
     }
     buf->data[buf->len++] = ch;
 }
@@ -72,8 +72,8 @@ static void xt_char(xt_buf *buf, Py_UCS4 ch) {
 static void xt_text(xt_buf *buf, const char *text) {
     Py_ssize_t length = (Py_ssize_t)strlen(text);
     xt_reserve(buf, length);
-    if (buf->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    if (buf->failed) {
+        return;
     }
     for (Py_ssize_t index = 0; index < length; index++) {
         buf->data[buf->len++] = (Py_UCS4)(unsigned char)text[index];
@@ -83,8 +83,8 @@ static void xt_text(xt_buf *buf, const char *text) {
 /* Append a code-point slice, ASCII-lowercased when fold is set. */
 static void xt_slice(xt_buf *buf, const Py_UCS4 *text, Py_ssize_t length, int fold) {
     xt_reserve(buf, length);
-    if (buf->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    if (buf->failed) {
+        return;
     }
     for (Py_ssize_t index = 0; index < length; index++) {
         buf->data[buf->len++] = sel_fold(text[index], fold);
