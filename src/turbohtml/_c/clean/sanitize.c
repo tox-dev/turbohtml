@@ -2785,8 +2785,9 @@ static int implied_table_wrapper(const th_node *element) {
 /* Record a disallowed element and pick its disposition: drop the whole subtree for a content-removal tag (e.g.
    script/style, so its text never leaks), in REMOVE mode (except for an implied table wrapper), or for foreign content
    under STRIP (unwrapping it would invite namespace confusion); otherwise strip or escape it once its children are
-   done. An implied table wrapper is unwrapped under REMOVE too, and never escapes: its end tag is the source's, so
-   escaping would print it. `table_wrapper` is judged on the source tag, before a transform renames the element.
+   done. An implied table wrapper is unwrapped under REMOVE and STRIP, where it never escapes: its end tag is the
+   source's, so escaping would print it. `table_wrapper` is judged on the source tag, before a transform renames the
+   element.
    Returns 0, or -1 on error. */
 static TH_WALK_INLINE int dispose_disallowed(sanitizer *s, th_node *element, PyObject *tag, int table_wrapper,
                                              enum sanitize_action *action) {

@@ -1,2 +1,1 @@
-Sanitized output no longer writes implied tbody, tr, or colgroup tags a policy omits, so sanitizing again changes
-nothing; REMOVE now keeps cells under them.
+Sanitized output no longer writes implied tbody, tr, or colgroup tags a policy omits; REMOVE now keeps cells under them.
