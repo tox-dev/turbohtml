@@ -113,6 +113,35 @@ def test_builtin_datatype_invalid(type_name: str, value: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("type_name", "value", "valid"),
+    [
+        pytest.param("xs:date", "2023-02-28", True, id="date-february-last-day"),
+        pytest.param("xs:date", "2023-02-30", False, id="date-february-30"),
+        pytest.param("xs:date", "2023-04-31", False, id="date-april-31"),
+        pytest.param("xs:date", "2023-12-31", True, id="date-december-31"),
+        pytest.param("xs:date", "2024-02-29", True, id="date-leap-day"),
+        pytest.param("xs:date", "2023-02-29", False, id="date-common-year-february-29"),
+        pytest.param("xs:date", "1900-02-29", False, id="date-century-not-leap"),
+        pytest.param("xs:date", "2000-02-29", True, id="date-400-year-leap"),
+        pytest.param("xs:date", "0000-02-29", True, id="date-year-zero-leap"),
+        pytest.param("xs:date", "-0004-02-29", True, id="date-bce-leap"),
+        pytest.param("xs:date", "-0001-02-29", False, id="date-bce-common"),
+        pytest.param("xs:date", f"{'0' * 70}2024-02-29", True, id="date-padded-leap"),
+        pytest.param("xs:date", f"{'0' * 70}2023-02-29", False, id="date-padded-common"),
+        pytest.param("xs:date", f"1{'0' * 400}-02-29", True, id="date-long-leap"),
+        pytest.param("xs:date", f"1{'0' * 399}1-02-29", False, id="date-long-common"),
+        pytest.param("xs:date", "2023-02-30Z", False, id="date-zoned-february-30"),
+        pytest.param("xs:dateTime", "2023-02-30T12:00:00", False, id="dateTime-february-30"),
+        pytest.param("xs:dateTime", "2023-09-31T00:00:00+01:00", False, id="dateTime-september-31"),
+        pytest.param("xs:dateTime", "2024-02-29T23:59:59Z", True, id="dateTime-leap-day"),
+        pytest.param("xs:dateTime", "2023-02-29T00:00:00", False, id="dateTime-common-year-february-29"),
+    ],
+)
+def test_builtin_date_calendar_day(type_name: str, value: str, *, valid: bool) -> None:
+    assert check(typed(type_name), f"<v>{value}</v>").valid is valid
+
+
+@pytest.mark.parametrize(
     ("facets", "base", "value", "ok"),
     [
         pytest.param('<xs:enumeration value="a"/><xs:enumeration value="b"/>', "xs:string", "a", True, id="enum-ok"),
@@ -143,6 +172,167 @@ def restricted(facets: str, base: str = "xs:string") -> str:
         f'<xs:schema {_XS}><xs:element name="v"><xs:simpleType>'
         f'<xs:restriction base="{base}">{facets}</xs:restriction></xs:simpleType></xs:element></xs:schema>'
     )
+
+
+@pytest.mark.parametrize(
+    ("base", "facet", "bound", "value", "ok"),
+    [
+        pytest.param("xs:date", "minInclusive", "1990-01-01", "1989-12-31", False, id="date-min-inclusive-below"),
+        pytest.param("xs:date", "minInclusive", "1990-01-01", "1990-01-01", True, id="date-min-inclusive-equal"),
+        pytest.param("xs:date", "minInclusive", "1990-01-01", "2777-07-07", True, id="date-min-inclusive-above"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", "0950-05-05", True, id="date-max-inclusive-below"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", "2060-12-31", True, id="date-max-inclusive-equal"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", "2777-07-07", False, id="date-max-inclusive-above"),
+        pytest.param("xs:date", "minExclusive", "1990-01-01", "1989-12-31", False, id="date-min-exclusive-below"),
+        pytest.param("xs:date", "minExclusive", "1990-01-01", "1990-01-01", False, id="date-min-exclusive-equal"),
+        pytest.param("xs:date", "minExclusive", "1990-01-01", "1990-01-02", True, id="date-min-exclusive-above"),
+        pytest.param("xs:date", "maxExclusive", "2060-12-31", "2060-12-30", True, id="date-max-exclusive-below"),
+        pytest.param("xs:date", "maxExclusive", "2060-12-31", "2060-12-31", False, id="date-max-exclusive-equal"),
+        pytest.param("xs:date", "maxExclusive", "2060-12-31", "2061-01-01", False, id="date-max-exclusive-above"),
+        pytest.param("xs:date", "maxInclusive", "2024-02-29", "2024-03-01", False, id="date-leap-day"),
+        pytest.param("xs:date", "maxInclusive", "2100-02-28", "2100-03-01", False, id="date-century-not-leap"),
+        pytest.param("xs:date", "minInclusive", "-0044-03-15", "-0045-01-01", False, id="date-bce-below"),
+        pytest.param("xs:date", "minInclusive", "-0044-03-15", "0001-01-01", True, id="date-bce-above"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", f"{'0' * 70}2777-07-07", False, id="date-padded-above"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", f"{'0' * 70}2029-01-01", True, id="date-padded-below"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", f"1{'0' * 70}-01-01", False, id="date-long-year"),
+        pytest.param("xs:date", "maxInclusive", "2060-12-31", f"1{'0' * 400}-01-01", False, id="date-huge-year"),
+        pytest.param("xs:date", "maxInclusive", " 2060-12-31\n", "2060-12-31", True, id="date-bound-space"),
+        pytest.param("xs:date", "maxInclusive", " 2060-12-31\n", "2061-01-01", False, id="date-bound-space-above"),
+        pytest.param("xs:date", "maxInclusive", "soon", "1990-01-01", False, id="date-bound-not-a-date"),
+        pytest.param("xs:date", "maxInclusive", "", "1990-01-01", False, id="date-bound-empty"),
+        pytest.param("xs:date", "minInclusive", "1990-01-01Z", "1990-01-01-02:00", True, id="date-zone-west"),
+        pytest.param("xs:date", "minInclusive", "1990-01-01Z", "1990-01-01+02:00", False, id="date-zone-east"),
+        pytest.param("xs:date", "minInclusive", "1990-01-01", "1990-01-02Z", True, id="date-zoned-above-unzoned"),
+        pytest.param("xs:date", "maxInclusive", "1990-01-02Z", "1990-01-01", True, id="date-unzoned-below-zoned"),
+        pytest.param("xs:date", "minInclusive", "1990-01-01", "1990-01-01Z", False, id="date-zoned-unordered-min"),
+        pytest.param("xs:date", "maxInclusive", "1990-01-01", "1990-01-01Z", False, id="date-zoned-unordered-max"),
+        pytest.param(
+            "xs:dateTime", "maxInclusive", "2060-12-31T23:59:59", "2777-07-07T00:00:00", False, id="dateTime-above"
+        ),
+        pytest.param(
+            "xs:dateTime", "maxInclusive", "2060-12-31T23:59:59", "2060-12-31T23:59:59", True, id="dateTime-equal"
+        ),
+        pytest.param(
+            "xs:dateTime", "maxInclusive", "2060-12-31T23:59:59", "2060-12-31T23:59:59.000", True, id="dateTime-zeros"
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "maxInclusive",
+            "2060-12-31T23:59:59",
+            "2060-12-31T23:59:59.0000000000000000001",
+            False,
+            id="dateTime-fraction-above",
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "minInclusive",
+            "1990-01-01T00:00:00.5",
+            "1990-01-01T00:00:00.25",
+            False,
+            id="dateTime-fraction",
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "minInclusive",
+            "1990-01-01T00:00:00.5",
+            "1990-01-01T00:00:00",
+            False,
+            id="dateTime-no-fraction",
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "maxInclusive",
+            "1990-01-01T12:00:00.5Z",
+            "1990-01-01T13:00:00.49+01:00",
+            True,
+            id="dateTime-zone",
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "maxExclusive",
+            "2000-01-16T12:00:00Z",
+            "2000-01-15T12:00:00",
+            True,
+            id="dateTime-unzoned-below",
+        ),
+        pytest.param(
+            "xs:dateTime", "maxExclusive", "2000-01-01T12:00:00Z", "2000-01-01T12:00:00", False, id="dateTime-unordered"
+        ),
+        pytest.param("xs:time", "maxInclusive", "17:00:00", "23:59:59", False, id="time-above"),
+        pytest.param("xs:time", "minInclusive", "09:00:00", "12:00:00", True, id="time-inside"),
+        pytest.param("xs:time", "maxInclusive", "17:00:00", "17:00:00.001", False, id="time-fraction-above"),
+        pytest.param("xs:time", "minInclusive", "09:00:00Z", "10:30:00+02:00", False, id="time-zone-below"),
+        pytest.param("xs:time", "minInclusive", "09:00:00Z", "08:00:00-02:00", True, id="time-zone-above"),
+        pytest.param("xs:duration", "maxInclusive", "P30D", "P77Y", False, id="duration-above"),
+        pytest.param("xs:duration", "maxInclusive", "P30D", "P29DT23H59M59S", True, id="duration-below"),
+        pytest.param("xs:duration", "maxInclusive", "P1Y", "P12M", True, id="duration-year-is-twelve-months"),
+        pytest.param("xs:duration", "maxInclusive", "P1D", "PT24H", True, id="duration-day-is-24-hours"),
+        pytest.param("xs:duration", "maxInclusive", "P1D", "PT1441M", False, id="duration-minutes-above"),
+        pytest.param("xs:duration", "maxExclusive", "P32D", "P1M", True, id="duration-month-below-32-days"),
+        pytest.param("xs:duration", "minExclusive", "P27D", "P1M", True, id="duration-month-above-27-days"),
+        pytest.param("xs:duration", "maxInclusive", "P30D", "P1M", False, id="duration-month-unordered-max"),
+        pytest.param("xs:duration", "minInclusive", "P30D", "P1M", False, id="duration-month-unordered-min"),
+        pytest.param("xs:duration", "minInclusive", "P0D", "-PT1S", False, id="duration-negative"),
+        pytest.param("xs:duration", "minInclusive", "-P1M", "-P27D", True, id="duration-negative-month"),
+        pytest.param("xs:duration", "maxInclusive", "P30D", f"P{'0' * 70}100Y", False, id="duration-padded-above"),
+        pytest.param("xs:duration", "maxInclusive", "P30D", f"P{'0' * 70}29D", True, id="duration-padded-below"),
+        pytest.param("xs:duration", "maxInclusive", "P30D", f"P{'9' * 400}Y", False, id="duration-huge-years"),
+        pytest.param("xs:duration", "minInclusive", "P30D", f"P{'9' * 400}D", True, id="duration-huge-days"),
+        pytest.param("xs:duration", "maxInclusive", f"P{'9' * 400}D", f"P{'9' * 500}D", False, id="duration-both-huge"),
+        pytest.param(
+            "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30}-01-02", False, id="date-beyond-double-above"
+        ),
+        pytest.param(
+            "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30 - 1}-12-31", True, id="date-beyond-double-below"
+        ),
+        pytest.param(
+            "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30}-01-01", False, id="date-beyond-double-equal"
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "maxInclusive",
+            f"{2**30}-01-01T00:00:00Z",
+            f"{2**30}-01-01T00:00:01Z",
+            False,
+            id="dateTime-beyond-double-above",
+        ),
+        pytest.param(
+            "xs:duration", "maxInclusive", f"PT{2**54}S", f"PT{2**53}S", True, id="duration-beyond-double-below"
+        ),
+        pytest.param(
+            "xs:duration", "maxInclusive", f"PT{2**53}S", f"PT{2**53}S", False, id="duration-beyond-double-equal"
+        ),
+        pytest.param(
+            "xs:duration", "maxInclusive", f"PT{2**53}S", f"PT{2**53 + 1}S", False, id="duration-beyond-double-above"
+        ),
+        pytest.param("xs:duration", "maxInclusive", "forever", "P1D", False, id="duration-bound-not-a-duration"),
+    ],
+)
+def test_ordered_range_facets(base: str, facet: str, bound: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
+    assert check(restricted(f'<xs:{facet} value="{bound}"/>', base), f"<v>{value}</v>").valid is ok
+
+
+@pytest.mark.parametrize(
+    ("value", "messages"),
+    [
+        pytest.param("2035-03-20", [], id="inside"),
+        pytest.param("1950-01-01", ["value is below minInclusive", "value is not above minExclusive"], id="below"),
+        pytest.param("2070-01-01", ["value is above maxInclusive", "value is not below maxExclusive"], id="above"),
+    ],
+)
+def test_ordered_range_facets_inherited(value: str, messages: list[str]) -> None:
+    schema = (
+        f"<xs:schema {_XS}>"
+        '<xs:simpleType name="window"><xs:restriction base="xs:date">'
+        '<xs:minInclusive value="1990-01-01"/><xs:maxInclusive value="2060-12-31"/>'
+        '<xs:minExclusive value="1989-12-31"/><xs:maxExclusive value="2061-01-01"/>'
+        "</xs:restriction></xs:simpleType>"
+        '<xs:element name="v"><xs:simpleType><xs:restriction base="window"><xs:pattern value=".*"/></xs:restriction>'
+        "</xs:simpleType></xs:element></xs:schema>"
+    )
+    result = check(schema, f"<v>{value}</v>")
+    assert [(error.type, error.message) for error in result.errors] == [("facet", message) for message in messages]
 
 
 @pytest.mark.parametrize(

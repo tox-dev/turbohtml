@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -13,6 +14,8 @@ from turbohtml.query import Query, SelectorSyntaxError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -520,6 +523,81 @@ def test_find_root_order_after_mutation() -> None:
         [str(index) for index in range(32)],
         [str(index) for index in range(1, 32)] + ["0"],
     )
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(4, id="small"), pytest.param(40, id="large"), pytest.param(400, id="deep")]
+)
+@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
+def test_find_nested_list_items_reports_each_match_once(count: int, order: str) -> None:
+    nodes: Final = turbohtml.parse_xml(f"<ul>{'<li><ol>' * count}<b></b>{'</ol></li>' * count}</ul>").select("li")
+    assert _tags(Query(_reorder(nodes, order)).find("li, b")) == ["li"] * (count - 1) + ["b"]
+
+
+def _reorder(nodes: list[Element], order: str) -> list[Element]:
+    if order == "reversed":
+        return nodes[::-1]
+    return nodes[::2] + nodes[1::2] if order == "shuffled" else nodes
+
+
+@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
+def test_find_roots_covered_between_uncovered_ones_below_a_deep_chain(order: str) -> None:
+    # each outer <s> covers the <s> inside it and nothing after it, and all of them sit too deep to climb from each
+    branches: Final = "".join(f'<s><t id="{index}a"/><s><t id="{index}b"/></s></s>' for index in range(40))
+    document: Final = turbohtml.parse_xml(f"<r>{'<x>' * 80}{branches}{'</x>' * 80}<s><t id='last'/></s></r>")
+    found: Final = Query(_reorder(document.select("s"), order)).find("t")
+    assert [node.attrs["id"] for node in found] == [f"{index}{half}" for index in range(40) for half in "ab"] + ["last"]
+
+
+@pytest.mark.parametrize(
+    ("order", "first", "second"),
+    [("sorted", "left", "right"), ("reversed", "right", "left"), ("shuffled", "left", "right")],
+)
+def test_find_groups_deep_roots_by_the_tree_they_are_in(order: str, first: str, second: str) -> None:
+    chain: Final = "<x>" * 80 + "<s><t/></s>" * 40 + "</x>" * 80
+    left, right = turbohtml.parse_xml(f"<r><a>{chain}</a><b>{chain}</b></r>").select("r > *")
+    right.extract()
+    for name, tree in (("left", left), ("right", right)):
+        for index, node in enumerate(tree.select("t")):
+            node.attrs["id"] = f"{name}{index}"
+    roots: Final = [node for pair in zip(left.select("s"), right.select("s"), strict=True) for node in pair]
+    assert [node.attrs["id"] for node in Query(_reorder(roots, order)).find("t")] == [
+        f"{name}{index}" for name in (first, second) for index in range(40)
+    ]
+
+
+@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
+def test_find_roots_under_parents_with_text_and_comments_keeps_order(order: str) -> None:
+    items: Final = "".join(f'<li>lead<!--c--><b></b><a><code id="{index}"></code></a></li>' for index in range(40))
+    nodes: Final = parse(f"<ul>{items}</ul>").select("a")
+    assert [node.attrs["id"] for node in Query(_reorder(nodes, order)).find("code")] == [
+        str(index) for index in range(40)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("markup", "roots", "target"),
+    [
+        pytest.param(lambda n: f"<ul>{'<li><ol>' * n}<b></b>{'</ol></li>' * n}</ul>", "li", "b", id="nested-items"),
+        pytest.param(
+            lambda n: f"<main>{'<section>' * n}{'<article><p></p></article>' * n}{'</section>' * n}</main>",
+            "article",
+            "p",
+            id="siblings-below-a-chain",
+        ),
+        pytest.param(
+            lambda n: f"<table><tbody>{'<tr><td><i></i></td></tr>' * n}</tbody></table>",
+            "td",
+            "i",
+            id="cells-of-one-body",
+        ),
+    ],
+)
+def test_find_many_roots_grow_linearly(
+    markup: Callable[[int], str], roots: str, target: str, work_steps: WorkSteps
+) -> None:
+    # Counted steps rather than seconds: a wall-clock budget is flaky on shared runners.
+    work_steps.assert_linear(lambda n: partial(Query(turbohtml.parse_xml(markup(n)))(roots).find, target), (500, 2000))
 
 
 @pytest.mark.parametrize(

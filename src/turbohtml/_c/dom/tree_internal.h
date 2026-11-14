@@ -72,23 +72,29 @@ typedef struct {
 typedef struct {
     th_node *select;
     th_node **targets; /* the enabled descendant selectedcontent elements, the clone destinations */
-    th_node *selected; /* the option the select shows, NULL until one closes */
+    th_node *selected; /* the option the select shows, NULL while it has none */
     const th_node *optgroup;
     Py_ssize_t target_count;
     Py_ssize_t target_cap;
-    uint8_t valid;
+    uint8_t filled; /* leading targets holding the shown option's copy, at most MAX_CLONE_TARGETS */
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
     uint8_t optgroup_disabled;
 } th_select_cache;
 
-/* The select caches of one parse, allocated on the first selected-option clone so a
-   tree that never clones one carries a single NULL pointer. */
+/* The select caches of one parse, allocated when the first select gains a selectedcontent
+   so a tree without one carries a single NULL pointer and its options skip the lookup. */
 typedef struct {
     th_select_cache *caches;
     Py_ssize_t count;
     Py_ssize_t cap;
     th_node_map index; /* select node -> 1-based position in caches */
+    /* the last select looked up and its index value (0 while it has no cache): its options and its selectedcontent
+       ask for the same select in a row, so most lookups skip the hash probe */
+    const th_node *last_select;
+    Py_ssize_t last_slot;
+    uint32_t fresh_seq; /* the tree's node_seq when the newest cache was made: no later node has a cache */
+    uint8_t recheck;    /* a shown option may have left its select, so the finish walks every cache */
 } th_select_state;
 
 typedef struct th_attr_names th_attr_names;
@@ -103,6 +109,7 @@ struct th_tree {
     uint16_t ctx_atom; /* the fragment context element's atom (reset uses it) */
     int scope_result;
     int open_p_count;
+    int refused_frameset_count; /* framesets the depth cap kept off the stack; their </frameset> must not pop */
     Py_ssize_t open_cap;
     Py_ssize_t max_depth; /* peak open-element nesting seen while parsing; a cheap O(1)
                              lower bound on element depth that gates the :has() subtree memo */

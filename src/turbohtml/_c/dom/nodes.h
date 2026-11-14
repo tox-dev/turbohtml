@@ -9,6 +9,7 @@
 
 #include "core/ascii.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "dom/ownership.h"
 #include "query/xpath/xpath.h"
@@ -567,6 +568,7 @@ static inline int is_ancestor(th_node *candidate, th_node *node) {
 static inline Py_ssize_t node_index(th_node *node) {
     Py_ssize_t index = 0;
     for (th_node *previous = node->prev_sibling; previous != NULL; previous = previous->prev_sibling) {
+        TH_WORK_STEP();
         index++;
     }
     return index;
@@ -575,20 +577,14 @@ static inline Py_ssize_t node_index(th_node *node) {
 /* A shadow root, document, or detached node can each top a connected tree. */
 static inline th_node *node_root(th_node *node) {
     while (node->parent != NULL) {
+        TH_WORK_STEP();
         node = node->parent;
     }
     return node;
 }
 
-static inline int node_order(th_node *left, th_node *right) {
-    Py_ssize_t left_depth = 0;
-    for (th_node *node = left; node->parent != NULL; node = node->parent) {
-        left_depth++;
-    }
-    Py_ssize_t right_depth = 0;
-    for (th_node *node = right; node->parent != NULL; node = node->parent) {
-        right_depth++;
-    }
+/* node_order for nodes whose depths the caller already knows. */
+static inline int node_order_at(th_node *left, Py_ssize_t left_depth, th_node *right, Py_ssize_t right_depth) {
     th_node *left_at = left;
     th_node *right_at = right;
     while (left_depth > right_depth) {
@@ -610,6 +606,18 @@ static inline int node_order(th_node *left, th_node *right) {
         right_at = right_at->parent;
     }
     return node_index(left_at) < node_index(right_at) ? -1 : 1;
+}
+
+static inline int node_order(th_node *left, th_node *right) {
+    Py_ssize_t left_depth = 0;
+    for (th_node *node = left; node->parent != NULL; node = node->parent) {
+        left_depth++;
+    }
+    Py_ssize_t right_depth = 0;
+    for (th_node *node = right; node->parent != NULL; node = node->parent) {
+        right_depth++;
+    }
+    return node_order_at(left, left_depth, right, right_depth);
 }
 
 /* Walk back in document order from current, skipping origin's ancestors so the

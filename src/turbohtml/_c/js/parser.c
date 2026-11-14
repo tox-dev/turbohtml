@@ -1924,7 +1924,11 @@ static int32_t parse_class_rest(P *parser, int is_expr) {
     }
     if (kw(parser, "extends")) {
         advance(parser);
+        if (!enter(parser)) { /* `class extends class extends ...` recurses here without passing parse_assign */
+            return -1;
+        }
         set_a(parser, node, parse_call_member(parser));
+        leave(parser);
         if (parser->err) {
             return -1;
         }
