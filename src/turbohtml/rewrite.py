@@ -39,7 +39,9 @@ exposes :attr:`~Element.text` and :meth:`~Element.set_text`; a doctype handle ex
 
 Text content is HTML-escaped, except inside ``script``, ``style`` and the other raw-text elements, where a browser
 decodes no character references: text written there is kept as is, so ``a < b`` stays a valid script. The rewrite
-then raises :class:`ValueError` if that text would end the element early (``</script``, or ``<!--`` in a script).
+then raises :class:`ValueError` if that text would end the element early (``</script``, or ``<!--`` in a script). An
+element whose tags :meth:`~Element.remove_and_keep_content` drops is the exception: nothing marks its content as text
+any more, so that content, and text written into it, is escaped like any other.
 
 The rewrite writes an edited element's start tag again from its attributes and escapes ``&``, ``"``, ``<`` and ``>`` in
 each value.

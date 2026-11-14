@@ -495,6 +495,109 @@ def test_rewrite_raw_text_html_content_is_not_checked() -> None:
     assert rewrite("<script>a</script>", elements=edit) == "<script>a</script><b></script>"
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        # the content was text inside the element, and without the tags around it only escaping keeps it text
+        pytest.param("<xmp><b>a</b></xmp>", "&lt;b&gt;a&lt;/b&gt;", id="xmp"),
+        pytest.param("<script>if (a < b && c) {}</script>", "if (a &lt; b &amp;&amp; c) {}", id="script"),
+        pytest.param("<style>a > b {}</style><p>x</p>", "a &gt; b {}<p>x</p>", id="style"),
+        pytest.param("<noscript><b class=x>y</b></noscript>", "&lt;b class=x&gt;y&lt;/b&gt;", id="noscript"),
+        pytest.param("<xmp>&amp;</xmp>", "&amp;amp;", id="rawtext-reference-is-text"),
+        pytest.param("<xmp>&</xmp>lt;b>", "&amp;lt;b>", id="no-reference-across-the-end"),
+        pytest.param("<xmp>a\x00<b>\r\n</xmp>", "a\ufffd&lt;b&gt;\n", id="normalized-run"),
+        pytest.param("<xmp>\u20ac<\U0001f600></xmp>", "\u20ac&lt;\U0001f600&gt;", id="wide"),
+        pytest.param("<plaintext>a<b></xmp>", "a&lt;b&gt;&lt;/xmp&gt;", id="plaintext"),
+        pytest.param("<xmp>a<b>", "a&lt;b&gt;", id="unclosed"),
+        # RCDATA decodes references, so those stay as written and only the text around them is escaped
+        pytest.param("<textarea><b> &amp; &lt; & &#60;</textarea>", "&lt;b&gt; &amp; &lt; &amp; &#60;", id="textarea"),
+        pytest.param("<title>a<b></title><b>k</b>", "a&lt;b&gt;<b>k</b>", id="title"),
+    ],
+)
+def test_rewrite_unwrapped_raw_text_content_is_escaped(html: str, expected: str) -> None:
+    selector = "xmp, script, style, noscript, plaintext, textarea, title"
+    assert rewrite(html, elements=[(selector, _unwrap)]) == expected
+    assert rewrite(html, elements=[(selector, _unwrap)], text=lambda _: None) == expected
+
+
+def _unwrap(element: Element) -> None:
+    element.remove_and_keep_content()
+
+
+def test_rewrite_unwrapped_ancestor_leaves_raw_text_alone() -> None:
+    assert rewrite("<div><xmp><b></xmp><b>k</b></div>", elements=[("div", _unwrap)]) == "<xmp><b></xmp><b>k</b>"
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        pytest.param(lambda text: text.set_text(f"{text.text}<i>"), "a&lt;b&gt;&lt;i&gt;", id="set-text"),
+        pytest.param(lambda text: text.before("<i>"), "&lt;i&gt;a&lt;b&gt;", id="before"),
+        pytest.param(lambda text: text.after("<i>"), "a&lt;b&gt;&lt;i&gt;", id="after"),
+        pytest.param(lambda text: text.replace("<i>"), "&lt;i&gt;", id="replace"),
+        pytest.param(lambda text: text.after("<i>", html=True), "a&lt;b&gt;<i>", id="html"),
+    ],
+)
+def test_rewrite_text_edit_in_unwrapped_raw_text_is_escaped(edit: Callable[[Element], None], expected: str) -> None:
+    assert rewrite("<xmp>a<b></xmp>", elements=[("xmp", _unwrap)], text=edit) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "edit", "expected"),
+    [
+        pytest.param("<xmp>text</xmp>", lambda element: element.append("<x>"), "text&lt;x&gt;", id="append"),
+        pytest.param("<xmp>text</xmp>", lambda element: element.set_content("<x>"), "&lt;x&gt;", id="set-content"),
+        pytest.param("<xmp>text</xmp>", lambda element: element.append("<x>", html=True), "text<x>", id="html"),
+        pytest.param("<textarea>a</textarea>", lambda element: element.append("<x>"), "a&lt;x&gt;", id="rcdata"),
+        pytest.param("<div>a</div>", lambda element: element.append("<x>"), "a&lt;x&gt;", id="ordinary"),
+    ],
+)
+def test_rewrite_unwrapped_raw_text_element_content_is_escaped(
+    html: str, edit: Callable[[Element], None], expected: str
+) -> None:
+    # the handlers can come in either order: the text was appended unescaped only for between the tags
+    assert rewrite(html, elements=[("*", edit), ("*", _unwrap)]) == expected
+    assert rewrite(html, elements=[("*", _unwrap), ("*", edit)]) == expected
+
+
+def test_rewrite_removed_raw_text_element_content_is_escaped() -> None:
+    def handler(element: Element) -> None:
+        element.append("<x>")
+        element.remove()
+
+    assert rewrite("<script>a</script>", elements=[("script", handler)]) == "&lt;x&gt;"
+
+
+def test_rewrite_unwrapped_raw_text_append_is_not_checked() -> None:
+    def handler(element: Element) -> None:
+        element.append("a")
+        element.append("</xmp>", html=True)
+        element.remove_and_keep_content()
+
+    assert rewrite("<xmp>x</xmp>", elements=[("xmp", handler)]) == "xa</xmp>"
+
+
+def test_rewrite_unwrapped_raw_text_set_content_after_append_replaces_it() -> None:
+    def handler(element: Element) -> None:
+        element.append("<x>")
+        element.set_content("<y>")
+        element.remove_and_keep_content()
+
+    assert rewrite("<xmp>text</xmp>", elements=[("xmp", handler)]) == "&lt;y&gt;"
+
+
+def test_rewrite_unwrapped_raw_text_prepend_is_not_checked() -> None:
+    def handler(element: Element) -> None:
+        element.prepend("a")
+        element.remove_and_keep_content()
+
+    def note(text: Element) -> None:
+        text.after("<!--x-->", html=True)
+
+    # prepend marked the script as written into, but no <script> is left for the comment to hide an end tag in
+    assert rewrite("<script>x</script>", elements=[("script", handler)], text=note) == "x<!--x-->"
+
+
 def test_rewrite_text_normalized_run_verbatim() -> None:
     # a NUL in text becomes a buffered (non-slice) run; it must still round-trip
     assert rewrite("<p>a\x00b</p>") == "<p>a\x00b</p>"
