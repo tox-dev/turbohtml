@@ -746,19 +746,18 @@ def test_has_memo_many_arguments_scale_linearly() -> None:
     depth = 36
     doc = parse(_nested_divs(depth))
     assert len(doc.select(combined)) == depth
-    together = _best_of(3, lambda: doc.select(combined))
-    one_at_a_time = _best_of(3, lambda: [doc.select(selector) for selector in selectors])
+    together = one_at_a_time = float("inf")
+    for _ in range(3):
+        together = min(together, _seconds(lambda: doc.select(combined)))
+        one_at_a_time = min(one_at_a_time, _seconds(lambda: [doc.select(selector) for selector in selectors]))
     # the floor keeps a baseline of a few milliseconds from turning timer noise into a failing ratio
     assert together <= 4 * max(one_at_a_time, 0.01)
 
 
-def _best_of(runs: int, select: Callable[[], object]) -> float:
-    timings: list[float] = []
-    for _ in range(runs):
-        start = time.perf_counter()
-        select()
-        timings.append(time.perf_counter() - start)
-    return min(timings)
+def _seconds(select: Callable[[], object]) -> float:
+    start = time.perf_counter()
+    select()
+    return time.perf_counter() - start
 
 
 # a deep tree so the memo is live, carrying elements every relative-selector shape needs:

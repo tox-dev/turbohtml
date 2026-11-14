@@ -2238,13 +2238,10 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
     return 0;
 }
 
-/* Hash the (key, node) pair to a slot. The key must feed the hash too: a node collects an
-   entry under every key it is probed with, and hashing the node alone puts all of them in
-   one probe run. */
+/* Hash the (key, node) pair to a slot. The key feeds the hash because a node collects one entry
+   per key it is probed with; hashing the node alone would put all of them in one probe run. */
 static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
-    uint64_t mixed = ((uint64_t)(uintptr_t)node >> 4) * UINT64_C(0x9E3779B97F4A7C15);
-    mixed = (mixed ^ ((uint64_t)(uintptr_t)key >> 3)) * UINT64_C(0x9E3779B97F4A7C15);
-    return (size_t)(mixed >> 32) & mask;
+    return (size_t)((((uintptr_t)node >> 4) + ((uintptr_t)key >> 4)) * 0x9E3779B97F4A7C15u >> 32) & mask;
 }
 
 /* Linear-probe from the pair's home slot to the slot holding the (key, node) pair or, if
@@ -2254,7 +2251,8 @@ static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node
     size_t idx = sel_memo_hash(key, node, memo->mask);
     for (;;) {
         const sel_memo_slot *slot = &memo->slots[idx];
-        if (slot->node == node && slot->key == key) {
+        /* Key first: one argument spans many nodes, so the existing tests reach every probe edge. */
+        if (slot->key == key && slot->node == node) {
             return idx;
         }
         if (slot->key == NULL) {
