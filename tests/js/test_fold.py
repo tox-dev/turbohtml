@@ -812,6 +812,32 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function q(){return{f:function(){}}}",
             id="shorthand-function-inline-expands-key",
         ),
+        # a shorthand that binds the name is not its read: the inline leaves the pattern alone
+        pytest.param(
+            "function f(a,{x}){var x=g(a);return x}",
+            "function f(a,{x:b}){return g(a)}",
+            id="shorthand-pattern-not-an-inline-slot",
+        ),
+        pytest.param(
+            "function f(){var y=2;return[{y}];var {y}=o}",
+            "function f(){return[{y:2}];var {y:a}=o}",
+            id="shorthand-read-before-pattern-expands-key",
+        ),
+        pytest.param(
+            "function p(o){function g(){}let {g}=o;return j(g)}",
+            "function p(a){let {g:b}=a;return j(function(){})}",
+            id="shorthand-pattern-not-a-function-inline-slot",
+        ),
+        pytest.param(
+            "function g(){var k=function([{k}]-1){};return k}",
+            "function g(){return function([{k}]-1){}}",
+            id="shorthand-in-parameter-not-an-inline-slot",
+        ),
+        pytest.param(
+            "y=function({x}){var x=function({x}){var x=m();return x}();return x}",
+            "y=function({x:a}){return function({x:b}){return m()}()}",
+            id="nested-shorthand-pattern-keeps-initializer-once",
+        ),
     ],
 )
 def test_compresses(source: str, expected: str) -> None:
