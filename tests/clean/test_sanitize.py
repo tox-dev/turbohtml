@@ -1775,6 +1775,26 @@ def test_comment_inside_textarea_root_is_dropped() -> None:
     assert sanitize_node(root, policy).html == "<textarea>t<b></b></textarea>"
 
 
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<svg><!--c--><circle></circle></svg>", id="svg"),
+        pytest.param("<math><!--c--><mi>x</mi></math>", id="math"),
+        pytest.param("<svg><textarea><!--c--></textarea></svg>", id="textarea-in-svg"),
+    ],
+)
+def test_comment_leading_a_foreign_element_under_a_removed_div_is_kept(html: str) -> None:
+    # a built tree takes the balancing walk, where the removed inner div is a barrier that settles the b and the
+    # foreign element below it; a foreign textarea is not RCDATA on reparse, so its comment stays
+    policy = Policy(
+        tags=frozenset({"b", "svg", "math", "circle", "mi", "textarea"}),
+        on_disallowed_tag=OnDisallowed.STRIP,
+        strip_comments=False,
+    )
+    root = E.div(E.div(E.b(*parse_fragment(html).children)))
+    assert sanitize_node(root, policy).inner_html == f"<b>{html}</b>"
+
+
 def test_policy_basic_is_the_default_allowlist() -> None:
     assert Policy.basic().tags == DEFAULT_TAGS
 
