@@ -1088,7 +1088,7 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     }
     /* Grow geometrically, as node_attr_store does: the arena keeps every superseded array until the tree is freed,
        so an exact-size copy per re-opening tag would retain memory quadratic in the number of such tags. */
-    size_t capacity = node->attr_capacity_shift ? (size_t)1 << node->attr_capacity_shift : 0;
+    size_t capacity = th_node_attr_capacity(node);
     size_t needed = (size_t)node->attr_count + (size_t)add;
     th_node_attr *merged = node->attrs;
     if (needed > capacity) {
@@ -1128,6 +1128,8 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
         }
     }
     node->attrs = merged;
+    /* an index behind the array would describe the attributes from before this merge, so it is dropped */
+    node->attr_capacity_shift &= (uint8_t)~TH_ATTR_INDEXED;
     if (names != NULL) {
         for (Py_ssize_t index = node->attr_count; index < at; index++) {
             const uint64_t key = attr_name_key(node, merged[index].name_atom);

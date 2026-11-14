@@ -594,7 +594,7 @@ static PyObject *rw_has(rw_handle *self, PyObject *name) {
 }
 
 static th_node_attr *rw_attr_grow(th_node *node) {
-    size_t capacity = node->attr_capacity_shift ? (size_t)1 << node->attr_capacity_shift : 0;
+    size_t capacity = th_node_attr_capacity(node);
     if ((size_t)node->attr_count < capacity) {
         return &node->attrs[node->attr_count];
     }

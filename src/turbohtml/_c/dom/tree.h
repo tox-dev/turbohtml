@@ -109,7 +109,7 @@ enum th_ns {
 
 struct th_node {
     uint8_t type;
-    uint8_t attr_capacity_shift; /* zero for exact-sized arrays; the top bit is dom/mutate.c's ATTR_INDEXED */
+    uint8_t attr_capacity_shift; /* zero for exact-sized arrays; read it through th_node_attr_capacity */
     uint16_t atom;               /* TH_TAG_* for elements, else TH_TAG_UNKNOWN */
     uint8_t tag_flags;           /* category bitmask from the atom table */
     uint8_t ns;                  /* enum th_ns: HTML / SVG / MathML */
@@ -138,6 +138,15 @@ struct th_node {
     th_node_attr *attrs;
     Py_ssize_t attr_count;
 };
+
+/* Set in attr_capacity_shift while dom/mutate.c keeps a hash index behind the attribute array. Bit 0x40 rather than
+   0x80 lets th_node_attr_capacity mask it with 63, which x86-64 shifts apply for free. */
+#define TH_ATTR_INDEXED 0x40
+
+static inline size_t th_node_attr_capacity(const th_node *node) {
+    const int shift = node->attr_capacity_shift & (TH_ATTR_INDEXED - 1);
+    return shift ? (size_t)1 << shift : 0;
+}
 
 /* The next node of a pre-order walk bounded to root's subtree, or NULL once the walk is done. */
 static inline th_node *preorder_next(th_node *current, th_node *root) {
