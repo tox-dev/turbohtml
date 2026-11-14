@@ -621,11 +621,16 @@ static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
    mark with error_at == -1. A malformed byte errors with an offset instead, and its U+FFFD goes out at once. The
    decoder's state travels with it, since ISO-2022-JP's mode survives a chunk boundary while its bytes do not.
 
-   Returns the number of code points written to out (which must hold len of them), sets *consumed to the offset the next
-   chunk should start at, and leaves the mode state in *dec. step is passed as a constant from th_decode_chunk so the
-   compiler specializes this body per encoding; an indirect call for every code point costs more than the decoding.
-   stateful is a constant too, and marks ISO-2022-JP: the one decoder whose escapes reinterpret an ASCII byte, and so
-   the one whose ASCII cannot be copied past it and whose mode has to survive a rewind. */
+   Returns the number of code points written to out, sets *consumed to the offset the next chunk should start at, and
+   leaves the mode state in *dec. A decoder emits at most one code point per byte, so out must hold len of them for a
+   decoder that starts fresh, and len + 1 for one that carries a previous chunk's state: ISO-2022-JP spends the ESC
+   that cuts a two-byte character short with that character's lead, and the error a failed escape costs pushes its
+   byte back, so a chunk that ended on that ESC leaves one U+FFFD owed that goes out before this chunk spends a byte.
+
+   step is passed as a constant from th_decode_chunk so the compiler specializes this body per encoding; an indirect
+   call for every code point costs more than the decoding. stateful is a constant too, and marks ISO-2022-JP: the one
+   decoder whose escapes reinterpret an ASCII byte, and so the one whose ASCII cannot be copied past it and whose mode
+   has to survive a rewind. */
 static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar,
                                        th_decode_fn step, int stateful) {
     /* Copied once so the guarded update below cannot read an uninitialized decoder; a final chunk never rewinds. */
