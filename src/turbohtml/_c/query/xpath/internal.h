@@ -272,7 +272,16 @@ Py_UCS4 *to_string(struct th_tree *tree, const xp_result *value, Py_ssize_t *len
 double to_number(struct th_tree *tree, const xp_result *value);
 
 /* The mutual recursion between the evaluator and the function library. */
-int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
+int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
+static inline int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
+    return eval_guarded(prog, idx, ctx, out, 0);
+}
+/* eval_expr for an expression whose value is only tested: as a predicate, or through to_boolean(). A location path
+   then stops at the first node it selects, so a node-set in *out is empty exactly when the whole one is and holds
+   nodes of it, but not necessarily all of them. */
+static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
+    return eval_guarded(prog, idx, ctx, out, 1);
+}
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
