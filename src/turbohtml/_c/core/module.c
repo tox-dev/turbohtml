@@ -6,7 +6,14 @@
    the free-threaded build. These sources use only public, version-portable
    APIs, so they build on CPython 3.11 through 3.15. */
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/vec.h"
 
 #include "tokenizer/binding.h"
@@ -304,6 +311,54 @@ static PyMethodDef html_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
+/* The key core/hash.h hashes every name under, so a document cannot precompute attribute names that
+   cluster in the tokenizer's or the tree's table. Python's randomized bytes hash supplies both halves,
+   as it does for the XML parser's salt (th_tree_parse_xml): it draws from the OS per process yet
+   collapses to a fixed value under PYTHONHASHSEED, so the C coverage and CodSpeed gates stay
+   reproducible while production stays unpredictable. The hash secret is process-wide, so every
+   interpreter that executes the module stores the same key. */
+uint64_t th_name_hash_key[2];
+
+static int name_hash_key_status;
+
+static void name_hash_key_compute(void) {
+    static const char *const salts[2] = {"turbohtml:name-hash:0", "turbohtml:name-hash:1"};
+    for (int index = 0; index < 2; index++) {
+        PyObject *salt = PyBytes_FromString(salts[index]);
+        if (salt == NULL) {            /* GCOVR_EXCL_BR_LINE: bytes allocation cannot be forced from a test */
+            name_hash_key_status = -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        th_name_hash_key[index] = (uint64_t)PyObject_Hash(salt);
+        Py_DECREF(salt);
+    }
+}
+
+#if defined(_WIN32)
+static INIT_ONCE name_hash_key_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK name_hash_key_compute_once(PINIT_ONCE once, PVOID parameter, PVOID *context) {
+    (void)once;
+    (void)parameter;
+    (void)context;
+    name_hash_key_compute();
+    return TRUE;
+}
+#else
+static pthread_once_t name_hash_key_once = PTHREAD_ONCE_INIT;
+#endif
+
+/* Every interpreter that executes the module runs this, possibly on another thread. The first computes the key, the
+   rest wait for it, and the once primitive publishes the words to all of them; nothing writes the key after. */
+static int name_hash_key_init(void) {
+#if defined(_WIN32)
+    InitOnceExecuteOnce(&name_hash_key_once, name_hash_key_compute_once, NULL, NULL);
+#else
+    pthread_once(&name_hash_key_once, name_hash_key_compute);
+#endif
+    return name_hash_key_status;
+}
+
 static int publish_native_names(PyObject *module) {
     static const char *const names[] = {
         "minify_css",
@@ -427,6 +482,9 @@ static int publish_native_names(PyObject *module) {
 
 static int html_exec(PyObject *module) {
     module_state *state = PyModule_GetState(module);
+    if (name_hash_key_init() < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     if (token_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
     }

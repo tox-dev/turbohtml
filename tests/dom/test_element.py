@@ -3121,6 +3121,20 @@ def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> No
     assert [radio.checked for radio in radios] == [index == selected_index for index in range(len(radios))]
 
 
+def test_radio_group_ownerless_radio_among_many_form_ids() -> None:
+    # The checked radio has no owner, so every other radio looks its form id up: one owned radio per form and one
+    # unowned radio per absent id are enough ids that lookups walk past other ids under any hash key.
+    count: Final = 64
+    forms: Final = "".join(f"<form id=f{index}></form>" for index in range(count))
+    owned: Final = "".join(f"<input type=radio name=x form=f{index} checked>" for index in range(count))
+    absent: Final = "".join(f"<input type=radio name=x form=g{index} checked>" for index in range(count))
+    radios: Final = list(parse(forms + owned + absent).find_all("input"))
+    radios[-1].checked = True
+    assert [radio.checked for radio in radios] == [
+        index < count or index == 2 * count - 1 for index in range(2 * count)
+    ]
+
+
 @pytest.mark.parametrize(
     ("container", "inside", "outside", "checked"),
     [

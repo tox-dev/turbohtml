@@ -24,6 +24,7 @@
 typedef ptrdiff_t Py_ssize_t;
 #else
 #include "core/common.h"
+#include "core/hash.h"
 #endif
 #include "data/css_colors.h"
 

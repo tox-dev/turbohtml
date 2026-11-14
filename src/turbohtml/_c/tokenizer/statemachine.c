@@ -23,6 +23,7 @@
 #include "tokenizer/statemachine.h"
 
 #include "core/ascii.h"
+#include "core/hash.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 
@@ -254,7 +255,10 @@ struct th_tokenizer {
 
     th_attr_slot *attr_seen;  /* per-tag open-addressing set of kept attribute names */
     Py_ssize_t attr_seen_cap; /* power-of-two slot count, 0 until the first attribute */
-    uint64_t attr_epoch;      /* current tag generation; other epochs mark empty slots */
+    /* attrs from this index on take attr_seen_slow: half the slots, or 0 once keyed */
+    Py_ssize_t attr_seen_fast;
+    uint64_t attr_epoch; /* current tag generation; other epochs mark empty slots */
+    int attr_keyed;      /* 1 once the duplicate index has moved to th_name_hash, for the rest of the input */
 
     th_buf last_tag; /* last emitted start tag name, for appropriate end tags */
     th_buf temp;     /* spec "temporary buffer" for raw-text end tags and script */
@@ -822,55 +826,100 @@ static int attr_name_dup(const th_attr *a, const th_attr *b) {
 /* FNV-1a over a name's raw storage bytes. Equal names share width and content
    (buffers reset to the 1-byte kind and promote only on demand), so equal names
    always hash equal; a hash collision between distinct names is resolved by
-   attr_name_dup. */
+   attr_name_dup. Once the index is keyed, attr_seen_slow replaces it with
+   th_name_hash of the same bytes. */
 static uint32_t attr_name_hash(const th_buf *name) {
-    const unsigned char *bytes = name->data;
-    Py_ssize_t count = name->len * name->kind;
-    uint32_t hash = 2166136261u;
+    return th_fnv1a_bytes(name->data, name->len * name->kind);
+}
+
+/* Seat attrs[0, count) in the duplicate index at the current epoch. They go in the order
+   attr_seen_probe seated them, so in a doubled index none lands further from its home
+   than it sat before. */
+static void attr_seen_seat(th_tokenizer *self, Py_ssize_t count) {
+    const th_attr *attrs = self->tok.attrs;
+    Py_ssize_t mask = self->attr_seen_cap - 1;
     for (Py_ssize_t index = 0; index < count; index++) {
-        hash = (hash ^ bytes[index]) * 16777619u;
+        Py_ssize_t slot = (Py_ssize_t)(attrs[index].name_hash & (uint32_t)mask);
+        while (self->attr_seen[slot].epoch == self->attr_epoch) {
+            TH_WORK_STEP();
+            slot = (slot + 1) & mask;
+        }
+        self->attr_seen[slot].epoch = self->attr_epoch;
+        self->attr_seen[slot].index = index;
     }
-    return hash;
+}
+
+/* Move the duplicate index to th_name_hash for the rest of this tokenizer's input:
+   rehash attrs[0, cur] and seat attrs[0, seated) again. FNV-1a is fixed, so a
+   document can pick names that share one home; the key spreads them. Every later
+   attribute takes attr_seen_slow, which hashes it under the key. */
+static TH_NOINLINE void attr_seen_rekey(th_tokenizer *self, Py_ssize_t cur, Py_ssize_t seated) {
+    th_attr *attrs = self->tok.attrs;
+    self->attr_keyed = 1;
+    self->attr_seen_fast = 0;
+    for (Py_ssize_t index = 0; index <= cur; index++) {
+        attrs[index].name_hash = th_name_hash(attrs[index].name.data, attrs[index].name.len * attrs[index].name.kind);
+    }
+    memset(self->attr_seen, 0, (size_t)self->attr_seen_cap * sizeof(*self->attr_seen));
+    attr_seen_seat(self, seated);
+}
+
+/* The path attr_seen_probe takes for attrs[cur] once cur reaches attr_seen_fast: on
+   a keyed index it rehashes the name under th_name_hash, and when the index would
+   pass half full it doubles and re-seats attrs[0, cur) -- which by construction are
+   exactly the distinct names kept so far, since a dropped duplicate never holds a
+   permanent slot; the fresh table is zeroed to epoch 0, which no tag uses. Folding
+   both into the one bound keeps the per-attribute path to a single comparison. */
+static TH_NOINLINE int attr_seen_slow(th_tokenizer *self, Py_ssize_t cur) {
+    th_attr *attrs = self->tok.attrs;
+    if (self->attr_keyed) {
+        attrs[cur].name_hash = th_name_hash(attrs[cur].name.data, attrs[cur].name.len * attrs[cur].name.kind);
+    }
+    if (cur * 2 < self->attr_seen_cap) {
+        return 0;
+    }
+    Py_ssize_t cap = self->attr_seen_cap ? self->attr_seen_cap * 2 : 16;
+    th_attr_slot *table = PyMem_New(th_attr_slot, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
+    if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        self->oom = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    memset(table, 0, (size_t)cap * sizeof(*table));
+    PyMem_Free(self->attr_seen);
+    self->attr_seen = table;
+    self->attr_seen_cap = cap;
+    self->attr_seen_fast = self->attr_keyed ? 0 : cap / 2;
+    attr_seen_seat(self, cur);
+    return 0;
 }
 
 /* Return 1 when the tag already carries attrs[cur]'s name, else record cur and
    return 0. Open addressing keyed by the name hash keeps duplicate detection
    O(1) amortized, so a tag with n distinct attributes costs O(n) rather than the
-   O(n^2) a pairwise scan would pay on adversarial input. When the table crosses
-   half full it doubles and re-seats attrs[0, cur) -- which by construction are
-   exactly the distinct names kept so far, since a dropped duplicate never holds
-   a permanent slot; the fresh table is zeroed to epoch 0, which no tag uses. */
+   O(n^2) a pairwise scan would pay on adversarial input. The index stays at most
+   half full. A name is seated where the miss for it ended, so the distance it
+   lands from its home bounds every later probe that reaches it; one more than
+   TH_FAST_PROBE_LIMIT moves the index off FNV-1a (core/hash.h). */
 static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
-    const th_attr *attrs = self->tok.attrs;
-    if (cur * 2 >= self->attr_seen_cap) { /* keep the load factor <= 1/2 */
-        Py_ssize_t cap = self->attr_seen_cap ? self->attr_seen_cap * 2 : 16;
-        th_attr_slot *table = PyMem_New(th_attr_slot, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
-        if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            self->oom = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
-            return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        memset(table, 0, (size_t)cap * sizeof(*table));
-        PyMem_Free(self->attr_seen);
-        self->attr_seen = table;
-        self->attr_seen_cap = cap;
-        Py_ssize_t rmask = cap - 1;
-        for (Py_ssize_t index = 0; index < cur; index++) {
-            Py_ssize_t rslot = (Py_ssize_t)(attrs[index].name_hash & (uint32_t)rmask);
-            while (table[rslot].epoch == self->attr_epoch) {
-                rslot = (rslot + 1) & rmask;
-            }
-            table[rslot].epoch = self->attr_epoch;
-            table[rslot].index = index;
+    if (cur >= self->attr_seen_fast) {
+        if (attr_seen_slow(self, cur) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;                        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
+    const th_attr *attrs = self->tok.attrs;
     Py_ssize_t mask = self->attr_seen_cap - 1;
-    Py_ssize_t slot = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
+    Py_ssize_t home = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
+    Py_ssize_t slot = home;
     while (self->attr_seen[slot].epoch == self->attr_epoch) {
         TH_WORK_STEP();
         if (attr_name_dup(&attrs[self->attr_seen[slot].index], &attrs[cur])) {
             return 1;
         }
         slot = (slot + 1) & mask;
+    }
+    if (TH_UNLIKELY(!self->attr_keyed && ((slot - home) & mask) > TH_FAST_PROBE_LIMIT)) {
+        attr_seen_rekey(self, cur, cur + 1); /* attrs[cur] missed every kept name, so it is seated as kept */
+        return 0;
     }
     self->attr_seen[slot].epoch = self->attr_epoch;
     self->attr_seen[slot].index = cur;

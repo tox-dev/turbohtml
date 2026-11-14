@@ -10,6 +10,8 @@
    profile. The embedded ranges, profiles, and metadata come from language_data.h,
    generated from whatlang so the model is its published one, not a homegrown copy. */
 
+#include "core/hash.h"
+#include "core/work_steps.h"
 #include "encoding/language_data.h"
 
 #include <stdlib.h>
@@ -137,11 +139,10 @@ static void th_lang_trigram_sift(th_lang_ranked_trigram *ranked, size_t count, s
 }
 
 static size_t th_lang_trigram_slot(const th_lang_ranked_trigram *table, size_t capacity, uint64_t key) {
-    uint64_t hash = (key ^ (key >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
-    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94d049bb133111eb);
-    size_t slot = (hash ^ (hash >> 31)) & (capacity - 1);
+    size_t slot = (size_t)th_key_mix(key) & (capacity - 1); /* keyed: the text picks its trigrams */
     /* Stop characters become spaces, so zero cannot be a trigram key. */
     while (table[slot].key != 0 && table[slot].key != key) {
+        TH_WORK_STEP();
         slot = (slot + 1) & (capacity - 1);
     }
     return slot;

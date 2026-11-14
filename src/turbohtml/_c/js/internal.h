@@ -152,8 +152,26 @@ void jm_lex_rescan_regex(jm_lexer *lx);
    result is JT_TEMPLATE_MIDDLE (another `${`) or JT_TEMPLATE_TAIL (the closing `` ` ``). */
 void jm_lex_rescan_template(jm_lexer *lx);
 
+/* The parser asks this for nearly every token, and LTO's inlining budget does not reliably reach it from another
+   file, so it is forced inline; a debug build keeps it a plain inline function, which the coverage gates need. */
+#if defined(_MSC_VER)
+#define JM_TOKEN_INLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define JM_TOKEN_INLINE inline __attribute__((always_inline))
+#else
+#define JM_TOKEN_INLINE inline
+#endif
+
 /* Whether the lexer's current value-bearing token text equals the ASCII keyword. */
-int jm_text_eq(const jm_lexer *lx, const char *keyword);
+static JM_TOKEN_INLINE int jm_text_eq(const jm_lexer *lx, const char *keyword) {
+    Py_ssize_t index = 0;
+    for (; keyword[index] != '\0'; index++) {
+        if (index >= lx->text_len || lx->text[index] != (Py_UCS4)(unsigned char)keyword[index]) {
+            return 0;
+        }
+    }
+    return index == lx->text_len;
+}
 
 /* Whether ch may sit in an identifier, as its first code point (leads) or a later one, by the lexer's own
    classification. */

@@ -269,6 +269,17 @@ def test_minify_css_interleaved_shorthand_keeps_longhands(source: str) -> None:
     assert minify_css(source) == source
 
 
+def test_minify_css_wide_keyword_shorthand_among_same_length_names() -> None:
+    # Each rule fills its table with custom properties as long as the margin longhands, so under any hash key some
+    # longhand lookup walks past a name of its own length.
+    prefixes = [
+        "".join(f"--{rule:02d}{index:0{width}d}:v;" for width in range(6, 10) for index in range(120))
+        for rule in range(20)
+    ]
+    source = "".join(f"a{rule}{{{prefix}margin-top:1px;margin:inherit}}" for rule, prefix in enumerate(prefixes))
+    assert minify_css(source) == "".join(f"a{rule}{{{prefix}margin:inherit}}" for rule, prefix in enumerate(prefixes))
+
+
 def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
     source = "a{margin-top:1px;margin:0;margin:0;margin-right:2px;margin-bottom:3px;margin-left:4px}"
     expected = "a{margin-top:1px;margin:0;margin-right:2px;margin-bottom:3px;margin-left:4px}"
