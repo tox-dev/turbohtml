@@ -1818,7 +1818,7 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
    next node out of that token either way. */
 static int css_ends_in_hex_escape(const css_char *text, Py_ssize_t len) {
     Py_ssize_t digits = 0;
-    while (digits < 6 && digits < len && css_is_hex(text[len - 1 - digits])) {
+    while (digits < len && css_is_hex(text[len - 1 - digits])) {
         digits++;
     }
     if (digits == 0) {

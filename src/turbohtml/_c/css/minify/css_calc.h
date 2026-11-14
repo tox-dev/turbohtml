@@ -230,8 +230,8 @@ static void calc_parse_value(calc_parser *parser, csum *out) {
         if (parser->pos < parser->end && parser->vec->items[parser->pos].kind == CSS_DELIM &&
             parser->vec->items[parser->pos].delim == ')') {
             parser->pos++;
-        } else if (parser->pos != parser->end || parser->end != parser->vec->len) {
-            out->ok = 0;
+        } else {
+            out->ok &= (parser->pos == parser->end) & (parser->end == parser->vec->len);
         }
     }
     /* anything else is an opaque term (var/min/max/clamp/ident/...) the parser cannot evaluate, and out stays not-ok */
