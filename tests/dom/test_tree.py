@@ -1731,9 +1731,9 @@ def test_element_refused_at_depth_cap_keeps_html_on_the_stack(markup: str) -> No
             id="svg-title-deep-chain",
         ),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 2)}<table><tfoot><tr><td></td></tr><small><p></small>",
-            "math mi",
-            id="tfoot-in-math-mi",
+            f"{'<dl>' * (_DEPTH_CAP - 5)}<dd><ins><span><table><tfoot><th>k</th><small><p></small>",
+            "math mn",
+            id="tfoot-after-ins-in-math-mn",
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><ins><q><span><table><caption></caption><small><p></small>",
@@ -1741,9 +1741,9 @@ def test_element_refused_at_depth_cap_keeps_html_on_the_stack(markup: str) -> No
             id="table-mathml",
         ),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><template><tr><td></td></tr><small><p></small>",
+            f"{'<dl>' * (_DEPTH_CAP - 4)}<dd><q><s><template><th>k</th><em><p></em>",
             "svg title",
-            id="template-in-svg-title",
+            id="template-after-formatting-in-svg-title",
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><table><colgroup><col><tbody><tr><td></td></tr><small><p></small>",
