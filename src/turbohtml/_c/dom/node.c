@@ -1542,7 +1542,9 @@ PyDoc_STRVAR(tables_doc, "tables()\n--\n\n"
                          "Return every table in this node and its subtree, in document order, each as the\n"
                          "list of rows that Element.rows() produces. A nested table appears as its own\n"
                          "entry. The result is a list[list[list[str]]] of plain strings, with no pandas\n"
-                         "dependency; pass one table to pandas.DataFrame for a frame.");
+                         "dependency; pass one table to pandas.DataFrame for a frame. Raises ValueError\n"
+                         "when tables nested inside two or more other tables repeat more than 16,000,000\n"
+                         "characters of cell text in one call.");
 
 TH_NODE_API(static, PyObject *, node_tables, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
