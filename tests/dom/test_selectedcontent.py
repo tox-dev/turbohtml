@@ -1212,3 +1212,22 @@ def test_disabled_option_in_the_recheck_scan_is_reparse_stable(markup: str, body
     once = parse(markup).html
     assert once == f"<html><head></head><body>{body}</body></html>"
     assert parse(once).html == once
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            "<select><selectedcontent><option disabled>d<option selected>a<option><em><option>b",
+            id="disabled-option-before-the-copied-one",
+        ),
+        pytest.param(
+            "<select><selectedcontent><option disabled>d<option selected>a<option><em><option disabled>e<option>b",
+            id="disabled-options-before-an-enabled-one",
+        ),
+    ],
+)
+def test_disabled_option_before_the_copied_one_is_reparse_stable(markup: str) -> None:
+    once = parse(markup).html
+    assert once == "<html><head></head><body><select><selectedcontent>b</selectedcontent></select></body></html>"
+    assert parse(once).html == once
