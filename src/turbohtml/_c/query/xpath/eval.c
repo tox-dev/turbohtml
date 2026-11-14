@@ -3,6 +3,7 @@
 
 #include "core/common.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "query/xpath/internal.h"
 #include "query/xpath/regex.h"
@@ -386,6 +387,7 @@ static void reverse_items(xp_nodeset *out, Py_ssize_t from) {
 /* Push node when it passes the step's node test. Returns 0, or -1 on allocation
    failure (which cannot be forced from a test). */
 static int emit_if_match(xp_nodeset *out, struct th_node *node, const xn *step, const step_match *match) {
+    TH_WORK_STEP();
     int matched = node_test_matches(node, step, match);
     if (matched <= 0) {
         return matched;

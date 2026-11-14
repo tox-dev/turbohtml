@@ -13,6 +13,7 @@ from turbohtml import Token, Tokenizer, TokenType, tokenize
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from traced_bytes import RetainedBytes
     from work_steps import WorkSteps
 
 
@@ -351,6 +352,40 @@ def test_streaming_charref_suspends() -> None:
     assert [token.data for token in tokenizer.close()] == ["x&y"]
 
 
+def test_reset_forgets_a_suspended_charref_run() -> None:
+    tokenizer = Tokenizer()
+    assert list(tokenizer.feed("&#x4141")) == []  # suspended in the digits, with its scan position remembered
+    tokenizer.reset()
+    assert list(tokenizer.feed("&#x42")) == []
+    assert [token.data for token in tokenizer.close()] == ["B"]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "run"),
+    [
+        pytest.param("&#x", "c", id="hex-digits"),
+        pytest.param("&#", "9", id="decimal-digits"),
+        pytest.param("&", "a", id="name-over-cap"),
+        pytest.param("<a x='&#x", "c", id="attribute-hex-digits"),
+        pytest.param("<a x=&", "a", id="attribute-name-over-cap"),
+    ],
+)
+def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str, work_steps: WorkSteps) -> None:
+    # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
+    document = prefix + run * 20_000
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
+    work_steps.assert_linear(lambda n: partial(_stream_fed_in_chunks, prefix + run * n), (5_000, 20_000))
+
+
+def _stream_fed_in_chunks(document: str) -> list[_Shape]:
+    tokenizer = Tokenizer()
+    tokens: list[Token] = []
+    for offset in range(0, len(document), 7):
+        tokens.extend(tokenizer.feed(document[offset : offset + 7]))
+    tokens.extend(tokenizer.close())
+    return [_shape(token) for token in tokens]
+
+
 def test_streaming_crlf_across_feeds() -> None:
     tokenizer = Tokenizer()
     list(tokenizer.feed("a\r"))
@@ -418,6 +453,9 @@ def test_single_text_token(text: str, expected: str) -> None:
         pytest.param("<!doctype html public 'p' 's'><!doctype html system 'x'>", id="doctype-keywords"),
         pytest.param("&amp; &am &#x41; &#65; &#xZ &# &cent", id="charrefs"),
         pytest.param(f"&{'a' * 40};", id="charref-name-over-cap"),
+        pytest.param(f"&#x{'0' * 40}41;&#{'0' * 40}66;&#x{'f' * 40};&#{'9' * 40}", id="charref-long-digit-runs"),
+        pytest.param(f"&{'a' * 40}&#x41;&#{'0' * 40}66&{'b' * 40};&#67;", id="charref-runs-back-to-back"),
+        pytest.param(f"<a x='&#x{'0' * 40}41;' y=&{'a' * 40}; z=\"&#{'0' * 40}66\">", id="attribute-charref-runs"),
         pytest.param("<div class='a' id=b checked>x</div>", id="attributes"),
         pytest.param("<a x='&amp;' y=\"&gt;\" z=&lt; w=&cent>", id="attribute-charrefs"),
         pytest.param("<a x=&notit y=&ampz> &0 &#", id="charref-prefix-and-digit"),
@@ -613,23 +651,18 @@ def test_tag_names_are_lowercased() -> None:
     assert [next(iter(tokenize(document))).tag for document in ("<DIV>", "<SpAn>")] == ["div", "span"]
 
 
-def test_streaming_tokenizer_reclaims_consumed_input() -> None:
+def test_streaming_tokenizer_reclaims_consumed_input(retained_bytes: RetainedBytes) -> None:
     # feed() compacts the consumed prefix, so a long-lived streaming tokenizer stays memory
     # bounded instead of growing its input buffer with every chunk (issue #80).
-    # PyPy ships no _tracemalloc, and its GC frees the buffer on its own schedule, so there is
-    # no peak to assert there; the compaction itself is C and covered by the CPython run.
-    tracemalloc = pytest.importorskip("tracemalloc")
     tokenizer = Tokenizer()
     for _ in range(200):  # warm up so one-time allocations settle out of the measurement
         list(tokenizer.feed("<p>hello world</p>"))
-    tracemalloc.start()
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    retained = tracemalloc.get_traced_memory()[0]
+    retained = retained_bytes(__file__)
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    growth = tracemalloc.get_traced_memory()[0] - retained
-    tracemalloc.stop()
+    growth = retained_bytes(__file__) - retained
     # without compaction the input buffer grows by about 180 KB in the second batch
     assert growth < 100_000, f"streaming feed retained {growth} more bytes"
 
