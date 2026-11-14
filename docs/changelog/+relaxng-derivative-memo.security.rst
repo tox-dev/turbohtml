@@ -1,2 +1,2 @@
-:class:`RELAX NG <turbohtml.validate.RelaxNG>` validation of schemas with shared definitions or overlapping attributes
-now finishes in time that grows with the schema, not exponentially.
+:class:`RELAX NG <turbohtml.validate.RelaxNG>` validation no longer re-derives a shared definition on every path that
+reaches it, removing an exponential slowdown.
