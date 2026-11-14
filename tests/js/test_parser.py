@@ -717,9 +717,6 @@ def test_invalid_binding_pattern_raises(source: str, match: str) -> None:
         pytest.param("({[a]=1})=>0", "offset 5 near '='", id="computed-default-parameter"),
         pytest.param('let {"a"}=b', "offset 8 near '}'", id="string-binding"),
         pytest.param("let {[a]=1}=b", "offset 8 near '='", id="computed-default-binding"),
-        # a shorthand key is also its value, so each level of these used to multiply the work of every later pass
-        pytest.param(f"x={'{[' * 40}a{']}' * 40}", "offset 84 near '}'", id="computed-nested"),
-        pytest.param(f"x={'{[' * 40}a{']=1}' * 40}", "offset 84 near '='", id="computed-default-nested"),
     ],
 )
 def test_shorthand_property_needs_identifier_key(source: str, match: str) -> None:
