@@ -19,6 +19,7 @@
 #include "core/node_map.h"
 #include "core/resource.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/nodes.h"
 #include "dom/tree.h"
 #include "tokenizer/binding.h"
@@ -575,6 +576,7 @@ typedef struct {
     int precedence;
     Py_ssize_t uses_start; /* this set's use-attribute-sets, resolved once to slots in engine.attrset_uses */
     Py_ssize_t uses_end;
+    int superseded; /* a later set bears the same name, so this one is merged into it */
 } xslt_attrset;
 
 typedef struct {
@@ -704,7 +706,7 @@ typedef struct engine {
     xslt_name_index named_index;
     xslt_name_index key_index;
     xslt_name_index attrset_index;
-    Py_ssize_t *attrset_next;
+    Py_ssize_t *attrset_previous; /* per set, one past the slot of the definition of its name before it, else 0 */
     xslt_slots attrset_uses;
     xslt_space *spaces;
     Py_ssize_t nspaces;
@@ -809,6 +811,18 @@ static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, cons
 static int pattern_callback_needed(engine *eng, const xp_program *prog);
 static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched);
 
+/* The last of the first count attribute sets that bears the name, or -1. */
+static Py_ssize_t attrset_find(const engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, Py_ssize_t count) {
+    if (count == eng->nattrsets && eng->attrset_index.capacity != 0) {
+        return name_index_find(&eng->attrset_index, name, name_len) - 1;
+    }
+    Py_ssize_t slot = count - 1;
+    while (slot >= 0 && !str_eq(eng->attrsets[slot].name, eng->attrsets[slot].name_len, name, name_len)) {
+        slot--;
+    }
+    return slot;
+}
+
 static int build_name_indexes(engine *eng) {
     /* GCOVR_EXCL_BR_START: allocation failure */
     if (name_index_reserve(&eng->named_index, eng->nnamed) < 0 || name_index_reserve(&eng->key_index, eng->nkeys) < 0 ||
@@ -826,14 +840,22 @@ static int build_name_indexes(engine *eng) {
             name_index_add(&eng->key_index, eng->keys[index].name, eng->keys[index].name_len, index);
         }
     }
-    if (eng->attrset_index.capacity != 0) {
-        eng->attrset_next = PyMem_Malloc((size_t)eng->nattrsets * sizeof(*eng->attrset_next));
-        if (eng->attrset_next == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                   /* GCOVR_EXCL_LINE */
+    /* Same-named sets merge (section 7.1.4): a name resolves to its last definition and this chain leads back through
+       the earlier ones, so a reference costs one slot however many definitions share the name. */
+    if (eng->nattrsets != 0) {
+        eng->attrset_previous = PyMem_Malloc((size_t)eng->nattrsets * sizeof(*eng->attrset_previous));
+        if (eng->attrset_previous == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                       /* GCOVR_EXCL_LINE */
         }
-        for (Py_ssize_t index = eng->nattrsets - 1; index >= 0; index--) {
-            eng->attrset_next[index] =
-                name_index_add(&eng->attrset_index, eng->attrsets[index].name, eng->attrsets[index].name_len, index);
+        const int indexed = eng->attrset_index.capacity != 0;
+        for (Py_ssize_t index = 0; index < eng->nattrsets; index++) {
+            const xslt_attrset *set = &eng->attrsets[index];
+            const Py_ssize_t previous = indexed ? name_index_add(&eng->attrset_index, set->name, set->name_len, index)
+                                                : attrset_find(eng, set->name, set->name_len, index) + 1;
+            eng->attrset_previous[index] = previous;
+            if (previous != 0) {
+                eng->attrsets[previous - 1].superseded = 1;
+            }
         }
     }
     return 0;
@@ -2358,8 +2380,8 @@ static int slots_push(xslt_slots *slots, Py_ssize_t slot) {
     return 0;
 }
 
-/* Append the slot of every set a use-attribute-sets value names, in order; a name defined at several import levels
-   adds each definition. */
+/* Append the slot of the last definition of every set a use-attribute-sets value names, in order; a name defined
+   several times stands for each definition, which engine.attrset_previous chains from that slot. */
 static int attrsets_named(const engine *eng, const Py_UCS4 *names, Py_ssize_t names_len, xslt_slots *slots) {
     Py_ssize_t index = 0;
     while (index < names_len) {
@@ -2373,16 +2395,9 @@ static int attrsets_named(const engine *eng, const Py_UCS4 *names, Py_ssize_t na
         if (index == start) {
             break;
         }
-        const int indexed = eng->attrset_index.capacity != 0;
-        Py_ssize_t slot = indexed ? name_index_find(&eng->attrset_index, names + start, index - start) - 1 : 0;
-        for (; slot >= 0 && slot < eng->nattrsets; slot = indexed ? eng->attrset_next[slot] - 1 : slot + 1) {
-            const xslt_attrset *set = &eng->attrsets[slot];
-            if (!indexed && !str_eq(set->name, set->name_len, names + start, index - start)) {
-                continue;
-            }
-            if (slots_push(slots, slot) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                     /* GCOVR_EXCL_LINE */
-            }
+        Py_ssize_t slot = attrset_find(eng, names + start, index - start, eng->nattrsets);
+        if (slot >= 0 && slots_push(slots, slot) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                  /* GCOVR_EXCL_LINE */
         }
     }
     return 0;
@@ -2453,19 +2468,24 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
 }
 
 /* Walking references last to first and recording each set at first sighting yields, reversed, the section 7.1.4
-   expansion with each set kept at its last position, the one that decides its attribute values. */
-static int order_attrset(engine *eng, Py_ssize_t slot, unsigned char *seen, xslt_slots *order) {
+   expansion with each set kept at its last position, the one that decides its attribute values. slot is the last
+   definition of a name and seen marks the name, whose definitions are always expanded together. */
+static inline int order_attrset(engine *eng, Py_ssize_t slot, unsigned char *seen, xslt_slots *order) {
     if (seen[slot]) {
         return 0;
     }
-    const xslt_attrset *set = &eng->attrsets[slot];
-    if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_ATTRSET, set) < 0) {
+    if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_ATTRSET, &eng->attrsets[slot]) < 0) {
         return -1;
     }
     seen[slot] = 1;
-    int rc = slots_push(order, slot) < 0 ? fail(eng, "out of memory") : 0; /* GCOVR_EXCL_BR_LINE: alloc */
-    for (Py_ssize_t index = set->uses_end - 1; rc == 0 && index >= set->uses_start; index--) {
-        rc = order_attrset(eng, eng->attrset_uses.items[index], seen, order);
+    int rc = 0;
+    for (; rc == 0 && slot >= 0; slot = eng->attrset_previous[slot] - 1) {
+        const xslt_attrset *set = &eng->attrsets[slot];
+        rc = slots_push(order, slot) < 0 ? fail(eng, "out of memory") : 0; /* GCOVR_EXCL_BR_LINE: alloc */
+        for (Py_ssize_t index = set->uses_end - 1; rc == 0 && index >= set->uses_start; index--) {
+            TH_WORK_STEP();
+            rc = order_attrset(eng, eng->attrset_uses.items[index], seen, order);
+        }
     }
     eng->depth--;
     return rc;
@@ -5335,6 +5355,7 @@ static int parse_attrset(engine *eng, th_node *element) {
     set->name_len = name_len;
     set->body = element;
     set->precedence = eng->precedence;
+    set->superseded = 0;
     return 0;
 }
 
@@ -5368,28 +5389,31 @@ static int raise_attrset_cycle(engine *eng, const Py_ssize_t *path, int depth, P
 }
 
 /* Section 7.1.4 forbids a set that uses itself, even one no template applies; the chain length this returns keeps
-   order_attrset within XSLT_MAX_DEPTH. heights[slot] is 0 unvisited, -1 while on the path, else the chain length. */
+   order_attrset within XSLT_MAX_DEPTH. slot is the last definition of a name, checked with the earlier ones as the one
+   set they merge into; heights[slot] is 0 unvisited, -1 while on the path, else the chain length. */
 static int check_attrset(engine *eng, Py_ssize_t slot, int *heights, Py_ssize_t *path, int depth) {
     if (depth == XSLT_MAX_DEPTH) {
         return raise_attrset_depth(eng, &eng->attrsets[path[0]]);
     }
     path[depth] = slot;
     heights[slot] = -1;
-    const xslt_attrset *set = &eng->attrsets[slot];
     int height = 1;
-    for (Py_ssize_t index = set->uses_start; index < set->uses_end; index++) {
-        Py_ssize_t used = eng->attrset_uses.items[index];
-        if (heights[used] < 0) {
-            return raise_attrset_cycle(eng, path, depth, used);
+    for (Py_ssize_t definition = slot; definition >= 0; definition = eng->attrset_previous[definition] - 1) {
+        const xslt_attrset *set = &eng->attrsets[definition];
+        for (Py_ssize_t index = set->uses_start; index < set->uses_end; index++) {
+            Py_ssize_t used = eng->attrset_uses.items[index];
+            if (heights[used] < 0) {
+                return raise_attrset_cycle(eng, path, depth, used);
+            }
+            int used_height = heights[used] != 0 ? heights[used] : check_attrset(eng, used, heights, path, depth + 1);
+            if (used_height < 0) {
+                return -1;
+            }
+            height = used_height + 1 > height ? used_height + 1 : height;
         }
-        int used_height = heights[used] != 0 ? heights[used] : check_attrset(eng, used, heights, path, depth + 1);
-        if (used_height < 0) {
-            return -1;
-        }
-        height = used_height + 1 > height ? used_height + 1 : height;
     }
     if (height > XSLT_MAX_DEPTH) {
-        return raise_attrset_depth(eng, set);
+        return raise_attrset_depth(eng, &eng->attrsets[slot]);
     }
     heights[slot] = height;
     return height;
@@ -5414,6 +5438,14 @@ static int resolve_attribute_sets(engine *eng) {
     Py_ssize_t path[XSLT_MAX_DEPTH];
     int height = 0;
     for (Py_ssize_t slot = 0; height >= 0 && slot < eng->nattrsets; slot++) {
+        const xslt_attrset *set = &eng->attrsets[slot];
+        if (set->superseded) {
+            continue;
+        }
+        if (set->uses_start == set->uses_end && eng->attrset_previous[slot] == 0) {
+            heights[slot] = 1;
+            continue;
+        }
         height = heights[slot] != 0 ? heights[slot] : check_attrset(eng, slot, heights, path, 0);
     }
     PyMem_Free(heights);
@@ -5897,7 +5929,7 @@ static void engine_clear(engine *eng) {
         PyMem_Free(eng->named_index.entries);
         PyMem_Free(eng->key_index.entries);
         PyMem_Free(eng->attrset_index.entries);
-        PyMem_Free(eng->attrset_next);
+        PyMem_Free(eng->attrset_previous);
         PyMem_Free(eng->attrset_uses.items);
         PyMem_Free(eng->named);
         PyMem_Free(eng->globals);
