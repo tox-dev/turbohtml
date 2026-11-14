@@ -16,10 +16,13 @@
 
 #if defined(_MSC_VER)
 #define TH_NOINLINE __declspec(noinline)
+#define TH_JOIN_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
 #define TH_NOINLINE __attribute__((noinline))
+#define TH_JOIN_INLINE inline __attribute__((always_inline))
 #else
 #define TH_NOINLINE
+#define TH_JOIN_INLINE inline
 #endif
 
 /* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
@@ -1264,30 +1267,38 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
 
 /* https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme other than file skips every
    slash after the two that open the authority, so the host is read after all of them. With no host after them the
-   RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. Out of line so the
-   join's common path keeps its register allocation. */
-static TH_NOINLINE void skip_extra_authority_slashes(url_ref *ref_parts, const url_ref *base_parts) {
-    if (scheme_eq(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, "file")) {
-        return;
+   RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. `ref_parts` holds an
+   empty authority. Returns the joined URL (NULL with an exception when the allocation fails), or a borrowed Py_None
+   when the base is not special or no host follows the slashes, so the caller goes on with the RFC 3986 join. It tests
+   the base scheme itself and never writes either part, so the join keeps no extra value alive across the call for a
+   reference this rare. */
+static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_parts, const url_ref *ref_parts) {
+    if (!url_scheme_special(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end) ||
+        scheme_eq(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, "file")) {
+        return Py_None;
     }
     Py_ssize_t host_start = ref_parts->netloc_start;
     while (host_start < ref_parts->path_end && url_slash(ref_parts->buf[host_start], 1)) {
         host_start++;
     }
     Py_ssize_t host_end = authority_end(ref_parts->buf, host_start, ref_parts->path_end, 1, 1);
-    if (host_end > host_start) {
-        ref_parts->netloc_start = host_start;
-        ref_parts->netloc_end = host_end;
-        ref_parts->path_start = host_end;
+    if (host_end <= host_start) {
+        return Py_None;
     }
+    return build_url(base_parts->has_scheme, base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, 1,
+                     ref_parts->buf, host_start, host_end, ref_parts->buf, host_end, ref_parts->path_end,
+                     ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
+                     ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
 }
 
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
    ported so the C entry points (th_url_join, th_url_join_link, th_url_document_join, and the c14n base join) resolve
    links without importing urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or
    NULL with a ValueError set when a host has an unbalanced IPv6 bracket. `link` reads the reference's host the way a
-   browser reads an HTML link's, skipping the slashes RFC 3986 takes for an empty authority and a rooted path. */
-static PyObject *join_url(PyObject *base, PyObject *target, int document, int link) {
+   browser reads an HTML link's, skipping the slashes RFC 3986 takes for an empty authority and a rooted path. Forced
+   inline so th_url_join_link, the per-link join, gets its own copy with both flags folded to constants; the other
+   entry points share join_url. */
+static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, int document, int link) {
     int c14n = document == 2;
     if (PyUnicode_GET_LENGTH(base) == 0 && !c14n) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
@@ -1410,9 +1421,6 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document, int li
         PyMem_Free(ref_parts.buf);
         return Py_NewRef(target);
     }
-    if (ref_parts.has_netloc && ref_parts.netloc_end == ref_parts.netloc_start && link && base_special) {
-        skip_extra_authority_slashes(&ref_parts, &base_parts);
-    }
     PyObject *result;
     if (ref_parts.has_netloc && ((!base_special && document) || ref_parts.netloc_end > ref_parts.netloc_start)) {
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, 1,
@@ -1420,6 +1428,9 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document, int li
                            ref_parts.path_start, ref_parts.path_end, ref_parts.has_query, ref_parts.buf,
                            ref_parts.query_start, ref_parts.query_end, ref_parts.has_fragment, ref_parts.buf,
                            ref_parts.fragment_start, ref_parts.fragment_end);
+    } else if (link && ref_parts.has_netloc &&
+               (result = join_extra_slash_authority(&base_parts, &ref_parts)) != Py_None) {
+        /* a host followed the extra slashes, and the call above joined it */
     } else if (ref_parts.path_end == ref_parts.path_start) {
         int query_has = ref_parts.has_query;
         Py_ssize_t query_start = ref_parts.query_start;
@@ -1480,12 +1491,17 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document, int li
     return result;
 }
 
+static PyObject *join_url(PyObject *base, PyObject *target, int document, int link) {
+    return join_url_body(base, target, document, link);
+}
+
 PyObject *th_url_join(PyObject *base, PyObject *target) {
     return join_url(base, target, 0, 0);
 }
 
-PyObject *th_url_join_link(PyObject *base, PyObject *target) {
-    return join_url(base, target, 0, 1);
+/* resolve_links and extract_links run this join per link. Out of line so the callers' loops keep their own code. */
+TH_NOINLINE PyObject *th_url_join_link(PyObject *base, PyObject *target) {
+    return join_url_body(base, target, 0, 1);
 }
 
 static int c14n_appendable_target(PyObject *target) {
