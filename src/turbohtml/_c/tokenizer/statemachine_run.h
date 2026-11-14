@@ -60,6 +60,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
             overflow = self->ref_overflow;
         }
         while (cursor < len) {
+            TH_WORK_STEP();
             Py_UCS4 digit = TH_READ(cursor);
             if (hex) {
                 int value = charref_hex_value(digit);
@@ -180,6 +181,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         }
         while (ambiguous_end < len && (is_ascii_alpha(TH_READ(ambiguous_end)) ||
                                        (TH_READ(ambiguous_end) >= '0' && TH_READ(ambiguous_end) <= '9'))) {
+            TH_WORK_STEP();
             ambiguous_end++;
         }
         if (ambiguous_end >= len && !self->eof) {
