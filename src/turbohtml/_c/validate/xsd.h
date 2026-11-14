@@ -148,6 +148,9 @@ static int qname_eq(const qname *name, const edecl *want) {
 static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
     Py_ssize_t ref_len = 0;
     const Py_UCS4 *ref = xsd_attr(schema->tree, group_ref, "ref", &ref_len);
+    if (ref == NULL) { /* compile accepts a group without ref, which has no model group to resolve */
+        return NULL;
+    }
     const Py_UCS4 *local, *prefix;
     Py_ssize_t local_len = 0, prefix_len = 0;
     split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
