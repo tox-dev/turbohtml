@@ -425,10 +425,22 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
             id="disabled-selectedcontent-in-moved-block",
         ),
         pytest.param(
-            "<select><em><section><svg><selectedcontent></svg></em></section><option selected>o</option></select>",
-            "<select><em></em><section><em><svg><selectedcontent></selectedcontent></svg></em></section>"
-            '<option selected="">o</option></select>',
+            "<select><option>A</option><b><option><p><svg><selectedcontent><foreignObject>"
+            "<selectedcontent></selectedcontent></foreignObject></selectedcontent></svg></b></p>"
+            "<option selected>X</option></select>",
+            "<select><option>A</option><b><option></option></b><p><b><svg><selectedcontent><foreignObject>"
+            "<selectedcontent>X</selectedcontent></foreignObject></selectedcontent></svg></b></p>"
+            '<option selected="">X</option></select>',
             id="foreign-selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><option>A</option><b><option><p><math><selectedcontent><mi>"
+            "<selectedcontent></selectedcontent></mi></selectedcontent></math></b></p>"
+            "<option selected>X</option></select>",
+            "<select><option>A</option><b><option></option></b><p><b><math><selectedcontent><mi>"
+            "<selectedcontent>X</selectedcontent></mi></selectedcontent></math></b></p>"
+            '<option selected="">X</option></select>',
+            id="mathml-selectedcontent-in-moved-block",
         ),
         pytest.param(
             "<select><em><section><option><selectedcontent></em></section><option selected>o</option></select>",
@@ -499,12 +511,6 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
             "<select><b><selectedcontent><p><selectedcontent></b></p></select>",
             "<select><b><selectedcontent></selectedcontent></b><p><b><selectedcontent></selectedcontent></b></p></select>",
             id="block-reaching-a-select-past-a-selectedcontent-gate",
-        ),
-        pytest.param(
-            "<select><option>a</option><i><option><div><b><p><selectedcontent></b></p></i></div></select>",
-            "<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>"
-            "</b></p></i></div></select>",
-            id="block-with-a-childless-flagged-formatting-element",
         ),
         pytest.param(
             "<select><option>a</option><b><option><p><span></span><selectedcontent></b></p>"

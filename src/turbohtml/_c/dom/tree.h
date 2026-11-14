@@ -125,7 +125,7 @@ struct th_node {
        tree construction: clones and DOM attribute edits do not update it. */
     uint8_t html_integration;
     /* set once an enabled selectedcontent is reachable below this node, never cleared: the adoption agency only
-       invalidates a select cache for a moved subtree that sets it (th_node_reach_attached) */
+       lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
     uint8_t reaches_selectedcontent;
     th_node *parent;
     th_node *first_child;

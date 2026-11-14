@@ -1725,7 +1725,7 @@ static th_node *select_reaching(th_node *node) {
 static void select_cache_collect(th_tree *tree, th_select_cache *cache, th_node *block) {
     th_node *node = block->first_child;
     while (node != NULL && cache->target_count < MAX_CLONE_TARGETS) {
-        if (node->reaches_selectedcontent && node->atom == TH_TAG_SELECTEDCONTENT) {
+        if (node->reaches_selectedcontent && is_html_element(node, TH_TAG_SELECTEDCONTENT)) {
             select_cache_add_target(tree, cache, node);
         } else {
             th_node *down = node->reaches_selectedcontent ? node->first_child : NULL;
@@ -1741,9 +1741,9 @@ static void select_cache_collect(th_tree *tree, th_select_cache *cache, th_node 
     }
 }
 
-/* A flagged block the adoption agency moved out of the reach of every select. The block moves along the open
-   elements, so one that reached a select before the move still reaches it, and its targets are already listed.
-   Only a block that a gate removed from the open elements gains a reach, and that is the case handled here. */
+/* A flagged block the adoption agency moved into the reach of a select. A block that reached a select before the
+   move still reaches it, and its targets are already listed. Only a block that a gate removed from the open
+   elements was out of reach before, so only that case is handled here. */
 static void select_cache_block_gained(th_tree *tree, th_node *block) {
     th_select_state *state = tree->select_state;
     if (state == NULL) {
@@ -2258,7 +2258,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         tree->reparse_hazard = 1;
         th_node *common = tree->open[fmt_stack - 1];
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
-        th_node *old_select = furthest->reaches_selectedcontent ? select_reaching(furthest->parent) : NULL;
+        th_node *old_select =
+            furthest->reaches_selectedcontent && tree->select_state != NULL ? select_reaching(furthest->parent) : NULL;
         th_node *node, *last = furthest;
         Py_ssize_t node_idx = furthest_idx;
         /* The inner loop runs until it reaches the formatting element; the
