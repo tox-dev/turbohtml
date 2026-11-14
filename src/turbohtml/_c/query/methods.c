@@ -2323,7 +2323,7 @@ static inline void query_unlink(th_tree *tree, th_node *node, int iterators) {
     if (iterators) {
         th_node_remove_silent(tree, node);
     } else {
-        th_node_remove(tree, node);
+        th_node_remove(node);
     }
 }
 

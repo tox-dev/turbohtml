@@ -1734,7 +1734,7 @@ TH_NODE_API(static, int, apply_text,
             /* no iterator can point into the fragment this call built, so its children move without the steps */
             while (fragment->first_child != NULL) {
                 th_node *child = fragment->first_child;
-                th_node_remove(tree, child);
+                th_node_remove(child);
                 th_node_insert_before(tree, parent, child, node);
             }
             th_node_remove_silent(tree, node);

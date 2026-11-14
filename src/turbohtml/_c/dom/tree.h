@@ -363,9 +363,9 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
    so it is for nodes no caller holds an iterator on (a parse, sanitize, schema or
    XSLT result tree, or a fragment built in the same call) and for XSLT's whitespace
    strip, which puts the nodes back before it returns; remove_silent runs the steps
-   without queuing a mutation record. Every edit advances the tree's structure version, so a
-   cache keyed by it cannot outlive the edit. */
-void th_node_remove(th_tree *tree, th_node *child);
+   without queuing a mutation record. Append and insert take the tree so they can keep the document's depth
+   bound up to date; remove cannot deepen a tree and needs none. */
+void th_node_remove(th_node *child);
 void th_node_remove_silent(th_tree *tree, th_node *child);
 void th_node_append_child(th_tree *tree, th_node *parent, th_node *child);
 void th_node_insert_before(th_tree *tree, th_node *parent, th_node *child, th_node *ref);
@@ -535,10 +535,10 @@ int th_tree_scripting(const th_tree *tree);
 th_node *th_node_root(th_node *node);
 /* The depth below a query origin at which the :has() subtree memo starts to pay. */
 #define TH_HAS_MEMO_DEPTH 24
-/* Whether some node lies at least TH_HAS_MEMO_DEPTH levels below origin. Answered from the parser's peak when that
-   already reaches the depth, and otherwise from a walk of origin's subtree cached per structure_version and origin. */
+/* Whether some node lies at least TH_HAS_MEMO_DEPTH levels below origin. For a node of the document this reads the
+   document's depth bound, which the attach primitives keep current, so a shallow document answers in constant time;
+   for a node of another root it walks origin's subtree, which early-exits at the depth. */
 int th_tree_depth_reaches(th_tree *tree, th_node *origin);
-void th_tree_structure_changed(th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a

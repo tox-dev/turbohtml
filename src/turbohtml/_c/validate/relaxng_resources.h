@@ -137,7 +137,7 @@ static int rng_remove_overridden(th_schema *schema, th_node *container, const Py
     while (child != NULL) {
         th_node *next = child->next_sibling;
         if (rng_is_overridden(schema, child, name, name_len)) {
-            th_node_remove(schema->tree, child);
+            th_node_remove(child);
             found = 1;
         } else if (is_schema_el(schema, child, RNG_NS, "div")) {
             found |= rng_remove_overridden(schema, child, name, name_len);
@@ -337,7 +337,7 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
     }
     if (reference->parent != NULL) {
         th_node_insert_before(loader->schema->tree, reference->parent, copy, reference);
-        th_node_remove(loader->schema->tree, reference);
+        th_node_remove(reference);
     }
     return copy;
 }

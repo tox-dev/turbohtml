@@ -338,10 +338,6 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
-void th_tree_structure_changed(th_tree *tree) {
-    tree->structure_version++;
-}
-
 th_node *th_node_root(th_node *node) {
     while (node->parent != NULL) {
         node = node->parent;
@@ -349,17 +345,21 @@ th_node *th_node_root(th_node *node) {
     return node;
 }
 
-/* Whether some descendant of origin sits at least TH_HAS_MEMO_DEPTH levels below it. Walks down the first-child
-   chain and stops at the first node that deep, so a subtree that is deep costs only its first levels. */
-static int th_subtree_reaches(th_node *origin) {
+/* The depth, capped at TH_HAS_MEMO_DEPTH, of the deepest node below origin. Walks down the first-child chain and stops
+   at the first node that deep, so a deep subtree costs only its first levels. */
+static Py_ssize_t th_depth_below(th_node *origin) {
     Py_ssize_t depth = 0;
+    Py_ssize_t deepest = 0;
     th_node *node = origin;
     for (;;) {
         TH_WORK_STEP();
         if (node->first_child != NULL) {
             node = node->first_child;
-            if (++depth >= TH_HAS_MEMO_DEPTH) {
-                return 1;
+            if (++depth > deepest) {
+                deepest = depth;
+                if (deepest >= TH_HAS_MEMO_DEPTH) {
+                    return deepest;
+                }
             }
             continue;
         }
@@ -368,25 +368,24 @@ static int th_subtree_reaches(th_node *origin) {
             depth--;
         }
         if (node == origin) {
-            return 0;
+            return deepest;
         }
         node = node->next_sibling;
     }
 }
 
 int th_tree_depth_reaches(th_tree *tree, th_node *origin) {
-    if (tree->max_depth >= TH_HAS_MEMO_DEPTH) {
-        return 1;
+    th_node *document = th_tree_document(tree);
+    if (th_node_root(origin) != document) {
+        return th_depth_below(origin) >= TH_HAS_MEMO_DEPTH;
     }
-    if (tree->reach_key == tree->structure_version + 1 && tree->reach_origin == origin) {
-        assert(tree->reach_result == th_subtree_reaches(origin)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; a
-                                                                     mutation path that skipped its version bump */
-    } else {
-        tree->reach_result = th_subtree_reaches(origin);
-        tree->reach_origin = origin;
-        tree->reach_key = tree->structure_version + 1;
+    if (!tree->depth_bound_known) {
+        tree->depth_bound = th_depth_below(document);
+        tree->depth_bound_known = 1;
     }
-    return tree->reach_result;
+    assert(tree->depth_bound >= th_depth_below(document)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; an attach
+                                                              path that sized a subtree without note_attach */
+    return tree->depth_bound >= TH_HAS_MEMO_DEPTH;
 }
 
 int th_tree_failed(const th_tree *tree) {
@@ -519,9 +518,6 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
-    if (tree->open_len > tree->max_depth) {
-        tree->max_depth = tree->open_len;
-    }
     return 1;
 }
 

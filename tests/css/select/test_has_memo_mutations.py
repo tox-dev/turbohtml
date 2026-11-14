@@ -248,6 +248,21 @@ def test_has_memo_after_mutator_that_changes_depth_matches_fresh_copy(
     assert len(origin.select("i:has(b)")) == len(copy.deepcopy(origin).select("i:has(b)"))
 
 
+def test_has_memo_chain_grown_under_an_extracted_subtree_leaves_the_document_answer() -> None:
+    document: Final = parse("<body><div><b>x</b></div><p>y</p></body>")
+    assert len(document.select("div:has(b)")) == 1
+    div: Final = document.select_one("div")
+    assert isinstance(div, Element)
+    cursor: Element = div.extract()
+    for _ in range(30):
+        child: Final = Element("i")
+        cursor.append(child)
+        cursor = child
+    cursor.append(Element("b"))
+    assert document.select("div:has(b)") == []
+    assert len(document.select("p")) == 1
+
+
 def test_computed_style_two_has_rules_on_one_element_later_wins() -> None:
     doc: Final = parse(
         "<html><head><style>div:has(b){color:red}div:has(i){color:blue}</style></head>"

@@ -2419,7 +2419,7 @@ static int instantiate_without_element(engine *eng, th_node *instruction, th_nod
     }
     while (holder->first_child != NULL) {
         th_node *child = holder->first_child;
-        th_node_remove(eng->out_tree, child);
+        th_node_remove(child);
         th_node_append_child(eng->out_tree, out_parent, child);
     }
     return 0;
@@ -6199,7 +6199,7 @@ static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
                     PyMem_Free(frames);                                           /* GCOVR_EXCL_LINE */
                     return -1;                                                    /* GCOVR_EXCL_LINE */
                 }
-                th_node_remove(eng->out_tree, child);
+                th_node_remove(child);
             }
         } else if (child->type == TH_NODE_ELEMENT && /* GCOVR_EXCL_BR_LINE: failure requires allocation exhaustion */
                    strip_push(eng, &frames, &length, &capacity, child, frame->preserve) < 0) {
