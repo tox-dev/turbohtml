@@ -218,7 +218,7 @@ def test_punctuator_as_property_name_raises(source: str, match: str) -> None:
     [
         pytest.param("x={abc,b,}", "x={abc,b}", id="trailing-comma"),
         pytest.param("x={if:1,1n:2}", "x={if:1,1n:2}", id="keyword-and-bigint-keys"),
-        pytest.param("class A{#p=1;m(){return this.#p}}", "class A{#p=1;m(){return this.#p}}", id="private-name"),
+        pytest.param("class P{#v;get v(){return this.#v}}", "class P{#v;get v(){return this.#v}}", id="private-name"),
         pytest.param("a.if.class", "a.if.class", id="keyword-member-names"),
     ],
 )
@@ -241,16 +241,16 @@ def test_inline_script_with_unparsable_declaration_stays_verbatim() -> None:
     [
         pytest.param("var \\u0061b=1", "var ab=1", id="four-digit"),
         pytest.param("var a\\u{62}=1", "var ab=1", id="braced"),
-        pytest.param("var \\u{0000000061}=1", "var a=1", id="braced-leading-zeros"),
+        pytest.param("x.y\\u{000000000063}", "x.yc", id="braced-leading-zeros"),
         pytest.param("var \\u0024=1", "var $=1", id="dollar-leads"),
         pytest.param("var a\\u0030=1", "var a0=1", id="digit-follows"),
         pytest.param("x.#\\u0061", "x.#a", id="private-name"),
         pytest.param("x.#a\\u0030", "x.#a0", id="private-name-digit-follows"),
         pytest.param("var \\uD7FF=1", f"var {chr(0xD7FF)}=1", id="below-the-surrogates"),
-        pytest.param("var \\u{E000}=1", f"var {chr(0xE000)}=1", id="above-the-surrogates"),
-        pytest.param("var \\u{10FFFF}=1", f"var {chr(0x10FFFF)}=1", id="last-code-point"),
+        pytest.param("x.k\\u{E000}", f"x.k{chr(0xE000)}", id="above-the-surrogates"),
+        pytest.param("let m\\u{10FFFF}=0", f"let m{chr(0x10FFFF)}=0", id="last-code-point"),
         # a regex body is not an identifier: the arrow lookahead lexes across it, and nothing decodes it
-        pytest.param("f=(a=/\\u{110000}/)=>a", "f=(a=/\\u{110000}/)=>a", id="regex-crossed-by-arrow-lookahead"),
+        pytest.param("g=(b,c=/\\u{abcdef}/i)=>c", "g=(b,c=/\\u{abcdef}/i)=>c", id="regex-crossed-by-arrow-lookahead"),
     ],
 )
 def test_identifier_escape_decodes(source: str, expected: str) -> None:
@@ -262,29 +262,29 @@ def test_identifier_escape_decodes(source: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("source", "match"),
     [
-        pytest.param("var \\u{110000}=1", "offset 4 near '\\u{110000}'", id="past-the-last-code-point"),
-        pytest.param("var \\u{7FFFFFFF}=1", "offset 4 near '\\u{7FFFFFFF}'", id="31-bit-value"),
-        pytest.param("var \\u{100000061}=1", "offset 4 near '\\u{100000061}'", id="value-wrapping-32-bits"),
-        pytest.param("x.\\u{}", "offset 2 near '\\u{}'", id="empty-braces"),
-        pytest.param("x=\\u{61", "offset 2 near '\\u{61'", id="unterminated-braces"),
+        pytest.param("x.q\\u{110000}", "offset 2 near 'q\\u{110000}'", id="past-the-last-code-point"),
+        pytest.param("x.\\u{5A5A5A5A}", "offset 2 near '\\u{5A5A5A5A}'", id="31-bit-value"),
+        pytest.param("x.\\u{F00000063}", "offset 2 near '\\u{F00000063}'", id="value-wrapping-32-bits"),
+        pytest.param("let a\\u{}b=0", "offset 4 near 'a\\u{}b'", id="empty-braces"),
+        pytest.param("x.y\\u{7a", "offset 2 near 'y\\u{7a'", id="unterminated-braces"),
         pytest.param("x.\\u{6g}", "offset 2 near '\\u{6g}'", id="non-hex-in-braces"),
         pytest.param("a\\u", "offset 0 near 'a\\u'", id="no-digits"),
         pytest.param("x.\\u006", "offset 2 near '\\u006'", id="three-digits"),
         pytest.param("x.\\u00zz", "offset 2 near '\\u00zz'", id="non-hex-digit"),
         pytest.param(f"x.\\u{chr(0x10FFFF) * 4}", "offset 2 near '\\u????'", id="astral-digits"),
         pytest.param("var \\uD800=1", "offset 4 near '\\uD800'", id="lead-surrogate"),
-        pytest.param("var \\u{DFFF}=1", "offset 4 near '\\u{DFFF}'", id="trail-surrogate"),
-        pytest.param("x.\\u{3c}\\u{2f}script", "offset 2 near '\\u{3c}\\u{2f}scr'", id="not-an-identifier-start"),
+        pytest.param("let b\\u{DFFF}=0", "offset 4 near 'b\\u{DFFF}'", id="trail-surrogate"),
+        pytest.param("x.\\u{2d}y", "offset 2 near '\\u{2d}y'", id="not-an-identifier-start"),
         pytest.param("x=a\\u0022", "offset 2 near 'a\\u0022'", id="not-an-identifier-part"),
         pytest.param("x=a\\u{a}b", "offset 2 near 'a\\u{a}b'", id="line-terminator"),
         pytest.param("var \\u0030=1", "offset 4 near '\\u0030'", id="digit-leads"),
         pytest.param("x.#\\u0030", "offset 2 near '#\\u0030'", id="digit-leads-private-name"),
-        pytest.param("({\\u{110000}:1})", "offset 2 near '\\u{110000}'", id="object-key"),
-        pytest.param("class A{#\\u{110000}=1}", "offset 8 near '#\\u{110000}'", id="private-field"),
+        pytest.param("({k\\u{1FFFFF}:0})", "offset 2 near 'k\\u{1FFFFF}'", id="object-key"),
+        pytest.param("class K{#n\\u{2A0000};}", "offset 8 near '#n\\u{2A0000}'", id="private-field"),
         # the parser reads whatever token follows a `.` as the property name, so a literal's escapes arrive here too
-        pytest.param('x."\\u{110000}"', "offset 2 near '\"\\u{110000}\"'", id="string-for-a-name"),
+        pytest.param('o."\\u{1234567}"', "offset 2 near '\"\\u{1234567}\"'", id="string-for-a-name"),
         pytest.param('x."\\n"', "offset 2 near '\"\\n\"'", id="string-escape-that-is-not-u"),
-        pytest.param("x.`\\u{110000}`", "offset 2 near '`\\u{110000}`'", id="template-for-a-name"),
+        pytest.param("x.`a\\u{120000}`", "offset 2 near '`a\\u{120000}`'", id="template-for-a-name"),
     ],
 )
 def test_invalid_identifier_escape_raises(source: str, match: str) -> None:
@@ -293,7 +293,7 @@ def test_invalid_identifier_escape_raises(source: str, match: str) -> None:
 
 
 def test_inline_script_with_invalid_identifier_escape_stays_verbatim() -> None:
-    html = "<script>var \\u{7FFFFFFF}=1</script>"
+    html = "<script>const z\\u{9ABCDEF}=2</script>"
     assert clean.minify(html, Minify(minify_js=JSMinify())) == html
 
 
@@ -746,13 +746,13 @@ def test_invalid_binding_pattern_raises(source: str, match: str) -> None:
 @pytest.mark.parametrize(
     ("source", "match"),
     [
-        pytest.param('x={"a"}', "offset 6 near '}'", id="string"),
-        pytest.param("x={1}", "offset 4 near '}'", id="number"),
-        pytest.param('({"a"=1}=b)', "offset 5 near '='", id="string-default"),
-        pytest.param("x={[a]}", "offset 6 near '}'", id="computed"),
+        pytest.param('y={a:1,"b"}', "offset 10 near '}'", id="string"),
+        pytest.param("x={0x1f}", "offset 7 near '}'", id="number"),
+        pytest.param("[{'m'=0}]=d", "offset 5 near '='", id="string-default"),
+        pytest.param("x={[b+c]}", "offset 8 near '}'", id="computed"),
         pytest.param("({[a]=1}=b)", "offset 5 near '='", id="computed-default"),
         pytest.param("({[a]=1})=>0", "offset 5 near '='", id="computed-default-parameter"),
-        pytest.param('let {"a"}=b', "offset 8 near '}'", id="string-binding"),
+        pytest.param("const {a,'q'}=o", "offset 12 near '}'", id="string-binding"),
         pytest.param("let {[a]=1}=b", "offset 8 near '='", id="computed-default-binding"),
     ],
 )
