@@ -1097,6 +1097,12 @@ _HEX_ESCAPE_END: Final[list[pytest.ParameterSet]] = [
     pytest.param(",,{b:\\f", ",,{b:\\f }", ",,{b:\\f }", id="leading-comma-after-escaped-body"),
     pytest.param("a{b:@1\\1\r\n\nx}", "a{b:@1\\1\r\n x}", "a{b:@1\\1\r\n x}", id="crlf-closes-hex-escape"),
     pytest.param("a{b:@1\\78/**/f}", "a{b:@1\\78  f}", "a{b:@1\\78  f}", id="comment-after-at-keyword-hex-escape"),
+    pytest.param(".\\31{b:f(a, b)}", ".\\31{b:f(a,b)}", ".\\31{b:f(a,b)}", id="escaped-selector-function-comma"),
+    pytest.param(
+        "a{b:\\1}/**/+c{d:e}", "a{b:\\1 }+c{d:e}", "a{b:\\1 };+c{d:e}", id="comment-before-leading-combinator"
+    ),
+    pytest.param("{b:c((\\\\00004a", "", "{b:c((\\\\00004a))}", id="escaped-backslash-before-six-hex-digits"),
+    pytest.param("{a+ 1{\\}", "", "{a+1{}}", id="nested-plus-before-number"),
 ]
 
 

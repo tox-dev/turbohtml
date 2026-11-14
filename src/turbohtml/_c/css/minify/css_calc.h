@@ -696,7 +696,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
            a name through an escape cannot also separate the next token */
         if (pending_ws && out->len > 0 &&
             ((out->data[out->len - 1] != ' ' && out->data[out->len - 1] != ',' && out->data[out->len - 1] != '(') ||
-             css_ends_in_escape(out->data, out->len))) {
+             (vec->escapes && css_ends_in_escape(out->data, out->len)))) {
             cbuf_putc(out, ' ');
         }
         pending_ws = 0;
@@ -736,14 +736,14 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 /* dropping a sign or unit (e.g. +0/-0/0px -> 0) can glue the number onto the token before it to read as
                    one different token (CSS Syntax 3 §9.1), including a second adjacent number in an invalid calc, so
                    keep a boundary as the declaration-value path does; a negative number after a unitless one starts
-                   no unit (§4.3.3), so `1-1` stays two numbers */
+                   no unit (§4.3.3), so `1-1` stays two numbers; a name ending in an escape runs on into a number that
+                   starts with a name code point, as an ident token does */
                 const css_token *before = &vec->items[index - 1];
                 int negative_after_number =
                     (signed_zero || pool->data[off] == '-') && before->kind == CSS_NUM && before->unit_len == 0;
                 if (out->len > 0 && !negative_after_number &&
-                    css_would_merge_after(out->data, out->len, 0,
-                                          signed_zero ? (const css_char *)"-" : pool->data + off,
-                                          signed_zero ? 1 : len)) {
+                    css_would_merge(out->data[out->len - 1], vec->escapes && css_ends_in_escape(out->data, out->len),
+                                    signed_zero ? (const css_char *)"-" : pool->data + off, signed_zero ? 1 : len)) {
                     cbuf_putc(out, ' ');
                 }
                 if (signed_zero) {

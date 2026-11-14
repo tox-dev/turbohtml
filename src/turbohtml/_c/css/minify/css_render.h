@@ -137,7 +137,7 @@ static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec,
    before a parenthesised piece, around a bare delimiter, or between a unitless number and a negative unitless one: a
    `-` before a digit starts no unit, so `1-1` reads as two numbers (CSS Syntax 3 §4.3.3). A negative dimension still
    needs a space because `0-1px` is not a valid space-separated CSS value. */
-static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
+static void css_assemble(css_buf *pool, comp_vec *comps, int escapes, css_buf *out) {
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         css_comp *comp = &comps->items[index];
         if (index > 0) {
@@ -152,7 +152,7 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
                                         (prev->kind == CK_NUM || (prev->kind == CK_DIM && prev->len == 1)) &&
                                         text[0] == '-';
             if (!negative_after_number &&
-                (!glued || css_would_merge_after(pool->data + prev->off, prev->len, prev->kind == CK_IDENT,
+                (!glued || css_would_merge_after(escapes, pool->data + prev->off, prev->len, prev->kind == CK_IDENT,
                                                  pool->data + comp->off, comp->len))) {
                 cbuf_putc(out, ' ');
             }
@@ -257,7 +257,8 @@ CSS_NOINLINE static void css_render_raw_value(token_vec *vec, Py_ssize_t start, 
         if (pending_ws && written > 0) {
             cbuf_putc(out, ' ');
         } else if (comment_gap && written > 0 &&
-                   css_would_merge_after(out->data, out->len, last_is_ident, token->text, token->text_len)) {
+                   css_would_merge_after(vec->escapes, out->data, out->len, last_is_ident, token->text,
+                                         token->text_len)) {
             cbuf_puts(out, "/**/");
         }
         pending_ws = 0;
@@ -1010,7 +1011,8 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
         if (pending_ws && joined.len > 0 && /* GCOVR_EXCL_BR_LINE: only allocation failure empties an active function */
             ((index < keep_ws_end && joined.data[joined.len - 1] != '(' && joined.data[joined.len - 1] != ',' &&
               (token->kind != CSS_DELIM || (token->delim != ')' && token->delim != ','))) ||
-             css_would_merge_after(joined.data, joined.len, last_is_ident, token->text, token->text_len))) {
+             css_would_merge_after(vec->escapes, joined.data, joined.len, last_is_ident, token->text,
+                                   token->text_len))) {
             cbuf_putc(&joined, ' ');
         }
         pending_ws = 0;

@@ -80,6 +80,15 @@ static int css_plus_before_number(const token_vec *vec, Py_ssize_t index, Py_ssi
     return css_is_digit(first) || first == '.';
 }
 
+/* Whether the combinator at index keeps the space closing a hex escape that ends out. A leading combinator has no name
+   of its own, so its trim would reach the previous rule's body in the pool. Kept out of line: only input whose
+   token_vec.escapes is set reaches it. */
+CSS_NOINLINE static int css_combinator_keeps_hex_close(const token_vec *vec, Py_ssize_t index, Py_ssize_t start,
+                                                       Py_ssize_t end, const css_buf *out) {
+    return ((vec->items[index].delim == '+' && css_plus_before_number(vec, index, end)) || index == start) &&
+           out->len > 0 && css_ends_in_hex_close(out->data, out->len);
+}
+
 /* Minify a selector token run [start, end) into out. */
 static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int keyframe, css_buf *out) {
     int pending_ws = 0;
@@ -87,7 +96,6 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
     int last_is_ident = 0;
     int attr_depth = 0;
     Py_ssize_t paren_depth = 0;
-    Py_ssize_t selector_start = out->len;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS) {
@@ -113,11 +121,7 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
         }
         if (token->kind == CSS_DELIM && attr_depth == 0 &&
             (token->delim == '>' || token->delim == '+' || token->delim == '~' || token->delim == ',')) {
-            /* a leading combinator has no name of its own, so its trim would reach the previous rule's body
-               in the pool */
-            if ((token->delim == '+' && css_plus_before_number(vec, index, end)) || out->len == selector_start) {
-                css_rtrim_name_end(out);
-            } else {
+            if (!vec->escapes || !css_combinator_keeps_hex_close(vec, index, start, end, out)) {
                 css_rtrim(out);
             }
             cbuf_putc(out, token->delim);
@@ -151,11 +155,11 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
                 blocked = 1;
             }
             /* a delimiter a backslash escapes ends a name, so the space after it is a descendant combinator */
-            if (!blocked || css_escapes(out->data, out->len - 1)) {
+            if (!blocked || (vec->escapes && css_escapes(out->data, out->len - 1))) {
                 cbuf_putc(out, ' ');
             }
-        } else if (comment_gap &&
-                   css_would_merge_after(out->data, out->len, last_is_ident, token->text, token->text_len)) {
+        } else if (comment_gap && css_would_merge_after(vec->escapes, out->data, out->len, last_is_ident, token->text,
+                                                        token->text_len)) {
             /* whitespace here would be a descendant combinator, so only an empty comment keeps the tokens apart */
             cbuf_puts(out, "/**/");
         }

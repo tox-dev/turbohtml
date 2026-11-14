@@ -646,16 +646,28 @@ static int css_ends_in_hex_close(const css_char *text, Py_ssize_t len) {
 
 /* Whether the last code point of text belongs to a name through an escape: one a backslash escapes, or the whitespace
    closing a hex escape. Such a name runs on into a following name code point although its last byte is no name code
-   point or reads as a delimiter (CSS Syntax 3 §4.3.7, §4.3.11). */
-static int css_ends_in_escape(const css_char *text, Py_ssize_t len) {
+   point or reads as a delimiter (CSS Syntax 3 §4.3.7, §4.3.11). Either needs a backslash before the last code point or
+   whitespace as it, which the inline test checks before the walk back. */
+CSS_NOINLINE static int css_ends_in_escape_walk(const css_char *text, Py_ssize_t len) {
     return css_escapes(text, len - 1) || css_ends_in_hex_close(text, len);
 }
 
+static CSS_FORCEINLINE int css_ends_in_escape(const css_char *text, Py_ssize_t len) {
+    return (css_is_ws(text[len - 1]) || (len > 1 && text[len - 2] == '\\')) && css_ends_in_escape_walk(text, len);
+}
+
 /* css_would_merge for text written straight after the len code points of out, which may end in an escape. */
-static int css_would_merge_after(const css_char *out, Py_ssize_t len, int last_is_ident, const css_char *next,
-                                 Py_ssize_t next_len) {
+CSS_NOINLINE static int css_would_merge_escaped(const css_char *out, Py_ssize_t len, int last_is_ident,
+                                                const css_char *next, Py_ssize_t next_len) {
     return (css_is_ident(next[0]) && css_ends_in_escape(out, len)) ||
            css_would_merge(out[len - 1], last_is_ident, next, next_len);
+}
+
+/* Only input whose token_vec.escapes is set can write an escape, so the rest takes css_would_merge itself. */
+static CSS_FORCEINLINE int css_would_merge_after(int escapes, const css_char *out, Py_ssize_t len, int last_is_ident,
+                                                 const css_char *next, Py_ssize_t next_len) {
+    return escapes ? css_would_merge_escaped(out, len, last_is_ident, next, next_len)
+                   : css_would_merge(out[len - 1], last_is_ident, next, next_len);
 }
 
 /* Whether a string token ends in its own closing quote, rather than before a newline or at the end of input. */
@@ -1225,9 +1237,10 @@ static void css_rtrim(css_buf *buffer) {
 
 /* css_rtrim that keeps the space closing a hex escape. The spelling pass writes one after every name ending in a hex
    escape, and text kept as written (stray text) keeps it, so dropping it here spells the name differently once the
-   next pass reads the output as such text. */
-static void css_rtrim_name_end(css_buf *buffer) {
-    if (buffer->len == 0 || !css_ends_in_hex_close(buffer->data, buffer->len)) {
+   next pass reads the output as such text. Only input whose token_vec.escapes is set can end in an escape, and the
+   at-rule name before a prelude keeps the buffer non-empty. */
+static CSS_FORCEINLINE void css_rtrim_name_end(int escapes, css_buf *buffer) {
+    if (!escapes || !css_ends_in_hex_close(buffer->data, buffer->len)) {
         css_rtrim(buffer);
     }
 }
