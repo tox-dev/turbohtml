@@ -380,6 +380,16 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             id="regex-into-ternary-alt",
         ),
         pytest.param(
+            "function f(){var r=/a/;g(function(){return 1},r)}",
+            "function f(){g(function(){return 1},/a/)}",
+            id="regex-after-nested-function-in-next-statement",
+        ),
+        pytest.param(
+            "function f(){var r=/a/;g(()=>r)}",
+            "function f(){var a=/a/;g(()=>a)}",
+            id="regex-into-arrow-in-next-statement-kept",
+        ),
+        pytest.param(
             "function f(){var r=/a/;throw g(w);function g(x){return r.test(x)}}",
             "function f(){var a=/a/;throw function(b){return a.test(b)}(w)}",
             id="regex-next-throw-without-read-kept",
@@ -802,6 +812,22 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
 )
 def test_compresses(source: str, expected: str) -> None:
     assert minify_js(source) == expected
+
+
+def test_regex_bindings_read_before_a_long_statement_are_kept() -> None:
+    # each binding once searched the whole statement after its declaration for its one read, on every compress pass:
+    # O(bindings * statement) for nothing when, as here, the hoisted reads all sit in front of the declaration
+    names: Final = [f"r{index:x}" for index in range(6_000)]
+    declaration: Final = f"var {','.join(f'{name}=/a/' for name in names)}"
+    source: Final = f"function f(){{q({','.join(names)});{declaration};h([{'1,' * 60_000}])}}"
+    assert minify_js(source).count("=/a/") == len(names)
+
+
+def test_regex_bindings_read_in_a_long_statement_are_inlined() -> None:
+    names: Final = [f"r{index:x}" for index in range(6_000)]
+    declaration: Final = f"var {','.join(f'{name}=/a/' for name in names)}"
+    source: Final = f"function f(){{{declaration};h([{'1,' * 60_000}],{','.join(names)})}}"
+    assert minify_js(source) == f"function f(){{h([{','.join('1' * 60_000)}],{','.join(['/a/'] * len(names))})}}"
 
 
 @pytest.mark.parametrize(

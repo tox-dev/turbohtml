@@ -849,5 +849,39 @@
       "kind": "repeat",
       "left": "<blockquote>a"
     }
+  },
+  {
+    "name": "js-regex-inline-read-elsewhere",
+    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/js/mangle.c#L1403-L1405",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 8192,
+    "shape": {
+      "kind": "sandwich",
+      "head": "function f(){var ",
+      "left": "r{n}=/a/,s{n}=r{n},",
+      "middle": "z;h(",
+      "right": "0,",
+      "tail": "0)}",
+      "counter": true
+    }
+  },
+  {
+    "name": "js-regex-inline-read-next",
+    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/js/mangle.c#L1403-L1405",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 8192,
+    "shape": {
+      "kind": "sandwich",
+      "head": "function f(){var ",
+      "left": "r{n}=/a/,",
+      "middle": "z;h(",
+      "right": "r{n},",
+      "tail": "0)}",
+      "counter": true
+    }
   }
 ]

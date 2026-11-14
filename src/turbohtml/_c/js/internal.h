@@ -301,6 +301,8 @@ typedef struct {
                          the key, so an inline must first give the property an explicit key */
     int32_t min_ref;  /* the lowest read node index: parse order is textual order, so a read below
                          the binding's own declarator index runs before it initializes */
+    int32_t ref_stmt; /* the innermost expression, return or throw statement around ref_node, or -1;
+                         with ref_scope it tells whether the one read sits directly in a given statement */
 } jm_sym;
 
 /* A scope node in the lexical scope tree. kind distinguishes a function/block/catch/
