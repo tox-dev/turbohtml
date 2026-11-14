@@ -337,7 +337,8 @@ static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **
     return 0;
 }
 
-/* The index of node's attribute named `name` (UTF-8, caller-lowercased), or -1.
+/* The index of node's attribute named `name` (UTF-8, caller-lowercased), or -1;
+   always -1 for a non-element node, which has no attribute storage to index.
    Foreign elements can store a case-adjusted name (e.g. MathML definitionURL), so
    a missed atom match falls back to a case-insensitive scan for non-HTML nodes. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);

@@ -227,6 +227,28 @@ def test_re_over_valueless_attribute_is_empty() -> None:
     assert first("<input disabled>", "input").re(r".+", attr="disabled") == []
 
 
+def test_re_over_attribute_of_non_element_is_empty() -> None:
+    # only an element has attribute slots; a ProcessingInstruction reuses the count field for its target length
+    document = parse_xml('<?target data?><root id="7">text<!--note--><![CDATA[raw]]></root>')
+    others = [node for node in (document, *document.descendants) if not isinstance(node, Element)]
+    assert [type(node).__name__ for node in others] == ["Document", "ProcessingInstruction", "Text", "Comment", "CData"]
+    assert [node.re(r".+", attr="id") for node in others] == [[], [], [], [], []]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param(parse('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "x"><p>t</p>'), id="html"),
+        pytest.param(parse_xml('<!DOCTYPE r PUBLIC "pub" "sys"><r/>'), id="xml"),
+    ],
+)
+def test_re_over_attribute_of_doctype_with_public_id_is_empty(document: Document) -> None:
+    # a Doctype keeps the length of its public identifier where an element keeps the attribute count
+    doctype = document.children[0]
+    assert type(doctype).__name__ == "Doctype"
+    assert (doctype.re(r".+", attr="id"), doctype.re_first(r".+", attr="id", default="none")) == ([], "none")
+
+
 def test_re_bad_pattern_type() -> None:
     with pytest.raises(TypeError, match=r"pattern must be a str or a compiled re\.Pattern"):
         first("<p>x</p>", "p").re(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
@@ -277,6 +299,13 @@ def test_re_first_over_absent_attribute_uses_default() -> None:
 
 def test_re_first_over_valueless_attribute_uses_default() -> None:
     assert first("<input disabled>", "input").re_first(r".+", "none", attr="disabled") == "none"
+
+
+def test_re_first_over_attribute_of_non_element_uses_default() -> None:
+    document = parse('<!doctype html><!--note--><p>a</p><a href="/item/42">b</a>')
+    others = [node for node in (document, *document.descendants) if not isinstance(node, Element)]
+    assert [type(node).__name__ for node in others] == ["Document", "Doctype", "Comment", "Text", "Text"]
+    assert [node.re_first(r"\d+", "none", attr="href") for node in others] == ["none"] * 5
 
 
 def test_re_first_bad_pattern_type() -> None:
