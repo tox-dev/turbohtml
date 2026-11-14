@@ -163,6 +163,104 @@ static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
     table->count++;
 }
 
+/* A shared pattern node is derived once per path that reaches it. The memo derives it once per event: a start tag
+   name, an attribute, a start tag close or a text run. The name is fixed within an event, and the value tells a list
+   token from the text that holds it, so the pattern and the value identify a derivative. */
+enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
+
+/* A probe costs more than a plain step, so an event walks its first steps as a tree. */
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+/* No free steps, so a short schema takes the memo path. */
+#define MEMO_FREE_STEPS 0
+#else
+#define MEMO_FREE_STEPS 1024
+#endif
+
+typedef struct memo_key {
+    pattern *p;
+    const Py_UCS4 *value;
+    Py_ssize_t len;
+    size_t op; /* as wide as the rest, so the key has no padding and compares as bytes */
+} memo_key;
+
+typedef struct memo_entry {
+    memo_key key;
+    pattern *derived;
+    size_t event; /* the slot is free unless this is the event the memo holds */
+} memo_entry;
+
+typedef struct patmemo {
+    memo_entry *slots;
+    size_t cap;   /* power of two, 0 until first grow */
+    size_t count; /* entries of the event the memo holds */
+    size_t event;
+} patmemo;
+
+/* Moving to a new event number frees every slot without clearing them. */
+static void memo_reset(patmemo *memo) {
+    memo->event++;
+    memo->count = 0;
+}
+
+static void memo_begin_event(th_schema *schema) {
+    schema->memo_budget = MEMO_FREE_STEPS;
+    memo_reset(schema->memo);
+}
+
+/* The operands are arena pointers with zero low bits, which the multiply alone would leave out of the slot index. */
+static uint64_t memo_key_hash(const memo_key *key) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    hash = (hash ^ (uint64_t)key->op) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)(uintptr_t)key->p) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)(uintptr_t)key->value) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)key->len) * UINT64_C(1099511628211);
+    return hash ^ (hash >> 32);
+}
+
+static pattern *memo_find(const patmemo *memo, const memo_key *key) {
+    if (memo->cap == 0) {
+        return NULL;
+    }
+    size_t slot = (size_t)memo_key_hash(key) & (memo->cap - 1);
+    while (memo->slots[slot].event == memo->event) {
+        if (memcmp(&memo->slots[slot].key, key, sizeof(*key)) == 0) {
+            return memo->slots[slot].derived;
+        }
+        slot = (slot + 1) & (memo->cap - 1);
+    }
+    return NULL;
+}
+
+static void memo_insert(const patmemo *memo, memo_entry *slots, size_t cap, const memo_key *key, pattern *derived) {
+    size_t slot = (size_t)memo_key_hash(key) & (cap - 1);
+    while (slots[slot].event == memo->event) {
+        slot = (slot + 1) & (cap - 1);
+    }
+    slots[slot] = (memo_entry){*key, derived, memo->event};
+}
+
+static void memo_add(th_schema *schema, const memo_key *key, pattern *derived) {
+    patmemo *memo = schema->memo;
+    if (memo->count * 2 >= memo->cap) {
+        size_t cap = memo->cap ? memo->cap * 2 : 64;
+        memo_entry *slots = arena_alloc(&schema->mem, cap * sizeof(memo_entry));
+        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;          /* GCOVR_EXCL_LINE: skipping the insert only loses the memo, not correctness */
+        }
+        memset(slots, 0, cap * sizeof(memo_entry));
+        for (size_t index = 0; index < memo->cap; index++) {
+            const memo_entry *existing = &memo->slots[index];
+            if (existing->event == memo->event) {
+                memo_insert(memo, slots, cap, &existing->key, existing->derived);
+            }
+        }
+        memo->slots = slots;
+        memo->cap = cap;
+    }
+    memo_insert(memo, memo->slots, memo->cap, key, derived);
+    memo->count++;
+}
+
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2);
 
 /* Smart constructors: absorb notAllowed / empty so derivatives stay bounded. */
@@ -825,10 +923,21 @@ static int rng_combines_by_interleave(th_schema *schema, th_node *component) {
 
 /* ---- derivatives ---- */
 
+static int rng_nullable_step(th_schema *schema, pattern *p);
+static pattern *rng_memo_deriv(th_schema *schema, size_t op, pattern *p, const qname *name, const Py_UCS4 *value,
+                               Py_ssize_t len);
+
 static int rng_nullable(th_schema *schema, pattern *p) {
     if (p->nullable >= 0) {
         return p->nullable;
     }
+    if (--schema->memo_budget >= 0) {
+        return rng_nullable_step(schema, p);
+    }
+    return rng_memo_deriv(schema, MEMO_NULLABLE, p, NULL, NULL, 0) == schema->p_empty;
+}
+
+static int rng_nullable_step(th_schema *schema, pattern *p) {
     switch (p->type) {
     case P_CHOICE:
         return rng_nullable(schema, p->p1) || rng_nullable(schema, p->p2);
@@ -897,7 +1006,16 @@ static int rng_value_match(th_schema *schema, pattern *p, const Py_UCS4 *value, 
     return rng_is_whitespace(value, len) && rng_nullable(schema, p);
 }
 
+static pattern *rng_text_deriv_step(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
+
 static pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+    if (--schema->memo_budget >= 0) {
+        return rng_text_deriv_step(schema, p, value, len);
+    }
+    return rng_memo_deriv(schema, MEMO_TEXT, p, NULL, value, len);
+}
+
+static pattern *rng_text_deriv_step(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
     switch (p->type) {
     case P_CHOICE:
         return pat_choice(schema, rng_text_deriv(schema, p->p1, value, len), rng_text_deriv(schema, p->p2, value, len));
@@ -933,6 +1051,10 @@ static pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *val
     case P_LIST: {
         pattern *derived = p->p1;
         Py_ssize_t index = 0;
+        /* Each token is an event of its own. In the text's memo, a long list would keep every token's derivatives
+           until validation ends. */
+        patmemo *outer = schema->memo;
+        schema->memo = schema->token_memo;
         while (index < len) {
             while (index < len && is_xml_space(value[index])) {
                 index++;
@@ -942,9 +1064,11 @@ static pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *val
                 index++;
             }
             if (index > start) {
+                memo_reset(schema->memo);
                 derived = rng_text_deriv(schema, derived, value + start, index - start);
             }
         }
+        schema->memo = outer;
         return rng_nullable(schema, derived) ? schema->p_empty : schema->p_notallowed;
     }
     case P_REF: /* the compile-time 4.19 check rules out a ref that recurses here without an element */
@@ -960,7 +1084,16 @@ static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, in
 static pattern *rng_apply_after_interleave_left(th_schema *schema, pattern *p, const qname *name);
 static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, const qname *name);
 
+static pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name);
+
 static pattern *rng_start_tag_open(th_schema *schema, pattern *p, const qname *name) {
+    if (--schema->memo_budget >= 0) {
+        return rng_start_tag_open_step(schema, p, name);
+    }
+    return rng_memo_deriv(schema, MEMO_OPEN, p, name, NULL, 0);
+}
+
+static pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name) {
     switch (p->type) {
     case P_CHOICE:
         return pat_choice(schema, rng_start_tag_open(schema, p->p1, name), rng_start_tag_open(schema, p->p2, name));
@@ -1025,7 +1158,18 @@ static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, 
     return rng_apply_after_interleave(schema, rng_start_tag_open(schema, p->p2, name), p->p1, 0);
 }
 
+static pattern *rng_att_deriv_step(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                   Py_ssize_t len);
+
 static pattern *rng_att_deriv(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value, Py_ssize_t len) {
+    if (--schema->memo_budget >= 0) {
+        return rng_att_deriv_step(schema, p, name, value, len);
+    }
+    return rng_memo_deriv(schema, MEMO_ATT, p, name, value, len);
+}
+
+static pattern *rng_att_deriv_step(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                   Py_ssize_t len) {
     switch (p->type) {
     case P_CHOICE:
         return pat_choice(schema, rng_att_deriv(schema, p->p1, name, value, len),
@@ -1051,7 +1195,16 @@ static pattern *rng_att_deriv(th_schema *schema, pattern *p, const qname *name, 
     }
 }
 
+static pattern *rng_start_tag_close_step(th_schema *schema, pattern *p);
+
 static pattern *rng_start_tag_close(th_schema *schema, pattern *p) {
+    if (--schema->memo_budget >= 0) {
+        return rng_start_tag_close_step(schema, p);
+    }
+    return rng_memo_deriv(schema, MEMO_CLOSE, p, NULL, NULL, 0);
+}
+
+static pattern *rng_start_tag_close_step(th_schema *schema, pattern *p) {
     switch (p->type) {
     case P_CHOICE:
         return pat_choice(schema, rng_start_tag_close(schema, p->p1), rng_start_tag_close(schema, p->p2));
@@ -1070,6 +1223,36 @@ static pattern *rng_start_tag_close(th_schema *schema, pattern *p) {
     default:
         return p;
     }
+}
+
+/* Nullability is no pattern, so the memo stores it as Empty or NotAllowed. */
+static pattern *rng_memo_deriv(th_schema *schema, size_t op, pattern *p, const qname *name, const Py_UCS4 *value,
+                               Py_ssize_t len) {
+    patmemo *memo = schema->memo;
+    memo_key key = {p, value, len, op};
+    pattern *derived = memo_find(memo, &key);
+    if (derived != NULL) {
+        return derived;
+    }
+    switch (op) {
+    case MEMO_NULLABLE:
+        derived = rng_nullable_step(schema, p) ? schema->p_empty : schema->p_notallowed;
+        break;
+    case MEMO_TEXT:
+        derived = rng_text_deriv_step(schema, p, value, len);
+        break;
+    case MEMO_OPEN:
+        derived = rng_start_tag_open_step(schema, p, name);
+        break;
+    case MEMO_ATT:
+        derived = rng_att_deriv_step(schema, p, name, value, len);
+        break;
+    default:
+        derived = rng_start_tag_close_step(schema, p);
+        break;
+    }
+    memo_add(schema, &key, derived);
+    return derived;
 }
 
 static pattern *rng_end_tag_deriv(th_schema *schema, pattern *p) {
@@ -1098,11 +1281,13 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
         }
     }
     if (element_children == 0 && text_children == 0) {
+        memo_begin_event(schema);
         return pat_choice(schema, p, rng_text_deriv(schema, p, EMPTY_UCS4, 0));
     }
     if (element_children == 0) {
         Py_ssize_t len = 0;
         const Py_UCS4 *text = element_text(ctx, element, &len);
+        memo_begin_event(schema);
         pattern *derived = rng_text_deriv(schema, p, text, len);
         return rng_is_whitespace(text, len) ? pat_choice(schema, p, derived) : derived;
     }
@@ -1119,6 +1304,7 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
                 return schema->p_notallowed; /* GCOVR_EXCL_LINE */
             }
             if (!rng_is_whitespace(text, len)) {
+                memo_begin_event(schema);
                 current = rng_text_deriv(schema, current, text, len);
             }
         }
@@ -1137,6 +1323,7 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
         PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
         return schema->p_notallowed;                             /* GCOVR_EXCL_LINE */
     }
+    memo_begin_event(schema);
     pattern *opened = rng_start_tag_open(schema, p, &name);
     if (opened->type == P_NOTALLOWED) {
         char buffer[256];
@@ -1162,8 +1349,10 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
         if (value == NULL) {    /* GCOVR_EXCL_BR_LINE: an XML attribute always has a value */
             value = EMPTY_UCS4; /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE: llvm miscredits the closing brace of the unexecuted guard */
+        memo_begin_event(schema);
         after_attrs = rng_att_deriv(schema, after_attrs, &aname, value, element->attrs[index].value_len);
     }
+    memo_begin_event(schema);
     pattern *closed = rng_start_tag_close(schema, after_attrs);
     Py_ssize_t before = ctx->error_count;
     pattern *content = rng_children_deriv(ctx, closed, element);
@@ -2400,6 +2589,15 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     }
     memset(intern, 0, sizeof(*intern));
     schema->intern = intern;
+    patmemo *memo = arena_alloc(&schema->mem, 2 * sizeof(*memo));
+    if (memo == NULL) {   /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        ctx->failed = 1;  /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return;           /* GCOVR_EXCL_LINE */
+    }
+    memset(memo, 0, 2 * sizeof(*memo));
+    schema->memo = memo;
+    schema->token_memo = memo + 1;
     Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
     if (!rng_nullable(schema, result) && ctx->error_count == before) {

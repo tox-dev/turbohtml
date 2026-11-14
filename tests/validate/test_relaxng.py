@@ -1270,6 +1270,99 @@ def test_rng_restricted_grammar_compiles_and_validates(schema: str, xml: str, *,
     assert rng_ok(schema, xml) is valid
 
 
+def rshared(leaf: str, content: str = '<ref name="d0"/>', combine: str = "group", *, count: int) -> str:
+    defines = "".join(
+        f'<define name="d{index}"><{combine}><ref name="d{index + 1}"/><ref name="d{index + 1}"/></{combine}></define>'
+        for index in range(count)
+    )
+    return rgrammar(
+        f'<start><element name="r">{content}</element></start>{defines}<define name="d{count}">{leaf}</define>'
+    )
+
+
+def _attribute_doc(count: int) -> str:
+    attributes = " ".join(f'a{index}="1"' for index in range(count))
+    return f"<doc {attributes}/>"
+
+
+@pytest.mark.parametrize(
+    ("schema", "xml", "valid"),
+    [
+        pytest.param(rshared("<empty/>", count=40), "<r/>", True, id="start-tag-close"),
+        pytest.param(rshared("<empty/>", count=40), '<r a="1"/>', False, id="attribute-rejected"),
+        pytest.param(
+            rshared('<optional><attribute name="a"/></optional>', count=40),
+            '<r a="1"/>',
+            True,
+            id="attribute-accepted",
+        ),
+        pytest.param(rshared("<text/>", count=40), "<r>x</r>", True, id="text"),
+        pytest.param(rshared("<text/>", count=40), "<r><e/></r>", False, id="start-tag-open"),
+        pytest.param(
+            rshared("<text/>", '<attribute name="a"><ref name="d0"/></attribute>', count=40),
+            '<r a="x"/>',
+            True,
+            id="attribute-content-nullable",
+        ),
+        pytest.param(
+            rshared("<value>x</value>", '<attribute name="a"><ref name="d0"/></attribute>', "choice", count=40),
+            '<r a=" "/>',
+            False,
+            id="attribute-content-not-nullable",
+        ),
+        pytest.param(
+            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=40),
+            "<r>x x x</r>",
+            True,
+            id="list-tokens",
+        ),
+        pytest.param(
+            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=40),
+            "<r>x y x</r>",
+            False,
+            id="list-token-rejected",
+        ),
+        pytest.param(
+            rwrap("<optional><attribute><anyName/></attribute></optional>" * 40),
+            _attribute_doc(40),
+            True,
+            id="wildcard-attributes-without-defines",
+        ),
+        pytest.param(
+            rwrap("<optional><attribute><anyName/></attribute></optional>" * 40),
+            _attribute_doc(41),
+            False,
+            id="one-wildcard-attribute-too-many",
+        ),
+    ],
+)
+def test_rng_shared_pattern_derives_once(schema: str, xml: str, *, valid: bool) -> None:
+    assert rng_ok(schema, xml) is valid
+
+
+def test_rng_shared_defines_scale_linearly() -> None:
+    timings = []
+    for count in (16, 26):
+        schema = RelaxNG(rshared("<empty/>", count=count))
+        document = parse_xml("<r/>")
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            schema.validate(document)
+            best = min(best, time.perf_counter() - start)
+        timings.append(best)
+    assert timings[1] < max(0.05, 9 * timings[0])
+
+
+def test_rng_memoized_start_tag_is_not_reused_for_another_name() -> None:
+    alternatives = "".join(
+        f'<element name="e{index}"><element name="c{index}"><empty/></element></element>' for index in range(600)
+    )
+    schema = rwrap(f"<zeroOrMore><choice>{alternatives}</choice></zeroOrMore>")
+    children = "".join(f"<e{index}><c{index}/></e{index}>" for index in range(600))
+    assert rng_ok(schema, f"<doc>{children}</doc>")
+
+
 def test_rng_cdata_and_prefixed_attribute() -> None:
     schema = rwrap('<attribute name="p:id" xmlns:p="urn:a"><text/></attribute><text/>')
     assert rng_ok(schema, '<doc xmlns:p="urn:a" p:id="1"><![CDATA[body]]></doc>')

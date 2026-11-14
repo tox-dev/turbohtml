@@ -537,7 +537,10 @@ typedef struct th_schema {
     size_t rng_checked_cap, rng_checked_len;
     nspair rng_disjoint[8]; /* compile-time 7.4 check: the last disjoint pairs, round robin */
     size_t rng_disjoint_len, rng_disjoint_next;
-    struct patintern *intern; /* per-validation pattern hash-consing table; NULL while compiling */
+    struct patintern *intern;   /* per-validation pattern hash-consing table; NULL while compiling */
+    struct patmemo *memo;       /* per-validation derivative memo; NULL while compiling */
+    struct patmemo *token_memo; /* the memo the tokens of a <list> take turns in, one event each */
+    Py_ssize_t memo_budget;     /* steps the derivative event in progress may still take without the memo */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
