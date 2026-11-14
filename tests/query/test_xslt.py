@@ -807,6 +807,18 @@ def test_transform_generate_id_is_stable_per_node() -> None:
     assert _run("<r><n/></r>", body) == "true"
 
 
+def test_transform_generate_id_does_not_depend_on_node_address() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="//*"><xsl:value-of select="generate-id()"/>'
+        "<xsl:text> </xsl:text></xsl:for-each></xsl:template>"
+    )
+    convert = Transform(_sheet(body))
+    first, second = parse_xml("<r><n/><n/></r>"), parse_xml("<r><n/><n/></r>")  # both alive, so no shared address
+    ids = convert(first).split()
+    assert len(set(ids)) == 3
+    assert convert(second).split() == ids
+
+
 def test_transform_generate_id_empty_for_empty_node_set() -> None:
     body = '<xsl:template match="/">[<xsl:value-of select="generate-id(//missing)"/>]</xsl:template>'
     assert _run("<r/>", body) == "[]"
