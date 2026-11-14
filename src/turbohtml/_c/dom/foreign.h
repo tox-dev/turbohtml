@@ -186,24 +186,28 @@ static int value_ci_eq(const Py_UCS4 *value, Py_ssize_t value_len, const char *t
     return 1;
 }
 
+/* annotation-xml is an HTML integration point only when its start tag had an encoding attribute that is an ASCII
+   case-insensitive match for exactly text/html or application/xhtml+xml. */
+static int annotation_xml_encoding_is_html(const th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *attr = &node->attrs[index];
+        if (attr->name_atom == TH_ATTR_ENCODING && attr->value != NULL &&
+            (value_ci_eq(attr->value, attr->value_len, "text/html") ||
+             value_ci_eq(attr->value, attr->value_len, "application/xhtml+xml"))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int is_html_integration(const th_node *node) {
     if (node->ns == TH_NS_SVG) {
         return node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE;
     }
-    /* annotation-xml is an HTML integration point only when its encoding attribute is an ASCII
-       case-insensitive match for exactly text/html or application/xhtml+xml. Only foreign nodes
-       reach here after the html case, so a non-svg node is always mathml. */
-    if (node->ns == TH_NS_MATHML /* GCOVR_EXCL_BR_LINE */ && node->atom == TH_TAG_ANNOTATION_XML) {
-        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            const th_node_attr *attr = &node->attrs[index];
-            if (attr->name_atom == TH_ATTR_ENCODING && attr->value != NULL &&
-                (value_ci_eq(attr->value, attr->value_len, "text/html") ||
-                 value_ci_eq(attr->value, attr->value_len, "application/xhtml+xml"))) {
-                return 1;
-            }
-        }
-    }
-    return 0;
+    /* Only foreign nodes reach here after the html case, so a non-svg node is always mathml. The dispatcher asks for
+       every token, so insert_foreign settled the annotation-xml case from the start tag: a scan of the attributes
+       here costs attributes x tokens. */
+    return node->html_integration;
 }
 
 /* HTML start tags that break out of foreign content back into HTML parsing. */
@@ -280,6 +284,8 @@ static th_node *insert_foreign(th_tree *tree, th_token *token, uint8_t ns) {
                   (ns == TH_NS_SVG &&
                    (node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE));
     node->tag_flags = special ? TH_TAG_SPECIAL : 0;
+    node->html_integration =
+        ns == TH_NS_MATHML && node->atom == TH_TAG_ANNOTATION_XML && annotation_xml_encoding_is_html(node);
     /* reset_insertion_mode matches the html atom without its namespace, so re-parsing the output can take a foreign
        <html> for the root and open head/body under it */
     tree->reparse_hazard |= node->atom == TH_TAG_HTML;

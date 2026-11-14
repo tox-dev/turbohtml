@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Final
 
@@ -15,6 +16,7 @@ from turbohtml import (
     Indent,
     MicrodataItem,
     Minify,
+    Namespace,
     ProcessingInstruction,
     Range,
     RdfaItem,
@@ -622,6 +624,34 @@ def test_formatting_end_tag_ignored_across_foreign_scope_boundary(html: str, inn
 )
 def test_heading_end_tag_ignored_across_foreign_scope_boundary(html: str, expected: str) -> None:
     assert parse_fragment(html).inner_html == expected
+
+
+@pytest.mark.parametrize(
+    ("encoding", "namespace"),
+    [
+        pytest.param("", Namespace.MATHML, id="mathml"),
+        pytest.param(" encoding=text/html", Namespace.HTML, id="html-integration-point"),
+    ],
+)
+def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespace) -> None:
+    # The dispatcher checks the current element on every token, and that check used to rescan the start tag's
+    # attributes each time. The control closes the element before the same tokens arrive, so it pays the same
+    # attribute and token costs without the per-token check. The floor keeps a fast control from inflating the ratio.
+    count: Final = 60_000
+    open_tag = f"<math><annotation-xml {' '.join(f'a{index}' for index in range(count))}{encoding}>"
+    children = "<g></g>" * count
+    start = time.perf_counter()
+    parse(f"{open_tag}</annotation-xml>{children}")
+    control = time.perf_counter() - start
+    start = time.perf_counter()
+    document = parse(f"{open_tag}{children}")
+    assert time.perf_counter() - start < 4 * max(control, 0.05)
+    annotation = document.find("annotation-xml")
+    assert isinstance(annotation, Element)
+    assert len(annotation.children) == count
+    child = annotation.children[-1]
+    assert isinstance(child, Element)
+    assert child.namespace is namespace
 
 
 @pytest.mark.parametrize(
