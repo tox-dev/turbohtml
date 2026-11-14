@@ -2077,7 +2077,83 @@ def test_meta_charset_with_minify_normalizes_existing_meta() -> None:
 
 def test_encode_meta_charset_uses_target_encoding() -> None:
     out: Final = parse("<p>x").encode("iso-8859-1", Html(meta_charset=True))
-    assert out == ('<html><head><meta charset="iso-8859-1"></head><body><p>x</p></body></html>'.encode("latin-1"))
+    assert out == ('<html><head><meta charset="windows-1252"></head><body><p>x</p></body></html>'.encode("latin-1"))
+
+
+@pytest.mark.parametrize(
+    ("codec", "text", "label"),
+    [
+        pytest.param("iso2022_jp", "日本語", "ISO-2022-JP", id="iso2022-jp"),
+        pytest.param("utf8", "café", "UTF-8", id="utf8"),
+        pytest.param("shift_jis", "日本語", "Shift_JIS", id="shift-jis"),
+        pytest.param("cp932", "日本語", "Shift_JIS", id="cp932"),
+        pytest.param("euc_jp", "日本語", "EUC-JP", id="euc-jp"),
+        pytest.param("euc_kr", "한국어", "EUC-KR", id="euc-kr"),
+        pytest.param("cp949", "한국어", "EUC-KR", id="cp949"),
+        pytest.param("gb2312", "中文", "GBK", id="gb2312"),
+        pytest.param("big5hkscs", "中文", "Big5", id="big5hkscs"),
+        pytest.param("cp950", "中文", "Big5", id="cp950"),
+        pytest.param("iso8859_16", "Ș", "ISO-8859-16", id="iso8859-16"),
+        pytest.param("cp1251", "Привет", "windows-1251", id="cp1251"),
+        pytest.param("koi8_u", "Привіт", "KOI8-U", id="koi8-u"),
+        pytest.param("mac_roman", "café", "macintosh", id="mac-roman"),
+        pytest.param("tis_620", "สวัสดี", "windows-874", id="tis-620"),
+    ],
+)
+def test_encode_meta_charset_declares_the_whatwg_label(codec: str, text: str, label: str) -> None:
+    doc: Final = parse(parse(f"<p>{text}</p>").encode(codec, Html(meta_charset=True)))
+    paragraph: Final = doc.find("p")
+    assert paragraph is not None
+    assert (doc.encoding, paragraph.text) == (label, text)
+
+
+def test_encode_meta_charset_declares_utf_8_for_the_bom_codec() -> None:
+    out: Final = parse("<p>x").encode("utf-8-sig", Html(meta_charset=True))
+    assert out == b'\xef\xbb\xbf<html><head><meta charset="utf-8"></head><body><p>x</p></body></html>'
+
+
+@pytest.mark.parametrize(
+    "codec",
+    [
+        pytest.param("iso2022_jp_2", id="iso2022-jp-2"),
+        pytest.param("iso2022_kr", id="iso2022-kr"),
+        pytest.param("hz", id="hz"),
+        pytest.param("utf-16", id="utf-16"),
+        pytest.param("utf-7", id="utf-7"),
+        pytest.param("utf-32", id="utf-32"),
+    ],
+)
+def test_encode_meta_charset_refuses_a_codec_without_a_label(codec: str) -> None:
+    with pytest.raises(ValueError, match="no WHATWG encoding label"):
+        parse("<p>x").encode(codec, Html(meta_charset=True))
+
+
+def test_encode_meta_charset_refuses_an_existing_charset_meta() -> None:
+    with pytest.raises(ValueError, match="no WHATWG encoding label"):
+        parse('<meta charset="ascii"><p>x').encode("utf-16", Html(meta_charset=True))
+
+
+@pytest.mark.parametrize("codec", ["iso2022_jp_2", "utf-16", "hz"])
+def test_encode_meta_charset_declares_nothing_for_an_element(codec: str) -> None:
+    element: Final = parse("<p>x").select_one("p")
+    assert element is not None
+    assert element.encode(codec, Html(meta_charset=True)) == element.encode(codec)
+
+
+@pytest.mark.parametrize("codec", ["iso2022_jp_2", "utf-16", "hz"])
+def test_encode_meta_charset_declares_nothing_for_a_fragment(codec: str) -> None:
+    fragment: Final = parse_fragment("<p>x")
+    assert fragment.encode(codec, Html(meta_charset=True)) == fragment.encode(codec)
+
+
+@pytest.mark.parametrize("codec", ["iso2022_jp_2", "utf-16", "hz"])
+def test_encode_without_meta_charset_writes_a_codec_without_a_label(codec: str) -> None:
+    assert parse("<p>x").encode(codec).decode(codec) == "<html><head></head><body><p>x</p></body></html>"
+
+
+def test_encode_meta_charset_rejects_an_unknown_codec() -> None:
+    with pytest.raises(LookupError):
+        parse("<p>x").encode("turbohtml-no-such-codec", Html(meta_charset=True))
 
 
 @pytest.mark.parametrize("label", ["iso-2022-jp", "ISO-2022-JP", "csiso2022jp", "iso2022_jp", "iso-2022-kr"])
@@ -2133,6 +2209,23 @@ def test_encode_keeps_a_shift_code_in_a_codec_that_is_not_iso_2022(info: codecs.
     codecs.register(search)
     try:
         assert parse("<p>\x1b").select("p")[0].encode("turbohtml_2022_nameless") == b"<p>\x1b</p>"
+    finally:
+        codecs.unregister(search)
+
+
+@pytest.mark.parametrize("kind", ["plain-tuple", "nameless-codec-info", "lone-surrogate-name", "name-too-long"])
+def test_encode_meta_charset_refuses_a_registered_codec_without_a_label(kind: str) -> None:
+    info: Final = {
+        "plain-tuple": cast("codecs.CodecInfo", tuple(_UTF8)),
+        "nameless-codec-info": codecs.CodecInfo(*_UTF8, name=None),
+        "lone-surrogate-name": codecs.CodecInfo(*_UTF8, name="\udc80"),
+        "name-too-long": codecs.CodecInfo(*_UTF8, name="x" * 64),
+    }[kind]
+    search: Final = {"turbohtml_meta_unlabelled": info}.get
+    codecs.register(search)
+    try:
+        with pytest.raises(ValueError, match="no WHATWG encoding label"):
+            parse("<p>x").encode("turbohtml_meta_unlabelled", Html(meta_charset=True))
     finally:
         codecs.unregister(search)
 
