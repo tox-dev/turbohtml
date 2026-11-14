@@ -478,6 +478,13 @@ static int stack_push(th_tree *tree, th_node *node) {
     return 1;
 }
 
+/* stack_push reports success even when the depth cap keeps the node off the stack */
+static int stack_push_kept(th_tree *tree, th_node *node) {
+    Py_ssize_t open_len_before = tree->open_len;
+    stack_push(tree, node);
+    return tree->open_len != open_len_before;
+}
+
 static void maybe_clone_option(th_tree *tree, th_node *option);
 static int name_matches(const th_node *node, const th_token *token, int fold);
 
@@ -3245,7 +3252,9 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
         uint16_t atom = tok_atom(tok);
         if (atom == TH_TAG_FRAMESET) {
             th_node *fs = insert_element(tree, tok);
-            stack_push(tree, fs);
+            if (!stack_push_kept(tree, fs)) {
+                tree->refused_frameset_count++;
+            }
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_FRAME) {
@@ -3264,6 +3273,10 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
     }
     /* a DOCTYPE is ignored before the switch, so the kind!=end-tag branch here is dead */
     if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_FRAMESET) { /* GCOVR_EXCL_BR_LINE */
+        if (tree->refused_frameset_count > 0) {
+            tree->refused_frameset_count--;
+            return TH_DRAIN_NEXT;
+        }
         if (current_node(tree)->atom != TH_TAG_HTML) {
             stack_pop(tree);
         }
