@@ -370,24 +370,20 @@ def test_reset_forgets_a_suspended_charref_run() -> None:
         pytest.param("<a x=&", "a", id="attribute-name-over-cap"),
     ],
 )
-def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str) -> None:
+def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str, work_steps: WorkSteps) -> None:
     # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
-    document = prefix + run * 200_000
-    reference_seconds, _ = _stream_fed_in_chunks("x" * len(document))
-    seconds, shapes = _stream_fed_in_chunks(document)
-    # both sides slow down under CPU contention, so the ratio to the reference is compared, not the raw time
-    assert seconds <= 20 * max(reference_seconds, 0.01)
-    assert shapes == [_shape(token) for token in tokenize(document)]
+    document = prefix + run * 20_000
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
+    work_steps.assert_linear(lambda n: partial(_stream_fed_in_chunks, prefix + run * n), (5_000, 20_000))
 
 
-def _stream_fed_in_chunks(document: str) -> tuple[float, list[_Shape]]:
+def _stream_fed_in_chunks(document: str) -> list[_Shape]:
     tokenizer = Tokenizer()
     tokens: list[Token] = []
-    start = time.perf_counter()
     for offset in range(0, len(document), 7):
         tokens.extend(tokenizer.feed(document[offset : offset + 7]))
     tokens.extend(tokenizer.close())
-    return time.perf_counter() - start, [_shape(token) for token in tokens]
+    return [_shape(token) for token in tokens]
 
 
 def test_streaming_crlf_across_feeds() -> None:
