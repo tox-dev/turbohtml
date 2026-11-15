@@ -810,7 +810,10 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
     case JN_VAR:
         for (int32_t declarator = node->a, previous = -1; declarator >= 0;
              previous = declarator, declarator = mangler->prog->nodes[declarator].next) {
-            walk(mangler, mangler->prog->nodes[declarator].a, scope, 1);
+            /* a destructuring declaration assigns each name it binds, as an assignment target does; without the write
+               a propagated value would rewrite the pattern's `{ x }` key */
+            int32_t bound = mangler->prog->nodes[declarator].a;
+            walk(mangler, bound, scope, mangler->prog->nodes[bound].kind == JN_IDENT ? 1 : 2);
             walk(mangler, mangler->prog->nodes[declarator].b, scope, 0);
             /* Single-declaration transforms cannot account for another declaration target. */
             if (mangler->prog->nodes[mangler->prog->nodes[declarator].a].kind == JN_IDENT) {
