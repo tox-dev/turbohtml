@@ -312,7 +312,8 @@ static th_node *insert_foreign(th_tree *tree, th_token *token, uint8_t ns) {
                 lower[index] = (char)node->text[index];
             }
             const char *mixed = svg_adjust_name(lower, node->text_len);
-            if (mixed != NULL) {
+            /* a name wider than one byte can truncate onto an ASCII letter; its atom keeps the source spelling */
+            if (mixed != NULL && token->name.kind == PyUnicode_1BYTE_KIND) {
                 Py_ssize_t mlen = (Py_ssize_t)strlen(mixed);
                 Py_UCS4 *adjusted = arena_alloc(tree, mlen * (Py_ssize_t)sizeof(Py_UCS4));
                 if (adjusted != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
