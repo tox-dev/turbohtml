@@ -1,0 +1,2 @@
+minify_css keeps the separators that a unicode-range start, an unclosed calc() or a universal selector needs, and stops
+crashing on some bang comments.
