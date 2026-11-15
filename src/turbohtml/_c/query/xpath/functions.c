@@ -578,6 +578,7 @@ static int node_lang(xp_ctx *ctx, xp_result *arg) {
 typedef struct {
     const Py_UCS4 *value;
     Py_ssize_t len;
+    int claimed; /* the walk in eval_id has met the first element with this id */
 } xp_id_token;
 
 /* FNV-1a over the code points, the hash the token set starts on. The document picks the tokens, and FNV-1a lets it
@@ -650,7 +651,7 @@ static inline int id_token_set_fill(const Py_UCS4 *list, Py_ssize_t list_len, xp
             if (!keyed && id_token_run_behind(slots, mask, probe)) {
                 return 1;
             }
-            slots[probe] = (xp_id_token){list + start, len};
+            slots[probe] = (xp_id_token){list + start, len, 0};
         }
     }
     return 0;
@@ -700,11 +701,12 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
     return 0;
 }
 
-/* 1 when value is in the set, 0 when not, and 2 when a miss on FNV-1a walked past TH_FAST_PROBE_LIMIT slots: a hit
-   walks no further than its token did in the fill, but a miss walks to the end of the run its home falls in, and the
-   document can line up homes into one long run without any token walking far. */
-static inline int id_token_set_contains(const xp_id_token *slots, size_t mask, int keyed, const Py_UCS4 *value,
-                                        Py_ssize_t len) {
+/* 1 when value is in the set and no earlier element claimed it, which claims it; 0 when it is not in the set or was
+   claimed; 2 when a miss on FNV-1a walked past TH_FAST_PROBE_LIMIT slots: a hit walks no further than its token did in
+   the fill, but a miss walks to the end of the run its home falls in, and the document can line up homes into one long
+   run without any token walking far. Of the elements that share an id only the first in document order has it (XPath
+   1.0 section 5.2.1), so each token selects at most one element. */
+static inline int id_token_set_claim(xp_id_token *slots, size_t mask, int keyed, const Py_UCS4 *value, Py_ssize_t len) {
     if (len == 0) {
         return 0;
     }
@@ -716,38 +718,222 @@ static inline int id_token_set_contains(const xp_id_token *slots, size_t mask, i
     do {
         TH_WORK_STEP();
         if (slots[probe].len == len && memcmp(slots[probe].value, value, (size_t)len * sizeof(Py_UCS4)) == 0) {
-            return 1;
+            int first = !slots[probe].claimed;
+            slots[probe].claimed = 1;
+            return first;
         }
         probe = (probe + 1) & mask;
     } while (slots[probe].value != NULL);
     return !keyed && ((probe - hash) & mask) > TH_FAST_PROBE_LIMIT ? 2 : 0;
 }
 
-/* Collect the elements from node on whose id is in the set. On FNV-1a it stops at the element whose lookup walked past
-   TH_FAST_PROBE_LIMIT slots and returns it, unmatched, for the caller to scan again from under th_name_hash. */
-static inline struct th_node *id_token_scan(const xp_id_token *slots, size_t mask, int keyed, struct th_node *node,
-                                            xp_nodeset *found, int *rc) {
-    for (; node != NULL; node = document_next(node)) {
-        if (node->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            if (node->attrs[index].name_atom != TH_ATTR_ID) {
-                continue;
-            }
-            int hit = id_token_set_contains(slots, mask, keyed, node->attrs[index].value, node->attrs[index].value_len);
-            if (!keyed && hit == 2) {
-                return node;
-            }
-            if (hit) {
-                if (ns_push(found, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    *rc = -1;                       /* GCOVR_EXCL_LINE */
-                } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
-                break;
-            }
+/* The element's id attribute, or NULL. */
+static inline const th_node_attr *node_id_attr(const struct th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        if (node->attrs[index].name_atom == TH_ATTR_ID) {
+            return &node->attrs[index];
         }
     }
     return NULL;
+}
+
+/* Collect the elements from node on whose id is in the set and not yet claimed. On FNV-1a it stops at the element
+   whose lookup walked past TH_FAST_PROBE_LIMIT slots and returns it, unmatched, for the caller to scan again from under
+   th_name_hash. */
+static inline struct th_node *id_token_scan(xp_id_token *slots, size_t mask, int keyed, struct th_node *node,
+                                            xp_nodeset *found, int *rc) {
+    for (; node != NULL; node = document_next(node)) {
+        TH_WORK_STEP();
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? node_id_attr(node) : NULL;
+        if (id == NULL) {
+            continue;
+        }
+        int hit = id_token_set_claim(slots, mask, keyed, id->value, id->value_len);
+        if (!keyed && hit == 2) {
+            return node;
+        }
+        if (hit && ns_push(found, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            *rc = -1;                              /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+    }
+    return NULL;
+}
+
+/* Seat the tokens again under th_name_hash and claim those of the elements the FNV-1a scan already collected, so the
+   scan that goes on from where it stopped selects none of their ids again. */
+static TH_NOINLINE void id_token_set_rekey_claimed(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_token *slots,
+                                                   size_t mask, const xp_nodeset *found) {
+    id_token_set_rekey(list, list_len, slots, mask);
+    for (Py_ssize_t index = 0; index < found->len; index++) {
+        const th_node_attr *id = node_id_attr(found->items[index].node);
+        (void)id_token_set_claim(slots, mask, 1, id->value, id->value_len);
+    }
+}
+
+/* One element under the indexed root that carries an id, with the value borrowed from its attribute. */
+typedef struct {
+    struct th_node *node;
+    const Py_UCS4 *value;
+    Py_ssize_t len;
+} xp_id_entry;
+
+/* Every element under one root that carries a non-empty id. A lookup reads its tokens' elements off the table where the
+   walk in eval_id visits the whole tree, so one lookup per node, as in //ref[id(@to)], costs time linear rather than
+   quadratic in the document. id_version is the tree's when it was built: every edit through the mutation API that can
+   change which element an id names bumps it, so the table is rebuilt after such an edit and kept across Python code
+   that makes none. */
+struct xp_id_index {
+    struct th_node *root;
+    uint64_t id_version;
+    xp_id_entry *entries; /* in document order */
+    size_t count;
+    size_t *slots; /* index + 1 of the first entry with an id; 0 marks a free slot */
+    size_t mask;
+};
+
+static void id_index_free(xp_id_index *index) {
+    if (index != NULL) {
+        PyMem_Free(index->entries);
+        PyMem_Free(index->slots);
+        PyMem_Free(index);
+    }
+}
+
+void xp_id_cache_clear(xp_id_cache *cache) {
+    id_index_free(cache->index);
+    *cache = (xp_id_cache){0};
+}
+
+/* The slot naming the first entry whose id is [value, value + len), or the free slot that id would take. The table
+   hashes under th_name_hash from the start: the document picks every id in it. */
+static size_t *id_index_slot(const xp_id_index *index, const Py_UCS4 *value, Py_ssize_t len) {
+    size_t slot = th_name_hash(value, len * (Py_ssize_t)sizeof(Py_UCS4)) & index->mask;
+    while (index->slots[slot] != 0) {
+        TH_WORK_STEP();
+        const xp_id_entry *entry = &index->entries[index->slots[slot] - 1];
+        if (entry->len == len && memcmp(entry->value, value, (size_t)len * sizeof(Py_UCS4)) == 0) {
+            break;
+        }
+        slot = (slot + 1) & index->mask;
+    }
+    return &index->slots[slot];
+}
+
+static int id_index_fill(xp_id_index *index) {
+    size_t entry_cap = 0;
+    for (struct th_node *node = index->root; node != NULL; node = document_next(node)) {
+        TH_WORK_STEP();
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? node_id_attr(node) : NULL;
+        if (id == NULL || id->value_len == 0) {
+            continue;
+        }
+        if (index->count == entry_cap) {
+            size_t bytes;
+            /* GCOVR_EXCL_BR_START: alloc */
+            if (!th_grow_cap(index->count + 1, entry_cap, 16, sizeof(xp_id_entry), &entry_cap, &bytes)) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            xp_id_entry *grown = PyMem_Realloc(index->entries, bytes);
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;       /* GCOVR_EXCL_LINE */
+            }
+            index->entries = grown;
+        }
+        index->entries[index->count++] = (xp_id_entry){node, id->value, id->value_len};
+    }
+    size_t capacity;
+    size_t bytes;
+    /* GCOVR_EXCL_BR_START: alloc */
+    if (index->count > SIZE_MAX / 2 || !th_grow_cap(index->count * 2, 0, 8, sizeof(size_t), &capacity, &bytes)) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    index->slots = PyMem_Calloc(1, bytes);
+    if (index->slots == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;              /* GCOVR_EXCL_LINE */
+    }
+    index->mask = capacity - 1;
+    /* in document order, so a slot keeps the first element of its id and the later ones stay out of the table */
+    for (size_t position = 0; position < index->count; position++) {
+        size_t *slot = id_index_slot(index, index->entries[position].value, index->entries[position].len);
+        if (*slot == 0) {
+            *slot = position + 1;
+        }
+    }
+    return 0;
+}
+
+/* Point *out at the index of root, or at NULL for the caller to walk the tree instead. The first lookup under a root
+   walks, which is all a lone id() costs; the next one there indexes it, and later ones reuse that index until an edit
+   moves the tree's id version. Returns 0, or -1 with MemoryError set. */
+static int id_cache_index(struct th_tree *tree, xp_id_cache *cache, struct th_node *root, xp_id_index **out) {
+    const uint64_t id_version = th_tree_id_version(tree);
+    xp_id_index *index = cache->index;
+    if (index != NULL && index->root == root && index->id_version == id_version) {
+        *out = index;
+        return 0;
+    }
+    *out = NULL;
+    if (cache->walked != root) {
+        cache->walked = root;
+        return 0;
+    }
+    xp_id_cache_clear(cache);
+    cache->walked = root;
+    index = PyMem_Calloc(1, sizeof(*index));
+    if (index == NULL) {  /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    *index = (xp_id_index){.root = root, .id_version = id_version};
+    if (id_index_fill(index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        id_index_free(index);       /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();           /* GCOVR_EXCL_LINE */
+        return -1;                  /* GCOVR_EXCL_LINE */
+    }
+    cache->index = index;
+    *out = index;
+    return 0;
+}
+
+/* Every lookup in a tree of at most this many nodes walks it: such a walk costs less than building the index, and as
+   every node of the evaluation lies in its tree, it bounds each lookup. */
+#define XP_ID_INDEX_MIN_NODES 256
+
+static int id_position_order(const void *left, const void *right) {
+    return *(const size_t *)left < *(const size_t *)right ? -1 : 1;
+}
+
+/* Append to found, in document order, the indexed element each token names. */
+static int id_index_select(const xp_id_index *index, const xp_id_token *slots, size_t mask, xp_nodeset *found) {
+    size_t *positions = PyMem_Malloc((mask + 1) * sizeof(size_t));
+    if (positions == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
+        return -1;           /* GCOVR_EXCL_LINE */
+    }
+    size_t count = 0;
+    for (size_t token = 0; token <= mask; token++) {
+        TH_WORK_STEP();
+        if (slots[token].value == NULL) {
+            continue;
+        }
+        size_t entry = *id_index_slot(index, slots[token].value, slots[token].len);
+        if (entry != 0) {
+            positions[count++] = entry - 1;
+        }
+    }
+    if (count > 1) {
+        qsort(positions, count, sizeof(size_t), id_position_order);
+    }
+    int rc = 0;
+    for (size_t position = 0; position < count; position++) {
+        if (ns_push(found, index->entries[positions[position]].node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            rc = -1;                                                            /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+    }
+    PyMem_Free(positions);
+    return rc;
 }
 
 /* How far a function that gathers the string-value of each member has read its node-set. */
@@ -894,10 +1080,9 @@ static TH_NOINLINE int charge_repeated(xp_gather *seen, xp_ctx *ctx, const xp_no
     return 0;
 }
 
-/* id(object): the elements whose id attribute is one of the whitespace-separated
-   tokens in the argument's string-value (a node-set argument contributes the
-   string-value of each member). Out of line, so its lookup loop keeps its registers instead of sharing
-   eval_function's. */
+/* id(object): for each whitespace-separated token in the argument's string-value (a node-set argument contributes the
+   string-value of each member), the first element in document order whose id attribute is that token. Out of line, so
+   its lookup loop keeps its registers instead of sharing eval_function's. */
 static TH_NOINLINE int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     memset(out, 0, sizeof(*out));
     out->kind = XP_NODESET;
@@ -966,13 +1151,21 @@ static TH_NOINLINE int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     int rc = 0;
     if (ids != NULL) {
         struct th_node *node = tree_root(ctx);
-        if (!keyed) {
-            node = id_token_scan(ids, id_mask, 0, node, &out->nodes, &rc);
-            if (node != NULL) {
-                id_token_set_rekey(list, list_len, ids, id_mask);
-            }
+        xp_id_index *index = NULL;
+        if (th_tree_node_count(ctx->tree) > XP_ID_INDEX_MIN_NODES) {
+            rc = id_cache_index(ctx->tree, ctx->root->ids != NULL ? ctx->root->ids : &ctx->root->own, node, &index);
         }
-        id_token_scan(ids, id_mask, 1, node, &out->nodes, &rc);
+        if (index != NULL) {
+            rc = id_index_select(index, ids, id_mask, &out->nodes);
+        } else if (rc == 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            if (!keyed) {
+                node = id_token_scan(ids, id_mask, 0, node, &out->nodes, &rc);
+                if (node != NULL) {
+                    id_token_set_rekey_claimed(list, list_len, ids, id_mask, &out->nodes);
+                }
+            }
+            id_token_scan(ids, id_mask, 1, node, &out->nodes, &rc);
+        }
     }
     PyMem_Free(ids);
     PyMem_Free(list);
