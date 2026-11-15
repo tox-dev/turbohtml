@@ -626,44 +626,52 @@ static int is_media_host_tag(uint16_t atom) {
     }
 }
 
-/* The bytes that end a URL authority (https://url.spec.whatwg.org/#authority-state), with '\' for every scheme. A
-   real host never contains '\', so ending there narrows the host the allowlist sees and closes the
-   `evil.example\@good.example` userinfo trick a browser resolves to evil.example. */
-static int ends_authority(Py_UCS4 ch) {
+/* A backslash reads as a slash only under a special scheme. A value without a scheme is relative to a special base, so
+   it reads as one there too. */
+static int backslash_slash(const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon) {
+    return colon < 0 || th_url_scheme_special(value, scheme, colon);
+}
+
+/* The bytes that end a URL authority (https://url.spec.whatwg.org/#authority-state). A real host never contains '\', so
+   ending there narrows the host the allowlist sees and closes the `evil.example\@good.example` userinfo trick a browser
+   resolves to evil.example. */
+static int ends_authority(Py_UCS4 ch, const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon) {
     switch (ch) {
     case '/':
     case '?':
     case '#':
-    case '\\':
         return 1;
+    case '\\':
+        return backslash_slash(value, scheme, colon);
     default:
         return 0;
     }
 }
 
-static int authority_slash(Py_UCS4 ch);
+static int authority_slash(Py_UCS4 ch, const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon);
 
-/* Locate the authority host of a URL value: the host after "scheme://" or a protocol-relative "//". The authority is
-   bounded here without preprocessing the value (the WHATWG tab/newline stripping a browser applies is intentionally not
-   done, so an obfuscated host never masquerades as an allowlisted one), then th_url_authority -- the same decomposition
-   url_split runs -- splits off any "userinfo@" and ":port" and reports the host span and its literal kind. Sets
-   *start,*end to the host span and *kind to the host literal, returns 0, or returns -1 when the URL carries no
-   authority (a relative or opaque src, which has no host to match). */
+/* Locate the authority host of a URL value. A browser opens an authority only right after the scheme (the one
+   scheme_allowed judged), or at the start when there is none, past the leading C0 controls and spaces it strips. A
+   "://" further on is path, query, or fragment and never supplies the host. Tabs and newlines stay in place, so one
+   between the delimiters opens no authority and one inside the host never matches an allowlisted host. Sets
+   *start,*end to the host span and *kind to its literal, returns 0, or returns -1 when there is no authority. */
 static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end, int *kind) {
-    Py_ssize_t authority = -1;
-    if (len >= 2 && authority_slash(value[0]) && authority_slash(value[1])) {
-        authority = 2; /* protocol-relative //host/path */
+    Py_ssize_t authority = 0;
+    while (authority < len && value[authority] <= 0x20) {
+        authority++;
     }
-    for (Py_ssize_t index = 0; authority < 0 && index + 2 < len; index++) {
-        if (value[index] == ':' && authority_slash(value[index + 1]) && authority_slash(value[index + 2])) {
-            authority = index + 3; /* scheme://host */
-        }
+    Py_ssize_t scheme = authority;
+    Py_ssize_t colon = th_url_scheme_colon(value, scheme, len);
+    if (colon >= 0) {
+        authority = colon + 1;
     }
-    if (authority < 0) {
+    if (authority + 1 >= len || !authority_slash(value[authority], value, scheme, colon) ||
+        !authority_slash(value[authority + 1], value, scheme, colon)) {
         return -1;
     }
+    authority += 2; /* scheme://host or protocol-relative //host/path */
     Py_ssize_t authority_end = authority;
-    while (authority_end < len && !ends_authority(value[authority_end])) {
+    while (authority_end < len && !ends_authority(value[authority_end], value, scheme, colon)) {
         authority_end++; /* the authority runs to the path, query, or fragment */
     }
     th_authority parts;
@@ -674,9 +682,9 @@ static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start
     return 0;
 }
 
-/* '\' opens an authority like '/' does, for every scheme, as ends_authority treats it. */
-static int authority_slash(Py_UCS4 ch) {
-    return ch == '/' || ch == '\\';
+/* '\' opens an authority like '/' does, but only where backslash_slash says so. */
+static int authority_slash(Py_UCS4 ch, const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon) {
+    return ch == '/' || (ch == '\\' && backslash_slash(value, scheme, colon));
 }
 
 /* Keep an embedded-media `src` only when its URL host is on the allowlist, compared case-insensitively against the
