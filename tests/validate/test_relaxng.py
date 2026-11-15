@@ -3576,6 +3576,27 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
     assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
 
 
+def test_rng_routed_chain_on_small_thread_stack_raises_or_validates() -> None:
+    # the wide choice costs its event more than the free steps, so the next event builds the routes from the root, one
+    # build per chained define; on a small thread a long enough chain runs that build out of stack
+    result: Final = _run_on_small_stack(_routed_chain(30), "<root><w5/><leaf/></root>", stack_kib=32)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout in {"True\n", "RecursionError\n"}, result.stderr
+
+
+def _routed_chain(depth: int) -> str:
+    wide = "".join(f'<element name="w{k}"><empty/></element>' for k in range(100))
+    defs = [f'<define name="wide"><choice>{wide}</choice></define>']
+    for index in range(depth):
+        defs.extend((
+            f'<define name="d{index}" combine="choice"><ref name="d{index + 1}"/></define>',
+            f'<define name="d{index}" combine="choice"><element name="x{index}"><empty/></element></define>',
+        ))
+    defs.append(f'<define name="d{depth}"><element name="leaf"><empty/></element></define>')
+    start = '<start><element name="root"><group><ref name="wide"/><ref name="d0"/></group></element></start>'
+    return grammar(start + "".join(defs))
+
+
 @cache
 def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
     # every nesting depth from 1 to the cap runs the start-tag walk down the repeat nest on the smallest stack the
@@ -3691,7 +3712,7 @@ def _pypy_interpreter_overruns_stack() -> bool:
 
 
 @pytest.mark.skipif(
-    _repeat_check_unreachable() or _pypy_interpreter_overruns_stack(),
+    _pypy_interpreter_overruns_stack() or _repeat_check_unreachable(),
     reason="this platform never reaches the repeat check with the json sweep, or PyPy's interpreter overruns the "
     "thread stack first; the C coverage gate runs elsewhere",
 )
