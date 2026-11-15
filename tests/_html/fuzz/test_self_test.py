@@ -59,6 +59,11 @@ from turbohtml.transform import Transform, strparam
 from turbohtml.treebuild import parse_into
 from turbohtml.validate import RelaxNG, XMLSchema
 
+pytestmark: Final[pytest.MarkDecorator] = pytest.mark.skipif(
+    not hasattr(_html, "_fuzz_inject_failure"),
+    reason="needs the fuzz-only build: meson setup -Dfuzzing=true",
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -334,8 +339,6 @@ def test_tokenizer_consumer_allocation_failure_raises_memory_error(
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = _html._fuzz_verify_broken
-
 
 @pytest.mark.fuzz_build
 @pytest.mark.parametrize(
@@ -351,13 +354,13 @@ _VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = _html._fuzz_
 def test_tree_verify_reports_a_broken_tree_without_walking_into_it(
     kind: str, expected: tuple[int, int, int, int]
 ) -> None:
-    assert _VERIFY_BROKEN(kind) == expected
+    assert _html._fuzz_verify_broken(kind) == expected
 
 
 @pytest.mark.fuzz_build
 def test_tree_verify_breakage_rejects_an_unknown_kind() -> None:
     with pytest.raises(ValueError, match="unknown breakage"):
-        _VERIFY_BROKEN("bogus")
+        _html._fuzz_verify_broken("bogus")
 
 
 if TYPE_CHECKING:
@@ -447,16 +450,16 @@ def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: _Sw
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from turbohtml import Node
-
-_ESCAPE_ITERATORS: Final[Callable[[Node], int]] = _html._fuzz_escape_iterators
-
 
 @pytest.mark.fuzz_build
 def test_tree_verify_counts_an_iterator_reference_outside_its_root() -> None:
     document: Final = parse("<p><b></b></p>")
     iterator: Final = NodeIterator(document.select("p")[0])
-    assert (_ESCAPE_ITERATORS(document), _tree_verify(document), iterator.reference_node) == (1, (0, 0, 1, 0), document)
+    assert (_html._fuzz_escape_iterators(document), _tree_verify(document), iterator.reference_node) == (
+        1,
+        (0, 0, 1, 0),
+        document,
+    )
 
 
 if TYPE_CHECKING:
