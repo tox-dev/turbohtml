@@ -1421,6 +1421,14 @@ _LOWER: Final[str] = '<xs:pattern value="[a-z]+"/>'
 _FROM_FIVE: Final[str] = (
     '<xs:simpleType><xs:restriction base="percent"><xs:minInclusive value="5"/></xs:restriction></xs:simpleType>'
 )
+_MONEY: Final[str] = (
+    '<xs:complexType name="money"><xs:simpleContent><xs:extension base="currency">'
+    '<xs:attribute name="cents" type="xs:int"/></xs:extension></xs:simpleContent></xs:complexType>'
+)
+_FROM_U: Final[str] = (
+    '<xs:simpleType><xs:restriction base="currency"><xs:pattern value="U.*"/></xs:restriction></xs:simpleType>'
+)
+_THREE_LETTERS: Final[str] = '<xs:pattern value="[A-Z]{3}"/>'
 
 
 @pytest.mark.parametrize(
@@ -1498,6 +1506,27 @@ _FROM_FIVE: Final[str] = (
             "11",
             False,
             id="facet-after-inline-type-broken",
+        ),
+        pytest.param(
+            _CURRENCY + _MONEY,
+            f'<xs:restriction base="money">{_FROM_U}{_THREE_LETTERS}</xs:restriction>',
+            "USD",
+            True,
+            id="inline-type-beside-base-lists-met",
+        ),
+        pytest.param(
+            _CURRENCY + _MONEY,
+            f'<xs:restriction base="money">{_FROM_U}{_THREE_LETTERS}</xs:restriction>',
+            "EUR",
+            False,
+            id="inline-type-pattern-broken",
+        ),
+        pytest.param(
+            _CURRENCY + _MONEY,
+            f'<xs:restriction base="money">{_FROM_U}{_THREE_LETTERS}</xs:restriction>',
+            "UAH",
+            False,
+            id="base-enumeration-beside-inline-type-broken",
         ),
     ],
 )
@@ -2617,6 +2646,125 @@ def test_compiled_facet_cyclic_inheritance(facet_schema: Callable[[str], XMLSche
         False,
         False,
     ]
+
+
+@pytest.mark.parametrize(
+    ("base", "facet", "restated", "value"),
+    [
+        pytest.param("xs:string", '<xs:length value="4"/>', '<xs:length value="2"/>', "ab", id="length"),
+        pytest.param("xs:string", '<xs:minLength value="3"/>', '<xs:minLength value="1"/>', "ab", id="min-length"),
+        pytest.param("xs:string", '<xs:maxLength value="1"/>', '<xs:maxLength value="2"/>', "ab", id="max-length"),
+        pytest.param("xs:int", '<xs:minInclusive value="8"/>', '<xs:minInclusive value="7"/>', "7", id="min-inclusive"),
+        pytest.param("xs:int", '<xs:maxInclusive value="6"/>', '<xs:maxInclusive value="7"/>', "7", id="max-inclusive"),
+        pytest.param("xs:int", '<xs:minExclusive value="7"/>', '<xs:minExclusive value="6"/>', "7", id="min-exclusive"),
+        pytest.param("xs:int", '<xs:maxExclusive value="7"/>', '<xs:maxExclusive value="8"/>', "7", id="max-exclusive"),
+        pytest.param(
+            "xs:date",
+            '<xs:minInclusive value="2024-05-02"/>',
+            '<xs:minInclusive value="2024-05-01"/>',
+            "2024-05-01",
+            id="date-bound",
+        ),
+        pytest.param(
+            "xs:decimal", '<xs:totalDigits value="1"/>', '<xs:totalDigits value="2"/>', "3.5", id="total-digits"
+        ),
+        pytest.param(
+            "xs:decimal",
+            '<xs:fractionDigits value="0"/>',
+            '<xs:fractionDigits value="1"/>',
+            "3.5",
+            id="fraction-digits",
+        ),
+    ],
+)
+def test_compiled_facet_scalar_inheritance(
+    facet_schema: Callable[[str], XMLSchema], base: str, facet: str, restated: str, value: str
+) -> None:
+    # a derived type keeps each facet its base states until it states that facet itself
+    schema: Final = facet_schema(
+        f'<xs:simpleType name="root"><xs:restriction base="{base}">{facet}</xs:restriction></xs:simpleType>'
+        '<xs:simpleType name="middle"><xs:restriction base="root"/></xs:simpleType>'
+        '<xs:simpleType name="kept"><xs:restriction base="middle"/></xs:simpleType>'
+        f'<xs:simpleType name="restated"><xs:restriction base="middle">{restated}</xs:restriction></xs:simpleType>'
+        '<xs:element name="kept" type="kept"/><xs:element name="restated" type="restated"/>'
+    )
+    assert [schema.validate(parse_xml(f"<{name}>{value}</{name}>")).valid for name in ("kept", "restated")] == [
+        False,
+        True,
+    ]
+
+
+def test_compiled_facets_of_every_chain_level_apply(facet_schema: Callable[[str], XMLSchema]) -> None:
+    schema: Final = facet_schema(f'{_enumerated_chain(24)}<xs:element name="value" type="t23"/>')
+    assert [
+        [error.message for error in schema.validate(parse_xml(f"<value>{value}</value>")).errors]
+        for value in ("v0", "v23", "v24", "w0")
+    ] == [
+        [],
+        [],
+        ["value is not one of the enumerated values"],
+        ["value is not one of the enumerated values"] + ["value does not match the required pattern"] * 24,
+    ]
+
+
+def _enumerated_chain(count: int) -> str:
+    # type t{n} restricts t{n - 1}, each adding one enumeration and one pattern
+    return "".join(
+        f'<xs:simpleType name="t{index}"><xs:restriction base="{f"t{index - 1}" if index else "xs:token"}">'
+        f'<xs:enumeration value="v{index}"/><xs:pattern value="v[0-9]+"/></xs:restriction></xs:simpleType>'
+        for index in range(count)
+    )
+
+
+@pytest.mark.parametrize(
+    "derived",
+    [
+        pytest.param('<xs:simpleType name="d{index}"><xs:restriction base="base"/></xs:simpleType>', id="restriction"),
+        pytest.param(
+            '<xs:complexType name="d{index}"><xs:simpleContent><xs:extension base="base"/></xs:simpleContent>'
+            "</xs:complexType>",
+            id="simple-content-extension",
+        ),
+        pytest.param(
+            '<xs:complexType name="d{index}"><xs:simpleContent><xs:restriction base="content">'
+            '<xs:simpleType><xs:restriction base="base"/></xs:simpleType></xs:restriction></xs:simpleContent>'
+            "</xs:complexType>",
+            id="inline-type-beside-base",
+        ),
+    ],
+)
+def test_types_derived_from_one_base_compile_in_linear_steps(work_steps: WorkSteps, derived: str) -> None:
+    # every derived type used to hold a copy of the base's facets
+    def text(count: int) -> str:
+        enumerations = "".join(f'<xs:enumeration value="code{index}"/>' for index in range(count))
+        return (
+            f'<xs:schema {_XS}><xs:simpleType name="base"><xs:restriction base="xs:token">{enumerations}'
+            "</xs:restriction></xs:simpleType>"
+            '<xs:complexType name="content"><xs:simpleContent><xs:extension base="base"/></xs:simpleContent>'
+            f"</xs:complexType>{''.join(derived.format(index=index) for index in range(count))}"
+            f'<xs:element name="last" type="d{count - 1}"/></xs:schema>'
+        )
+
+    work_steps.assert_linear(lambda count: partial(XMLSchema, text(count)), (150, 600))
+    schema: Final = XMLSchema(text(150))
+    assert [schema.validate(parse_xml(f"<last>{value}</last>")).valid for value in (" code149 ", "code150")] == [
+        True,
+        False,
+    ]
+
+
+def test_long_derivation_chain_validates_in_linear_steps(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema = XMLSchema(
+            f"<xs:schema {_XS}>{_enumerated_chain(count)}"
+            f'<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="value" type="t{count - 1}" '
+            'maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+        )
+        values = "".join(f"<value>v{count - 1 - index % 2}</value>" for index in range(count))
+        return partial(schema.validate, parse_xml(f"<r>{values}</r>"))
+
+    work_steps.assert_linear(build, (150, 600))
+    assert build(150)().valid
 
 
 @pytest.mark.parametrize(
