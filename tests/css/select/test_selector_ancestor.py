@@ -538,6 +538,39 @@ def test_computed_style_deep_chain(rule: str, color: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("selectors", "color"),
+    [
+        pytest.param("p, .c, #t", "red", id="rising"),
+        pytest.param("#t, .c, p", "red", id="falling"),
+        pytest.param("p, body p", "blue", id="rising-types"),
+        pytest.param(".c, p, .c", "blue", id="equal"),
+    ],
+)
+def test_computed_style_deep_tree_picks_most_specific_alternative(selectors: str, color: str) -> None:
+    # the most specific alternative that matches gives the rule its weight against `p.c`
+    html: Final = f"<style>p.c{{color:blue}}{selectors}{{color:red}}</style><p id=t class=c style title=x>"
+    styles: Final[list[str]] = []
+    for document in (parse(html), _deep(html)):
+        found = document.select_one("p")
+        assert found is not None
+        styles.append(computed_style(found)["color"])
+    assert styles == [color, color]
+
+
+def test_matches_lang_and_dir_on_extracted_element() -> None:
+    # an element taken out of a parsed page has no ancestor to inherit from
+    document: Final = parse("<main lang=fr dir=rtl><p>")
+    paragraph: Final = document.select_one("p")
+    assert paragraph is not None
+    paragraph.extract()
+    assert (paragraph.matches(":lang(fr)"), paragraph.matches(":dir(rtl)"), paragraph.matches(":dir(ltr)")) == (
+        False,
+        False,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
     ("selector", "marked"),
     [
         pytest.param("section div", 700, id="ancestor"),
