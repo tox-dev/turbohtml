@@ -265,6 +265,11 @@ void th_tok_widen_input(th_tokenizer *self, int kind);
    construction, which the state machine itself does not perform. */
 void th_tok_switch(th_tokenizer *self, enum th_initial_state state);
 
+/* The content model the tokenizer reads its next code point in: TH_INIT_RCDATA, TH_INIT_RAWTEXT, TH_INIT_SCRIPT_DATA
+   or TH_INIT_PLAINTEXT inside raw text, at any point of it, else TH_INIT_DATA. *end_tag is the name of the start tag
+   that switched it, which the end tag leaving raw text has to repeat. */
+enum th_initial_state th_tok_content_model(const th_tokenizer *self, const th_buf **end_tag);
+
 /* Tell the tokenizer whether <![CDATA[ opens a real CDATA section (the
    adjusted current node is a foreign element) or a bogus comment. The tree
    builder and the streaming rewriter update this before pulling each token. */

@@ -478,6 +478,40 @@ void th_tok_switch(th_tokenizer *self, enum th_initial_state state) {
     self->state = initial_states[state];
 }
 
+enum th_initial_state th_tok_content_model(const th_tokenizer *self, const th_buf **end_tag) {
+    static const uint8_t models[ST_CDATA_END + 1] = {
+        [ST_RCDATA] = TH_INIT_RCDATA,
+        [ST_RCDATA_LT] = TH_INIT_RCDATA,
+        [ST_RCDATA_END_OPEN] = TH_INIT_RCDATA,
+        [ST_RCDATA_END_NAME] = TH_INIT_RCDATA,
+        [ST_RAWTEXT] = TH_INIT_RAWTEXT,
+        [ST_RAWTEXT_LT] = TH_INIT_RAWTEXT,
+        [ST_RAWTEXT_END_OPEN] = TH_INIT_RAWTEXT,
+        [ST_RAWTEXT_END_NAME] = TH_INIT_RAWTEXT,
+        [ST_PLAINTEXT] = TH_INIT_PLAINTEXT,
+        [ST_SCRIPT] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_LT] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_END_OPEN] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_END_NAME] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESC_START] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESC_START_DASH] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESCAPED] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESCAPED_DASH] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESCAPED_DASH_DASH] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESCAPED_LT] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESCAPED_END_OPEN] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_ESCAPED_END_NAME] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_DOUBLE_ESC_START] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_DOUBLE_ESCAPED] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_DOUBLE_ESCAPED_DASH] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_DOUBLE_ESCAPED_DASH_DASH] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_DOUBLE_ESCAPED_LT] = TH_INIT_SCRIPT_DATA,
+        [ST_SCRIPT_DOUBLE_ESC_END] = TH_INIT_SCRIPT_DATA,
+    };
+    *end_tag = &self->last_tag;
+    return (enum th_initial_state)models[self->state];
+}
+
 void th_tok_set_cdata(th_tokenizer *self, int allowed) {
     self->cdata_ok = allowed;
 }

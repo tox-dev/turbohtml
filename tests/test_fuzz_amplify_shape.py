@@ -718,6 +718,7 @@ def test_markdown_unsupported_element() -> None:
         pytest.param('<p><img src="a" title=""></p>', id="empty-title"),
         pytest.param("<pre><b>x</b></pre>", id="markup-in-code-block"),
         pytest.param("<pre><p>x</p></pre>", id="block-in-code-block"),
+        pytest.param('<pre class="language-p`q">&lt;b&gt;x&lt;/b&gt;</pre>', id="backtick-in-code-block-language"),
         pytest.param("<p><code><i>x</i></code></p>", id="markup-in-code-span"),
         pytest.param("x<div></div>y", id="empty-block-splits-paragraph"),
         pytest.param("x</p>y", id="implied-paragraph-splits-paragraph"),

@@ -1,0 +1,2 @@
+Building an ``Element`` from many attributes, and sanitizing with a policy that forces many attributes on one tag, no
+longer slows down quadratically.

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Element, Text, parse
+from turbohtml import DocumentFragment, Element, Text, parse
 from turbohtml.build import E
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from traced_bytes import PeakBytes, RetainedBytes
     from work_steps import WorkSteps
 
-    from turbohtml import Document
+    from turbohtml import Document, Node
 
 
 def test_parse_declarations_keeps_source_order_value_and_important() -> None:
@@ -625,6 +625,126 @@ def test_computed_style_tracks_stylesheet_insertion() -> None:
     assert computed_style(paragraph)["color"] == "red"
     head.append(Element("style", children=[Text("p { color: blue }")]))
     assert computed_style(paragraph)["color"] == "blue"
+
+
+def _fragment_of(child: Node) -> DocumentFragment:
+    fragment: Final = DocumentFragment()
+    fragment.append(child)
+    return fragment
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        pytest.param(lambda doc: doc.select_one("i").decompose(), "red", id="decompose-plain"),
+        pytest.param(lambda doc: doc.select_one("i").extract(), "red", id="extract-plain"),
+        pytest.param(lambda doc: doc.select_one("i").unwrap(), "red", id="unwrap-plain"),
+        pytest.param(lambda doc: doc.select_one("i").clear(), "red", id="clear-plain"),
+        pytest.param(lambda doc: doc.select_one("i").replace_with(Element("u")), "red", id="replace-plain"),
+        pytest.param(lambda doc: doc.select_one("b").append(Element("u")), "red", id="append-plain"),
+        pytest.param(lambda doc: doc.select_one("b").extend([Element("u"), Text("x")]), "red", id="extend-plain"),
+        pytest.param(lambda doc: doc.select_one("b").insert_before(doc.select_one("i")), "red", id="move-plain"),
+        pytest.param(lambda doc: setattr(doc.select_one("b"), "text", "p { color: green }"), "red", id="text-plain"),
+        pytest.param(lambda doc: setattr(doc.select_one("i").children[0], "data", "y"), "red", id="data-plain"),
+        pytest.param(lambda doc: doc.select_one("i").wrap(Element("u")), "red", id="wrap-plain"),
+        pytest.param(lambda doc: doc.select_one("b").set_inner_html("<u>x</u>"), "red", id="html-plain"),
+        pytest.param(
+            lambda doc: doc.select_one("b").insert_adjacent_html("afterend", "<u></u>"), "red", id="adjacent-plain"
+        ),
+        pytest.param(lambda doc: doc.select_one("span").decompose(), "blue", id="decompose-holder"),
+        pytest.param(lambda doc: doc.select_one("span").extract(), "blue", id="extract-holder"),
+        pytest.param(lambda doc: doc.select_one("span").clear(), "blue", id="clear-holder"),
+        pytest.param(lambda doc: doc.select_one("#late").unwrap(), "blue", id="unwrap-style"),
+        pytest.param(lambda doc: doc.select_one("#late").replace_with(Element("u")), "blue", id="replace-style"),
+        pytest.param(lambda doc: doc.select_one("body").append(doc.select_one("#early")), "blue", id="move-style"),
+        pytest.param(
+            lambda doc: doc.select_one("#early").insert_before(doc.select_one("#late")), "blue", id="move-beside"
+        ),
+        pytest.param(lambda doc: doc.select_one("#late").children[0].decompose(), "blue", id="decompose-text"),
+        pytest.param(lambda doc: doc.select_one("#late").append(Text("p { color: green }")), "green", id="append-text"),
+        pytest.param(lambda doc: setattr(doc.select_one("#late"), "text", ""), "blue", id="text-style"),
+        pytest.param(
+            lambda doc: doc.select_one("body").append(E.div(E.style("p { color: green }"))), "green", id="append-holder"
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("body").extend([Element("u"), E.style("p { color: green }")]),
+            "green",
+            id="extend-style",
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("span").insert_after(_fragment_of(E.style("p { color: green }"))),
+            "green",
+            id="insert-fragment",
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("i").wrap(E.style("body p { color: green }")), "green", id="wrap-style"
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("i").wrap_siblings(E.style("body p { color: green }")), "green", id="wrap-run"
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("head").wrap_children(doc.select_one("span")), "blue", id="wrap-holder"
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("#late").wrap_children(E.g("body p { color: green }")), "blue", id="wrap-text"
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("b").set_inner_html("<style>body p { color: green }</style>"),
+            "green",
+            id="html-style",
+        ),
+        pytest.param(lambda doc: doc.select_one("#late").set_inner_html("p { color: green }"), "green", id="html-text"),
+        pytest.param(
+            lambda doc: doc.select_one("span").insert_adjacent_html("afterend", "<style>p { color: green }</style>"),
+            "green",
+            id="adjacent-style",
+        ),
+        pytest.param(
+            lambda doc: doc.select_one("#late").insert_adjacent_html("beforeend", "p { color: green }"),
+            "green",
+            id="adjacent-text",
+        ),
+    ],
+)
+def test_computed_style_keeps_sheets_only_across_edits_without_style(
+    edit: Callable[[Document], object], expected: str
+) -> None:
+    document: Final = parse(
+        "<head><style id=early>p { color: blue }</style></head>"
+        "<body><p></p><i>x</i><b></b><span><style id=late>p { color: red }</style></span></body>"
+    )
+    paragraph: Final = document.select_one("p")
+    assert isinstance(paragraph, Element)
+    assert computed_style(paragraph)["color"] == "red"
+    edit(document)
+    assert computed_style(paragraph)["color"] == expected
+
+
+def test_computed_style_kept_sheets_match_later_elements() -> None:
+    document: Final = parse("<style>late-tag, .late, #late { color: red }</style><p></p>")
+    paragraph: Final = document.select_one("p")
+    assert isinstance(paragraph, Element)
+    assert computed_style(paragraph)["color"] == "canvastext"
+    for element in (Element("late-tag"), Element("b", {"class": "late"}), Element("b", {"id": "late"})):
+        paragraph.append(element)
+        assert computed_style(element)["color"] == "red"
+
+
+def test_computed_style_keeps_sheets_across_removals_in_linear_time(work_steps: WorkSteps) -> None:
+    def hide_all(size: int) -> Callable[[], object]:
+        document: Final = parse(
+            f"<style>b {{ display: none }}{'em {margin: 0}' * size}</style><p>kept</p>{'<b></b>' * size}"
+        )
+
+        def hide() -> None:
+            for element in document.select("body *"):
+                if computed_style(element)["display"] == "none":
+                    element.decompose()
+            assert document.to_text() == "kept"
+
+        return hide
+
+    work_steps.assert_linear(hide_all, (250, 1000))
 
 
 def test_computed_style_recompiles_after_new_attribute_name() -> None:
@@ -1583,3 +1703,67 @@ def test_computed_style_html_style_drops_text_of_appended_element() -> None:
     assert isinstance(paragraph, Element)
     style.append(Element("b", children=[Text("red}")]))
     assert computed_style(paragraph)["color"] == "canvastext"
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        pytest.param(lambda style: style.attrs.__setitem__("type", "text/plain"), "canvastext", id="type-set"),
+        pytest.param(lambda style: setattr(style.children[0], "data", "p{color:blue}"), "blue", id="data-set"),
+        pytest.param(lambda style: style.rewrite_links(lambda _url: None), "red", id="rewrite-links-unchanged"),
+    ],
+)
+def test_computed_style_follows_a_style_element_edited_in_place(
+    edit: Callable[[Element], object], expected: str
+) -> None:
+    # none of these links or unlinks a node
+    paragraph, style = _styled_paragraph("<style>p{color:red}</style><p></p><i></i>")
+    edit(style)
+    assert computed_style(paragraph)["color"] == expected
+    sibling = paragraph.next_sibling
+    assert sibling is not None
+    sibling.decompose()  # an unrelated edit keeps the recompiled sheets
+    assert computed_style(paragraph)["color"] == expected
+
+
+def _styled_paragraph(markup: str) -> tuple[Element, Element]:
+    document = parse(markup)
+    paragraph = document.select_one("p")
+    style = document.select_one("style")
+    assert paragraph is not None
+    assert style is not None
+    computed_style(paragraph)  # compile and cache the sheets
+    return paragraph, style
+
+
+def test_computed_style_follows_a_style_type_removed_again() -> None:
+    paragraph, style = _styled_paragraph('<style type="text/plain">p{color:red}</style><p></p>')
+    assert computed_style(paragraph)["color"] == "canvastext"
+    del style.attrs["type"]
+    assert computed_style(paragraph)["color"] == "red"
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda style: style.rewrite_links(lambda _url: "https://example.org/b.png"), id="rewrite"),
+        pytest.param(lambda style: style.resolve_links("https://example.org/"), id="resolve"),
+    ],
+)
+def test_computed_style_follows_links_rewritten_inside_a_style_element(edit: Callable[[Element], object]) -> None:
+    paragraph, style = _styled_paragraph("<style>p{background-image:url(b.png)}</style><p></p><i></i>")
+    edit(style)
+    assert computed_style(paragraph)["background-image"] == "url(https://example.org/b.png)"
+    sibling = paragraph.next_sibling
+    assert sibling is not None
+    sibling.decompose()
+    assert computed_style(paragraph)["background-image"] == "url(https://example.org/b.png)"
+
+
+def test_computed_style_keeps_sheets_across_attribute_writes_that_keep_style_types() -> None:
+    paragraph, style = _styled_paragraph(
+        '<style>p{color:red}</style><style type="text/plain">p{color:green}</style><style>.x{color:blue}</style><p></p>'
+    )
+    style.attrs["media"] = "screen"
+    paragraph.attrs["class"] = "x"
+    assert computed_style(paragraph)["color"] == "blue"

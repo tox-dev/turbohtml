@@ -25,6 +25,8 @@ them absolute against a base URL in place:
     p style https://example.com/dir/hero.png
     a href https://example.com/dir/a/b.html
 
+Like a browser, the link functions skip a ``srcset`` candidate whose descriptors are invalid, such as ``640w 2x``.
+
 For a one-off transform (rewriting a CDN host, signing URLs), pass a function to :meth:`~turbohtml.Node.rewrite_links`;
 returning ``None`` leaves a link untouched. When an unclosed formatting element such as ``<a>`` is reopened in later
 blocks, its copies share one URL: the function runs for the first copy, and the others take its result.

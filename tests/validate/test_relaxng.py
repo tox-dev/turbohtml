@@ -4417,3 +4417,22 @@ def test_rng_validate_builds_a_define_below_many_attributes_linearly(work_steps:
         return partial(schema.validate, parse_xml("<e1/>"))
 
     work_steps.assert_linear(build, (70, 280))
+
+
+@pytest.mark.parametrize(
+    ("datatype", "value", "expected"),
+    [
+        pytest.param("integer", f"{'0' * 64}250", False, id="zeros-then-digits-out-of-bound"),
+        pytest.param("integer", f"{'0' * 90}50", True, id="zeros-then-digits-in-bound"),
+        pytest.param("double", f"5.{'0' * 80}e30", False, id="long-fraction-then-exponent-out-of-bound"),
+        pytest.param("double", f"1{'0' * 70}e-70", True, id="long-integer-then-exponent-in-bound"),
+    ],
+)
+def test_rng_long_number_range(datatype: str, value: str, *, expected: bool) -> None:
+    # the digits or exponent that decide the comparison sit past the 63rd character of the value
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="{datatype}"><param name="maxInclusive">100</param></data>'
+        "</element>"
+    )
+    assert tuple(validator.validate(parse_xml(f"<doc>{value}</doc>")).valid for _ in range(2)) == (expected, expected)

@@ -574,6 +574,7 @@ static int is_schema_el(const struct th_schema *schema, th_node *node, const cha
    `local`, or NULL. */
 static th_node *first_schema_child(const struct th_schema *schema, th_node *node, const char *ns, const char *local) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
         if (is_schema_el(schema, child, ns, local)) {
             return child;
         }
@@ -955,14 +956,27 @@ typedef struct th_schema {
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */
     Py_UCS4 *ws_buffer;
     Py_ssize_t ws_cap;
+    /* the buffer one validate() call copies a long number into to convert it; see dt_value_double */
+    char *number_buffer;
+    Py_ssize_t number_cap;
     /* XSD position sets of one validate() call that no matcher holds, and the length they were made for */
     struct posset_spare *posset_spares;
     Py_ssize_t posset_size;
+    /* XSD name lookup list of one validate() call, refilled for each element, and the index over it that an element
+       with many attributes builds */
+    struct edecl *edecl_items;
+    Py_ssize_t edecl_cap;
+    named_vec attr_names;
     struct xfacet_entry *facet_entries;
     size_t facet_count, facet_cap;
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
+    /* the children XSD validation asks a schema element for, one entry per parent that has any */
+    struct xchild_entry *child_entries;
+    size_t child_count, child_cap;
+    /* per sqnames entry of an XSD schema, at the same index: what xsd_cache_facets classified the element as */
+    struct xnode *xnodes;
     /* the xmlns declarations in scope on the instance walk of one validate() call */
     nsscope ns;
     int complex_extension; /* a complexContent extension exists, so the compile-time xs:all extension check has work to
@@ -1180,11 +1194,11 @@ static int named_index(th_schema *schema, named_vec *vec) {
     if (vec->len < 8) {
         return 0;
     }
-    size_t cap = 8;
+    size_t cap = vec->slot_cap > 8 ? vec->slot_cap : 8; /* a vector indexed again keeps the table it has */
     while (cap < (size_t)vec->len * 2) {
         cap *= 2;
     }
-    named_node **slots = arena_alloc(&schema->mem, cap * sizeof(named_node *));
+    named_node **slots = cap == vec->slot_cap ? vec->slots : arena_alloc(&schema->mem, cap * sizeof(named_node *));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;       /* GCOVR_EXCL_LINE */
     }
@@ -1626,7 +1640,12 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     local.regex_scratch = NULL;
     local.ws_buffer = NULL;
     local.ws_cap = 0;
+    local.number_buffer = NULL;
+    local.number_cap = 0;
     local.posset_spares = NULL;
+    local.edecl_items = NULL;
+    local.edecl_cap = 0;
+    local.attr_names = (named_vec){0};
     attr_scope tree_ns = {.tree = local.tree, .mem = &local.mem};
     local.tree_ns = &tree_ns;
     if (local.defines.len > 0) {

@@ -1672,15 +1672,15 @@ static const th_encoding_entry *meta_declared_encoding(const th_tree *tree) {
     Py_ssize_t count;
     const th_meta_label *labels = th_tree_meta_labels(tree, &count);
     for (Py_ssize_t index = 0; index < count; index++) {
-        char extracted[64]; /* label may point into it, so it outlives the branch below */
         const char *label = labels[index].text;
+        Py_ssize_t label_len = (Py_ssize_t)strlen(label);
         if (labels[index].from_content) {
-            label = prescan_charset_in_content(label, extracted, sizeof(extracted));
+            label = prescan_charset_in_content(label, &label_len);
             if (label == NULL) {
                 continue;
             }
         }
-        const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+        const th_encoding_entry *entry = th_encoding_lookup(label, label_len);
         if (entry != NULL) {
             return th_encoding_declared(entry);
         }

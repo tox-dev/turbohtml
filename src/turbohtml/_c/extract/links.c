@@ -11,9 +11,11 @@
 #include "core/common.h"
 
 #include "core/refresh.h"
+#include "core/srcset.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
+#include "dom/nodes.h"
 #include "dom/tree.h"
 
 #include <string.h>
@@ -91,7 +93,7 @@ static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit,
 }
 
 /* A comma inside a srcset URL belongs to the URL; only trailing URL commas and descriptor commas separate candidates.
- */
+   A candidate whose descriptors are invalid is not one the browser keeps, so it is not reported (core/srcset.h). */
 static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
@@ -109,14 +111,9 @@ static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, voi
         while (value[end - 1] == ',') {
             end--;
         }
-        if (emit(ctx, start, end, 0) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
-            return -1;                      /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (end < pos) {
-            continue;
-        }
-        while (pos < len && value[pos] != ',') {
-            pos++;
+        int valid = end < pos || srcset_descriptors_valid(value, len, &pos);
+        if (valid && emit(ctx, start, end, 0) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
+            return -1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     return 0;
@@ -697,8 +694,14 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
         out[out_len++] = value[cursor];
     }
     TH_WORK_STEPS_ADD(out_len);
-    int status = attr_name != NULL ? th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1)
-                                   : th_node_set_data(walk->tree, target, out, out_len);
+    int status;
+    if (attr_name != NULL) {
+        status = th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1);
+    } else {
+        status = th_node_set_data(walk->tree, target, out, out_len);
+        /* the text node is a <style>'s, and computed_style() keeps that sheet compiled across edits */
+        handle_clear_css_cache((HandleObject *)walk->handle);
+    }
     PyMem_Free(out);
     return status;
 }

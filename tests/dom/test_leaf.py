@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -24,6 +26,8 @@ from turbohtml import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
 
 def test_text_carries_its_data() -> None:
@@ -270,6 +274,90 @@ def test_element_attribute_names_folding_together_keep_the_first(attrs: dict[str
 
 def test_element_attribute_names_folding_together_count_once() -> None:
     assert len(Element("div", {"ID": "a", "id": "b"}).attrs) == 1
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(31, id="scanned"), pytest.param(32, id="sorted"), pytest.param(200, id="sorted-long")]
+)
+def test_element_with_many_attribute_names_folding_together_keeps_the_first(count: int) -> None:
+    attrs = _folding_attrs(count)
+    expected: dict[str, str] = {}
+    for name, value in attrs.items():
+        expected.setdefault(name.lower(), value)
+    assert list(Element("div", attrs).attrs.items()) == list(expected.items())
+
+
+def _folding_attrs(count: int) -> dict[str, str]:
+    # classes of three spellings laid out one spelling after another, so each class's first spelling comes first
+    classes = count // 3
+    names = [f"{spelling}{index}" for spelling in ("data-", "Data-", "DATA-") for index in range(classes)]
+    names += [f"pad{index}" for index in range(count - len(names))]
+    return {name: f"v{position}" for position, name in enumerate(names)}
+
+
+@pytest.mark.parametrize("count", [pytest.param(31, id="scanned"), pytest.param(32, id="sorted")])
+def test_element_repeated_attribute_name_value_is_not_read(count: int) -> None:
+    attrs: dict[str, int | str] = {f"data-{index}": "v" for index in range(count)}
+    attrs["DATA-0"] = 5  # folds onto the kept data-0, so its value is never converted
+    element = Element("div", attrs)  # ty: ignore[invalid-argument-type]  # a repeat's value is ignored
+    assert dict(element.attrs) == {f"data-{index}": "v" for index in range(count)}
+
+
+@pytest.mark.parametrize("count", [pytest.param(31, id="scanned"), pytest.param(32, id="sorted")])
+def test_element_kept_attribute_value_must_be_a_str(count: int) -> None:
+    attrs: dict[str, int | str] = {f"data-{index}": "v" for index in range(count)}
+    attrs["data-0"] = 5
+    with pytest.raises(TypeError, match="attribute value must be a str"):
+        Element("div", attrs)  # ty: ignore[invalid-argument-type]  # a deliberately wrong value
+
+
+@pytest.mark.parametrize("count", [pytest.param(31, id="scanned"), pytest.param(32, id="sorted")])
+def test_element_attribute_name_must_be_a_str(count: int) -> None:
+    attrs: dict[str | int, str] = {f"data-{index}": "v" for index in range(count)}
+    attrs[1] = "v"
+    with pytest.raises(TypeError, match="attribute name must be a str"):
+        Element("div", attrs)  # ty: ignore[invalid-argument-type]  # a deliberately wrong name
+
+
+@pytest.mark.parametrize("count", [pytest.param(31, id="scanned"), pytest.param(32, id="sorted")])
+def test_element_attribute_name_with_whitespace_is_rejected_at_either_size(count: int) -> None:
+    attrs: dict[str, str] = {f"data-{index}": "v" for index in range(count)}
+    attrs["bad name"] = "v"
+    with pytest.raises(ValueError, match="contains an invalid character"):
+        Element("div", attrs)
+
+
+@pytest.mark.parametrize("count", [pytest.param(31, id="scanned"), pytest.param(32, id="sorted")])
+def test_element_mapping_lookup_failure_propagates_at_either_size(count: int) -> None:
+    class FailingLookup:
+        def __getitem__(self, key: str) -> str:
+            raise KeyError(key)
+
+        def keys(self) -> list[str]:  # ruff:ignore[no-self-use]  # a mapping protocol method must be an instance method
+            return [f"data-{index}" for index in range(count)]
+
+    with pytest.raises(KeyError, match="data-0"):
+        Element("div", FailingLookup())  # ty: ignore[invalid-argument-type]  # a deliberately broken mapping
+
+
+def test_xml_element_with_many_attributes_unpickles_its_names() -> None:
+    # an unpickled XML element is built without folding, so its names keep their case
+    attributes = " ".join(f'Attr-{index}="{index}"' for index in range(40))
+    root = parse_xml(f"<r {attributes}/>").root
+    assert root is not None
+    restored = pickle.loads(pickle.dumps(root))  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
+    assert list(restored.attrs.items()) == list(root.attrs.items())
+    assert next(iter(restored.attrs)) == "Attr-0"
+
+
+def test_element_with_many_attributes_builds_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(Element, "div", {f"data-{index}": "1" for index in range(count)}), (2000, 8000)
+    )
+
+
+def test_element_with_many_folding_attribute_names_builds_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(Element, "div", _folding_attrs(count)), (2000, 8000))
 
 
 @pytest.mark.parametrize(

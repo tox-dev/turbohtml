@@ -1,0 +1,2 @@
+Long ``<meta>`` charset values are read in full, so padded labels resolve, and a ``charset`` that names no encoding no
+longer hides a ``content`` declaration, as in browsers.
