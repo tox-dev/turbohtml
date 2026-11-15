@@ -382,11 +382,13 @@ static int declares(F *folder, int32_t idx, const char *name) {
     return 0;
 }
 
-static void walk_member(F *folder, int32_t idx, int32_t depth, int member);
+static void walk(F *folder, int32_t idx, int32_t depth);
 
-static inline void walk(F *folder, int32_t idx, int32_t depth) {
-    walk_member(folder, idx, depth, 0);
-}
+static void walk_block(F *folder, int32_t idx, int32_t depth, int member);
+
+static void walk_if(F *folder, int32_t idx, int32_t depth, int member);
+
+static inline void walk_stmt(F *folder, int32_t idx, int32_t depth, int member);
 
 static void walk_chain(F *folder, int32_t first, int32_t depth) {
     for (int32_t idx = first; idx >= 0; idx = folder->prog->nodes[idx].next) {
@@ -401,7 +403,7 @@ static void walk_chain(F *folder, int32_t first, int32_t depth) {
    reached through `next` and walked in turn. */
 static void walk_members(F *folder, int32_t first, int32_t depth) {
     for (int32_t idx = first; idx >= 0; idx = folder->prog->nodes[idx].next) {
-        walk_member(folder, idx, depth, 1);
+        walk_stmt(folder, idx, depth, 1);
     }
 }
 
@@ -1482,11 +1484,78 @@ static TH_NOINLINE void walk_plus(F *folder, int32_t idx, int32_t depth) {
     fold_concat(folder, idx, owned_mark);
 }
 
+static TH_NOINLINE void walk_block(F *folder, int32_t idx, int32_t depth, int member) {
+    int32_t outer = folder->deepest;
+    folder->deepest = depth;
+    walk_members(folder, folder->prog->nodes[idx].a, depth + 1);
+    /* a transparent member's statements fold with the enclosing list, where its drop_empties splices them;
+       folding them here too would go over the innermost statements of a `{{{...}}}` nest once per level */
+    if (!member || !block_is_transparent(folder, idx)) {
+        int32_t first = optimize_chain(folder, folder->prog->nodes[idx].a);
+        folder->prog->nodes[idx].a = first;
+    }
+    if (outer > folder->deepest) {
+        folder->deepest = outer;
+    }
+}
+
+static TH_NOINLINE void walk_if(F *folder, int32_t idx, int32_t depth, int member) {
+    int32_t child_a = folder->prog->nodes[idx].a;
+    int32_t child_b = folder->prog->nodes[idx].b;
+    int32_t child_c = folder->prog->nodes[idx].c;
+    int32_t outer = folder->deepest;
+    folder->deepest = depth;
+    walk(folder, child_a, depth + 1);
+    int truth = pure_truthy(folder, child_a);
+    int32_t taken = truth ? child_b : child_c;
+    int32_t dropped = truth ? child_c : child_b;
+    /* A constant test leaves only the taken branch, unless the dropped one declares a hoisted name or the
+       taken one is the Annex-B legacy `if(x) function f(){}`, whose promotion would change its scope. The
+       branch takes the if's place before it is walked, so in a statement list it is walked as the member
+       the list splices in, not as a branch folded on its own. */
+    if (truth >= 0 && !node_hoists(folder, dropped) && (taken < 0 || folder->prog->nodes[taken].kind != JN_FUNC)) {
+        if (taken < 0) {
+            jm_node_empty(folder->prog, idx); /* if(false) with no else */
+            folder->changed = 1;
+        } else {
+            replace_with(folder, idx, taken);
+            walk_stmt(folder, idx, depth, member);
+        }
+    } else {
+        walk(folder, child_b, depth + 1);
+        splice_branch_else(folder, child_b);
+        if (child_c >= 0 && !(member && splice_abrupt_else(folder, idx))) {
+            walk(folder, child_c, depth + 1);
+            splice_branch_else(folder, child_c); /* the walks and splices may move the node arena */
+        }
+        if (folder->prog->nodes[idx].c >= 0 && is_empty_branch(folder, folder->prog->nodes[idx].c)) {
+            folder->prog->nodes[idx].c = -1; /* an empty else does nothing: if(a)b();else{} -> if(a)b() -> a&&b() */
+            folder->changed = 1;
+        }
+        if (truth < 0) {
+            convert_if(folder, idx);
+        }
+    }
+    if (outer > folder->deepest) {
+        folder->deepest = outer;
+    }
+}
+
+static inline void walk_stmt(F *folder, int32_t idx, int32_t depth, int member) {
+    int kind = folder->prog->nodes[idx].kind;
+    if (member && kind == JN_IF) {
+        walk_if(folder, idx, depth, 1);
+    } else if (member && kind == JN_BLOCK) {
+        walk_block(folder, idx, depth, 1);
+    } else {
+        walk(folder, idx, depth);
+    }
+}
+
 /* Fold the subtree at idx, which sits depth walk calls under the program root. folder->deepest is the deepest point
    the walk has reached under the innermost if, logical or statement list around it: the guard fold and the chain
-   rotation read it to know how tall the tree they are about to grow already is. member: the node is a statement
-   that walk_members walks, which its owner's optimize_chain folds next. */
-static void walk_member(F *folder, int32_t idx, int32_t depth, int member) {
+   rotation read it to know how tall the tree they are about to grow already is. */
+static void walk(F *folder, int32_t idx, int32_t depth) {
     if (idx < 0) {
         return;
     }
@@ -1590,21 +1659,9 @@ static void walk_member(F *folder, int32_t idx, int32_t depth, int member) {
             walk(folder, folder->prog->nodes[declr].b, depth + 1);
         }
         return;
-    case JN_BLOCK: {
-        int32_t outer = folder->deepest;
-        folder->deepest = depth;
-        walk_members(folder, child_a, depth + 1);
-        /* a transparent member's statements fold with the enclosing list, where its drop_empties splices them;
-           folding them here too would go over the innermost statements of a `{{{...}}}` nest once per level */
-        if (!member || !block_is_transparent(folder, idx)) {
-            int32_t first = optimize_chain(folder, folder->prog->nodes[idx].a);
-            folder->prog->nodes[idx].a = first;
-        }
-        if (outer > folder->deepest) {
-            folder->deepest = outer;
-        }
+    case JN_BLOCK:
+        walk_block(folder, idx, depth, 0);
         return;
-    }
     case JN_FUNC:
     case JN_ARROW:
         walk_chain(folder, child_a, depth + 1); /* params (default values may fold) */
@@ -1715,45 +1772,9 @@ static void walk_member(F *folder, int32_t idx, int32_t depth, int member) {
         }
         return;
     }
-    case JN_IF: {
-        int32_t outer = folder->deepest;
-        folder->deepest = depth;
-        walk(folder, child_a, depth + 1);
-        int truth = pure_truthy(folder, child_a);
-        int32_t taken = truth ? child_b : child_c;
-        int32_t dropped = truth ? child_c : child_b;
-        /* A constant test leaves only the taken branch, unless the dropped one declares a hoisted name or the
-           taken one is the Annex-B legacy `if(x) function f(){}`, whose promotion would change its scope. The
-           branch takes the if's place before it is walked, so in a statement list it is walked as the member
-           the list splices in, not as a branch folded on its own. */
-        if (truth >= 0 && !node_hoists(folder, dropped) && (taken < 0 || folder->prog->nodes[taken].kind != JN_FUNC)) {
-            if (taken < 0) {
-                jm_node_empty(folder->prog, idx); /* if(false) with no else */
-                folder->changed = 1;
-            } else {
-                replace_with(folder, idx, taken);
-                walk_member(folder, idx, depth, member);
-            }
-        } else {
-            walk(folder, child_b, depth + 1);
-            splice_branch_else(folder, child_b);
-            if (child_c >= 0 && !(member && splice_abrupt_else(folder, idx))) {
-                walk(folder, child_c, depth + 1);
-                splice_branch_else(folder, child_c); /* the walks and splices may move the node arena */
-            }
-            if (folder->prog->nodes[idx].c >= 0 && is_empty_branch(folder, folder->prog->nodes[idx].c)) {
-                folder->prog->nodes[idx].c = -1; /* an empty else does nothing: if(a)b();else{} -> if(a)b() -> a&&b() */
-                folder->changed = 1;
-            }
-            if (truth < 0) {
-                convert_if(folder, idx);
-            }
-        }
-        if (outer > folder->deepest) {
-            folder->deepest = outer;
-        }
+    case JN_IF:
+        walk_if(folder, idx, depth, 0);
         return;
-    }
     case JN_UNARY:
         /* `delete undefined` deletes the global binding, which is non-configurable (false, 13.5.1.2);
            `delete void 0` deletes a value (true) */
