@@ -1767,6 +1767,13 @@ def test_append_preserves_node_hash() -> None:
     assert _found(second_destination, "span") in held
 
 
+def test_appended_elements_hash_apart() -> None:
+    parent = Element("ul")
+    for _ in range(48):
+        parent.append(Element("li"))
+    assert len({hash(child) for child in parent.children}) == 48
+
+
 def test_append_preserves_descendant_references() -> None:
     source = _found(parse('<section><b data-value="old">text</b><i>end</i></section>'), "section")
     descendant = _found(source, "b")
