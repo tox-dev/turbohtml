@@ -130,6 +130,10 @@ struct th_node {
     /* Tree builder state: set while the element is an entry of the list of active formatting elements. The list
        outlives the stack of open elements, so membership is read here instead of searched. */
     uint8_t afe_listed;
+    /* An attribute value buffer of this element is also the value of another element: a clone takes its source's
+       slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
+       tree looks these up in its th_copy_memo instead of copying each one again. */
+    uint8_t attr_values_shared;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -424,11 +428,26 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator);
 const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize_t count, th_node *child,
                                 th_node *run_first, th_node *run_last);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
+/* The shared attribute values (th_node.attr_values_shared) a run of deep copies from one tree into another has copied
+   so far, keyed by their address in the source arena, so that a value the source elements share is copied once and
+   shared by the copies. th_tree_copy_node and th_tree_adopt_copy keep one per call. A caller that copies sibling
+   subtrees one by one zero-initializes one, hands it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing
+   call of the run, all between the same two trees, and releases it with th_copy_memo_free. */
+typedef struct {
+    struct th_copied_value *entries; /* open addressing; a NULL source address marks a free entry */
+    size_t capacity;
+    size_t count;
+} th_copy_memo;
+th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
+static inline void th_copy_memo_free(th_copy_memo *memo) {
+    PyMem_Free(memo->entries);
+}
 int th_tree_has_shadows(const th_tree *tree);
 th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root);
 /* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
    also take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);
+th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 /* How many nodes the tree's arena has ever held, linked or not: an upper bound on what adopting all of it copies. */
 uint32_t th_tree_node_count(const th_tree *tree);
 th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node);
@@ -639,6 +658,14 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
    allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
+/* Where a serialization of an XML tree stands with the xlink prefix, so a start tag reads the binding it inherits off
+   the tag written before it rather than off a scan of its ancestors. Start it at {NULL, NULL}; it stays there until a
+   tag first needs the binding. */
+typedef struct {
+    const th_node *last;  /* the element whose start tag was written last */
+    const th_node *scope; /* the outermost of last and its ancestors that carries xmlns:xlink, NULL when none does */
+} th_xml_xlink_walk;
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -656,6 +683,7 @@ typedef struct {
     int *charset_missing;     /* non-NULL when charset is a placeholder no label names: a writer sets *charset_missing
                                  instead of writing it, and the caller refuses the output */
     Py_ssize_t *clone_budget; /* Markdown: the attribute characters parser clones may still write, or NULL */
+    th_xml_xlink_walk *xml_xlink; /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the
@@ -672,11 +700,12 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
 Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
-   node to emit (NULL once the subtree is done) and the pretty layout's current
-   indentation depth. Start it at {root, 0}. */
+   node to emit (NULL once the subtree is done), the pretty layout's current
+   indentation depth and the xlink walk. Start it at {root, 0, {NULL, NULL}}. */
 typedef struct {
     th_node *node;
     int depth;
+    th_xml_xlink_walk xlink;
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from

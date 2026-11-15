@@ -104,9 +104,13 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
 
     The scrub recovers from HTML transport damage: it strips the surrounding whitespace and control characters the
     WHATWG basic URL parser removes (spec 4.4 steps 1-2, extended to embedded spaces since those only appear in
-    scraped junk), unwraps ``<![CDATA[...]]>``, truncates at a stray ``<``/``>``/``"`` delimiter, and undoes a
-    leftover ``&amp;`` escape. The survivor must be an ``http``/``https`` URL with a plausible host and pass the
-    ``language`` filter, then it is returned through :func:`normalize_url`.
+    scraped junk), unwraps ``<![CDATA[...]]>``, truncates at a stray ``<``/``>``/``"`` delimiter (one inside the
+    authority only when what follows cannot move the host: it is left for the host checks when an ``@`` comes after
+    it, or a dot, a ``%`` or a non-ASCII character with no ``<`` or ``>`` to make the host invalid), and undoes a
+    leftover ``&amp;`` escape.
+
+    The survivor must be an ``http``/``https`` URL with a plausible host and pass the ``language`` filter, then it is
+    returned through :func:`normalize_url`.
 
     :param url: the URL as found in the wild.
     :param options: the cleaning options; defaults to :class:`UrlCleaning` (drop trackers, keep slash and fragment).
