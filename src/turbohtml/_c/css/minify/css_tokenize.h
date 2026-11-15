@@ -521,12 +521,43 @@ CSS_NOINLINE static int css_holds_cut(const token_vec *vec, Py_ssize_t start, Py
     return 0;
 }
 
+/* The end of the unicode-range that opens at the `u` at pos, or 0 when there is none. CSS Syntax 3 has no such token,
+   so a range is one token only where the text after it does not merge with it: otherwise the renderer spaces the two
+   apart and splits a name. Only a name code point, `%` or `.` can merge with a range end, so the common `,` after a
+   range skips the check. The next text is passed two code points long when a number starts there, so a `.` before a
+   digit merges as the start of `.5`. */
+static inline Py_ssize_t css_scan_urange(const css_char *source, Py_ssize_t pos, Py_ssize_t length) {
+    if (pos + 2 >= length || source[pos + 1] != '+' || !(css_is_hex(source[pos + 2]) || source[pos + 2] == '?')) {
+        return 0;
+    }
+    Py_ssize_t scan = pos + 2;
+    Py_ssize_t digits = 0;
+    while (scan < length && digits < 6 && (css_is_hex(source[scan]) || source[scan] == '?')) {
+        scan++;
+        digits++;
+    }
+    if (scan < length && source[scan] == '-') {
+        scan++;
+        digits = 0;
+        while (scan < length && digits < 6 && css_is_hex(source[scan])) {
+            scan++;
+            digits++;
+        }
+    }
+    if (scan < length && (css_is_ident(source[scan]) || source[scan] == '%' || source[scan] == '.') &&
+        css_would_merge(source[scan - 1], 0, &source[scan], 1 + css_starts_number(source, scan, length))) {
+        return 0;
+    }
+    return scan;
+}
+
 /* Tokenize the whole source into vec; tokens point into source (zero-copy). */
 static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *vec) {
     Py_ssize_t pos = 0;
     while (pos < length) {
         css_char character = source[pos];
         css_token token = {0};
+        Py_ssize_t urange_end = 0;
         if (css_is_ws(character)) {
             Py_ssize_t scan = pos + 1;
             while (scan < length && css_is_ws(source[scan])) {
@@ -632,27 +663,12 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             token.unit_len = unit_end - after_number;
             token_vec_push(vec, token);
             pos = unit_end;
-        } else if ((character == 'u' || character == 'U') && pos + 2 < length && source[pos + 1] == '+' &&
-                   (css_is_hex(source[pos + 2]) || source[pos + 2] == '?')) {
-            Py_ssize_t scan = pos + 2;
-            Py_ssize_t digits = 0;
-            while (scan < length && digits < 6 && (css_is_hex(source[scan]) || source[scan] == '?')) {
-                scan++;
-                digits++;
-            }
-            if (scan < length && source[scan] == '-') {
-                scan++;
-                digits = 0;
-                while (scan < length && digits < 6 && css_is_hex(source[scan])) {
-                    scan++;
-                    digits++;
-                }
-            }
+        } else if ((character == 'u' || character == 'U') && (urange_end = css_scan_urange(source, pos, length)) != 0) {
             token.kind = CSS_URANGE;
             token.text = &source[pos];
-            token.text_len = scan - pos;
+            token.text_len = urange_end - pos;
             token_vec_push(vec, token);
-            pos = scan;
+            pos = urange_end;
         } else if (css_is_ident(character)) {
             if (css_is_bad_escape(source, pos, length)) {
                 /* the `\` is a delimiter no selector or typed value admits, so it is bad like a string cut short. The

@@ -1979,7 +1979,7 @@ def test_minify_css_live_rule_search_scales_linearly(work_steps: WorkSteps) -> N
         pytest.param('p{b:url(a"b)/*x*/c:d}e{f:g}', "e{f:g}", id="bare-url-quote-then-comment"),
         pytest.param('p{b:url(a "b)/*x*/c:d}e{f:g}', "e{f:g}", id="bare-url-space-quote-then-comment"),
         pytest.param('p{--x:url(a"b)}c{d:e}', "c{d:e}", id="bare-url-quote-custom-property"),
-        pytest.param('p{b:u+1url(a"b)/*x*/c:d}e{f:g}', "e{f:g}", id="unicode-range-bare-url-quote"),
+        pytest.param('p{b:u+1 url(a"b)/*x*/c:d}e{f:g}', "e{f:g}", id="unicode-range-bare-url-quote"),
         pytest.param(
             'q{url(b "c")/*"*/{d:e}f:";display:none;g:"}', 'q{f:";display:none;g:"}', id="bare-url-nested-rule"
         ),
@@ -3428,6 +3428,27 @@ def test_minify_css_unicode_range_keeps_split_tokens(value: str) -> None:
     source: Final = f"@font-face{{font-family:x; unicode-range:{value};src: url(a)}}"
     expected: Final = f"@font-face{{font-family:x;unicode-range:{value};src:url(a)}}"
     assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # CSS Syntax 3 has no unicode-range token, so a name that follows `u+<hex>` stays one ident
+        pytest.param("a{b:u+cfoo((c);d:e;f:g)}", "a{b:u+cfoo((c);d:e;f:g)}", id="name"),
+        pytest.param("a{b:u+c\\66oo((c);d:e;f:g)}", "a{b:u+cfoo((c);d:e;f:g)}", id="escape"),
+        pytest.param("a{b:u+ag}", "a{b:u+ag}", id="name-after-hex"),
+        pytest.param("a{b:U+1-2gh}", "a{b:U 1 -2gh}", id="name-after-span"),
+        pytest.param("a{b:u+1234567}", "a{b:u 1234567}", id="seventh-digit"),
+        pytest.param("a{b:u+1%}", "a{b:u 1%}", id="percentage"),
+        pytest.param("a{b:u+1.5}", "a{b:u 1.5}", id="fraction"),
+        pytest.param("a{b:u+1-.5}", "a{b:u 1-.5}", id="fraction-after-dash"),
+        pytest.param("a{b:u+1.c,u+4??d}", "a{b:u+1.c,u+4??d}", id="range-before-delimiter"),
+        pytest.param("a{b:u+a/**/(c)}", "a{b:u+a(c)}", id="range-before-block"),
+        pytest.param("a{b:u+a", "a{b:u+a}", id="range-at-end-of-input"),
+    ],
+)
+def test_minify_css_unicode_range_ends_where_its_tokens_end(source: str, expected: str) -> None:
+    assert (minify_css(source), minify_css(expected)) == (expected, expected)
 
 
 @pytest.mark.parametrize(
