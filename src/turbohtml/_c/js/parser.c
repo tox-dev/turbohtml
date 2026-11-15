@@ -36,6 +36,7 @@ typedef struct {
     jm_program *prog;
     int err;
     int32_t depth;     /* current parse-recursion depth; a nesting cap stops a stack overflow (#421) */
+    int32_t peak;      /* deepest level reached since the innermost chain began */
     int await_keyword; /* `await` starts an AwaitExpression: in an async function, or at a module's top level */
     int yield_keyword; /* `yield` starts a YieldExpression: in a generator */
     int strict;        /* strict mode code (ECMA-262 11.2.2): a module, a class, or a "use strict" directive's scope */
@@ -93,11 +94,38 @@ static int enter(P *parser) {
         return 0;
     }
     parser->depth++;
+    if (parser->depth > parser->peak) {
+        parser->peak = parser->depth;
+    }
     return 1;
 }
 
 static void leave(P *parser) {
     parser->depth--;
+}
+
+/* parser->depth forgets an operand's levels once it is parsed, but the spine built on it still stands that tall, so
+   a chain meters its height against parser->peak, the deepest level reached since the chain began. */
+static int32_t chain_begin(P *parser) {
+    int32_t outer = parser->peak;
+    parser->peak = parser->depth;
+    return outer;
+}
+
+static int chain_link(P *parser) {
+    if (parser->peak >= JM_MAX_DEPTH) {
+        fail(parser, "nested too deeply");
+        return 0;
+    }
+    parser->peak++;
+    parser->depth++;
+    return 1;
+}
+
+static void chain_end(P *parser, int32_t outer) {
+    if (outer > parser->peak) {
+        parser->peak = outer;
+    }
 }
 
 /* Advance to the next token; a lexer error becomes a parser error. */
@@ -1008,11 +1036,11 @@ static int binary_prec(P *parser, int no_in, int *logical, int *is_in_or_instanc
 }
 
 static int32_t parse_binary(P *parser, int min_prec, int no_in) {
+    int32_t outer = chain_begin(parser);
     int32_t left = parse_unary(parser);
     if (parser->err) {
         return -1;
     }
-    int32_t built = 0; /* each loop turn deepens the left-leaning spine by one, so it counts as nesting */
     for (;;) {
         int logical = 0;
         int worded = 0;
@@ -1020,10 +1048,9 @@ static int32_t parse_binary(P *parser, int min_prec, int no_in) {
         if (prec == 0 || prec < min_prec) {
             break;
         }
-        if (!enter(parser)) {
+        if (!chain_link(parser)) {
             return -1;
         }
-        built++;
         uint16_t op = (uint16_t)parser->lx.kind;
         int32_t word_node = -1;
         if (worded) {
@@ -1047,8 +1074,9 @@ static int32_t parse_binary(P *parser, int min_prec, int no_in) {
             set_c(parser, node, word_node);
         }
         left = node;
+        leave(parser);
     }
-    parser->depth -= built; /* the spine is built; release its levels so a sibling expression starts fresh */
+    chain_end(parser, outer);
     return left;
 }
 
@@ -1400,6 +1428,7 @@ static void parse_args(P *parser, int32_t call) {
    to it, but the first `(` is the new's own argument list, not a call on the callee.
    So this walks the dot/bracket chain only, stopping at `(`. */
 static int32_t parse_new_callee(P *parser) {
+    int32_t outer = chain_begin(parser);
     int32_t expr;
     if (kw(parser, "new")) {
         advance(parser);
@@ -1426,15 +1455,13 @@ static int32_t parse_new_callee(P *parser) {
     if (parser->err) {
         return -1;
     }
-    int32_t built = 0; /* the callee's member chain deepens the spine one node per link */
     for (;;) {
         if (!at(parser, JT_DOT) && !at(parser, JT_LBRACK)) {
             break;
         }
-        if (!enter(parser)) {
+        if (!chain_link(parser)) {
             return -1;
         }
-        built++;
         if (at(parser, JT_DOT)) {
             advance(parser);
             int32_t prop = leaf(parser, JN_IDENT);
@@ -1454,14 +1481,15 @@ static int32_t parse_new_callee(P *parser) {
         if (parser->err) {
             return -1;
         }
+        leave(parser);
     }
-    parser->depth -= built;
+    chain_end(parser, outer);
     return expr;
 }
 
 static int32_t parse_call_member(P *parser) {
+    int32_t outer = chain_begin(parser);
     int32_t expr;
-    int32_t built = 0; /* every call/member/tag link deepens the left-leaning spine by one */
     if (kw(parser, "new")) {
         advance(parser);
         if (at(parser, JT_DOT)) {
@@ -1490,10 +1518,9 @@ chain:
             !at(parser, JT_TEMPLATE) && !at(parser, JT_TEMPLATE_HEAD)) {
             break;
         }
-        if (!enter(parser)) {
+        if (!chain_link(parser)) {
             return -1;
         }
-        built++;
         if (at(parser, JT_DOT)) {
             advance(parser);
             int32_t prop = leaf(parser, JN_IDENT); /* a property name (identifier name) */
@@ -1547,8 +1574,9 @@ chain:
         if (parser->err) {
             return -1;
         }
+        leave(parser);
     }
-    parser->depth -= built;
+    chain_end(parser, outer);
     return expr;
 }
 

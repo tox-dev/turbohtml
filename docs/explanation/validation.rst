@@ -27,8 +27,9 @@ restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, 
 :class:`ValueError` for a ``ref``, ``type``, or ``base`` that names no component, for a cycle through ``group``,
 ``attributeGroup``, or complex-type derivation, for an identity constraint the validator does not enforce, for an
 ``xs:all`` group outside a complex type's content model, for an ``xs:all`` that occurs more than once, and for an
-extension that adds particles to an ``xs:all`` content model. A schema with such a gap fails to compile, so it cannot
-accept a document it was written to reject.
+extension that adds particles to an ``xs:all`` content model, and for an ``xs:group`` whose ``xs:all``, ``xs:sequence``,
+or ``xs:choice`` declares ``minOccurs`` or ``maxOccurs``. A schema with such a gap fails to compile, so it cannot accept
+a document it was written to reject.
 
 **RELAX NG** is a pattern algebra -- ``element``, ``attribute``, ``group``, ``choice``, ``interleave``, ``oneOrMore``,
 ``text``, ``data``, ``value``, ``list``, and ``ref`` -- and it is validated by James Clark's *derivative* algorithm
@@ -74,7 +75,9 @@ matcher for the ``pattern`` facet -- keeps a schema check close to the cost of t
 second pass in Python. The compiler rejects a RELAX NG schema whose refs recurse without an element in between, so the
 derivative does not see such a grammar and cannot overflow the stack on it. Compilation and validation start with an
 iterative tree-depth scan. A schema or instance nested 400 levels or deeper raises :class:`RecursionError` before a
-recursive grammar walk starts, including on small worker-thread stacks.
+recursive grammar walk starts, including on small worker-thread stacks. Both validators then descend the instance
+recursively for a fixed number of levels and with an explicit stack of open elements below them, so the C stack a
+validation needs does not grow with how deep the document nests.
 
 ***********************
  What a result carries

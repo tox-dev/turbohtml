@@ -36,11 +36,12 @@ same-name radios in the form):
 
 :meth:`~turbohtml.Element.form_data` returns the form's successful controls as ``(name, value)`` pairs in document
 order, following the WHATWG submission rules: unnamed, disabled, button, and unchecked checkbox/radio controls are
-skipped, controls inside a ``datalist`` are left out, and a ``select`` contributes one pair per selected option. Each
-value is the one a browser submits: an input's ``value`` attribute after its type's sanitization (newlines stripped from
-text, a ``url`` or ``email`` trimmed, an invalid ``number`` or date emptied, a ``range`` clamped to its ``min``,
-``max``, and ``step``), and a ``textarea``'s text with line breaks normalized to ``\n``. Pass the result straight to
-:func:`urllib.parse.urlencode`:
+skipped, controls inside a ``datalist`` are left out, and a ``select`` contributes one pair per selected option. An SVG
+or MathML element named like a control or an option is not one, so it contributes nothing, while HTML controls inside it
+still count. Each value is the one a browser submits: an input's ``value`` attribute after its type's sanitization
+(newlines stripped from text, a ``url`` or ``email`` trimmed, an invalid ``number`` or date emptied, a ``range`` clamped
+to its ``min``, ``max``, and ``step``), and a ``textarea``'s text with line breaks normalized to ``\n``. Pass the result
+straight to :func:`urllib.parse.urlencode`:
 
 .. testcode::
 
