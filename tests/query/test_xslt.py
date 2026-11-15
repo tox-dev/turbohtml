@@ -3672,6 +3672,34 @@ def test_transform_copy_default_namespace_under_literal_default(source: str, exp
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:n/></r>',
+            '<html xmlns="http://www.w3.org/1999/xhtml"><p:n xmlns:p="urn:p"/></html>',
+            id="prefixed-element",
+        ),
+        pytest.param(
+            "<r><n/></r>",
+            '<html xmlns="http://www.w3.org/1999/xhtml"><n xmlns=""/></html>',
+            id="no-declarations-in-source",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n/></r>',
+            '<html xmlns="http://www.w3.org/1999/xhtml"><n xmlns:p="urn:p" xmlns=""/></html>',
+            id="unprefixed-child-of-namespaced-source",
+        ),
+    ],
+)
+def test_transform_copy_of_under_literal_default(source: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><html xmlns="http://www.w3.org/1999/xhtml">'
+        '<xsl:copy-of select="r/*"/></html></xsl:template>'
+    )
+    assert _run(source, body, method="xml") == expected
+
+
+@pytest.mark.parametrize(
     ("body", "expected"),
     [
         pytest.param(
