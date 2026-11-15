@@ -401,13 +401,13 @@ static pattern *pat_choice(th_schema *schema, pattern *p1, pattern *p2) {
     if (schema->intern == NULL) { /* compiling: interning only exists during validation */
         return pat_binary(schema, P_CHOICE, p1, p2);
     }
-    /* hot path: two leaves in address order, the cheapest canonical order; a merge that reads this node rebuilds it in
-       trie order, which is the same node whenever the two orders agree */
+    /* hot path: two leaves split on their highest differing bit, which puts the lower number in p1, so this is the
+       trie node a merge would build; the merge fills in its trie fields if it ever reads it */
     if (p1->type != P_CHOICE && p2->type != P_CHOICE) {
         if (p1 == p2) {
             return p1;
         }
-        return p1 < p2 ? pat_binary(schema, P_CHOICE, p1, p2) : pat_binary(schema, P_CHOICE, p2, p1);
+        return p1->seq < p2->seq ? pat_binary(schema, P_CHOICE, p1, p2) : pat_binary(schema, P_CHOICE, p2, p1);
     }
     return pat_choice_merge(schema, p1, p2);
 }
@@ -467,8 +467,8 @@ static RNG_FORCEINLINE Py_ssize_t trie_size(const pattern *p) {
     return p->type == P_CHOICE ? p->leaves : 1;
 }
 
-/* Joins two tries whose leaves differ above both of their split bits. When the hot path in pat_choice built this node
-   already, the join only fills in its trie fields. */
+/* Joins two tries whose leaves differ above both of their split bits. A two-leaf choice the hot path in pat_choice
+   built is this node already, so the join only fills in its trie fields. */
 static pattern *trie_join(th_schema *schema, pattern *p, pattern *q) {
     int bit = trie_high_bit(trie_key(p) ^ trie_key(q));
     if ((trie_key(p) >> bit) & 1) {
@@ -514,8 +514,8 @@ static pattern *trie_union(th_schema *schema, pattern *s, pattern *t, Py_ssize_t
     return trie_join(schema, trie_union(schema, s->p1, t, work), s->p2);
 }
 
-/* A choice compiled from the schema, or one the hot path built in an order the trie does not use, becomes a trie each
-   time a merge meets it. */
+/* A two-leaf choice the hot path built becomes a trie the first time a merge meets it; a choice compiled from the
+   schema is not interned, so it is rebuilt as a trie each time. */
 static pattern *trie_of(th_schema *schema, pattern *p, Py_ssize_t *work) {
     if (p->type != P_CHOICE || p->leaves > 0) {
         return p;
