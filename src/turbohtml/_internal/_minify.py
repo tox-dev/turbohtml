@@ -58,7 +58,7 @@ def _minify_parted(html: str, layout: Minify, start: int) -> str:
     off, on = (parse(html, scripting=scripting, source_locations=True) for scripting in (False, True))
     # stripping comments leaves the element offsets the regions are worked out from
     expected = (_canonical(off, config, layout), _canonical(on, config, layout))
-    placed = {_start_offset(element): _ancestry(element) for element in off.iter_elements()}
+    placed = {_start_offset(element): element for element in off.iter_elements()}
     closes = {
         location.start_tag.start_offset: location.end_tag.end_offset
         for element in on.iter_elements()
@@ -91,11 +91,7 @@ def _start_offset(element: Element) -> int:
     return location.start_tag.start_offset if location is not None else -1
 
 
-def _ancestry(element: Element) -> tuple[str, ...]:
-    return tuple(ancestor.tag for ancestor in element.ancestors if isinstance(ancestor, Element))
-
-
-def _resume_offset(on: Document, placed: dict[int, tuple[str, ...]], close: int | None) -> int:
+def _resume_offset(on: Document, placed: dict[int, Element], close: int | None) -> int:
     # The start tag offset of the first element past the scripting-on noscript's end tag that the scripting-off tree
     # builds under the same ancestors, or sys.maxsize when there is none.
     if close is None:
@@ -104,10 +100,16 @@ def _resume_offset(on: Document, placed: dict[int, tuple[str, ...]], close: int 
         (
             offset
             for element in on.iter_elements()
-            if (offset := _start_offset(element)) >= close and placed.get(offset) == _ancestry(element)
+            if (offset := _start_offset(element)) >= close
+            and (twin := placed.get(offset)) is not None
+            and _ancestry(twin) == _ancestry(element)
         ),
         sys.maxsize,
     )
+
+
+def _ancestry(element: Element) -> tuple[str, ...]:
+    return tuple(ancestor.tag for ancestor in element.ancestors if isinstance(ancestor, Element))
 
 
 def _reparses_to(candidate: str, layout: Minify, config: Html, expected: tuple[str, str]) -> bool:
