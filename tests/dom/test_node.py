@@ -31,6 +31,8 @@ from turbohtml.query import Query
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from work_steps import WorkSteps
+
     from turbohtml import SourceLocation
 
 
@@ -1422,6 +1424,95 @@ def test_iter_elements_sees_insertions_after_pending() -> None:
     third: Final = Element("p")
     second.insert_after(third)
     assert list(iterator) == [second, third]
+
+
+def test_iter_elements_leaves_scope_entered_from_preceding_node() -> None:
+    first: Final = Element("p")
+    second: Final = Element("p")
+    tail: Final = Element("p")
+    root: Final = Element("section", children=[first, second])
+    holder: Final = Element("header")
+    Element("main", children=[holder, root, tail])
+    iterator: Final = root.iter_elements("p")
+    assert next(iterator) == first
+    holder.append(second)  # the pending node now precedes the scope, so the walk crosses it and runs on to the tail
+    assert list(iterator) == [second, first, tail]
+
+
+def test_iter_elements_leaves_scope_nested_under_pending() -> None:
+    first: Final = Element("p")
+    second: Final = Element("p")
+    tail: Final = Element("p")
+    root: Final = Element("section", children=[first, second])
+    iterator: Final = root.iter_elements("p")
+    assert next(iterator) == first
+    second.extract()
+    second.append(root)
+    Element("main", children=[second, tail])
+    assert list(iterator) == [second, first, tail]
+
+
+def test_iter_elements_keeps_scope_when_pending_returns() -> None:
+    first: Final = Element("p")
+    second: Final = Element("p")
+    third: Final = Element("p")
+    root: Final = Element("section", children=[first, second])
+    Element("main", children=[root, Element("p")])
+    iterator: Final = root.iter_elements("p")
+    assert next(iterator) == first
+    Element("aside", children=[second, third])
+    assert next(iterator) == second
+    root.append(third)  # the walk never crossed into the scope from outside, so the scope bounds it again
+    assert list(iterator) == [third]
+
+
+def test_iter_elements_follows_reattached_pending_subtree() -> None:
+    first: Final = Element("p")
+    second: Final = Element("p")
+    third: Final = Element("p")
+    tail: Final = Element("p")
+    holder: Final = Element("div", children=[second, third])
+    root: Final = Element("section", children=[first, holder])
+    target: Final = Element("aside")
+    Element("main", children=[root, target, tail])
+    iterator: Final = root.iter_elements("p")
+    assert next(iterator) == first
+    holder.extract()
+    assert next(iterator) == second
+    target.append(holder)  # the subtree that was detached with the pending node does not become the scope
+    assert list(iterator) == [third, tail]
+
+
+def test_iter_elements_drops_every_match_under_deep_nesting() -> None:
+    document: Final = parse_xml("<section>" * 300 + "<li/>" * 200 + "</section>" * 300)
+    dropped = 0
+    for element in document.iter_elements("li"):
+        element.decompose()
+        dropped += 1
+    assert dropped == 200
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda element: element.decompose(), id="decompose"),
+        pytest.param(lambda element: element.extract(), id="extract"),
+        pytest.param(lambda element: element.unwrap(), id="unwrap"),
+    ],
+)
+def test_iter_elements_edit_under_deep_nesting_stays_linear(
+    edit: Callable[[Element], object], work_steps: WorkSteps
+) -> None:
+    def edit_every_match(depth: int) -> Callable[[], object]:
+        document: Final = parse_xml("<section>" * depth + "<li/>" * depth + "</section>" * depth)
+
+        def edit_each() -> None:
+            for element in document.iter_elements("li"):
+                edit(element)
+
+        return edit_each
+
+    work_steps.assert_linear(edit_every_match, (250, 1000))
 
 
 def test_iter_elements_preserves_xml_case() -> None:

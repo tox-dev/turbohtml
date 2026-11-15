@@ -228,7 +228,8 @@ typedef struct {
     xp_name_test_fn name_test;
     void *name_test_ctx;
     int strict_no_ns;
-    xp_root *root; /* shared by the predicate contexts of one top-level evaluation */
+    xp_root *root;        /* shared by the predicate contexts of one top-level evaluation */
+    xp_lang_memo **langs; /* the caller's lang() memo (xp_eval_at), or NULL for the evaluation's own in caches */
 #ifdef TH_OPERATION_LIMIT
     size_t *operations; /* shared by the predicate contexts of one top-level evaluation */
 #endif
@@ -314,6 +315,13 @@ Py_ssize_t xp_first_out_of_order(xp_caches **caches, const xp_nodeset *set, Py_s
    fragment root) when the node sits under it, else the top of the node's own subtree, the
    way DOM's getRootNode() answers for a node built outside any document. */
 struct th_node *tree_root(xp_ctx *ctx);
+
+/* The attribute declaring node's own language for lang() (functions.c), or NULL. */
+const th_node_attr *xp_node_lang_attr(struct th_tree *tree, struct th_node *node, uint32_t xml_lang_atom);
+
+/* The attribute declaring the language of `from`, read on its nearest self-or-ancestor element that carries one, or
+   NULL: lang()'s climb past its first ancestors (eval.c). */
+const th_node_attr *xp_lang_memoized(xp_ctx *ctx, struct th_node *from, uint32_t xml_lang_atom);
 
 /* The XPath string-value of a node-set member, freshly allocated. */
 Py_UCS4 *item_string(struct th_tree *tree, xp_item item, Py_ssize_t *len);

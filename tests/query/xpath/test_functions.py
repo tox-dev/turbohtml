@@ -18,16 +18,14 @@ from bench.operations import INPUTS
 
 import turbohtml
 from turbohtml import Document, Element, Range, Text, XPath, parse, parse_xml
-from turbohtml.clean import Linkify, linkify_node
+from turbohtml.clean import LinkCandidate, Linkify, linkify_node
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from types import ModuleType, SimpleNamespace
 
     from pytest_mock import MockerFixture
     from work_steps import WorkSteps
-
-    from turbohtml.clean import LinkCandidate
 
 
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
@@ -920,6 +918,178 @@ def test_lang_on_a_text_node_context_reads_ancestor_lang() -> None:
 def test_lang_is_false_with_no_lang_bearing_ancestor() -> None:
     doc = turbohtml.parse("<div><p>hi</p></div>")
     assert doc.xpath("//text()[lang('en')]") == []
+
+
+@pytest.mark.parametrize(
+    ("declared", "expr", "expected"),
+    [
+        pytest.param({}, "//*[lang('en')]", [], id="undeclared"),
+        pytest.param({0: " xml:lang='en'"}, "//*[lang('en')]", list(range(150)), id="declared-at-the-top"),
+        pytest.param({0: " xml:lang='en'", 100: " xml:lang='fr'"}, "//*[lang('en')]", list(range(100)), id="outer"),
+        pytest.param(
+            {0: " xml:lang='en'", 100: " xml:lang='fr'"}, "//*[lang('fr')]", list(range(100, 150)), id="inner"
+        ),
+        pytest.param({20: " xml:lang='en'"}, "//*[lang('en')]", list(range(20, 150)), id="declared-below-the-top"),
+        pytest.param({20: " xml:lang='en'"}, "//*[not(lang('en'))]", list(range(20)), id="above-the-declaration"),
+        pytest.param(
+            {0: " xml:lang='en'", 110: " xml:lang='fr'"},
+            "//*[lang('fr') or lang('en')][lang('en')]",
+            list(range(110)),
+            id="asked-twice",
+        ),
+        pytest.param(
+            {0: " xml:lang='en'", 110: " xml:lang='fr'"},
+            "//d149/ancestor-or-self::*[lang('fr')]",
+            list(range(110, 150)),
+            id="deepest-first",
+        ),
+        pytest.param({90: " xml:lang='en-GB' id='x'"}, "//@id[lang('en')]/..", [90], id="attribute-context"),
+        pytest.param(
+            {0: " xml:lang='en'", 50: " xml:lang='fr'"},
+            "//d149[lang('fr')] | //d130[lang('fr')] | //d100[lang('en')] | //d20[lang('en')]",
+            [20, 130, 149],
+            id="a-few-long-walks",
+        ),
+    ],
+)
+def test_lang_on_a_deeply_nested_tree(declared: Mapping[int, str], expr: str, expected: list[int]) -> None:
+    assert _levels(_lang_chain(declared).xpath(expr)) == expected
+
+
+def _levels(result: XPathResult) -> list[int]:
+    return [int(tag[1:]) for tag in tags(result)]
+
+
+def _lang_chain(declared: Mapping[int, str], depth: int = 150) -> turbohtml.Node:
+    # deeper than the nodes and attributes lang() reads before it climbs through the evaluation's memo
+    opened: Final = "".join(f"<d{level}{declared.get(level, '')}>" for level in range(depth))
+    return parse_xml(opened + "".join(f"</d{level}>" for level in reversed(range(depth))))
+
+
+@pytest.mark.parametrize(
+    ("lang", "expr", "expected"),
+    [
+        pytest.param(" lang=de", "//li[lang('de')]", ["li", "li", "li"], id="inherited"),
+        pytest.param(" lang=nl", "//li[lang('de')]", [], id="inherited-other"),
+        pytest.param("", "//li[lang('de')]", [], id="undeclared"),
+        pytest.param(" lang=de", "//ul[lang('de') and lang('DE')]", ["ul"], id="own"),
+        pytest.param(" lang=nl", "//em[lang('de')]", ["em"], id="nearer-declaration"),
+        pytest.param(" lang=nl", "//*[lang('nl')]", ["ul", "li", "li", "li"], id="declaring-element"),
+    ],
+)
+def test_lang_below_an_element_with_many_attributes(lang: str, expr: str, expected: list[str]) -> None:
+    names: Final = " ".join(f"data-n{index}" for index in range(90))
+    document: Final = parse(f"<ul {names}{lang}><li>a<li>b<li><em lang=de>c</em></ul>")
+    assert tags(document.xpath(expr)) == expected
+
+
+class _Predicate(Protocol):
+    def __call__(self, context: SimpleNamespace, /) -> str | float | Element | Iterable[Element]: ...
+
+
+def _noop(_context: SimpleNamespace) -> bool:
+    return True
+
+
+# a registered extension runs the evaluation as a snapshot, which hands control to Python before every comparison and
+# extension call, as it does for every comparison on Python 3.11
+_SNAPSHOT: Final[dict[tuple[str | None, str], _Predicate]] = {(None, "noop"): _noop}
+
+
+def _deep_lang(size: int) -> turbohtml.Node:
+    return parse_xml(f"<doc xml:lang='de'>{'<s>' * size}{'</s>' * size}</doc>")
+
+
+def _wide_lang(size: int) -> turbohtml.Node:
+    names: Final = " ".join(f"data-w{index}" for index in range(size))
+    return parse(f"<div lang=de {names}>{'<i></i>' * size}</div>")
+
+
+@pytest.mark.parametrize(
+    ("build", "expression", "extensions"),
+    [
+        pytest.param(_deep_lang, "count(//*[lang('de')])", None, id="deep"),
+        pytest.param(_deep_lang, "count(//*[lang('de') and name() != 'q'])", None, id="deep-comparison"),
+        pytest.param(_deep_lang, "count(//*[lang('de') and name() != 'q'])", _SNAPSHOT, id="deep-comparison-snapshot"),
+        pytest.param(_deep_lang, "count(//*[noop() and lang('de')])", _SNAPSHOT, id="deep-extension"),
+        pytest.param(_wide_lang, "count(//i[lang('de')])", None, id="wide"),
+        pytest.param(_wide_lang, "count(//i[noop() and lang('de')])", _SNAPSHOT, id="wide-extension"),
+    ],
+)
+def test_lang_grows_linearly(
+    build: Callable[[int], turbohtml.Node],
+    expression: str,
+    extensions: dict[tuple[str | None, str], _Predicate] | None,
+    work_steps: WorkSteps,
+) -> None:
+    work_steps.assert_linear(lambda size: partial(build(size).xpath, expression, extensions=extensions), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    ("expr", "flips", "expected"),
+    [
+        pytest.param("//*[flip() and lang('en')]", 150, list(range(1, 150, 2)), id="by-turns"),
+        pytest.param("(//*[lang('en')])[position() < 150][flip()][lang('en')]", 149, [], id="asked-before-and-after"),
+        pytest.param("(//*)[position() < 150][flip()][lang('fr')]", 149, list(range(149)), id="asked-after"),
+    ],
+)
+def test_lang_reads_a_declaration_an_extension_changed(expr: str, flips: int, expected: list[int]) -> None:
+    document: Final = _lang_chain({0: " xml:lang='en'"})
+    top: Final = cast("Element", document.xpath_one("/*"))
+    calls: Final[list[str]] = []
+
+    def flip(_context: SimpleNamespace) -> bool:
+        # the declaration every element inherits changes, and its attribute array moves, between two lang() calls
+        calls.append(str(top.attrs["xml:lang"]))
+        top.attrs["xml:lang"] = "fr" if calls[-1] == "en" else "en"
+        top.attrs[f"data-{len(calls)}"] = ""
+        return True
+
+    assert _levels(document.xpath(expr, extensions={(None, "flip"): flip})) == expected
+    assert calls == (["en", "fr"] * 75)[:flips]
+
+
+def test_lang_reads_a_subtree_an_extension_moved() -> None:
+    document: Final = parse_xml(f"<r><a xml:lang='en'>{'<x>' * 100}{'</x>' * 100}</a><b xml:lang='fr'/></r>")
+    moved: Final = cast("Element", document.xpath_one("//a/x"))
+    target: Final = cast("Element", document.xpath_one("//b"))
+
+    def move(_context: SimpleNamespace) -> str:
+        target.append(moved)
+        return "/"
+
+    expr: Final = "concat(count(//x[lang('en')]), move(), count(//x[lang('en')]), '/', count(//x[lang('fr')]))"
+    assert document.xpath(expr, extensions={(None, "move"): move}) == "100/0/100"
+
+
+def test_lang_reads_a_detached_subtree_an_extension_attached() -> None:
+    document: Final = parse_xml(f"<r><a xml:lang='en'/><o>{'<x>' * 100}{'</x>' * 100}</o></r>")
+    detached: Final = cast("Element", document.xpath_one("//o")).extract()
+    target: Final = cast("Element", document.xpath_one("//a"))
+
+    def attach(_context: SimpleNamespace) -> str:
+        # the subtree's top had no parent when lang() climbed to it, and gains a declaring one without leaving a parent
+        target.append(detached)
+        return "/"
+
+    expr: Final = "concat(count($o//x[lang('en')]), attach(), count($o//x[lang('en')]))"
+    assert document.xpath(expr, o=detached, extensions={(None, "attach"): attach}) == "0/100"
+
+
+def test_lang_reads_an_anchor_linkify_cleared() -> None:
+    document: Final = parse(f"<a href='http://example.com' lang=en>{'<span>' * 80}s{'</span>' * 80}</a>")
+
+    def strip(link: LinkCandidate) -> LinkCandidate:
+        link.url = ""
+        link.attrs = {}
+        return link
+
+    def relink(_context: SimpleNamespace) -> str:
+        linkify_node(document, Linkify(callbacks=[strip], process_existing=True))
+        return "/"
+
+    expr: Final = "concat(count(//span[lang('en')]), relink(), count(//span[lang('en')]))"
+    assert document.xpath(expr, extensions={(None, "relink"): relink}) == "80/0"
 
 
 @pytest.mark.parametrize("count", [pytest.param(1, id="one"), pytest.param(1000, id="many")])

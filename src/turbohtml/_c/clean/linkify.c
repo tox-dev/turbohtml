@@ -1508,8 +1508,8 @@ static int prepare_candidate(PyObject *candidate_type, PyObject *url, PyObject *
     return 0;
 }
 
+/* Give anchor, which carries no attributes, the candidate's href and attributes. */
 static int set_candidate_attrs(th_tree *tree, th_node *anchor, PyObject *url, PyObject *attrs, int include_empty_url) {
-    anchor->attr_count = 0;
     PyObject *name;
     PyObject *value;
     Py_ssize_t pos = 0;
@@ -1633,6 +1633,7 @@ TH_NODE_API(static, int, apply_existing,
     if (result->vetoed) {
         unwrap_anchor(tree, anchor);
     } else {
+        th_node_attrs_clear(tree, anchor);
         status = set_candidate_attrs(tree, anchor, result->url, result->attrs, 0);
         if (status == 0 && replace_text) { /* GCOVR_EXCL_BR_LINE: attribute encoding/arena allocation */
             status = replace_anchor_text(tree, anchor, result->text);

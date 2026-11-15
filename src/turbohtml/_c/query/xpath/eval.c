@@ -721,8 +721,9 @@ static TH_NOINLINE int climb_ancestors(xp_nodeset *out, const xn *step, const st
 typedef struct {
     const struct th_node *node;
     union {
-        Py_ssize_t value;     /* a sibling position */
-        struct th_node *root; /* a memoized root (root_store) */
+        Py_ssize_t value;         /* a sibling position */
+        struct th_node *root;     /* a memoized root (root_store) */
+        const th_node_attr *attr; /* a memoized language declaration (declaration_store) */
     };
 } addr_entry;
 
@@ -795,12 +796,13 @@ static void root_store(addr_map *roots, const struct th_node *node, struct th_no
 /* The positions map holds the sibling positions the evaluation has numbered, keyed by child. A parent's children are
    numbered together the first time two of them need ordering, so a set that keeps meeting one long sibling list walks
    it once per evaluation. The roots map holds the root a deep climb reached for each node it passed (climb_memoized),
-   as of `unlinks`. */
+   as of `unlinks`. langs is the evaluation's lang() memo when its caller passes none (xp_lang_memoized). */
 struct xp_caches {
     xr_cache regex;
     addr_map positions;
     addr_map roots;
     uint64_t unlinks;
+    xp_lang_memo *langs;
 };
 
 static xp_caches *caches_get(xp_caches **caches) {
@@ -871,6 +873,123 @@ static struct th_node *climb_memoized(xp_ctx *ctx, struct th_node *document, str
         walked = next;
     }
     return top;
+}
+
+/* lang()'s answers past its first ancestors: each node a climb passed maps to the attribute declaring its language, or
+   to the parentless top a climb that met no declaration reached. They are read off the tree's attributes and parent
+   links, so the memo is kept only while no attribute was written (th_tree_attr_version; a write can also move the
+   array an answer points into) and no node has left its parent (th_tree_unlinks). Python code between two lang() calls
+   (an extension function, a finalizer the pins release) bumps one or the other when it edits either. Every other link
+   gives a parentless node a parent: the declarations below a top stay where they were, but one can now sit above it,
+   so a top that has gained a parent answers only for the nodes up to it. */
+struct xp_lang_memo {
+    addr_map declared;
+    addr_map tops;
+    uint64_t attr_version;
+    uint64_t unlinks;
+};
+
+void xp_lang_memo_free(xp_lang_memo *memo) {
+    if (memo != NULL) {
+        PyMem_Free(memo->declared.entries);
+        PyMem_Free(memo->tops.entries);
+        PyMem_Free(memo);
+    }
+}
+
+static const th_node_attr *known_declaration(const addr_map *declared, const struct th_node *node) {
+    return declared->capacity == 0 ? NULL : declared->entries[addr_slot(declared, node)].attr;
+}
+
+/* Point node, which the map does not hold, at the attribute declaring its language. Out of memory, node stays out of
+   the map, which costs later climbs the steps it would have saved. */
+static void declaration_store(addr_map *declared, const struct th_node *node, const th_node_attr *attr) {
+    if (addr_map_insert(declared, node, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return;                                   /* GCOVR_EXCL_LINE */
+    }
+    declared->entries[addr_slot(declared, node)].attr = attr;
+}
+
+/* The memo of ctx's caller, else of its evaluation, emptied if the tree changed since it was filled; NULL out of
+   memory. */
+static xp_lang_memo *lang_memo(xp_ctx *ctx) {
+    xp_lang_memo **slot = ctx->langs;
+    if (slot == NULL) {
+        xp_caches *caches = caches_get(ctx->caches);
+        if (caches == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        slot = &caches->langs;
+    }
+    if (*slot == NULL) {
+        *slot = PyMem_Calloc(1, sizeof(xp_lang_memo));
+        if (*slot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;     /* GCOVR_EXCL_LINE */
+        }
+    }
+    xp_lang_memo *memo = *slot;
+    uint64_t attr_version = th_tree_attr_version(ctx->tree);
+    uint64_t unlinks = th_tree_unlinks();
+    if (memo->attr_version != attr_version || memo->unlinks != unlinks) {
+        PyMem_Free(memo->declared.entries);
+        PyMem_Free(memo->tops.entries);
+        *memo = (xp_lang_memo){.attr_version = attr_version, .unlinks = unlinks};
+    }
+    return memo;
+}
+
+/* Climbs from `from` to the first node that declares a language, is the top, or has its answer in the memo, then
+   points every node it passed at that answer. A predicate that asks for every node of a deep tree, or of one below an
+   element with many attributes, thus reads each attribute and follows each parent link about once per memo. */
+const th_node_attr *xp_lang_memoized(xp_ctx *ctx, struct th_node *from, uint32_t xml_lang_atom) {
+    xp_lang_memo *memo = lang_memo(ctx);
+    if (memo == NULL) {                             /* GCOVR_EXCL_BR_LINE: allocation failure */
+        for (; from != NULL; from = from->parent) { /* GCOVR_EXCL_LINE */
+            const th_node_attr *declared = xp_node_lang_attr(ctx->tree, from, xml_lang_atom); /* GCOVR_EXCL_LINE */
+            if (declared != NULL) {                                                           /* GCOVR_EXCL_LINE */
+                return declared;                                                              /* GCOVR_EXCL_LINE */
+            }
+        } /* GCOVR_EXCL_LINE */
+        return NULL; /* GCOVR_EXCL_LINE */
+    }
+    const th_node_attr *declared = NULL;
+    struct th_node *top = NULL;
+    struct th_node *node = from;
+    for (;;) {
+        TH_WORK_STEP();
+        declared = known_declaration(&memo->declared, node);
+        if (declared != NULL) {
+            break;
+        }
+        struct th_node *known = known_root(&memo->tops, node);
+        if (known != NULL && known->parent == NULL) {
+            top = known;
+            break;
+        }
+        if (known != NULL) {
+            node = known->parent;
+            continue;
+        }
+        declared = xp_node_lang_attr(ctx->tree, node, xml_lang_atom);
+        if (declared != NULL || node->parent == NULL) {
+            top = node;
+            node = node->parent;
+            break;
+        }
+        node = node->parent;
+    }
+    for (struct th_node *walked = from; walked != node;) {
+        TH_WORK_STEP();
+        struct th_node *known = known_root(&memo->tops, walked);
+        struct th_node *next = known != NULL ? known->parent : walked->parent;
+        if (declared != NULL) {
+            declaration_store(&memo->declared, walked, declared);
+        } else {
+            root_store(&memo->tops, walked, top);
+        }
+        walked = next;
+    }
+    return declared;
 }
 
 struct th_node *tree_root(xp_ctx *ctx) {
@@ -1726,6 +1845,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                 ctx->name_test_ctx,
                 ctx->strict_no_ns,
                 ctx->root,
+                ctx->langs,
 #ifdef TH_OPERATION_LIMIT
                 ctx->operations,
 #endif
@@ -2661,6 +2781,7 @@ static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
     xr_cache_clear(&caches->regex);
     PyMem_Free(caches->positions.entries);
     PyMem_Free(caches->roots.entries);
+    xp_lang_memo_free(caches->langs);
     PyMem_Free(caches);
 }
 
@@ -2668,8 +2789,8 @@ static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
    value to a boolean. */
 static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                    Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
-                   xp_extension_fn extension, void *extension_ctx, xp_id_cache *ids, xp_result *out,
-                   const char **feature, int exists) {
+                   xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids,
+                   xp_result *out, const char **feature, int exists) {
     xp_caches *caches = NULL;
 #ifdef TH_OPERATION_LIMIT
     size_t operations = 0;
@@ -2677,7 +2798,7 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *
     xp_root root = {known_root, 0, known_root != NULL, ids, {NULL, NULL}};
     xp_ctx ctx = {
         tree,        context->node, context->attr, pos,  size, feature, vars, namespaces, extension, extension_ctx,
-        0,           &caches,       NULL,          NULL, NULL, NULL,    0,    &root,
+        0,           &caches,       NULL,          NULL, NULL, NULL,    0,    &root,      langs,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -2694,17 +2815,18 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *
 
 int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
-               xp_extension_fn extension, void *extension_ctx, xp_id_cache *ids, xp_result *out, const char **feature) {
-    return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, ids, out,
-                   feature, 0);
+               xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids, xp_result *out,
+               const char **feature) {
+    return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, langs, ids,
+                   out, feature, 0);
 }
 
 int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
                          struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
-                         xp_id_cache *ids, xp_result *out, const char **feature) {
-    return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, ids, out,
-                   feature, 1);
+                         xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature) {
+    return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, langs, ids,
+                   out, feature, 1);
 }
 
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
@@ -2734,6 +2856,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
         name_test_ctx,
         name_test == NULL && th_tree_is_xml(tree), /* GCOVR_EXCL_BR_LINE: XML only */
         &root,
+        NULL,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -2752,7 +2875,7 @@ int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *contex
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature) {
     return xp_eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, extension, extension_ctx, NULL,
-                      out, feature);
+                      NULL, out, feature);
 }
 
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
@@ -2766,7 +2889,7 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
     xp_root root = {0};
     xp_ctx ctx = {
         tree,        context,       -1,   1,    1, feature, vars, namespaces, extension, extension_ctx, 0, &caches,
-        &live,       before_python, NULL, NULL, 0, &root,
+        &live,       before_python, NULL, NULL, 0, &root,   NULL,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif

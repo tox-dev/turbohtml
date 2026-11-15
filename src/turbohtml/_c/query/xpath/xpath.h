@@ -28,6 +28,9 @@ typedef struct xp_program xp_program;
    also raises depth_error. The source is not retained; names and literals are copied. */
 xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen, PyObject *depth_error);
 
+/* Whether a name compiles back to a name test for exactly that name: Element.xpath_path asks before writing a tag. */
+int xp_is_plain_name(const Py_UCS4 *text, Py_ssize_t len);
+
 int xp_calls_python(const xp_program *prog);
 void xp_retain(xp_program *prog);
 void xp_free(xp_program *prog);
@@ -168,17 +171,24 @@ typedef struct {
 } xp_id_cache;
 void xp_id_cache_clear(xp_id_cache *cache);
 
+/* The language each node a deep lang() climb passed inherits (eval.c). */
+typedef struct xp_lang_memo xp_lang_memo;
+void xp_lang_memo_free(xp_lang_memo *memo);
+
 /* Like xp_eval, but seeds the context item, position and size instead of the node with 1/1. context is a node, or
    an attribute or namespace node of one (context->attr, see xp_item). The XSLT engine reuses this so position()/last()
    at the top of a select or test expression report the item's place in the current node list (xslt.c). known_root is
    NULL, or the root `/` selects for context and for every other node the evaluation can meet, through vars and
    extension included: the engine evaluates once per instruction and node, all of them under its source root, so it
-   passes that rather than have each evaluation climb to it. ids is NULL, or a zeroed cache the caller owns and
-   ends with xp_id_cache_clear, so the id() index outlives the call: the engine evaluates once per node, and
-   indexes its source once per run rather than walk it once per node. */
+   passes that rather than have each evaluation climb to it. langs is NULL, or a slot holding NULL or a memo that
+   outlives the call and that the caller ends with xp_lang_memo_free, for the same reason: lang() then climbs each
+   ancestor about once per run rather than once per evaluation. ids is NULL, or a zeroed cache the caller owns
+   and ends with xp_id_cache_clear, so the id() index outlives the call: the engine indexes its source once
+   per run rather than walk it once per node. */
 int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
-               xp_extension_fn extension, void *extension_ctx, xp_id_cache *ids, xp_result *out, const char **feature);
+               xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids, xp_result *out,
+               const char **feature);
 
 /* xp_eval_at for an expression the caller only converts to a boolean, as the test of xsl:if and xsl:when is: a
    location path stops at the first node it selects rather than collecting them all, so a node-set in *out is empty
@@ -186,7 +196,7 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *cont
 int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
                          struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
-                         xp_id_cache *ids, xp_result *out, const char **feature);
+                         xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature);
 
 typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
                                Py_ssize_t name_len);

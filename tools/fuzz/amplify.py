@@ -737,11 +737,12 @@ _TREE_SELECTORS: Final[tuple[str, ...]] = (
 # design; two levels keep each path short and still have every child cross its own sibling list and its parent's
 _PATH_ELEMENTS: Final[str] = "body > *, body > * > *"
 _XPATH_HOST: Final[Document] = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
-# node walks, the EXSLT functions that size their result from document data (str:padding is #957), and an id() lookup
-# per element, which walked the whole document each time
+# node walks, lang()'s climb to the declaring ancestor, the EXSLT functions that size their result from document
+# data (str:padding is #957), and an id() lookup per element, which walked the whole document each time
 _TREE_XPATHS: Final[tuple[str, ...]] = (
     "count(//*)",
     "count(//@*)",
+    "count(//*[lang('en')])",
     "string(/)",
     "str:padding(string(//@*[1]), '-')",
     "count(set:distinct(//@*))",
