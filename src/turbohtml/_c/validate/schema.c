@@ -572,6 +572,8 @@ typedef struct th_schema {
                                memo */
     Py_ssize_t choice_limit; /* leaves a choice built during validation may hold: 0 until a wide merge computes it, -1
                                 once a merge ran past it */
+    Py_ssize_t event_work;   /* merge steps and memoized derivatives of the event in progress, against the limit
+                                rng_event_spend() takes from the choice limit */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;

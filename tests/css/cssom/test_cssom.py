@@ -1201,6 +1201,17 @@ def test_computed_style_rebuilds_specificity_after_selector_change() -> None:
     assert (before, computed_style(node)["color"]) == ("blue", "red")
 
 
+def test_computed_style_rereads_dir_auto_after_text_change() -> None:
+    # both rules resolve the paragraph through the div; the answer kept for the first must not outlive the edit
+    document: Final = parse("<style>:dir(ltr){color:blue}p:dir(rtl){color:red}</style><div dir=auto>x<p></p></div>")
+    node: Final = document.select("p")[0]
+    before: Final = computed_style(node)["color"]
+    text: Final = document.select("div")[0].children[0]
+    assert isinstance(text, Text)
+    text.data = "א"
+    assert (before, computed_style(node)["color"]) == ("blue", "red")
+
+
 @pytest.mark.parametrize(
     ("selector", "expected"),
     [

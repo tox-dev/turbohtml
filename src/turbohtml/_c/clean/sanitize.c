@@ -2866,21 +2866,27 @@ static int apply_transform(sanitizer *s, th_node *element, PyObject **tag) {
 }
 
 /* A reparse reads a textarea's content as RCDATA up to the first `</textarea`, and an svg or math as foreign content,
-   so a <style> body or a comment below one is markup there. The parser never builds those shapes; a transform_tags
-   rename, an XML tree or a built tree does. A bit also stays set below an element the balancer escapes, which
-   over-approximates. */
+   so a <style> body or a comment below one is markup there. A parser without customizable select support reads a
+   select's content in its "in select" mode, which ignores a <style> start tag at any depth and tokenizes the body as
+   markup. That mode also ignores an svg or math start tag, so a textarea counts in every namespace, and a select does
+   too: a subtree serialized out of its foreign context reads a select below it as an HTML one. A bit also stays set
+   below an element the balancer escapes, which over-approximates. */
 enum {
     REPARSE_RCDATA = 1 << 0,
     REPARSE_FOREIGN = 1 << 1,
+    REPARSE_SELECT = 1 << 2,
 };
 
-static inline uint8_t reparse_below(uint16_t atom) {
+/* The REPARSE_* bit a kept element a reparse reads as `atom` sets for its descendants. */
+static inline uint8_t reparse_below(uint16_t atom, int is_html) {
     switch (atom) {
     case TH_TAG_TEXTAREA:
         return REPARSE_RCDATA;
     case TH_TAG_SVG:
     case TH_TAG_MATH:
-        return REPARSE_FOREIGN;
+        return is_html ? REPARSE_FOREIGN : 0;
+    case TH_TAG_SELECT:
+        return REPARSE_SELECT;
     default:
         return 0;
     }
@@ -2888,7 +2894,7 @@ static inline uint8_t reparse_below(uint16_t atom) {
 
 /* reparse_below for a walk's root, kept without being judged: an element, or the document of a parsed str. */
 static uint8_t reparse_below_root(const th_node *root) {
-    return root->type == TH_NODE_ELEMENT && root->ns == TH_NS_HTML ? reparse_below(reparsed_atom(root)) : 0;
+    return root->type == TH_NODE_ELEMENT ? reparse_below(reparsed_atom(root), root->ns == TH_NS_HTML) : 0;
 }
 
 /* The REPARSE_* bits of a walk position, read off the frame stack only for a <style> or a kept comment, so the walk
@@ -2961,7 +2967,8 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
        the unsafe-tag block: a policy that allowlists it keeps it with its body scrubbed
        against css_properties (like a `style` attribute), rather than dropping its CSS.
        The exemption ends where a reparse would not read the body as raw text (inside a
-       textarea, or an HTML svg or math), so the scrubbed CSS would be live markup. */
+       textarea, an HTML svg or math, or for a parser without customizable select a
+       select), so the scrubbed CSS would be live markup. */
     uint16_t atom = reparsed_atom(element);
     int style_element = atom == TH_TAG_STYLE && is_html;
     int allowed = ((is_unsafe_tag(atom) && !style_element) || is_unsafe_svg_animation(element))
@@ -3348,12 +3355,12 @@ static TH_NOINLINE uint8_t reparse_context(const th_node *root, const void *stac
             balanced ? ((const balanced_frame *)stack)[index].element : ((const sanitize_frame *)stack)[index].element;
         int action = balanced ? ((const balanced_frame *)stack)[index].action
                               : (int)((const sanitize_frame *)stack)[index].action;
-        if (action == SANITIZE_KEEP_CHILDREN && element->ns == TH_NS_HTML) {
-            bits |= reparse_below(reparsed_atom(element));
+        if (action == SANITIZE_KEEP_CHILDREN) {
+            bits |= reparse_below(reparsed_atom(element), element->ns == TH_NS_HTML);
         }
     }
-    if (kept != NULL && kept->ns == TH_NS_HTML) {
-        bits |= reparse_below(reparsed_atom(kept));
+    if (kept != NULL) {
+        bits |= reparse_below(reparsed_atom(kept), kept->ns == TH_NS_HTML);
     }
     return bits;
 }

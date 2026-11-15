@@ -1205,6 +1205,16 @@ def test_all_base_empty_extension_counts_each_member_once() -> None:
     assert not check(schema, "<r><a/><a/><b/></r>").valid
 
 
+def test_optional_all_group_reference_when_members_are_present() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g" minOccurs="0"/></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert [error.message for error in check(schema, "<r><b/></r>").errors] == ["required element 'a' is missing"]
+    assert check(schema, "<r><b/><a/></r>").valid
+
+
 def test_all_group_beside_sequence_content() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
@@ -1288,6 +1298,58 @@ def test_all_each_member_once_is_valid() -> None:
     schema = _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>')
     assert check(schema, "<r><b/><a/></r>").valid
     assert check(schema, "<r><b/></r>").valid
+
+
+_ALL_GROUP_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
+_ALL_GROUP_DEF: Final[str] = f'<xs:group name="g"><xs:all>{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+            '<xs:group ref="g" maxOccurs="2"/></xs:complexType></xs:element></xs:schema>',
+            id="group-ref-twice",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+            '<xs:group ref="g" maxOccurs="unbounded"/></xs:complexType></xs:element></xs:schema>',
+            id="group-ref-unbounded",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>'
+            f'<xs:all maxOccurs="2">{_ALL_GROUP_MEMBERS}</xs:all></xs:complexType></xs:element></xs:schema>',
+            id="direct-all-twice",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="h"><xs:all maxOccurs="2">{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="h"/></xs:complexType></xs:element></xs:schema>',
+            id="group-definition-all-twice",
+        ),
+    ],
+)
+def test_all_group_occurring_more_than_once_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all group may occur only once"):
+        XMLSchema(schema)
+
+
+def test_all_group_occurring_once_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+        '<xs:group ref="g" minOccurs="0" maxOccurs="1"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r><a/><b/></r>").valid
+    assert check(schema, "<r/>").valid
+
+
+def test_repeated_sequence_group_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="s" maxOccurs="2"/></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert check(schema, "<r><c/><c/></r>").valid
 
 
 @pytest.mark.parametrize(
