@@ -316,10 +316,35 @@ static inline Py_ssize_t c14n_find_text_stop_wide(const Py_UCS4 *text, Py_ssize_
 
 #endif
 
-/* The first c14n text stop at or after index, or len. */
+/* Whether a code point lies between `?` and the surrogates, where c14n text has nothing to escape or drop. The
+   subtraction folds both bounds into one unsigned compare. */
+static inline int c14n_text_plain(Py_UCS4 character) {
+    return character - 0x3F < 0xD800 - 0x3F;
+}
+
+/* The first c14n text stop at or after index, or len. A short run tests four plain code points per bounds check and
+   gives the rest (spaces, digits and punctuation, and code points from the surrogates up) the exact test. */
 static inline Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
     if (len - index >= C14N_WIDE_RUN) {
         return c14n_find_text_stop_wide(text, index, len);
+    }
+    while (index + 4 <= len) {
+        if (c14n_text_plain(text[index])) {
+            if (!c14n_text_plain(text[index + 1])) {
+                index += 1;
+            } else if (!c14n_text_plain(text[index + 2])) {
+                index += 2;
+            } else if (!c14n_text_plain(text[index + 3])) {
+                index += 3;
+            } else {
+                index += 4;
+                continue;
+            }
+        }
+        if (c14n_find_stop(text, index, index + 1, C14N_TEXT_STOPS) == index) {
+            return index;
+        }
+        index++;
     }
     return c14n_find_stop(text, index, len, C14N_TEXT_STOPS);
 }
