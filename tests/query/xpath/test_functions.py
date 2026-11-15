@@ -8,7 +8,7 @@ import sys
 from functools import partial
 from string import ascii_lowercase, ascii_uppercase
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, TypeAlias, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, cast
 from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # parses fixed markup from the test corpus, not untrusted input
 
 import pytest
@@ -20,7 +20,8 @@ import turbohtml
 from turbohtml import Document, Element, Text, XPath, parse, parse_xml
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
+    from types import SimpleNamespace
 
     from pytest_mock import MockerFixture
     from work_steps import WorkSteps
@@ -1161,6 +1162,209 @@ def test_concat_constructed_text_child(text: str) -> None:
 )
 def test_concat_item_string_values(markup: str, expression: str, expected: str) -> None:
     assert parse_xml(markup).xpath(expression) == expected
+
+
+def _reversed(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return nodes[::-1]
+
+
+def _rotated(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return [*nodes[1:], nodes[0]]
+
+
+def _repeated(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return nodes[:1] * 4
+
+
+def _swapped(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return [nodes[1], nodes[0], *nodes[2:]]
+
+
+def _turned(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return [*nodes[:2], *nodes[:1:-1]]
+
+
+def _doubled(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return [*nodes[:2], *nodes[1:]]
+
+
+class _Extension(Protocol):
+    def __call__(
+        self, context: SimpleNamespace, nodes: list[Element], /
+    ) -> str | float | Element | Iterable[Element]: ...
+
+
+_OUT_OF_ORDER: Final[dict[tuple[str | None, str], _Extension]] = {
+    (None, "reversed"): _reversed,
+    (None, "rotated"): _rotated,
+    (None, "repeated"): _repeated,
+    (None, "swapped"): _swapped,
+    (None, "turned"): _turned,
+    (None, "doubled"): _doubled,
+}
+
+
+@pytest.mark.parametrize(
+    ("expression", "numbered"),
+    [
+        pytest.param("str:concat(//a)", False, id="str-concat"),
+        pytest.param("string-join(//a, '')", False, id="string-join"),
+        pytest.param("id(//a)", False, id="id"),
+        pytest.param("set:distinct(//a)", True, id="set-distinct"),
+        pytest.param("str:concat(//a[not(a)]/ancestor-or-self::a)", False, id="reverse-axis"),
+        pytest.param("str:concat(/ | (//a)[position() > 1])", False, id="inside-the-root-node"),
+        pytest.param("str:concat((//a)[position() < 4] | //text())", False, id="text-node-inside"),
+        pytest.param("str:concat(reversed(//a))", False, id="out-of-order"),
+        pytest.param("str:concat(rotated(//a))", False, id="out-of-order-later"),
+        pytest.param("str:concat(reversed(//a | //b))", False, id="out-of-order-from-the-last-node"),
+        pytest.param("string-join(repeated(//a), '')", False, id="same-member-again"),
+    ],
+)
+def test_gathering_nested_members_is_bounded_per_call(expression: str, *, numbered: bool) -> None:
+    expected: Final = re.compile(
+        re.escape(
+            "xpath: node-set members inside one another repeat more than 2621440 characters (10 MiB) of text;"
+            " select nodes that do not contain one another"
+        )
+    )
+    with pytest.raises(ValueError, match=expected):
+        _nested(4, numbered=numbered).xpath(expression, extensions=_OUT_OF_ORDER)
+
+
+def _nested(depth: int, *, numbered: bool = False) -> Document:
+    # every <a> has the million characters as its string-value, so each one below the first repeats them
+    opened: Final = "".join(f"<a>{index}" if numbered else "<a>" for index in range(depth))
+    return parse_xml(f"<r>{opened}{'x' * 1_000_000}{'</a>' * depth}<b/></r>")
+
+
+@pytest.mark.parametrize(
+    ("expression", "numbered", "expected"),
+    [
+        pytest.param("string-length(str:concat(//a))", False, 3_000_000.0, id="str-concat"),
+        pytest.param("string-length(string-join(//a, ', '))", False, 3_000_004.0, id="string-join"),
+        pytest.param("count(id(//a))", False, 0.0, id="id"),
+        pytest.param("count(set:distinct(//a))", True, 3.0, id="set-distinct"),
+        pytest.param("string-length(str:concat(reversed(//a)))", False, 3_000_000.0, id="out-of-order"),
+    ],
+)
+def test_gathering_nested_members_within_the_allowance(expression: str, *, numbered: bool, expected: float) -> None:
+    assert _nested(3, numbered=numbered).xpath(expression, extensions=_OUT_OF_ORDER) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param(
+            "string-length(concat(str:concat((//a)[position() > 1]), str:concat((//a)[1]/a//a)))",
+            5_000_000.0,
+            id="two-calls",
+        ),
+        pytest.param("count(//a[str:concat(.//a) != ''])", 3.0, id="predicate-contexts"),
+    ],
+)
+def test_gathering_calls_each_have_their_own_allowance(expression: str, expected: float) -> None:
+    # no call here repeats more than two million characters, and none of them holds what another gathered
+    assert _nested(4).xpath(expression) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expression", "expected"),
+    [
+        pytest.param("<a>{text}</a>" * 4, "string-length(str:concat(//a))", 4_000_000.0, id="str-concat"),
+        pytest.param("<a>{text}</a>" * 4, "string-length(string-join(//a, ','))", 4_000_003.0, id="string-join"),
+        pytest.param("<a>{text}</a>" * 4, "count(id(//a))", 0.0, id="id"),
+        pytest.param("<a>1{text}</a><a>2{text}</a><a>3{text}</a>", "count(set:distinct(//a))", 3.0, id="set-distinct"),
+        pytest.param("<a><a><a><a>{text}</a></a></a></a>", "count(set:distinct(//a))", 1.0, id="set-distinct-same"),
+        pytest.param(
+            "<a><a>{text}</a></a><c>1{text}</c><c>1{text}</c><c>2{text}</c>",
+            "count(set:distinct(//a | //c))",
+            3.0,
+            id="set-distinct-keeps-one-of-equal-values",
+        ),
+        pytest.param(
+            "<a><a><a><a>{text}</a></a></a></a><c>1{text}</c><c>2{text}</c>",
+            "count(set:distinct(//a | //c))",
+            3.0,
+            id="set-distinct-dropped-values-repeat-nothing",
+        ),
+        pytest.param(
+            "<a><a><a><a><!--{text}--></a></a></a></a>",
+            "string-length(str:concat(//a | //comment()))",
+            1_000_000.0,
+            id="comment-inside",
+        ),
+        pytest.param(
+            "<a k='{text}'><a k='{text}'><a k='{text}'><a k='{text}'/></a></a></a>",
+            "string-length(str:concat(//a | //@k))",
+            4_000_000.0,
+            id="attributes-inside",
+        ),
+        pytest.param(
+            "<a><a>{text}</a><a>{text}</a></a><a>{text}</a><a>{text}</a>",
+            "string-length(str:concat(//a))",
+            6_000_000.0,
+            id="siblings-after-a-nested-run",
+        ),
+        pytest.param(
+            "<b><a>{text}</a></b><a>{text}</a><b><a>{text}</a><a>{text}</a></b><c/><c/><c/><c/><c/><a>{text}</a>",
+            "string-length(str:concat(//a))",
+            5_000_000.0,
+            id="members-apart",
+        ),
+    ],
+)
+def test_gathering_members_that_repeat_nothing_is_not_limited(markup: str, expression: str, expected: float) -> None:
+    assert parse_xml(f"<r>{markup.format(text='x' * 1_000_000)}</r>").xpath(expression) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("string-length(str:concat(//a))", 6_000_000.0, id="str-concat"),
+        pytest.param("string-length(string-join(//a, ''))", 6_000_000.0, id="string-join"),
+        pytest.param("count(id(//a))", 0.0, id="id"),
+        pytest.param("string-length(str:concat(//a | //@k))", 6_000_006.0, id="attributes-between"),
+        pytest.param("string-length(str:concat(doubled(//a)))", 7_000_000.0, id="same-member-again"),
+    ],
+)
+def test_gathering_members_ranked_in_order_is_not_limited(expression: str, expected: float) -> None:
+    assert _apart(6).xpath(expression, extensions=_OUT_OF_ORDER) == expected
+
+
+def _apart(count: int, *, depth: int = 1000, text: str = "x" * 1_000_000) -> Document:
+    # every <a> ends its own chain, so placing one after another climbs further than a sort of the set may walk
+    chain: Final = f"{'<c>' * depth}<a k='v'>{text}</a>{'</c>' * depth}"
+    return parse_xml(f"<r>{chain * count}</r>")
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("str:concat(swapped(//a))", id="out-of-order-first"),
+        pytest.param("str:concat(turned(//a))", id="out-of-order-after-ranking"),
+    ],
+)
+def test_gathering_members_ranked_out_of_order_is_bounded(expression: str) -> None:
+    with pytest.raises(ValueError, match="repeat more than 2621440 characters"):
+        _apart(6).xpath(expression, extensions=_OUT_OF_ORDER)
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(lambda size: f"{'<c>' * 32}<a>x</a>{'</c>' * 32}" * size, id="chains"),
+        pytest.param(lambda size: f"{'<c><a>x</a>' * size}{'</c>' * size}", id="one-chain"),
+        pytest.param(lambda size: "<a>x</a><b/><b/><b/><b/>" * size, id="siblings"),
+        pytest.param(lambda size: "".join(f"<a>{index}</a><b/>" for index in range(size)), id="distinct-values"),
+    ],
+)
+@pytest.mark.parametrize("expression", ["str:concat(//a)", "string-join(//a, '')", "set:distinct(//a)", "id(//a)"])
+def test_gathering_members_grows_linearly(markup: Callable[[int], str], expression: str, work_steps: WorkSteps) -> None:
+    # the first member holds more text than the allowance, so the call reads where every member after it lies
+    work_steps.assert_linear(
+        lambda size: partial(parse_xml(f"<r><a>{'x' * 3_000_000}</a>{markup(size)}</r>").xpath, expression),
+        (1000, 4000),
+    )
 
 
 @pytest.mark.parametrize(

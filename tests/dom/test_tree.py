@@ -582,6 +582,145 @@ def test_noahs_ark_compares_empty_attribute_values(markup: str, expected: str) -
     assert body.inner_html == expected
 
 
+# Twelve distinct open formatting elements keep the list long enough that a push looks its duplicates up in the hash
+# set instead of comparing against each entry.
+_LISTED: Final[str] = "".join(f'<u id="{index}">' for index in range(12))
+
+
+def _colliding(index: int) -> str:
+    # these code points agree in their low 20 bits, which the hash's low slot bits read, so the values collide
+    return "".join("\U00100071" if index >> bit & 1 else "q" for bit in range(12))
+
+
+def _closed(tag: str, first: int, count: int) -> str:
+    return "".join(f'<{tag} t="{_colliding(index)}"></{tag}>' for index in range(first, first + count))
+
+
+def _marked_level(level: int) -> str:
+    # the template puts a marker in front of 50 entries that stay listed once </span> pops them off the stack
+    entries = "".join(f'<b t="{_colliding(50 * level + index)}">' for index in range(50))
+    return f"<template><span>{entries}</span>"
+
+
+def _behind_markers(count: int) -> str:
+    levels = "".join(_marked_level(level) for level in range(count // 100))
+    return f"{levels}<template>{_LISTED}{_closed('b', 4000 - count, count)}"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(lambda count: f"<u>{_closed('s', 0, count)}", id="one-open-entry"),
+        pytest.param(lambda count: _LISTED + _closed("s", 0, count), id="long-list"),
+        pytest.param(
+            lambda count: f'<font face="{"z" * 8 * count}">{_LISTED}{_closed("s", 0, count)}', id="long-value"
+        ),
+        pytest.param(_behind_markers, id="entries-behind-markers"),
+    ],
+)
+def test_formatting_elements_push_in_linear_steps(source: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<p><em><em><em><s></s><em></p>z",
+            "<p><em><em><em><s></s><em></em></em></em></em></p><em><em><em>z</em></em></em>",
+            id="after-removal",
+        ),
+        pytest.param(
+            "<div><p><em><em><em></p>z<em></div>w",
+            "<div><p><em><em><em></em></em></em></p><em><em><em>z<em></em></em></em></em></div>"
+            "<em><em><em>w</em></em></em>",
+            id="after-reconstruction",
+        ),
+        pytest.param(
+            "<p><em><em><em><table><tr><td><em></td></tr></table><em></p>z",
+            "<p><em><em><em><table><tbody><tr><td><em></em></td></tr></tbody></table><em></em></em></em></em></p>"
+            "<em><em><em>z</em></em></em>",
+            id="after-cell",
+        ),
+        pytest.param(
+            # the cell's own twelve entries put the hash set in use, and its end returns to entries the set never held
+            f"<p><em><em><em><table><tr><td>{_LISTED}</td></tr></table><em></p>z",
+            f"<p><em><em><em><table><tbody><tr><td>{_LISTED}{'</u>' * 12}</td></tr></tbody></table><em></em></em></em>"
+            "</em></p><em><em><em>z</em></em></em>",
+            id="after-long-cell",
+        ),
+        pytest.param(
+            "<p><em><em><em><div></em><em></div></p>z",
+            "<p><em><em><em></em></em></em></p><div><em><em><em></em></em></em></div><p></p>"
+            "<em><em><em>z</em></em></em>",
+            id="after-adoption-bookmark",
+        ),
+        pytest.param(
+            "<div><a><em><em><em><p>y</a><em></p></div>z",
+            "<div><a><em><em><em></em></em></em></a><em><em><em><p><a>y</a><em></em></p></em></em></em></div>"
+            "<em><em><em>z</em></em></em>",
+            id="after-adoption-clones",
+        ),
+        pytest.param(
+            "<p><em><em><em><template><em></template><em></p>z",
+            "<p><em><em><em><template><em></em></template><em></em></em></em></em></p><em><em><em>z</em></em></em>",
+            id="after-template",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("prefix", "container"),
+    [pytest.param("", "body", id="scanned"), pytest.param(_LISTED, 'u[id="11"]', id="hashed")],
+)
+def test_noahs_ark_reopens_three_identical_entries(markup: str, expected: str, prefix: str, container: str) -> None:
+    # the fourth em drops the earliest from the list, so the text reopens three; behind twelve open entries the
+    # duplicate lookup goes through the hash set and its cached keys, which must agree with the scan
+    element = parse(prefix + markup).select_one(container)
+    assert isinstance(element, Element)
+    assert element.inner_html == expected
+
+
+def test_noahs_ark_counts_entries_cloned_by_the_adoption_agency() -> None:
+    # identical entries survive each adoption agency clone, so the fourth drops the earliest and the text reopens three
+    layer = f"<em>{'<section>' * 10}</em>"
+    body = parse(f"{layer * 3}<em>{'</section>' * 30}x").find("body")
+    assert isinstance(body, Element)
+    node = body.children[-1]
+    reopened = 0
+    while isinstance(node, Element):
+        assert node.tag == "em"
+        reopened += 1
+        node = node.children[0]
+    assert reopened == 3
+
+
+# the long values stay on the list, so every rebuild of the hash set reads them again
+def _cleared_cells(count: int) -> str:
+    return f"<em title='{'x' * 8 * count}'><table><tr>{'<td><em>' * count}"
+
+
+def _cloned_rounds(count: int) -> str:
+    rounds = "".join(f"{'<section>' * 10}</em>{'</section>' * 10}<strong></strong>" for _ in range(count))
+    return f"<em title='{'x' * 30 * count}'>{rounds}"
+
+
+def _emptied_list(count: int) -> str:
+    entries = "".join(f"<em a={index}></em>" for index in range(count))
+    return f"<strong>{entries}</strong>{'<em></em>' * count}"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(_cleared_cells, id="cleared-marker"),
+        pytest.param(_cloned_rounds, id="adoption-clone"),
+        pytest.param(_emptied_list, id="emptied-list"),
+    ],
+)
+def test_formatting_entries_leave_the_list_in_linear_steps(source: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+
+
 def test_colgroup_fragment_keeps_whitespace_after_ignored_characters() -> None:
     # with no colgroup to pop, each non-whitespace character is ignored in "in column group" and the
     # whitespace between them is still inserted
@@ -1770,6 +1909,103 @@ def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
     assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
 
 
+_CAPPED_PARSES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(parse, _DEPTH_CAP - 3, id="document"),
+    pytest.param(partial(parse_fragment, context="div"), _DEPTH_CAP - 2, id="fragment"),
+]
+
+
+@pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
+@pytest.mark.parametrize("shallower", [pytest.param(0, id="at-cap"), pytest.param(1, id="one-shallower")])
+@pytest.mark.parametrize(
+    ("prefix", "text"),
+    [
+        pytest.param("<table><colgroup>", "cellafter", id="colgroup"),
+        pytest.param("<table><col id=c1>", "cellafter", id="col"),
+        pytest.param("<table><caption>c</caption>", "ccellafter", id="caption"),
+        pytest.param("<table><template><col></template>", "cellafter", id="template-in-table"),
+        pytest.param("<template><col></template>", "cellafter", id="template-in-body"),
+    ],
+)
+def test_table_part_rejected_at_depth_cap_keeps_later_content(
+    make: Callable[[str], Document | DocumentFragment], nesting: int, shallower: int, prefix: str, text: str
+) -> None:
+    tail = "<table><col span=2 id=c2><tr><td>cell</td></tr></table><p>after"
+    root = make(f"{'<div>' * (nesting - shallower)}{prefix}{tail}")
+    assert root.text == text
+
+
+@pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
+def test_col_rejected_at_depth_cap_keeps_its_table_and_attributes(
+    make: Callable[[str], Document | DocumentFragment], nesting: int
+) -> None:
+    table = make(f"{'<div>' * nesting}<table><col span=2><col id=c2>").find("table")
+    assert table is not None
+    assert [(child.tag, dict(child.attrs)) for child in table.children if isinstance(child, Element)] == [
+        ("col", {"span": "2"}),
+        ("col", {"id": "c2"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<table><caption></table></p>x", id="caption"),
+        pytest.param(f"<p><b>{'<span>' * (_DEPTH_CAP - 4)}<template></template></p>x", id="body-template"),
+        pytest.param(
+            f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<table><template></template></table></p>x", id="table-template"
+        ),
+        pytest.param(
+            f"<p><b>{'<span>' * (_DEPTH_CAP - 5)}<template><template></template></template></p>x",
+            id="nested-template",
+        ),
+    ],
+)
+def test_formatting_element_survives_table_part_refused_at_depth_cap(markup: str) -> None:
+    assert "<b>x</b>" in parse(markup).html
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        pytest.param(
+            "<template><template></template>x", "<template><template></template>x</template>", id="in-template"
+        ),
+        pytest.param(
+            "<template><br><template></template>x", "<template><br><template></template>x</template>", id="in-body"
+        ),
+        pytest.param(
+            "<template><col><template></template></template>x",
+            "<template><col><template></template></template>x",
+            id="in-column-group",
+        ),
+        pytest.param(
+            "<template><br><template><col></template>x",
+            "<template><br><template></template><col>x</template>",
+            id="mode-switched-inside",
+        ),
+    ],
+)
+def test_refused_template_end_tag_closes_only_itself(content: str, expected: str) -> None:
+    # the second template fills the stack, so the third is refused and its content lands beside it
+    outer = parse(f"{'<span>' * (_DEPTH_CAP - 4)}<template>{content}").find("template")
+    assert outer is not None
+    assert outer.inner_html == expected
+
+
+def test_table_closed_under_refused_template_keeps_later_text() -> None:
+    # the end tag closes the table around the refused template, and the outer template resumes in its own mode
+    markup = f"<body><template><table><tr><td>{'<span>' * (_DEPTH_CAP - 7)}<template><table></table>x"
+    assert parse(markup).text == "x"
+
+
+def test_stray_template_end_tag_at_depth_cap_is_ignored() -> None:
+    # the parse reached the cap, so the end tag looks for a refused template record, and no template is open at all
+    document = parse(f"{'<div>' * _DEPTH_CAP}</template>x")
+    assert document.find("template") is None
+    assert document.html.endswith(f"<div></div><div></div>x{'</div>' * (_DEPTH_CAP - 2)}</body></html>")
+
+
 @pytest.mark.parametrize(
     "nesting",
     [
@@ -1782,6 +2018,32 @@ def test_frameset_refused_at_depth_cap_keeps_every_frame(nesting: int) -> None:
     # a refused frameset's end tag must not close an ancestor, or the frames after it are dropped
     document = parse(f"{'<frameset>' * nesting}<frame>{'</frameset><frame>' * nesting}")
     assert len(document.find_all("frame")) == nesting
+
+
+def test_noframes_refused_at_depth_cap_keeps_the_frameset_open() -> None:
+    document = parse(f"{'<frameset>' * (_DEPTH_CAP - 1)}<noframes>x</noframes><frame>")
+    assert document.find_all("frameset")[-1].inner_html == "<noframes></noframes>x<frame>"
+
+
+@pytest.mark.parametrize(
+    ("tag", "inner"),
+    [
+        pytest.param("script", "<script></script>xtail", id="script"),
+        pytest.param("style", "<style></style>xtail", id="style"),
+        pytest.param("textarea", "<textarea></textarea>xtail", id="textarea"),
+        pytest.param("title", "<title></title>xtail", id="title"),
+        pytest.param("xmp", "<xmp></xmp>xtail", id="xmp"),
+        pytest.param("iframe", "<iframe></iframe>xtail", id="iframe"),
+        pytest.param("noembed", "<noembed></noembed>xtail", id="noembed"),
+        pytest.param("noframes", "<noframes></noframes>xtail", id="noframes"),
+        pytest.param("noscript", "<noscript></noscript>xtail", id="noscript"),
+        pytest.param("plaintext", "<plaintext></plaintext>x&lt;/plaintext&gt;tail", id="plaintext"),
+    ],
+)
+def test_raw_text_element_refused_at_depth_cap_keeps_its_parent_open(tag: str, inner: str) -> None:
+    # the end tag of a refused element must not close the div it was refused under
+    document = parse(f"<!doctype html><html><body>{'<div>' * (_DEPTH_CAP - 2)}<{tag}>x</{tag}>tail", scripting=True)
+    assert document.find_all("div")[-1].inner_html == inner
 
 
 def test_capped_parse_round_trips_through_serialization() -> None:

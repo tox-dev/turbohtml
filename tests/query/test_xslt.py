@@ -397,6 +397,32 @@ def test_transform_identity_copy() -> None:
     assert transform(sheet, turbohtml.parse_xml(source)) == source
 
 
+def test_transform_identity_copy_of_many_attributes() -> None:
+    body = (
+        '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*"/>'
+        '<xsl:if test="self::a"><xsl:attribute name="n7">last</xsl:attribute></xsl:if>'
+        '<xsl:apply-templates select="node()"/></xsl:copy></xsl:template>'
+    )
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
+    attrs = [f'n{index}="{index}"' for index in range(70)]
+    source = f"<a {' '.join(attrs)}><b {' '.join(attrs[:3])}/></a>"
+    attrs[7] = 'n7="last"'  # the later xsl:attribute replaces the copied one where it stands
+    assert transform(sheet, turbohtml.parse_xml(source)) == f"<a {' '.join(attrs)}><b {' '.join(attrs[:3])}/></a>"
+
+
+def test_transform_identity_copy_stays_linear_in_attributes(work_steps: WorkSteps) -> None:
+    body = (
+        '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*|node()"/></xsl:copy></xsl:template>'
+    )
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
+    work_steps.assert_linear(
+        lambda count: partial(
+            transform, sheet, turbohtml.parse_xml("<r {}/>".format(" ".join(f"n{index}=''" for index in range(count))))
+        ),
+        (1000, 4000),
+    )
+
+
 def test_transform_copy_of_comment_and_pi() -> None:
     body = (
         '<xsl:template match="/"><out>'
@@ -817,6 +843,26 @@ def test_transform_generate_id_does_not_depend_on_node_address() -> None:
     ids = convert(first).split()
     assert len(set(ids)) == 3
     assert convert(second).split() == ids
+
+
+def test_transform_generate_id_distinguishes_attributes() -> None:
+    body = "".join(
+        f'<xsl:value-of select="generate-id({select})"/><xsl:text> </xsl:text>'
+        for select in ("doc", "doc/@lang", "doc/@dir", "doc/namespace::*")
+    )
+    ids = _run('<doc lang="en" dir="ltr"/>', f'<xsl:template match="/">{body}</xsl:template>').split()
+    assert len(set(ids)) == len(ids) == 4
+
+
+@pytest.mark.parametrize("select", ["generate-id()", "generate-id(current())"])
+def test_transform_generate_id_distinguishes_attributes_in_for_each(select: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:value-of select="generate-id(doc)"/><xsl:text> </xsl:text>'
+        f'<xsl:for-each select="doc/@*"><xsl:value-of select="{select}"/><xsl:text> </xsl:text></xsl:for-each>'
+        "</xsl:template>"
+    )
+    ids = _run('<doc lang="en" dir="ltr"/>', body).split()
+    assert len(set(ids)) == len(ids) == 3
 
 
 def test_transform_generate_id_empty_for_empty_node_set() -> None:

@@ -37,6 +37,11 @@ descendants of the context node. For a node outside any document, such as an ele
 held by a ``DocumentFragment``, the root is the top of that node's own tree, as DOM's ``getRootNode()`` defines it.
 Migrating from ``lxml``, ``parsel``, or ``pyquery`` keeps your existing expressions.
 
+An expression nests at most 64 levels and raises :class:`ValueError` past that, so the C stack it needs fits the
+smallest thread stacks. Each parenthesized group, unary minus and operator in an arithmetic or comparison chain counts
+one level, and a function call, a location path and a predicate count one more each. Chains of ``and``, ``or`` and ``|``
+count once however long they are.
+
 Two functions read the HTML document the way HTML means it, where ``lxml``'s legacy HTML parser returns nothing:
 ``lang()`` honors the HTML ``lang`` attribute (``lxml`` only consults ``xml:lang``), and ``namespace-uri()`` reports the
 real SVG and MathML namespace for foreign content (``lxml`` leaves it empty). HTML elements report no namespace in both,
@@ -218,6 +223,13 @@ numbers (``min``, ``max``, ``highest``, ``lowest``, ``abs``, ``power``), and ``d
 
 ``str:padding`` raises :exc:`ValueError` for a length above 100,000 characters, which bounds the allocation a length
 read from document data can request.
+
+``str:concat``, ``string-join``, ``set:distinct`` and ``id`` read the string-value of every member of a node-set. An
+element's string-value is the text of all its descendants, so a member inside another member repeats text, and a set of
+nested elements such as ``//div`` holds the innermost text once for each level. One call may gather 2,621,440 characters
+(10 MiB) of such repeated text before it raises :exc:`ValueError`. Members that do not contain one another spend none of
+it. A node-set an extension function returns out of document order spends it on every member from the first one out of
+place.
 
 ``str:tokenize`` and ``str:split`` are not built in: they would have to synthesize token nodes, and the engine's
 node-sets only reference nodes that already exist in the tree. Likewise ``date:`` reads an explicit date string rather
