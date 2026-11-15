@@ -196,6 +196,12 @@ int xp_too_deep(int depth);
 #define XP_HELD_DEPTH 1
 #define XP_PREDICATE_DEPTH 1
 
+/* Before CPython 3.12, and on PyPy and free-threaded builds, = and != compare through Python, so a predicate using
+   them takes the per-context evaluation rather than the offset formulas. */
+#if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
+#define XP_EQ_VIA_PYTHON 1
+#endif
+
 /* The evaluation context: the tree, the current node, its 1-based proximity
    position and the context size, plus where to report an unimplemented feature. */
 typedef struct {
