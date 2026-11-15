@@ -186,13 +186,13 @@ def test_many_trailing_breaks_keep_visible_text() -> None:
         pytest.param(lambda n: f"<p>a{'<br>' * n}x", Markdown(), id="before-text"),
         pytest.param(lambda n: f"<br>{'<br>' * n}x", Markdown(), id="opening-a-run"),
         pytest.param(lambda n: f"<p>a{'<br> ' * n}", Markdown(), id="trailing-with-spaces"),
-        pytest.param(lambda n: f"<p>a{'<u><br></u>' * n}", Markdown(), id="trailing-in-wrappers"),
-        pytest.param(lambda n: f"<p>a{'<a href=u><br></a>' * n}", Markdown(), id="trailing-in-links"),
+        pytest.param(lambda n: f"<p>a{'<span><br></span>' * n}", Markdown(), id="trailing-in-wrappers"),
+        pytest.param(lambda n: f"<p>a{'<a href=/x><br></a>' * n}", Markdown(), id="trailing-in-links"),
         pytest.param(
-            lambda n: f"<p>a{'<a href=u><br></a>' * n}", Markdown(strip=["a"]), id="trailing-in-stripped-links"
+            lambda n: f"<p>a{'<a href=/x><br></a>' * n}", Markdown(strip=["a"]), id="trailing-in-stripped-links"
         ),
         pytest.param(
-            lambda n: f"<a href=u>a{'<br><h2><br></h2>' * n}x</a>", Markdown(), id="around-headings-in-link-text"
+            lambda n: f"<a href=/y>a{'<br><h3><br></h3>' * n}x</a>", Markdown(), id="around-headings-in-link-text"
         ),
     ],
 )
@@ -203,16 +203,18 @@ def test_run_of_breaks_is_linear(markup: Callable[[int], str], options: Markdown
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("<p>a<br><br><br>x", "a  \n\\\n\\\nx", id="before-text"),
-        pytest.param("<br><br><br>x", "\\\n\\\n\\\nx", id="opening-a-run"),
-        pytest.param("<p>a<br> <br> <br> ", "a", id="trailing-with-spaces"),
-        pytest.param("<p>a<u><br></u><u><br></u><u><br></u>", "a", id="trailing-in-wrappers"),
+        pytest.param("<p>b<br><br><br><br>y", "b  \n\\\n\\\n\\\ny", id="before-text"),
+        pytest.param("<br><br><br><br>y", "\\\n\\\n\\\n\\\ny", id="opening-a-run"),
+        pytest.param("<p>b<br> <br> <br> <br> ", "b", id="trailing-with-spaces"),
+        pytest.param("<p>b<span><br></span><span><br></span><span><br></span>", "b", id="trailing-in-wrappers"),
         pytest.param(
-            "<p>a<a href=u><br></a><a href=u><br></a><a href=u><br></a>", "a[](u)[](u)[](u)", id="trailing-in-links"
+            "<p>b<a href=/z><br></a><a href=/z><br></a><a href=/z><br></a>",
+            "b[](/z)[](/z)[](/z)",
+            id="trailing-in-links",
         ),
         pytest.param(
-            "<a href=u>a<br><h2><br></h2><br><h2><br></h2><br><h2><br></h2>x</a>",
-            "[a  \n\\\n\\\nx](u)",
+            "<a href=/q>b<br><h4><br></h4><br><h4><br></h4><br><h4><br></h4>y</a>",
+            "[b  \n\\\n\\\ny](/q)",
             id="around-headings",
         ),
     ],
