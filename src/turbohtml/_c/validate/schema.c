@@ -584,6 +584,9 @@ typedef struct th_schema {
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */
     Py_UCS4 *ws_buffer;
     Py_ssize_t ws_cap;
+    /* XSD position sets of one validate() call that no matcher holds, and the length they were made for */
+    struct posset_spare *posset_spares;
+    Py_ssize_t posset_size;
     struct xfacet_entry *facet_entries;
     size_t facet_count, facet_cap;
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
@@ -1006,6 +1009,7 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     local.regex_scratch = NULL;
     local.ws_buffer = NULL;
     local.ws_cap = 0;
+    local.posset_spares = NULL;
     if (local.defines.len > 0) {
         const size_t bytes = (size_t)local.defines.len * sizeof(def_entry);
         local.defines.items = arena_alloc(&local.mem, bytes);
