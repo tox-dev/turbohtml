@@ -1420,10 +1420,253 @@ def test_rng_nullable_memo_rejects_blank_value_attribute() -> None:
     assert not rng_ok(schema, '<r k=" "/>')
 
 
-def test_rng_overlapping_attributes_scale_linearly(work_steps: WorkSteps) -> None:
-    document = parse_xml("<doc a0='1' a1='2' a2='3'/>")
-    pattern = '<optional><attribute><nsName ns=""/></attribute></optional>'
-    work_steps.assert_linear(lambda n: partial(RelaxNG(rwrap(pattern * n)).validate, document), (20, 32))
+def _named_attributes(count: int) -> str:
+    return "".join(f'<attribute name="a{index}"/>' for index in range(count))
+
+
+def _namespace_attributes(count: int) -> str:
+    return "".join(
+        f'<oneOrMore><attribute><nsName ns="urn:u{index}"/></attribute></oneOrMore>' for index in range(count)
+    )
+
+
+_OVERLAPPING_ATTRIBUTES: Final[str] = "attributes whose names overlap"
+_UNBOUNDED_ATTRIBUTE: Final[str] = "anyName or nsName attribute must be inside oneOrMore or zeroOrMore"
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        pytest.param('<attribute name="bar"/><attribute name="bar"/>', _OVERLAPPING_ATTRIBUTES, id="same-name-twice"),
+        pytest.param(
+            '<oneOrMore><attribute><nsName ns="urn:a"/></attribute></oneOrMore>' * 2,
+            _OVERLAPPING_ATTRIBUTES,
+            id="nsname-twice",
+        ),
+        pytest.param(
+            '<attribute name="bar"/><oneOrMore><attribute><anyName/></attribute></oneOrMore>',
+            _OVERLAPPING_ATTRIBUTES,
+            id="anyname-after-named",
+        ),
+        pytest.param(
+            '<interleave><attribute name="bar"/><attribute name="bar"/></interleave>',
+            _OVERLAPPING_ATTRIBUTES,
+            id="interleave-same-name",
+        ),
+        pytest.param(
+            "<oneOrMore><attribute><anyName/></attribute></oneOrMore>"
+            "<oneOrMore><attribute><nsName/></attribute></oneOrMore>",
+            _OVERLAPPING_ATTRIBUTES,
+            id="two-wildcards-in-group",
+        ),
+        pytest.param("<attribute><anyName/></attribute>", _UNBOUNDED_ATTRIBUTE, id="anyname-outside-one-or-more"),
+        pytest.param(
+            '<optional><attribute><nsName ns="urn:a"/></attribute></optional>',
+            _UNBOUNDED_ATTRIBUTE,
+            id="optional-nsname",
+        ),
+        pytest.param(
+            '<zeroOrMore><element name="x"><attribute><anyName/></attribute></element></zeroOrMore>',
+            _UNBOUNDED_ATTRIBUTE,
+            id="anyname-in-element-under-repetition",
+        ),
+        pytest.param(
+            f'{_named_attributes(5)}<attribute name="a0"/>', _OVERLAPPING_ATTRIBUTES, id="same-name-after-many"
+        ),
+        pytest.param(
+            f"{_named_attributes(5)}<oneOrMore><attribute><anyName/></attribute></oneOrMore>",
+            _OVERLAPPING_ATTRIBUTES,
+            id="anyname-after-many",
+        ),
+        pytest.param(
+            f"{_named_attributes(4)}<attribute><choice><name>x</name><name>a2</name></choice></attribute>",
+            _OVERLAPPING_ATTRIBUTES,
+            id="name-choice-after-many",
+        ),
+        pytest.param(
+            f'<choice>{_named_attributes(6)}</choice><attribute name="a5"/>',
+            _OVERLAPPING_ATTRIBUTES,
+            id="wide-choice-then-same-name",
+        ),
+    ],
+)
+def test_rng_attribute_restrictions_reject_at_compile(body: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        RelaxNG(rwrap(body))
+
+
+@pytest.mark.parametrize(
+    ("body", "xml", "valid"),
+    [
+        pytest.param(
+            '<attribute name="bar"/><oneOrMore><attribute><anyName><except><name>bar</name></except></anyName>'
+            "</attribute></oneOrMore>",
+            '<doc bar="1" baz="2"/>',
+            True,
+            id="anyname-except-the-named-attribute",
+        ),
+        pytest.param(
+            '<attribute name="bar"/><oneOrMore><attribute><anyName><except><name>bar</name></except></anyName>'
+            "</attribute></oneOrMore>",
+            '<doc bar="1"/>',
+            False,
+            id="anyname-except-needs-one-more",
+        ),
+        pytest.param(
+            '<oneOrMore><attribute><nsName ns="http://a"/></attribute></oneOrMore>'
+            '<oneOrMore><attribute><nsName ns="http://b"/></attribute></oneOrMore>',
+            '<doc xmlns:p="http://a" xmlns:q="http://b" p:x="1" q:y="2"/>',
+            True,
+            id="namespaces-differ",
+        ),
+        pytest.param(
+            '<choice><attribute name="bar"/><attribute name="bar"/></choice>',
+            '<doc bar="1"/>',
+            True,
+            id="choice-same-name",
+        ),
+        pytest.param(
+            "<oneOrMore><group><attribute><anyName/></attribute></group></oneOrMore>",
+            '<doc x="1" y="2"/>',
+            True,
+            id="group-under-one-or-more",
+        ),
+        pytest.param(
+            _named_attributes(6), '<doc a0="1" a1="1" a2="1" a3="1" a4="1" a5="1"/>', True, id="many-distinct"
+        ),
+        pytest.param(f"<choice>{_named_attributes(6)}</choice>", '<doc a3="1"/>', True, id="wide-choice"),
+        pytest.param(
+            "<attribute><choice><name>a</name><name>b</name></choice></attribute>",
+            '<doc b="1"/>',
+            True,
+            id="name-choice-outside-one-or-more",
+        ),
+        pytest.param(
+            '<attribute name="a"/><div name="a"/><parentRef name="a"/>',
+            '<doc a="1"/>',
+            False,
+            id="stray-div-and-parent-ref",
+        ),
+        pytest.param(
+            '<oneOrMore><attribute><nsName ns="urn:u"/></attribute></oneOrMore><attribute name="z"/>',
+            '<doc xmlns:p="urn:u" p:a="1" z="2"/>',
+            True,
+            id="wildcard-then-name",
+        ),
+        pytest.param(
+            f'<attribute name="z"/><group>{_named_attributes(5)}</group>',
+            '<doc z="1" a0="1" a1="1" a2="1" a3="1" a4="1"/>',
+            True,
+            id="name-then-wide-group",
+        ),
+        pytest.param(
+            f'<choice>{_namespace_attributes(5)}</choice><attribute name="z"/>',
+            '<doc xmlns:p="urn:u1" p:a="1" z="2"/>',
+            True,
+            id="wide-wildcard-choice-then-name",
+        ),
+        pytest.param(
+            f'<attribute name="z"/><choice>{_namespace_attributes(5)}</choice>',
+            '<doc xmlns:p="urn:u1" p:a="1" z="2"/>',
+            True,
+            id="name-then-wide-wildcard-choice",
+        ),
+    ],
+)
+def test_rng_attribute_restrictions_allow_spec_shapes(body: str, xml: str, *, valid: bool) -> None:
+    assert rng_ok(rwrap(body), xml) is valid
+
+
+def test_rng_attribute_check_leaves_missing_ref_to_build() -> None:
+    with pytest.raises(ValueError, match="no matching define"):
+        RelaxNG(rwrap('<attribute name="a"/><ref name="missing"/>'))
+
+
+def test_rng_shared_attribute_define_in_wide_scopes() -> None:
+    wide = '<attribute name="x"/><attribute name="y"/><attribute name="z"/><ref name="common"/>'
+    schema = rgrammar(
+        f'<start><element name="doc">{wide}<element name="item">{wide}</element></element></start>'
+        '<define name="common"><attribute name="id"/><attribute name="lang"/></define>'
+    )
+    attributes = 'x="1" y="2" z="3" id="4" lang="5"'
+    assert rng_ok(schema, f"<doc {attributes}><item {attributes}/></doc>")
+
+
+def test_rng_attribute_overlap_through_define_scanned_earlier() -> None:
+    schema = rgrammar(
+        '<start><element name="doc"><choice><ref name="common"/><ref name="other"/></choice>'
+        '<element name="item"><ref name="common"/><ref name="other"/></element></element></start>'
+        '<define name="common"><attribute name="id"/></define><define name="other"><attribute name="id"/></define>'
+    )
+    with pytest.raises(ValueError, match=_OVERLAPPING_ATTRIBUTES):
+        RelaxNG(schema)
+
+
+def test_rng_attribute_check_compiles_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(RelaxNG, rwrap(_named_attributes(n))), (100, 200))
+
+
+def test_rng_attribute_through_ref_overlaps_sibling() -> None:
+    schema = rgrammar(
+        '<start><element name="doc"><attribute name="bar"/><ref name="again"/></element></start>'
+        '<define name="again"><attribute name="bar"/></define>'
+    )
+    with pytest.raises(ValueError, match=_OVERLAPPING_ATTRIBUTES):
+        RelaxNG(schema)
+
+
+def test_rng_attribute_overlap_inside_referenced_define_rejected() -> None:
+    schema = rgrammar(
+        '<start><element name="doc"><ref name="pair"/></element></start>'
+        '<define name="pair"><group><attribute name="bar"/><attribute name="bar"/></group></define>'
+    )
+    with pytest.raises(ValueError, match=_OVERLAPPING_ATTRIBUTES):
+        RelaxNG(schema)
+
+
+_COMBINED_ATTRIBUTES: Final[str] = (
+    '<start><element name="doc"><ref name="pair"/></element></start>'
+    '<define name="pair"><attribute name="bar"/></define>'
+    '<define name="pair" combine="interleave"><attribute name="{}"/></define>'
+)
+
+
+def test_rng_interleave_combined_attributes_with_distinct_names_validate() -> None:
+    assert rng_ok(rgrammar(_COMBINED_ATTRIBUTES.format("baz")), '<doc bar="1" baz="2"/>')
+
+
+def test_rng_interleave_combined_attributes_with_same_name_rejected() -> None:
+    with pytest.raises(ValueError, match=_OVERLAPPING_ATTRIBUTES):
+        RelaxNG(rgrammar(_COMBINED_ATTRIBUTES.format("bar")))
+
+
+def test_rng_combined_part_with_overlapping_group_rejected() -> None:
+    schema = rgrammar(
+        '<start><element name="doc"><ref name="pair"/></element></start>'
+        '<define name="pair"><attribute name="bar"/></define>'
+        '<define name="pair" combine="interleave"><group><attribute name="x"/><attribute name="x"/></group></define>'
+    )
+    with pytest.raises(ValueError, match=_OVERLAPPING_ATTRIBUTES):
+        RelaxNG(schema)
+
+
+def test_rng_anyname_attribute_through_ref_follows_one_or_more() -> None:
+    define = '<define name="any"><attribute><anyName/></attribute></define>'
+    repeated = f'<start><element name="doc"><oneOrMore><ref name="any"/></oneOrMore></element></start>{define}'
+    assert rng_ok(rgrammar(repeated), '<doc x="1" y="2"/>')
+    bare = f'<start><element name="doc"><ref name="any"/></element></start>{define}'
+    with pytest.raises(ValueError, match=_UNBOUNDED_ATTRIBUTE):
+        RelaxNG(rgrammar(bare))
+
+
+def test_rng_distinct_attributes_scale_linearly(work_steps: WorkSteps) -> None:
+    validator = RelaxNG(rwrap("".join(f'<optional><attribute name="k{index}"/></optional>' for index in range(60))))
+    work_steps.assert_linear(lambda n: partial(validator.validate, parse_xml(_distinct_attributes(n))), (20, 40))
+
+
+def _distinct_attributes(count: int) -> str:
+    attributes = " ".join(f'k{index}="1"' for index in range(count))
+    return f"<doc {attributes}/>"
 
 
 @pytest.mark.parametrize("tail", ["b", "c"])
@@ -1559,22 +1802,22 @@ def _with_tail(tail: str, *, first: bool) -> str:
         pytest.param(_ladder(_INTEGER, combine="choice"), "<r>7</r>", True, id="choice-data-datatype-accepted"),
         pytest.param(_ladder(_INTEGER, combine="choice"), "<r>seven</r>", False, id="choice-data-datatype-rejected"),
         pytest.param(
-            _ladder('<optional><attribute name="a"/></optional>', combine="group"),
+            _ladder('<optional><attribute name="a"/></optional>', combine="choice"),
             '<r b="1"/>',
             False,
-            id="group-attribute-name-mismatch",
+            id="choice-attribute-name-mismatch",
         ),
         pytest.param(
-            _ladder(f"<optional>{_ATTRIBUTE_VALUE}</optional>", combine="group"),
+            _ladder(f"<optional>{_ATTRIBUTE_VALUE}</optional>", combine="choice"),
             '<r a="x"/>',
             True,
-            id="group-attribute-value-accepted",
+            id="choice-attribute-value-accepted",
         ),
         pytest.param(
-            _ladder(f"<optional>{_ATTRIBUTE_VALUE}</optional>", combine="group"),
+            _ladder(f"<optional>{_ATTRIBUTE_VALUE}</optional>", combine="choice"),
             '<r a="y"/>',
             False,
-            id="group-attribute-value-rejected",
+            id="choice-attribute-value-rejected",
         ),
         pytest.param(
             _crossed_chain("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', "group", count=11),
@@ -1615,20 +1858,26 @@ def _interleaved_ladder(*, first: bool) -> str:
 
 
 @pytest.mark.parametrize(
-    ("leaf", "content", "xml"),
+    ("leaf", "content", "xml", "combine"),
     [
-        pytest.param("<empty/>", '<ref name="d0"/>', "<r/>", id="start-tag-close"),
-        pytest.param('<optional><attribute name="k"/></optional>', '<ref name="d0"/>', '<r k="1"/>', id="attribute"),
-        pytest.param("<text/>", '<ref name="d0"/>', "<r>y</r>", id="text"),
-        pytest.param("<text/>", '<ref name="d0"/>', "<r><z/></r>", id="start-tag-open"),
-        pytest.param("<text/>", '<attribute name="k"><ref name="d0"/></attribute>', '<r k="y"/>', id="nullable"),
-        pytest.param(_INTEGER_LIST_LEAF, '<list><ref name="d0"/></list>', "<r>1 2 3</r>", id="list-tokens"),
+        pytest.param("<empty/>", '<ref name="d0"/>', "<r/>", "group", id="start-tag-close"),
+        pytest.param(
+            '<optional><attribute name="k"/></optional>', '<ref name="d0"/>', '<r k="1"/>', "choice", id="attribute"
+        ),
+        pytest.param("<text/>", '<ref name="d0"/>', "<r>y</r>", "group", id="text"),
+        pytest.param("<text/>", '<ref name="d0"/>', "<r><z/></r>", "group", id="start-tag-open"),
+        pytest.param(
+            "<text/>", '<attribute name="k"><ref name="d0"/></attribute>', '<r k="y"/>', "group", id="nullable"
+        ),
+        pytest.param(_INTEGER_LIST_LEAF, '<list><ref name="d0"/></list>', "<r>1 2 3</r>", "group", id="list-tokens"),
     ],
 )
-def test_rng_shared_defines_scale_linearly(leaf: str, content: str, xml: str, work_steps: WorkSteps) -> None:
+def test_rng_shared_defines_scale_linearly(
+    leaf: str, content: str, xml: str, combine: str, work_steps: WorkSteps
+) -> None:
     document = parse_xml(xml)
     work_steps.assert_linear(
-        lambda n: partial(RelaxNG(_crossed_chain(leaf, content, "group", count=n)).validate, document), (12, 20)
+        lambda n: partial(RelaxNG(_crossed_chain(leaf, content, combine, count=n)).validate, document), (12, 20)
     )
 
 
