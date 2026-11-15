@@ -271,9 +271,12 @@ static th_node *mini_first_content(th_node *node, int strip_comments) {
    reconstructed as a following sibling, so omitting node's end tag would let the
    reparse fold that reconstruction back inside node. The walker also blocks
    omission while a formatting element is open as an ancestor; together they keep
-   tag omission away from every adoption-agency reconstruction. */
+   tag omission away from every adoption-agency reconstruction. The walk costs the
+   depth below node, so serialize_minify runs it only under a node it does not
+   descend into and carries the answer up its own ascent from there. */
 static int mini_trailing_formatting(const th_node *node) {
     for (const th_node *child = node->last_child; child != NULL; child = child->last_child) {
+        TH_WORK_STEP();
         if (child->type == TH_NODE_ELEMENT && (child->tag_flags & TH_TAG_FORMATTING)) {
             return 1;
         }
@@ -413,15 +416,21 @@ static int mini_is_comment_like(th_node *node) {
    element or any foreign ancestor bounds the search. rt/rp only imply-close a preceding
    sibling inside a ruby, optgroup only inside a select; outside that scope a following
    rt/rp/optgroup start tag reparents into the element instead, so its end tag must stay.
-   A detached serialization root can end the ancestor chain without a document. */
+   A detached serialization root can end the ancestor chain without a document. The climb
+   stops after the depth a reparse can reach and answers "not in scope", which keeps the
+   end tag: a run of siblings under ancestors nested deeper than any parser builds would
+   otherwise climb all of them once per sibling. */
 static int mini_in_scope(const th_node *node, uint16_t atom) {
-    for (const th_node *up = node->parent; up != NULL && up->type == TH_NODE_ELEMENT; up = up->parent) {
+    const th_node *up = node->parent;
+    for (int climbed = 0; climbed < TH_MAX_TREE_DEPTH && up != NULL && up->type == TH_NODE_ELEMENT; climbed++) {
+        TH_WORK_STEP();
         if (up->ns == TH_NS_HTML && up->atom == atom) {
             return 1;
         }
         if (up->ns != TH_NS_HTML || (up->tag_flags & TH_TAG_SCOPING)) {
             return 0;
         }
+        up = up->parent;
     }
     return 0;
 }
@@ -453,9 +462,8 @@ static int mini_end_passes_child(const th_node *node) {
 }
 
 /* The WHATWG optional-tag rule for node's end tag, evaluated against next (the next
-   content sibling, stripped comments already skipped). This is the cheap test; the
-   formatting-reconstruction guard is applied separately so its rightmost-path walk
-   only runs for an element the rule already deems omittable, not every element.
+   content sibling, stripped comments already skipped). The formatting-reconstruction
+   guard is applied separately, in mini_omit_end_tag.
    "No more content in the parent" is next == NULL; for the special p it also needs a
    parent whose end tag closes it on reparse (mini_end_closes_child), for li and dd
    one that is not itself an item (mini_end_closes_item), and for rt, rp, optgroup and
@@ -506,21 +514,16 @@ static int mini_end_tag_rule(th_tree *tree, th_node *node, th_node *next, int qu
 
 /* Whether node's end tag may be omitted: the WHATWG rule, blocked whenever a
    formatting element is open as an ancestor (formatting_depth), lies on node's
-   trailing path, or is the following sibling, since the reparse would then
-   reconstruct it across the boundary. The expensive trailing-path walk is deferred
-   until the cheap rule has already accepted the element. */
+   trailing path (trailing_formatting), or is the following sibling, since the
+   reparse would then reconstruct it across the boundary. */
 static int mini_omit_end_tag(th_tree *tree, th_node *node, const th_minify_opts *opts, int formatting_depth,
-                             int quirks) {
-    if (node->ns != TH_NS_HTML || formatting_depth > 0) {
-        return 0;
-    }
-    th_node *next = mini_next_content(node, opts->strip_comments);
-    if (!mini_end_tag_rule(tree, node, next, quirks)) {
-        return 0;
-    }
+                             int trailing_formatting, int quirks) {
     /* the rule only fires when next is empty or a specific non-formatting element, so a
        reconstructed formatting element can only be reached through the trailing path */
-    return !mini_trailing_formatting(node);
+    if (node->ns != TH_NS_HTML || formatting_depth > 0 || trailing_formatting) {
+        return 0;
+    }
+    return mini_end_tag_rule(tree, node, mini_next_content(node, opts->strip_comments), quirks);
 }
 
 /* Whether node's start tag may be omitted. An element carrying attributes never
@@ -786,6 +789,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
        after it, would reparse as literal text. EOF closes them all instead. */
     int after_plaintext = 0;
     while (1) {
+        TH_WORK_STEP();
         th_node *descend = NULL;
         switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
         case TH_NODE_ELEMENT:
@@ -830,7 +834,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 }
                 descend = node->first_child;
             } else if (!(st->inner && node == root) && !(opts->omit_optional_tags && node != root &&
-                                                         mini_omit_end_tag(tree, node, opts, formatting, quirks))) {
+                                                         mini_omit_end_tag(tree, node, opts, formatting, 0, quirks))) {
                 ser_close_tag(out, node);
             }
             break;
@@ -881,11 +885,16 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             node = descend;
             continue;
         }
+        /* The ascent climbs through last children, so each ancestor's trailing path is the walk below the node it
+           starts at plus the nodes it leaves. Walking from every ancestor is quadratic on a tree the parser did not
+           build, since nothing caps its depth. */
+        int trailing_formatting = node->last_child != NULL && mini_trailing_formatting(node);
         while (node != root) {
             if (node->next_sibling != NULL) {
                 node = node->next_sibling;
                 break;
             }
+            trailing_formatting |= node->type == TH_NODE_ELEMENT && (node->tag_flags & TH_TAG_FORMATTING);
             node = node->parent;
             if (node->type == TH_NODE_ELEMENT) {
                 if (mini_is_preserve_atom(node)) {
@@ -896,7 +905,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 }
                 if (!after_plaintext && !(st->inner && node == root) &&
                     !(opts->omit_optional_tags && node != root &&
-                      mini_omit_end_tag(tree, node, opts, formatting, quirks))) {
+                      mini_omit_end_tag(tree, node, opts, formatting, trailing_formatting, quirks))) {
                     ser_close_tag(out, node);
                     last_was_space = 0;
                 }
