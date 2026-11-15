@@ -1974,6 +1974,7 @@ def test_minify_css_live_rule_search_scales_linearly(work_steps: WorkSteps) -> N
         pytest.param('@import url(a"b");', '@import url(a"b");', id="import-bad-url-double-quote-kept"),
         pytest.param("@import url(a'b');", "@import url(a'b');", id="import-bad-url-single-quote-kept"),
         pytest.param("@namespace url(a(b);", "@namespace url(a(b);", id="namespace-bad-url-paren-kept"),
+        pytest.param('@import url("c" "d");', '@import url("c""d");', id="import-url-two-strings-kept"),
         # an unquoted url holding a quote is a bad url that ends at its first ')' and opens no string (§4.3.6), so a
         # comment after it is no comment in a browser and the declaration holding it is dropped
         pytest.param('p{b:url(a"b)/*x*/c:d}e{f:g}', "e{f:g}", id="bare-url-quote-then-comment"),
@@ -1983,6 +1984,24 @@ def test_minify_css_live_rule_search_scales_linearly(work_steps: WorkSteps) -> N
         pytest.param(
             'q{url(b "c")/*"*/{d:e}f:";display:none;g:"}', 'q{f:";display:none;g:"}', id="bare-url-nested-rule"
         ),
+        # a quoted url() is a function (CSS Syntax 3 §4.3.4): a comment, string or block after its string may hold a `)`
+        pytest.param('q{b:url("c"/*)"*/);d:"e"}', 'q{b:url("c"/*)"*/);d:"e"}', id="quoted-url-comment-holds-paren"),
+        pytest.param("q{b:url('c'/*)*'*/);d:f}", "q{b:url('c'/*)*'*/);d:f}", id="quoted-url-comment-holds-star-quote"),
+        pytest.param("q{b:url('c' y/*)*/ );d:f}", "q{b:url('c' y/*)*/);d:f}", id="quoted-url-comment-after-modifier"),
+        pytest.param('q{b:url("c" g(")"));d:f}', 'q{b:url("c" g(")"));d:f}', id="quoted-url-function-holds-paren"),
+        pytest.param('q{b:url("c" [)] );d:f}', 'q{b:url("c" [)]);d:f}', id="quoted-url-block-holds-paren"),
+        pytest.param('q{b:url("c" {)} );d:f}', 'q{b:url("c" {)});d:f}', id="quoted-url-brace-holds-paren"),
+        pytest.param('q{b:url("c" ")");d:f}', 'q{b:url("c" ")");d:f}', id="quoted-url-second-string-holds-paren"),
+        pytest.param("q{b:url('c' ')');d:f}", "q{b:url('c' ')');d:f}", id="quoted-url-second-single-quote-string"),
+        pytest.param('q{b:url("c" /);d:f}', 'q{b:url("c" /);d:f}', id="quoted-url-slash-after-string"),
+        pytest.param('q{b:url("c" \\) );d:f}', 'q{b:url("c" \\));d:f}', id="quoted-url-escaped-paren"),
+        pytest.param('q{b:url("c"/*x*/)}', 'q{b:url("c"/*x*/)}', id="quoted-url-comment-after-string"),
+        pytest.param('q{b:url("c\\\r\nd")}', "q{b:url(cd)}", id="quoted-url-crlf-continuation"),
+        pytest.param('q{b:url("\\41\ne")}', 'q{b:url("\\41\ne")}', id="quoted-url-hex-escape-newline"),
+        pytest.param('q{b:url("c\n);d:f}', "q{d:f}", id="quoted-url-bad-string-drops-declaration"),
+        # U+0000 reads as U+FFFD, a name code point (CSS Syntax 3 §3.3), so a `url(` after it is no url token
+        pytest.param('q{b:\x00url(c ")";d:"e"}', 'q{b:\x00url(c ")";d:"e"})}', id="null-before-url-is-function"),
+        pytest.param('q{b:y\x00url(c");d:");e:f}', 'q{b:y\x00url(c");d:");e:f}', id="null-in-name-before-url"),
         # a `*` universal or a combinator before an attribute selector keeps its descendant-combinator space (#1034): a
         # `[` opens a fresh attribute, so a `*` before it is the universal selector, not the `*=` operator
         pytest.param("* [lang]{c:d}", "* [lang]{c:d}", id="universal-descendant-attribute"),
@@ -2181,6 +2200,14 @@ _OPEN_AT_EOF: Final[list[pytest.ParameterSet]] = [
     pytest.param('a{e:"x\\\\"', 'a{e:"x\\\\"}', id="string-escaped-backslash"),
     pytest.param('a{e:"', 'a{e:""}', id="lone-quote"),
     pytest.param('@import url(l("[', '@import url(l("[);', id="import-bad-url-quote"),
+    pytest.param('a{e:url("c"/*', 'a{e:url("c"/**/)}', id="url-comment-open-after-string"),
+    pytest.param('a{e:url("c"/*x*/', 'a{e:url("c"/*x*/)}', id="url-comment-closed-after-string"),
+    pytest.param('a{e:url("c"/*)*/', 'a{e:url("c"/*)*/)}', id="url-comment-holds-paren-at-eof"),
+    pytest.param('a{e:url("c" d', 'a{e:url("c" d)}', id="url-modifier-at-eof"),
+    pytest.param('a{e:url("c"/', 'a{e:url("c"/)}', id="url-slash-after-string-at-eof"),
+    pytest.param('a{e:url("c\\\r', "a{e:url(c)}", id="url-string-cr-continuation-at-eof"),
+    pytest.param("a{e:url( ", "a{e:url()}", id="url-whitespace-at-eof"),
+    pytest.param("a{e:url(c\\", "a{e:url(c�)}", id="url-escape-at-eof"),
     pytest.param("a/*", "a/**/", id="comment-opener"),
     pytest.param("a/*x", "a/*x*/", id="comment"),
     pytest.param("a/*xy", "a/*xy*/", id="comment-two-code-points"),
@@ -2505,6 +2532,13 @@ def test_minify_css_backslash_before_newline_is_a_fixed_point(source: str, expec
 
 def test_minify_css_inline_backslash_before_newline() -> None:
     assert minify_css_inline("color:red;b:x\\\nurl(y);c:d;e:f\\\n") == "color:red;c:d"
+
+
+def test_minify_css_inline_url_comment_keeps_later_declarations() -> None:
+    # the url() ends after its comment, so `background` stays inside the `color` string and cannot override the
+    # longhand before it
+    source: Final = 'background-image:url("c"/*)"*/);color:";top:0;background:none;x:"'
+    assert minify_css_inline(source) == source
 
 
 # A top-level ';' or '}' is a prelude component value, so a qualified rule carrying one has an invalid selector list

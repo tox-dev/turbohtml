@@ -197,9 +197,9 @@ typedef enum {
 
 /* A token points into the source buffer (zero-copy). For CSS_NUM, text is the numeric part and unit the dimension;
    for CSS_DELIM, delim is the single character. CSS_BAD is a string a newline cut short (a <bad-string-token>, CSS
-   Syntax 3 §4.3.5), a url() holding one, or a `\` a newline follows (no escape, §4.3.8); its text keeps that newline,
-   so printing it verbatim leaves it bad instead of letting the string run on to the next quote or the `\` escape what
-   comes next. */
+   Syntax 3 §4.3.5) or a `\` a newline follows (no escape, §4.3.8), whose text keeps that newline, so printing it
+   verbatim leaves it bad instead of letting the string run on to the next quote or the `\` escape what comes next; or
+   an unquoted url() holding a quote (a <bad-url-token>, §4.3.6). */
 typedef struct {
     const css_char *text;
     Py_ssize_t text_len;
@@ -551,6 +551,81 @@ static inline Py_ssize_t css_scan_urange(const css_char *source, Py_ssize_t pos,
     return scan;
 }
 
+/* Whether the url( with this body reads a string: a quote opens the body, past its whitespace. That url( is a function
+   token and the string its first argument (CSS Syntax 3 §4.3.4); any other body is a url-token (§4.3.6), in which a
+   quote opens nothing. */
+static inline int css_url_quoted(const css_char *body, Py_ssize_t len) {
+    Py_ssize_t pos = 0;
+    while (pos < len && css_is_ws(body[pos])) {
+        pos++;
+    }
+    return pos < len && (body[pos] == '"' || body[pos] == '\'');
+}
+
+/* The end of the url( whose body starts at body, or -1 when its arguments tokenize one by one.
+   A quoted url( is a function, so its arguments are ordinary tokens. It stays one token while the `)` that ends it is
+   in plain sight: past the string, which may hold a `)` of its own (a data URI's SVG transform="rotate(45)"), and past
+   the whitespace, comments and <url-modifier> identifiers after it. A newline cutting the string short, a comment left
+   open, or anything after the string that can hold a `)` (another string, a block, a function, an escape) leaves the
+   caller to emit the name alone, and the arguments take the token paths every function's do.
+   An unquoted url( ends at the next `)` no escape covers, whatever it holds. A quote there opens no string: it makes
+   the token a <bad-url-token> (§4.3.14). */
+CSS_NOINLINE static Py_ssize_t css_scan_url(const css_char *source, Py_ssize_t body, Py_ssize_t length,
+                                            css_token *token, token_vec *vec) {
+    Py_ssize_t end = body;
+    token->kind = CSS_URL;
+    if (!css_url_quoted(source + body, length - body)) {
+        while (end < length && source[end] != ')') {
+            if (source[end] == '"' || source[end] == '\'') {
+                token->kind = CSS_BAD;
+                vec->bad = 1;
+            }
+            if (source[end] == '\\' && end + 1 < length) {
+                vec->escapes = 1;
+                end++;
+            }
+            end++;
+        }
+        return end + (end < length);
+    }
+    while (css_is_ws(source[end])) {
+        end++;
+    }
+    css_char quote = source[end++];
+    while (end < length && source[end] != quote) {
+        unsigned char stop = css_quoted_stop[source[end]];
+        if (stop == CSS_QUOTED_NEWLINE) {
+            return -1;
+        }
+        if (stop == CSS_QUOTED_ESCAPE && end + 1 < length) {
+            vec->escapes = 1;
+        }
+        /* a hex escape takes the newline after it, as in a string token, so that newline does not cut the string */
+        end = stop == CSS_QUOTED_ESCAPE ? css_scan_quoted_escape(source, end, length) : end + 1;
+    }
+    end += end < length;
+    while (end < length && source[end] != ')') {
+        css_char character = source[end];
+        if (character == '/' && end + 1 < length && source[end + 1] == '*') {
+            end += 2;
+            while (end + 1 < length && (source[end] != '*' || source[end + 1] != '/')) {
+                end++;
+            }
+            if (end + 1 >= length) {
+                return -1;
+            }
+            end += 2;
+            continue;
+        }
+        if (character == '"' || character == '\'' || character == '\\' || character == '(' || character == '[' ||
+            character == '{') {
+            return -1;
+        }
+        end++;
+    }
+    return end + (end < length);
+}
+
 /* Tokenize the whole source into vec; tokens point into source (zero-copy). */
 static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *vec) {
     Py_ssize_t pos = 0;
@@ -682,61 +757,13 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                 continue;
             }
             Py_ssize_t scan = css_scan_ident(source, pos, length, &vec->escaped);
+            /* U+0000 reads as U+FFFD (CSS Syntax 3 §3.3), a name code point: a `url(` right after one is the end of a
+               longer function name, so it starts no url and its arguments are ordinary tokens */
             int is_url = scan - pos == 3 && css_lower(source[pos]) == 'u' && css_lower(source[pos + 1]) == 'r' &&
-                         css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(';
-            if (is_url) {
-                /* scan to the closing ')', but skip over a quoted argument so a ')' inside a quoted data URI
-                   (e.g. an SVG transform="rotate(45)") does not terminate the token early. An unquoted url holding a
-                   quote is a bad url (CSS Syntax 3 §4.3.6): its quote opens no string, and it ends at the first ')' */
-                Py_ssize_t end = scan + 1;
-                token.kind = CSS_URL;
-                while (end < length && css_is_ws(source[end])) {
-                    end++;
-                }
-                int quoted = end < length && (source[end] == '"' || source[end] == '\'');
-                while (end < length && source[end] != ')') {
-                    if (source[end] == '"' || source[end] == '\'') {
-                        if (!quoted) {
-                            token.kind = CSS_BAD;
-                            vec->bad = 1;
-                            end++;
-                            continue;
-                        }
-                        css_char quote = source[end];
-                        end++;
-                        while (end < length) {
-                            unsigned char stop = css_quoted_stop[source[end]];
-                            if (stop == CSS_QUOTED_PLAIN) {
-                                end++;
-                                continue;
-                            }
-                            if (stop == CSS_QUOTED_NEWLINE) {
-                                token.kind = CSS_BAD;
-                                vec->bad = 1;
-                                break;
-                            }
-                            if (source[end] == quote) {
-                                break;
-                            }
-                            if (stop == CSS_QUOTED_ESCAPE && end + 1 < length) {
-                                vec->escapes = 1;
-                            }
-                            end = stop == CSS_QUOTED_ESCAPE ? css_scan_quoted_escape(source, end, length) : end + 1;
-                        }
-                        if (end < length) {
-                            end++;
-                        }
-                        continue;
-                    }
-                    if (source[end] == '\\' && end + 1 < length) {
-                        vec->escapes = 1;
-                        end++;
-                    }
-                    end++;
-                }
-                if (end < length) {
-                    end++;
-                }
+                         css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(' &&
+                         (pos == 0 || source[pos - 1] != 0);
+            Py_ssize_t end = is_url ? css_scan_url(source, scan + 1, length, &token, vec) : -1;
+            if (end >= 0) {
                 token.text = &source[pos];
                 token.text_len = end - pos;
                 token_vec_push(vec, token);
