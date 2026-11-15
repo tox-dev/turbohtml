@@ -5,6 +5,7 @@ import sys
 from collections.abc import MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NoReturn, assert_type, cast
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
 
     from bench.timing import Mutating
+    from work_steps import WorkSteps
 
 
 @pytest.mark.parametrize(
@@ -1033,6 +1035,94 @@ def test_attrs_set_lowercases_the_name() -> None:
     element = _div("<div>")
     element.attrs["DATA-X"] = "1"
     assert element.attrs["data-x"] == "1"  # stored lowercased, like the parser
+
+
+_MANY_NAMES: Final[tuple[str, ...]] = tuple(f"data-n{index}" for index in range(70))
+_MANY_ATTRS: Final[str] = " ".join(f'{name}="old"' for name in _MANY_NAMES)
+
+
+def test_attrs_set_many_names_on_one_element() -> None:
+    # from 32 attributes on a write finds its name through an index, which has to answer as a scan of the array does
+    element = _div("<div>")
+    for name in _MANY_NAMES:
+        element.attrs[name] = "new"
+    for name in _MANY_NAMES[::3]:
+        element.attrs[name] = "again"
+    assert list(element.attrs) == list(_MANY_NAMES)
+    assert [element.attrs[name] for name in _MANY_NAMES[:4]] == ["again", "new", "new", "again"]
+
+
+def test_attrs_set_on_a_parsed_element_with_many_attributes() -> None:
+    element = _div(f"<div {_MANY_ATTRS}>")
+    element.attrs[_MANY_NAMES[40]] = "new"  # the first write indexes the parsed array
+    element.attrs["data-late"] = "new"
+    del element.attrs[_MANY_NAMES[3]]  # every later attribute shifts down, so the index is rebuilt
+    element.attrs[_MANY_NAMES[69]] = "moved"
+    element.attrs[_MANY_NAMES[3]] = "back"
+    assert list(element.attrs) == [*_MANY_NAMES[:3], *_MANY_NAMES[4:], "data-late", _MANY_NAMES[3]]
+    assert [element.attrs[name] for name in (_MANY_NAMES[40], _MANY_NAMES[69], _MANY_NAMES[3])] == [
+        "new",
+        "moved",
+        "back",
+    ]
+
+
+def test_attrs_set_names_interned_a_table_apart() -> None:
+    # attribute names are numbered as the tree first meets them, and the index buckets them by that number: with 128
+    # buckets for the 40 attributes, the first and the 129th name share one
+    names: Final = [f"data-n{index}" for index in range(129)]
+    element = _div(f"<p {' '.join(names)}></p><div {' '.join(names[:40])}></div>")
+    element.attrs[names[128]] = "far"
+    element.attrs[names[0]] = "near"
+    element.attrs[names[128]] = "far again"
+    assert list(element.attrs) == [*names[:40], names[128]]
+    assert (element.attrs[names[0]], element.attrs[names[128]]) == ("near", "far again")
+
+
+def test_attrs_set_on_an_xml_element_with_many_attributes() -> None:
+    root = parse_xml(f"<r {_MANY_ATTRS}/>").root
+    assert root is not None
+    root.attrs["Data-n0"] = "cased"  # XML names are case-sensitive, so this is a new attribute
+    root.attrs["data-n0"] = "new"
+    assert list(root.attrs) == [*_MANY_NAMES, "Data-n0"]
+    assert (root.attrs["data-n0"], root.attrs["Data-n0"]) == ("new", "cased")
+
+
+def test_attrs_set_on_a_foreign_element_with_many_attributes(find: Callable[[str, str], Element]) -> None:
+    cased: Final = ["viewBox", "attributeName", "baseFrequency", "clipPathUnits", "textLength", "tableValues"]
+    svg = find(f"<svg {' '.join(f'{name}=old' for name in cased)} {_MANY_ATTRS}></svg>", "svg")
+    for name in cased:
+        svg.attrs[name.lower()] = "new"  # updates the cased slot, no duplicate
+    for name in _MANY_NAMES:
+        svg.attrs[f"{name}-more"] = "new"  # no stored name folds to any of these
+    assert list(svg.attrs) == [*cased, *_MANY_NAMES, *(f"{name}-more" for name in _MANY_NAMES)]
+    assert [svg.attrs[name] for name in cased] == ["new"] * len(cased)
+
+
+def test_attrs_set_on_a_foreign_element_looks_into_every_bucket(find: Callable[[str, str], Element]) -> None:
+    # fresh names are numbered in sequence, so 128 in a row look into each of the 128 buckets the index of a
+    # 40-attribute element has, the ones that hold the case-adjusted names among them
+    svg = find(f"<svg viewBox=old attributeName=old {' '.join(_MANY_NAMES[:38])}></svg>", "svg")
+    before: Final = list(svg.attrs.items())
+    for index in range(128):
+        svg.attrs[f"data-probe{index}"] = "new"
+        del svg.attrs[f"data-probe{index}"]
+    # the adjusted names are also found by a hash of their lowercase form; FNV-1a of "v222396" and of "viewbox" agree
+    # in their low 16 bits, so the two share a bucket there without being the same name
+    svg.attrs["v222396"] = "apart"
+    svg.attrs["viewbox"] = "new"
+    assert list(svg.attrs.items()) == [("viewBox", "new"), *before[1:], ("v222396", "apart")]
+
+
+def test_attrs_set_one_name_at_a_time_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(_set_each, _div(), [f"data-n{index}" for index in range(count)]), (1000, 4000)
+    )
+
+
+def _set_each(element: Element, names: list[str]) -> None:
+    for name in names:
+        element.attrs[name] = "new"
 
 
 def test_attrs_delete() -> None:

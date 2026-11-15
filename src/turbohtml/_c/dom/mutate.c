@@ -15,6 +15,7 @@
 
 #include "core/ascii.h" /* lower_ascii for the foreign case-insensitive attribute scan */
 #include "core/vec.h"   /* th_grow_cap for the shadow-table growth */
+#include "core/work_steps.h"
 #include "tokenizer/xml_names.h"
 
 #include <string.h>
@@ -296,12 +297,195 @@ static void mark_start_dirty(th_tree *tree, th_node *node) {
     }
 }
 
-static int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
-                           Py_ssize_t value_len, int has_value, int append) {
+/* A large element keeps a hash index of its attribute names, so a write that has to find its name does not rescan the
+   array: n writes onto one element cost n lookups, not n * n / 2 comparisons. The index follows the array in the same
+   arena block, and TH_ATTR_INDEXED in attr_capacity_shift marks it. Each entry is 2 * position + 1, and the second link
+   of a name with an uppercase letter also carries ATTR_INDEX_FOLDED. node_attr_find_indexed trusts the index only while
+   its count equals attr_count. Every other editor of attrs either only lowers attr_count or works on an array without
+   an index, so the index is rebuilt on the next lookup. */
+#define ATTR_INDEX_MIN 32
+#define ATTR_INDEX_MAX ((size_t)1 << 30) /* twice a position, the flag and the 1 have to fit 32 bits */
+#define ATTR_INDEX_FOLDED 1u
+#define ATTR_INDEX_STALE UINT32_MAX
+
+/* The index code runs only on elements with ATTR_INDEX_MIN or more attributes, so GCC compiles it once instead of
+   cloning it per call site: the clones grew the extension past LTO's unit-wide inlining limit, which then dropped
+   inlines in unrelated hot code such as the XPath evaluator. */
+#if defined(__GNUC__) && !defined(__clang__)
+#define ATTR_INDEX_FN static __attribute__((noinline, noclone))
+#else
+#define ATTR_INDEX_FN static TH_NOINLINE
+#endif
+
+typedef struct {
+    uint32_t count;   /* attributes indexed, or ATTR_INDEX_STALE */
+    uint32_t links[]; /* two bucket heads per array slot, then as many chain links */
+} attr_index;
+
+static inline attr_index *node_attr_index(const th_node *node) {
+    return (attr_index *)(node->attrs + th_node_attr_capacity(node));
+}
+
+/* The case-insensitive pass of th_node_attr_find applies to node, so the index chains folded names for it only. */
+static inline int attr_index_folds(const th_tree *tree, const th_node *node) {
+    return !tree->xml && node->ns != TH_NS_HTML;
+}
+
+/* Whether the name stored under atom is name once ASCII-lowercased. */
+static inline int attr_name_folds_to(th_tree *tree, uint32_t atom, const char *name, Py_ssize_t name_len) {
+    Py_ssize_t stored_len;
+    const char *stored = th_attr_name(tree, atom, &stored_len);
+    if (stored_len != name_len) {
+        return 0;
+    }
+    Py_ssize_t offset = 0;
+    while (offset < name_len && lower_ascii((Py_UCS4)(unsigned char)stored[offset]) == (Py_UCS4)name[offset]) {
+        offset++;
+    }
+    return offset == name_len;
+}
+
+/* FNV-1a of a name's ASCII-lowercased bytes; *cased reports whether lowercasing changed any. */
+static uint32_t attr_name_folded_hash(const char *name, Py_ssize_t name_len, int *cased) {
+    uint32_t hash = 2166136261u;
+    *cased = 0;
+    for (Py_ssize_t offset = 0; offset < name_len; offset++) {
+        const uint32_t byte = (unsigned char)name[offset];
+        *cased |= lower_ascii(byte) != byte;
+        hash = (hash ^ lower_ascii(byte)) * 16777619u;
+    }
+    return hash;
+}
+
+/* Entries go to the head of their chain, so a chain runs from the highest position down. */
+ATTR_INDEX_FN void attr_index_add(th_tree *tree, const th_node *node, attr_index *index) {
+    TH_WORK_STEP();
+    const size_t buckets = 2 * th_node_attr_capacity(node);
+    uint32_t *next = index->links + buckets;
+    const uint32_t entry = index->count * 2 + 1;
+    const uint32_t atom = node->attrs[index->count++].name_atom;
+    next[entry - 1] = index->links[atom & (buckets - 1)];
+    index->links[atom & (buckets - 1)] = entry;
+    if (attr_index_folds(tree, node)) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, atom, &name_len);
+        int cased;
+        const size_t bucket = attr_name_folded_hash(name, name_len, &cased) & (buckets - 1);
+        if (cased) {
+            next[entry] = index->links[bucket];
+            index->links[bucket] = entry + ATTR_INDEX_FOLDED;
+        }
+    }
+}
+
+/* Rebuilds a stale index first. Chains run from the highest position down, so the last match met is the lowest, the
+   one a scan of the array returns. */
+ATTR_INDEX_FN Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *node, const char *name,
+                                                Py_ssize_t name_len, uint32_t atom) {
+    attr_index *index = node_attr_index(node);
+    const size_t buckets = 2 * th_node_attr_capacity(node);
+    const uint32_t *next = index->links + buckets;
+    if (index->count != (uint32_t)node->attr_count) {
+        memset(index->links, 0, buckets * sizeof(uint32_t));
+        index->count = 0;
+        while (index->count < (uint32_t)node->attr_count) {
+            attr_index_add(tree, node, index);
+        }
+    }
+    Py_ssize_t found = -1;
+    for (uint32_t entry = index->links[atom & (buckets - 1)]; entry != 0; entry = next[entry - 1]) {
+        TH_WORK_STEP();
+        const Py_ssize_t position = (Py_ssize_t)((entry - 1) / 2);
+        if (((entry - 1) & ATTR_INDEX_FOLDED) == 0 && node->attrs[position].name_atom == atom) {
+            found = position;
+        }
+    }
+    if (found >= 0 || !attr_index_folds(tree, node)) {
+        return found;
+    }
+    int cased;
+    const size_t bucket = attr_name_folded_hash(name, name_len, &cased) & (buckets - 1);
+    for (uint32_t entry = index->links[bucket]; entry != 0; entry = next[entry - 1]) {
+        TH_WORK_STEP();
+        const Py_ssize_t position = (Py_ssize_t)((entry - 1) / 2);
+        if (((entry - 1) & ATTR_INDEX_FOLDED) != 0 &&
+            attr_name_folds_to(tree, node->attrs[position].name_atom, name, name_len)) {
+            found = position;
+        }
+    }
+    return found;
+}
+
+/* Move node's attributes into an array with room for one more, followed by an index when indexed is set. Returns 0, or
+   -1 on allocation failure. */
+static inline int node_attr_reserve(th_tree *tree, th_node *node, int indexed) {
+    size_t capacity = th_node_attr_capacity(node);
+    size_t bytes;
+    int fits = th_grow_cap((size_t)node->attr_count + 1, capacity, 2, sizeof(th_node_attr), &capacity, &bytes);
+    if (indexed) {
+        const size_t slot_bytes = sizeof(th_node_attr) + 4 * sizeof(uint32_t);
+        /* GCOVR_EXCL_BR_START: allocation-size overflow */
+        fits = fits && capacity <= ATTR_INDEX_MAX &&
+               capacity <= ((size_t)PY_SSIZE_T_MAX - sizeof(attr_index)) / slot_bytes;
+        /* GCOVR_EXCL_BR_STOP */
+        bytes = sizeof(attr_index) + capacity * slot_bytes;
+    }
+    if (!fits || bytes > PY_SSIZE_T_MAX) { /* GCOVR_EXCL_BR_LINE: allocation-size overflow */
+        PyErr_NoMemory();                  /* GCOVR_EXCL_LINE: allocation-size overflow */
+        return -1;                         /* GCOVR_EXCL_LINE: allocation-size overflow */
+    }
+    th_node_attr *grown = arena_alloc(tree, (Py_ssize_t)bytes);
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (node->attr_count > 0) {
+        memcpy(grown, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    }
+    node->attrs = grown;
+    /* th_grow_cap doubles from two slots, so the shift starts at 1 and a new element's first array takes no loop */
+    uint8_t shift = 1;
+    for (size_t slots = capacity; slots > 2; slots >>= 1) {
+        shift++;
+    }
+    node->attr_capacity_shift = shift;
+    if (indexed) {
+        node->attr_capacity_shift = (uint8_t)(shift | TH_ATTR_INDEXED);
+        node_attr_index(node)->count = ATTR_INDEX_STALE;
+    }
+    return 0;
+}
+
+/* Indexed growth stays out of line, so that the writers below inline only the plain growth every new element takes. */
+ATTR_INDEX_FN int node_attr_reserve_indexed(th_tree *tree, th_node *node) {
+    return node_attr_reserve(tree, node, 1);
+}
+
+/* The lookup of an element with ATTR_INDEX_MIN or more attributes: indexes the array on its first write, then answers
+   from the index. Returns the position, -1 for a miss, or -2 on allocation failure. */
+ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                              uint32_t atom) {
+    if (!(node->attr_capacity_shift & TH_ATTR_INDEXED)) {
+        if (node_attr_reserve_indexed(tree, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -2;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return node_attr_find_indexed(tree, node, name, name_len, atom);
+}
+
+/* Shared by both writers. Branch-free, so inlining it adds no coverage arc. */
+static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     tree->attr_version++;
     mark_start_dirty(tree, node);
     uint32_t atom = th_attr_intern_utf8(tree, name, name_len);
     tree->id_version += atom == TH_ATTR_ID;
+    return atom;
+}
+
+/* Replaces the value of a present name, or appends it. Kept apart from th_node_attr_append rather than inlined into
+   both: a shared store would hold the duplicate and index branches, which the appender never takes. */
+static TH_NOINLINE int node_attr_write(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
+    uint32_t atom = node_attr_begin(tree, node, name, name_len);
     Py_UCS4 *owned = NULL;
     if (has_value) {
         owned = arena_alloc(tree, (value_len ? value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
@@ -312,7 +496,16 @@ static int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ss
             memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
         }
     }
-    Py_ssize_t existing = append ? -1 : th_node_attr_find(tree, node, name, name_len);
+    Py_ssize_t existing;
+    /* a small array is scanned even when an index is left over from when it was large */
+    if (node->attr_count >= ATTR_INDEX_MIN) {
+        existing = node_attr_find_large(tree, node, name, name_len, atom);
+        if (existing < -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    } else {
+        existing = th_node_attr_find(tree, node, name, name_len);
+    }
     /* testing right after interning changed how LTO inlined the lookup and cost a class edit 150 instructions */
     if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
         return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -322,50 +515,70 @@ static int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ss
     }
     if (existing >= 0) {
         th_mo_attr_changed(tree, node, atom, node->attrs[existing].value, node->attrs[existing].value_len, 1);
-    } else {
-        th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
-    }
-    if (existing >= 0) {
         node->attrs[existing].value = owned;
         node->attrs[existing].value_len = has_value ? value_len : 0;
         return 0;
     }
-    size_t capacity = node->attr_capacity_shift ? (size_t)1 << node->attr_capacity_shift : 0;
-    if ((size_t)node->attr_count >= capacity) {
-        size_t bytes;
-        int fits = th_grow_cap((size_t)node->attr_count + 1, capacity, 2, sizeof(th_node_attr), &capacity, &bytes);
-        if (!fits || bytes > PY_SSIZE_T_MAX) { /* GCOVR_EXCL_BR_LINE: allocation-size overflow */
-            PyErr_NoMemory();                  /* GCOVR_EXCL_LINE: allocation-size overflow */
-            return -1;                         /* GCOVR_EXCL_LINE: allocation-size overflow */
-        }
-        th_node_attr *grown = arena_alloc(tree, (Py_ssize_t)bytes);
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (node->attr_count > 0) {
-            memcpy(grown, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
-        }
-        node->attrs = grown;
-        node->attr_capacity_shift = 0;
-        for (size_t slots = capacity; slots > 1; slots >>= 1) {
-            node->attr_capacity_shift++;
+    th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
+    /* growth keeps an array indexed or plain, so the flag read here also holds after it */
+    const int indexed = node->attr_capacity_shift & TH_ATTR_INDEXED;
+    if ((size_t)node->attr_count >= th_node_attr_capacity(node)) {
+        const int grown = indexed ? node_attr_reserve_indexed(tree, node) : node_attr_reserve(tree, node, 0);
+        if (grown < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     node->attrs[node->attr_count].name_atom = atom;
     node->attrs[node->attr_count].value = owned;
     node->attrs[node->attr_count].value_len = has_value ? value_len : 0;
+    if (indexed) {
+        /* an index out of step here (the array has just moved, or this is an append after a removal) is pinned stale,
+           so that adding cannot bring its count level with attr_count again */
+        attr_index *index = node_attr_index(node);
+        if (index->count == (uint32_t)node->attr_count) {
+            attr_index_add(tree, node, index);
+        } else {
+            index->count = ATTR_INDEX_STALE;
+        }
+    }
     node->attr_count++;
     return 0;
 }
 
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len, int has_value) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 0);
+    return node_attr_write(tree, node, name, name_len, value, value_len, has_value);
 }
 
-int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
-                        Py_ssize_t value_len, int has_value) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 1);
+/* out of line: inlined into the XML parser's attribute loop it cost that loop more than the call. The XML parser is the
+   only appender and its tree is always XML, so the namespace check needs no tree->xml test. */
+TH_NOINLINE int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                    const Py_UCS4 *value, Py_ssize_t value_len) {
+    uint32_t atom = node_attr_begin(tree, node, name, name_len);
+    Py_UCS4 *owned = arena_alloc(tree, (value_len ? value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
+    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (value_len > 0) { /* an empty value may arrive as a NULL pointer */
+        memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
+    }
+    if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
+        return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (is_xml_namespace_decl(name, name_len)) {
+        tree->has_xml_ns = 1;
+    }
+    th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
+    if ((size_t)node->attr_count >= th_node_attr_capacity(node)) {
+        if (node_attr_reserve(tree, node, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    node->attrs[node->attr_count].name_atom = atom;
+    node->attrs[node->attr_count].value = owned;
+    node->attrs[node->attr_count].value_len = value_len;
+    node->attr_count++;
+    return 0;
 }
 
 /* Replace a node's character data with a copy of len code points (an empty buffer
@@ -403,6 +616,7 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
     uint32_t atom = th_attr_lookup(tree, name, name_len);
     if (atom != UINT32_MAX) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            TH_WORK_STEP();
             if (node->attrs[index].name_atom == atom) {
                 return index;
             }
@@ -414,16 +628,8 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
        keeps names case-sensitive, so its exact-atom match above is the only pass. */
     if (!tree->xml && node->ns != TH_NS_HTML) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            Py_ssize_t stored_len;
-            const char *stored = th_attr_name(tree, node->attrs[index].name_atom, &stored_len);
-            if (stored_len != name_len) {
-                continue;
-            }
-            Py_ssize_t offset = 0;
-            while (offset < name_len && lower_ascii((Py_UCS4)(unsigned char)stored[offset]) == (Py_UCS4)name[offset]) {
-                offset++;
-            }
-            if (offset == name_len) {
+            TH_WORK_STEP();
+            if (attr_name_folds_to(tree, node->attrs[index].name_atom, name, name_len)) {
                 return index;
             }
         }
@@ -667,7 +873,7 @@ void th_tree_verify(th_tree *tree, th_node *start, Py_ssize_t (*visit)(void *con
             found->iterators += !is_inclusive_ancestor_of(iterator->root, iterator->candidate);
         }
     }
-    /* every write that bumps id_version bumps attr_version with it (node_attr_store, th_node_attr_del) */
+    /* every write that bumps id_version bumps attr_version with it (node_attr_begin, th_node_attr_del) */
     found->versions = tree->id_version > tree->attr_version;
 }
 

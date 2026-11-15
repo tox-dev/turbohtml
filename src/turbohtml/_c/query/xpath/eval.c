@@ -778,14 +778,6 @@ static Py_ssize_t known_position(xp_caches *const *caches, struct th_node *node)
     return *caches == NULL ? 0 : th_node_map_find(&(*caches)->positions, node);
 }
 
-/* node_before answers 2 once a comparison would walk past the steps its caller allows the whole set, so a set whose
-   order the links settle only after long walks (a wide sibling list, a deep chain) is ranked once instead. */
-#define ORDER_UNKNOWN 2
-
-static Py_ssize_t order_budget(Py_ssize_t count) {
-    return 64 * count + 256;
-}
-
 /* The node's depth, or -1 once the walk spends *budget. */
 static Py_ssize_t node_depth(struct th_node *node, Py_ssize_t *budget) {
     Py_ssize_t remaining = *budget;
@@ -821,10 +813,10 @@ static int sibling_order(xp_caches **caches, struct th_node *left, struct th_nod
     if (ahead == right) {
         return -1;
     }
-    return ahead == NULL ? 1 : ORDER_UNKNOWN;
+    return ahead == NULL ? 1 : XP_ORDER_UNKNOWN;
 }
 
-/* Negative when left precedes right in document (pre-order); positive otherwise; ORDER_UNKNOWN once the walks spend
+/* Negative when left precedes right in document (pre-order); positive otherwise; XP_ORDER_UNKNOWN once the walks spend
    the budget. Never called with left == right. */
 static int node_before(xp_caches **caches, struct th_node *left, struct th_node *right, Py_ssize_t *budget) {
     struct th_node *left_parent = left->parent;
@@ -851,7 +843,7 @@ static int node_before(xp_caches **caches, struct th_node *left, struct th_node 
         Py_ssize_t dx = node_depth(left, budget);
         Py_ssize_t dy = dx < 0 ? -1 : node_depth(right, budget);
         if (dy < 0) {
-            return ORDER_UNKNOWN;
+            return XP_ORDER_UNKNOWN;
         }
         for (Py_ssize_t index = dx; index > dy; index--) {
             walk_left = walk_left->parent;
@@ -876,9 +868,14 @@ static int node_before(xp_caches **caches, struct th_node *left, struct th_node 
     return sibling_order(caches, walk_left, walk_right, budget);
 }
 
+/* Out of line, so the sort's own calls of node_before inline as they did. */
+TH_NOINLINE int xp_node_order(xp_caches **caches, struct th_node *left, struct th_node *right, Py_ssize_t *budget) {
+    return node_before(caches, left, right, budget);
+}
+
 /* Order items sharing a node: the node itself first, then its attributes, then its
    namespace node, mirroring document order within an element. */
-static Py_ssize_t item_rank(Py_ssize_t attr) {
+Py_ssize_t xp_item_rank(Py_ssize_t attr) {
     if (attr == -1) {
         return 0; /* the node */
     }
@@ -893,8 +890,8 @@ static int same_node_order(const xp_item *left, const xp_item *right) {
     if (left->attr == right->attr) {
         return 0;
     }
-    Py_ssize_t left_rank = item_rank(left->attr);
-    Py_ssize_t right_rank = item_rank(right->attr);
+    Py_ssize_t left_rank = xp_item_rank(left->attr);
+    Py_ssize_t right_rank = xp_item_rank(right->attr);
     if (left_rank != right_rank) {
         return left_rank < right_rank ? -1 : 1;
     }
@@ -1165,6 +1162,28 @@ static int sort_ranked(xp_caches **caches, xp_nodeset *ns, int unsorted) {
     return 0;
 }
 
+Py_ssize_t xp_first_out_of_order(xp_caches **caches, const xp_nodeset *set, Py_ssize_t start) {
+    const xp_nodeset none = {0};
+    ranked_item *ranked = rank_sets(caches, set, &none);
+    if (ranked == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t previous = start;
+    Py_ssize_t index = start + 1;
+    for (; index < set->len; index++) {
+        if (set->items[index].attr != -1 || set->items[index].node == set->items[previous].node) {
+            continue;
+        }
+        if (ranked_order(&ranked[previous], &ranked[index]) > 0) {
+            break;
+        }
+        previous = index;
+    }
+    PyMem_Free(ranked);
+    return index;
+}
+
 static int sort_unique(xp_caches **caches, xp_nodeset *ns) {
     if (ns->len < 2) {
         return 0;
@@ -1196,12 +1215,12 @@ static int sort_unique(xp_caches **caches, xp_nodeset *ns) {
         ns->len = write;
     }
     /* Forward axes already produce tree order; preserve it without sorting again. */
-    Py_ssize_t budget = order_budget(ns->len);
+    Py_ssize_t budget = xp_order_budget(ns->len);
     for (Py_ssize_t index = 1; index < ns->len; index++) {
         int order_found = item_order(caches, &ns->items[index - 1], &ns->items[index], &budget);
         if (order_found > 0) {
-            if (sort_ranked(caches, ns, order_found != ORDER_UNKNOWN) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                                   /* GCOVR_EXCL_LINE */
+            if (sort_ranked(caches, ns, order_found != XP_ORDER_UNKNOWN) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                                      /* GCOVR_EXCL_LINE */
             }
             break;
         }
@@ -1533,8 +1552,9 @@ double to_number(struct th_tree *tree, const xp_result *value) {
     return number;
 }
 
-/* Apply each predicate in the XN_PRED chain to set, in place, in proximity order. */
-static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set) {
+/* Apply each predicate in the XN_PRED chain to set, in place, in proximity order. held is the depth the caller's
+   frames weigh beneath the predicate on top of the level its own expression counts. */
+static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set, int held) {
     for (int32_t pr = pred_head; pr >= 0; pr = prog->nodes[pr].next) {
         int32_t expr = prog->nodes[pr].first;
         const xn *predicate = &prog->nodes[expr];
@@ -1574,7 +1594,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                 ctx->namespaces,
                 ctx->extension,
                 ctx->extension_ctx,
-                ctx->depth,
+                ctx->depth + held,
                 ctx->caches,
                 ctx->live,
                 ctx->before_python,
@@ -1652,6 +1672,18 @@ static int resolve_step_ns(xp_ctx *ctx, const Py_UCS4 *prefix, Py_ssize_t prefix
     return 0;
 }
 
+/* The atom of an XML-namespace attribute: both trees store it under its xml:-prefixed name. Out of line, so the name
+   buffer stays out of the frame each location path keeps on the stack while its predicates recurse. */
+static TH_NOINLINE uint32_t resolve_xml_attr_atom(struct th_tree *tree, const Py_UCS4 *local, Py_ssize_t local_len) {
+    Py_UCS4 qualified[128] = {'x', 'm', 'l', ':'};
+    uint32_t atom = UINT32_MAX;
+    if (local_len < (Py_ssize_t)(sizeof(qualified) / sizeof(qualified[0])) - 4) {
+        memcpy(qualified + 4, local, (size_t)local_len * sizeof(Py_UCS4));
+        atom = resolve_attr_atom(tree, qualified, local_len + 4);
+    }
+    return atom;
+}
+
 /* Resolve a step's name test once: the local part after any prefix, its interned atoms,
    and the namespace the prefix binds. Returns 0, or -3 (with *feature set) for an
    unbound prefix. */
@@ -1681,12 +1713,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
         }
     }
     if (step->axis == AX_ATTRIBUTE && match->xml_ns) {
-        /* both trees store an XML-namespace attribute under its xml:-prefixed name */
-        Py_UCS4 qualified[128] = {'x', 'm', 'l', ':'};
-        if (match->local_len < (Py_ssize_t)(sizeof(qualified) / sizeof(qualified[0])) - 4) {
-            memcpy(qualified + 4, match->local, (size_t)match->local_len * sizeof(Py_UCS4));
-            match->attr_atom = resolve_attr_atom(ctx->tree, qualified, match->local_len + 4);
-        }
+        match->attr_atom = resolve_xml_attr_atom(ctx->tree, match->local, match->local_len);
         match->foreign_only = !th_tree_is_xml(ctx->tree);
     } else if (step->axis == AX_ATTRIBUTE) {
         /* a prefix that binds any other namespace names no attribute a tree carries */
@@ -1712,7 +1739,7 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
     xp_nodeset *contexts = current;
     if (root->second >= 0) {
         xp_result base;
-        int rc = eval_expr(prog, root->second, ctx, &base);
+        int rc = eval_held(prog, root->second, ctx, &base, 0);
         if (rc < 0) {
             return rc;
         }
@@ -1845,10 +1872,10 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
                 accepted->len = before;
                 xp_live_frame frame = {.sets = {&slice}};
                 xp_live_enter(ctx, &frame);
-                rc = apply_predicates(prog, step->first, ctx, &slice);
+                rc = apply_predicates(prog, step->first, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
                 xp_live_leave(ctx, &frame);
             } else {
-                rc = apply_predicates(prog, step->first, ctx, &slice);
+                rc = apply_predicates(prog, step->first, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
             }
             if (rc < 0) {
                 return rc;
@@ -2114,7 +2141,7 @@ static TH_NOINLINE int union_order(xp_caches **caches, const xp_nodeset *target,
                                    Py_ssize_t left, Py_ssize_t right, Py_ssize_t *budget, ranked_item **ranked) {
     if (*ranked == NULL) {
         int precedes = item_order(caches, &target->items[left], &source->items[right], budget);
-        if (precedes != ORDER_UNKNOWN) {
+        if (precedes != XP_ORDER_UNKNOWN) {
             return precedes;
         }
         *ranked = rank_sets(caches, target, source);
@@ -2142,7 +2169,7 @@ static int nodeset_union(xp_caches **caches, xp_nodeset *target, xp_nodeset *sou
     }
     xp_nodeset merged = {0};
     ranked_item *ranked = NULL;
-    Py_ssize_t budget = order_budget(target->len + source->len);
+    Py_ssize_t budget = xp_order_budget(target->len + source->len);
     Py_ssize_t left = 0;
     Py_ssize_t right = 0;
     while (left < target->len || right < source->len) {
@@ -2375,7 +2402,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
                 frame = (xp_live_frame){.results = &primary, .result_count = 1};
                 xp_live_enter(ctx, &frame);
             }
-            rc = apply_predicates(prog, expr->second, ctx, &primary.nodes);
+            rc = apply_predicates(prog, expr->second, ctx, &primary.nodes, XP_PREDICATE_DEPTH);
             xp_live_leave(ctx, &frame);
         }
         if (rc < 0) {
@@ -2473,6 +2500,33 @@ int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *ou
         xp_live_leave(ctx, &frame);
     }
     ctx->depth--;
+    return rc;
+}
+
+/* eval_guarded with the caller's frame charged in the same check and update, so a function call or a path base pays
+   no instruction of its own for it. Out of line: inlined into eval_function, it grew the LTO unit enough to stop an
+   unrelated inline in the selector matcher. */
+TH_NOINLINE int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists) {
+    if (ctx->depth + XP_HELD_DEPTH >= XP_MAX_DEPTH) {
+        *ctx->feature = "an expression nested too deeply";
+        return -5;
+    }
+#ifdef TH_OPERATION_LIMIT
+    if (xp_charge(ctx, 1) < 0) {
+        return -3;
+    }
+#endif
+    ctx->depth += 1 + XP_HELD_DEPTH;
+    int rc;
+    if (ctx->live == NULL) {
+        rc = eval_expr_inner(prog, idx, ctx, out, exists);
+    } else {
+        xp_live_frame frame = {.node = ctx->node};
+        xp_live_enter(ctx, &frame);
+        rc = eval_expr_inner(prog, idx, ctx, out, exists);
+        xp_live_leave(ctx, &frame);
+    }
+    ctx->depth -= 1 + XP_HELD_DEPTH;
     return rc;
 }
 

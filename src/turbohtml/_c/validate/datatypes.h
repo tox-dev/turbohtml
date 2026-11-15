@@ -370,6 +370,22 @@ static int lex_time_of_day(const Py_UCS4 *value, Py_ssize_t at, Py_ssize_t len, 
     return 1;
 }
 
+/* The year has no length limit, so its residue mod 400 is folded digit by digit: the leap rule
+   depends on nothing else. */
+static int year_is_leap(const Py_UCS4 *digits, Py_ssize_t len) {
+    int residue = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        residue = (residue * 10 + (int)(digits[index] - '0')) % 400;
+    }
+    return residue % 4 == 0 && (residue % 100 != 0 || residue == 0);
+}
+
+/* The days in `month` of the year written by `year`. Only February depends on the year, so only it reads the year. */
+static int days_in_month(int month, const Py_UCS4 *year, Py_ssize_t year_len) {
+    static const int DAYS[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    return month == 2 && year_is_leap(year, year_len) ? 29 : DAYS[month - 1];
+}
+
 static int lex_date_body(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *end) {
     Py_ssize_t index = 0;
     if (index < len && value[index] == '-') { /* a negative (BCE) year is allowed */
@@ -385,7 +401,9 @@ static int lex_date_body(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *end) 
     if (value[index] != '-' || value[index + 3] != '-') {
         return 0;
     }
-    if (fixed_digits(value, index + 1, 2, 1, 12) < 0 || fixed_digits(value, index + 4, 2, 1, 31) < 0) {
+    const int month = fixed_digits(value, index + 1, 2, 1, 12);
+    const int day = fixed_digits(value, index + 4, 2, 1, 31);
+    if (month < 0 || day < 0 || day > days_in_month(month, value + year_start, index - year_start)) {
         return 0;
     }
     *end = index + 6;
@@ -436,7 +454,7 @@ static int duration_unit_ok(int in_time, Py_UCS4 unit) {
 }
 
 /* duration: -?PnYnMnDTnHnMnS with at least one component and T only when a time part
-   follows. */
+   follows. Only the seconds take a fraction, and it needs a digit on each side of the point. */
 static int lex_duration(const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t index = 0;
     if (index < len && value[index] == '-') {
@@ -464,7 +482,19 @@ static int lex_duration(const Py_UCS4 *value, Py_ssize_t len) {
         if (digits == 0 || index >= len) {
             return 0;
         }
-        if (!duration_unit_ok(in_time, value[index])) {
+        int fractional = value[index] == '.';
+        if (fractional) {
+            index++;
+            Py_ssize_t fraction_digits = 0;
+            while (index < len && is_digit(value[index])) {
+                index++;
+                fraction_digits++;
+            }
+            if (fraction_digits == 0 || index >= len) {
+                return 0;
+            }
+        }
+        if (!duration_unit_ok(in_time, value[index]) || (fractional && value[index] != 'S')) {
             return 0;
         }
         seen = 1;
@@ -771,23 +801,36 @@ static int dt_moment_cmp(const dt_moment *left, double shift, const dt_moment *r
     return order;
 }
 
-/* A duration as the months and the seconds it adds. */
+/* A duration as the months and the seconds it adds. The seconds' fraction stays as written, because a double cannot
+   hold every decimal fraction: `fraction` points at the digits after the point, and `fraction_sign` is -1, 0 or 1 for
+   a fraction that is negative, zero or positive. */
 typedef struct {
     double months;
     double seconds;
+    const Py_UCS4 *fraction;
+    Py_ssize_t fraction_len;
+    int fraction_sign;
 } dt_span;
 
 /* `value` has passed lex_duration, which takes the components in any order and any number of times. */
 static dt_span dt_span_of(const Py_UCS4 *value, Py_ssize_t len) {
-    dt_span span = {0, 0};
     const int negative = value[0] == '-';
-    int in_time = 0;
+    dt_span span = {0, 0, NULL, 0, 0};
+    int in_time = 0, nonzero = 0;
     for (Py_ssize_t at = negative + 1; at < len; at++) {
         if (value[at] == 'T') {
             in_time = 1;
             continue;
         }
         const double count = dt_digit_run(value, &at);
+        if (value[at] == '.') {
+            span.fraction = value + ++at;
+            while (is_digit(value[at])) {
+                nonzero |= value[at] != '0';
+                at++;
+            }
+            span.fraction_len = value + at - span.fraction;
+        }
         if (in_time) {
             span.seconds += count * (value[at] == 'H' ? 3600 : (value[at] == 'M' ? 60 : 1));
         } else if (value[at] == 'D') {
@@ -796,6 +839,7 @@ static dt_span dt_span_of(const Py_UCS4 *value, Py_ssize_t len) {
             span.months += count * (value[at] == 'Y' ? 12 : 1);
         }
     }
+    span.fraction_sign = nonzero ? (negative ? -1 : 1) : 0;
     if (negative) {
         span.months = -span.months;
         span.seconds = -span.seconds;
@@ -803,15 +847,33 @@ static dt_span dt_span_of(const Py_UCS4 *value, Py_ssize_t len) {
     return span;
 }
 
+/* How the fractions of two durations' seconds stand. The digits compare as written, padded with zeros. */
+static int dt_fraction_cmp(const dt_span *left, const dt_span *right) {
+    if (left->fraction_sign != right->fraction_sign) {
+        return (left->fraction_sign > right->fraction_sign) - (left->fraction_sign < right->fraction_sign);
+    }
+    const Py_ssize_t digits = left->fraction_len > right->fraction_len ? left->fraction_len : right->fraction_len;
+    int order = 0;
+    for (Py_ssize_t index = 0; index < digits && order == 0; index++) {
+        const Py_UCS4 ours = index < left->fraction_len ? left->fraction[index] : '0';
+        const Py_UCS4 theirs = index < right->fraction_len ? right->fraction[index] : '0';
+        order = (ours > theirs) - (ours < theirs);
+    }
+    return left->fraction_sign * order;
+}
+
 /* XSD 1.0 part 2 section 3.2.6.2: a month has no fixed length, so one duration is below another only when adding
    each to all four of these dateTimes leaves the results in that order. The four are 1696-09-01, 1697-02-01,
-   1903-03-01 and 1903-07-01, as months from January of year 0. */
+   1903-03-01 and 1903-07-01, as months from January of year 0. Whole seconds that tie decide by their fractions. */
 static int dt_span_cmp(const dt_span *left, const dt_span *right) {
     static const double starts[] = {1696 * 12 + 8, 1697 * 12 + 1, 1903 * 12 + 2, 1903 * 12 + 6};
     int order = 0;
     for (size_t index = 0; index < sizeof(starts) / sizeof(starts[0]); index++) {
-        const int step = dt_cmp(dt_month_days(starts[index] + left->months) * 86400 + left->seconds,
-                                dt_month_days(starts[index] + right->months) * 86400 + right->seconds);
+        int step = dt_cmp(dt_month_days(starts[index] + left->months) * 86400 + left->seconds,
+                          dt_month_days(starts[index] + right->months) * 86400 + right->seconds);
+        if (step == 0) {
+            step = dt_fraction_cmp(left, right);
+        }
         if (index > 0 && step != order) {
             return 2;
         }

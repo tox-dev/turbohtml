@@ -113,6 +113,35 @@ def test_builtin_datatype_invalid(type_name: str, value: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("type_name", "value", "valid"),
+    [
+        pytest.param("xs:date", "2023-02-28", True, id="date-february-last-day"),
+        pytest.param("xs:date", "2023-02-30", False, id="date-february-30"),
+        pytest.param("xs:date", "2023-04-31", False, id="date-april-31"),
+        pytest.param("xs:date", "2023-12-31", True, id="date-december-31"),
+        pytest.param("xs:date", "2024-02-29", True, id="date-leap-day"),
+        pytest.param("xs:date", "2023-02-29", False, id="date-common-year-february-29"),
+        pytest.param("xs:date", "1900-02-29", False, id="date-century-not-leap"),
+        pytest.param("xs:date", "2000-02-29", True, id="date-400-year-leap"),
+        pytest.param("xs:date", "0000-02-29", True, id="date-year-zero-leap"),
+        pytest.param("xs:date", "-0004-02-29", True, id="date-bce-leap"),
+        pytest.param("xs:date", "-0001-02-29", False, id="date-bce-common"),
+        pytest.param("xs:date", f"{'0' * 70}2024-02-29", True, id="date-padded-leap"),
+        pytest.param("xs:date", f"{'0' * 70}2023-02-29", False, id="date-padded-common"),
+        pytest.param("xs:date", f"1{'0' * 400}-02-29", True, id="date-long-leap"),
+        pytest.param("xs:date", f"1{'0' * 399}1-02-29", False, id="date-long-common"),
+        pytest.param("xs:date", "2023-02-30Z", False, id="date-zoned-february-30"),
+        pytest.param("xs:dateTime", "2023-02-30T12:00:00", False, id="dateTime-february-30"),
+        pytest.param("xs:dateTime", "2023-09-31T00:00:00+01:00", False, id="dateTime-september-31"),
+        pytest.param("xs:dateTime", "2024-02-29T23:59:59Z", True, id="dateTime-leap-day"),
+        pytest.param("xs:dateTime", "2023-02-29T00:00:00", False, id="dateTime-common-year-february-29"),
+    ],
+)
+def test_builtin_date_calendar_day(type_name: str, value: str, *, valid: bool) -> None:
+    assert check(typed(type_name), f"<v>{value}</v>").valid is valid
+
+
+@pytest.mark.parametrize(
     ("facets", "base", "value", "ok"),
     [
         pytest.param('<xs:enumeration value="a"/><xs:enumeration value="b"/>', "xs:string", "a", True, id="enum-ok"),
@@ -251,6 +280,29 @@ def restricted(facets: str, base: str = "xs:string") -> str:
         pytest.param("xs:duration", "maxInclusive", "P30D", f"P{'9' * 400}Y", False, id="duration-huge-years"),
         pytest.param("xs:duration", "minInclusive", "P30D", f"P{'9' * 400}D", True, id="duration-huge-days"),
         pytest.param("xs:duration", "maxInclusive", f"P{'9' * 400}D", f"P{'9' * 500}D", False, id="duration-both-huge"),
+        pytest.param("xs:duration", "maxInclusive", "PT2S", "PT1.5S", True, id="duration-fraction-below"),
+        pytest.param("xs:duration", "maxExclusive", "PT1.5S", "PT1.5S", False, id="duration-fraction-equal"),
+        pytest.param("xs:duration", "maxInclusive", "PT1.5S", "PT1.50S", True, id="duration-fraction-trailing-zero"),
+        pytest.param("xs:duration", "minExclusive", "PT1.5S", "PT1.25S", False, id="duration-fraction-under-bound"),
+        pytest.param("xs:duration", "minExclusive", "PT1.25S", "PT1.5S", True, id="duration-fraction-over-bound"),
+        pytest.param(
+            "xs:duration",
+            "maxInclusive",
+            "PT0.1S",
+            "PT0.10000000000000001S",
+            False,
+            id="duration-fraction-beyond-double",
+        ),
+        pytest.param("xs:duration", "minInclusive", "-PT1S", "-PT1.5S", False, id="duration-negative-fraction-below"),
+        pytest.param("xs:duration", "maxInclusive", "-PT1S", "-PT1.5S", True, id="duration-negative-fraction-above"),
+        pytest.param("xs:duration", "maxInclusive", "PT0S", "-PT0.5S", True, id="duration-negative-fraction-vs-zero"),
+        pytest.param("xs:duration", "minInclusive", "PT0S", "-PT0.0S", True, id="duration-negative-zero-fraction"),
+        pytest.param("xs:duration", "maxInclusive", "PT0.5S", "-PT0.0S", True, id="duration-negative-zero-below"),
+        pytest.param("xs:duration", "maxExclusive", "PT0S", "-PT0.0S", False, id="duration-negative-zero-equal"),
+        pytest.param(
+            "xs:duration", "minInclusive", "-PT0.0S", "PT0.5S", True, id="duration-positive-above-negative-zero"
+        ),
+        pytest.param("xs:duration", "minExclusive", "PT1.50S", "PT1.5S", False, id="duration-fraction-equal-padded"),
         pytest.param(
             "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30}-01-02", False, id="date-beyond-double-above"
         ),
@@ -971,6 +1023,10 @@ def test_validate_element_directly() -> None:
         pytest.param("xs:duration", "P1X", False, id="duration-bad-unit"),
         pytest.param("xs:duration", "PT1HT2H", False, id="duration-double-t"),
         pytest.param("xs:duration", "P1H", False, id="duration-time-unit-outside-t"),
+        pytest.param("xs:duration", "PT1.5S", True, id="duration-fraction-seconds"),
+        pytest.param("xs:duration", "P1DT2H3M4.25S", True, id="duration-fraction-after-all-fields"),
+        pytest.param("xs:duration", "-PT0.5S", True, id="duration-negative-fraction"),
+        pytest.param("xs:duration", "PT0.0S", True, id="duration-zero-fraction"),
         pytest.param("xs:language", "en", True, id="language-single"),
         pytest.param("xs:language", "en-US-variant", True, id="language-multi"),
         pytest.param("xs:language", "en-", False, id="language-trailing-dash"),
@@ -1298,6 +1354,16 @@ def test_datatype_sign_and_tz(type_name: str, value: str, ok: bool) -> None:  # 
         pytest.param("xs:date", "2020-06-15Q", id="date-bad-tz-char"),
         pytest.param("xs:date", "202-06-15", id="date-short-year"),
         pytest.param("xs:duration", "1Y", id="duration-no-p"),
+        pytest.param("xs:duration", "PT.5S", id="duration-fraction-no-integer-digit"),
+        pytest.param("xs:duration", "PT1.S", id="duration-fraction-no-fraction-digit"),
+        pytest.param("xs:duration", "PT1.5", id="duration-fraction-no-unit"),
+        pytest.param("xs:duration", "PT1,5S", id="duration-fraction-comma"),
+        pytest.param("xs:duration", "PT1.5.5S", id="duration-fraction-two-points"),
+        pytest.param("xs:duration", "P1.5S", id="duration-fraction-seconds-outside-t"),
+        pytest.param("xs:duration", "P1.5Y", id="duration-fraction-on-year"),
+        pytest.param("xs:duration", "P1.5D", id="duration-fraction-on-day"),
+        pytest.param("xs:duration", "PT1.5M", id="duration-fraction-on-minute"),
+        pytest.param("xs:duration", "PT1.5H", id="duration-fraction-on-hour"),
         pytest.param("xs:duration", "P1", id="duration-no-unit"),
         pytest.param("xs:language", "en-verylongsub", id="language-long-subtag"),
     ],
