@@ -127,10 +127,36 @@ def to_text(html: str, opts: PlainText) -> str:
             "s\n\n* a",
             id="wrapper-without-items-is-content",
         ),
+        pytest.param("<ol><ul><li>a</li></ul></ol>", PlainText(), "* a", id="nested-list-before-item-not-indented"),
+        pytest.param(
+            "<ul><li>x</li><ul><ul><li>a</li></ul></ul></ul>",
+            PlainText(),
+            "* x\n  * a",
+            id="nested-list-before-item-under-an-item",
+        ),
+        pytest.param(
+            "<ul><ul><li>a</li><li>b</li></ul><li>c</li></ul>",
+            PlainText(),
+            "* a\n* b\n* c",
+            id="nested-items-before-item-of-the-outer-list",
+        ),
+        pytest.param(
+            "<ul><ul><div>t</div><li>a</li></ul></ul>",
+            PlainText(),
+            "t\n* a",
+            id="content-in-nested-list-before-item",
+        ),
     ],
 )
 def test_lists(html: str, opts: PlainText, expected: str) -> None:
     assert "\n".join(line.rstrip() for line in to_text(html, opts).splitlines()) == expected
+
+
+@pytest.mark.parametrize("depth", [6, 11])
+def test_nested_lists_without_items_add_no_indent(depth: int) -> None:
+    # no marker accounts for an indent here, so each bare level would stack two columns on the item below it
+    html: Final = f"<ol>{'<ul>' * depth}<li>a</li>{'</ul>' * depth}</ol>"
+    assert to_text(html, PlainText()) == "* a"
 
 
 @pytest.mark.parametrize(

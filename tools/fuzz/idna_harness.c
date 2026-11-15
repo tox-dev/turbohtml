@@ -72,7 +72,7 @@ static idna_status mapped_nfc(const Py_UCS4 *input, Py_ssize_t len, Py_UCS4 **ou
         free(mapped);
         return IDNA_DISALLOWED;
     }
-    Py_UCS4 *normalized = malloc((size_t)(mapped_len * 4 + 1) * sizeof(Py_UCS4));
+    Py_UCS4 *normalized = malloc((size_t)(mapped_len * 8 + 1) * sizeof(Py_UCS4));
     if (normalized == NULL) {
         free(mapped);
         return IDNA_NO_MEMORY;
@@ -84,7 +84,7 @@ static idna_status mapped_nfc(const Py_UCS4 *input, Py_ssize_t len, Py_UCS4 **ou
 }
 
 static void check_normalization(const Py_UCS4 *input, Py_ssize_t len) {
-    Py_UCS4 *normalized = malloc((size_t)(len * 4 + 1) * sizeof(Py_UCS4));
+    Py_UCS4 *normalized = malloc((size_t)(len * 8 + 1) * sizeof(Py_UCS4));
     if (normalized == NULL) {
         return;
     }
@@ -130,9 +130,12 @@ static void check_ascii(const Py_UCS4 *output, Py_ssize_t len) {
             Py_ssize_t count = puny_decode(output + start + 4, end - start - 4, decoded);
             if (count >= 0) {
                 Py_ssize_t encoded_len = puny_encode(decoded, count, encoded);
-                require_property(encoded_len == end - start - 4 &&
-                                     memcmp(output + start + 4, encoded, (size_t)encoded_len * sizeof(Py_UCS4)) == 0,
-                                 "Punycode round trip");
+                if (encoded_len != PUNY_NO_MEMORY) {
+                    require_property(
+                        encoded_len == end - start - 4 &&
+                            memcmp(output + start + 4, encoded, (size_t)encoded_len * sizeof(Py_UCS4)) == 0,
+                        "Punycode round trip");
+                }
             }
         }
         start = end + 1;

@@ -127,7 +127,7 @@ static Py_ssize_t public_suffix_labels(const Py_UCS4 *host, Py_ssize_t host_len,
 }
 
 /* _registrable_domain(host) -> str: the eTLD+1 of a lowercased ASCII host, or the whole host when it carries no known
-   public suffix (an IP literal, an unregistered TLD) or is itself a public suffix. A host's trailing dot stays on the
+   public suffix (an IP literal, an unregistered TLD) or is itself a public suffix. A host's trailing dots stay on the
    answer. Empty in, empty out. */
 PyObject *turbohtml_registrable_domain(PyObject *Py_UNUSED(module), PyObject *arg) {
     Py_ssize_t host_len = PyUnicode_GET_LENGTH(arg);
@@ -154,17 +154,25 @@ PyObject *turbohtml_registrable_domain(PyObject *Py_UNUSED(module), PyObject *ar
             label_start[count++] = index + 1;
         }
     }
-    /* a trailing dot names the DNS root and opens no further label: the suffix rules are matched on the host without
-       it and the answer keeps it (https://url.spec.whatwg.org/#host-registrable-domain), so www.example.com. and
-       shop.example.com. share example.com. */
+    /* trailing dots name the DNS root and open no further label: the suffix rules are matched on the host without them
+       and the answer keeps them (https://url.spec.whatwg.org/#host-registrable-domain), so www.example.com.. and
+       shop.example.com.. share example.com.. */
     Py_ssize_t name_len = host_len;
     if (label_start[count - 1] == host_len) {
-        name_len--;
-        count--;
+        while (name_len > 0 && host[name_len - 1] == '.') {
+            name_len--;
+        }
+        while (label_start[count - 1] > name_len) {
+            count--;
+        }
     }
     Py_ssize_t suffix = public_suffix_labels(host, name_len, label_start, count, scratch);
     Py_ssize_t keep = suffix > 0 && count > suffix ? suffix + 1 : count;
     Py_ssize_t start = label_start[count - keep];
+    /* an empty label left of the domain names nothing, so such a host has no registrable domain and stays whole */
+    if (host[start] == '.') {
+        start = 0;
+    }
     PyObject *result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, host + start, host_len - start);
     PyMem_Free(host);
     PyMem_Free(label_start);

@@ -157,6 +157,28 @@ def test_concurrent_multi_root_query_is_one_tree_snapshot() -> None:
     _run(reader, mutator)
 
 
+def test_concurrent_query_closest_over_trees_trading_a_node() -> None:
+    first = turbohtml.parse_xml(f"<book id='first'>{'<part>' * 40}{'</part>' * 40}</book>").select("part")
+    second = turbohtml.parse_xml(f"<book id='second'>{'<part>' * 40}{'</part>' * 40}</book>").select("part")
+    moving = turbohtml.parse_xml("<part/>").select("part")[0]
+    first[-1].append(moving)
+    query = Query([moving, *(node for pair in zip(first, second, strict=True) for node in pair)])
+    start = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(300):
+            assert sorted(cast("str", node.attrs["id"]) for node in query.closest("book")) == ["first", "second"]
+
+    def mutator() -> None:
+        start.wait()
+        for _ in range(300):
+            second[-1].append(moving)
+            first[-1].append(moving)
+
+    _run(reader, mutator)
+
+
 def test_concurrent_lazy_node_iterators_and_extract_is_memory_safe() -> None:
     body = _doc(400).find("body")
     assert body is not None
