@@ -890,7 +890,8 @@ typedef struct {
 } th_article_meta;
 
 /* Fill meta by harvesting the article metadata fields from root (the document the
-   content body belongs to). Pure C; the caller holds the per-tree critical section. */
+   content body belongs to). Pure C; the caller holds the per-tree critical section. On an
+   allocation failure some fields stay absent, so the caller checks th_tree_failed before using meta. */
 void th_article_metadata(th_tree *tree, th_node *root, th_article_meta *meta);
 
 /* Free every buffer th_article_metadata allocated into meta. */

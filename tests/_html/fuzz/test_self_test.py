@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypeAlias, TypeVar, cast
 
 import pytest
 from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
@@ -991,6 +991,35 @@ def test_lazy_text_allocation_failure_raises_or_keeps_result(
     outcomes: Final = set(alloc_sweep(call, setup, valid=lambda result: result == expected))
     assert outcomes <= {"MemoryError", "result"}
     assert "MemoryError" in outcomes
+
+
+_METADATA: Final[str] = (
+    '<html lang="en"><head><title>T</title><meta name="keywords" content="a, b">'
+    '<meta property="og:url" content="https://example.com/a"></head>'
+    f"<body><article><p>{_BIG},</p></article></body></html>"
+)
+
+
+@pytest.mark.fuzz_build
+def test_article_metadata_allocation_failure_raises_or_keeps_result(alloc_sweep: _Sweep) -> None:
+    expected: Final = _article_fields(parse(_METADATA))
+    outcomes: Final = set(
+        alloc_sweep(_article_fields, lambda: parse(_METADATA), valid=lambda result: result == expected)
+    )
+    assert outcomes <= {"MemoryError", "result"}
+    assert "MemoryError" in outcomes
+
+
+def _article_fields(document: turbohtml.Document) -> _ArticleFields:
+    article = document.article()
+    return _ArticleFields(article.title, article.lang, article.canonical, article.tags)
+
+
+class _ArticleFields(NamedTuple):
+    title: str | None
+    lang: str | None
+    canonical: str | None
+    tags: tuple[str, ...]
 
 
 if TYPE_CHECKING:
