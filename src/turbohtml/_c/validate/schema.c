@@ -1588,10 +1588,10 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
     /* a pattern that exceeds the regex limits sets a ValueError */
     ok = ok && regex_cache_schema(schema, schema->root) == 0;
     schema->tree_ns = NULL;
-    /* a build that lost an arena allocation is partial even when it raised nothing */
-    if (schema->mem.no_memory && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-        PyErr_NoMemory();                             /* GCOVR_EXCL_LINE */
-        ok = 0;                                       /* GCOVR_EXCL_LINE */
+    /* a build that lost an arena allocation is partial, so an error it raised is a symptom of that loss */
+    if (schema->mem.no_memory) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+        ok = 0;                  /* GCOVR_EXCL_LINE */
     } /* GCOVR_EXCL_LINE: arena OOM */
     if (!ok) {
         schema_free(schema);
@@ -1676,17 +1676,18 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     /* a derivative or pattern check that lost an allocation, a RELAX NG choice that ran past its limit, or a pattern
        check that spent its step budget degraded to a mismatch, so its verdict is unknown; only an arena OOM sets
        ctx.failed during validation */
-    if ((local.mem.no_memory || exhausted) && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+    /* an arena OOM comes first: a limit or budget reached after a lost allocation is a symptom of that loss */
+    if ((local.mem.no_memory || local.choice_limit < 0 || exhausted) && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: OOM */
         ctx.failed = 1;
-        if (local.choice_limit < 0) {
+        if (local.mem.no_memory) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            PyErr_NoMemory();      /* GCOVR_EXCL_LINE */
+        } else if (local.choice_limit < 0) {
             PyErr_SetString(PyExc_ValueError, "RELAX NG content model too ambiguous to validate");
-        } else if (exhausted) { /* GCOVR_EXCL_BR_LINE: the other side is an arena OOM */
+        } else {
             PyErr_Format(PyExc_ValueError,
                          "schema patterns need more than %d NFA steps on top of %d per character matched to validate "
                          "this document; lower their repeat counts",
                          RX_BUDGET_BASE, RX_BUDGET_PER_CHAR);
-        } else {
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         }
     }
     if (ctx.failed) {
