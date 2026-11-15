@@ -592,6 +592,8 @@ typedef struct th_schema {
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
+    int all_inherited; /* a complex type extends an xs:all content model without adding particles, so validation looks
+                          up an inherited model for the types that declare none */
 } th_schema;
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every
