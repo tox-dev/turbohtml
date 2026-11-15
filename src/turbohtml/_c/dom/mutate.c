@@ -674,23 +674,15 @@ void th_node_insert_before(th_node *parent, th_node *child, th_node *ref) {
 
 /* The MutationObserver registry accessors dom/observe.c reaches the tree fields through. */
 int th_tree_has_observers(const th_tree *tree) {
-    return tree->observer_count > 0;
+    return tree->observers != NULL;
 }
 
 int th_tree_has_iterators(const th_tree *tree) {
     return tree->node_iterator_count > 0;
 }
 
-struct th_observer ***th_tree_observers_ptr(th_tree *tree) {
+struct th_mo_registry **th_tree_observers_ptr(th_tree *tree) {
     return &tree->observers;
-}
-
-Py_ssize_t *th_tree_observer_count_ptr(th_tree *tree) {
-    return &tree->observer_count;
-}
-
-Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree) {
-    return &tree->observer_cap;
 }
 
 /* The observing counterparts the binding layer (dom/element.c) routes user mutations
@@ -798,7 +790,7 @@ void th_tree_note_observed(th_tree *tree) {
    pays the single test it paid for the observer check alone. The insertion drops the bound and keeps the observer
    bit only while an observer is registered. */
 static TH_NOINLINE void child_inserted_hooked(th_tree *tree, th_node *parent, th_node *child) {
-    tree->nest_bound = tree->observer_count > 0 ? TH_NEST_OBSERVED : 0;
+    tree->nest_bound = tree->observers != NULL ? TH_NEST_OBSERVED : 0;
     th_mo_child_inserted(tree, parent, child);
 }
 
