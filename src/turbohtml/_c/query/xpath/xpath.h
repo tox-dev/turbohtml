@@ -147,17 +147,22 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
 
 /* Like xp_eval, but seeds the context position and size instead of the default 1/1.
    The XSLT engine reuses this so position()/last() at the top of a select or test
-   expression report the node's place in the current node list (xslt.c). */
-int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos, Py_ssize_t size,
-               const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
-               xp_result *out, const char **feature);
+   expression report the node's place in the current node list (xslt.c). known_root is
+   NULL, or the root `/` selects for context and for every other node the evaluation
+   can meet, through vars and extension included: the engine evaluates once per
+   instruction and node, all of them under its source root, so it passes that rather
+   than have each evaluation climb to it. */
+int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, struct th_node *known_root,
+               Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
+               xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature);
 
 /* xp_eval_at for an expression the caller only converts to a boolean, as the test of xsl:if and xsl:when is: a
    location path stops at the first node it selects rather than collecting them all, so a node-set in *out is empty
    exactly when the whole one is, and is good for nothing but that question. */
-int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos,
-                         Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
-                         xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature);
+int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, struct th_node *context,
+                         struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
+                         const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
+                         xp_result *out, const char **feature);
 
 typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
                                Py_ssize_t name_len);
