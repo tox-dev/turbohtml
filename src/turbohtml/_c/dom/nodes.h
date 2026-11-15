@@ -355,8 +355,6 @@ typedef struct {
     PyObject *scope;
     PyObject *tags;
     PyObject *pending;
-    PyObject *pending_handle;
-    uint64_t pending_version;
     uint64_t tag_atoms[4];
     int started;
     int include_self;
