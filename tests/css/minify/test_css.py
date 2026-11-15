@@ -578,6 +578,43 @@ def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> Non
     assert (result, minify_css(result)) == (expected, expected)
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("p{color:#0000\\5c}q{x:y}", "p{color:#0000\\\\}q{x:y}", id="escaped-backslash-keeps-brace"),
+        pytest.param("p{color:#FF\\\\DD}", "p{color:#FF\\\\DD}", id="escaped-backslash-pair"),
+        pytest.param("p{color:#AABBCC\\5c}q{x:y}", "p{color:#AABBCC\\\\}q{x:y}", id="escaped-six-digit-keeps-case"),
+        pytest.param("p{color:#ff00\\5c}q{x:y}", "p{color:#ff00\\\\}q{x:y}", id="escaped-four-digit"),
+        pytest.param("p{color:#FF\\41}q{x:y}", "p{color:#ffa}q{x:y}", id="decoded-escape-still-shortens"),
+    ],
+)
+def test_minify_css_hash_with_escape_keeps_spelling(source: str, expected: str) -> None:
+    result: Final = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_hash_with_escape_keeps_value(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    hash_escapes: Final = ("\\5c", "\\\\", "\\41", "\\66 ", "\\}", "\\ ")
+    pairs = "".join(rng.choice(["0", "f", "A", *hash_escapes]) * 2 for _ in range(rng.randint(1, 4)))
+    source = f"p{{color:#{pairs}{rng.choice(hash_escapes)}}}q{{x:y}}"
+    result: Final = minify_css(source)
+    assert minify_css(result) == result
+    assert result.endswith("q{x:y}")
+    ((_, source_value),) = _hash_tokens(source)
+    for representation, value in _hash_tokens(result):
+        if "\\" in representation:
+            assert value.lower() == source_value.lower()
+
+
+def _hash_tokens(css: str) -> list[tuple[str, str]]:
+    parser: Final = pytest.importorskip("tinycss2")
+    rule = next(node for node in parser.parse_stylesheet(css) if node.type == "qualified-rule")
+    declaration = next(node for node in parser.parse_declaration_list(rule.content) if node.type == "declaration")
+    return [(parser.serialize([token]), token.value) for token in declaration.value if token.type == "hash"]
+
+
 def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
     source: Final = (
         f"a{{x:0;{''.join(f'p{index}:0;' for index in range(15))}x:1;x:0;"
@@ -1483,6 +1520,61 @@ def test_minify_css_empty_selector_rule(source: str, expected: str) -> None:
 @pytest.mark.parametrize(("source", "expected"), _EMPTY_SELECTOR_RULE)
 def test_minify_css_empty_selector_rule_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
+
+
+# A leading combinator keeps its rule: the selector's trailing-space trim stops at the selector's own start, so it never
+# eats the combinator or merges the rule into the one before it.
+_LEADING_COMBINATOR_RULE: Final[list[pytest.ParameterSet]] = [
+    pytest.param("~@q{--: ", "~@q{--: }", id="at-keyword-prelude"),
+    pytest.param("~d{--: ", "~d{--: }", id="type-prelude"),
+    pytest.param("+{--x: }", "+{--x: }", id="empty-compound"),
+    pytest.param("a{b:c}~{--x: }", "a{b:c}~{--x: }", id="tilde-after-rule"),
+    pytest.param("a{b:c} +{--x: }", "a{b:c}+{--x: }", id="plus-after-space"),
+    pytest.param("a{b:c}>{--x: }", "a{b:c}>{--x: }", id="child-after-rule"),
+    pytest.param("a{b:c}>a{--x: }", "a{b:c}>a{--x: }", id="child-compound-not-merged"),
+    pytest.param("a{--x: }~b{c:d}", "a{--x: }~b{c:d}", id="tilde-after-custom-property"),
+    pytest.param("a{b:c}, {--x: }", "a{b:c},{--x: }", id="comma-after-space"),
+    pytest.param("@media x{+{--x: }}", "@media x{+{--x: }}", id="nested-in-media"),
+    pytest.param("@media x{~@q{--: }}", "@media x{~@q{--: }}", id="nested-in-media-at-keyword"),
+    pytest.param("a{b:\\31 ;+ 1{c:d}}", "a{b:\\31 ;+1{c:d}}", id="nested-plus-before-number-after-hex-escape"),
+    pytest.param("/*c*/~@q{--: }", "~@q{--: }", id="comment-before-combinator"),
+    pytest.param("~/**/@q{--: }", "~@q{--: }", id="comment-after-combinator"),
+    pytest.param("~ @q{--: }", "~@q{--: }", id="space-after-combinator"),
+    pytest.param("~\n{--x: }", "~{--x: }", id="newline-empty-compound"),
+    pytest.param("~ /**/ a{--x: }", "~a{--x: }", id="comment-before-compound"),
+    pytest.param("~\\31 {--x: }", "~\\31{--x: }", id="hex-escape-compound"),
+    pytest.param("a{b:c}~\\31 {--x: }", "a{b:c}~\\31{--x: }", id="hex-escape-after-rule"),
+    pytest.param("+\\31 {--x: }", "+\\31{--x: }", id="plus-hex-escape-compound"),
+    pytest.param("||{--x: }", "||{--x: }", id="column-first"),
+    pytest.param("a{--x: }||b{c:d}", "a{--x: }||b{c:d}", id="column-after-custom-property"),
+    pytest.param("a{--x: }|| {c:d}", "a{--x: }||{c:d}", id="column-trailing-space-after-custom-property"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _LEADING_COMBINATOR_RULE)
+def test_minify_css_leading_combinator_rule(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _LEADING_COMBINATOR_RULE)
+def test_minify_css_leading_combinator_rule_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_leading_combinator_keeps_every_rule(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    source: list[str] = []
+    expected: list[str] = []
+    for index in range(rng.randint(1, 6)):
+        combinator = rng.choice((">", "+", "~", "||", ",", ""))
+        before = rng.choice(("", " ", "\n", "/**/", " /* c */ "))
+        after = rng.choice(("", "/**/"))
+        source.append(f"{before}{combinator}{after}t{index}{{--v{index}: }}")
+        expected.append(f"{combinator}t{index}{{--v{index}: }}")
+    canonical = "".join(expected)
+    assert minify_css("".join(source)) == canonical
+    assert minify_css(canonical) == canonical
 
 
 def test_minify_css_same_selector_merge_is_bounded() -> None:
