@@ -20,7 +20,10 @@ element or stripped attribute, the way DOMPurify populates ``DOMPurify.removed``
 
 :func:`sanitize_node` and :func:`sanitize_report_node` take an already parsed node and hand back the sanitized copy as a
 tree, so a pipeline of transforms parses once and serializes once; :func:`sanitize` and :func:`sanitize_report` accept a
-node too when a string is wanted at the end.
+node too when a string is wanted at the end. Escaping or unwrapping a disallowed element costs time in proportion to
+what sits below it, so a tree with more than 1,536 disallowed elements nested in one another raises
+:exc:`RecursionError`. The HTML parser caps its own trees below that; only a :func:`turbohtml.parse_xml` or hand-built
+tree can reach it, and elements the policy keeps or removes with their content do not count.
 
 .. autofunction:: sanitize_node
 

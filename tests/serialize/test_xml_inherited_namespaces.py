@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+from functools import partial
+from typing import TYPE_CHECKING, Final
+
 import pytest
 
 from turbohtml import Html, Indent, parse, parse_xml
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from work_steps import WorkSteps
+
+_XLINK: Final[str] = 'xmlns:xlink="http://www.w3.org/1999/xlink"'
 
 
 @pytest.mark.parametrize(
@@ -166,3 +176,112 @@ def test_xml_subtree_foreign_namespace_takes_precedence() -> None:
     svg = parse("<svg><g/></svg>").select("svg")[0]
     root.append(svg)
     assert svg.serialize(Html(xml=True)) == '<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>'
+
+
+@pytest.mark.parametrize(
+    ("xml", "unbound", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:xlink="urn:x"><a xlink:h="1"><b xlink:h="2"><c xlink:h="3"/></b></a></r>',
+            [],
+            '<r xmlns:xlink="urn:x"><a xlink:h="1"><b xlink:h="2"><c xlink:h="3"/></b></a></r>',
+            id="nested-under-one-declaration",
+        ),
+        pytest.param(
+            '<r xmlns:xlink="urn:x"><a><b xlink:h="1"/></a><c xlink:h="2"/><d/></r>',
+            [],
+            '<r xmlns:xlink="urn:x"><a><b xlink:h="1"/></a><c xlink:h="2"/><d/></r>',
+            id="sibling-after-closed-subtree",
+        ),
+        pytest.param(
+            '<r xmlns:xlink="urn:x" xlink:h="1"><a xlink:h="2"/></r>',
+            [],
+            '<r xmlns:xlink="urn:x" xlink:h="1"><a xlink:h="2"/></r>',
+            id="declared-where-used",
+        ),
+        pytest.param(
+            '<r><a xmlns:xlink="urn:x"><b xlink:h="1"/></a><c/></r>',
+            ["c"],
+            f'<r><a xmlns:xlink="urn:x"><b xlink:h="1"/></a><c {_XLINK} xlink:href="v"/></r>',
+            id="closed-declaration-leaves-scope",
+        ),
+        pytest.param(
+            '<r xmlns:xlink="urn:x"><a xmlns:xlink="urn:y"><b xlink:h="1"/></a><c xlink:h="2"/></r>',
+            [],
+            '<r xmlns:xlink="urn:x"><a xmlns:xlink="urn:y"><b xlink:h="1"/></a><c xlink:h="2"/></r>',
+            id="closed-inner-declaration-keeps-outer",
+        ),
+        pytest.param(
+            '<r><a/><d xmlns:xlink="urn:x"><e xlink:h="1"/></d><f/></r>',
+            ["a", "f"],
+            (
+                f'<r><a {_XLINK} xlink:href="v"/><d xmlns:xlink="urn:x"><e xlink:h="1"/></d>'
+                f'<f {_XLINK} xlink:href="v"/></r>'
+            ),
+            id="declaration-opens-scope-mid-walk",
+        ),
+        pytest.param(
+            "<r><a/></r>",
+            ["r", "a"],
+            f'<r {_XLINK} xlink:href="v"><a {_XLINK} xlink:href="v"/></r>',
+            id="unbound-root",
+        ),
+    ],
+)
+def test_xml_xlink_binding_follows_document_order(xml: str, unbound: list[str], expected: str) -> None:
+    document = parse_xml(xml)
+    for name in unbound:
+        document.select(name)[0].attrs["xlink:href"] = "v"
+    options = Html(xml=True)
+    assert (document.serialize(options), "".join(document.serialize_iter(options))) == (expected, expected)
+
+
+def test_xml_pretty_xlink_binding_follows_document_order() -> None:
+    document = parse_xml('<r><a xmlns:xlink="urn:x"><b xlink:h="1"/></a><c/></r>')
+    document.select("c")[0].attrs["xlink:href"] = "v"
+    assert document.serialize(Html(xml=True, layout=Indent(2))) == (
+        f'<r>\n  <a xmlns:xlink="urn:x">\n    <b xlink:h="1"/>\n  </a>\n  <c {_XLINK} xlink:href="v"/>\n</r>'
+    )
+
+
+def test_xml_xlink_binding_survives_unwritten_parent() -> None:
+    document = parse_xml('<r xmlns:xlink="urn:x"><a xlink:h="1"/><f><g xlink:h="2"/></f></r>')
+    document.select("f")[0].tag = "1x"
+    assert document.serialize(Html(xml=True)) == '<r xmlns:xlink="urn:x"><a xlink:h="1"/><g xlink:h="2"/></r>'
+
+
+def test_xml_inner_xlink_binding_follows_document_order() -> None:
+    root = parse_xml('<r><a/><d xmlns:xlink="urn:x"><e xlink:h="1"/></d><f/></r>').select("r")[0]
+    for name in ("a", "f"):
+        root.select(name)[0].attrs["xlink:href"] = "v"
+    assert root.inner_xml == (
+        f'<a {_XLINK} xlink:href="v"/><d xmlns:xlink="urn:x"><e xlink:h="1"/></d><f {_XLINK} xlink:href="v"/>'
+    )
+
+
+def test_xml_xlink_binding_carries_across_chunks() -> None:
+    filler = "t" * 9000  # longer than one serialize_iter chunk, so each start tag after it opens a later chunk
+    document = parse_xml(
+        f'<r><a xmlns:xlink="urn:x"><b xlink:h="1"/>{filler}<c xlink:h="2"/>{filler}</a><d/>{filler}<e/></r>'
+    )
+    document.select("e")[0].attrs["xlink:href"] = "v"
+    chunks = list(document.serialize_iter(Html(xml=True)))
+    expected = (
+        f'<r><a xmlns:xlink="urn:x"><b xlink:h="1"/>{filler}<c xlink:h="2"/>{filler}</a><d/>{filler}'
+        f'<e {_XLINK} xlink:href="v"/></r>'
+    )
+    assert (len(chunks), "".join(chunks)) == (4, expected)
+
+
+@pytest.mark.parametrize(
+    "opening",
+    [
+        pytest.param('<n xlink:role="">', id="nested"),
+        pytest.param('<n><m xlink:role=""/>', id="under-plain-parents"),
+    ],
+)
+def test_xml_inherited_xlink_serializes_in_linear_time(opening: str, work_steps: WorkSteps) -> None:
+    def build(depth: int) -> Callable[[], object]:
+        return partial(parse_xml(f"<r {_XLINK}>{opening * depth}<n/>{'</n>' * depth}</r>").serialize, Html(xml=True))
+
+    work_steps.assert_linear(build, (500, 2000))

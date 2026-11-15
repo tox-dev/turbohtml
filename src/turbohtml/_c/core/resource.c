@@ -102,6 +102,12 @@ PyObject *th_resource_path(th_resource_policy *policy, PyObject *value, const ch
     if (local == NULL) {
         return NULL;
     }
+    /* url2pathname decodes percent escapes and drops tabs and newlines, so a UNC path can only appear in its output */
+    if (resource_is_unc(local)) {
+        PyErr_Format(PyExc_ValueError, "%s %s must not resolve to a UNC path: %S", policy->what, name, value);
+        Py_DECREF(local);
+        return NULL;
+    }
     PyObject *path = PyObject_CallOneArg(policy->path_type, local);
     Py_DECREF(local);
     return path;

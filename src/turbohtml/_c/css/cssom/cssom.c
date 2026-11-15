@@ -1502,6 +1502,10 @@ typedef struct {
     css_value values[NUM_PROPS];
 } css_computed_entry;
 
+/* The largest :has() table the cascade keeps: 2^21 slots of 24 bytes, 48 MB. Each :has() argument keys its own answers,
+   one per element, so without a cap the table grows with arguments times elements. */
+#define CSS_HAS_MEMO_LIMIT ((size_t)1 << 21)
+
 /* Two entries retain a parent while successive child styles replace the other entry. */
 typedef struct {
     uint64_t attr_version;
@@ -1509,6 +1513,7 @@ typedef struct {
     sel_nth_memo nth_memo;
     sel_position_memo position_memo;
     css_computed_entry entries[2];
+    sel_memo legend_memo;
 } css_computed_cache;
 
 static void css_free_computed(HandleObject *handle) {
@@ -1516,6 +1521,7 @@ static void css_free_computed(HandleObject *handle) {
     if (cache != NULL) {
         /* Memo keys borrow stylesheet selectors, so clear them before rebuilding sheets. */
         sel_memo_free(&cache->has_memo);
+        sel_memo_free(&cache->legend_memo);
         sel_position_memo_free(&cache->position_memo);
         css_free_map(cache->entries[0].values);
         css_free_map(cache->entries[1].values);
@@ -1737,8 +1743,10 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
 static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count, th_tree *tree,
                                int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
     css_slot slots[NUM_PROPS] = {0};
-    /* the cache's table doubles as the legend memo: first-legend answers key apart from the :has() ones */
-    sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->has_memo, &cache->position_memo};
+    /* the legend memo keeps its own table: it holds one answer per legend, so it needs no cap and must outlive a
+       :has() table dropped at CSS_HAS_MEMO_LIMIT */
+    sel_ctx ctx = {
+        tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->legend_memo, &cache->position_memo};
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
@@ -1853,6 +1861,7 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
             return -1;       /* GCOVR_EXCL_LINE: allocation failure */
         }
         cache->attr_version = version;
+        cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
         handle->css_computed = cache;
     }
     int parent_slot = -1;

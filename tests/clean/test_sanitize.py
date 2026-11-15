@@ -124,6 +124,59 @@ def test_deep_disallowed_input_completes_postorder_actions(mode: OnDisallowed, e
     assert (output.count("&lt;x&gt;"), "bottom" in output) == (expected_open_count, True)
 
 
+_UNWRAP_LIMIT: Final[int] = 3 * 512
+
+
+def test_disallowed_elements_nested_to_the_limit_are_sanitized() -> None:
+    document: Final = parse_xml("<x>" * _UNWRAP_LIMIT + "</x>" * _UNWRAP_LIMIT)
+    assert sanitize(document).count("&lt;x&gt;") == _UNWRAP_LIMIT
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(sanitize, id="sanitize"),
+        pytest.param(sanitize_report, id="sanitize-report"),
+        pytest.param(sanitize_node, id="sanitize-node"),
+        pytest.param(sanitize_report_node, id="sanitize-report-node"),
+    ],
+)
+@pytest.mark.parametrize(
+    "policy",
+    [
+        pytest.param(Policy(), id="escape"),
+        pytest.param(Policy(on_disallowed_tag=OnDisallowed.STRIP), id="strip"),
+        pytest.param(Policy(xml=True), id="plain-walk"),
+    ],
+)
+def test_disallowed_elements_nested_past_the_limit_are_refused(
+    call: Callable[[Document, Policy], object], policy: Policy
+) -> None:
+    # each escaped or stripped element lifts its content a level, so a longer chain costs the square of its length
+    document: Final = parse_xml("<b><x>" * (_UNWRAP_LIMIT + 1) + "</x></b>" * (_UNWRAP_LIMIT + 1))
+    with pytest.raises(RecursionError, match=f"sanitize does not support more than {_UNWRAP_LIMIT} nested"):
+        call(document, policy)
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        pytest.param(Policy(), f"{'<b>' * 4_000}t{'</b>' * 4_000}", id="kept"),
+        pytest.param(Policy(tags=frozenset(), on_disallowed_tag=OnDisallowed.REMOVE), "", id="removed"),
+    ],
+)
+def test_deep_elements_that_move_nothing_are_not_limited(policy: Policy, expected: str) -> None:
+    document: Final = parse_xml(f"{'<b>' * 4_000}t{'</b>' * 4_000}")
+    assert sanitize(document, replace(policy, xml=True)) == expected
+
+
+@pytest.mark.parametrize("parser", [pytest.param(parse, id="document"), pytest.param(parse_fragment, id="fragment")])
+def test_deepest_parsed_tree_is_under_the_unwrap_limit(parser: Callable[[str], Document | Element]) -> None:
+    # nested template contents double the tree builder's depth cap, the deepest tree it builds
+    tree: Final = parser(f"{'<template>' * 1_000}bottom")
+    assert sanitize(tree) == "&lt;template&gt;"
+
+
 def test_disallowed_attribute_dropped() -> None:
     assert sanitize('<a href="http://x" class="c" id="i">x</a>') == '<a href="http://x">x</a>'
 
@@ -691,6 +744,8 @@ def _style_policy(
         # declaration; the declarations a browser applies after it are scrubbed like any other
         pytest.param("color:red\\';position:fixed", 'style="color:red\\\'"', id="escaped-single-quote"),
         pytest.param("color:red\\;position:fixed", 'style="color:red\\;position:fixed"', id="escaped-semicolon"),
+        pytest.param("color:blue\\ ; width:1px", 'style="color:blue\\ ; width:1px"', id="escaped-trailing-space"),
+        pytest.param("color:blue\\\\ ; width:1px", 'style="color:blue\\\\; width:1px"', id="escaped-backslash-trimmed"),
         # a newline ends a string as a bad string, which invalidates its declaration and leaves the separators after it
         # live, so the declarations a browser applies there are scrubbed like any other
         pytest.param("color: red; font-family: 'x&#10;; position: fixed", 'style="color: red"', id="bad-string-lf"),
@@ -1237,6 +1292,27 @@ def test_style_element_unterminated_token_is_a_fixpoint(css: str, expected_body:
     policy = _style_element_policy(css_properties=frozenset({"color", "content"}))
     once = sanitize(f"<style>{css}</style>", policy)
     assert (once, sanitize(once, policy)) == (f"<style>{expected_body}</style>", once)
+
+
+@pytest.mark.parametrize(
+    ("css", "expected_body"),
+    [
+        pytest.param("h2{'\n{color:';width:1px;x:'}", "h2{'\n{color:';width:1px;x:';}}", id="bad-string-ends-prelude"),
+        pytest.param("p['x\n] \t{color:red}", "p['x\n] \t{color:red;}", id="bad-string-inside-prelude"),
+        pytest.param("p{div,\\ {}}", "p{div,\\ {}}", id="escaped-space-ends-prelude"),
+        pytest.param("p{a\\\n{color:red}}", "p{a\\\n{color:red;}}", id="lone-backslash-ends-prelude"),
+        pytest.param("\\ {color:red}", "\\ {color:red;}", id="escaped-space-is-prelude"),
+        pytest.param("h1{span\\\\ {color:red}}", "h1{span\\\\{color:red;}}", id="escaped-backslash-ends-prelude"),
+        pytest.param("p{color:blue\\ }", "p{color:blue\\ ;}", id="escaped-space-ends-declaration"),
+        pytest.param("p{color:green\\\\ }", "p{color:green\\\\;}", id="escaped-backslash-ends-declaration"),
+    ],
+)
+def test_style_element_trim_keeps_token_whitespace(css: str, expected_body: str) -> None:
+    # trimming a prelude or a declaration never removes a whitespace that is part of a token: the newline that ends a
+    # bad string keeps its quote from opening a string over the block, and a whitespace after a backslash keeps that
+    # backslash from escaping the `{` or `;` written next. Either would turn text judged inert into live declarations
+    once = sanitize(f"<style>{css}</style>", _style_element_policy())
+    assert (once, sanitize(once, _style_element_policy())) == (f"<style>{expected_body}</style>", once)
 
 
 def test_style_element_empty_property_set_drops_all_css() -> None:

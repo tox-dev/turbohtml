@@ -470,7 +470,7 @@ const void *th_tree_source_data(th_tree *tree, int *kind, int *has_nul) {
 
 /* A shallow element clone (same atom/name/attrs, no children) for the adoption
    agency and active-formatting-element reconstruction. */
-static th_node *node_clone(th_tree *tree, const th_node *src);
+static th_node *node_clone(th_tree *tree, th_node *src);
 
 static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
@@ -1548,7 +1548,7 @@ static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out
     return out;
 }
 
-static th_node *node_clone(th_tree *tree, const th_node *src) {
+static th_node *node_clone(th_tree *tree, th_node *src) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -1565,12 +1565,15 @@ static th_node *node_clone(th_tree *tree, const th_node *src) {
             return NULL;           /* GCOVR_EXCL_LINE */
         }
         memcpy(node->attrs, src->attrs, (size_t)src->attr_count * sizeof(th_node_attr));
+        /* the slots are the clone's own, the values they point at are not */
+        node->attr_values_shared = 1;
+        src->attr_values_shared = 1;
     }
     node->attr_count = src->attr_count;
     if (tree->track_positions) {
         /* an adoption-agency clone stands in for the same source start tag, so it
            keeps the original's position */
-        const uint32_t *src_pos = node_pos((th_node *)src);
+        const uint32_t *src_pos = node_pos(src);
         node_pos(node)[0] = src_pos[0];
         node_pos(node)[1] = src_pos[1];
     }
@@ -2523,6 +2526,17 @@ static void reconstruct_afe(th_tree *tree) {
         }
     }
     for (; index < tree->afe_len; index++) {
+        if (tree->open_len >= TH_MAX_TREE_DEPTH) {
+            /* stack_push would refuse the clone, so the entry would stay unopened and every later token would clone
+               the whole tail again; as in afe_push_if_open, an element the depth cap keeps off the stack leaves
+               the list */
+            for (Py_ssize_t dropped = index; dropped < tree->afe_len; dropped++) {
+                tree->afe[dropped]->afe_listed = 0;
+            }
+            tree->afe_len = index;
+            tree->afe_hash_valid = 0;
+            return;
+        }
         th_node *clone = node_clone(tree, tree->afe[index]);
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */

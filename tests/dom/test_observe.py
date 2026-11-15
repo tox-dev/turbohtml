@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -10,6 +11,8 @@ from turbohtml.mutations import MutationObserver, MutationRecord
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
+
+    from work_steps import WorkSteps
 
 
 def test_child_list_append_record_shape() -> None:
@@ -413,6 +416,123 @@ def test_disconnect_one_of_several_observers() -> None:
     assert first.take_records() == []
     assert len(second.take_records()) == 1
     second.disconnect()  # empties the registry
+
+
+def test_disconnect_the_later_of_two_observers_on_a_target() -> None:
+    div = _div()
+    first = MutationObserver()
+    second = MutationObserver()
+    first.observe(div, child_list=True)
+    second.observe(div, child_list=True)
+    second.disconnect()
+    div.append(Element("b"))
+    assert len(first.take_records()) == 1
+    assert second.take_records() == []
+
+
+def test_target_is_watched_again_after_its_only_observer_left() -> None:
+    doc = parse("<div id=a></div><div id=b></div>")
+    left = _element(doc.find(id="a"))
+    right = _element(doc.find(id="b"))
+    kept = MutationObserver()
+    kept.observe(left, child_list=True)
+    gone = MutationObserver()
+    gone.observe(right, child_list=True)
+    gone.disconnect()  # right keeps its place in the registry, with nobody watching it
+    right.append(Element("b"))
+    assert kept.take_records() == []
+    kept.observe(right, child_list=True)
+    right.append(Element("i"))
+    assert _tags(kept.take_records()[0].added_nodes) == ["i"]
+
+
+@pytest.mark.parametrize("targets", [pytest.param(1, id="one-target"), pytest.param(2, id="two-targets")])
+def test_reobserving_a_target_a_later_observer_also_watches(targets: int) -> None:
+    doc = parse("<div id=a></div><div id=b></div>")
+    left = _element(doc.find(id="a"))
+    right = _element(doc.find(id="b"))
+    first = MutationObserver()
+    second = MutationObserver()
+    for target in (left, right)[:targets]:
+        first.observe(target, attributes=True)
+    second.observe(left, attributes=True)
+    first.observe(left, child_list=True)  # replaces first's options, which are no longer the newest on left
+    left.attrs["data-x"] = "1"
+    left.append(Element("b"))
+    assert [record.type for record in first.take_records()] == ["childList"]
+    assert [record.type for record in second.take_records()] == ["attributes"]
+
+
+def test_one_observer_per_target_in_a_deep_tree() -> None:
+    root = Element("div")
+    root.set_inner_html("<div>" * 50 + "<p></p>" * 200)
+    paragraphs = root.select("p")
+    shared = MutationObserver()
+    own = [MutationObserver() for _ in paragraphs]
+    for paragraph, observer in zip(paragraphs, own, strict=True):
+        shared.observe(paragraph, attributes=True, subtree=True)
+        observer.observe(paragraph, attributes=True, attribute_old_value=True, subtree=True)
+    for paragraph in paragraphs:
+        paragraph.attrs["dir"] = "auto"
+    assert [record.target for record in shared.take_records()] == paragraphs
+    assert [[record.target for record in observer.take_records()] for observer in own] == [[p] for p in paragraphs]
+
+
+def test_each_watched_span_gets_its_own_record() -> None:
+    spans, observer = _watch_each_span(3)
+    assert [record.target for record in _edit_each(spans, observer)] == spans
+
+
+def _watch_each_span(count: int) -> tuple[list[Element], MutationObserver]:
+    spans = parse("<span></span>" * count).find_all("span")
+    observer = MutationObserver()
+    for span in spans:
+        observer.observe(span, attributes=True)
+    return spans, observer
+
+
+def _edit_each(spans: list[Element], observer: MutationObserver) -> list[MutationRecord]:
+    for span in spans:
+        span.attrs["dir"] = "auto"
+    return observer.take_records()
+
+
+def test_edit_steps_stay_linear_in_the_watched_nodes(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_watched_edits, (1000, 4000))
+
+
+def _watched_edits(count: int) -> partial[list[MutationRecord]]:
+    spans, observer = _watch_each_span(count)
+    return partial(_edit_each, spans, observer)
+
+
+def test_watch_without_subtree_on_an_ancestor_ignores_a_descendant_edit() -> None:
+    doc = parse("<div id=a><p id=b></p></div>")
+    outer = _element(doc.find(id="a"))
+    inner = _element(doc.find(id="b"))
+    shallow = MutationObserver()
+    shallow.observe(outer, attributes=True)
+    deep = MutationObserver()
+    deep.observe(outer, attributes=True, subtree=True)
+    inner.attrs["dir"] = "auto"
+    assert shallow.take_records() == []
+    assert [record.target for record in deep.take_records()] == [inner]
+
+
+def test_many_observers_of_one_target_each_receive_the_record() -> None:
+    div = _div()
+    observers = [MutationObserver() for _ in range(50)]
+    for observer in observers:
+        observer.observe(div, attributes=True)
+    for observer in observers[::2]:
+        observer.observe(div, attributes=True, attribute_old_value=True)
+    for observer in observers[10:20]:
+        observer.disconnect()
+    div.attrs["data-x"] = "1"
+    div.attrs["data-x"] = "2"
+    old_values = [[record.old_value for record in observer.take_records()] for observer in observers]
+    alternating = [[None, "1"], [None, None]]
+    assert old_values == alternating * 5 + [[]] * 10 + alternating * 15
 
 
 def test_deliver_calls_callback_with_records_and_observer() -> None:

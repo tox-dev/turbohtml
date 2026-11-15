@@ -1209,12 +1209,29 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
     return 1;
 }
 
+/* The end of `value[start:end)` without its trailing whitespace. A whitespace after an odd run of backslashes stays: it
+   is escaped or ends a lone backslash, and without it that backslash would escape the separator written next. */
+static Py_ssize_t css_trim_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    while (end > start && is_space(value[end - 1])) {
+        Py_ssize_t run = end - 1;
+        while (run > start && value[run - 1] == '\\') {
+            run--;
+        }
+        if ((end - 1 - run) % 2) {
+            break;
+        }
+        end--;
+    }
+    return end;
+}
+
 /* Decide whether the declaration `value[start:end)`, split at `colon` into property and value, survives the policy:
    its property name must be allowlisted and its value free of expression()/url(disallowed-scheme). When `styles` is
    non-NULL, Policy.allowed_styles narrows further -- the property must be listed and its value match a pattern -- on
-   top of that baseline, never weakening it. On a keep, the trimmed declaration span (property start through the value's
-   last non-whitespace byte) is returned in *name_start and *decl_end. Returns 1 keep, 0 drop, -1 error. Shared by the
-   `style` attribute and `<style>` body scrubbers so the safety rules stay identical across both. */
+   top of that baseline, never weakening it. On a keep, the declaration span from the property start through the value
+   with its trailing whitespace trimmed by css_trim_end is returned in *name_start and *decl_end. Returns 1 keep, 0
+   drop, -1 error. Shared by the `style` attribute and `<style>` body scrubbers so the safety rules stay identical
+   across both. */
 static int css_declaration_kept(sanitizer *s, const style_allowlist *styles, const Py_UCS4 *value, Py_ssize_t start,
                                 Py_ssize_t end, Py_ssize_t colon, Py_ssize_t *name_start_out,
                                 Py_ssize_t *decl_end_out) {
@@ -1243,10 +1260,7 @@ static int css_declaration_kept(sanitizer *s, const style_allowlist *styles, con
     if (!value_ok) {
         return 0; /* an allowlisted property carrying expression()/url(disallowed-scheme) is still dropped */
     }
-    Py_ssize_t decl_end = end;
-    while (decl_end > colon + 1 && is_space(value[decl_end - 1])) {
-        decl_end--;
-    }
+    Py_ssize_t decl_end = css_trim_end(value, colon + 1, end);
     if (styles != NULL) {
         Py_ssize_t value_start = colon + 1;
         while (value_start < decl_end && is_space(value[value_start])) {
@@ -1370,14 +1384,16 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, co
 
 /* Copy the rule prelude (a selector or at-rule head) `value[start:end)` to `out`, trimmed of surrounding whitespace.
    The prelude stays verbatim because CSS selectors cannot run script and scrub_stylesheet already dropped any
-   declaration-shaped prelude a pre-nesting browser would apply. */
-static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_UCS4 *out,
+   declaration-shaped prelude a pre-nesting browser would apply. A prelude holding a `bad_string` keeps its trailing
+   whitespace: the newline that ended the string may be in it, and without it the quote would open a string over the
+   block. */
+static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, int bad_string, Py_UCS4 *out,
                              Py_ssize_t *out_len) {
     while (start < end && is_space(value[start])) {
         start++;
     }
-    while (end > start && is_space(value[end - 1])) {
-        end--;
+    if (!bad_string) {
+        end = css_trim_end(value, start, end);
     }
     for (Py_ssize_t index = start; index < end; index++) {
         out[(*out_len)++] = value[index];
@@ -1446,7 +1462,7 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
             if (colon >= 0 && css_value_allowed(s, value, colon + 1, index - 1, 1) == 0) {
                 index = css_skip_block(value, index, len);
             } else {
-                css_emit_prelude(value, seg_start, index - 1, out, &out_len);
+                css_emit_prelude(value, seg_start, index - 1, flags & CSS_TOKEN_BAD, out, &out_len);
                 out[out_len++] = '{';
                 brace_depth++;
             }
@@ -3359,12 +3375,27 @@ static int balanced_unwrap_pending(const void *stack, Py_ssize_t depth, const th
     return 0;
 }
 
+/* Escaping or stripping an element lifts its children a level, so a chain of them costs time quadratic in its length.
+   The parser caps its trees, while parse_xml and hand-built trees are uncapped, so the walks refuse longer chains. */
+#define SANITIZE_MAX_UNWRAP_DEPTH ((Py_ssize_t)3 * TH_MAX_TREE_DEPTH)
+
+/* Count one more open element awaiting its unwrap. Returns 0, or -1 with RecursionError set past the limit. */
+static int unwrap_depth_enter(Py_ssize_t *unwrapping) {
+    if (++*unwrapping <= SANITIZE_MAX_UNWRAP_DEPTH) {
+        return 0;
+    }
+    PyErr_Format(PyExc_RecursionError, "sanitize does not support more than %zd nested disallowed elements",
+                 SANITIZE_MAX_UNWRAP_DEPTH);
+    return -1;
+}
+
 /* Walk descendants with an explicit stack. A frame keeps the post-order strip/escape action and the sibling that
    follows the element, so mutations cannot invalidate traversal state. */
 static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     sanitize_frame *frames = NULL;
     Py_ssize_t depth = 0;
     Py_ssize_t capacity = 0;
+    Py_ssize_t unwrapping = 0;
     th_node *child = parent->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3388,6 +3419,7 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 }
                 s->balance_edited |= defer_balance;
                 /* GCOVR_EXCL_BR_STOP */
+                unwrapping--;
             }
             parent_kept = frame.parent_kept;
             child = frame.next;
@@ -3401,6 +3433,10 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 return -1;
             }
             if (action != SANITIZE_DONE) {
+                if (action != SANITIZE_KEEP_CHILDREN && unwrap_depth_enter(&unwrapping) < 0) {
+                    PyMem_Free(frames);
+                    return -1;
+                }
                 if (depth == capacity) {
                     size_t grown;
                     size_t bytes;
@@ -3459,6 +3495,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
     balance_walk walk = {root, NULL, 0, 0, 0, 0};
     uint32_t bits = balancer_child_bits(root, 0);
     int parent_kept = 1; /* the root is kept context */
+    Py_ssize_t unwrapping = 0;
     th_node *child = root->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3486,6 +3523,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
                 }
                 s->balance_edited |= defer_balance;
                 walk.deferred |= defer_balance;
+                unwrapping--;
             }
             if (frame->role > ROLE_RECORDED) {
                 if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */
@@ -3517,6 +3555,11 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
         if (action == SANITIZE_DONE) {
             child = next;
             continue;
+        }
+        if (action != SANITIZE_KEEP_CHILDREN && unwrap_depth_enter(&unwrapping) < 0) {
+            PyMem_Free(frames);
+            PyMem_Free(walk.verdicts);
+            return -1;
         }
         if (bits & CONTEXT_PENDING) {
             /* the parent deferred them: its frame, on top, holds the bits the parent sits in */

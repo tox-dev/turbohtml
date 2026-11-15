@@ -257,6 +257,17 @@ def test_formatting_run_past_depth_cap_does_not_amplify(entry: Callable[[str], i
 
 
 @pytest.mark.parametrize(
+    ("blocks", "expected"),
+    [pytest.param(510, 100, id="stack-full"), pytest.param(450, 160, id="stack-fills-midway")],
+)
+@pytest.mark.parametrize("entry", [pytest.param(_parse_count, id="parse"), pytest.param(_stream_count, id="stream")])
+def test_reconstruction_at_depth_cap_does_not_amplify(entry: Callable[[str], int], blocks: int, expected: int) -> None:
+    # a reconstruction clone the depth cap refuses must leave the list, or every later reconstruction clones it again
+    formatting = "".join(f"<b c{index}>" for index in range(100))
+    assert entry(f"<p>{formatting}</p>{'<div>' * blocks}{'<br>' * 50}") == expected
+
+
+@pytest.mark.parametrize(
     "markup",
     [
         pytest.param("<!DOCTYPE html><title>t</title><p id=a>hi<b>x</b></p>", id="basic"),
