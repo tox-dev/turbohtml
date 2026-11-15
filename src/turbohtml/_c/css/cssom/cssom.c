@@ -1475,6 +1475,7 @@ typedef struct {
     css_specificity *specificities;
     const th_node *style;
     int supported;
+    int nests_climbs; /* a rule's selector climbs from its climbs (sel_compiled.climbs 2) */
 } css_sheet;
 
 typedef struct {
@@ -1539,6 +1540,8 @@ typedef struct {
     sel_memo legend_memo;
     /* one answer per rule and long attribute value, a product the page sets both factors of, so capped as has_memo */
     sel_memo value_memo;
+    /* the answers of the ancestor walks on a tree that may nest deep (sel_deep_query), capped as has_memo */
+    sel_memo deep_memo;
 } css_computed_cache;
 
 static css_computed_cache *css_computed_new(uint64_t version) {
@@ -1565,6 +1568,7 @@ static css_computed_cache *css_computed_new(uint64_t version) {
     cache->attr_version = version;
     cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
+    cache->deep_memo.limit = CSS_HAS_MEMO_LIMIT;
     return cache;
 }
 
@@ -1724,6 +1728,7 @@ static void css_free_computed(HandleObject *handle) {
         sel_memo_free(&cache->has_memo);
         sel_memo_free(&cache->legend_memo);
         sel_memo_free(&cache->value_memo);
+        sel_memo_free(&cache->deep_memo);
         sel_position_memo_free(&cache->position_memo);
         for (Py_ssize_t slot = 0; slot < cache->entry_count; slot++) {
             PyMem_Free(cache->entries[slot]);
@@ -1902,6 +1907,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             goto fail;                         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_ssize_t alternative_count = 0;
+        int nests_climbs = 0;
         for (Py_ssize_t rule = 0; rule < rule_count; rule++) {
             PyObject *selector = css_slice_str(rules[rule].selector, rules[rule].selector_len);
             if (selector == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1931,12 +1937,14 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             } else {
                 css_prioritize_subject(compiled[rule]);
                 alternative_count += compiled[rule]->count;
+                nests_climbs |= compiled[rule]->climbs > 1;
             }
         }
         sheets[count - 1].clean = clean;
         sheets[count - 1].rules = rules;
         sheets[count - 1].rule_count = rule_count;
         sheets[count - 1].compiled = compiled;
+        sheets[count - 1].nests_climbs = nests_climbs;
         if (alternative_count == 0) {
             continue;
         }
@@ -2000,11 +2008,20 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
     return handle->css_sheets;
 }
 
+#if defined(__GNUC__)
+#define CSS_CASCADE_INLINE inline __attribute__((always_inline))
+#else
+#define CSS_CASCADE_INLINE inline
+#endif
+
 /* Run the whole cascade for element against the collected sheets plus its inline
    style, writing the resolved computed values into out given the parent's computed
-   map. Returns -1 on allocation failure. */
-static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count, th_tree *tree,
-                               int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
+   map. On a tree that may nest deep, or under a rule that climbs from its climbs, deep matches the rules that climb as
+   a query's stand-in does (sel_deep_query).
+   Returns -1 on allocation failure. */
+static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count,
+                                               th_tree *tree, int quirks, const css_value *parent, css_value *out,
+                                               css_computed_cache *cache, const int deep) {
     TH_WORK_STEP();
     css_slot slots[NUM_PROPS] = {0};
     /* the legend memo keeps its own table: it holds one answer per legend, so it needs no cap and must outlive a
@@ -2035,7 +2052,9 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
             int best_b = 0;
             int best_c = 0;
             for (int alt = 0; alt < compiled->count; alt++) {
-                if (!selector_matches_alt(element, &compiled->alts[alt], &ctx)) {
+                if (!(deep && compiled->climbs
+                          ? sel_deep_matches_alt(element, &compiled->alts[alt], &ctx, &cache->deep_memo)
+                          : selector_matches_alt(element, &compiled->alts[alt], &ctx))) {
                     continue;
                 }
                 int spec_a = specificities[alt].ids;
@@ -2074,6 +2093,18 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
         css_resolve(&out[index], &slots[index], &parent[index], &cache->initial[index], CSS_PROPS[index].inherited);
     }
     return 0;
+}
+
+static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count, th_tree *tree,
+                               int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
+    int deep = th_tree_nests_deep(tree);
+    for (Py_ssize_t sheet = 0; !deep && sheet < sheet_count; sheet++) {
+        deep = sheets[sheet].nests_climbs;
+    }
+    if (deep) {
+        return css_cascade_with(element, sheets, sheet_count, tree, quirks, parent, out, cache, 1);
+    }
+    return css_cascade_with(element, sheets, sheet_count, tree, quirks, parent, out, cache, 0);
 }
 
 /* Cascade element, a child of the innermost path level (a root when the path is empty), and keep it as the new

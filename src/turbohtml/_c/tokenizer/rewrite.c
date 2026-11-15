@@ -368,8 +368,10 @@ typedef struct {
 } rw_open;
 
 typedef struct {
-    sel_compiled *compiled;
+    sel_compiled *compiled; /* the selector the matcher runs: source, or its stand-in in deep */
     PyObject *handler;
+    sel_compiled *source;
+    sel_deep_query *deep; /* NULL until the spine nests deep (rw_go_deep) */
 } rw_rule;
 
 /* A spine element an end tag closed, kept until the tag is written to learn whether the output closed it too. */
@@ -425,12 +427,56 @@ typedef struct {
     Py_ssize_t retired_len;
     Py_ssize_t open_len;
     uint32_t next_seq; /* the value memo hashes a spine element by its seq */
+    /* Some rules run on stand-ins (rw_go_deep), whose memos key an element by its address, so a closed element waits in
+       the retired list (linked through its parent) until the memos are emptied, and no later element can take its
+       address while an entry names it. The memos are emptied once RW_DEEP_RETIRED_MAX elements wait. */
+    int deep;
+    th_node *retired_nodes;
+    Py_ssize_t retired_node_count;
 } rw_ctx;
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
    but not pushed, so a pathologically deep or unclosed input keeps the spine (and the C
    stack the selector matcher walks) bounded rather than growing without limit. */
 #define RW_MAX_DEPTH TH_DEPTH_LIMIT(8192)
+
+/* The most closed elements the stand-ins' memos may name (see rw_ctx.retired_nodes). Emptying them costs the walks
+   that refill them no more than the closed elements already paid for. */
+#define RW_DEEP_RETIRED_MAX ((Py_ssize_t)8 * RW_MAX_DEPTH)
+
+/* Switch the rules that climb at least this far (sel_compiled.climbs) to stand-ins that keep the answers of their
+   ancestor walks: those that climb from their climbs from the start, the others once the spine grows past
+   TH_MAX_TREE_DEPTH open elements and a walk can be as long as the spine. Returns -1 on allocation failure. */
+static int rw_go_deep(rw_ctx *ctx, int climbs) {
+    for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
+        rw_rule *rule = &ctx->rules[index];
+        if (rule->source->climbs < climbs || rule->deep != NULL) {
+            continue;
+        }
+        ctx->deep = 1;
+        rule->deep = PyMem_Calloc(1, sizeof(sel_deep_query));
+        if (rule->deep == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        rule->compiled = sel_deep_wrap(rule->source, rule->deep);
+    }
+    return 0;
+}
+
+/* Empty the stand-ins' memos and free the elements retired while they held entries. */
+static void rw_deep_flush(rw_ctx *ctx) {
+    for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
+        if (ctx->rules[index].deep != NULL) {
+            sel_memo_free(&ctx->rules[index].deep->memo);
+        }
+    }
+    while (ctx->retired_nodes != NULL) {
+        th_node *next = ctx->retired_nodes->parent;
+        PyMem_Free(ctx->retired_nodes);
+        ctx->retired_nodes = next;
+    }
+    ctx->retired_node_count = 0;
+}
 
 /* Empty the value memo and free the long value buffers retired while it held entries. */
 static void rw_values_flush(rw_ctx *ctx) {
@@ -1448,7 +1494,15 @@ static void rw_free_node(rw_ctx *ctx, th_node *node) {
     }
     PyMem_Free(node->attrs);
     PyMem_Free(node->text);
-    PyMem_Free(node);
+    if (!ctx->deep) {
+        PyMem_Free(node);
+        return;
+    }
+    node->parent = ctx->retired_nodes;
+    ctx->retired_nodes = node;
+    if (++ctx->retired_node_count > RW_DEEP_RETIRED_MAX) {
+        rw_deep_flush(ctx);
+    }
 }
 
 /* Build a self-managed spine element from a start-tag token, linked only to its parent
@@ -2340,6 +2394,14 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             return;                  /* GCOVR_EXCL_LINE */
         }
         ctx->stack = grown;
+        if (cap > TH_MAX_TREE_DEPTH && ctx->stack_cap <= TH_MAX_TREE_DEPTH) {
+            if (rw_go_deep(ctx, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                ctx->error = 1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+                PyErr_NoMemory();         /* GCOVR_EXCL_LINE */
+                rw_free_node(ctx, node);  /* GCOVR_EXCL_LINE */
+                return;                   /* GCOVR_EXCL_LINE */
+            }
+        }
         ctx->stack_cap = (Py_ssize_t)cap;
     }
     open.long_values = rw_long_values(node);
@@ -2748,8 +2810,10 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     rw_values_flush(ctx);
     Py_XDECREF(ctx->append_text); /* still set only when a handler failed */
     PyMem_Free(ctx->stack);
+    rw_deep_flush(ctx);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
-        selector_free(ctx->rules[index].compiled);
+        PyMem_Free(ctx->rules[index].deep);
+        selector_free(ctx->rules[index].source);
         Py_DECREF(ctx->rules[index].handler);
     }
     PyMem_Free(ctx->rules);
@@ -2805,10 +2869,13 @@ static int rw_compile_rules(rw_ctx *ctx, module_state *state, PyObject *handlers
             Py_DECREF(pair);
             return -1;
         }
-        ctx->rules[ctx->rule_count].compiled = compiled;
-        ctx->rules[ctx->rule_count].handler = Py_NewRef(handler);
+        ctx->rules[ctx->rule_count] = (rw_rule){compiled, Py_NewRef(handler), compiled, NULL};
         ctx->rule_count++;
         Py_DECREF(pair);
+    }
+    if (rw_go_deep(ctx, 2) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory();         /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     return 0;
 }

@@ -1108,11 +1108,58 @@ void th_tree_note_observed(th_tree *tree) {
     tree->nest_bound |= TH_NEST_OBSERVED;
 }
 
+/* The most nodes link_keeps_capped measures in a linked subtree: one built from a few elements keeps the bound at a
+   cost no larger than the link's own, and a larger one drops it, so that moving it about stays O(1) a move. */
+#define TH_NEST_MEASURE_MAX 64
+
+/* How many levels child's subtree reaches below child, or -1 when it holds more than TH_NEST_MEASURE_MAX nodes. */
+static Py_ssize_t subtree_levels(const th_node *child) {
+    const th_node *node = child;
+    Py_ssize_t level = 0;
+    Py_ssize_t levels = 0;
+    for (int visited = 0; visited < TH_NEST_MEASURE_MAX; visited++) {
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            level++;
+            levels = level > levels ? level : levels;
+            continue;
+        }
+        while (node != child && node->next_sibling == NULL) {
+            node = node->parent;
+            level--;
+        }
+        if (node == child) {
+            return levels;
+        }
+        node = node->next_sibling;
+    }
+    return -1;
+}
+
+/* Whether linking child under parent leaves TH_NEST_CAPPED standing: a childless node that is not an element does,
+   and so does a subtree subtree_levels measures whose nodes all stay short of TH_DEEP_NEST ancestors. */
+static int link_keeps_capped(const th_node *parent, const th_node *child) {
+    if (child->first_child == NULL && child->type != TH_NODE_ELEMENT) {
+        return 1;
+    }
+    Py_ssize_t ancestors = subtree_levels(child);
+    if (ancestors < 0) {
+        return 0;
+    }
+    for (const th_node *ancestor = parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (++ancestors >= TH_DEEP_NEST) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Out of line: a tree reaches it only while it holds a nest bound or may have an observer, so any other insertion
-   pays the single test it paid for the observer check alone. The insertion drops the bound and keeps the observer
-   bit only while an observer is registered. */
+   pays the single test it paid for the observer check alone. The insertion drops the bound, keeps TH_NEST_CAPPED
+   while link_keeps_capped, and keeps the observer bit only while an observer is registered. */
 static TH_NOINLINE void child_inserted_hooked(th_tree *tree, th_node *parent, th_node *child) {
-    tree->nest_bound = tree->observers != NULL ? TH_NEST_OBSERVED : 0;
+    const Py_ssize_t capped = (tree->nest_bound & TH_NEST_CAPPED) != 0 && link_keeps_capped(parent, child);
+    tree->nest_bound = (capped ? TH_NEST_CAPPED : 0) | (tree->observers != NULL ? TH_NEST_OBSERVED : 0);
     th_mo_child_inserted(tree, parent, child);
 }
 

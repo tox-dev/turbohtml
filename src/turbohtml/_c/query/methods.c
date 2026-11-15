@@ -264,6 +264,8 @@ retry:;
         moved = 1;
     } else {
         th_node *origin = ((NodeObject *)self)->node;
+        sel_deep_query deep;
+        compiled = sel_deep_enter(compiled, &deep);
         const sel_simple *single = sel_single_simple(compiled);
         if (single != NULL && single->kind == 'e' && single->tag_atom != TH_TAG_UNKNOWN &&
             !th_tree_is_xml(compiled->tree) && handle_use_index(handle_obj, origin, 1)) {
@@ -272,6 +274,7 @@ retry:;
         } else {
             error = append_selected(out, state, handle, origin, compiled, limit, single);
         }
+        sel_deep_leave(&deep);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -398,6 +401,8 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
             sel_sibling_memo sibling_memo = {0};
             sel_sibling_memo *memo = selector_uses_scope(compiled) ? NULL : &sibling_memo;
             sel_position_memo positions = {0}; /* a sibling position does not depend on the scope */
+            sel_deep_query deep;
+            compiled = sel_deep_enter(compiled, &deep);
             for (; index < count; index++) {
                 item = PyList_GET_ITEM(nodes, index);
                 if (!Py_IS_TYPE(item, (PyTypeObject *)state->element_type)) {
@@ -417,6 +422,7 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
             }
             sel_memo_free(&sibling_memo.table);
             sel_position_memo_free(&positions);
+            sel_deep_leave(&deep);
         }
         Py_END_CRITICAL_SECTION();
         Py_DECREF(handle);
@@ -822,8 +828,12 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 batches[tree_first].offset = PyList_GET_SIZE(out);
                 for (Py_ssize_t index = 0; index < group_count; index++) {
                     th_node *origin = group[index];
+                    /* each root is its own :scope, so each takes a stand-in of its own */
+                    sel_deep_query deep;
+                    sel_compiled *matcher = sel_deep_enter(compiled, &deep);
                     int append_error =
-                        append_selected(out, state, anchor->handle, origin, compiled, 0, sel_single_simple(compiled));
+                        append_selected(out, state, anchor->handle, origin, matcher, 0, sel_single_simple(matcher));
+                    sel_deep_leave(&deep);
                     if (append_error < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                         error = 1;          /* GCOVR_EXCL_LINE */
                         break;              /* GCOVR_EXCL_LINE */
@@ -891,6 +901,8 @@ retry:;
         moved = 1;
     } else {
         th_node *origin = ((NodeObject *)self)->node;
+        sel_deep_query deep;
+        compiled = sel_deep_enter(compiled, &deep);
         const sel_simple *single = sel_single_simple(compiled);
         sel_ctx ctx = {compiled->tree,
                        origin,
@@ -922,6 +934,7 @@ retry:;
                 }
             }
         }
+        sel_deep_leave(&deep);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -2591,7 +2604,9 @@ retry:;
     } else {
         th_node *node = ((NodeObject *)self)->node;
         /* matches() scopes :scope to the node being tested */
-        matched = node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, node, NULL);
+        matched =
+            node->type == TH_NODE_ELEMENT && (sel_climbs_deep(compiled) ? selector_matches_deep(node, compiled, node)
+                                                                        : selector_matches(node, compiled, node, NULL));
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -2658,6 +2673,8 @@ retry:;
     } else {
         /* closest() scopes :scope to the element it was invoked on */
         th_node *scope = ((NodeObject *)self)->node;
+        sel_deep_query deep;
+        compiled = sel_deep_enter(compiled, &deep);
         if (compiled->reads_dir) {
             *found = closest_sharing_dir(scope, compiled);
         } else {
@@ -2673,6 +2690,7 @@ retry:;
                 sel_memo_free(&values);
             }
         }
+        sel_deep_leave(&deep);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -2880,9 +2898,14 @@ static int closest_plain(closest_call *call, PyObject *handle, sel_compiled *com
    above it, or from a start that is not an element, answers under the stand-in scope of its kind, with a node map
    and a sibling memo of that kind. The matches output go to a map of their own: a start that matched against its own
    scope answers for no climb. */
-static int closest_scoped(closest_call *call, PyObject *handle, sel_compiled *compiled, const closest_entry *group,
-                          Py_ssize_t from, Py_ssize_t to, Py_ssize_t *stop) {
+static int closest_scoped(closest_call *call, PyObject *handle, sel_compiled *compiled, sel_compiled *source,
+                          const closest_entry *group, Py_ssize_t from, Py_ssize_t to, Py_ssize_t *stop) {
     const sel_simple *single = sel_single_simple(compiled);
+    /* the stand-in of compiled keeps answers for one scope, so the climbs above a start that is not an element run on
+       one of their own */
+    sel_deep_query deep_other;
+    sel_compiled *const compiled_other = sel_deep_enter(source, &deep_other);
+    const sel_simple *single_other = sel_single_simple(compiled_other);
     th_node_map known = {0};
     sel_sibling_memo memo = {0};
     /* the climbs of both kinds and the starts read the same values, whose answers hold under any scope */
@@ -2911,12 +2934,16 @@ static int closest_scoped(closest_call *call, PyObject *handle, sel_compiled *co
         th_node *node = start;
         th_node_map *map = &known;
         const sel_ctx *ctx = &above;
+        const sel_compiled *matcher = compiled;
+        const sel_simple *test = single;
         th_node *memo_from = NULL;
         Py_ssize_t answer = 0;
         int walked = 0;
         if (start->type != TH_NODE_ELEMENT) {
             map = &known_other;
             ctx = &above_other;
+            matcher = compiled_other;
+            test = single_other;
         } else {
             own.scope = start;
             if (single != NULL ? sel_match_simple(start, single, &own) : selector_matches_c(start, compiled, &own)) {
@@ -2936,7 +2963,7 @@ static int closest_scoped(closest_call *call, PyObject *handle, sel_compiled *co
                 }
             }
             if (node->type == TH_NODE_ELEMENT &&
-                (single != NULL ? sel_match_simple(node, single, ctx) : selector_matches_c(node, compiled, ctx))) {
+                (test != NULL ? sel_match_simple(node, test, ctx) : selector_matches_c(node, matcher, ctx))) {
                 break;
             }
         }
@@ -2972,6 +2999,7 @@ static int closest_scoped(closest_call *call, PyObject *handle, sel_compiled *co
     *stop = position;
     sel_memo_free(&memo.table);
     sel_memo_free(&memo_other.table);
+    sel_deep_leave(&deep_other);
     PyMem_Free(known.entries);
     PyMem_Free(known_other.entries);
     PyMem_Free(emitted.entries);
@@ -2988,8 +3016,11 @@ static int closest_run(closest_call *call, PyObject *leader, const closest_entry
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the ancestor walks */
     sel_compiled *compiled = cached_compile(call->state->selector_error, (HandleObject *)handle, call->selector);
     if (compiled != NULL) {
-        status = selector_uses_scope(compiled) ? closest_scoped(call, handle, compiled, group, from, to, stop)
-                                               : closest_plain(call, handle, compiled, group, from, to, stop);
+        sel_deep_query deep;
+        sel_compiled *matcher = sel_deep_enter(compiled, &deep);
+        status = selector_uses_scope(compiled) ? closest_scoped(call, handle, matcher, compiled, group, from, to, stop)
+                                               : closest_plain(call, handle, matcher, group, from, to, stop);
+        sel_deep_leave(&deep);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -3179,6 +3210,8 @@ retry:;
            intact. A string/regex selector can call back into Python, so no edit
            may run here; matching alone never rewires a node, so the snapshot lets
            pass 2 edit in pure C without dereferencing a stale pointer. */
+        sel_deep_query deep;
+        compiled = sel_deep_enter(compiled, &deep);
         const sel_simple *single = sel_single_simple(compiled);
         sel_ctx ctx = {compiled->tree,
                        origin,
@@ -3204,6 +3237,7 @@ retry:;
                 break;     /* GCOVR_EXCL_LINE: allocation path */
             }
         }
+        sel_deep_leave(&deep);
         if (!error) { /* GCOVR_EXCL_BR_LINE: the false arm is the pass-1 allocation-failure bail, unforceable */
             /* Pass 2: pure-C edit (see prune_unkept). */
             handle_drop_index(handle);
@@ -3287,6 +3321,8 @@ static void unwrap_matches(th_tree *tree, const node_snapshot *snapshot, int ite
    the snapshot lets the edit pass run in pure C. Returns 0, or -1 on allocation
    failure. */
 static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapshot *snapshot) {
+    sel_deep_query deep;
+    compiled = sel_deep_enter(compiled, &deep);
     const sel_simple *single = sel_single_simple(compiled);
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
@@ -3317,6 +3353,7 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
     }
     sel_memo_free(&memo.table);
     sel_position_memo_free(&position_memo);
+    sel_deep_leave(&deep);
     return result;
 }
 
