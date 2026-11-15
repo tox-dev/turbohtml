@@ -1339,6 +1339,69 @@ def _doctype(source: str) -> Doctype:
     return node
 
 
+def test_minify_xml_doctype_system_identifier_stays_out_of_markup() -> None:
+    # an XML SystemLiteral takes a ">", which ends an HTML doctype and hands the rest of the literal to the parser
+    document: Final = parse_xml('<!DOCTYPE html SYSTEM "urn:k>lm<i>q</i>"><html xmlns="http://www.w3.org/1999/xhtml"/>')
+    assert document.select("i") == []
+    minified: Final = document.serialize(Html(layout=Minify()))
+    assert minified == "<!DOCTYPE html><html xmlns=http://www.w3.org/1999/xhtml></html>"
+    assert parse(minified).select("i") == []
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<!DOCTYPE html SYSTEM "k>lm"><html/>', "<!DOCTYPE html><html></html>", id="system"),
+        pytest.param(
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "k>lm"><html/>',
+            "<!DOCTYPE html><html></html>",
+            id="public-and-system",
+        ),
+        pytest.param(
+            '<!DOCTYPE html PUBLIC "-//IETF//DTD HTML//EN" "k>lm"><html><body><p>x</p><table/></body></html>',
+            "<!DOCTYPE html x><html><body><p>x</p><table></table></body></html>",
+            id="quirky-public-stays-quirky",
+        ),
+        pytest.param('<!DOCTYPE root SYSTEM "k>lm"><root/>', "<!DOCTYPE root x><root></root>", id="quirky-name"),
+        pytest.param(
+            "<!DOCTYPE html SYSTEM 'a\"b'><html/>", "<!DOCTYPE html SYSTEM 'a\"b'><html></html>", id="double-quote-fits"
+        ),
+    ],
+)
+def test_minify_xml_doctype(source: str, expected: str) -> None:
+    assert parse_xml(source).serialize(Html(layout=Minify())) == expected
+
+
+@pytest.mark.parametrize(
+    ("public_id", "system_id", "expected"),
+    [
+        pytest.param("k>lm", None, "<!DOCTYPE html>", id="public-gt"),
+        pytest.param("a", "m>no", "<!DOCTYPE html>", id="system-gt"),
+        pytest.param("a\"b'c", "d", "<!DOCTYPE html>", id="public-both-quotes"),
+        pytest.param(None, "a'b\"c", "<!DOCTYPE html>", id="system-both-quotes"),
+        pytest.param("-//IETF//DTD HTML//EN", "k>lm", "<!DOCTYPE html x>", id="quirky-public"),
+        pytest.param("a'b", 'c"d', "<!DOCTYPE html PUBLIC \"a'b\" 'c\"d'>", id="one-quote-each-fits"),
+    ],
+)
+def test_minify_built_doctype_identifier_html_cannot_spell(
+    public_id: str | None, system_id: str | None, expected: str
+) -> None:
+    reduced: Final = _doctype("<!DOCTYPE html>").__reduce__()
+    assert isinstance(reduced, tuple)
+    reconstruct, (kind, *_) = reduced
+    # the pickle hook rebuilds the identifiers as given, so it reaches the ones neither parser stores
+    node: Final = reconstruct(kind, ("html", public_id, system_id), [])
+    assert node.serialize(Html(layout=Minify())) == expected
+
+
+def test_minify_forced_quirks_document_with_adopted_xml_doctype_stays_quirky() -> None:
+    document: Final = parse("<!DOCTYPE html bogus><p>x</p><table></table>")
+    document.children[0].replace_with(parse_xml('<!DOCTYPE html SYSTEM "k>lm"><html/>').children[0])
+    minified: Final = document.serialize(Html(layout=Minify()))
+    assert minified == "<!DOCTYPE html x><p>x</p><table></table>"
+    assert parse(minified).serialize(Html(layout=Minify())) == minified
+
+
 def test_minify_element_in_no_quirks_tree_omits_end_tag() -> None:
     body: Final = parse("<!DOCTYPE html><body><p>x</p><table></table>").select_one("body")
     assert isinstance(body, Element)
