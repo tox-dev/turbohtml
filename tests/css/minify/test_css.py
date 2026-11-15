@@ -1522,6 +1522,61 @@ def test_minify_css_empty_selector_rule_is_a_fixed_point(source: str, expected: 
     assert minify_css(minify_css(source)) == expected
 
 
+# A leading combinator keeps its rule: the selector's trailing-space trim stops at the selector's own start, so it never
+# eats the combinator or merges the rule into the one before it.
+_LEADING_COMBINATOR_RULE: Final[list[pytest.ParameterSet]] = [
+    pytest.param("~@q{--: ", "~@q{--: }", id="at-keyword-prelude"),
+    pytest.param("~d{--: ", "~d{--: }", id="type-prelude"),
+    pytest.param("+{--x: }", "+{--x: }", id="empty-compound"),
+    pytest.param("a{b:c}~{--x: }", "a{b:c}~{--x: }", id="tilde-after-rule"),
+    pytest.param("a{b:c} +{--x: }", "a{b:c}+{--x: }", id="plus-after-space"),
+    pytest.param("a{b:c}>{--x: }", "a{b:c}>{--x: }", id="child-after-rule"),
+    pytest.param("a{b:c}>a{--x: }", "a{b:c}>a{--x: }", id="child-compound-not-merged"),
+    pytest.param("a{--x: }~b{c:d}", "a{--x: }~b{c:d}", id="tilde-after-custom-property"),
+    pytest.param("a{b:c}, {--x: }", "a{b:c},{--x: }", id="comma-after-space"),
+    pytest.param("@media x{+{--x: }}", "@media x{+{--x: }}", id="nested-in-media"),
+    pytest.param("@media x{~@q{--: }}", "@media x{~@q{--: }}", id="nested-in-media-at-keyword"),
+    pytest.param("a{b:\\31 ;+ 1{c:d}}", "a{b:\\31 ;+1{c:d}}", id="nested-plus-before-number-after-hex-escape"),
+    pytest.param("/*c*/~@q{--: }", "~@q{--: }", id="comment-before-combinator"),
+    pytest.param("~/**/@q{--: }", "~@q{--: }", id="comment-after-combinator"),
+    pytest.param("~ @q{--: }", "~@q{--: }", id="space-after-combinator"),
+    pytest.param("~\n{--x: }", "~{--x: }", id="newline-empty-compound"),
+    pytest.param("~ /**/ a{--x: }", "~a{--x: }", id="comment-before-compound"),
+    pytest.param("~\\31 {--x: }", "~\\31{--x: }", id="hex-escape-compound"),
+    pytest.param("a{b:c}~\\31 {--x: }", "a{b:c}~\\31{--x: }", id="hex-escape-after-rule"),
+    pytest.param("+\\31 {--x: }", "+\\31{--x: }", id="plus-hex-escape-compound"),
+    pytest.param("||{--x: }", "||{--x: }", id="column-first"),
+    pytest.param("a{--x: }||b{c:d}", "a{--x: }||b{c:d}", id="column-after-custom-property"),
+    pytest.param("a{--x: }|| {c:d}", "a{--x: }||{c:d}", id="column-trailing-space-after-custom-property"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _LEADING_COMBINATOR_RULE)
+def test_minify_css_leading_combinator_rule(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _LEADING_COMBINATOR_RULE)
+def test_minify_css_leading_combinator_rule_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_leading_combinator_keeps_every_rule(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    source: list[str] = []
+    expected: list[str] = []
+    for index in range(rng.randint(1, 6)):
+        combinator = rng.choice((">", "+", "~", "||", ",", ""))
+        before = rng.choice(("", " ", "\n", "/**/", " /* c */ "))
+        after = rng.choice(("", "/**/"))
+        source.append(f"{before}{combinator}{after}t{index}{{--v{index}: }}")
+        expected.append(f"{combinator}t{index}{{--v{index}: }}")
+    canonical = "".join(expected)
+    assert minify_css("".join(source)) == canonical
+    assert minify_css(canonical) == canonical
+
+
 def test_minify_css_same_selector_merge_is_bounded() -> None:
     # folding a whole same-selector run into one rule re-renders a body that grows per rule, O(rules^2) in time and
     # arena memory; the capped merge keeps the largest output rule the same size however many rules come in
