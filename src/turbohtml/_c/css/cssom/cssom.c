@@ -1514,6 +1514,8 @@ typedef struct {
     sel_position_memo position_memo;
     css_computed_entry entries[2];
     sel_memo legend_memo;
+    /* one answer per rule and long attribute value, a product the page sets both factors of, so capped as has_memo */
+    sel_memo value_memo;
 } css_computed_cache;
 
 static void css_free_computed(HandleObject *handle) {
@@ -1522,6 +1524,7 @@ static void css_free_computed(HandleObject *handle) {
         /* Memo keys borrow stylesheet selectors, so clear them before rebuilding sheets. */
         sel_memo_free(&cache->has_memo);
         sel_memo_free(&cache->legend_memo);
+        sel_memo_free(&cache->value_memo);
         sel_position_memo_free(&cache->position_memo);
         css_free_map(cache->entries[0].values);
         css_free_map(cache->entries[1].values);
@@ -1745,8 +1748,16 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
     css_slot slots[NUM_PROPS] = {0};
     /* the legend memo keeps its own table: it holds one answer per legend, so it needs no cap and must outlive a
        :has() table dropped at CSS_HAS_MEMO_LIMIT; one dir=auto answer per element shares it for the same reason */
-    sel_ctx ctx = {
-        tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->legend_memo, &cache->position_memo};
+    sel_ctx ctx = {tree,
+                   element,
+                   quirks,
+                   NULL,
+                   &cache->nth_memo,
+                   NULL,
+                   NULL,
+                   &cache->legend_memo,
+                   &cache->position_memo,
+                   &cache->value_memo};
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
@@ -1862,6 +1873,7 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
         }
         cache->attr_version = version;
         cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
+        cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
         handle->css_computed = cache;
     }
     int parent_slot = -1;

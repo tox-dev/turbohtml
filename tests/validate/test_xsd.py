@@ -2369,6 +2369,47 @@ def test_simple_typed_element_with_child() -> None:
     assert not xsd_ok(schema, "<v><child/></v>")
 
 
+_INLINE_STRING: Final[str] = (
+    '<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="[a-z]+"/></xs:restriction></xs:simpleType>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "document"),
+    [
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element></xs:schema>',
+            "<v>bob<child>x</child></v>",
+            id="root",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+            f'<xs:element name="v">{_INLINE_STRING}</xs:element>'
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>",
+            "<r><v>bob<child>x</child></v></r>",
+            id="sequence-particle",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element>'
+            '<xs:element name="r"><xs:complexType><xs:sequence><xs:element ref="v"/></xs:sequence>'
+            "</xs:complexType></xs:element></xs:schema>",
+            "<r><v>bob<child>x</child></v></r>",
+            id="ref",
+        ),
+    ],
+)
+def test_inline_simple_typed_element_with_child(schema: str, document: str) -> None:
+    result = check(schema, document)
+    assert [(error.type, error.message) for error in result.errors] == [
+        ("structure", "simple-typed element must not contain child elements"),
+    ]
+
+
+def test_inline_simple_typed_element_keeps_comment_child() -> None:
+    schema = f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element></xs:schema>'
+    assert xsd_ok(schema, "<v>bob<!--note--></v>")
+
+
 def test_occurs_multi_digit_and_bounds() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
@@ -4489,3 +4530,53 @@ def test_ordinary_patterns_fit_the_step_budget(pattern: str, value: str, *, vali
     schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
     element: Final = f"<v>{value}</v>"
     assert schema.is_valid(parse_xml(f"<r>{element}{element}</r>")) is valid
+
+
+@pytest.mark.parametrize("padding", [pytest.param(0, id="few-attributes"), pytest.param(40, id="many-attributes")])
+def test_xsd_type_prefixes_resolve_below_many_attributes(padding: int) -> None:
+    # b is the XSD namespace only where an element redeclares it; elsewhere b:int names the string type declared here
+    pad: Final = _padding(padding)
+    xsd: Final = 'xmlns:b="http://www.w3.org/2001/XMLSchema"'
+    schema: Final = XMLSchema(
+        f'<xs:schema {pad} {_XS} xmlns:b="urn:t">'
+        '<xs:simpleType name="int"><xs:restriction base="xs:string"/></xs:simpleType>'
+        f'<xs:simpleType name="small"><xs:restriction base="b:int" {pad} {xsd}>'
+        '<xs:maxInclusive value="5"/></xs:restriction></xs:simpleType>'
+        '<xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:element name="c" type="b:int" {pad} {xsd}/><xs:element name="d" type="b:int"/>'
+        '<xs:element name="s" type="small"/></xs:sequence>'
+        f'<xs:attribute name="e" type="b:int" {pad} {xsd}/><xs:attribute name="f" type="b:int"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert schema.validate(parse_xml('<r e="1" f="x"><c>1</c><d>x</d><s>3</s></r>')).valid
+    result: Final = schema.validate(parse_xml('<r e="x" f="x"><c>x</c><d>x</d><s>7</s></r>'))
+    assert len(result.errors) == 3
+
+
+def _padding(count: int) -> str:
+    return " ".join(f'pad{index}=""' for index in range(count))
+
+
+def test_xsd_type_prefixes_below_many_attributes_compile_linearly(work_steps: WorkSteps) -> None:
+    # each type reference resolves its prefix through the attributes of xs:schema, which must not cost their count
+    def build(count: int) -> Callable[[], XMLSchema]:
+        body: Final = "".join(f'<xs:element name="e{index}" type="xs:int"/>' for index in range(count))
+        return partial(XMLSchema, f"<xs:schema {_padding(count)} {_XS}>{body}</xs:schema>")
+
+    work_steps.assert_linear(build, (70, 280))
+
+
+def test_xsd_type_prefixes_below_many_attributes_validate_linearly(work_steps: WorkSteps) -> None:
+    # every instance element and attribute looks its declared type up again
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema: Final = XMLSchema(
+            f'<xs:schema {_padding(count)} {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+            '<xs:element name="v" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>'
+            '<xs:extension base="xs:int"><xs:attribute name="a" type="xs:int"/></xs:extension>'
+            "</xs:simpleContent></xs:complexType></xs:element>"
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        item: Final = '<v a="1">2</v>'
+        return partial(schema.validate, parse_xml(f"<r>{item * count}</r>"))
+
+    work_steps.assert_linear(build, (70, 280))

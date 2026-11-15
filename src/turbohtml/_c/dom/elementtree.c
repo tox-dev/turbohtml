@@ -389,13 +389,24 @@ static int view_set_text(PyObject *self, PyObject *value, void *closure) {
     if (previous == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;          /* GCOVR_EXCL_LINE: allocation failure */
     }
+    /* A str goes into the first Text of the run, which keeps the run one node: a new Text in its place would leave the
+       old one in the arena, so the lxml idiom `x.tail = (x.tail or "") + more` would keep every value it ever built.
+       The node's own buffer takes each value instead (th_node_set_data). */
+    PyObject *kept = value != Py_None && PyList_GET_SIZE(previous) > 0 ? Py_NewRef(PyList_GET_ITEM(previous, 0)) : NULL;
     int status = 0;
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(previous); index++) {
+    for (Py_ssize_t index = kept != NULL; status == 0 && index < PyList_GET_SIZE(previous); index++) {
         /* GCOVR_EXCL_BR_STOP */
         status = view_discard(node_extract(PyList_GET_ITEM(previous, index), NULL));
     }
     Py_DECREF(previous);
+    if (kept != NULL) {
+        if (status == 0) { /* GCOVR_EXCL_BR_LINE: extract fails only on allocation failure */
+            status = PyObject_SetAttrString(kept, "data", value);
+        }
+        Py_DECREF(kept);
+        return status;
+    }
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
     if (status < 0 || value == Py_None) {
         /* GCOVR_EXCL_BR_STOP */
