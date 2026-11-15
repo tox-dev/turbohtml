@@ -385,6 +385,12 @@ static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **
    Foreign elements can store a case-adjusted name (e.g. MathML definitionURL), so
    a missed atom match falls back to a case-insensitive scan for non-HTML nodes. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);
+/* An element with this many attributes keeps a hash index of their names behind the array (dom/mutate.c). */
+#define TH_ATTR_INDEX_MIN 32
+/* The index of the attribute whose name_atom is exactly atom on an element with TH_ATTR_INDEX_MIN or more attributes,
+   or -1; -2 on allocation failure. It answers from the element's attribute index, built here when the element has
+   none, so repeated lookups on one element do not rescan its array. */
+Py_ssize_t th_node_attr_find_atom(th_tree *tree, th_node *node, uint32_t atom);
 
 /* Remove the named attribute; returns 1 if one was removed, else 0. */
 int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);

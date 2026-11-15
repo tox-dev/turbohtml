@@ -5567,24 +5567,46 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
 static const Py_UCS4 *alias_result_uri(const engine *eng, const char *prefix, Py_ssize_t prefix_len,
                                        Py_ssize_t *out_len);
 
+static int ns_binding_matches(const th_node_attr *attr, const Py_UCS4 *value, Py_ssize_t value_len) {
+    return attr->value_len == value_len &&
+           (value_len == 0 || memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0);
+}
+
 /* Whether an output ancestor of `start` already binds namespace `name` (an "xmlns" or
    "xmlns:prefix" spelling) to the identical URI. The nearest binding wins, so a rebinding
-   to a different URI reports out-of-scope and the caller redeclares. */
+   to a different URI reports out-of-scope and the caller redeclares. Copied source
+   attributes can give one output element any number of attributes under any number of
+   literal children, so a large ancestor answers from its attribute index; a small one is
+   scanned, which costs less than resolving the name's atom. Returns -1 on allocation
+   failure. */
 static int output_ns_in_scope(engine *eng, th_node *start, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                               Py_ssize_t value_len) {
     for (th_node *anc = start; anc != NULL; anc = anc->parent) {
         if (anc->type != TH_NODE_ELEMENT) {
             continue;
         }
+        if (anc->attr_count >= TH_ATTR_INDEX_MIN) {
+            uint32_t atom = th_attr_lookup(eng->out_tree, name, name_len);
+            if (atom == UINT32_MAX) {
+                return 0; /* no output element carries the name */
+            }
+            Py_ssize_t index = th_node_attr_find_atom(eng->out_tree, anc, atom);
+            if (index == -1) {
+                continue;
+            }
+            if (index < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;   /* GCOVR_EXCL_LINE */
+            }
+            return ns_binding_matches(&anc->attrs[index], value, value_len);
+        }
         for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
+            TH_WORK_STEP();
             const th_node_attr *attr = &anc->attrs[index];
             Py_ssize_t anc_len = 0;
             const char *anc_name = th_attr_name(eng->out_tree, attr->name_atom, &anc_len);
-            if (anc_len != name_len || memcmp(anc_name, name, (size_t)name_len) != 0) {
-                continue;
+            if (anc_len == name_len && memcmp(anc_name, name, (size_t)name_len) == 0) {
+                return ns_binding_matches(attr, value, value_len);
             }
-            return attr->value_len == value_len &&
-                   (value_len == 0 || memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0);
         }
     }
     return 0;
@@ -5734,7 +5756,11 @@ static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_nod
     }
     for (size_t index = 0; index < eng->ns_decls_len; index++) {
         const xslt_ns_decl *decl = &eng->ns_decls[index];
-        if (output_ns_in_scope(eng, out_parent, decl->name, decl->name_len, decl->value, decl->value_len)) {
+        int in_scope = output_ns_in_scope(eng, out_parent, decl->name, decl->name_len, decl->value, decl->value_len);
+        if (in_scope < 0) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        if (in_scope) {
             continue;
         }
         /* GCOVR_EXCL_BR_START: alloc */
