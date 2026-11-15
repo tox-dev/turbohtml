@@ -412,6 +412,9 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
 /* Remove every attribute of an element, counted as an attribute write that may drop an id. The slot cache is the
    caller's to drop, as handle_drop_slots does. */
 void th_node_attrs_clear(th_tree *tree, th_node *node);
+/* Remove the attribute at index (0 <= index < attr_count). A caller that already holds the position skips the name
+   lookup th_node_attr_del() pays. */
+void th_node_attr_del_at(th_tree *tree, th_node *node, Py_ssize_t index);
 
 /* Replace a node's character data with a copy of len code points. Returns 0, or -1
    with MemoryError set on allocation failure. */
