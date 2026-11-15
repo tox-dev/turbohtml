@@ -2012,7 +2012,11 @@ def test_rng_too_many_nested_places_raise(schema: str) -> None:
 
 def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<r><a><v/></a></r>")
-    work_steps.assert_linear(lambda n: partial(_validate_until_raised, RelaxNG(_nested_places(6, n)), document), (5, 6))
+    # The steps until the raise stay bounded, but the event that passes the limit moves with n, so a near pair of
+    # sizes can differ by that event alone.
+    work_steps.assert_linear(
+        lambda n: partial(_validate_until_raised, RelaxNG(_nested_places(6, n)), document), (5, 10)
+    )
 
 
 @pytest.mark.parametrize(
@@ -3238,6 +3242,383 @@ def test_rng_wide_group_in_order_scales_linearly(work_steps: WorkSteps) -> None:
         return partial(schema.validate, parse_xml(f"<doc>{''.join(f'<{name}/>' for name in names)}</doc>"))
 
     work_steps.assert_linear(validate, (500, 2_000), exponent=1.3)
+
+
+_LEAF: Final[str] = '<element name="w{}"><empty/></element>'
+_LEAF_REF: Final[str] = '<ref name="d{}"/>'
+_LEAF_DEFINE: Final[str] = '<define name="d{0}"><element name="w{0}"><empty/></element></define>'
+_STRING_VALUE: Final[str] = '<value type="string">v{}</value>'
+_ATTRIBUTE: Final[str] = '<attribute name="a{}"/>'
+
+
+def _arrival(order: str, count: int) -> list[int]:
+    indexes: Final = list(range(count))
+    if order == "reverse":
+        return indexes[::-1]
+    if order == "alternating":
+        return indexes[::2] + indexes[1::2]
+    if order == "outside-in":
+        return [
+            index
+            for pair in zip(indexes[: count // 2], reversed(indexes[count // 2 :]), strict=False)
+            for index in pair
+        ]
+    return indexes
+
+
+def _leaves(order: str, count: int, *, twice: bool = False) -> str:
+    children: Final = "".join(f"<w{index}/>" for index in _arrival(order, count))
+    return f"<doc>{children * (1 + twice)}</doc>"
+
+
+def _in_slices(template: str, count: int) -> str:
+    return "".join(
+        template.format("".join(_LEAF.format(index) for index in range(start, start + 20)))
+        for start in range(0, count, 20)
+    )
+
+
+@pytest.mark.parametrize("order", ["schema", "reverse", "alternating", "outside-in"])
+def test_rng_wide_interleave_scales_linearly_in_any_order(order: str, work_steps: WorkSteps) -> None:
+    # each start tag looked for its branch through every branch the interleave still held
+    def validate(count: int) -> Callable[[], object]:
+        schema = RelaxNG(wrap(f"<interleave>{_repeat(_LEAF, count)}</interleave>"))
+        return partial(schema.validate, parse_xml(_leaves(order, count)))
+
+    work_steps.assert_linear(validate, (200, 800))
+
+
+def _repeated_branches(count: int) -> tuple[str, str]:
+    body: Final = _repeat(f"<oneOrMore>{_LEAF}</oneOrMore>", count)
+    return wrap(f"<interleave>{body}</interleave>"), _leaves("reverse", count, twice=True)
+
+
+def _nested_interleaves(count: int) -> tuple[str, str]:
+    body: Final = _in_slices("<interleave>{}</interleave>", count)
+    return wrap(f"<interleave>{body}</interleave>"), _leaves("alternating", count)
+
+
+def _nested_repeats(count: int) -> tuple[str, str]:
+    body: Final = _in_slices("<oneOrMore><interleave>{}</interleave></oneOrMore>", count)
+    return wrap(f"<interleave>{body}</interleave>"), _leaves("outside-in", count, twice=True)
+
+
+def _optional_branches(count: int) -> tuple[str, str]:
+    body: Final = _repeat(f"<optional>{_LEAF}</optional>", count)
+    return wrap(f"<interleave>{body}</interleave>"), _leaves("reverse", count // 2)
+
+
+def _repeated_choice(count: int) -> tuple[str, str]:
+    return wrap(f"<zeroOrMore><choice>{_repeat(_LEAF, count)}</choice></zeroOrMore>"), _leaves("reverse", count)
+
+
+def _optional_group(count: int) -> tuple[str, str]:
+    return wrap(_repeat(f"<optional>{_LEAF}</optional>", count)), _leaves("schema", count)
+
+
+def _mixed_text(count: int) -> tuple[str, str]:
+    children: Final = "".join(f"<w{index}/>t" for index in _arrival("alternating", count))
+    return wrap(f"<mixed><interleave>{_repeat(_LEAF, count)}</interleave></mixed>"), f"<doc>{children}</doc>"
+
+
+def _referenced_branches(count: int) -> tuple[str, str]:
+    start: Final = f'<start><element name="doc"><interleave>{_repeat(_LEAF_REF, count)}</interleave></element></start>'
+    return grammar(f"{start}{_repeat(_LEAF_DEFINE, count)}"), _leaves("reverse", count)
+
+
+def _referenced_choice(count: int) -> tuple[str, str]:
+    start: Final = (
+        f'<start><element name="doc"><zeroOrMore><choice>{_repeat(_LEAF_REF, count)}</choice></zeroOrMore>'
+        "</element></start>"
+    )
+    return grammar(f"{start}{_repeat(_LEAF_DEFINE, count)}"), _leaves("alternating", count)
+
+
+def _combined_branches(count: int) -> tuple[str, str]:
+    defines: Final = _repeat(f'<define name="wide" combine="interleave">{_LEAF}</define>', count)
+    return grammar(f"{_WIDE_START}{defines}"), _leaves("outside-in", count)
+
+
+def _namespace_branches(count: int) -> tuple[str, str]:
+    body: Final = _repeat('<element><nsName ns="urn:n{}"/><empty/></element>', count)
+    children: Final = "".join(f'<x xmlns="urn:n{index}"/>' for index in _arrival("reverse", count))
+    return wrap(f"<interleave>{body}</interleave>"), f"<doc>{children}</doc>"
+
+
+def _text_values(count: int) -> tuple[str, str]:
+    item: Final = f'<element name="i"><choice>{_repeat(_STRING_VALUE, count)}</choice></element>'
+    children: Final = "".join(f"<i>v{index}</i>" for index in _arrival("reverse", count))
+    return wrap(f"<oneOrMore>{item}</oneOrMore>"), f"<doc>{children}</doc>"
+
+
+def _list_values(count: int) -> tuple[str, str]:
+    tokens: Final = " ".join(f"v{index}" for index in _arrival("alternating", count))
+    body: Final = f"<list><oneOrMore><choice>{_repeat('<value>v{}</value>', count)}</choice></oneOrMore></list>"
+    return wrap(body), f"<doc>{tokens}</doc>"
+
+
+def _attribute_values(count: int) -> tuple[str, str]:
+    item: Final = (
+        f'<element name="i"><attribute name="a"><choice>{_repeat("<value>v{}</value>", count)}</choice></attribute>'
+        "</element>"
+    )
+    children: Final = "".join(f'<i a=" v{index}"/>' for index in _arrival("outside-in", count))
+    return wrap(f"<oneOrMore>{item}</oneOrMore>"), f"<doc>{children}</doc>"
+
+
+def _attribute_branches(count: int) -> tuple[str, str]:
+    attributes: Final = " ".join(f'a{index}="x"' for index in _arrival("reverse", count))
+    return wrap(f"<interleave>{_repeat(_ATTRIBUTE, count)}</interleave>"), f"<doc {attributes}/>"
+
+
+def _attributes_per_element(count: int) -> tuple[str, str]:
+    item: Final = f'<element name="i"><interleave>{_repeat(_OPTIONAL_ATTRIBUTE, count)}</interleave></element>'
+    children: Final = "".join(f'<i a{index}="x"/>' for index in _arrival("reverse", count))
+    return wrap(f"<oneOrMore>{item}</oneOrMore>"), f"<doc>{children}</doc>"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_repeated_branches, id="repeats-under-one-or-more"),
+        pytest.param(_nested_interleaves, id="nested-interleave"),
+        pytest.param(_nested_repeats, id="nested-repeated-interleave"),
+        pytest.param(_optional_branches, id="optional-branches"),
+        pytest.param(_repeated_choice, id="repeated-choice"),
+        pytest.param(_optional_group, id="group-of-optionals"),
+        pytest.param(_mixed_text, id="mixed"),
+        pytest.param(_referenced_branches, id="referenced-branches"),
+        pytest.param(_referenced_choice, id="referenced-choice"),
+        pytest.param(_combined_branches, id="combined-define"),
+        pytest.param(_namespace_branches, id="namespace-branches"),
+        pytest.param(_text_values, id="text-values"),
+        pytest.param(_list_values, id="list-values"),
+        pytest.param(_attribute_values, id="attribute-values"),
+        pytest.param(_attribute_branches, id="attribute-branches"),
+        pytest.param(_attributes_per_element, id="attributes-per-element"),
+    ],
+)
+def test_rng_wide_container_scales_linearly(build: Callable[[int], tuple[str, str]], work_steps: WorkSteps) -> None:
+    def validate(count: int) -> Callable[[], object]:
+        source, xml = build(count)
+        schema = RelaxNG(source)
+        document = parse_xml(xml)
+        assert schema.validate(document).valid
+        return partial(schema.validate, document)
+
+    work_steps.assert_linear(validate, (200, 800))
+
+
+_PAD_JOIN: Final[str] = '<group><element name="p{0}"><empty/></element><element name="q{0}"><empty/></element></group>'
+# the joins under <pad> come first, so the warm-up interleave's route is not the first one the schema numbered
+_WARM: Final[str] = (
+    f'<optional><element name="warm"><interleave>{_repeat(_LEAF, 100)}</interleave></element></optional>'
+)
+_WARM_UP: Final[str] = f'<optional><element name="pad">{_repeat(_PAD_JOIN, 70)}</element></optional>{_WARM}'
+_WARM_CHILDREN: Final[str] = f"<warm>{''.join(f'<w{index}/>' for index in reversed(range(100)))}</warm>"
+_NAME_CLASS_CHOICE: Final[str] = (
+    "<interleave><element><choice><name>a</name><name>a</name></choice><empty/></element>"
+    '<element name="b"><empty/></element></interleave>'
+)
+_ANY_NAME_EXCEPT: Final[str] = (
+    "<interleave><element><anyName><except><name>b</name></except></anyName><empty/></element>"
+    '<element name="b"><empty/></element></interleave>'
+)
+_NS_NAME_EXCEPT: Final[str] = (
+    '<interleave><element><nsName ns="urn:q"><except><name ns="urn:q">x</name></except></nsName><empty/></element>'
+    '<element name="b"><empty/></element></interleave>'
+)
+_ATTRIBUTE_CHOICE: Final[str] = (
+    '<element name="i"><choice><oneOrMore><attribute><anyName/></attribute></oneOrMore>'
+    '<oneOrMore><attribute><nsName ns="urn:q"/></attribute></oneOrMore>'
+    '<element name="c"><empty/></element></choice></element>'
+)
+_MIXED_BRANCH: Final[str] = (
+    '<interleave><mixed><element name="m"><empty/></element></mixed><element name="b"><empty/></element></interleave>'
+)
+_SHARED_DEFINE: Final[str] = (
+    '<group><ref name="s"/><element name="b"><empty/></element><ref name="s"/><element name="c"><empty/></element>'
+    "</group>"
+)
+_OPTIONAL_DEFINE: Final[str] = '<define name="{}"><optional><element name="{}"><empty/></element></optional></define>'
+_SEQUENCE_ITEM: Final[str] = '<element name="g{}"><empty/></element>'
+_SEQUENCE: Final[str] = f"<group>{_repeat(_SEQUENCE_ITEM, 10)}</group>"
+_REFERENCED_CHOICE: Final[str] = (
+    '<element name="k"><group><choice><ref name="o"/><element name="c1"><empty/></element>'
+    '<element name="c2"><empty/></element>'
+    '</choice><element name="t"><empty/></element></group></element>'
+)
+_EMPTY_FIRST: Final[str] = '<group><empty/><choice><empty/><element name="a"><empty/></element></choice></group>'
+_ATTRIBUTE_NAMES: Final[str] = (
+    '<element name="j"><choice><attribute name="a"/><attribute name="b"/><attribute name="c"/></choice></element>'
+)
+_TEXT_DEFINES: Final[str] = (
+    '<define name="three"><text/><text/><text/></define><define name="two"><text/><text/></define>'
+)
+_TEXT_REFERENCES: Final[str] = '<group><ref name="two"/><ref name="three"/><element name="b"><empty/></element></group>'
+_TEXT_REFERENCES_REVERSED: Final[str] = (
+    '<group><ref name="three"/><ref name="two"/><element name="b"><empty/></element></group>'
+)
+_VALUES: Final[str] = (
+    f'<interleave><element name="v"><choice>{_repeat("<value>u{}</value>", 15)}'
+    f'{_repeat(_STRING_VALUE, 15)}</choice></element><element name="b"><empty/></element></interleave>'
+)
+# the operand drops its attribute when the start tag closes, so the joins over it change and keep their ranges
+_CLOSED_OPERAND: Final[str] = '<group><optional><attribute name="a"/></optional><ref name="x"/></group>'
+_CLOSED_CHOICE: Final[str] = (
+    f'<element name="i"><choice>{_CLOSED_OPERAND}<ref name="y"/><ref name="z"/></choice></element>'
+)
+_CLOSED_GROUP: Final[str] = (
+    f'<element name="h"><group><ref name="y"/>{_CLOSED_OPERAND}<ref name="z"/></group></element>'
+)
+
+
+def _xyz_defines(optional: str = "") -> str:
+    required: Final = '<define name="{0}"><element name="{0}"><empty/></element></define>'
+    return "".join(_OPTIONAL_DEFINE.format(name, name) if name == optional else required.format(name) for name in "xyz")
+
+
+@pytest.mark.parametrize(
+    ("pattern", "defines", "content", "expected"),
+    [
+        pytest.param(_NAME_CLASS_CHOICE, "", "<b/><a/>", True, id="name-class-choice"),
+        pytest.param(_NAME_CLASS_CHOICE, "", "<a/><a/>", False, id="name-class-choice-twice"),
+        pytest.param(_ANY_NAME_EXCEPT, "", "<b/><z/>", True, id="any-name-except"),
+        pytest.param(_ANY_NAME_EXCEPT, "", "<b/><b/>", False, id="any-name-except-excluded"),
+        pytest.param(_NS_NAME_EXCEPT, "", '<b/><y xmlns="urn:q"/>', True, id="ns-name-except"),
+        pytest.param(_NS_NAME_EXCEPT, "", '<b/><x xmlns="urn:q"/>', False, id="ns-name-except-excluded"),
+        pytest.param(_ATTRIBUTE_CHOICE, "", '<i q="1"/>', True, id="any-attribute"),
+        pytest.param(_ATTRIBUTE_CHOICE, "", '<i xmlns:p="urn:q" p:r="1"/>', True, id="ns-attribute"),
+        pytest.param(_ATTRIBUTE_CHOICE, "", "<i><c/></i>", True, id="attribute-choice-element"),
+        pytest.param(_ATTRIBUTE_CHOICE, "", "<i/>", False, id="attribute-choice-empty"),
+        pytest.param(_ATTRIBUTE_CHOICE, "", '<i q="1"><c/></i>', False, id="attribute-choice-both"),
+        pytest.param(_ATTRIBUTE_NAMES, "", '<j b="1"/>', True, id="attribute-name-choice"),
+        pytest.param(_ATTRIBUTE_NAMES, "", '<j d="1"/>', False, id="attribute-name-choice-unknown"),
+        pytest.param(_MIXED_BRANCH, "", "<b/>t<m/>", True, id="mixed-branch"),
+        pytest.param(_MIXED_BRANCH, "", "<m/><m/>", False, id="mixed-branch-twice"),
+        pytest.param(_SHARED_DEFINE, _OPTIONAL_DEFINE.format("s", "a"), "<a/><b/><c/>", True, id="shared-define"),
+        pytest.param(_SHARED_DEFINE, _OPTIONAL_DEFINE.format("s", "a"), "<b/><a/><c/>", True, id="shared-define-later"),
+        pytest.param(
+            _SHARED_DEFINE, _OPTIONAL_DEFINE.format("s", "a"), "<a/><a/><b/><c/>", False, id="shared-define-twice"
+        ),
+        pytest.param(_SEQUENCE, "", "".join(f"<g{index}/>" for index in range(10)), True, id="sequence"),
+        pytest.param(_SEQUENCE, "", "<g5/><g0/>", False, id="sequence-out-of-order"),
+        pytest.param(
+            _REFERENCED_CHOICE, _OPTIONAL_DEFINE.format("o", "o"), "<k><t/></k>", True, id="referenced-choice-empty"
+        ),
+        pytest.param(
+            _REFERENCED_CHOICE, _OPTIONAL_DEFINE.format("o", "o"), "<k><o/><t/></k>", True, id="referenced-choice"
+        ),
+        pytest.param(
+            _REFERENCED_CHOICE,
+            _OPTIONAL_DEFINE.format("o", "o"),
+            "<k><c1/><c2/><t/></k>",
+            False,
+            id="referenced-choice-two",
+        ),
+        pytest.param(_EMPTY_FIRST, "", "<a/>", True, id="empty-first"),
+        pytest.param(_EMPTY_FIRST, "", "<a/><a/>", False, id="empty-first-twice"),
+        pytest.param(_TEXT_REFERENCES, _TEXT_DEFINES, "x<b/>", True, id="text-defines"),
+        pytest.param(_TEXT_REFERENCES, _TEXT_DEFINES, "<b/>x", False, id="text-defines-after"),
+        pytest.param(_TEXT_REFERENCES_REVERSED, _TEXT_DEFINES, "x<b/>", True, id="text-defines-reversed"),
+        pytest.param(_CLOSED_CHOICE, _xyz_defines(), "<i/>", False, id="closed-choice"),
+        pytest.param(_CLOSED_CHOICE, _xyz_defines("x"), "<i/>", True, id="closed-choice-first-optional"),
+        pytest.param(_CLOSED_CHOICE, _xyz_defines("z"), "<i/>", True, id="closed-choice-last-optional"),
+        pytest.param(_CLOSED_GROUP, _xyz_defines("y"), "<h/>", False, id="closed-group"),
+        pytest.param(_CLOSED_GROUP, _xyz_defines("y"), '<h a="1"><x/><z/></h>', True, id="closed-group-attribute"),
+        pytest.param(_VALUES, "", "<b/><v> u7 </v>", True, id="token-value"),
+        pytest.param(_VALUES, "", "<v>v3</v><b/>", True, id="string-value"),
+        pytest.param(_VALUES, "", "<v> v3 </v><b/>", False, id="string-value-padded"),
+        pytest.param(_VALUES, "", "<v>u15</v><b/>", False, id="unknown-value"),
+    ],
+)
+def test_rng_routed_derivatives_decide_like_the_walk(
+    pattern: str, defines: str, content: str, *, expected: bool
+) -> None:
+    # once an event takes many steps, the validation routes the derivatives that follow through an index of operands
+    schema: Final = RelaxNG(grammar(f'<start><element name="doc">{_WARM_UP}{pattern}</element></start>{defines}'))
+    verdicts: Final = [schema.is_valid(parse_xml(f"<doc>{warm}{content}</doc>")) for warm in ("", _WARM_CHILDREN)]
+    assert verdicts == [expected, expected]
+
+
+_X: Final[str] = '<element name="x{}"><empty/></element>'
+_X_OPTIONAL: Final[str] = f"<optional>{_X}</optional>"
+_X_WITH_ATTRIBUTE: Final[str] = (
+    '<group><optional><attribute name="a{0}"/></optional><element name="x{0}"><empty/></element></group>'
+)
+_X_TEXT_HALVES: Final[str] = (
+    f"<group><text/>{_repeat(_X_OPTIONAL, 4)}"
+    f"<text/>{''.join(_X_OPTIONAL.format(index) for index in range(4, 8))}</group>"
+)
+
+
+def _xs(*indexes: int) -> str:
+    return "".join(f"<x{index}/>" for index in indexes)
+
+
+def _xs_but(*skipped: int) -> str:
+    return _xs(*(index for index in range(20) if index not in skipped))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "attributes", "before", "after", "expected"),
+    [
+        pytest.param(
+            f"<interleave>{_repeat(_X, 20)}</interleave>", "", _xs(5, 3), _xs_but(3, 5), True, id="interleave"
+        ),
+        pytest.param(
+            f"<interleave>{_repeat(_X, 20)}</interleave>", "", _xs(5, 3), _xs_but(3, 5, 7), False, id="interleave-short"
+        ),
+        pytest.param(f"<group>{_repeat(_X_OPTIONAL, 20)}</group>", "", _xs(2, 7), _xs(9, 15), True, id="group"),
+        pytest.param(
+            f"<group>{_repeat(_X_OPTIONAL, 20)}</group>", "", _xs(2, 7), _xs(9, 3), False, id="group-reordered"
+        ),
+        pytest.param(_X_TEXT_HALVES, "", "t", _xs(5), True, id="text-in-both-halves"),
+        pytest.param(_X_TEXT_HALVES, "", "t", _xs(5, 1), False, id="text-in-both-halves-reordered"),
+        pytest.param(
+            f"<interleave>{_repeat(_X_WITH_ATTRIBUTE, 20)}</interleave>",
+            ' a3="1"',
+            _xs(5, 3),
+            _xs_but(3, 5),
+            True,
+            id="attribute-operands",
+        ),
+        pytest.param(
+            f"<interleave>{_repeat(_X_WITH_ATTRIBUTE, 20)}</interleave>",
+            ' a3="1"',
+            _xs(5, 3),
+            _xs_but(3, 5, 7),
+            False,
+            id="attribute-operands-short",
+        ),
+        pytest.param(
+            f"<oneOrMore><interleave>{_repeat(_X_OPTIONAL, 20)}</interleave></oneOrMore>",
+            "",
+            _xs(2, 7),
+            _xs(9, 1),
+            True,
+            id="repeated-interleave",
+        ),
+        pytest.param(
+            f"<oneOrMore><interleave>{_repeat(_X_OPTIONAL, 20)}</interleave></oneOrMore>",
+            "",
+            _xs(2, 7),
+            _xs(9, 20),
+            False,
+            id="repeated-interleave-unknown",
+        ),
+    ],
+)
+def test_rng_adopted_derivatives_decide_like_the_walk(
+    pattern: str, attributes: str, before: str, after: str, *, expected: bool
+) -> None:
+    # the derivatives taken before routing starts join plainly, and the first routed event adopts them into routes;
+    # the warm-up between the two halves of the content starts routing
+    schema: Final = RelaxNG(wrap(f"<interleave>{pattern}{_WARM}</interleave>"))
+    verdicts: Final = [
+        schema.is_valid(parse_xml(f"<doc{attributes}>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)
+    ]
+    assert verdicts == [expected, expected]
 
 
 def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes, tmp_path: Path) -> None:
