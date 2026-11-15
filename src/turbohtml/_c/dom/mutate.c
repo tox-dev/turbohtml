@@ -784,9 +784,23 @@ void th_node_remove_observed(th_tree *tree, th_node *child) {
     th_node_remove_silent(tree, child);
 }
 
+void th_tree_note_observed(th_tree *tree) {
+    tree->nest_bound |= TH_NEST_OBSERVED;
+}
+
+/* Out of line: a tree reaches it only while it holds a nest bound or may have an observer, so any other insertion
+   pays the single test it paid for the observer check alone. The insertion drops the bound and keeps the observer
+   bit only while an observer is registered. */
+static TH_NOINLINE void child_inserted_hooked(th_tree *tree, th_node *parent, th_node *child) {
+    tree->nest_bound = tree->observer_count > 0 ? TH_NEST_OBSERVED : 0;
+    th_mo_child_inserted(tree, parent, child);
+}
+
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
     node_append(parent, child);
-    th_mo_child_inserted(tree, parent, child);
+    if (tree->nest_bound != 0) {
+        child_inserted_hooked(tree, parent, child);
+    }
 }
 
 /* Whether node lies in one of tree's arena blocks. A node of another tree linked in here points into an arena that can
@@ -951,7 +965,9 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
 
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
-    th_mo_child_inserted(tree, parent, child);
+    if (tree->nest_bound != 0) {
+        child_inserted_hooked(tree, parent, child);
+    }
 }
 
 /* Whether ancestor is a host-including inclusive ancestor of node (DOM pre-insert), the test that rejects making a
@@ -1294,6 +1310,7 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
 }
 
 static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_node) {
+    th_tree_note_deepened(dest);
     th_node *root = th_tree_copy_node_shallow(dest, src, src_node);
     if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1328,7 +1345,8 @@ static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_no
     }
 }
 
-#define TH_COPY_RECURSION_LIMIT TH_DEPTH_LIMIT(64)
+/* below TH_HAS_MEMO_DEPTH, so a copy nests that deep only through copy_node_iterative, which drops the nest bound */
+#define TH_COPY_RECURSION_LIMIT TH_DEPTH_LIMIT(TH_HAS_MEMO_DEPTH - 1)
 
 static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int depth) {
     if (depth == TH_COPY_RECURSION_LIMIT) {

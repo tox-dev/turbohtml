@@ -2382,7 +2382,7 @@ static int sel_rel_uses_scope(const sel_complex *rel) {
    while a deep nested chain -- the O(n^2) trigger -- collapses to amortized O(1) per
    candidate. Each anchor pays at most this many un-memoized levels before it reaches a
    populated deeper node, bounding its work at O(depth) total. */
-#define SEL_HAS_MEMO_MIN_DESCENT 24
+#define SEL_HAS_MEMO_MIN_DESCENT TH_HAS_MEMO_DEPTH
 
 static th_node *sel_first_element_child(th_node *node) {
     th_node *child = node->first_child;
@@ -2427,6 +2427,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
     th_node *current = node;
     int current_descent = descent;
     for (;;) {
+        TH_WORK_STEP();
         th_node *child = sel_first_element_child(current);
         if (child != NULL) {
             current = child;
@@ -2471,6 +2472,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
 static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx) {
     th_node *current = sel_first_element_child(node);
     while (current != NULL) {
+        TH_WORK_STEP();
         if (sel_match_compound(current, &rel->compounds[subject], ctx) &&
             sel_match_from(current, rel, subject, anchor, ctx) == SEL_MATCHES) {
             return 1;
@@ -2637,12 +2639,13 @@ int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ct
 }
 
 /* Whether a query over this compiled selector should build the :has() subtree memo: the
-   selector must contain a :has(), and the tree must nest at least SEL_HAS_MEMO_MIN_DESCENT
-   deep -- only then does a candidate anchor's subtree re-walk (the O(n^2) source) reach far
-   enough to memoize. On shallower trees the direct walk already wins, so the driver leaves
-   ctx->has_memo NULL and the matcher runs the exact pre-memo path with no added per-node cost. */
+   selector must contain a :has(), and the tree must not be known to nest less than
+   SEL_HAS_MEMO_MIN_DESCENT deep -- only a tree that may nest that deep lets a candidate
+   anchor's subtree re-walk (the O(n^2) source) reach far enough to memoize. On a shallow
+   parsed page the direct walk already wins, so the driver leaves ctx->has_memo NULL and the
+   matcher runs the exact pre-memo path with no added per-node cost. */
 int selector_uses_has_memo(const sel_compiled *compiled) {
-    return compiled->has_relational && th_tree_max_depth(compiled->tree) >= SEL_HAS_MEMO_MIN_DESCENT;
+    return compiled->has_relational && th_tree_nest_bound(compiled->tree) < SEL_HAS_MEMO_MIN_DESCENT;
 }
 
 int selector_uses_scope(const sel_compiled *compiled) {
