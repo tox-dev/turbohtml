@@ -361,13 +361,20 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
             attrs[prev + 1] = key;
         }
     }
+    Py_ssize_t clone_start = ser_clone_start(out, node);
     for (Py_ssize_t index = 0; index < count; index++) {
+        Py_ssize_t cost = attrs[index].name_len + attrs[index].value_len;
+        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, cost)) {
+            break;
+        }
+        TH_WORK_STEPS_ADD(cost);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
         c14n_put_attr(out, attrs[index].value, attrs[index].value_len);
         sbuf_putc(out, '"');
     }
+    ser_clone_settle(out, clone_start);
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
@@ -506,7 +513,7 @@ Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *
     if (tree->has_prefix_decl) {
         return c14n_scoped_canonicalize(tree, node, opts, out_len);
     }
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
         c14n_document(&out, tree, node, opts);

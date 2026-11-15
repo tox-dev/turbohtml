@@ -1105,5 +1105,33 @@
       "head": "<section dir=auto>",
       "left": "<i>a</i>"
     }
+  },
+  {
+    "name": "node-paths-only-of-type",
+    "source": "https://github.com/tox-dev/turbohtml/issues/1722",
+    "targets": [
+      "node_paths"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "sandwich",
+      "head": "<div>",
+      "left": "<p>",
+      "middle": "</div>",
+      "right": "<p>"
+    }
+  },
+  {
+    "name": "node-paths-distinct-types",
+    "source": "https://github.com/tox-dev/turbohtml/issues/1722",
+    "targets": [
+      "node_paths"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "<x{n}></x{n}>",
+      "counter": true
+    }
   }
 ]

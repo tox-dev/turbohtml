@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from functools import partial
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal
 
 import pytest
 from markdown_it import MarkdownIt
 
-from turbohtml import Html, Indent, Markdown, PlainText, parse, parse_xml
+from turbohtml import Html, Indent, Markdown, Minify, PlainText, parse, parse_xml
+from turbohtml.clean import minify, sanitize
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from work_steps import WorkSteps
 
-    from turbohtml import Document
+    from turbohtml import Document, Element
 
 _NESTED_ITEMS: Final[str] = f"{'<ul><li>' * 12}x"
 # plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
@@ -102,6 +104,8 @@ def _clone_language(size: int) -> str:
 
 # longer than the allowance either renderer starts with, so only a start tag or rendered text can pay for a repeat
 _LONG_TARGET: Final[str] = "u" * 300
+# a target longer than the clone allowance plus the markup around it, so only the first clone can pay for it
+_WIDE_TARGET: Final[str] = "u" * 1000
 
 
 @pytest.mark.parametrize(
@@ -146,6 +150,98 @@ def test_markdown_raw_html_clone_attributes_stay_linear(markup: Callable[[int], 
 @pytest.mark.parametrize("links", ["inline", "footnote"])
 def test_text_clone_href_stays_linear(links: Literal["inline", "footnote"], work_steps: WorkSteps) -> None:
     work_steps.assert_linear(lambda n: partial(parse(_clone_href(n)).to_text, PlainText(links=links)), (500, 2000))
+
+
+_DOCUMENT_WRITERS: Final[Mapping[str, Callable[[Document], str]]] = MappingProxyType({
+    "html": lambda document: document.html,
+    "inner-html": lambda document: document.inner_html,
+    "inner-xml": lambda document: document.inner_xml,
+    "serialize": lambda document: document.serialize(),
+    "serialize-iter": lambda document: "".join(document.serialize_iter()),
+    "serialize-xml": lambda document: document.serialize(Html(xml=True)),
+    "indent": lambda document: document.serialize(Html(layout=Indent())),
+    "minify-layout": lambda document: document.serialize(Html(layout=Minify())),
+    "sorted": lambda document: document.serialize(Html(sort_attributes=True)),
+    "to-source": lambda document: document.to_source(),
+    "canonicalize": lambda document: document.canonicalize().decode(),
+})
+_STRING_WRITERS: Final[Mapping[str, Callable[[str], str]]] = MappingProxyType({
+    "minify": minify,
+    "sanitize": sanitize,
+})
+
+
+@pytest.mark.parametrize("write", _DOCUMENT_WRITERS.values(), ids=_DOCUMENT_WRITERS.keys())
+def test_clone_attributes_stay_linear_in_each_writer(write: Callable[[Document], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(write, parse(_clone_href(n))), (500, 2000))
+
+
+@pytest.mark.parametrize("write", _STRING_WRITERS.values(), ids=_STRING_WRITERS.keys())
+def test_clone_attributes_stay_linear_in_string_writers(write: Callable[[str], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(write, _clone_href(n)), (500, 2000))
+
+
+def test_clone_attributes_moved_into_an_xml_tree_stay_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(_xml_root_with(_clone_href(n)).serialize), (500, 2000))
+
+
+# a clone moved into an XML tree keeps its implied flag, so the XML writers budget its attributes too
+def _xml_root_with(markup: str) -> Element:
+    root = parse_xml("<r xmlns:x='urn:x'/>").root
+    body = parse(markup).select_one("body")
+    assert root is not None
+    assert body is not None
+    root.append(body)
+    return root
+
+
+def test_clone_attributes_moved_into_an_xml_tree_canonicalize_stay_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(_xml_root_with(_clone_href(n)).canonicalize), (500, 2000))
+
+
+def test_moved_clone_attributes_past_the_budget_are_left_out() -> None:
+    text = _xml_root_with(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three").canonicalize().decode()
+    assert text.count(_WIDE_TARGET) == 2
+    assert "three" in text
+
+
+def test_moved_clone_namespace_declarations_past_the_budget_are_left_out() -> None:
+    text = _xml_root_with(f"<p><a xmlns:y=urn:{_WIDE_TARGET} href=/u>one<p>two<p>three").canonicalize().decode()
+    assert text.count("xmlns:y=") == 2
+    assert text.count("href=") == 2
+
+
+def test_clone_attributes_moved_back_into_an_html_tree_stay_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(getattr, _html_document_with(_clone_href(n)), "html"), (500, 2000))
+
+
+# a clone that goes through an XML tree and back into an HTML one still keeps its implied flag
+def _html_document_with(markup: str) -> Document:
+    document = parse("<body>")
+    body = document.select_one("body")
+    assert body is not None
+    body.append(_xml_root_with(markup))
+    return document
+
+
+def test_clone_attributes_moved_back_into_an_html_tree_past_the_budget_are_left_out() -> None:
+    text = _html_document_with(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three").html
+    assert text.count(_WIDE_TARGET) == 2
+    assert "three" in text
+
+
+@pytest.mark.parametrize("write", _DOCUMENT_WRITERS.values(), ids=_DOCUMENT_WRITERS.keys())
+def test_clone_attributes_past_the_budget_are_left_out(write: Callable[[Document], str]) -> None:
+    text = write(parse(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three"))
+    assert text.count(_WIDE_TARGET) == 2
+    assert "three" in text
+
+
+@pytest.mark.parametrize("write", _STRING_WRITERS.values(), ids=_STRING_WRITERS.keys())
+def test_clone_string_writers_leave_attributes_past_the_budget_out(write: Callable[[str], str]) -> None:
+    text = write(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three")
+    assert text.count(_WIDE_TARGET) == 2
+    assert "three" in text
 
 
 @pytest.mark.parametrize(
