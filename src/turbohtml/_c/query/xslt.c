@@ -6687,8 +6687,8 @@ static PyObject *load_stylesheet_import(PyObject *module, th_resource_policy *po
     }
     PyObject *current = th_resource_resolve(current_path);
     Py_DECREF(current_path);
-    if (current == NULL) { /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
-        return NULL;       /* GCOVR_EXCL_LINE */
+    if (current == NULL) {
+        return NULL;
     }
     PyObject *parent = PyObject_GetAttrString(current, "parent");
     PyObject *href_path = th_resource_path(policy, href, "href");
@@ -6711,9 +6711,9 @@ static PyObject *load_stylesheet_import(PyObject *module, th_resource_policy *po
     }
     PyObject *path = th_resource_resolve(joined);
     Py_DECREF(joined);
-    if (path == NULL) {     /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
-        Py_DECREF(current); /* GCOVR_EXCL_LINE */
-        return NULL;        /* GCOVR_EXCL_LINE */
+    if (path == NULL) {
+        Py_DECREF(current);
+        return NULL;
     }
     if (th_resource_check_root(policy, path) < 0) {
         Py_DECREF(path);

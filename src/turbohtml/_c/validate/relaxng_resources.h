@@ -289,8 +289,8 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
     }
     PyObject *path = th_resource_resolve(located);
     Py_DECREF(located);
-    if (path == NULL) { /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
-        return NULL;    /* GCOVR_EXCL_LINE */
+    if (path == NULL) {
+        return NULL;
     }
     if (th_resource_check_root(&loader->policy, path) < 0) {
         Py_DECREF(path);

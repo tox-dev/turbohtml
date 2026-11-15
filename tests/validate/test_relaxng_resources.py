@@ -12,11 +12,13 @@ from turbohtml import parse_xml
 from turbohtml.validate import RelaxNG
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 _NS: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
 _ELEMENT: Final[str] = f'<element {_NS} name="foo"><empty/></element>'
 _LONG: Final[str] = "p" * 260
+_OVERLONG: Final[str] = "dir/" * (32_767 // 4 + 1)
 _START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
 
 
@@ -414,6 +416,28 @@ def test_relaxng_start_combine_checks_every_start() -> None:
         RelaxNG(
             f'<grammar {_NS}><start combine="choice"><element name="foo"><empty/></element></start>'
             '<div><start combine="choice"><ref name="missing"/></start></div></grammar>'
+        )
+
+
+@pytest.mark.parametrize(
+    ("href", "base_url"),
+    [
+        pytest.param(f"{_OVERLONG}x", "main.rng", id="href"),
+        pytest.param("x", f"{_OVERLONG}main.rng", id="base_url"),
+    ],
+)
+@pytest.mark.parametrize(
+    "confinement",
+    [pytest.param(lambda path: path, id="include-root"), pytest.param(lambda _: None, id="unconfined")],
+)
+def test_relaxng_resources_reject_overlong_path(
+    tmp_path: Path, href: str, base_url: str, confinement: Callable[[Path], Path | None]
+) -> None:
+    with pytest.raises(OSError, match="too long"):
+        RelaxNG(
+            f'<externalRef {_NS} href="{href}"/>',
+            base_url=str(tmp_path / base_url),
+            include_root=confinement(tmp_path),
         )
 
 
