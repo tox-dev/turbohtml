@@ -1060,6 +1060,61 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
     return 0;
 }
 
+/* Fold the scalar facets and whiteSpace rule `own` states into `facets`, replacing what an earlier derivation stated.
+   `own->ws` is -1 when it states no whiteSpace. */
+static int facet_inherit(arena *mem, facetset *facets, const facetset *own) {
+    if (own->range_text != NULL && facets->range_text == NULL) {
+        facets->range_text = arena_alloc(mem, RANGE_COUNT * sizeof(strspan));
+        if (facets->range_text == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (own->ws >= 0) {
+        facets->ws = own->ws;
+    }
+    if (own->has_length) {
+        facets->has_length = 1;
+        facets->length = own->length;
+    }
+    if (own->has_min_length) {
+        facets->has_min_length = 1;
+        facets->min_length = own->min_length;
+    }
+    if (own->has_max_length) {
+        facets->has_max_length = 1;
+        facets->max_length = own->max_length;
+    }
+    if (own->has_min_inclusive) {
+        facets->has_min_inclusive = 1;
+        facets->min_inclusive = own->min_inclusive;
+        facets->range_text[RANGE_MIN_INCLUSIVE] = own->range_text[RANGE_MIN_INCLUSIVE];
+    }
+    if (own->has_max_inclusive) {
+        facets->has_max_inclusive = 1;
+        facets->max_inclusive = own->max_inclusive;
+        facets->range_text[RANGE_MAX_INCLUSIVE] = own->range_text[RANGE_MAX_INCLUSIVE];
+    }
+    if (own->has_min_exclusive) {
+        facets->has_min_exclusive = 1;
+        facets->min_exclusive = own->min_exclusive;
+        facets->range_text[RANGE_MIN_EXCLUSIVE] = own->range_text[RANGE_MIN_EXCLUSIVE];
+    }
+    if (own->has_max_exclusive) {
+        facets->has_max_exclusive = 1;
+        facets->max_exclusive = own->max_exclusive;
+        facets->range_text[RANGE_MAX_EXCLUSIVE] = own->range_text[RANGE_MAX_EXCLUSIVE];
+    }
+    if (own->has_total_digits) {
+        facets->has_total_digits = 1;
+        facets->total_digits = own->total_digits;
+    }
+    if (own->has_fraction_digits) {
+        facets->has_fraction_digits = 1;
+        facets->fraction_digits = own->fraction_digits;
+    }
+    return 0;
+}
+
 /* Whether a value of a dt_is_ordered type keeps one range facet: `side` is 1 for a lower bound and -1 for an upper
    one. A value the order relation does not place against the bound keeps none. */
 static int facet_bound_ok(int id, const Py_UCS4 *value, Py_ssize_t len, strspan bound, int side, int inclusive) {
@@ -1085,9 +1140,18 @@ static void count_digits(const Py_UCS4 *value, Py_ssize_t len, int *total, int *
 
 #include "validate/regex.h"
 
-/* Apply every facet to the whitespace-normalized value, reporting each violation on
-   `node`. Returns 1 when all pass. */
-static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const Py_UCS4 *value, Py_ssize_t len) {
+/* The derivations of an XSD type's chain whose enumerations or patterns apply, for a kind stated on more than one of
+   them; a kind stated on one derivation is read through that facetset's own array. */
+typedef struct {
+    const facetset *const *enums;
+    const facetset *const *patterns;
+    Py_ssize_t enum_count, pattern_count;
+} facet_levels;
+
+/* Apply every facet to the whitespace-normalized value, reporting each violation on `node`: the facets of `facets`,
+   then the enumerations and patterns of `levels`. Returns 1 when all pass. */
+static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const facet_levels *levels,
+                       const Py_UCS4 *value, Py_ssize_t len) {
     int ok = 1;
     if (facets->has_length && len != facets->length) {
         report(ctx, node, "facet", "value length %zd does not equal length facet %d", len, facets->length);
@@ -1157,11 +1221,18 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
             ok = 0;
         }
     }
-    if (facets->enum_count > 0) {
+    if (facets->enum_count > 0 || levels->enum_count > 0) {
         int matched = 0;
         for (Py_ssize_t index = 0; index < facets->enum_count && !matched; index++) {
             if (u_eq_u(value, len, facets->enums[index].ptr, facets->enums[index].len)) {
                 matched = 1;
+            }
+        }
+        for (Py_ssize_t level = 0; level < levels->enum_count && !matched; level++) {
+            TH_WORK_STEP();
+            const facetset *set = levels->enums[level];
+            for (Py_ssize_t index = 0; index < set->enum_count && !matched; index++) {
+                matched = u_eq_u(value, len, set->enums[index].ptr, set->enums[index].len);
             }
         }
         if (!matched) {
@@ -1173,6 +1244,16 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
         if (!regex_full_match(ctx->schema, facets->patterns[index].ptr, facets->patterns[index].len, value, len)) {
             report(ctx, node, "facet", "value does not match the required pattern");
             ok = 0;
+        }
+    }
+    for (Py_ssize_t level = 0; level < levels->pattern_count; level++) {
+        TH_WORK_STEP();
+        const facetset *set = levels->patterns[level];
+        for (Py_ssize_t index = 0; index < set->pattern_count; index++) {
+            if (!regex_full_match(ctx->schema, set->patterns[index].ptr, set->patterns[index].len, value, len)) {
+                report(ctx, node, "facet", "value does not match the required pattern");
+                ok = 0;
+            }
         }
     }
     return ok;

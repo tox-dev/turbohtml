@@ -74,8 +74,10 @@ XSD-dialect regex, and the typed error-code taxonomy), each with a per-case reas
 
 The regex functions take :mod:`re` pattern syntax but match in time linear in the input, so an untrusted expression or
 stylesheet cannot hang the process with a pattern such as ``(a+)+$``. They pick the match and groups :mod:`re` would.
-Back-references need backtracking, so a pattern with one draws on a step budget shared by the whole evaluation and
-raises :class:`ValueError` once it runs out; :doc:`/how-to/xpath` lists the limits.
+Matching draws on a step budget shared by the whole evaluation and raises :class:`ValueError` once it runs out. Only a
+pattern that keeps close to a thousand states alive at once, a ``replace`` that scans the same text again after every
+match, or a back-reference, which needs backtracking, spends it faster than the text searched refills it;
+:doc:`/how-to/xpath` lists the limits.
 
 A prefix-to-URI mapping passed as ``namespaces`` resolves during evaluation rather than in the compiled program, so one
 cached program serves every mapping. A prefixed name test matches the foreign-content namespace the tree builder tagged
