@@ -16,6 +16,8 @@ from turbohtml._html import _minify_document
         pytest.param(Minify(), (("a", 1),), "cannot be interpreted as an integer", id="non-integer-region"),
     ],
 )
-def test_minify_document_rejects(layout: Html | Indent | Minify, regions: tuple[tuple[int | str, ...], ...] | list[tuple[int, int]], message: str) -> None:
+def test_minify_document_rejects(
+    layout: Html | Indent | Minify, regions: tuple[tuple[int | str, ...], ...] | list[tuple[int, int]], message: str
+) -> None:
     with pytest.raises(TypeError, match=message):
         _minify_document("<p>x", layout, regions)  # ty: ignore[invalid-argument-type]  # malformed regions on purpose
