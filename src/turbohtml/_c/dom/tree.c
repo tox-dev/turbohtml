@@ -343,7 +343,7 @@ Py_ssize_t th_tree_nest_bound(const th_tree *tree) {
 }
 
 void th_tree_note_deepened(th_tree *tree) {
-    tree->nest_bound = 0;
+    tree->nest_bound &= TH_NEST_OBSERVED;
 }
 
 int th_tree_failed(const th_tree *tree) {
@@ -5063,7 +5063,6 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    tree->nest_bound = TH_HAS_MEMO_DEPTH;
     tree->scripting = scripting;
     tree->declarative_shadow = declarative_shadow;
     tree->kind = kind;

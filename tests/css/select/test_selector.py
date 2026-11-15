@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 import pytest
 
 from turbohtml import Document, Element, SelectorSyntaxError, parse, parse_xml
+from turbohtml.clean import linkify_node
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -824,6 +825,17 @@ def _deep_xml_in_parsed_html(depth: int) -> Document:
     return document
 
 
+def _deep_xml_imported_into_parsed_html(depth: int) -> Element:
+    body: Final = parse("<p>shallow</p>").find("body")
+    root: Final = parse_xml(f"<root>{'<group>' * depth}<item/>{'</group>' * depth}</root>").root
+    assert body is not None
+    assert root is not None
+    with pytest.raises(TypeError):
+        body.extend([root, 0])  # ty: ignore[invalid-argument-type]  # the bad item fails the call after the import
+    assert root.parent is None
+    return root
+
+
 # A descendant :has() miss visits each anchor's subtree, which without the memo sums to quadratic steps on a
 # chain. The memo answers every element in amortized constant time, so the counted steps grow linearly with depth.
 _NESTED_DEPTH: Final[int] = 4_000
@@ -835,6 +847,7 @@ _NESTED_DEPTH: Final[int] = 4_000
         pytest.param(_deep_xml, id="parse-xml"),
         pytest.param(_deep_appended, id="mutation-api"),
         pytest.param(_deep_xml_in_parsed_html, id="appended-to-parsed-html"),
+        pytest.param(_deep_xml_imported_into_parsed_html, id="imported-into-parsed-html"),
     ],
 )
 def test_has_memo_deep_tree_not_from_html_parser(
@@ -864,6 +877,25 @@ def _chain_grown_after_query(depth: int) -> Element:
         innermost = child
     innermost.append(Element("item"))
     return root
+
+
+def test_has_memo_links_nested_by_linkify(work_steps: WorkSteps) -> None:
+    document: Final = _links_nested_by_linkify(_NESTED_DEPTH)
+    assert len(document.select("a:has(a)")) == _NESTED_DEPTH - 1
+    assert document.select("a:has(entry)") == []
+    work_steps.assert_linear(
+        lambda size: partial(_links_nested_by_linkify(size).select, "a:has(entry)"), (1000, _NESTED_DEPTH)
+    )
+
+
+def _links_nested_by_linkify(depth: int) -> Document:
+    document: Final = parse("<p>https://example.com</p>")
+    owner = document.find("p")
+    for _ in range(depth):
+        assert owner is not None
+        linkify_node(owner)
+        owner = owner.find("a")
+    return document
 
 
 @pytest.mark.parametrize(

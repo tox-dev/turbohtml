@@ -533,16 +533,21 @@ int th_tree_scripting(const th_tree *tree);
 
 /* The descent below a :has() anchor at which the subtree memo starts to pay. */
 #define TH_HAS_MEMO_DEPTH 24
-/* A depth no element of the tree reaches, known in O(1), or 0 when none is known. Only a tree the HTML tree builder
-   made whose open-element stack stayed below TH_HAS_MEMO_DEPTH, and that nothing has deepened since, has one
-   (TH_HAS_MEMO_DEPTH itself). Any other tree (parse_xml(), Element(), a copy, a sanitizer or XSLT result, or an edited
-   document) may nest arbitrarily deep. A :has() query skips the subtree memo on a tree bounded below the memo depth,
-   where the direct walk is already cheap. */
+/* Set in the nest bound while the tree may have a MutationObserver, so an observed insertion takes one test to know
+   whether it must queue a record or drop a bound. Alone it is below TH_HAS_MEMO_DEPTH, so it bounds nothing. */
+#define TH_NEST_OBSERVED 1
+/* A depth no element of the tree reaches, known in O(1), or a value below TH_HAS_MEMO_DEPTH when none is known. Only
+   a document the HTML tree builder made whose open-element stack stayed below TH_HAS_MEMO_DEPTH, and that nothing has
+   deepened since, has one (TH_HAS_MEMO_DEPTH, plus TH_NEST_OBSERVED once observed). Any other tree (a parsed fragment,
+   parse_xml(), Element(), a copy, a sanitizer or XSLT result, or an edited document) may nest arbitrarily deep. A
+   :has() query skips the subtree memo on a tree bounded below the memo depth, where the direct walk is cheap. */
 Py_ssize_t th_tree_nest_bound(const th_tree *tree);
-/* Drops the tree's nest bound after an edit that can nest a node deeper than before. The observed link primitives and
-   th_tree_adopt_copy call it; a caller that links with th_node_append_child or th_node_insert_before calls it when
-   the link can deepen the tree. */
+/* Drops the tree's nest bound, keeping TH_NEST_OBSERVED, after an edit that can nest a node deeper than before. The
+   observed link primitives drop it themselves, and so does a copy that nests TH_HAS_MEMO_DEPTH levels; a caller that
+   links with th_node_append_child or th_node_insert_before calls it when the link can deepen the tree. */
 void th_tree_note_deepened(th_tree *tree);
+/* Marks the tree as possibly observed, so its observed insertions queue their records (dom/observe.c). */
+void th_tree_note_observed(th_tree *tree);
 int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a

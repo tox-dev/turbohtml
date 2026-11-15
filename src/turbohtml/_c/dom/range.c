@@ -142,7 +142,6 @@ static int is_partially_contained(th_node *node, th_node *start_node, th_node *e
 
 /* Move every child of a throwaway fragment onto parent, in order. */
 static void adopt_fragment_children(th_tree *tree, th_node *parent, th_node *fragment) {
-    th_tree_note_deepened(tree);
     while (fragment->first_child != NULL) {
         th_node *child = fragment->first_child;
         th_node_remove_silent(tree, child);

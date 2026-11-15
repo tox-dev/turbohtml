@@ -110,7 +110,7 @@ struct th_tree {
     int open_p_count;
     int refused_frameset_count; /* framesets the depth cap kept off the stack; their </frameset> must not pop */
     Py_ssize_t open_cap;
-    Py_ssize_t nest_bound; /* see th_tree_nest_bound; 0 once the stack reaches it or an edit nests deeper */
+    Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     th_node *merged_text_node;
