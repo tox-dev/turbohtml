@@ -1567,8 +1567,9 @@ static th_node *node_clone(th_tree *tree, th_node *src, int with_attrs) {
         }
         memcpy(node->attrs, src->attrs, (size_t)src->attr_count * sizeof(th_node_attr));
         /* the slots are the clone's own, the values they point at are not */
+        th_node_share_values(src);
         node->attr_values_shared = 1;
-        src->attr_values_shared = 1;
+        node->values_seq = src->values_seq;
         node->attr_count = src->attr_count;
     }
     if (tree->track_positions) {
@@ -1901,6 +1902,7 @@ static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
         copy->text = need_text(tree, source);
         copy->text_len = source->text_len;
+        source->text_capacity_shift = 0;    /* the buffer is shared now, so neither node may write into it */
         if (source->type != TH_NODE_TEXT) { /* compact text nodes omit attr_count */
             copy->attr_count = source->attr_count;
         }
