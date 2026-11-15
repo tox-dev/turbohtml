@@ -5394,6 +5394,25 @@ def test_number_alternating_instructions_count_under_own_pattern(
 
 
 @pytest.mark.parametrize(
+    ("markup", "selection", "parse"),
+    [
+        pytest.param(f"<r>{'<p/><q/>' * 100}</r>", "r/*", parse_xml, id="xml-names"),
+        pytest.param(f'<r xmlns:a="urn:a">{"<a:p/><p/>" * 100}</r>', "r/*", parse_xml, id="xml-expanded-names"),
+        pytest.param(f'<r xmlns:a="urn:a">{"x<a:p/>y<p/>" * 100}</r>', "r/*", parse_xml, id="xml-text-siblings"),
+        pytest.param(f"<body>{'<p></p><q></q>' * 100}</body>", "//body/*", turbohtml.parse, id="html-names"),
+    ],
+)
+def test_number_alternating_siblings_beyond_a_short_scan(
+    markup: str, selection: str, parse: Callable[[str], Node], compile_numbers: Callable[[str], Transform]
+) -> None:
+    compiled: Final = compile_numbers(
+        f'<xsl:template match="/"><xsl:for-each select="{selection}"><xsl:number/><xsl:text>|</xsl:text>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert compiled(parse(markup)) == "".join(f"{index // 2 + 1}|" for index in range(200))
+
+
+@pytest.mark.parametrize(
     ("sort", "expected"),
     [
         pytest.param("", ["1|2|3|", "1|", "1|2|"], id="forward"),

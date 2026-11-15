@@ -826,7 +826,6 @@ typedef struct {
 
 typedef struct {
     const Py_UCS4 *source;
-    Py_ssize_t length;
     match_set matched;
 } xslt_number_match;
 
@@ -3730,8 +3729,7 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
 
 static int get_number_matcher(engine *eng, th_node *instruction, const Py_UCS4 *pattern, Py_ssize_t len,
                               xslt_number_match *cache, match_set *local, const match_set **matched) {
-    if (cache->source == pattern || (cache->source != NULL && cache->length == len &&
-                                     memcmp(cache->source, pattern, (size_t)len * sizeof(Py_UCS4)) == 0)) {
+    if (cache->source == pattern) {
         *matched = &cache->matched;
         return 0;
     }
@@ -3753,7 +3751,6 @@ static int get_number_matcher(engine *eng, th_node *instruction, const Py_UCS4 *
         return -1;
     }
     cache->source = pattern;
-    cache->length = len;
     *matched = &cache->matched;
     return 0;
 }
@@ -4421,7 +4418,7 @@ static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, co
         }
     }
     number_walk_free(&tallies);
-    if (failed) {
+    if (failed) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
@@ -4483,8 +4480,8 @@ static long level_number(engine *eng, xslt_number_site *site, const match_set *c
     } else {
         count = sibling_count(eng, have_count ? &site->count_siblings : &eng->default_siblings, count_set, have_count,
                               node);
-        if (count < 0) {
-            return -1;
+        if (count < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;   /* GCOVR_EXCL_LINE */
         }
     }
     memo->node = node;
@@ -4810,7 +4807,8 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
         }
         values[(*nvalues)++] = counter;
     } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
-        if (number_multiple(eng, site, count_matches, have_count, from_matches, have_from, values, nvalues) < 0) {
+        if (number_multiple(eng, site, count_matches, have_count, from_matches, have_from, values, nvalues) <
+            0) {                        /* GCOVR_EXCL_BR_LINE: allocation failure */
             match_set_free(&count_set); /* GCOVR_EXCL_LINE */
             match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
             return -1;                  /* GCOVR_EXCL_LINE */
