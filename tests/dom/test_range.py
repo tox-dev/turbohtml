@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Final, assert_type
 
 import pytest
@@ -18,11 +19,14 @@ from turbohtml import (
     StaticRange,
     Text,
     parse,
+    parse_xml,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from types import ModuleType
+
+    from work_steps import WorkSteps
 
 
 def _doctype(doc: Document) -> Doctype:
@@ -1119,3 +1123,94 @@ def test_range_partial_excludes_siblings(method: str) -> None:
     boundary.set_end(root.children[0].children[0], 3)
     result: Final = getattr(boundary, method)()
     assert result.html == '<section data-x="é水😀">abc</section>'
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(Range.clone_contents, id="clone"),
+        pytest.param(Range.extract_contents, id="extract"),
+        pytest.param(Range.delete_contents, id="delete"),
+    ],
+)
+def test_content_operation_over_siblings_is_linear(work_steps: WorkSteps, operation: Callable[[Range], object]) -> None:
+    work_steps.assert_linear(lambda depth: partial(operation, _sibling_range(depth)), (500, 2000))
+
+
+def _sibling_range(depth: int) -> Range:
+    doc = parse_xml(f"{'<w>' * depth}{'<s/>' * depth}<i>x</i><j>y</j>{'<s/>' * depth}{'</w>' * depth}")
+    boundary = Range(_found(doc, "i").children[0], 0)
+    boundary.set_end(_found(doc, "j").children[0], 1)
+    return boundary
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(Range.clone_contents, id="clone"),
+        pytest.param(Range.extract_contents, id="extract"),
+        pytest.param(Range.delete_contents, id="delete"),
+    ],
+)
+def test_content_operation_with_deep_paths_ignores_ancestors(
+    work_steps: WorkSteps, operation: Callable[[Range], object]
+) -> None:
+    work_steps.assert_within(
+        partial(operation, _deep_path_range(2000)), partial(operation, _deep_path_range(1)), factor=2
+    )
+
+
+def _deep_path_range(depth: int) -> Range:
+    path_down = f"{'<p>' * _PATH_LEVELS}<i>x</i>{'</p>' * _PATH_LEVELS}"
+    path_across = f"{'<q>' * _PATH_LEVELS}<j>y</j>{'</q>' * _PATH_LEVELS}"
+    doc = parse_xml(f"{'<w>' * depth}{'<s/>' * depth}{path_down}{path_across}{'</w>' * depth}")
+    boundary = Range(_found(doc, "i").children[0], 0)
+    boundary.set_end(_found(doc, "j").children[0], 1)
+    return boundary
+
+
+# Below the 400-level limit on boundary paths, so the content operations take their recursive path.
+_PATH_LEVELS: Final[int] = 380
+
+
+def test_surround_contents_over_siblings_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda depth: partial(_surround_range(depth).surround_contents, Element("w")), (500, 2000))
+
+
+def _surround_range(depth: int) -> Range:
+    inner = _found(parse_xml(f"{'<w>' * depth}<v>x{'<s/>' * depth}y</v>{'</w>' * depth}"), "v")
+    boundary = Range(inner.children[0], 0)
+    boundary.set_end(inner.children[-1], 1)
+    return boundary
+
+
+def test_common_ancestor_container_of_deep_boundaries_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_deep_boundaries, (500, 2000))
+
+
+def _deep_boundaries(depth: int) -> Callable[[], object]:
+    doc = parse_xml(f"<top>{'<k>' * depth}<lo>x</lo>{'</k>' * depth}{'<m>' * depth}<hi>y</hi>{'</m>' * depth}</top>")
+    boundary = Range(_found(doc, "lo").children[0], 0)
+    boundary.set_end(_found(doc, "hi").children[0], 1)
+    return partial(getattr, boundary, "common_ancestor_container")
+
+
+def test_clone_contents_over_siblings_keeps_boundary_text() -> None:
+    assert _sibling_range(3).clone_contents().text == "xy"
+
+
+def test_extract_contents_over_deep_paths_keeps_boundary_text() -> None:
+    assert _deep_path_range(3).extract_contents().text == "xy"
+
+
+def test_surround_contents_over_siblings_wraps_boundary_text() -> None:
+    wrapper = Element("w")
+    _surround_range(3).surround_contents(wrapper)
+    assert len(wrapper.children) == 5
+
+
+def test_common_ancestor_container_of_deep_boundaries_is_the_root() -> None:
+    doc = parse_xml(f"<top>{'<k>' * 3}<lo>x</lo>{'</k>' * 3}{'<m>' * 3}<hi>y</hi>{'</m>' * 3}</top>")
+    boundary = Range(_found(doc, "lo").children[0], 0)
+    boundary.set_end(_found(doc, "hi").children[0], 1)
+    assert boundary.common_ancestor_container == _found(doc, "top")
