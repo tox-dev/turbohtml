@@ -137,8 +137,9 @@ struct th_node {
     /* Tree builder state: set once the element leaves the stack of open elements, which the streaming rewriter reads
        to follow a th_shadow. */
     uint8_t left_stack;
-    /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
-       exact-sized; nothing reads it once the tree is built. */
+    /* Character data: log2 of a capacity the buffer at text has, zero when none is known. insert_text, th_node_set_data
+       and normalize write within it in place, so a node that shares its buffer with another, or whose text no longer
+       starts at its buffer, must keep it zero. */
     uint8_t text_capacity_shift;
     /* Element: whether its name is an XML QName, worked out by the first canonicalization that needs it: 0 not yet, 1
        yes, 2 no. A rename resets it. */

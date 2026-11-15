@@ -43,6 +43,10 @@ edits robust to nesting: a removed node never frees, only unlinks, so a deeper m
 tree drops harmlessly, and an unwrapped node only relinks, so a nested match stays live -- reparented onto the surviving
 ancestor -- until its own turn comes.
 
+Rewriting character data does not pile values up in the arena either. Assigning ``data`` on a :class:`~turbohtml.Text`
+or :class:`~turbohtml.Comment` writes into the node's own buffer, which doubles when a value outgrows it, so a loop that
+keeps extending one text holds memory proportional to its longest value, not to the sum of every value written.
+
 Construction reuses the same arena machinery: :class:`~turbohtml.Element`, :class:`~turbohtml.Text`, and the rest build
 a standalone single-node tree that owns its data, ready to adopt into a document, and tag and attribute names are
 ASCII-lowercased so they resolve to the same interned atoms the parser assigns. Assigning :attr:`Element.tag
