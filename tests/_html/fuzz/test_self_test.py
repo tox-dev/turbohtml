@@ -434,6 +434,11 @@ if TYPE_CHECKING:
             Markdown(converters={"span": lambda _element, content: content}),
             id="converter-list-prefix",
         ),
+        pytest.param("<ol><li><code>x</code></li></ol>", Markdown(), id="code-span-item-lead"),
+        pytest.param(
+            "<ul><li><span><code>x</code></span><div>y</div></li></ul>", Markdown(), id="code-span-nested-lead"
+        ),
+        pytest.param("<p>a<br><code>x</code></p>", Markdown(), id="code-span-after-break"),
     ],
 )
 def test_markdown_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, markup: str, options: Markdown) -> None:
@@ -449,6 +454,14 @@ def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: _Sw
         " co\x00\x00\x00\x00uote><><"
     )
     assert set(alloc_sweep(lambda document: document.to_markdown(), lambda: parse(markup))) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_c14n_prefixed_start_tag_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    # the name outgrows the start tag buffer's first allocation, so a failure can leave the tag cut short
+    name = f"p:{'n' * 300}"
+    markup = f'<r xmlns:p="urn:p"><{name}></{name}></r>'
+    assert set(alloc_sweep(lambda document: document.canonicalize(), lambda: parse(markup))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:

@@ -504,12 +504,16 @@ static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const 
                                  c14n_ns *scope, Py_ssize_t count) {
     sbuf tag = {NULL, 0, 0, 0, 0};
     c14n_left_out_open_tag(&tag, tree, node, apex, left_out, opts, xlink_binding);
+    if (tag.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        out->failed = 1;      /* GCOVR_EXCL_LINE: the split offsets below read the whole tag */
+        PyMem_Free(tag.data); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;               /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     Py_ssize_t default_end = c14n_scoped_decl_end(&tag, 1 + node->text_len, " xmlns=\"");
     Py_ssize_t xlink_end = c14n_scoped_decl_end(&tag, default_end, " xmlns:xlink=\"");
     sbuf_put_ucs4(out, tag.data, default_end);
     c14n_ns_put(out, scope, count, xlink_end != default_end);
     sbuf_put_ucs4(out, tag.data + xlink_end, tag.len - xlink_end);
-    out->failed |= tag.failed;
     PyMem_Free(tag.data);
 }
 

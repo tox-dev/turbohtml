@@ -2782,6 +2782,7 @@ static int md_code_writes_text(md_ctx *ctx, th_node *node) {
     sbuf content = {0};
     md_collect_code_text(ctx->tree, node, &content, ' ');
     int writes = content.len > 0;
+    ctx->out.failed |= content.failed; /* a failed probe reads as empty, which would pick the wrong lead */
     PyMem_Free(content.data);
     return writes;
 }
