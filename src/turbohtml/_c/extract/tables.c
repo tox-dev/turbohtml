@@ -128,12 +128,14 @@ static int ensure_columns(grid_row *row, Py_ssize_t needed, Py_ssize_t *spare) {
     size_t cap;
     size_t bytes;
     int grew = th_grow_cap((size_t)needed, (size_t)row->cap, 8, sizeof(grid_text *), &cap, &bytes);
-    if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a table no allocation could hold */
-        return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a table no allocation could hold */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return -1;        /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
     grid_text **cells = PyMem_Realloc(row->cells, bytes);
-    if (cells == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (cells == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t index = row->cap; index < (Py_ssize_t)cap; index++) {
         cells[index] = NULL;
@@ -170,8 +172,9 @@ static int fill_row(th_tree *tree, table_grid *grid, Py_ssize_t row_index, th_no
         }
         Py_ssize_t text_len;
         Py_UCS4 *raw = th_node_text(tree, child, &text_len);
-        if (raw == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (raw == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_ssize_t start = 0;
         Py_ssize_t end = text_len;
@@ -193,9 +196,10 @@ static int fill_row(th_tree *tree, table_grid *grid, Py_ssize_t row_index, th_no
             *nested_text -= end - start;
         }
         grid_text *text = PyMem_Malloc(sizeof(grid_text) + (size_t)(end - start) * sizeof(Py_UCS4));
-        if (text == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyMem_Free(raw); /* GCOVR_EXCL_LINE: allocation failure */
-            return -1;       /* GCOVR_EXCL_LINE: allocation failure */
+        if (text == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyMem_Free(raw);  /* GCOVR_EXCL_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+            return -1;        /* GCOVR_EXCL_LINE: allocation failure */
         }
         *text = (grid_text){end - start, NULL, grid->texts};
         memcpy(text->data, &raw[start], (size_t)(end - start) * sizeof(Py_UCS4));
@@ -234,11 +238,13 @@ static int collect_table_rows(th_node *table, th_node ***rows, Py_ssize_t *count
                 size_t new_cap;
                 size_t bytes;
                 int grew = th_grow_cap((size_t)(*count + 1), (size_t)*cap, 8, sizeof(th_node *), &new_cap, &bytes);
-                if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-                    return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                    PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                    return -1;        /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
                 }
                 th_node **resized = PyMem_Realloc(*rows, bytes);
                 if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                    PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
                     return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 *rows = resized;
@@ -283,6 +289,7 @@ static int group_run_lengths(th_node *table, th_node **rows, Py_ssize_t count, P
     if (groups == NULL || run == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(groups);              /* GCOVR_EXCL_LINE: allocation-failure path */
         PyMem_Free(run);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();                /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;                       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_node **ordered_rows = groups + count;
@@ -349,6 +356,7 @@ static int build_grid_locked(th_tree *tree, th_node *table, table_grid *grid, Py
             grid->row_count = 0;         /* GCOVR_EXCL_LINE: allocation-failure path */
             PyMem_Free(rows);            /* GCOVR_EXCL_LINE: allocation-failure path */
             PyMem_Free(group_remaining); /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();            /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
@@ -427,6 +435,7 @@ static PyObject *grid_to_records(const table_grid *grid) {
     PyObject **headers = PyMem_Calloc((size_t)(width > 0 ? width : 1), sizeof(PyObject *));
     if (headers == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_DECREF(result); /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int failed = 0;
@@ -546,12 +555,14 @@ PyObject *turbohtml_node_tables(PyObject *owner, th_tree *tree, th_node *root) {
             size_t cap;
             size_t bytes;
             int grew = th_grow_cap((size_t)(grid_count + 1), (size_t)grid_cap, 4, sizeof(table_grid), &cap, &bytes);
-            if (!grew) {    /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-                failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-                break;      /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                failed = 1;       /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                break;            /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
             }
             table_grid *resized = PyMem_Realloc(grids, bytes);
             if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
                 failed = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
                 break;             /* GCOVR_EXCL_LINE: allocation-failure path */
             }
