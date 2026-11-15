@@ -249,6 +249,15 @@ def test_long_type_past_the_output_limit_scales_linearly(type_name: str, work_st
     )
 
 
+@pytest.mark.parametrize(
+    "pseudo", [":first-of-type", ":last-of-type", ":only-of-type", ":nth-of-type(2)", ":nth-last-of-type(2)"]
+)
+@pytest.mark.parametrize("compound", ["", "*", ".c", "#id", "[data-x]"])
+def test_of_type_pseudo_class_without_a_type_selector_raises(compound: str, pseudo: str) -> None:
+    with pytest.raises(ExpressionError, match="need a type selector"):
+        css_to_xpath(compound + pseudo)
+
+
 def test_syntax_error_is_the_one_unified_selector_error() -> None:
     assert SelectorSyntaxError is turbohtml.SelectorSyntaxError is query.SelectorSyntaxError
     assert issubclass(SelectorSyntaxError, ValueError)
