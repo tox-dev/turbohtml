@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
     from work_steps import WorkSteps
 
+    from turbohtml import Node
+
 _XLINK: Final[str] = 'xmlns:xlink="http://www.w3.org/1999/xlink"'
 
 
@@ -285,3 +287,54 @@ def test_xml_inherited_xlink_serializes_in_linear_time(opening: str, work_steps:
         return partial(parse_xml(f"<r {_XLINK}>{opening * depth}<n/>{'</n>' * depth}</r>").serialize, Html(xml=True))
 
     work_steps.assert_linear(build, (500, 2000))
+
+
+_INNER_XML_RENDERERS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(lambda node: node.inner_xml, id="inner_xml"),
+    pytest.param(lambda node: node.serialize(Html(xml=True), inner=True), id="serialize"),
+    pytest.param(lambda node: node.serialize(Html(xml=True, layout=Indent(2)), inner=True), id="serialize-indent"),
+    pytest.param(lambda node: "".join(node.serialize_iter(Html(xml=True), inner=True)), id="serialize_iter"),
+]
+
+
+@pytest.mark.parametrize("render", _INNER_XML_RENDERERS)
+@pytest.mark.parametrize(
+    "xml",
+    [
+        pytest.param(f'<root xmlns:p="{"u" * 3000}">{"<p:b/>" * 64}</root>', id="long-name-many-children"),
+        pytest.param('<root xmlns:p="{}">{}</root>'.format("u" * 3000, '<b p:a="v"/>' * 64), id="attribute-prefix"),
+        pytest.param(f'<root xmlns="{"u" * 3000}">{"<b/>" * 64}</root>', id="default-namespace"),
+        pytest.param(f'<top xmlns:p="{"u" * 3000}"><root>{"<p:b/>" * 64}</root></top>', id="declared-further-up"),
+        pytest.param(f'<root xmlns:p="{"&amp;" * 3000}">{"<p:b/>" * 8}</root>', id="charged-as-written"),
+    ],
+)
+def test_xml_inner_inherited_bindings_out_of_proportion_raise(render: Callable[[Node], str], xml: str) -> None:
+    root = parse_xml(xml).select("root")[0]
+    with pytest.raises(ValueError, match="exceed the allowance of 65536 characters plus 32 per character"):
+        render(root)
+
+
+@pytest.mark.parametrize("render", _INNER_XML_RENDERERS)
+def test_xml_inner_inherited_bindings_in_proportion_are_kept(render: Callable[[Node], str]) -> None:
+    name: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    root = parse_xml(f'<root xmlns:r="{name}">{"<r:id/>" * 4000}</root>').select("root")[0]
+    assert render(root).replace("\n", "") == f'<r:id xmlns:r="{name}"/>' * 4000
+
+
+@pytest.mark.parametrize("render", _INNER_XML_RENDERERS)
+def test_xml_inner_long_inherited_binding_fits_a_short_fragment(render: Callable[[Node], str]) -> None:
+    root = parse_xml(f'<root xmlns:p="{"u" * 30000}"><p:a/><p:b/></root>').select("root")[0]
+    assert len(render(root)) > 60000
+
+
+def test_xml_chunked_inner_stops_after_out_of_proportion_bindings() -> None:
+    root = parse_xml(f'<root xmlns:p="{"u" * 3000}">{"<p:b/>" * 64}<tail/></root>').select("root")[0]
+    chunks = root.serialize_iter(Html(xml=True), inner=True)
+    with pytest.raises(ValueError, match="exceed the allowance"):
+        list(chunks)
+    assert list(chunks) == []
+
+
+def test_xml_subtree_inherited_binding_has_no_allowance() -> None:
+    node = parse_xml(f'<root xmlns:p="{"u" * 100000}"><p:child/></root>').select("*")[-1]
+    assert node.serialize(Html(xml=True)) == f'<p:child xmlns:p="{"u" * 100000}"/>'

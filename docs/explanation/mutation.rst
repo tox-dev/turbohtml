@@ -50,9 +50,10 @@ ASCII-lowercased so they resolve to the same interned atoms the parser assigns. 
 from selector matching to the whole-document tag index it invalidates, sees the element under its new name.
 :attr:`Element.attrs <turbohtml.Element.attrs>` is a live mapping over the node's own attribute array (assignment and
 deletion edit the tree directly rather than a throwaway dict), and ``copy.copy`` and ``copy.deepcopy`` run through the
-same subtree copy, so a clone is always a standalone tree. :mod:`python:pickle` rebuilds that same structure node by
-node rather than serializing and reparsing: a document keeps its doctype identifiers, quirks mode, and adjacent text
-nodes, a template keeps its contents, a shadow root comes back attached to its host, and no node claims a source
+same subtree copy, so a clone is always a standalone tree: a :class:`~turbohtml.ShadowRoot`, which leaves its host
+behind, is copied as a plain :class:`~turbohtml.DocumentFragment`. :mod:`python:pickle` rebuilds that same structure
+node by node rather than serializing and reparsing: a document keeps its doctype identifiers, quirks mode, and adjacent
+text nodes, a template keeps its contents, a shadow root comes back attached to its host, and no node claims a source
 position it never had.
 
 Every insertion method follows the DOM insert algorithm for a :class:`~turbohtml.DocumentFragment`: the fragment is
