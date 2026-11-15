@@ -657,11 +657,22 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                          css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(';
             if (is_url) {
                 /* scan to the closing ')', but skip over a quoted argument so a ')' inside a quoted data URI
-                   (e.g. an SVG transform="rotate(45)") does not terminate the token early */
+                   (e.g. an SVG transform="rotate(45)") does not terminate the token early. An unquoted url holding a
+                   quote is a bad url (CSS Syntax 3 §4.3.6): its quote opens no string, and it ends at the first ')' */
                 Py_ssize_t end = scan + 1;
                 token.kind = CSS_URL;
+                while (end < length && css_is_ws(source[end])) {
+                    end++;
+                }
+                int quoted = end < length && (source[end] == '"' || source[end] == '\'');
                 while (end < length && source[end] != ')') {
                     if (source[end] == '"' || source[end] == '\'') {
+                        if (!quoted) {
+                            token.kind = CSS_BAD;
+                            vec->bad = 1;
+                            end++;
+                            continue;
+                        }
                         css_char quote = source[end];
                         end++;
                         while (end < length) {
