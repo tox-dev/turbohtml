@@ -225,7 +225,6 @@ struct th_tokenizer {
     int capture_source;     /* record the verbatim source span of markup tokens */
     int capture_attributes; /* retain tag attributes for emitted tokens */
     int capture_locations;  /* stamp the granular tag/attribute source spans */
-    int retain_input;       /* keep the consumed input, so a caller can tokenize it again */
     int building;           /* a markup token is mid-construction, so its source
                                span's opening '<' must survive input compaction */
 
@@ -372,10 +371,6 @@ void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_
 
 void th_tok_capture_attributes(th_tokenizer *self, int on) {
     self->capture_attributes = on;
-}
-
-void th_tok_retain_input(th_tokenizer *self, int on) {
-    self->retain_input = on;
 }
 
 void th_tok_capture_locations(th_tokenizer *self, int on) {
@@ -532,9 +527,9 @@ static void input_append(th_tokenizer *self, int kind, const void *data, Py_ssiz
    are `pos` and, while a text run is open, `slice_start`; an emitted record still
    spanning the buffer (queue_len != 0) pins it, so skip until it has drained.
    Captured locations and source depend on offsets into the full input, so those
-   tokenizers do not reclaim the buffer, and neither does one asked to retain it. */
+   tokenizers do not reclaim the buffer. */
 static void compact_input(th_tokenizer *self) {
-    if (self->queue_len != 0 || self->capture_locations || self->capture_source || self->retain_input) {
+    if (self->queue_len != 0 || self->capture_locations || self->capture_source) {
         return;
     }
     Py_ssize_t keep_from = self->slice_len > 0 ? self->slice_start : self->pos;
@@ -607,10 +602,6 @@ int th_tok_failed(const th_tokenizer *self) {
 const void *th_tok_input_data(const th_tokenizer *self, int *kind) {
     *kind = self->input.kind;
     return self->input.data;
-}
-
-Py_ssize_t th_tok_input_length(const th_tokenizer *self) {
-    return self->input.len;
 }
 
 void *th_tok_take_input(th_tokenizer *self, int *kind, Py_ssize_t *length) {
