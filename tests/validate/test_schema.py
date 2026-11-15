@@ -4,13 +4,15 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import parse_xml
+from turbohtml import DocumentFragment, Text, parse_xml
 from turbohtml.validate import RelaxNG, SchemaValidationError, XMLSchema
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from traced_bytes import RetainedBytes
 
-    from turbohtml import Document
+    from turbohtml import Document, Node
 
 
 _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
@@ -68,6 +70,45 @@ def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG,
 def test_deep_schema_is_rejected_before_compilation(schema_type: type[XMLSchema | RelaxNG], source: str) -> None:
     with pytest.raises(RecursionError, match="schema compilation"):
         schema_type(source)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(XMLSchema(f'<xs:schema {_XS}><xs:element name="r"/></xs:schema>'), id="xsd"),
+        pytest.param(RelaxNG(f'<element xmlns="{_RELAXNG_NS}"><anyName/><text/></element>'), id="relax-ng"),
+    ],
+)
+@pytest.mark.parametrize(
+    "node",
+    [
+        # a parsed text run stays a source offset until it is read; one with a reference owns its buffer
+        pytest.param(lambda: parse_xml("<r>x</r>").children[0].children[0], id="text-span"),
+        pytest.param(lambda: parse_xml("<r>&#114;</r>").children[0].children[0], id="text-decoded"),
+        pytest.param(lambda: Text("r"), id="text-built"),
+        pytest.param(lambda: parse_xml("<r><![CDATA[r]]></r>").children[0].children[0], id="cdata"),
+        pytest.param(lambda: parse_xml("<r><!--r--></r>").children[0].children[0], id="comment"),
+        pytest.param(lambda: parse_xml("<r><?r x?></r>").children[0].children[0], id="processing-instruction"),
+        pytest.param(lambda: parse_xml("<!DOCTYPE r><r/>").children[0], id="doctype"),
+        pytest.param(DocumentFragment, id="fragment"),
+    ],
+)
+@pytest.mark.parametrize("method", [pytest.param("validate", id="report"), pytest.param("is_valid", id="verdict")])
+def test_validate_rejects_a_node_that_is_not_an_element(
+    schema: XMLSchema | RelaxNG, node: Callable[[], Node], *, method: str
+) -> None:
+    validate = getattr(schema, method)
+    with pytest.raises(TypeError, match="requires a Document or an Element"):
+        validate(node())
+
+
+def test_validate_each_child_rejects_the_text_between_elements() -> None:
+    schema = XMLSchema(f'<xs:schema {_XS}><xs:element name="row" type="xs:string"/></xs:schema>')
+    first, line_break, second = parse_xml("<rows><row>1</row>\n<row>2</row></rows>").children[0].children
+    assert schema.is_valid(first)
+    with pytest.raises(TypeError, match="requires a Document or an Element"):
+        schema.is_valid(line_break)
+    assert schema.is_valid(second)
 
 
 def test_long_names_and_values_hit_buffer_bounds() -> None:
