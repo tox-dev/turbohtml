@@ -29,6 +29,7 @@ typedef struct xr_program xr_program;
 typedef struct xr_cache {
     xr_program *programs[XR_CACHE_SLOTS];
     xr_program *recent;
+    size_t rest;          /* bytes the cached programs other than recent hold */
     Py_ssize_t allowance; /* backtracking steps granted so far in the evaluation */
     Py_ssize_t budget;    /* the part of the allowance still unspent */
 } xr_cache;

@@ -903,6 +903,7 @@ static int rng_datatype_id(th_schema *schema, th_node *node, int default_datatyp
 }
 
 static pattern *rng_build(th_schema *schema, th_node *node);
+static nameclass *rng_attr_known_class(const th_schema *schema, const th_node *node);
 static void rng_check_href(th_node *node);
 static int rng_check_interleave_node(th_schema *schema, th_node *interleave);
 
@@ -986,13 +987,11 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
         const th_node_attr *name = attr_exact(tree, node, "name", 4);
-        th_node *skip = NULL;
-        if (name != NULL) {
-            node_pat->nc = nc_from_qname(schema, node, name->value, name->value_len, 1);
-        } else {
-            th_node *nc_child = first_element_child(node);
-            node_pat->nc = rng_build_nameclass(schema, nc_child);
-            skip = nc_child;
+        th_node *skip = name == NULL ? first_element_child(node) : NULL;
+        node_pat->nc = rng_attr_known_class(schema, node);
+        if (node_pat->nc == NULL) {
+            node_pat->nc = name != NULL ? nc_from_qname(schema, node, name->value, name->value_len, 1)
+                                        : rng_build_nameclass(schema, skip);
         }
         if (node_pat->nc == NULL) {      /* GCOVR_EXCL_BR_LINE: arena OOM */
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
@@ -1796,12 +1795,17 @@ typedef struct {
     th_node **items;
     Py_ssize_t len, cap;
     int peak;
+    int attrs; /* the content scanned since the last reset holds an attribute pattern, refs followed */
     th_node *local[16];
 } nodevec;
 
 static int rng_scan(th_schema *schema, th_node *container, int depth, nodevec *pending);
 static int rng_check_combine(th_schema *schema, def_entry *entry);
+static int rng_check_scope(th_schema *schema, th_node *element);
 
+/* An element's 7.3 check runs once its content is scanned, and only when the scan met an attribute in it: by then
+   every define it reaches is free of ref cycles and nests no deeper than TH_VALIDATE_MAX_DEPTH, which bounds the
+   check's recursion. */
 static int rng_scan_queue(th_schema *schema, def_entry *starts, nodevec *pending) {
     if (rng_check_combine(schema, starts) < 0 || rng_scan(schema, starts->first, 0, pending) < 0) {
         return -1;
@@ -1812,7 +1816,9 @@ static int rng_scan_queue(th_schema *schema, def_entry *starts, nodevec *pending
         }
     }
     for (Py_ssize_t index = 0; index < pending->len; index++) {
-        if (rng_scan(schema, pending->items[index], 0, pending) < 0) {
+        th_node *element = pending->items[index];
+        pending->attrs = 0;
+        if (rng_scan(schema, element, 0, pending) < 0 || (pending->attrs && rng_check_scope(schema, element) < 0)) {
             return -1;
         }
     }
@@ -1826,6 +1832,7 @@ static RNG_NOINLINE int rng_scan_grammar(th_schema *schema, def_entry *starts) {
     pending.len = 0;
     pending.cap = TH_INITIAL_CAPACITY(16);
     pending.peak = 0;
+    pending.attrs = 0;
     int scanned = rng_scan_queue(schema, starts, &pending);
     if (pending.items != pending.local) {
         PyMem_Free(pending.items);
@@ -1840,6 +1847,7 @@ static void rng_prune_annotations(th_schema *schema, th_node *container);
 static int rng_resolve_resources(th_schema *schema, PyObject *base_url, PyObject *include_root);
 static int rng_local_is(th_node *node, const char *local);
 static int rng_grammar_components(th_schema *schema, th_node *container, def_entry *starts);
+static int rng_check_scopes(th_schema *schema, th_node *node);
 
 static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_root) {
     qname root_name = schema_direct_qname(schema, schema->root);
@@ -1865,6 +1873,9 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
     /* GCOVR_EXCL_BR_STOP */
     if (!rng_local_is(schema->root, "grammar")) {
         /* no defines, so no ref cycles; rng_build checks 4.10 and 7.4 inline instead of a second walk */
+        if (schema->rng_attributes && rng_check_scopes(schema, schema->root) < 0) {
+            return 0;
+        }
         schema->start = rng_build(schema, schema->root);
         return PyErr_Occurred() ? 0 : 1;
     }
@@ -1959,9 +1970,20 @@ static void rng_prune_annotations(th_schema *schema, th_node *container) {
             if (!u_eq_ascii(name.uri, name.uri_len, RNG_NS)) {
                 th_node_remove(child);
             } else {
-                schema->rng_references |= (u_eq_ascii(name.local, name.local_len, "include") ||
-                                           u_eq_ascii(name.local, name.local_len, "externalRef")) &&
-                                          attr_exact(schema->tree, child, "href", 4) != NULL;
+                /* the length picks the one name to compare: include, attribute or externalRef */
+                switch (name.local_len) {
+                case 7:
+                case 11:
+                    schema->rng_references |= (u_eq_ascii(name.local, name.local_len, "include") ||
+                                               u_eq_ascii(name.local, name.local_len, "externalRef")) &&
+                                              attr_exact(schema->tree, child, "href", 4) != NULL;
+                    break;
+                case 9:
+                    schema->rng_attributes |= u_eq_ascii(name.local, 9, "attribute");
+                    break;
+                default:
+                    break;
+                }
                 rng_prune_annotations(schema, child);
             }
         }
@@ -2022,6 +2044,9 @@ static RNG_FORCEINLINE int rng_scan_kind(th_node *node);
 static RNG_NOINLINE int rng_scan_ref(th_schema *schema, th_node *ref, int depth, nodevec *pending);
 static RNG_FORCEINLINE int nodevec_push(nodevec *vec, th_node *node);
 
+static RNG_FORCEINLINE int rng_local_name_is(const Py_UCS4 *name, Py_ssize_t len, const char *local,
+                                             Py_ssize_t local_len);
+
 static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending) {
     switch (rng_scan_kind(node)) {
     case RNG_SCAN_REF:
@@ -2031,6 +2056,7 @@ static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int d
     case RNG_SCAN_ELEMENT:
         return nodevec_push(pending, node);
     default:
+        pending->attrs |= schema->rng_attributes && rng_local_name_is(node->text, node->text_len, "attribute", 9);
         return rng_scan(schema, node, depth + 1, pending);
     }
 }
@@ -2108,7 +2134,9 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, n
             return -1;
         }
         int outer = pending->peak;
+        int outer_attrs = pending->attrs;
         pending->peak = depth;
+        pending->attrs = 0;
         int scanned = rng_scan(schema, entry->first, depth, pending);
         for (def_part *part = entry->extra; scanned == 0 && part != NULL; part = part->next) {
             scanned = rng_scan(schema, part->node, depth, pending);
@@ -2119,6 +2147,8 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, n
         int height = pending->peak - depth;
         pending->peak = outer;
         entry->scan_height = height;
+        entry->scan_attrs = pending->attrs;
+        pending->attrs = outer_attrs;
     }
     if (entry->scan_height < 0 || depth + entry->scan_height > TH_VALIDATE_MAX_DEPTH) {
         PyErr_Format(PyExc_RecursionError,
@@ -2126,6 +2156,7 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, n
                      name_utf8(entry->name, entry->len, buffer, sizeof(buffer)), TH_VALIDATE_MAX_DEPTH);
         return -1;
     }
+    pending->attrs |= entry->scan_attrs;
     return entry->scan_height;
 }
 
@@ -2590,8 +2621,9 @@ static void rng_names_remember_disjoint(th_schema *schema, const nameset *small,
 }
 
 /* Folds `other` into `acc`, the smaller side into the larger. An interleave (`joined`) rejects a text or name the two
-   share; a choice or group just unites them. A merge whose result is discarded (`keep` 0) checks and builds nothing. */
-static int rng_names_merge(th_schema *schema, nameset *acc, nameset *other, int joined, int keep) {
+   share; a choice or group just unites them. A merge whose result is discarded (`keep` 0) checks and builds nothing.
+   `attrs` names the clash for attribute sets, where a group also joins its branches. */
+static int rng_names_merge(th_schema *schema, nameset *acc, nameset *other, int joined, int keep, int attrs) {
     nameset left = *acc;
     nameset right = *other;
     nameset small = right;
@@ -2612,7 +2644,8 @@ static int rng_names_merge(th_schema *schema, nameset *acc, nameset *other, int 
             }
             if (status > 0) {
                 PyErr_SetString(PyExc_ValueError,
-                                "RELAX NG interleave has the same element name in more than one branch");
+                                attrs ? "RELAX NG group or interleave has attributes whose names overlap"
+                                      : "RELAX NG interleave has the same element name in more than one branch");
                 return -1;
             }
             rng_names_remember_disjoint(schema, &small, &large);
@@ -2874,7 +2907,7 @@ static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
             continue;
         }
         nameset next = {0};
-        if (rng_names_node(schema, child, &next) < 0 || rng_names_merge(schema, out, &next, 0, 1) < 0) {
+        if (rng_names_node(schema, child, &next) < 0 || rng_names_merge(schema, out, &next, 0, 1, 0) < 0) {
             return -1;
         }
     }
@@ -2896,7 +2929,7 @@ static int rng_names_interleave(th_schema *schema, th_node *interleave, nameset 
         }
         nameset next = {0};
         if (rng_names_node(schema, branch, &next) < 0 ||
-            rng_names_merge(schema, out, &next, 1, keep || branch != last) < 0) {
+            rng_names_merge(schema, out, &next, 1, keep || branch != last, 0) < 0) {
             return -1;
         }
     }
@@ -2916,7 +2949,7 @@ static int rng_names_body(th_schema *schema, def_entry *entry) {
     }
     for (def_part *part = entry->extra; part != NULL; part = part->next) {
         nameset next = {0};
-        if (rng_names_node(schema, part->node, &next) < 0 || rng_names_merge(schema, &acc, &next, joined, 1) < 0) {
+        if (rng_names_node(schema, part->node, &next) < 0 || rng_names_merge(schema, &acc, &next, joined, 1, 0) < 0) {
             return -1;
         }
     }
@@ -3044,6 +3077,346 @@ static int rng_check_combine(th_schema *schema, def_entry *entry) {
     }
     nameset names = {0};
     return rng_names_define(schema, entry, &names);
+}
+
+/* RELAX NG 7.3 for the attributes an element's content can hold. A group or interleave may not join two attributes
+   whose name classes overlap, and an anyName or nsName attribute must sit under oneOrMore or zeroOrMore inside the
+   element that owns it, since an element opens a new attribute scope. A pattern's attributes stay a short list of
+   nodes, and two plain names are compared by hash and text; a wider class, or a list past RNG_ATTRS_FEW, moves into a
+   name set, so a set is built only where attributes meet. A ref takes its define's record, built once. */
+enum { RNG_ATTR_JOIN, RNG_ATTR_CHOICE, RNG_ATTR_REPEAT, RNG_ATTR_REF, RNG_ATTR_ATTRIBUTE, RNG_ATTR_ELEMENT };
+
+/* Pruning left only RELAX NG elements, so the local name tells the kind; its length picks the one name to compare. */
+static int rng_attr_kind(th_node *node) {
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(node->text, node->text_len, &local, &local_len, &prefix, &prefix_len);
+    switch (local_len) {
+    case 3:
+        return u_eq_ascii(local, 3, "ref") ? RNG_ATTR_REF : RNG_ATTR_JOIN;
+    case 6:
+        return u_eq_ascii(local, 6, "choice") ? RNG_ATTR_CHOICE : RNG_ATTR_JOIN;
+    case 7:
+        return u_eq_ascii(local, 7, "element") ? RNG_ATTR_ELEMENT : RNG_ATTR_JOIN;
+    case 9:
+        if (u_eq_ascii(local, 9, "attribute")) {
+            return RNG_ATTR_ATTRIBUTE;
+        }
+        return u_eq_ascii(local, 9, "oneOrMore") ? RNG_ATTR_REPEAT : RNG_ATTR_JOIN;
+    case 10:
+        return u_eq_ascii(local, 10, "zeroOrMore") ? RNG_ATTR_REPEAT : RNG_ATTR_JOIN;
+    default:
+        return RNG_ATTR_JOIN;
+    }
+}
+
+static rng_attr_class *rng_attr_class_find(const th_schema *schema, const th_node *node) {
+    if (schema->rng_attr_classes_cap == 0) {
+        return NULL;
+    }
+    size_t mask = schema->rng_attr_classes_cap - 1;
+    for (size_t slot = rng_checked_slot(node, mask); schema->rng_attr_classes[slot] != NULL; slot = (slot + 1) & mask) {
+        if (schema->rng_attr_classes[slot]->node == node) {
+            return schema->rng_attr_classes[slot];
+        }
+    }
+    return NULL;
+}
+
+static nameclass *rng_attr_known_class(const th_schema *schema, const th_node *node) {
+    rng_attr_class *entry = rng_attr_class_find(schema, node);
+    return entry == NULL ? NULL : entry->nc;
+}
+
+static void rng_attr_class_put(rng_attr_class **table, size_t cap, rng_attr_class *entry) {
+    size_t slot = rng_checked_slot(entry->node, cap - 1);
+    while (table[slot] != NULL) {
+        slot = (slot + 1) & (cap - 1);
+    }
+    table[slot] = entry;
+}
+
+/* The attribute's name class, built on first use. The table and classes live in `mem`, past the compile. */
+static rng_attr_class *rng_attr_class_of(th_schema *schema, th_node *node) {
+    rng_attr_class *entry = rng_attr_class_find(schema, node);
+    if (entry != NULL) {
+        return entry;
+    }
+    if ((schema->rng_attr_classes_len + 1) * 2 > schema->rng_attr_classes_cap) {
+        size_t cap = schema->rng_attr_classes_cap ? schema->rng_attr_classes_cap * 2 : 16;
+        rng_attr_class **table = arena_alloc(&schema->mem, cap * sizeof(*table));
+        if (table == NULL) {  /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        memset(table, 0, cap * sizeof(*table));
+        for (size_t index = 0; index < schema->rng_attr_classes_cap; index++) {
+            if (schema->rng_attr_classes[index] != NULL) {
+                rng_attr_class_put(table, cap, schema->rng_attr_classes[index]);
+            }
+        }
+        schema->rng_attr_classes = table;
+        schema->rng_attr_classes_cap = cap;
+    }
+    entry = arena_alloc(&schema->mem, sizeof(*entry));
+    if (entry == NULL) {  /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    memset(entry, 0, sizeof(*entry));
+    entry->node = node;
+    entry->nc = rng_pattern_nameclass(schema, node, 1);
+    if (entry->nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    rng_attr_class_put(schema->rng_attr_classes, schema->rng_attr_classes_cap, entry);
+    schema->rng_attr_classes_len++;
+    return entry;
+}
+
+/* The class as a name set, built once: an exact name, a choice of exact names, or a wildcard class keyed by its
+   structure and the treap count, as rng_names_node keys an element's class. */
+static int rng_attr_class_set(th_schema *schema, rng_attr_class *entry) {
+    if (entry->has_set) {
+        return 0;
+    }
+    nameclass *nc = entry->nc;
+    if (nc->type == NC_NAME) {
+        if (rng_names_single(schema, nc, &entry->set.names) == NULL) { /* GCOVR_EXCL_BR_LINE: budget or node cap */
+            return -1;                                                 /* GCOVR_EXCL_LINE */
+        }
+    } else {
+        if (rng_spend(schema, nc_size(nc)) < 0) { /* GCOVR_EXCL_BR_LINE: budget while hashing a class, hard to pin */
+            return -1;                            /* GCOVR_EXCL_LINE */
+        }
+        if (nc_all_named(nc)) {
+            /* GCOVR_EXCL_BR_START: budget or node cap, see rng_names_sorted */
+            if (rng_names_from_choice(schema, nc, &entry->set.names.root) < 0) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+        } else {
+            nc->hash = nc_struct_hash(nc);
+            nc->seq = (uint64_t)schema->rng_nodes;
+            if (rng_names_single(schema, nc, &entry->set.wild) == NULL) { /* GCOVR_EXCL_BR_LINE: budget or node cap */
+                return -1;                                                /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    entry->has_set = 1;
+    return 0;
+}
+
+static int rng_attrs_empty(const rng_attrs *attrs) {
+    return attrs->count == 0 && attrs->set.names.root == NULL && attrs->set.wild.root == NULL;
+}
+
+/* Moves the listed attributes into the set. */
+static int rng_attrs_spill(th_schema *schema, rng_attrs *attrs) {
+    for (int index = 0; index < attrs->count; index++) {
+        rng_attr_class *entry = rng_attr_class_of(schema, attrs->few[index]);
+        /* GCOVR_EXCL_BR_START: arena OOM, or the budget or node cap in a union, hard to pin */
+        if (entry == NULL || rng_attr_class_set(schema, entry) < 0 ||
+            rng_names_merge(schema, &attrs->set, &entry->set, 0, 1, 1) < 0) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+    }
+    attrs->count = 0;
+    return 0;
+}
+
+/* Compares two lists name by name: 1 when two names are equal, 0 when none is, 2 when a class is wider than one name
+   and the sets decide, -1 on failure. */
+static int rng_attrs_pairs(th_schema *schema, const rng_attrs *acc, const rng_attrs *next) {
+    const nameclass *names[RNG_ATTRS_FEW];
+    for (int index = 0; index < next->count; index++) {
+        rng_attr_class *entry = rng_attr_class_of(schema, next->few[index]);
+        if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        if (entry->nc->type != NC_NAME) {
+            return 2;
+        }
+        names[index] = entry->nc;
+    }
+    for (int index = 0; index < acc->count; index++) {
+        rng_attr_class *entry = rng_attr_class_of(schema, acc->few[index]);
+        if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        const nameclass *name = entry->nc;
+        if (name->type != NC_NAME) {
+            return 2;
+        }
+        for (int other = 0; other < next->count; other++) {
+            TH_WORK_STEP();
+            if (name->hash != names[other]->hash) {
+                continue;
+            }
+            if (rng_spend(schema, name->local_len + name->uri_len) < 0) { /* GCOVR_EXCL_BR_LINE: name compare budget */
+                return -1;                                                /* GCOVR_EXCL_LINE */
+            }
+            if (nc_name_eq(name, names[other])) { /* GCOVR_EXCL_BR_LINE: unequal names need a 64-bit collision */
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Folds `next` into `acc`. A group or interleave (`joined`) first rejects a name the two share; a choice unites. */
+static int rng_attrs_merge(th_schema *schema, rng_attrs *acc, rng_attrs *next, int joined) {
+    if (rng_attrs_empty(next)) {
+        return 0;
+    }
+    if (rng_attrs_empty(acc)) {
+        *acc = *next;
+        return 0;
+    }
+    int status = 2;
+    if (acc->set.names.root == NULL && acc->set.wild.root == NULL && next->set.names.root == NULL &&
+        next->set.wild.root == NULL) {
+        status = joined ? rng_attrs_pairs(schema, acc, next) : 0;
+        if (status == 1) {
+            PyErr_SetString(PyExc_ValueError, "RELAX NG group or interleave has attributes whose names overlap");
+            return -1;
+        }
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM or the name compare budget */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
+        if (status == 0 && acc->count + next->count <= RNG_ATTRS_FEW) {
+            memcpy(acc->few + acc->count, next->few, (size_t)next->count * sizeof(th_node *));
+            acc->count += next->count;
+            return 0;
+        }
+    }
+    if (rng_attrs_spill(schema, acc) < 0 || rng_attrs_spill(schema, next) < 0) { /* GCOVR_EXCL_BR_LINE: see spill */
+        return -1;                                                               /* GCOVR_EXCL_LINE */
+    }
+    return rng_names_merge(schema, &acc->set, &next->set, joined && status == 2, 1, 1);
+}
+
+static int rng_attr_walk(th_schema *schema, th_node *node, int kind, int more, rng_attrs *out, int *bad);
+
+/* `out` starts empty and takes the attributes of each pattern child: joined, or united under a choice. */
+static int rng_attr_children(th_schema *schema, th_node *node, int more, int joined, rng_attrs *out, int *bad) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int kind = rng_attr_kind(child);
+        if (kind == RNG_ATTR_ELEMENT) {
+            continue;
+        }
+        rng_attrs next;
+        memset(&next, 0, sizeof(next));
+        if (rng_attr_walk(schema, child, kind, more, &next, bad) < 0 ||
+            rng_attrs_merge(schema, out, &next, joined) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* A define's record. Its components join the way its element names do: by interleave when any component says so. */
+static int rng_attrs_body(th_schema *schema, def_entry *entry, def_attrs *record) {
+    if (rng_attr_walk(schema, entry->first, RNG_ATTR_JOIN, 0, &record->attrs, &record->bad) < 0) {
+        return -1;
+    }
+    if (entry->extra != NULL) {
+        int joined = rng_combines_by_interleave(schema, entry->first);
+        for (def_part *part = entry->extra; part != NULL; part = part->next) {
+            joined |= rng_combines_by_interleave(schema, part->node);
+        }
+        for (def_part *part = entry->extra; part != NULL; part = part->next) {
+            rng_attrs next;
+            memset(&next, 0, sizeof(next));
+            if (rng_attr_walk(schema, part->node, RNG_ATTR_JOIN, 0, &next, &record->bad) < 0 ||
+                rng_attrs_merge(schema, &record->attrs, &next, joined) < 0) {
+                return -1;
+            }
+        }
+    }
+    record->built = 1;
+    return 0;
+}
+
+/* The scan has already rejected a ref that names no define, so a NULL target is a grammar-less schema's ref, which
+   rng_build rejects. The check runs after the scan, so the defines a ref reaches hold no cycle. */
+static int rng_attr_ref(th_schema *schema, th_node *ref, int more, rng_attrs *out, int *bad) {
+    def_entry *target = rng_names_ref_define(schema, ref);
+    if (target == NULL) {
+        return 0;
+    }
+    if (schema->def_attrs_table == NULL) {
+        size_t bytes = (size_t)schema->defines.len * sizeof(def_attrs);
+        schema->def_attrs_table = arena_alloc(&schema->names_mem, bytes);
+        if (schema->def_attrs_table == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            PyErr_NoMemory();                  /* GCOVR_EXCL_LINE */
+            return -1;                         /* GCOVR_EXCL_LINE */
+        }
+        memset(schema->def_attrs_table, 0, bytes);
+    }
+    def_attrs *record = &schema->def_attrs_table[target - schema->defines.items];
+    if (!record->built && rng_attrs_body(schema, target, record) < 0) {
+        return -1;
+    }
+    *out = record->attrs;
+    *bad |= !more && record->bad;
+    return 0;
+}
+
+/* `bad` records an anyName or nsName attribute outside oneOrMore. A define keeps it, and only a scope that refs the
+   define outside oneOrMore raises it. */
+static int rng_attr_walk(th_schema *schema, th_node *node, int kind, int more, rng_attrs *out, int *bad) {
+    switch (kind) {
+    case RNG_ATTR_ATTRIBUTE:
+        if (!more && attr_exact(schema->tree, node, "name", 4) == NULL) {
+            rng_attr_class *entry = rng_attr_class_of(schema, node);
+            if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;       /* GCOVR_EXCL_LINE */
+            }
+            *bad |= !nc_all_named(entry->nc);
+        }
+        out->few[0] = node;
+        out->count = 1;
+        return 0;
+    case RNG_ATTR_REF:
+        return rng_attr_ref(schema, node, more, out, bad);
+    default:
+        return rng_attr_children(schema, node, more || kind == RNG_ATTR_REPEAT, kind != RNG_ATTR_CHOICE, out, bad);
+    }
+}
+
+/* The content of an element is an implicit group, so its attributes are joined and checked here. */
+static int rng_check_scope(th_schema *schema, th_node *element) {
+    rng_attrs names;
+    memset(&names, 0, sizeof(names));
+    int bad = 0;
+    if (rng_attr_children(schema, element, 0, 1, &names, &bad) < 0) {
+        return -1;
+    }
+    if (bad) {
+        PyErr_SetString(PyExc_ValueError,
+                        "RELAX NG anyName or nsName attribute must be inside oneOrMore or zeroOrMore");
+        return -1;
+    }
+    return 0;
+}
+
+/* Checks every element of a grammar-less schema, which rng_build alone reaches. */
+static int rng_check_scopes(th_schema *schema, th_node *node) {
+    if (rng_attr_kind(node) == RNG_ATTR_ELEMENT && rng_check_scope(schema, node) < 0) {
+        return -1;
+    }
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && rng_check_scopes(schema, child) < 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 /* mirrors how rng_build picks the name class */
