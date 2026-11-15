@@ -640,16 +640,18 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             token.text_len = scan - pos;
             token_vec_push(vec, token);
             pos = scan;
-        } else if (css_is_bad_escape(source, pos, length)) {
-            /* the `\` is a delimiter no selector or typed value admits, so it is bad like a string cut short. The token
-               takes the newline: printed without it, the `\` would escape the byte that follows */
-            token.kind = CSS_BAD;
-            vec->bad = 1;
-            token.text = &source[pos];
-            token.text_len = 2;
-            token_vec_push(vec, token);
-            pos += 2;
         } else if (css_is_ident(character)) {
+            if (css_is_bad_escape(source, pos, length)) {
+                /* the `\` is a delimiter no selector or typed value admits, so it is bad like a string cut short. The
+                   token takes the newline: printed without it, the `\` would escape the byte that follows */
+                token.kind = CSS_BAD;
+                vec->bad = 1;
+                token.text = &source[pos];
+                token.text_len = 2;
+                token_vec_push(vec, token);
+                pos += 2;
+                continue;
+            }
             Py_ssize_t scan = css_scan_ident(source, pos, length, &vec->escaped);
             int is_url = scan - pos == 3 && css_lower(source[pos]) == 'u' && css_lower(source[pos + 1]) == 'r' &&
                          css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(';
