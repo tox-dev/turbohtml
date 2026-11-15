@@ -1122,13 +1122,120 @@ def test_all_without_members_allows_no_child() -> None:
     assert [error.message for error in check(schema, "<r><x/></r>").errors] == ["element 'x' is not allowed here"]
 
 
+_ALL_CONTENT_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/><xs:element name="c" minOccurs="0"/>'
+_ALL_CONTENT_SCHEMAS: Final[tuple[tuple[str, str], ...]] = (
+    (
+        "direct",
+        (
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all>'
+            "</xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+    (
+        "named-group",
+        (
+            f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+        ),
+    ),
+    (
+        "extension",
+        (
+            f'<xs:schema {_XS}><xs:complexType name="base"/><xs:element name="r"><xs:complexType>'
+            '<xs:complexContent><xs:extension base="base">'
+            f"<xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:extension></xs:complexContent>"
+            "</xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+    (
+        "restriction",
+        (
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:complexContent>'
+            f'<xs:restriction base="xs:anyType"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:restriction>'
+            "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+)
+
+
+@pytest.mark.parametrize("schema", [pytest.param(text, id=form) for form, text in _ALL_CONTENT_SCHEMAS])
+@pytest.mark.parametrize(
+    ("children", "messages"),
+    [
+        pytest.param("<a/><b/>", [], id="declaration-order"),
+        pytest.param("<b/><a/>", [], id="reverse-order"),
+        pytest.param("<c/><b/><a/>", [], id="optional-member-first"),
+        pytest.param("<b/>", ["required element 'a' is missing"], id="required-missing"),
+        pytest.param("<a/><b/><zz/>", ["element 'zz' is not allowed here"], id="undeclared"),
+    ],
+)
+def test_all_content_matches_members_in_any_order(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, f"<r>{children}</r>").errors] == messages
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        pytest.param('<xs:sequence><xs:group ref="g"/></xs:sequence>', id="group-ref-in-sequence"),
+        pytest.param('<xs:choice><xs:group ref="g"/></xs:choice>', id="group-ref-in-choice"),
+        pytest.param(f"<xs:sequence><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:sequence>", id="all-in-sequence"),
+        pytest.param(
+            '<xs:simpleContent><xs:extension base="xs:string"><xs:group ref="g"/></xs:extension></xs:simpleContent>',
+            id="group-ref-in-simple-content",
+        ),
+    ],
+)
+def test_all_outside_complex_type_content_raises(model: str) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:group>'
+        f'<xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
+    )
+    with pytest.raises(ValueError, match="an xs:all group may only be the content model of a complex type"):
+        XMLSchema(schema)
+
+
+def test_all_base_empty_extension_counts_each_member_once() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:all>'
+        '<xs:element name="a" minOccurs="0" maxOccurs="2"/><xs:element name="b"/></xs:all></xs:complexType>'
+        '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+        "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<r><a/><b/></r>").valid
+    assert not check(schema, "<r><a/><a/><b/></r>").valid
+
+
+def test_optional_all_group_reference_when_members_are_present() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g" minOccurs="0"/></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert [error.message for error in check(schema, "<r><b/></r>").errors] == ["required element 'a' is missing"]
+    assert check(schema, "<r><b/><a/></r>").valid
+
+
+def test_all_group_beside_sequence_content() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
+        '<xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:element name="all"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element>'
+        '<xs:element name="seq"><xs:complexType><xs:group ref="s"/></xs:complexType></xs:element>'
+        '<xs:element name="direct"><xs:complexType><xs:sequence><xs:element name="d"/></xs:sequence>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<all><b/><a/></all>").valid
+    assert check(schema, "<seq><c/></seq>").valid
+    assert not check(schema, "<seq><b/></seq>").valid
+    assert check(schema, "<direct><d/></direct>").valid
+
+
 def _type_schema(content: str) -> str:
     return f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{content}</xs:complexType></xs:element></xs:schema>'
 
 
 _AB: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
 _A_REPEATED: Final[str] = "element 'a' is not allowed here"
-_NAMED_GROUP_MESSAGE: Final[str] = "content of element does not match its content model"
 _NAMED_GROUP: Final[str] = (
     f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
     '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
@@ -1171,11 +1278,11 @@ _REPEATED_CHILD: Final[list[pytest.ParameterSet]] = [
         [_A_REPEATED],
         id="member-with-max-occurs-zero",
     ),
-    pytest.param(_NAMED_GROUP, "<r><a/><a/><b/></r>", [_NAMED_GROUP_MESSAGE], id="named-group-repeated-child"),
+    pytest.param(_NAMED_GROUP, "<r><a/><a/><b/></r>", [_A_REPEATED], id="named-group-repeated-child"),
     pytest.param(
         _NAMED_GROUP.replace('<xs:element name="a"/>', '<xs:element name="a" maxOccurs="2"/>'),
         "<r><a/><a/><b/></r>",
-        [_NAMED_GROUP_MESSAGE],
+        [_A_REPEATED],
         id="named-group-member-max-occurs",
     ),
     pytest.param(_EXTENDED_ALL, "<r><a/><a/><b/></r>", [_A_REPEATED], id="complex-content-extension"),

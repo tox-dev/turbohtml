@@ -164,6 +164,12 @@ static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
     return NULL;
 }
 
+/* The xs:all a group ref resolves to, or NULL when its model group is not an xs:all. */
+static th_node *xsd_group_all(th_schema *schema, th_node *group_ref) {
+    th_node *model = xsd_group_model(schema, group_ref);
+    return model != NULL && is_schema_el(schema, model, XSD_NS, "all") ? model : NULL;
+}
+
 static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
     if (vec->count == vec->cap) {
         Py_ssize_t next = vec->cap ? vec->cap * 2 : TH_INITIAL_CAPACITY(8);
@@ -377,8 +383,8 @@ static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle
     int min = xsd_occurs_min(schema->tree, particle);
     int max = xsd_occurs_max(schema->tree, particle);
     if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
-        min = min == 0 ? 0 : 1;
-        max = max == 0 ? 0 : 1;
+        min = min != 0;
+        max = max != 0;
     }
     if (max < 0) {
         xsd_match_unbounded(schema, inst, particle, children, in, min, out);
@@ -768,6 +774,7 @@ typedef struct xfacet_entry {
 } xfacet_entry;
 
 static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
+static int xsd_check_all_slot(th_schema *schema, th_node *node);
 static int xsd_record_facets(th_schema *schema, th_node *node, int content);
 
 /* XSD 1.0 All Group Limited: an xs:all particle, written or reached through a group ref, occurs once, because its
@@ -794,7 +801,7 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
                 return -1;                                      /* GCOVR_EXCL_LINE */
             }
         } else if (u_eq_ascii(name->local, name->local_len, "all")) {
-            if (xsd_check_all_occurs(schema, node) < 0) {
+            if (xsd_check_all_slot(schema, node) < 0 || xsd_check_all_occurs(schema, node) < 0) {
                 return -1;
             }
             if (xsd_record_all(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -814,6 +821,35 @@ static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, c
 static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex);
 static TH_NOINLINE int xsd_is_builtin_type(const Py_UCS4 *local, Py_ssize_t local_len);
 static int xsd_require_base(th_schema *schema, th_node *node);
+
+/* The content model of a complexType, or of the complexContent extension or restriction that holds one. */
+static int xsd_is_content_slot(th_schema *schema, th_node *node) {
+    if (is_schema_el(schema, node, XSD_NS, "complexType")) {
+        return 1;
+    }
+    return (is_schema_el(schema, node, XSD_NS, "extension") || is_schema_el(schema, node, XSD_NS, "restriction")) &&
+           is_schema_el(schema, node->parent, XSD_NS, "complexContent");
+}
+
+/* An xs:all group is validated as an unordered set only as a content model, so XSD 1.0 allows it only there (All Group
+   Limited): as a complexType's content, or as a group definition's own model. */
+static int xsd_check_all_slot(th_schema *schema, th_node *node) {
+    th_node *parent = node->parent;
+    if (is_schema_el(schema, node, XSD_NS, "group")) {
+        if (xsd_group_all(schema, node) == NULL) {
+            return 0;
+        }
+        if (xsd_is_content_slot(schema, parent)) {
+            schema->named_all = 1;
+            return 0;
+        }
+    } else if (xsd_is_content_slot(schema, parent) || is_schema_el(schema, parent, XSD_NS, "group")) {
+        return 0;
+    }
+    PyErr_SetString(PyExc_ValueError,
+                    "an xs:all group may only be the content model of a complex type or a group definition");
+    return -1;
+}
 
 /* A dangling reference or an unenforced identity constraint would let validation accept documents the schema forbids,
    so both are compile errors, as in libxml2 (src-resolve), Xerces and xmlschema. */
@@ -837,6 +873,9 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
         }
     } else if (u_eq_ascii(local, local_len, "group")) {
         if (xsd_require_ref(schema, node, &schema->groups, "group") < 0) {
+            return -1;
+        }
+        if (xsd_check_all_slot(schema, node) < 0) {
             return -1;
         }
         return xsd_check_all_occurs(schema, node);
@@ -1402,8 +1441,18 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         }
     }
 
+    th_node *all = NULL;
     if (model != NULL && is_schema_el(schema, model, XSD_NS, "all")) {
-        xsd_validate_all(ctx, model, children, nchildren);
+        all = model;
+    } else if (model != NULL && schema->named_all && is_schema_el(schema, model, XSD_NS, "group")) {
+        all = xsd_group_all(schema, model);
+    }
+    if (all != NULL) {
+        const int optional_group =
+            is_schema_el(schema, model, XSD_NS, "group") && xsd_occurs_min(schema->tree, model) == 0;
+        if (nchildren > 0 || !optional_group) {
+            xsd_validate_all(ctx, all, children, nchildren);
+        }
         return;
     }
     if (model == NULL && base_model == NULL) {
