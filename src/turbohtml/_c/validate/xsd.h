@@ -836,8 +836,34 @@ static int xsd_check_group_model(th_schema *schema, th_node *group) {
     return 0;
 }
 
-/* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
-static int xsd_cache_facets(th_schema *schema, th_node *node) {
+static int xsd_cache_facets_at(th_schema *schema, th_node *node);
+
+/* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. A
+   node's own checks run as the walk enters it and an xs:group's model check as the walk leaves it. */
+static int xsd_cache_facets(th_schema *schema, th_node *root) {
+    th_node *node = root;
+    while (node != NULL) {
+        if (node->type == TH_NODE_ELEMENT) {
+            if (xsd_cache_facets_at(schema, node) < 0) {
+                return -1;
+            }
+            if (node->first_child != NULL) {
+                node = node->first_child;
+                continue;
+            }
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+            if (is_schema_el(schema, node, XSD_NS, "group") && xsd_check_group_model(schema, node) < 0) {
+                return -1;
+            }
+        }
+        node = node == root ? NULL : node->next_sibling;
+    }
+    return 0;
+}
+
+static int xsd_cache_facets_at(th_schema *schema, th_node *node) {
     const qname *name = schema_node_qname(schema, node);
     const int xsd = is_xsd_uri(name->uri, name->uri_len);
     if (xsd) {
@@ -858,13 +884,7 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
             }
         }
     }
-    const int group = xsd && u_eq_ascii(name->local, name->local_len, "group");
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && xsd_cache_facets(schema, child) < 0) {
-            return -1;
-        }
-    }
-    return group ? xsd_check_group_model(schema, node) : 0;
+    return 0;
 }
 
 static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind);
@@ -1105,24 +1125,18 @@ typedef struct {
     xfacet_levels enums, patterns;
 } xfacet_fold;
 
-/* Fold `entry`, `depth` hops from the type being linked, into `facets`: its named base first, then its inline type,
-   then its own facets. A later scalar facet replaces an earlier one, and every enumeration and pattern on the way
-   applies, so only a pointer to each derivation that states some is kept. Returns the built-in type reached. */
-static int xsd_fold_facets(arena *mem, const xfacet_entry *entry, facetset *facets, xfacet_fold *fold, int depth) {
-    TH_WORK_STEP();
+/* A derivation xsd_fold_facets is inside. */
+typedef struct {
+    const xfacet_entry *entry;
+    int depth;   /* hops from the type being linked */
+    int base_id; /* the built-in type reached so far */
+    int stage;   /* 0 before the named base, 1 before the inline type, 2 before the derivation's own facets */
+    int took;    /* the last stage pushed the derivation it folds, whose result the next stage takes */
+} xfacet_frame;
+
+/* Fold a derivation's own facets into `facets` once its base and inline type are folded; the built-in type reached. */
+static int xsd_fold_own(arena *mem, const xfacet_entry *entry, int base_id, facetset *facets, xfacet_fold *fold) {
     const facetset *own = entry->own;
-    if (own == NULL) {
-        return facets->base_id;
-    }
-    int base_id = facets->base_id;
-    if (entry->base_id >= 0) {
-        base_id = entry->base != NULL && depth < XSD_MAX_BASE_DEPTH
-                      ? xsd_fold_facets(mem, entry->base, facets, fold, depth + 1)
-                      : entry->base_id;
-    }
-    if (entry->inner != NULL) {
-        base_id = xsd_fold_facets(mem, entry->inner, facets, fold, depth + 1);
-    }
     if (base_id < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;     /* GCOVR_EXCL_LINE */
     }
@@ -1144,6 +1158,67 @@ static int xsd_fold_facets(arena *mem, const xfacet_entry *entry, facetset *face
         }
     }
     return base_id;
+}
+
+/* Fold `root` into `facets`: each derivation's named base first, then its inline type, then its own facets. A later
+   scalar facet replaces an earlier one, and every enumeration and pattern on the way applies, so only a pointer to each
+   derivation that states some is kept. A hop counts toward XSD_MAX_BASE_DEPTH from the type being linked. Inline types
+   nest as deep as the schema, so the derivations under way sit on an explicit stack. Returns the built-in type
+   reached, or -1 when out of memory. */
+static int xsd_fold_facets(arena *mem, const xfacet_entry *root, facetset *facets, xfacet_fold *fold) {
+    xfacet_frame local[16];
+    xfacet_frame *stack = local;
+    Py_ssize_t depth = 1, cap = 16;
+    stack[0] = (xfacet_frame){root, 0, 0, 0, 0};
+    int result = 0;
+    while (depth > 0) {
+        xfacet_frame *top = &stack[depth - 1];
+        const xfacet_entry *entry = top->entry;
+        const xfacet_entry *next = NULL;
+        if (top->took) {
+            top->base_id = result;
+            top->took = 0;
+        }
+        if (top->stage == 0) {
+            TH_WORK_STEP();
+            if (entry->own == NULL) {
+                result = facets->base_id;
+                depth--;
+                continue;
+            }
+            top->base_id = facets->base_id;
+            if (entry->base_id >= 0) {
+                if (entry->base != NULL && top->depth < XSD_MAX_BASE_DEPTH) {
+                    next = entry->base;
+                } else {
+                    top->base_id = entry->base_id;
+                }
+            }
+        } else if (top->stage == 1) {
+            next = entry->inner;
+        } else {
+            result = xsd_fold_own(mem, entry, top->base_id, facets, fold);
+            if (result < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                break;        /* GCOVR_EXCL_LINE */
+            }
+            depth--;
+            continue;
+        }
+        top->stage++;
+        if (next != NULL) {
+            xfacet_frame *grown = walk_reserve(stack, local, depth, &cap, sizeof(xfacet_frame));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                result = -1;     /* GCOVR_EXCL_LINE */
+                break;           /* GCOVR_EXCL_LINE */
+            }
+            stack = grown;
+            stack[depth - 1].took = 1;
+            stack[depth] = (xfacet_frame){next, stack[depth - 1].depth + 1, 0, 0, 0};
+            depth++;
+        }
+    }
+    walk_release(stack, local);
+    return result;
 }
 
 static int xsd_keep_levels(arena *mem, const xfacet_levels *levels, const facetset *const **kept, Py_ssize_t *count) {
@@ -1175,8 +1250,8 @@ static int xsd_link_facets(th_schema *schema) {
         facetset *facets = &entry->facets;
         facetset_init(facets, DT_STRING);
         fold.enums.count = fold.patterns.count = 0;
-        if (xsd_fold_facets(&schema->mem, entry, facets, &fold, 0) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-            return -1;                                                    /* GCOVR_EXCL_LINE */
+        if (xsd_fold_facets(&schema->mem, entry, facets, &fold) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;                                                 /* GCOVR_EXCL_LINE */
         }
         if (fold.enums.count == 1) {
             facets->enums = fold.enums.items[0]->enums;
@@ -1963,17 +2038,29 @@ typedef struct {
 } chain_len;
 
 static named_vec *xsd_chain_vec(th_schema *schema, int kind);
-static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t index, chain_len *state, chain_len depth);
-static int xsd_check_group_uses(th_schema *schema, th_node *node, const chain_len *state, int depth);
+static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t start, chain_len *state);
+static int xsd_check_group_uses(th_schema *schema, const chain_len *state);
 
-static int xsd_tree_height(th_node *node, int depth) {
-    int height = depth;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT) {
-            int reached = xsd_tree_height(child, depth + 1);
-            if (reached > height) {
-                height = reached;
-            }
+/* The node after `node` in document order within `root`'s subtree, or NULL at its end, with `*depth` moved by the
+   levels the step goes down or up. */
+static th_node *xsd_walk_depth(const th_node *root, th_node *node, int *depth) {
+    if (node->first_child != NULL) {
+        (*depth)++;
+        return node->first_child;
+    }
+    while (node != root && node->next_sibling == NULL) {
+        node = node->parent;
+        (*depth)--;
+    }
+    return node == root ? NULL : node->next_sibling;
+}
+
+/* The depth of the deepest element under `root`, counting `root` as 1. */
+static int xsd_tree_height(th_node *root) {
+    int depth = 1, height = 1;
+    for (th_node *node = root; node != NULL; node = xsd_walk_depth(root, node, &depth)) {
+        if (node->type == TH_NODE_ELEMENT && depth > height) {
+            height = depth;
         }
     }
     return height;
@@ -1991,7 +2078,7 @@ static int xsd_check_chains(th_schema *schema, int kind) {
     }
     memset(state, 0, (size_t)vec->len * sizeof(chain_len));
     for (Py_ssize_t index = 0; index < vec->len; index++) {
-        if (state[index].hops == 0 && xsd_chain_visit(schema, kind, index, state, (chain_len){0, 0}) < 0) {
+        if (state[index].hops == 0 && xsd_chain_visit(schema, kind, index, state) < 0) {
             return -1;
         }
     }
@@ -2006,11 +2093,10 @@ static int xsd_check_chains(th_schema *schema, int kind) {
     }
     /* a ref sits no deeper than the tree, so the walk can refuse only when the tree and the deepest chain together
        reach the limit */
-    if (deepest + xsd_tree_height(schema->root, 1) < TH_VALIDATE_MAX_DEPTH) {
+    if (deepest + xsd_tree_height(schema->root) < TH_VALIDATE_MAX_DEPTH) {
         return 0;
     }
-    /* th_node_check_max_depth counts the document as depth 0, which puts the children of xs:schema at 2 */
-    return xsd_check_group_uses(schema, schema->root, state, 2);
+    return xsd_check_group_uses(schema, state);
 }
 
 static named_vec *xsd_chain_vec(th_schema *schema, int kind) {
@@ -2024,9 +2110,6 @@ static named_vec *xsd_chain_vec(th_schema *schema, int kind) {
 }
 
 static const char *xsd_chain_kind(int kind);
-static int xsd_type_base_edge(th_schema *schema, th_node *ctype, chain_len *state, chain_len depth, chain_len *longest);
-static int xsd_chain_refscan(th_schema *schema, int kind, th_node *node, chain_len *state, chain_len depth, int levels,
-                             chain_len *longest);
 
 /* Validation follows these refs by C recursion (xsd_collect_edecls, xsd_match_once, xsd_effective_model,
    xsd_collect_attrs). Well above any real schema (xmlschema already fails below 200 hops) and far below the smallest
@@ -2051,35 +2134,177 @@ static int xsd_chain_too_long(int kind, chain_len length) {
     return 0;
 }
 
-/* state[index].hops is 0 unvisited, -1 on the DFS stack (a back edge is a cycle), else state[index] is the resolved
-   chain length. depth caps the recursion itself; the length cap also catches a chain reached through memoized nodes. */
-static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t index, chain_len *state, chain_len depth) {
+/* A definition the chain check is inside, with the refs below it still to follow. */
+typedef struct {
+    Py_ssize_t index;  /* the definition's slot in the table of its kind */
+    th_node *cursor;   /* the next node under the definition to look at for a ref, NULL once all are seen */
+    chain_len depth;   /* the hops and particles from the definition the check started at down to this one */
+    chain_len longest; /* the longest chain below the definition found so far */
+    int level;         /* the particles between the definition and the cursor */
+    int ref_level;     /* the particles from the definition down to the ref last returned, counting the ref */
+} xchain_frame;
+
+/* Folds a chain that starts at the ref `frame` last returned into the longest one below its definition. */
+static void xsd_chain_reach(xchain_frame *frame, const chain_len *below) {
+    if (below->hops > frame->longest.hops) {
+        frame->longest.hops = below->hops;
+    }
+    if (frame->ref_level + below->levels > frame->longest.levels) {
+        frame->longest.levels = frame->ref_level + below->levels;
+    }
+}
+
+/* The complex type a type derives from: A-extends-B-extends-A is a cycle; a built-in or simple-type base, or none, ends
+   the chain with -1. */
+static Py_ssize_t xsd_type_base_index(th_schema *schema, th_node *ctype) {
+    th_node *content = xsd_type_content(schema, ctype);
+    if (content == NULL) {
+        return -1;
+    }
+    th_node *deriv = first_schema_child(schema, content, XSD_NS, "extension");
+    if (deriv == NULL) {
+        deriv = first_schema_child(schema, content, XSD_NS, "restriction");
+    }
+    if (deriv == NULL) {
+        return -1;
+    }
+    Py_ssize_t base_len = 0;
+    const Py_UCS4 *base = xsd_attr(schema->tree, deriv, "base", &base_len);
+    if (base == NULL) {
+        return -1;
+    }
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
+    return named_find_index(&schema->complex_types, local, local_len);
+}
+
+/* The definition the next ref under `frame` names, or -1 once none is left. A type derives from a single base. Group
+   refs sit inside model groups, so those are descended and each counts as a particle the matcher nests; an element is
+   a leaf since no ref reaches across one. */
+static Py_ssize_t xsd_chain_next(th_schema *schema, int kind, xchain_frame *frame) {
     named_vec *vec = xsd_chain_vec(schema, kind);
-    if (state[index].hops == -1) {
-        char buffer[256];
-        PyErr_Format(PyExc_ValueError, "circular %s reference to '%s'", xsd_chain_kind(kind),
-                     name_utf8(vec->items[index].name, vec->items[index].len, buffer, sizeof(buffer)));
-        return -1;
+    th_node *definition = vec->items[frame->index].node;
+    if (kind == CHAIN_TYPE) {
+        if (frame->cursor == NULL) {
+            return -1;
+        }
+        frame->cursor = NULL;
+        return xsd_type_base_index(schema, definition);
     }
-    if (state[index].hops > 0) {
-        return 0;
+    const char *ref_el = kind == CHAIN_GROUP ? "group" : "attributeGroup";
+    while (frame->cursor != NULL) {
+        th_node *child = frame->cursor;
+        const int level = frame->level + 1;
+        if (kind == CHAIN_GROUP && child->first_child != NULL && xsd_is_particle(schema, child, XSD_MODEL_GROUPS, 3)) {
+            frame->cursor = child->first_child;
+            frame->level = level;
+        } else {
+            th_node *walk = child;
+            while (walk != definition && walk->next_sibling == NULL) {
+                walk = walk->parent;
+                frame->level--;
+            }
+            frame->cursor = walk == definition ? NULL : walk->next_sibling;
+        }
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (level > frame->longest.levels) {
+            frame->longest.levels = level;
+        }
+        Py_ssize_t ref_len = 0;
+        const Py_UCS4 *ref =
+            is_schema_el(schema, child, XSD_NS, ref_el) ? xsd_attr(schema->tree, child, "ref", &ref_len) : NULL;
+        if (ref != NULL) {
+            const Py_UCS4 *local, *prefix;
+            Py_ssize_t local_len = 0, prefix_len = 0;
+            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
+            frame->ref_level = level;
+            return named_find_index(vec, local, local_len);
+        }
     }
-    if (xsd_chain_too_long(kind, (chain_len){depth.hops + 1, depth.levels})) {
-        return -1;
+    return -1;
+}
+
+/* state[index].hops is 0 unvisited, -1 on the DFS stack (a back edge is a cycle), else state[index] is the resolved
+   chain length. The caps apply on the way down and again to the resolved length, which also catches a chain reached
+   through memoized definitions. Group definitions nest model groups as deep as the schema between hops, so the walk
+   keeps the definitions it is inside on an explicit stack and its scan of each one on parent links. */
+static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t start, chain_len *state) {
+    named_vec *vec = xsd_chain_vec(schema, kind);
+    xchain_frame local[16];
+    xchain_frame *stack = local;
+    Py_ssize_t depth = 1, cap = 16;
+    th_node *first = kind == CHAIN_TYPE ? vec->items[start].node : vec->items[start].node->first_child;
+    stack[0] = (xchain_frame){start, first, {0, 0}, {0, 0}, 0, 0};
+    state[start].hops = -1;
+    int status = -1;
+    for (;;) {
+        xchain_frame *top = &stack[depth - 1];
+        const Py_ssize_t target = xsd_chain_next(schema, kind, top);
+        if (target >= 0) {
+            if (state[target].hops == -1) {
+                char buffer[256];
+                PyErr_Format(PyExc_ValueError, "circular %s reference to '%s'", xsd_chain_kind(kind),
+                             name_utf8(vec->items[target].name, vec->items[target].len, buffer, sizeof(buffer)));
+                break;
+            }
+            if (state[target].hops > 0) {
+                xsd_chain_reach(top, &state[target]);
+                continue;
+            }
+            const chain_len below = {top->depth.hops + 1, top->depth.levels + top->ref_level};
+            if (xsd_chain_too_long(kind, (chain_len){below.hops + 1, below.levels})) {
+                break;
+            }
+            xchain_frame *grown = walk_reserve(stack, local, depth, &cap, sizeof(xchain_frame));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                break;           /* GCOVR_EXCL_LINE */
+            }
+            stack = grown;
+            th_node *definition = vec->items[target].node;
+            stack[depth] =
+                (xchain_frame){target, kind == CHAIN_TYPE ? definition : definition->first_child, below, {0, 0}, 0, 0};
+            depth++;
+            state[target].hops = -1;
+            continue;
+        }
+        top->longest.hops++;
+        if (xsd_chain_too_long(kind, top->longest)) {
+            break;
+        }
+        state[top->index] = top->longest;
+        if (--depth == 0) {
+            status = 0;
+            break;
+        }
+        xsd_chain_reach(&stack[depth - 1], &state[top->index]);
     }
-    state[index].hops = -1;
-    chain_len longest = {0, 0};
-    int status = kind == CHAIN_TYPE
-                     ? xsd_type_base_edge(schema, vec->items[index].node, state, depth, &longest)
-                     : xsd_chain_refscan(schema, kind, vec->items[index].node, state, depth, 0, &longest);
-    if (status < 0) {
-        return -1;
+    walk_release(stack, local);
+    return status;
+}
+
+/* A group is matched wherever a ref names it, below the particles that ref already sits under, so every ref in the tree
+   is held to the depth limit with its chain expanded in place. th_node_check_max_depth counts the document as depth 0,
+   which puts xs:schema at 1. */
+static int xsd_check_group_uses(th_schema *schema, const chain_len *state) {
+    th_node *root = schema->root;
+    int depth = 1;
+    for (th_node *node = xsd_walk_depth(root, root, &depth); node != NULL; node = xsd_walk_depth(root, node, &depth)) {
+        Py_ssize_t ref_len = 0;
+        const Py_UCS4 *ref =
+            is_schema_el(schema, node, XSD_NS, "group") ? xsd_attr(schema->tree, node, "ref", &ref_len) : NULL;
+        if (ref != NULL) {
+            const Py_UCS4 *local, *prefix;
+            Py_ssize_t local_len = 0, prefix_len = 0;
+            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
+            Py_ssize_t target = named_find_index(&schema->groups, local, local_len);
+            if (xsd_chain_too_long(CHAIN_GROUP, (chain_len){0, depth + state[target].levels})) {
+                return -1;
+            }
+        }
     }
-    longest.hops++;
-    if (xsd_chain_too_long(kind, longest)) {
-        return -1;
-    }
-    state[index] = longest;
     return 0;
 }
 
@@ -2093,104 +2318,6 @@ static const char *xsd_chain_kind(int kind) {
     return "complex type";
 }
 
-/* A-extends-B-extends-A is a cycle; a built-in or simple-type base ends the chain. */
-static int xsd_type_base_edge(th_schema *schema, th_node *ctype, chain_len *state, chain_len depth,
-                              chain_len *longest) {
-    th_node *content = xsd_type_content(schema, ctype);
-    if (content == NULL) {
-        return 0;
-    }
-    th_node *deriv = first_schema_child(schema, content, XSD_NS, "extension");
-    if (deriv == NULL) {
-        deriv = first_schema_child(schema, content, XSD_NS, "restriction");
-    }
-    if (deriv == NULL) {
-        return 0;
-    }
-    Py_ssize_t base_len = 0;
-    const Py_UCS4 *base = xsd_attr(schema->tree, deriv, "base", &base_len);
-    if (base == NULL) {
-        return 0;
-    }
-    const Py_UCS4 *local, *prefix;
-    Py_ssize_t local_len = 0, prefix_len = 0;
-    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-    Py_ssize_t target = named_find_index(&schema->complex_types, local, local_len);
-    if (target < 0) {
-        return 0;
-    }
-    if (xsd_chain_visit(schema, CHAIN_TYPE, target, state, (chain_len){depth.hops + 1, 0}) < 0) {
-        return -1;
-    }
-    longest->hops = state[target].hops; /* a type derives from a single base, so this is the whole chain below it */
-    return 0;
-}
-
-/* Group refs sit inside model groups, so those are descended; an element is a leaf since no ref reaches across one.
-   `levels` counts the particles between the group and `node`. */
-static int xsd_chain_refscan(th_schema *schema, int kind, th_node *node, chain_len *state, chain_len depth, int levels,
-                             chain_len *longest) {
-    const char *ref_el = kind == CHAIN_GROUP ? "group" : "attributeGroup";
-    named_vec *vec = xsd_chain_vec(schema, kind);
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        chain_len reach = {0, levels + 1};
-        Py_ssize_t ref_len = 0;
-        const Py_UCS4 *ref =
-            is_schema_el(schema, child, XSD_NS, ref_el) ? xsd_attr(schema->tree, child, "ref", &ref_len) : NULL;
-        if (ref != NULL) {
-            const Py_UCS4 *local, *prefix;
-            Py_ssize_t local_len = 0, prefix_len = 0;
-            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-            Py_ssize_t target = named_find_index(vec, local, local_len);
-            chain_len below = {depth.hops + 1, depth.levels + reach.levels};
-            if (xsd_chain_visit(schema, kind, target, state, below) < 0) {
-                return -1;
-            }
-            reach.hops = state[target].hops;
-            reach.levels += state[target].levels;
-        } else if (kind == CHAIN_GROUP) {
-            /* the model groups are what xsd_match_once and xsd_collect_edecls descend */
-            if (xsd_is_particle(schema, child, XSD_MODEL_GROUPS, 3) &&
-                xsd_chain_refscan(schema, kind, child, state, depth, reach.levels, longest) < 0) {
-                return -1;
-            }
-        }
-        if (reach.hops > longest->hops) {
-            longest->hops = reach.hops;
-        }
-        if (reach.levels > longest->levels) {
-            longest->levels = reach.levels;
-        }
-    }
-    return 0;
-}
-
-/* A group is matched wherever a ref names it, below the particles that ref already sits under, so every ref in the tree
-   is held to the depth limit with its chain expanded in place. `depth` is the tree depth of the children of `node`. */
-static int xsd_check_group_uses(th_schema *schema, th_node *node, const chain_len *state, int depth) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        Py_ssize_t ref_len = 0;
-        const Py_UCS4 *ref =
-            is_schema_el(schema, child, XSD_NS, "group") ? xsd_attr(schema->tree, child, "ref", &ref_len) : NULL;
-        if (ref != NULL) {
-            const Py_UCS4 *local, *prefix;
-            Py_ssize_t local_len = 0, prefix_len = 0;
-            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-            Py_ssize_t target = named_find_index(&schema->groups, local, local_len);
-            if (xsd_chain_too_long(CHAIN_GROUP, (chain_len){0, depth + state[target].levels})) {
-                return -1;
-            }
-        }
-        if (xsd_check_group_uses(schema, child, state, depth + 1) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
 /* The chain checks bound how deep references go, not how much they unfold to in total. */
 #define TH_XSD_MAX_EXPANSION 20000
 
@@ -2198,74 +2325,142 @@ static int xsd_expansion_cap(int total) {
     return total > TH_XSD_MAX_EXPANSION ? TH_XSD_MAX_EXPANSION + 1 : total;
 }
 
-static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo, int own);
+/* A scope or particle the expansion count is inside. A scope is a complex type, a derivation or a referenced
+   definition, and a particle a model group; each counts its children. */
+typedef struct {
+    th_node *next;       /* the next child to count */
+    th_node *content;    /* a complex type's derivation slot */
+    th_node *derivation; /* a derivation whose own children are counted once its base is */
+    int *memo;           /* where a referenced definition's size goes, NULL for an inline scope */
+    int total, own;
+    int bias;       /* added to the count when it goes to the level above */
+    int particles;  /* a scope that holds particles; a group holds no attributes and an attributeGroup no particles */
+    int attributes; /* a scope that holds attributes; a particle frame holds neither and counts its particle children */
+} xexp_frame;
 
-/* Validation follows exactly these refs; xsd_check_chains has found them acyclic and shallow,
-   so this recursion ends. */
-static int xsd_ref_expansion(th_schema *schema, int kind, th_node *node, const char *attr, int *const *memo) {
-    Py_ssize_t ref_len = 0;
-    const Py_UCS4 *ref = xsd_attr(schema->tree, node, attr, &ref_len);
-    if (ref == NULL) {
-        return 0;
+/* Puts `node` on the stack; `scope` picks between a scope and a model group particle. */
+static xexp_frame *xsd_expansion_push(th_schema *schema, xexp_frame *stack, const xexp_frame *local, Py_ssize_t *depth,
+                                      Py_ssize_t *cap, th_node *node, int scope, int own, int bias, int *memo) {
+    xexp_frame *grown = walk_reserve(stack, local, *depth, cap, sizeof(xexp_frame));
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE */
     }
-    const Py_UCS4 *local, *prefix;
-    Py_ssize_t local_len = 0, prefix_len = 0;
-    split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-    named_vec *vec = xsd_chain_vec(schema, kind);
-    Py_ssize_t index = named_find_index(vec, local, local_len);
-    if (index < 0) {
-        return 0;
-    }
-    if (memo[kind][index] == 0) { /* a measured definition counts itself, so its size is never 0 */
-        memo[kind][index] = xsd_scope_expansion(schema, vec->items[index].node, memo, 1);
-    }
-    return memo[kind][index];
+    const int particles = scope && !is_schema_el(schema, node, XSD_NS, "attributeGroup");
+    const int attributes = scope && !is_schema_el(schema, node, XSD_NS, "group");
+    th_node *content =
+        scope && is_schema_el(schema, node, XSD_NS, "complexType") ? xsd_type_content(schema, node) : NULL;
+    grown[(*depth)++] = (xexp_frame){node->first_child, content, NULL, memo, own, own, bias, particles, attributes};
+    return grown;
 }
 
-static int xsd_particle_expansion(th_schema *schema, th_node *particle, int *const *memo, int own) {
-    if (is_schema_el(schema, particle, XSD_NS, "element")) {
-        return own;
-    }
-    if (is_schema_el(schema, particle, XSD_NS, "group")) {
-        return own + xsd_ref_expansion(schema, CHAIN_GROUP, particle, "ref", memo);
-    }
-    int total = own;
-    for (th_node *child = particle->first_child; child != NULL && total <= TH_XSD_MAX_EXPANSION;
-         child = child->next_sibling) {
-        if (xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
-            total += xsd_particle_expansion(schema, child, memo, own);
-        }
-    }
-    return xsd_expansion_cap(total);
-}
-
-/* A group holds no attributes and an attributeGroup no particles, so each is walked only for what validation reads. */
-static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo, int own) {
+/* Counts what a scope of `own` weight unfolds to through the refs validation follows; xsd_check_chains has found them
+   acyclic and shallow, and each referenced definition is counted once into `memo`. Model groups nest as deep as the
+   schema at every hop, so the scopes and particles under way sit on an explicit stack. -1 when out of memory. */
+static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo) {
     static const char *const models[] = {"sequence", "choice", "all", "group"};
-    const int particles = !is_schema_el(schema, scope, XSD_NS, "attributeGroup");
-    const int attributes = !is_schema_el(schema, scope, XSD_NS, "group");
-    th_node *content = is_schema_el(schema, scope, XSD_NS, "complexType") ? xsd_type_content(schema, scope) : NULL;
-    int total = own;
-    for (th_node *child = scope->first_child; child != NULL && total <= TH_XSD_MAX_EXPANSION;
-         child = child->next_sibling) {
-        if (attributes && is_schema_el(schema, child, XSD_NS, "attribute")) {
-            total += own;
-        } else if (attributes && is_schema_el(schema, child, XSD_NS, "attributeGroup")) {
-            total += own + xsd_ref_expansion(schema, CHAIN_ATTRGROUP, child, "ref", memo);
-        } else if (particles && xsd_is_particle(schema, child, models, 4)) {
-            total += xsd_particle_expansion(schema, child, memo, own);
-        } else if (child == content) {
-            th_node *derivation = first_schema_child(schema, child, XSD_NS, "extension");
-            if (derivation == NULL) {
-                derivation = first_schema_child(schema, child, XSD_NS, "restriction");
+    xexp_frame local[16];
+    xexp_frame *stack = local;
+    Py_ssize_t depth = 0, cap = 16;
+    int result = -1;
+    (void)xsd_expansion_push(schema, stack, local, &depth, &cap, scope, 1, 0, 0, NULL); /* the local array has room */
+    for (;;) {
+        xexp_frame *top = &stack[depth - 1];
+        th_node *push = NULL;
+        int push_scope = 1, push_own = top->own, push_bias = 0;
+        int *push_memo = NULL;
+        th_node *child = top->next;
+        if (top->derivation != NULL) {
+            push = top->derivation;
+            top->derivation = NULL;
+        } else if (child == NULL || top->total > TH_XSD_MAX_EXPANSION) {
+            const int size = xsd_expansion_cap(top->total);
+            if (top->memo != NULL) {
+                *top->memo = size;
             }
-            if (derivation != NULL) {
-                total += xsd_ref_expansion(schema, CHAIN_TYPE, derivation, "base", memo) +
-                         xsd_scope_expansion(schema, derivation, memo, own);
+            if (--depth == 0) {
+                result = size;
+                break;
+            }
+            stack[depth - 1].total += top->bias + size;
+            continue;
+        } else {
+            top->next = child->next_sibling;
+            int ref_kind = -1;
+            const char *ref_attr = "ref";
+            if (!top->particles && !top->attributes) {
+                if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
+                    continue;
+                }
+                if (is_schema_el(schema, child, XSD_NS, "element")) {
+                    top->total += top->own;
+                    continue;
+                }
+                if (is_schema_el(schema, child, XSD_NS, "group")) {
+                    ref_kind = CHAIN_GROUP;
+                    push_bias = top->own;
+                } else {
+                    push = child;
+                    push_scope = 0;
+                }
+            } else if (top->attributes && is_schema_el(schema, child, XSD_NS, "attribute")) {
+                top->total += top->own;
+                continue;
+            } else if (top->attributes && is_schema_el(schema, child, XSD_NS, "attributeGroup")) {
+                ref_kind = CHAIN_ATTRGROUP;
+                push_bias = top->own;
+            } else if (top->particles && xsd_is_particle(schema, child, models, 4)) {
+                if (is_schema_el(schema, child, XSD_NS, "group")) {
+                    ref_kind = CHAIN_GROUP;
+                    push_bias = top->own;
+                } else {
+                    push = child;
+                    push_scope = 0;
+                }
+            } else if (child == top->content) {
+                th_node *derivation = first_schema_child(schema, child, XSD_NS, "extension");
+                if (derivation == NULL) {
+                    derivation = first_schema_child(schema, child, XSD_NS, "restriction");
+                }
+                if (derivation == NULL) {
+                    continue;
+                }
+                top->derivation = derivation;
+                ref_kind = CHAIN_TYPE;
+                ref_attr = "base";
+                child = derivation;
+            } else {
+                continue;
+            }
+            if (ref_kind >= 0) {
+                /* a ref adds what its definition unfolds to, measured once: a measured definition counts itself, so
+                   its size is never 0 */
+                Py_ssize_t ref_len = 0;
+                const Py_UCS4 *ref = xsd_attr(schema->tree, child, ref_attr, &ref_len);
+                Py_ssize_t index = -1;
+                if (ref != NULL) {
+                    const Py_UCS4 *local_name, *prefix;
+                    Py_ssize_t local_len = 0, prefix_len = 0;
+                    split_prefix(ref, ref_len, &local_name, &local_len, &prefix, &prefix_len);
+                    index = named_find_index(xsd_chain_vec(schema, ref_kind), local_name, local_len);
+                }
+                if (index < 0 || memo[ref_kind][index] != 0) {
+                    top->total += push_bias + (index < 0 ? 0 : memo[ref_kind][index]);
+                    continue;
+                }
+                push = xsd_chain_vec(schema, ref_kind)->items[index].node;
+                push_own = 1;
+                push_memo = &memo[ref_kind][index];
             }
         }
+        xexp_frame *grown =
+            xsd_expansion_push(schema, stack, local, &depth, &cap, push, push_scope, push_own, push_bias, push_memo);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            break;           /* GCOVR_EXCL_LINE */
+        }
+        stack = grown;
     }
-    return xsd_expansion_cap(total);
+    walk_release(stack, local);
+    return result;
 }
 
 /* XSD 1.0 cos-all-limited: an xs:all content model cannot be extended with particles, since the base's members would
@@ -2294,17 +2489,20 @@ static int xsd_check_all_extension(th_schema *schema, th_node *node) {
 }
 
 /* Every complex type, named or inline, is what some element is validated against. */
-static int xsd_check_type_expansion(th_schema *schema, th_node *node, int *const *memo) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (is_schema_el(schema, child, XSD_NS, "complexType") &&
-            xsd_scope_expansion(schema, child, memo, 0) > TH_XSD_MAX_EXPANSION) {
+static int xsd_check_type_expansion(th_schema *schema, th_node *root, int *const *memo) {
+    for (th_node *node = schema_walk_next(root, root); node != NULL; node = schema_walk_next(root, node)) {
+        if (!is_schema_el(schema, node, XSD_NS, "complexType")) {
+            continue;
+        }
+        const int size = xsd_scope_expansion(schema, node, memo);
+        if (size < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;  /* GCOVR_EXCL_LINE */
+        }
+        if (size > TH_XSD_MAX_EXPANSION) {
             PyErr_Format(PyExc_ValueError,
                          "complex type references expand to more than %d particles and attributes; flatten the schema "
                          "or refer to each group, attribute group, and base type fewer times",
                          TH_XSD_MAX_EXPANSION);
-            return -1;
-        }
-        if (xsd_check_type_expansion(schema, child, memo) < 0) {
             return -1;
         }
     }
