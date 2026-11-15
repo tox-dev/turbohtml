@@ -878,6 +878,9 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
     } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
         return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
     } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
+        if (u_eq_ascii(local, local_len, "extension") && is_schema_el(schema, node->parent, XSD_NS, "complexContent")) {
+            schema->complex_extension = 1;
+        }
         return xsd_require_base(schema, node);
     }
     return 0;
@@ -1794,7 +1797,7 @@ static int xsd_compile(th_schema *schema) {
     }
     if (xsd_check_chains(schema, CHAIN_GROUP) < 0 || xsd_check_chains(schema, CHAIN_ATTRGROUP) < 0 ||
         xsd_check_chains(schema, CHAIN_TYPE) < 0 || xsd_check_expansion(schema) < 0 ||
-        xsd_check_all_extension(schema, schema->root) < 0) {
+        (schema->complex_extension && xsd_check_all_extension(schema, schema->root) < 0)) {
         return 0;
     }
     if (schema->facet_count > 1) {
