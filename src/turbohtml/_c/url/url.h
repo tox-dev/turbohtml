@@ -76,6 +76,9 @@ static inline int th_url_web_authority(PyObject *url) {
    join, and the sanitizer all read the scheme here so they cannot disagree. */
 Py_ssize_t th_url_scheme_colon(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len);
 
+/* Whether value[start,end) spells a special scheme once the tabs, LFs and CRs the parser removes are skipped. */
+int th_url_scheme_special(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end);
+
 /* Bleach accepts bracketed hostnames such as [bad]. */
 static inline Py_ssize_t th_url_authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
     int has_open = 0;

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import re
+from functools import partial
+from typing import TYPE_CHECKING
 
 import pytest
 
 from turbohtml import Minify, clean
 from turbohtml.clean import JSMinify, minify_js
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 
 @pytest.mark.parametrize(
@@ -322,6 +327,43 @@ def test_deep_nesting_is_rejected(source: str) -> None:
 def test_nesting_just_under_the_cap_still_minifies() -> None:
     # a legitimately deep expression below the cap folds and prints without faulting
     assert minify("+".join(["1"] * 900)).count("+") == 899
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing", "sizes"),
+    [
+        pytest.param("(function(){", "})()", (20, 120), id="function-wrapper"),
+        pytest.param("(()=>{", "})()", (20, 120), id="arrow-wrapper"),
+        pytest.param("(", ")", (50, 300), id="parenthesized"),
+        pytest.param("async(", ")", (50, 300), id="async-call"),
+    ],
+)
+def test_nested_groups_are_matched_in_linear_steps(
+    opening: str, closing: str, sizes: tuple[int, int], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, f"{opening * n}a{closing * n}"), sizes)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("x=((a)=>(b)=>a)", "x=a=>b=>a", id="nested-arrow-head"),
+        pytest.param("x=((a),(b)=>1)", "x=(a,b=>1)", id="plain-group-before-arrow-head"),
+        pytest.param("x=(a,(b)=>(c)=>c)", "x=(a,b=>c=>c)", id="arrow-head-after-plain-operand"),
+        pytest.param("x=(((a)))", "x=a", id="nested-plain-groups"),
+        pytest.param("f((a)=>((b))=>b)", "f(a=>b=>b)", id="arrow-body-group"),
+        pytest.param("x=((async(a)=>a))", "x=async a=>a", id="async-arrow-head"),
+        pytest.param("x=(function(){return((a)=>a)})()", "x=function(){return a=>a}()", id="arrow-in-function"),
+        pytest.param("x=(/'/,(c)=>1,'(',(d)=>1)", "x=(/'/,c=>1,'(',d=>1)", id="regex-quote-hides-group-from-scan"),
+    ],
+)
+def test_nested_groups_keep_their_arrow_heads(source: str, expected: str) -> None:
+    assert minify(source) == expected
+
+
+def test_nested_group_before_non_arrow_raises() -> None:
+    with pytest.raises(ValueError, match="expected \\) at offset 9"):
+        minify("x=((a)(b)=>c)")
 
 
 @pytest.mark.parametrize(

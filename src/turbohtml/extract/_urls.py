@@ -173,8 +173,8 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     hostless ``file:`` path is serialized with an empty authority.
 
     A Unicode host longer than 16384 code points, or holding a code point UTS #46 disallows in a domain (a C1
-    control, a noncharacter), keeps its lowercased Unicode form instead of punycode. The cap bounds the domain-to-ASCII
-    step, whose combining-mark reorder and punycode encoder are quadratic in the host length. The WHATWG standard
+    control, a noncharacter), keeps its lowercased Unicode form instead of punycode. The cap applies to the host both
+    as given and after the UTS #46 mapping and NFC, since one code point can map to as many as 18. The WHATWG standard
     leaves overlong labels undefined (`whatwg/url#824 <https://github.com/whatwg/url/issues/824>`_), and DNS caps a
     domain at 253 octets, far below the cap.
 
