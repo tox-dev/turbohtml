@@ -181,6 +181,8 @@ def test_rules_of_nested_lists_cost_like_flat_rules(work_steps: WorkSteps) -> No
         pytest.param(":is(li:has(+ li:has(+ li)))", "li:has(+ li + li)", id="adjacent-chain-in-is"),
         pytest.param("li:has(~ :is(li:has(~ li)))", "li:has(~ li:has(~ li))", id="sibling-chain-under-is"),
         pytest.param("li:has(~ li:has(b))", "li:has(~ li b)", id="descendant-has-in-sibling-chain"),
+        pytest.param(":nth-child(1 of li:nth-child(2))", "li:nth-child(2)", id="plain-position-in-of"),
+        pytest.param("li:nth-child(2):is(ol li)", "ol li:nth-child(2)", id="plain-position-beside-a-combinator-list"),
         pytest.param("ol:has(li:has(+ li:has(+ li)))", "ol:has(li + li + li)", id="adjacent-chain-in-has"),
         pytest.param(":nth-child(2n+1 of :nth-child(odd of li))", "li:nth-child(4n+1)", id="nth-of-nth-of"),
         pytest.param(":nth-last-child(2 of :nth-last-child(-n+5 of li))", "li:nth-last-child(2)", id="nth-last-of"),

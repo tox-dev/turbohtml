@@ -852,6 +852,7 @@ static sel_simple *sel_compound_parse(sel_parser *parser, int *out_count) {
                 break;                  /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
+        simples[count].nest = 0;
         sel_one(parser, &simples[count]);
         if (parser->error) {
             break;
@@ -1369,13 +1370,27 @@ static int sel_alts_nest_sibling_has(const sel_complex *alts, int count) {
     return 0;
 }
 
-/* Whether some compound of alts holds a selector list, the only way a selector can nest one. */
-static int sel_alts_have_list(const sel_complex *alts, int count) {
+/* Whether alts holds a nested list the nesting analysis routes or keeps: a :has() or an 'of S' clause, or a
+   :is()/:where()/:not() argument with a combinator or a list of its own. A plain argument walks nothing. */
+static int sel_alts_need_nest(const sel_complex *alts, int count) {
     for (int alt = 0; alt < count; alt++) {
         for (int index = 0; index < alts[alt].count; index++) {
             const sel_compound *compound = &alts[alt].compounds[index];
             for (int at = 0; at < compound->count; at++) {
-                if (compound->simples[at].kind == ':' && compound->simples[at].sub != NULL) {
+                const sel_simple *simple = &compound->simples[at];
+                if (simple->kind != ':' || simple->sub == NULL) {
+                    continue;
+                }
+                if (simple->pseudo == PSEUDO_HAS || simple->pseudo == PSEUDO_NTH_CHILD ||
+                    simple->pseudo == PSEUDO_NTH_LAST_CHILD) {
+                    return 1;
+                }
+                for (int argument = 0; argument < simple->sub_count; argument++) {
+                    if (simple->sub[argument].count > 1) {
+                        return 1;
+                    }
+                }
+                if (sel_alts_need_nest(simple->sub, simple->sub_count)) {
                     return 1;
                 }
             }
@@ -1409,7 +1424,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
     compiled->reads_dir = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_dir_pseudo);
     compiled->climbs = sel_alts_climb(compiled->alts, compiled->count, 0);
-    if (sel_alts_have_list(compiled->alts, compiled->count)) {
+    if (sel_alts_need_nest(compiled->alts, compiled->count)) {
         compiled->nests_has = sel_alts_nest_has(compiled->alts, compiled->count, 0);
         sel_nesting nesting = {0};
         sel_alts_nest(compiled->alts, compiled->count, 0, 0, &nesting);
