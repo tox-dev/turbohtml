@@ -2478,12 +2478,8 @@ PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
         th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL, 0};
         Py_ssize_t out_len;
         Py_UCS4 *data = th_node_minify(tree, th_tree_document(tree), &minify_opts, &opts, &out_len);
-        if (data == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            result = PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        } else {
-            result = ucs4_to_str(data, out_len);
-            PyMem_Free(data);
-        }
+        result = data == NULL ? PyErr_NoMemory() : ucs4_to_str(data, out_len); /* GCOVR_EXCL_BR_LINE: OOM */
+        PyMem_Free(data);
     }
     th_tree_free(tree);
     th_noscript_track_free(&track);

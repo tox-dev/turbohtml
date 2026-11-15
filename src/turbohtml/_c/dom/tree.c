@@ -6120,8 +6120,10 @@ th_shadow *th_shadow_mirror_new(void) {
     }
     th_shadow *mirror = shadow_new(sm, 1);
     if (mirror == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        th_tok_free(sm);  /* GCOVR_EXCL_LINE: allocation-failure path */
+        /* GCOVR_EXCL_START: allocation-failure path */
+        th_tok_free(sm); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
     return mirror;
 }
 

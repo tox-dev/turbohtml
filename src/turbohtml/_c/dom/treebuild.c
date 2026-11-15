@@ -180,8 +180,10 @@ PyObject *th_node_attrs_tuple(th_tree *tree, th_node *node, PyObject **shared) {
         /* GCOVR_EXCL_BR_START: the tuple and its dict entry fail only on allocation */
         if (result != NULL && PyDict_SetItem(*shared, key, result) < 0) {
             /* GCOVR_EXCL_BR_STOP */
+            /* GCOVR_EXCL_START: allocation-failure path */
             Py_CLEAR(result); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        /* GCOVR_EXCL_STOP */
     }
     Py_DECREF(key);
     return result;
