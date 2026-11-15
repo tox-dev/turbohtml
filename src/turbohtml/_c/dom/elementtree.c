@@ -1967,8 +1967,8 @@ static int strip_targets_push(strip_targets *targets, th_node *node) {
     if (targets->count == targets->capacity) {
         size_t cap;
         size_t bytes;
-        int grew = th_grow_cap((size_t)targets->capacity + 1, (size_t)targets->capacity, 16, sizeof(th_node *), &cap,
-                               &bytes);
+        int grew =
+            th_grow_cap((size_t)targets->capacity + 1, (size_t)targets->capacity, 16, sizeof(th_node *), &cap, &bytes);
         if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
             return -1; /* GCOVR_EXCL_LINE: size-overflow path */
         }
@@ -2053,7 +2053,7 @@ TH_NODE_API(static, int, view_strip_locked, (NodeObject * owner, PyObject *filte
             owner, NULL) {
     strip_targets targets = {NULL, 0, 0};
     int status = view_strip_collect(owner->node, filter, unwrap, &targets);
-    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+    if (status < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
     } else if (targets.count > 0) {
         handle_drop_index(owner->handle);
