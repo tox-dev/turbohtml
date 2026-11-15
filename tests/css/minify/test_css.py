@@ -1047,8 +1047,8 @@ _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\7b x}", "a{e:\\{x}", id="leading-brace"),
     pytest.param("a{e:\\fec0}", "a{e:\ufec0}", id="non-bom-final-byte"),
     pytest.param("a{e:1E3p\\78}", "a{e:1e3px}", id="uppercase-exponent-unit"),
-    pytest.param("a{e:x\\\ry}", "a{e:x\\\ry}", id="escaped-carriage-return"),
-    pytest.param("a{e:x\\\fy}", "a{e:x\\\fy}", id="escaped-form-feed"),
+    pytest.param("a{e:x\\\ry}", "", id="escaped-carriage-return"),
+    pytest.param("a{e:x\\\fy}", "", id="escaped-form-feed"),
     pytest.param("a{e:\\61\rb}", "a{e:ab}", id="escape-terminated-by-carriage-return"),
     pytest.param("a{e:\\5fx}", "a{e:_x}", id="leading-underscore"),
     pytest.param("a{e:-\\5f}", "a{e:-_}", id="hyphen-underscore"),
@@ -1119,7 +1119,7 @@ _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\31/**/a}", "a{e:\\31  a}", id="comment-after-escape"),
     pytest.param('@ch\\61rset "x";a{b:c}', '@ch\\61rset"x";a{b:c}', id="charset"),
     pytest.param("@1\\78;a{b:c}", "@1\\78;a{b:c}", id="at-keyword-not-an-ident"),
-    pytest.param("a{e:x\\\ny}", "a{e:x\\\ny}", id="escaped-newline"),
+    pytest.param("a{e:x\\\ny}", "", id="escaped-newline"),
 ]
 
 
@@ -2436,6 +2436,61 @@ def test_minify_css_inline_string_newline_in_escape() -> None:
     assert minify_css_inline('color:"\\a\n;position:fixed;x:"') == 'color:"\\a\n;position:fixed;x:"'
 
 
+# A `\` before a newline ends a name and is a delimiter (CSS Syntax 3 §4.3.8), and a new token starts after the newline.
+# Read into the name, it hides a `url(` and the quotes and comments after it. A custom property's value and a value
+# calling var() or env() admit the delimiter (CSS Variables 1 §2, §3), so they keep it. Everything else holding it is
+# dropped like a string cut short. Kept text keeps the newline, or the `\` would escape the next byte.
+_BACKSLASH_BEFORE_NEWLINE: Final[list[pytest.ParameterSet]] = [
+    pytest.param("a{b:x\\\ny;c:d}", "a{c:d}", id="in-name"),
+    pytest.param("a{b:x\\\r\ny;c:d}", "a{c:d}", id="crlf"),
+    pytest.param("a{b:\\\nurl(y);c:d}", "a{c:d}", id="before-url"),
+    pytest.param("a{b:1px\\\n;c:d}", "a{c:d}", id="in-unit"),
+    pytest.param("a{b:#\\\nx;c:d}", "a{c:d}", id="after-hash"),
+    pytest.param("a{b:#x\\\ny;c:d}", "a{c:d}", id="in-hash"),
+    pytest.param("a{b:@\\\nx;c:d}", "a{c:d}", id="after-at"),
+    pytest.param("a{--x:y\\\nz;c:d}", "a{--x:y\\\nz;c:d}", id="custom-property"),
+    pytest.param("a{--x:1;--x:y\\\nz}", "a{--x:1;--x:y\\\nz}", id="custom-property-after-earlier"),
+    pytest.param("a{--x:y\\\n}", "a{--x:y\\\n}", id="custom-property-ends-in-it"),
+    pytest.param("a{--x:y\\\r\nz}", "a{--x:y\\\r z}", id="custom-property-crlf"),
+    pytest.param("a{--x\\\n:y;c:d}", "a{c:d}", id="custom-property-name"),
+    pytest.param('a{--x:y\\\n"z\n;c:d}', "a{c:d}", id="custom-property-with-cut-string"),
+    pytest.param(
+        "a{color:red;color:var(--q,blue\\\n)}", "a{color:red;color:var(--q,blue\\\n)}", id="var-value-after-earlier"
+    ),
+    pytest.param("a{b:env(q) \\\n ;c:d}", "a{b:env(q) \\\n;c:d}", id="env-value"),
+    pytest.param("a{color:red;color:blue\\\n}", "a{color:red}", id="typed-value-keeps-earlier"),
+    pytest.param("a{b:c\\\n", "", id="last-declaration"),
+    pytest.param("a\\\nb{c:d}e{f:g}", "e{f:g}", id="selector"),
+    pytest.param("#\\\na{c:d}e{f:g}", "e{f:g}", id="selector-after-hash"),
+    pytest.param("@\\\nmedia screen{a{c:d}}e{f:g}", "e{f:g}", id="no-at-keyword"),
+    pytest.param("a{c:d;b\\\n{e:f}}", "a{c:d}", id="nested-rule-prelude"),
+    pytest.param("a{b:x,\\\ny;c:d}", "a{c:d}", id="delimiter-after-ident"),
+    pytest.param("a{b:f(x\\\ny);c:d}", "a{c:d}", id="other-function"),
+    pytest.param(
+        'div{\\\nurl(b "c")/*"*/{color:red}color:";display:none;w:"}',
+        'div{color:";display:none;w:"}',
+        id="string-after-dropped-rule",
+    ),
+    pytest.param("@media \\\nscreen{a{c:d}}", "@media \\\n screen{a{c:d}}", id="media-query"),
+    pytest.param("@x y\\\nurl(z);a{c:d}", "@x y \\\nurl(z);a{c:d}", id="at-statement-prelude"),
+    pytest.param("a{c:d}\\\n", "a{c:d}\\\n", id="stray-segment"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _BACKSLASH_BEFORE_NEWLINE)
+def test_minify_css_backslash_before_newline(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _BACKSLASH_BEFORE_NEWLINE)
+def test_minify_css_backslash_before_newline_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+def test_minify_css_inline_backslash_before_newline() -> None:
+    assert minify_css_inline("color:red;b:x\\\nurl(y);c:d;e:f\\\n") == "color:red;c:d"
+
+
 # A top-level ';' or '}' is a prelude component value, so a qualified rule carrying one has an invalid selector list
 # and is dropped with its block (CSS Syntax 3 §5.4.3); with no block the stray text is kept as recovery.
 _STRAY_TOP_TOKEN: Final[list[pytest.ParameterSet]] = [
@@ -2896,9 +2951,9 @@ _DIMENSION_UNIT: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:1-1}", "a{e:1-1}", id="hyphen-digit"),
     pytest.param("a{e:1-}", "a{e:1 -}", id="hyphen-delimiter"),
     pytest.param("a{e:1-", "a{e:1 -}", id="hyphen-at-eof"),
-    pytest.param("a{e:1\\\n}", "a{e:1 \\\n}", id="escaped-line-feed"),
-    pytest.param("a{e:1\\\r}", "a{e:1 \\\r}", id="escaped-carriage-return"),
-    pytest.param("a{e:1\\\f}", "a{e:1 \\\f}", id="escaped-form-feed"),
+    pytest.param("a{e:1\\\n}", "", id="escaped-line-feed"),
+    pytest.param("a{e:1\\\r}", "", id="escaped-carriage-return"),
+    pytest.param("a{e:1\\\f}", "", id="escaped-form-feed"),
     pytest.param("a{e:f(1px+1px)}", "a{e:f(1px 1px)}", id="signed-dimension-after-dimension"),
     pytest.param("a{e:f(1+1)}", "a{e:f(1 1)}", id="signed-number-after-number"),
     pytest.param("a{e:f(+1)}", "a{e:f(1)}", id="signed-number-first"),

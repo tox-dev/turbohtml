@@ -155,7 +155,9 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
     Py_ssize_t len = last->text_len + last->unit_len; /* a dimension's unit follows its number */
     int escape = last->kind != CSS_COMMENT && css_escapes(text, len);
     css_char quote = 0;
-    int open_url = last->kind == CSS_URL || (last->kind == CSS_BAD && text[0] != '"' && text[0] != '\'');
+    /* a bad token is a url unless it opens with a quote (a string cut short) or is the `\` before a newline */
+    int open_url =
+        last->kind == CSS_URL || (last->kind == CSS_BAD && text[0] != '"' && text[0] != '\'' && text[0] != '\\');
     if (last->kind == CSS_STR && !css_string_closed(text, len)) {
         quote = text[0];
     }
@@ -223,8 +225,8 @@ static void css_put_code_point(css_buf *out, uint32_t code_point) {
 }
 
 /* CSS Syntax 3 §4.3.7 replaces zero, surrogates and out-of-range escapes with U+FFFD.
-   Backslash-newline is invalid (§4.3.8); preserve that input for the existing parser. */
-static int css_decode_name(const css_char *name, Py_ssize_t len, css_buf *decoded) {
+   Backslash-newline is invalid (§4.3.8), and css_scan_ident ends the name before one. */
+static void css_decode_name(const css_char *name, Py_ssize_t len, css_buf *decoded) {
     Py_ssize_t pos = 0;
     while (pos < len) {
         css_char byte = name[pos++];
@@ -233,9 +235,6 @@ static int css_decode_name(const css_char *name, Py_ssize_t len, css_buf *decode
             continue;
         }
         byte = name[pos];
-        if (byte == '\n' || byte == '\r' || byte == '\f') {
-            return 0;
-        }
         if (!css_is_hex(byte)) {
             /* a non-ASCII code point's continuation bytes follow as plain bytes */
             if (byte == 0) {
@@ -257,7 +256,6 @@ static int css_decode_name(const css_char *name, Py_ssize_t len, css_buf *decode
         css_put_code_point(decoded,
                            value == 0 || (value >= 0xD800 && value <= 0xDFFF) || value > 0x10FFFF ? 0xFFFD : value);
     }
-    return 1;
 }
 
 enum { CSS_SPELL_IDENT, CSS_SPELL_UNIT, CSS_SPELL_HASH };
@@ -326,7 +324,8 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
         }
         int starts_ident = css_starts_ident(name, 0, name_len);
         decoded.len = 0;
-        if ((!starts_ident && token->kind != CSS_HASH) || !css_decode_name(name, name_len, &decoded) ||
+        css_decode_name(name, name_len, &decoded);
+        if ((!starts_ident && token->kind != CSS_HASH) ||
             (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0)) {
             /* a name kept as written still gets the space closing a hex escape at its end, as a spelled one does,
                unless a `;`, `{`, `}` or the end of the input follows it, where no output can put whitespace after it */

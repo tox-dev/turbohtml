@@ -143,7 +143,7 @@ limits:
   count.
 - Back-references such as ``(\w+) \1`` run on a backtracking matcher. One XPath evaluation may spend 10,000,000 steps
   plus 100 for each character it searches, and keep 655,360 saved positions (10 MiB), before it raises
-  :class:`ValueError`.
+  :class:`ValueError`. A back-reference costs a step for each character it compares.
 - In ``replace``, ``$N`` takes the longest run of its digits that names a group and leaves the remaining digits as text.
   A single digit past the last group stands for nothing. ``re:replace`` reads ``\1`` and ``\g<name>`` instead.
 - ``\B`` matches the empty string, and ``\b`` never does.
