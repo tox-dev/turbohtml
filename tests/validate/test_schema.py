@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter, no shell
+import sys
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -21,6 +23,85 @@ _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
 
 _RELAXNG_NS: Final[str] = "http://relaxng.org/ns/structure/1.0"
+
+
+_RECURSIVE_XSD: Final[str] = (
+    f'<xs:schema {_XS}><xs:element name="a"><xs:complexType><xs:sequence>'
+    '<xs:element ref="a" minOccurs="0"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+)
+_RECURSIVE_RNG: Final[str] = (
+    f'<grammar xmlns="{_RELAXNG_NS}"><start><ref name="a"/></start>'
+    '<define name="a"><element name="a"><optional><ref name="a"/></optional></element></define></grammar>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema_type", "source"),
+    [pytest.param("XMLSchema", _RECURSIVE_XSD, id="xsd"), pytest.param("RelaxNG", _RECURSIVE_RNG, id="relax-ng")],
+)
+def test_deeply_nested_instance_fits_a_small_thread_stack(schema_type: str, source: str) -> None:
+    # the instance is walked with an explicit stack, so a worker thread's stack does not bound how deep the document
+    # nests; a subprocess turns a crash into a failed assertion instead of a killed test run
+    code = (
+        "import sys, threading\nfrom turbohtml import parse_xml, validate\n"
+        f"schema = validate.{schema_type}(sys.stdin.read())\n"
+        "threading.stack_size(160 * 1024)\n"
+        "run = lambda: print(schema.validate(parse_xml('<a>' * 350 + '</a>' * 350)).valid)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, input on stdin
+        [sys.executable, "-c", code],
+        input=source,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, "True\n"), result.stderr
+
+
+@pytest.mark.parametrize(
+    ("schema", "document", "expected"),
+    [
+        pytest.param(
+            XMLSchema(
+                f'<xs:schema {_XS}><xs:element name="a"><xs:complexType><xs:all>'
+                '<xs:element ref="a" minOccurs="0"/><xs:element name="b" type="xs:int"/>'
+                "</xs:all></xs:complexType></xs:element></xs:schema>"
+            ),
+            f"{'<a>' * 20}<b>x</b><c/>{'<b>1</b></a>' * 19}</a>",
+            [
+                (f"{'/a' * 20}/b", "value 'x' is not a valid int"),
+                ("/a" * 20, "element 'c' is not allowed here"),
+                ("/a" * 20, "element 'b' is not allowed here"),
+                ("/a", "required element 'b' is missing"),
+            ],
+            id="xsd",
+        ),
+        pytest.param(
+            RelaxNG(
+                f'<grammar xmlns="{_RELAXNG_NS}"><start><ref name="a"/></start><define name="a"><element name="a">'
+                '<optional><ref name="a"/></optional><element name="b"><text/></element></element></define></grammar>'
+            ),
+            f"{'<a>' * 20}{'<b>1</b></a>' * 19}</a>",
+            [("/a", "content of element 'a' does not match the schema")],
+            id="relax-ng",
+        ),
+        pytest.param(
+            RelaxNG(_RECURSIVE_RNG),
+            "<a><a><a><c/></a><d/></a></a>",
+            [("/a/a/a/c", "element 'c' is not allowed here"), ("/a/a/d", "element 'd' is not allowed here")],
+            id="relax-ng-refused-start-tag",
+        ),
+    ],
+)
+def test_errors_below_nested_elements_keep_document_order(
+    schema: XMLSchema | RelaxNG, document: str, expected: list[tuple[str, str]]
+) -> None:
+    # an element reports what only its end can tell (a missing xs:all member, a RELAX NG content mismatch) after its
+    # descendants report and under its own path, 20 levels up here; a refused start tag is reported once
+    assert [(error.path, error.message) for error in schema.validate(parse_xml(document)).errors] == expected
 
 
 @pytest.mark.parametrize(
