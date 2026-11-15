@@ -1720,10 +1720,6 @@ def _key_chain(links: int, *, match: str = "a") -> str:
     return f'{chain}<xsl:key name="k{links}" match="{match}" use="."/>'
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 14) and sys.platform != "linux",
-    reason="before CPython 3.14 only Linux builds read the thread's real C stack bounds",
-)
 @pytest.mark.parametrize(
     "body",
     [
@@ -1737,7 +1733,7 @@ def _key_chain(links: int, *, match: str = "a") -> str:
             '<xsl:value-of select="$v"/></xsl:template>',
             id="variable-body",
         ),
-        # past the 400-level cap: only Linux checks the C stack in enter_deep_level, so elsewhere the cap is what raises
+        # past the 400-level cap, which raises where the C stack check in enter_deep_level has not
         pytest.param(f"{_key_chain(400 + 2, match='r')}{_KEY_LOOKUP}", id="key-chain"),
     ],
 )

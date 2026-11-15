@@ -457,7 +457,7 @@ static int32_t parse_union(parser *ps) {
    of unary minus -- descends through here, so a single depth cap bounds the whole
    parser's stack use and raises past the bound instead of overflowing (issue #421). */
 static int32_t parse_unary(parser *ps) {
-    if (ps->depth >= XP_MAX_DEPTH) {
+    if (ps->depth >= XP_STACK_CHECK_DEPTH && xp_too_deep(ps->depth)) {
         ps->depth_limit = 1;
         fail(ps, "expression nested too deeply");
         return -1;

@@ -492,7 +492,19 @@ static inline PyObject *type_for_node(module_state *state, const th_node *node) 
     return state->node_type; /* GCOVR_EXCL_LINE: every node type returns above */
 }
 
-static inline PyObject *node_wrap_nonnull(module_state *state, PyObject *handle, th_node *node, int element) {
+/* an unoptimized build keeps the call, so gcov counts each branch once rather than once per inlined call site */
+#if defined(_MSC_VER)
+#define TH_NODE_WRAP_INLINE __forceinline
+#elif defined(__GNUC__) && defined(__OPTIMIZE__)
+#define TH_NODE_WRAP_INLINE inline __attribute__((always_inline))
+#else
+#define TH_NODE_WRAP_INLINE inline
+#endif
+
+/* Forced: every node handed to Python passes through here, and LTO's unit-wide inline budget runs out before it reaches
+   some callers, such as XPath's result conversion, whenever code elsewhere in the extension grows. */
+static TH_NODE_WRAP_INLINE PyObject *node_wrap_nonnull(module_state *state, PyObject *handle, th_node *node,
+                                                       int element) {
     NodeObject **binding = NULL;
 #ifndef Py_GIL_DISABLED
     if (node->binding_id != 0) {

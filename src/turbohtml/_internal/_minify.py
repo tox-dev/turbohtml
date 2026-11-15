@@ -66,8 +66,8 @@ def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["r
     :raises TypeError: if ``source`` is not a :class:`str`.
     :raises ValueError: if ``on_error`` is not ``"raise"`` or ``"passthrough"``, or -- when
         ``on_error="raise"`` -- if the parser cannot handle the script (a lexical or syntax error,
-        or input nested past the depth limit), with the message naming the construct, its byte
-        offset, and the offending token.
+        or input nested past the depth limit, which a thread with a small C stack lowers), with the
+        message naming the construct, its byte offset, and the offending token.
     """
     return _minify_js(source, (config := options or JSMinify()).fold, config.mangle, on_error)
 

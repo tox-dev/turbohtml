@@ -2006,6 +2006,46 @@ def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermos
 
 
 @pytest.mark.parametrize(
+    ("opening", "innermost", "closing"),
+    [
+        pytest.param("(2*", "3", ")", id="operator"),
+        pytest.param("boolean(", "true()", ")", id="function-argument"),
+        pytest.param("descendant-or-self::node()[", "true()", "]", id="step-predicate"),
+    ],
+)
+def test_nesting_on_the_smallest_thread_stack_raises_cleanly(opening: str, innermost: str, closing: str) -> None:
+    # 52 KiB is the smallest stack Python starts a thread with on Linux, too small for the cap; past what it holds the
+    # expression raises like one past the cap
+    code = (
+        "import sys, threading, turbohtml\n"
+        "doc = turbohtml.parse('<p>')\n"
+        "opening, innermost, closing = sys.argv[1:]\n"
+        "evaluated = []\n"
+        "def run():\n"
+        "    for depth in range(1, 64 + 7):\n"
+        "        try:\n"
+        "            doc.xpath(opening * depth + innermost + closing * depth)\n"
+        "        except ValueError as error:\n"
+        "            assert 'nested too deeply' in str(error), error\n"
+        "        else:\n"
+        "            evaluated.append(depth)\n"
+        "threading.stack_size(52 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(evaluated == list(range(1, evaluated[-1] + 1)))\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", code, opening, innermost, closing],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, "True\n"), result.stderr
+
+
+@pytest.mark.parametrize(
     ("left", "right"),
     [
         pytest.param(("2",) * 32, ("1",) * 32, id="descending"),

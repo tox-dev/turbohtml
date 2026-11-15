@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
+import sys
+import threading
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -350,6 +353,94 @@ def _stacked(base: str, spine: str, rounds: int) -> str:
 def test_deep_nesting_is_rejected(source: str) -> None:
     with pytest.raises(ValueError, match="nested too deeply at offset"):
         minify(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "passes", "kib", "expected"),
+    [
+        # the parser recurses once per level
+        pytest.param(f"x={'`${' * 980}1{'}`' * 980}", "print", 512, "nested too deeply at offset", id="parser"),
+        # a chain costs the parser no stack, but each pass after it recurses once per link
+        pytest.param(f"x=a{'+a' * 985}", "fold", 192, "nested too deeply at offset", id="fold"),
+        pytest.param(
+            f"function f(a){{return a{'+a' * 985}}}", "mangle", 80, "nested too deeply at offset", id="mangle"
+        ),
+        pytest.param(f"x=a{'.b' * 985}", "print", 64, "nested too deeply at offset", id="print"),
+        # a flat statement list the guard fold nests once per guard, as deep as the thread's stack allows
+        pytest.param(
+            f"function f(){{{'if(c)return 4;' * 3000}return 2}}",
+            "fold",
+            80,
+            "function f(){if(c)return 4;if(c)return 4",
+            id="fold-rewrite",
+        ),
+    ],
+)
+def test_small_thread_stack_bounds_the_nesting(source: str, passes: str, kib: int, expected: str) -> None:
+    # threading.stack_size only commits part of the stack python.exe reserves on Windows, so there the child reserves
+    # the size itself; an overflow ends the interpreter, so the child turns it into a failed assertion
+    code = """
+import sys
+import threading
+
+from turbohtml.clean import JSMinify, minify_js
+
+source = sys.stdin.read()
+options = JSMinify(fold=sys.argv[1] == "fold", mangle=sys.argv[1] == "mangle")
+outcome = []
+
+
+def run(_=None):
+    try:
+        outcome.append(minify_js(source, options))
+    except ValueError as exc:
+        outcome.append(str(exc))
+    return 0
+
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    start_type = ctypes.WINFUNCTYPE(wintypes.DWORD, wintypes.LPVOID)
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.CreateThread.restype = wintypes.HANDLE
+    kernel32.CreateThread.argtypes = [
+        wintypes.LPVOID, ctypes.c_size_t, start_type, wintypes.LPVOID, wintypes.DWORD, wintypes.LPVOID
+    ]
+    start = start_type(run)
+    stack_size_param_is_a_reservation = 0x10000
+    handle = kernel32.CreateThread(None, int(sys.argv[2]) * 1024, start, None, stack_size_param_is_a_reservation, None)
+    kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
+else:
+    threading.stack_size(int(sys.argv[2]) * 1024)
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join()
+print(outcome[0])
+"""
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
+        [sys.executable, "-c", code, passes, str(kib)],
+        input=source,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout[: len(expected)]) == (0, expected), result.stderr
+
+
+def test_small_thread_stack_keeps_shallower_nesting() -> None:
+    # the stack bounds the depth rather than turning the thread away: a 512 KiB thread still takes a hundred levels
+    result: list[str] = []
+    previous = threading.stack_size(512 * 1024)
+    try:
+        worker = threading.Thread(target=lambda: result.append(minify(f"x={'[' * 100}{']' * 100}")))
+        worker.start()
+        worker.join()
+    finally:
+        threading.stack_size(previous)
+    assert result == [f"x={'[' * 100}{']' * 100}"]
 
 
 @pytest.mark.parametrize(

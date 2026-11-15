@@ -176,6 +176,13 @@ int xp_name_eq(const lexer *lx, const char *kw);
    writes takes, and 64 levels already fire on an expression of a hundred characters. */
 #define XP_MAX_DEPTH 64
 
+/* Levels past this one also compare their frame with the thread's stack floor (xp_too_deep): 64 levels fit the default
+   thread stacks, but not a thread sized near the smallest Python starts. Shallower levels pay one comparison. */
+#define XP_STACK_CHECK_DEPTH 16
+
+/* Whether a level at depth reaches XP_MAX_DEPTH or the end of the thread's C stack. */
+int xp_too_deep(int depth);
+
 /* How deep a position test may nest for the evaluator to work it out from the size of a context's stretch alone
    (offset_formula in parser.c, view_positions in eval.c). */
 #define XP_OFFSET_DEPTH 8

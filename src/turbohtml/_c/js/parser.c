@@ -13,9 +13,16 @@
    NULL and the caller emits the original source unchanged, so partial coverage can
    never corrupt a script. */
 
+/* glibc declares pthread_getattr_np, which core/stack.h reads the thread's stack bounds with, only for GNU code. The
+   extension build gets that from pyconfig.h; the standalone build has no Python.h to ask for it. */
+#if defined(JM_STANDALONE) && defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE 1
+#endif
+
 #include "js/internal.h"
 
 #include "core/fuzzing.h"
+#include "core/stack.h"
 #include "core/work_steps.h"
 
 #include <stdio.h>
@@ -31,6 +38,7 @@ typedef struct {
     jm_lexer lx;
     jm_program *prog;
     int err;
+    int32_t limit;     /* the nesting cap on this call's thread: JM_MAX_DEPTH, or what the C stack left holds */
     int32_t depth;     /* current parse-recursion depth; a nesting cap stops a stack overflow (#421) */
     int32_t peak;      /* deepest level reached since the innermost chain began */
     int await_keyword; /* `await` starts an AwaitExpression: in an async function, or at a module's top level */
@@ -46,11 +54,22 @@ typedef struct {
     Py_ssize_t await_at;    /* where the function being parsed last used `await` as an identifier */
 } P;
 
-/* The recursion/nesting a script may reach before the parser rejects it as too deep, chosen so the
-   post-parse fold and print walks (bounded by this AST height) stay well inside the C stack -- even a
-   512 KiB secondary-thread stack -- while clearing the deepest generated expressions seen in practice
-   (hundreds of operands). The point is to fail cleanly on a pathological input rather than fault. */
+/* The recursion/nesting a script may reach before the parser rejects it as too deep, chosen to clear the deepest
+   generated expressions seen in practice (hundreds of operands). The parse and the fold, mangle and print walks after
+   it (bounded by this AST height) all recurse once per level, so on a thread whose C stack holds fewer levels the cap
+   drops to what it holds (stack_levels). The point is to fail cleanly on a pathological input rather than fault. */
 enum { JM_MAX_DEPTH = TH_DEPTH_LIMIT(1000) };
+
+/* The C stack one level of nesting may take in the parse or in any walk after it, the most measured over every nesting
+   construct of the grammar: about 0.55 KiB with gcc -O3, 0.65 KiB with MSVC /O2, 0.9 KiB with clang -O3, and 1.25 KiB
+   with clang -O0. */
+enum { JM_LEVEL_BYTES = 1536 };
+
+#ifndef TH_STACK_FLOOR
+/* Where the platform reports no stack bounds, the stack assumed left below jm_parse: a 512 KiB thread less the margin
+   other stack guards keep and the frames of the caller. */
+enum { JM_FALLBACK_STACK = 384 * 1024 };
+#endif
 
 /* Report the first error: the construct that failed, the byte offset, and the offending token slice
    (or end-of-input), so a diagnostic names what and where rather than an offset alone (#434). */
@@ -85,7 +104,7 @@ static void fail_at(P *parser, Py_ssize_t start, const char *message) {
 /* Enter one level of parse recursion; returns 0 (after flagging a clean error) when the nesting cap
    is reached, so the caller unwinds instead of overflowing the stack. Each enter pairs with a leave. */
 static int enter(P *parser) {
-    if (parser->depth >= JM_MAX_DEPTH) {
+    if (parser->depth >= parser->limit) {
         fail(parser, "nested too deeply");
         return 0;
     }
@@ -109,7 +128,7 @@ static int32_t chain_begin(P *parser) {
 }
 
 static int chain_link(P *parser) {
-    if (parser->peak >= JM_MAX_DEPTH) {
+    if (parser->peak >= parser->limit) {
         fail(parser, "nested too deeply");
         return 0;
     }
@@ -2161,6 +2180,17 @@ static void parse_static_block(P *parser, int32_t member) {
     set_b(parser, member, fn);
 }
 
+/* The levels the C stack left below the caller's frame holds, at most JM_MAX_DEPTH. The fold, mangle and print passes
+   run from th_js_minify too, a frame above this one, so the same room bounds them. */
+static int32_t stack_levels(void) {
+#ifdef TH_STACK_FLOOR
+    intptr_t room = (intptr_t)(TH_FRAME_ADDRESS() - th_stack_floor());
+#else
+    intptr_t room = JM_FALLBACK_STACK;
+#endif
+    return room / JM_LEVEL_BYTES < JM_MAX_DEPTH ? (int32_t)(room / JM_LEVEL_BYTES) : JM_MAX_DEPTH;
+}
+
 jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbuf, size_t errlen) {
     jm_program *prog = jm_program_new();
     if (prog == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -2170,7 +2200,15 @@ jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbu
     prog->src = src;
     prog->src_len = len;
 
-    P parser = {.prog = prog, .err = 0, .errbuf = errbuf, .errlen = errlen, .await_keyword = module, .strict = module};
+    int32_t levels = stack_levels();
+    prog->rewrite_limit = levels - levels / 10;
+    P parser = {.prog = prog,
+                .err = 0,
+                .limit = levels,
+                .errbuf = errbuf,
+                .errlen = errlen,
+                .await_keyword = module,
+                .strict = module};
     parser.arrow_at = -1;
     parser.operator_at = -1;
     parser.await_at = -1;
