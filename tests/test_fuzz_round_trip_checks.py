@@ -357,6 +357,7 @@ def test_markdown_check_passes_to_markdown() -> None:
         pytest.param("<strong><b></b></strong><p><i><br></i><br>é", id="empty-strong-paragraph-accent"),
         "<br><i>*<br></i> <",
         pytest.param("<del>[</del>\\<em><em>h|</em>>(<br><del><br><el", id="del-bracket-pipe-break-nest"),
+        pytest.param('<ul><li><i><br></i><br><a href="k ">><em>ё', id="list-italic-break-link-angle"),
     ],
 )
 def test_markdown_check_accepts_equivalent_html(markup: str) -> None:
@@ -378,7 +379,7 @@ def test_markdown_check_skips_a_block_inside_an_inline() -> None:
 
 def test_markdown_check_skips_reader_html_outside_the_meaning_model() -> None:
     with pytest.raises(OutOfScopeError):
-        markdown_check('<ul><li><b><br></b><br><a href="a ">><em>😀')
+        markdown_check("<p>y</p>", lambda node: "<audio>" if node.text else "y")
 
 
 @pytest.mark.parametrize("markup", ["<em>_<br><br></em>)", "<del>y<br><br></del>>"])

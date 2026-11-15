@@ -46,11 +46,6 @@ static Py_ssize_t node_length(th_node *node) {
     return count;
 }
 
-/* Whether ancestor is node or one of its ancestors. */
-static int is_inclusive_ancestor(th_node *ancestor, th_node *node) {
-    return ancestor == node || is_ancestor(ancestor, node);
-}
-
 /* bp_compare for two different nodes with left_node not after right_node in tree order: -1, or +1 when left_node is
    an ancestor of right_node and the point sits after the child that leads to it. */
 static int bp_compare_ordered(th_node *left_node, Py_ssize_t left_offset, th_node *right_node) {
@@ -98,54 +93,32 @@ static int realize_char_data(th_tree *tree, th_node *node, const Py_UCS4 **text)
     return 0;
 }
 
-/* Splice the [from, to) code-point run out of a character-data node's text. Returns 0, or -1 on
-   allocation failure. */
-static int replace_data_delete(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
-    Py_ssize_t remaining = node->text_len - to;
-    Py_ssize_t new_len = from + remaining;
-    const Py_UCS4 *text;
-    if (realize_char_data(tree, node, &text) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
-        return -1;                                  /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    Py_UCS4 *buffer = PyMem_Malloc((size_t)(new_len > 0 ? new_len : 1) * sizeof(Py_UCS4));
-    if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (node->text_len > 0) { /* parsed empty character data has a NULL text pointer */
-        memcpy(buffer, text, (size_t)from * sizeof(Py_UCS4));
-        memcpy(buffer + from, text + to, (size_t)remaining * sizeof(Py_UCS4));
-    }
-    int rc = th_node_set_data(tree, node, buffer, new_len);
-    PyMem_Free(buffer);
-    return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: th_node_set_data only fails on OOM */
-}
-
 static inline const Py_UCS4 *char_data_offset(const Py_UCS4 *text, Py_ssize_t offset) {
     return text == NULL ? NULL : text + offset; /* GCOVR_EXCL_BR_LINE: empty text or allocation failure */
 }
 
 /* Split a character-data node at offset: the tail becomes a new sibling right after it, which is
-   returned. NULL on allocation failure. */
+   returned. The tail reads the rest of the head's buffer, so a split stores no text. NULL on
+   allocation failure. */
 static th_node *split_data_node(th_tree *tree, th_node *node, Py_ssize_t offset) {
     const Py_UCS4 *text;
     if (realize_char_data(tree, node, &text) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
         return NULL;                                /* GCOVR_EXCL_LINE: allocation failure */
     }
-    th_node *tail = th_tree_make_data_node(tree, node->type, char_data_offset(text, offset), node->text_len - offset);
+    th_node *tail = th_tree_make_data_node(tree, node->type, NULL, 0);
     if (tail == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (replace_data_delete(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+    if (offset < node->text_len) {
+        tail->text = node->text + offset;
+        tail->text_len = node->text_len - offset;
+        tail->text_exclusive = node->text_exclusive;
+    }
+    if (th_node_delete_data(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_node_insert_before(node->parent, tail, node->next_sibling);
     return tail;
-}
-
-/* A node straddling exactly one boundary (an inclusive ancestor of one endpoint but not the other). */
-static int is_partially_contained(th_node *node, th_node *start_node, th_node *end_node) {
-    return is_inclusive_ancestor(node, start_node) != is_inclusive_ancestor(node, end_node);
 }
 
 /* Move every child of a throwaway fragment onto parent, in order. */
@@ -212,13 +185,38 @@ static th_node **collect_contained(th_node *common, th_node *start_node, Py_ssiz
     return nodes;
 }
 
-/* The common ancestor of the two boundary containers (they share a root). */
+/* The common ancestor of the two boundary containers (they share a root). The two paths are brought level and then
+   climbed together; testing each ancestor of one container against the other would walk to the root at every step. */
 static th_node *common_ancestor(th_node *start_node, th_node *end_node) {
-    th_node *container = start_node;
-    while (!is_inclusive_ancestor(container, end_node)) {
-        container = container->parent;
+    if (start_node == end_node) {
+        return start_node;
     }
-    return container;
+    Py_ssize_t start_depth = 0;
+    for (th_node *node = start_node; node->parent != NULL; node = node->parent) {
+        TH_WORK_STEP();
+        start_depth++;
+    }
+    Py_ssize_t end_depth = 0;
+    for (th_node *node = end_node; node->parent != NULL; node = node->parent) {
+        TH_WORK_STEP();
+        end_depth++;
+    }
+    th_node *start_at = start_node;
+    th_node *end_at = end_node;
+    for (; start_depth > end_depth; start_depth--) {
+        TH_WORK_STEP();
+        start_at = start_at->parent;
+    }
+    for (; end_depth > start_depth; end_depth--) {
+        TH_WORK_STEP();
+        end_at = end_at->parent;
+    }
+    while (start_at != end_at) {
+        TH_WORK_STEP();
+        start_at = start_at->parent;
+        end_at = end_at->parent;
+    }
+    return start_at;
 }
 
 /* clone/extract follow the two partially contained boundary paths recursively. Reject an unsafe path before allocating
@@ -244,29 +242,25 @@ static int range_check_recursive_depth(RangeObject *range, const char *operation
     return -1;
 }
 
-/* The first (walking forward) child of common the range partially contains. */
-static th_node *first_partial(th_node *common, th_node *start_node, th_node *end_node) {
-    th_node *child = common->first_child;
-    while (!is_partially_contained(child, start_node, end_node)) {
-        child = child->next_sibling;
-    }
-    return child;
-}
-
-/* The last (walking back) child of common the range partially contains. */
-static th_node *last_partial(th_node *common, th_node *start_node, th_node *end_node) {
-    th_node *child = common->last_child;
-    while (!is_partially_contained(child, start_node, end_node)) {
-        child = child->prev_sibling;
+/* The child of common on the path down to boundary, a strict descendant of common. The start's is the first child the
+   range partially contains and the end's the last, so the climb finds either without testing every sibling against
+   both boundary paths. */
+static th_node *partial_child(th_node *common, th_node *boundary) {
+    th_node *child = boundary;
+    while (child->parent != common) {
+        TH_WORK_STEP();
+        child = child->parent;
     }
     return child;
 }
 
 /* Extract the range's content into a fresh fragment, moving contained nodes and splitting the
-   boundary character data out of the source tree. Recursive over straddled elements. NULL on
-   error with an exception set; the returned CONTENT node lives in tree. */
-static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_offset, th_node *end_node,
-                           Py_ssize_t end_offset) {
+   boundary character data out of the source tree. Recursive over straddled elements: each is the
+   common ancestor of the boundaries it recurses with, so common is handed down rather than found
+   again from the root at every level. NULL on error with an exception set; the returned CONTENT
+   node lives in tree. */
+static th_node *do_extract(th_tree *tree, th_node *common, th_node *start_node, Py_ssize_t start_offset,
+                           th_node *end_node, Py_ssize_t end_offset) {
     th_node *fragment = th_tree_make_fragment(tree);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -286,14 +280,13 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, piece);
-        if (replace_data_delete(tree, start_node, start_offset, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        if (th_node_delete_data(tree, start_node, start_offset, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;                                                           /* GCOVR_EXCL_LINE: OOM path */
         }
         return fragment;
     }
-    th_node *common = common_ancestor(start_node, end_node);
-    th_node *first = is_inclusive_ancestor(start_node, end_node) ? NULL : first_partial(common, start_node, end_node);
-    th_node *last = is_inclusive_ancestor(end_node, start_node) ? NULL : last_partial(common, start_node, end_node);
+    th_node *first = start_node == common ? NULL : partial_child(common, start_node);
+    th_node *last = end_node == common ? NULL : partial_child(common, end_node);
     Py_ssize_t contained_count;
     int error;
     th_node **contained =
@@ -314,8 +307,8 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, piece);
-        /* replace_data_delete only fails on OOM */
-        if (replace_data_delete(tree, start_node, start_offset, start_node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+        /* th_node_delete_data only fails on OOM */
+        if (th_node_delete_data(tree, start_node, start_offset, start_node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             PyMem_Free(contained);                                                           /* GCOVR_EXCL_LINE: OOM */
             return NULL;                                                                     /* GCOVR_EXCL_LINE: OOM */
         }
@@ -326,7 +319,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_extract(tree, start_node, start_offset, first, node_length(first));
+        th_node *sub = do_extract(tree, first, start_node, start_offset, first, node_length(first));
         if (sub == NULL) {         /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -348,7 +341,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, piece);
-        if (replace_data_delete(tree, end_node, 0, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        if (th_node_delete_data(tree, end_node, 0, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;                                              /* GCOVR_EXCL_LINE: OOM path */
         }
     } else if (last != NULL) {
@@ -357,7 +350,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_extract(tree, last, 0, end_node, end_offset);
+        th_node *sub = do_extract(tree, last, last, 0, end_node, end_offset);
         if (sub == NULL) { /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -367,9 +360,10 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
 }
 
 /* Clone the range's content into a fresh fragment, leaving the source tree untouched. Recursive
-   over straddled elements. NULL on error with an exception set. */
-static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_offset, th_node *end_node,
-                         Py_ssize_t end_offset) {
+   over straddled elements, handing common down as do_extract does. NULL on error with an exception
+   set. */
+static th_node *do_clone(th_tree *tree, th_node *common, th_node *start_node, Py_ssize_t start_offset,
+                         th_node *end_node, Py_ssize_t end_offset) {
     th_node *fragment = th_tree_make_fragment(tree);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -391,9 +385,8 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
         th_node_append_child(fragment, piece);
         return fragment;
     }
-    th_node *common = common_ancestor(start_node, end_node);
-    th_node *first = is_inclusive_ancestor(start_node, end_node) ? NULL : first_partial(common, start_node, end_node);
-    th_node *last = is_inclusive_ancestor(end_node, start_node) ? NULL : last_partial(common, start_node, end_node);
+    th_node *first = start_node == common ? NULL : partial_child(common, start_node);
+    th_node *last = end_node == common ? NULL : partial_child(common, end_node);
     Py_ssize_t contained_count;
     int error;
     th_node **contained =
@@ -421,7 +414,7 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_clone(tree, start_node, start_offset, first, node_length(first));
+        th_node *sub = do_clone(tree, first, start_node, start_offset, first, node_length(first));
         if (sub == NULL) {         /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -453,7 +446,7 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_clone(tree, last, 0, end_node, end_offset);
+        th_node *sub = do_clone(tree, last, last, 0, end_node, end_offset);
         if (sub == NULL) { /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -463,19 +456,15 @@ static th_node *do_clone(th_tree *tree, th_node *start_node, Py_ssize_t start_of
 }
 
 /* The collapsed boundary a range takes after extract/delete, computed before the tree mutates. */
-static void collapse_point(th_node *start_node, Py_ssize_t start_offset, th_node *end_node, th_node **out_node,
+static void collapse_point(th_node *common, th_node *start_node, Py_ssize_t start_offset, th_node **out_node,
                            Py_ssize_t *out_offset) {
-    if (is_inclusive_ancestor(start_node, end_node)) {
+    if (start_node == common) {
         *out_node = start_node;
         *out_offset = start_offset;
         return;
     }
-    th_node *reference = start_node;
-    while (!is_inclusive_ancestor(reference->parent, end_node)) {
-        reference = reference->parent;
-    }
-    *out_node = reference->parent;
-    *out_offset = node_index(reference) + 1;
+    *out_node = common;
+    *out_offset = node_index(partial_child(common, start_node)) + 1;
 }
 
 /* --- boundary helpers on the RangeObject --- */
@@ -947,14 +936,15 @@ static PyObject *extract_or_delete(PyObject *self, int discard) {
     if (check_boundaries(range) == 0 &&
         range_check_recursive_depth(range, discard ? "delete_contents()" : "extract_contents()") == 0) {
         handle_drop_index(range->start_handle);
+        th_node *common = common_ancestor(range->start_node, range->end_node);
         th_node *new_node;
         Py_ssize_t new_offset;
         int collapsed = range_is_collapsed(range);
         if (!collapsed) {
-            collapse_point(range->start_node, range->start_offset, range->end_node, &new_node, &new_offset);
+            collapse_point(common, range->start_node, range->start_offset, &new_node, &new_offset);
         }
         th_node *fragment =
-            do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+            do_extract(tree, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -985,7 +975,9 @@ static PyObject *range_clone_contents(PyObject *self, PyObject *Py_UNUSED(ignore
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
     if (check_boundaries(range) == 0 && range_check_recursive_depth(range, "clone_contents()") == 0) {
-        th_node *fragment = do_clone(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        th_node *common = common_ancestor(range->start_node, range->end_node);
+        th_node *fragment =
+            do_clone(tree, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -1151,16 +1143,22 @@ static PyObject *range_insert_node(PyObject *self, PyObject *node_obj) {
     Py_RETURN_NONE;
 }
 
-/* surroundContents forbids a range partially containing any non-Text node: sets a ValueError and returns -1 then. */
+/* surroundContents forbids a range partially containing any non-Text node: sets a ValueError and returns -1 then. The
+   nodes a range partially contains are its two boundary paths below the common ancestor. */
 static int reject_partial_non_text(RangeObject *range) {
     th_node *common = common_ancestor(range->start_node, range->end_node);
-    th_node *node = common;
-    while (node != NULL) {
-        if (node->type != TH_NODE_TEXT && is_partially_contained(node, range->start_node, range->end_node)) {
-            PyErr_SetString(PyExc_ValueError, "the range partially contains a non-Text node");
-            return -1;
-        }
-        node = preorder_next(node, common);
+    int partial_non_text = 0;
+    for (th_node *node = range->start_node; node != common; node = node->parent) {
+        TH_WORK_STEP();
+        partial_non_text |= node->type != TH_NODE_TEXT;
+    }
+    for (th_node *node = range->end_node; node != common; node = node->parent) {
+        TH_WORK_STEP();
+        partial_non_text |= node->type != TH_NODE_TEXT;
+    }
+    if (partial_non_text) {
+        PyErr_SetString(PyExc_ValueError, "the range partially contains a non-Text node");
+        return -1;
     }
     return 0;
 }
@@ -1202,14 +1200,15 @@ TH_NODE_API(static, PyObject *, range_surround_contents, (PyObject * self, PyObj
     if (import_surround_parent(range, new_parent) == 0) {
         parent_node = ((NodeObject *)new_parent)->node; /* the import re-points a foreign wrapper at its copy */
         handle_drop_index(range->start_handle);
+        th_node *common = common_ancestor(range->start_node, range->end_node);
         th_node *new_node;
         Py_ssize_t new_offset;
         int collapsed = range_is_collapsed(range);
         if (!collapsed) {
-            collapse_point(range->start_node, range->start_offset, range->end_node, &new_node, &new_offset);
+            collapse_point(common, range->start_node, range->start_offset, &new_node, &new_offset);
         }
         th_node *fragment =
-            do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+            do_extract(tree, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */

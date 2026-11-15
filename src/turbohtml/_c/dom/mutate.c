@@ -622,6 +622,43 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
     return 0;
 }
 
+/* Remove the [from, to) code-point run from a node's character data without copying the text that stays: the arena
+   keeps every buffer until the tree is freed, so a copy per edit grows with the number of edits. A run at either end
+   narrows the node's view of its buffer; a run in the middle closes up in place once the node owns its buffer, which
+   costs one copy on the first such edit. Returns 0, or -1 with MemoryError set on allocation failure. */
+int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
+    const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
+    if (old == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        PyErr_NoMemory();                    /* GCOVR_EXCL_LINE: allocation failure */
+        return -1;                           /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    th_mo_char_data_changed(tree, node, old, node->text_len);
+    Py_ssize_t remaining = node->text_len - to;
+    if (remaining == 0) {
+        node->text_len = from;
+    } else if (from == 0) {
+        node->text += to;
+        node->text_len = remaining;
+    } else {
+        if (!node->text_exclusive) {
+            Py_UCS4 *owned = arena_alloc(tree, (from + remaining) * (Py_ssize_t)sizeof(Py_UCS4));
+            if (owned == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            memcpy(owned, old, (size_t)from * sizeof(Py_UCS4));
+            node->text = owned;
+            node->text_exclusive = 1;
+        }
+        memmove(node->text + from, old + to, (size_t)remaining * sizeof(Py_UCS4));
+        node->text_len = from + remaining;
+    }
+    if (node->text_len == 0) {
+        node->text = (Py_UCS4 *)th_empty_text;
+    }
+    return 0;
+}
+
 /* Remove the attribute with this name, shifting the rest down. Returns 1 when one
    was removed, 0 when the element had no such attribute. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
@@ -1234,6 +1271,81 @@ static uint32_t fold_attr_atom(th_tree *tree, uint32_t atom) {
     return folded_atom;
 }
 
+/* One attribute of an element being folded: the atom of its folded name and its position among the attributes. */
+typedef struct {
+    uint32_t atom;
+    Py_ssize_t index;
+} folded_attr_key;
+
+static int folded_attr_key_less(const folded_attr_key *left, const folded_attr_key *right) {
+    return left->atom < right->atom || (left->atom == right->atom && left->index < right->index);
+}
+
+static void sift_folded_attr_key(folded_attr_key *keys, Py_ssize_t root, Py_ssize_t end) {
+    for (Py_ssize_t child = 2 * root + 1; child < end; child = 2 * root + 1) {
+        TH_WORK_STEP();
+        if (child + 1 < end && folded_attr_key_less(&keys[child], &keys[child + 1])) {
+            child++;
+        }
+        if (!folded_attr_key_less(&keys[root], &keys[child])) {
+            return;
+        }
+        folded_attr_key top = keys[root];
+        keys[root] = keys[child];
+        keys[child] = top;
+        root = child;
+    }
+}
+
+/* Heapsort rather than qsort: some C libraries' qsort (MSVC's) is quadratic on a crafted order of its input, while
+   heapsort is n log n for every order and needs no hash table that a document could make collide. */
+static void heapsort_folded_attr_keys(folded_attr_key *keys, Py_ssize_t count) {
+    for (Py_ssize_t root = count / 2 - 1; root >= 0; root--) {
+        sift_folded_attr_key(keys, root, count);
+    }
+    for (Py_ssize_t end = count - 1; end > 0; end--) {
+        folded_attr_key top = keys[0];
+        keys[0] = keys[end];
+        keys[end] = top;
+        sift_folded_attr_key(keys, 0, end);
+    }
+}
+
+/* Fold the attribute names of an element with many attributes, keeping the first of each folded name. Comparing every
+   name against each one kept before it is quadratic in the attribute count, and an XML document puts any number of
+   attributes on one element; sorting the folded atoms brings the attributes of one name together instead, without a
+   hash table whose collisions a document could choose. Returns 0, or -1 on allocation failure. */
+static int fold_wide_attrs(th_tree *dest, th_node *node) {
+    folded_attr_key *keys = PyMem_Malloc((size_t)node->attr_count * sizeof(*keys));
+    if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        uint32_t atom = fold_attr_atom(dest, node->attrs[index].name_atom);
+        if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyMem_Free(keys);          /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        node->attrs[index].name_atom = atom;
+        keys[index] = (folded_attr_key){atom, index};
+    }
+    heapsort_folded_attr_keys(keys, node->attr_count);
+    for (Py_ssize_t index = 1; index < node->attr_count; index++) {
+        if (keys[index].atom == keys[index - 1].atom) {
+            node->attrs[keys[index].index].name_atom = TH_ATTR_UNKNOWN; /* no attribute holds the absent atom */
+        }
+    }
+    PyMem_Free(keys);
+    Py_ssize_t kept = 0;
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        if (node->attrs[index].name_atom != TH_ATTR_UNKNOWN) {
+            node->attrs[kept++] = node->attrs[index];
+        }
+    }
+    node->attr_count = kept;
+    return 0;
+}
+
 /* Rewrite a copied element for a tree of the other kind. An XML tree keeps every element as an unknown atom under its
    spelled name, so an HTML element moving in drops the atom that made it raw text (a <script> would otherwise
    serialize "a<b" unescaped). An HTML tree stores and matches HTML element and attribute names in ASCII lowercase, and
@@ -1260,6 +1372,9 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
     }
     node->atom = is_ascii ? th_tag_lookup(ascii, node->text_len) : TH_TAG_UNKNOWN;
     node->tag_flags = (uint8_t)(th_tag_flags(node->atom) | (node->tag_flags & TH_ELEM_IMPLIED));
+    if (node->attr_count >= 32) {
+        return fold_wide_attrs(dest, node);
+    }
     Py_ssize_t kept = 0;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         uint32_t atom = fold_attr_atom(dest, node->attrs[index].name_atom);
@@ -1268,6 +1383,7 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
         }
         Py_ssize_t earlier = 0;
         while (earlier < kept && node->attrs[earlier].name_atom != atom) {
+            TH_WORK_STEP();
             earlier++;
         }
         if (earlier == kept) {
