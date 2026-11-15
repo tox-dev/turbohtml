@@ -1974,6 +1974,15 @@ def test_minify_css_live_rule_search_scales_linearly(work_steps: WorkSteps) -> N
         pytest.param('@import url(a"b");', '@import url(a"b");', id="import-bad-url-double-quote-kept"),
         pytest.param("@import url(a'b');", "@import url(a'b');", id="import-bad-url-single-quote-kept"),
         pytest.param("@namespace url(a(b);", "@namespace url(a(b);", id="namespace-bad-url-paren-kept"),
+        # an unquoted url holding a quote is a bad url that ends at its first ')' and opens no string (§4.3.6), so a
+        # comment after it is no comment in a browser and the declaration holding it is dropped
+        pytest.param('p{b:url(a"b)/*x*/c:d}e{f:g}', "e{f:g}", id="bare-url-quote-then-comment"),
+        pytest.param('p{b:url(a "b)/*x*/c:d}e{f:g}', "e{f:g}", id="bare-url-space-quote-then-comment"),
+        pytest.param('p{--x:url(a"b)}c{d:e}', "c{d:e}", id="bare-url-quote-custom-property"),
+        pytest.param('p{b:u+1url(a"b)/*x*/c:d}e{f:g}', "e{f:g}", id="unicode-range-bare-url-quote"),
+        pytest.param(
+            'q{url(b "c")/*"*/{d:e}f:";display:none;g:"}', 'q{f:";display:none;g:"}', id="bare-url-nested-rule"
+        ),
         # a `*` universal or a combinator before an attribute selector keeps its descendant-combinator space (#1034): a
         # `[` opens a fresh attribute, so a `*` before it is the universal selector, not the `*=` operator
         pytest.param("* [lang]{c:d}", "* [lang]{c:d}", id="universal-descendant-attribute"),
@@ -2053,7 +2062,9 @@ def test_minify_css_spec_fixes(source: str, expected: str) -> None:
         pytest.param("@media{{(}}[", "", id="brace-inside-paren-in-media"),
         pytest.param('@media{url(}"\n', '@media{url(}"\n)}', id="bad-url-in-media"),
         pytest.param("@media{url('x\n", "@media{url('x\n)}", id="bad-url-single-quote-in-media"),
-        pytest.param('@media{url(}"\n")', '@media{url(}"\n")")}', id="bad-url-open-quote-after-newline"),
+        pytest.param('@media{url(}"\n")', '@media{url(}"\n")}', id="bad-url-closed-quote-after-newline"),
+        pytest.param('@media{url(}"\n"', '@media{url(}"\n")}', id="bad-url-open-quote-after-newline"),
+        pytest.param('@media{url(c"d', '@media{url(c"d)}', id="bad-url-open-quote"),
         pytest.param('a{b:"x\n', "", id="bad-string-at-eof"),
         pytest.param("a{b:'x\n", "", id="bad-single-quote-string-at-eof"),
         pytest.param("@media{a/*x", "@media{a/*x*/}", id="open-comment-in-media"),
@@ -2169,7 +2180,7 @@ _OPEN_AT_EOF: Final[list[pytest.ParameterSet]] = [
     pytest.param('a{e:"x\\"', 'a{e:"x\\""}', id="string-escaped-quote"),
     pytest.param('a{e:"x\\\\"', 'a{e:"x\\\\"}', id="string-escaped-backslash"),
     pytest.param('a{e:"', 'a{e:""}', id="lone-quote"),
-    pytest.param('@import url(l("[', '@import url(l("[");', id="import-bad-url-quote"),
+    pytest.param('@import url(l("[', '@import url(l("[);', id="import-bad-url-quote"),
     pytest.param("a/*", "a/**/", id="comment-opener"),
     pytest.param("a/*x", "a/*x*/", id="comment"),
     pytest.param("a/*xy", "a/*xy*/", id="comment-two-code-points"),
@@ -2396,10 +2407,52 @@ def test_minify_css_inline_string_cut_by_newline() -> None:
     assert minify_css_inline('color:red;x:"a\n;--y:{"b\n}') == "color:red"
 
 
+# A hex escape takes one whitespace after its digits, a newline included (CSS Syntax 3 §4.3.7), and a `\` before a
+# newline continues the line (§4.3.5). Neither newline cuts the string short, so what follows it stays string data; a
+# newline after any other escape, or after the whitespace that closed a hex escape, still does.
+_STRING_NEWLINE_IN_ESCAPE: Final[list[pytest.ParameterSet]] = [
+    pytest.param('a{x:"\\a\n;color:red;y:"}', 'a{x:"\\a\n;color:red;y:"}', id="hex-escape"),
+    pytest.param('a{x:"it\'s\\a\n;b"}', 'a{x:"it\'s\\a\n;b"}', id="hex-escape-other-quote-inside"),
+    pytest.param("a{x:'\\a\n;color:red;y:'}", "a{x:'\\a\n;color:red;y:'}", id="hex-escape-single-quote"),
+    pytest.param('a{x:"\\a\r\n;color:red;y:"}', 'a{x:"\\a\r\n;color:red;y:"}', id="hex-escape-crlf"),
+    pytest.param('a{x:"\\a\r;color:red;y:"}', 'a{x:"\\a\r;color:red;y:"}', id="hex-escape-carriage-return"),
+    pytest.param('a{x:"\\a\f;color:red;y:"}', 'a{x:"\\a\f;color:red;y:"}', id="hex-escape-form-feed"),
+    pytest.param('a{x:"\\00000a\n;color:red;y:"}', 'a{x:"\\00000a\n;color:red;y:"}', id="six-digit-hex-escape"),
+    pytest.param('a{x:"\\a\n', 'a{x:"\\a\n"}', id="hex-escape-open-at-eof"),
+    pytest.param('a{b:url("\\a\n);color:red;y:")}', 'a{b:url("\\a\n);color:red;y:")}', id="hex-escape-in-url"),
+    pytest.param('a{b:url("\\a\n', 'a{b:url("\\a\n")}', id="hex-escape-in-url-open-at-eof"),
+    pytest.param('a{b:url("\\a\n)', 'a{b:url("\\a\n)")}', id="hex-escape-in-url-string-open-at-eof"),
+    pytest.param('a{b:url("x\\\n);color:red;y:")}', 'a{b:url("x);color:red;y:")}', id="continuation-in-url"),
+    pytest.param('a{b:url("x\\\r\n);color:red;y:")}', 'a{b:url("x);color:red;y:")}', id="crlf-continuation-in-url"),
+    pytest.param('a{b:url("x\\\r\n)', 'a{b:url("x)")}', id="crlf-continuation-in-url-string-open-at-eof"),
+    pytest.param('a{b:url("x\\\r);color:red;y:")}', 'a{b:url("x);color:red;y:")}', id="cr-continuation-in-url"),
+    pytest.param('a{x:"\\g\n;color:red}', "a{color:red}", id="cut-after-plain-escape"),
+    pytest.param('a{x:"\\\\a\n;color:red}', "a{color:red}", id="cut-after-escaped-backslash"),
+    pytest.param('a{x:"\\a \n;color:red}', "a{color:red}", id="cut-after-hex-escape-space"),
+    pytest.param('a{x:"\\000000a\n;color:red}', "a{color:red}", id="cut-after-seventh-hex-digit"),
+    pytest.param('a{b:url("\\g\n);color:red}', "a{color:red}", id="cut-after-plain-escape-in-url"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRING_NEWLINE_IN_ESCAPE)
+def test_minify_css_string_newline_in_escape(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRING_NEWLINE_IN_ESCAPE)
+def test_minify_css_string_newline_in_escape_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+def test_minify_css_inline_string_newline_in_escape() -> None:
+    assert minify_css_inline('color:"\\a\n;position:fixed;x:"') == 'color:"\\a\n;position:fixed;x:"'
+
+
 # A `\` before a newline ends a name and is a delimiter (CSS Syntax 3 §4.3.8), and a new token starts after the newline.
 # Read into the name, it hides a `url(` and the quotes and comments after it. A custom property's value and a value
-# calling var() or env() admit the delimiter (CSS Variables 1 §2, §3), so they keep it. Everything else holding it is
-# dropped like a string cut short. Kept text keeps the newline, or the `\` would escape the next byte.
+# calling a substitution function (var(), env(), attr(), if()) admit the delimiter (CSS Variables 1 §2, §3), so they
+# keep it. Everything else holding it is dropped like a string cut short. Kept text keeps the newline, or the `\` would
+# escape the next byte.
 _BACKSLASH_BEFORE_NEWLINE: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{b:x\\\ny;c:d}", "a{c:d}", id="in-name"),
     pytest.param("a{b:x\\\r\ny;c:d}", "a{c:d}", id="crlf"),
@@ -2418,6 +2471,9 @@ _BACKSLASH_BEFORE_NEWLINE: Final[list[pytest.ParameterSet]] = [
         "a{color:red;color:var(--q,blue\\\n)}", "a{color:red;color:var(--q,blue\\\n)}", id="var-value-after-earlier"
     ),
     pytest.param("a{b:env(q) \\\n ;c:d}", "a{b:env(q) \\\n;c:d}", id="env-value"),
+    pytest.param("a{b:attr(c\\\nd)}", "a{b:attr(c\\\nd)}", id="attr-value"),
+    pytest.param("a{width:attr(e px,\\\n3px);c:d}", "a{width:attr(e px,\\\n3px);c:d}", id="attr-typed-value"),
+    pytest.param("a{b:if(c\\\nd)}", "a{b:if(c\\\nd)}", id="if-value"),
     pytest.param("a{color:red;color:blue\\\n}", "a{color:red}", id="typed-value-keeps-earlier"),
     pytest.param("a{b:c\\\n", "", id="last-declaration"),
     pytest.param("a\\\nb{c:d}e{f:g}", "e{f:g}", id="selector"),

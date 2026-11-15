@@ -378,6 +378,14 @@ static inline void sbuf_put_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
     sbuf_put_ucs4_tail(out, text, start, len);
 }
 
+/* Dropped characters leave a `?` and a `>` adjacent in the output, so the `>` is looked for past them. */
+static inline int xml_pi_gt_follows(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t index) {
+    while (index < len && xml_char_invalid(text[index])) {
+        index++;
+    }
+    return index < len && text[index] == '>';
+}
+
 /* A `?>` in the data would end the instruction, and XML forbids C0 controls. */
 static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t start = 0;
@@ -385,7 +393,7 @@ static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize
         if (xml_char_invalid(text[index])) {
             sbuf_put_ucs4(out, text + start, index - start);
             start = index + 1;
-        } else if (index + 1 < len && text[index] == '?' && text[index + 1] == '>') {
+        } else if (text[index] == '?' && xml_pi_gt_follows(text, len, index + 1)) {
             sbuf_put_ucs4(out, text + start, index + 1 - start);
             sbuf_putc(out, ' ');
             start = index + 1;
@@ -811,7 +819,14 @@ static inline int ser_xml_ns_used(th_tree *tree, const th_node *root, const char
     return 0;
 }
 
-static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted) {
+/* Copy the ancestors' namespace declarations node's subtree uses onto node. When every child of the boundary gets
+   its own copy, spend is the account those copies are charged to; past its allowance the serialization fails with
+   ValueError, since output without the declarations would reparse into other namespaces. */
+static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted,
+                                              th_xml_ns_spend *spend) {
+    if (out->failed) { /* nothing more is written, so there is no use working out what to copy */
+        return;
+    }
     for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
         if (ancestor->type != TH_NODE_ELEMENT) {
             continue;
@@ -825,11 +840,24 @@ static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th
                 !ser_xml_ns_used(tree, node, name, name_len)) {
                 continue;
             }
+            Py_ssize_t start = out->len;
+            if (spend != NULL && !xml_ns_copy_funded(spend->copied, spend->flushed + start,
+                                                     name_len + attr->value_len + 4, spend->base)) {
+                PyErr_Format(PyExc_ValueError,
+                             "the namespace declarations the children inherit exceed the allowance of %zd characters "
+                             "plus %d per character of other output; serialize the element itself to write them once",
+                             spend->base, TH_XML_NS_PER_CHAR);
+                out->failed = 1;
+                return;
+            }
             sbuf_putc(out, ' ');
             sbuf_put_utf8(out, name, name_len);
             sbuf_puts(out, "=\"");
             sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
             sbuf_putc(out, '"');
+            if (spend != NULL) {
+                spend->copied += out->len - start; /* what was written: escaping can lengthen the value */
+            }
         }
     }
 }
@@ -891,7 +919,7 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
             ser_xml_xlink_inherited(tree, node, walk);
         }
         if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
-            ser_xml_inherited_ns_decls(out, tree, node, emitted);
+            ser_xml_inherited_ns_decls(out, tree, node, emitted, opts->xml_ns_spend);
         }
         return emitted;
     }
@@ -917,7 +945,7 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
         sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
     }
     if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
-        ser_xml_inherited_ns_decls(out, tree, node, emitted);
+        ser_xml_inherited_ns_decls(out, tree, node, emitted, opts->xml_ns_spend);
     }
     return emitted;
 }

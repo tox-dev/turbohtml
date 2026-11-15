@@ -3738,9 +3738,12 @@ static void md_list_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
             /* a list nested directly in a list (a sibling of the <li>s, not wrapped
                in one) belongs to the preceding item as a sublist; the parser makes
                this shape, and dropping it would lose every nested item. The nested
-               list re-applies the wrap guard per item, so none is needed here. */
+               list re-applies the wrap guard per item, so none is needed here.
+               Before the first item no marker exists to indent under. */
             state->in_run = 0;
-            md_push_indent(ctx, state->sub_indent, 1);
+            if (state->item_seen) {
+                md_push_indent(ctx, state->sub_indent, 1);
+            }
             md_render_block(ctx, child);
             return;
         }
@@ -3854,7 +3857,6 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
     Py_ssize_t bullets_len = (Py_ssize_t)strlen(ctx->opt->bullets);
     md_list_state state = {
         .number = number,
-        .sub_indent = 2, /* how far a bare nested list indents: the last marker's width */
         .bullet = ctx->opt->bullets[ctx->list_depth % bullets_len],
         .delimiter = '.',
         .ordered = ordered,
