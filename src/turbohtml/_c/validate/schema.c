@@ -501,7 +501,7 @@ typedef struct def_entry {
     th_node *first; /* first <define> element for this name */
     def_part *extra, *last;
     pattern *built;  /* memoized pattern, NULL until first resolved */
-    int cycle_depth; /* compile-time 4.19 cycle check: -1 unvisited, -2 cleared, else the element depth in progress */
+    int scan_height; /* compile-time scan: -1 unvisited, -2 expanding, else the levels nested above its elements */
     nameset names;   /* compile-time 7.4 check: what a ref to this define matches, final once names_state is 2 */
     int names_state; /* compile-time 7.4 check: 0 unvisited, 1 on the DFS stack, 2 done */
 } def_entry;
