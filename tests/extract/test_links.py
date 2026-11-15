@@ -898,6 +898,22 @@ def test_an_exception_on_the_first_of_several_style_texts_stops_the_walk() -> No
     assert seen == ["one.png"]  # the second text node was never reached
 
 
+def test_replace_moving_the_walked_node_to_another_tree_finishes_on_the_old_one() -> None:
+    fragment = parse_fragment('<p><a href="/a">1</a><a href="/b">2</a></p>')
+    host = Element("div")
+    seen: list[str] = []
+
+    def replace(url: str) -> str:
+        seen.append(url)
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move leaves the walk its last owner
+        return f"{url}?t"
+
+    fragment.rewrite_links(replace)
+    assert seen == ["/a", "/b"]
+    # the copy the move made left before the first replacement was written, and the walk stays on the tree it began in
+    assert host.inner_html == '<div><p><a href="/a">1</a><a href="/b">2</a></p></div>'
+
+
 def test_rewrite_links_requires_a_callable() -> None:
     with pytest.raises(TypeError, match="expected a callable"):
         parse_fragment("<a href=a>x</a>").rewrite_links("not callable")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection

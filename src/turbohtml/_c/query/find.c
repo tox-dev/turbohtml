@@ -1283,12 +1283,17 @@ TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject 
         return NULL;
     }
     if (query.text != NULL) {
+        /* a text filter can move self into another tree, and the text search reads the handle off self again */
+        PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
         PyObject *result = find_with_text(self, &query, 0);
         free_query(&query);
+        Py_DECREF(handle);
         return result;
     }
+    /* a callable filter in the walk can move self into another tree, which drops the reference self holds on this one;
+       the walk owns one so it finishes on the tree it began in and wraps what it finds against that tree */
+    PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
     module_state *state = state_of(self);
-    PyObject *handle = ((NodeObject *)self)->handle;
     th_node *origin = ((NodeObject *)self)->node;
     th_node *found = NULL;
     int error = 0;
@@ -1343,6 +1348,7 @@ TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject 
     }
     Py_END_CRITICAL_SECTION();
     free_query(&query);
+    Py_DECREF(handle);
     return result;
 }
 
@@ -1383,20 +1389,26 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
         return NULL;
     }
     if (query.text != NULL) {
+        /* a text filter can move self into another tree, and the text search reads the handle off self again */
+        PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
         PyObject *result = find_with_text(self, &query, 1);
         free_query(&query);
+        Py_DECREF(handle);
         return result;
     }
     if (find_index_prebuild(self, &query) < 0) { /* GCOVR_EXCL_BR_LINE: the build fails only to allocate */
         free_query(&query);                      /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* a callable filter in the walk can move self into another tree, which drops the reference self holds on this one;
+       the walk owns one so it finishes on the tree it began in and wraps what it finds against that tree */
+    PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
     module_state *state = state_of(self);
-    PyObject *handle = ((NodeObject *)self)->handle;
     th_node *origin = ((NodeObject *)self)->node;
     PyObject *out = PyList_New(0);
     if (out == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         free_query(&query); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(handle);  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int error = 0;
@@ -1480,6 +1492,7 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
     }
     Py_END_CRITICAL_SECTION();
     free_query(&query);
+    Py_DECREF(handle);
     if (error) {
         Py_XDECREF(out);
         return NULL;

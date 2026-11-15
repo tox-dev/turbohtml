@@ -2784,6 +2784,18 @@ def test_converter_on_root_element() -> None:
     assert out == "S[hi **there**]"
 
 
+def test_converter_moving_the_rendered_node_to_another_tree_finishes_on_the_old_one() -> None:
+    fragment = parse_fragment('<p>see <a href="/a">one</a> and <a href="/b">two</a></p>')
+    host = Element("div")
+
+    def link(anchor: Element, content: str) -> str:
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move leaves the render its last owner
+        return f"[{content}]({anchor.attrs['href']})"
+
+    assert fragment.to_markdown(Markdown(converters={"a": link})) == "see [one](/a) and [two](/b)"
+    assert fragment.parent == host
+
+
 def test_converter_edge_skips_empty_text_nodes() -> None:
     document = parse("<p>x<u> t </u>y</p>")
     underline = document.find("u")
