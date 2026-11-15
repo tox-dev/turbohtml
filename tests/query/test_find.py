@@ -778,6 +778,40 @@ def test_text_python_path_limit_caps_results() -> None:
     assert len(matches) == 2
 
 
+_TEST_TEXT_FILTER_ADDS_CANDIDATES_PATTERN: Final[re.Pattern[str]] = re.compile(r"q+")
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        pytest.param(
+            lambda document, keep: document.find("a", href=keep, text=_TEST_TEXT_FILTER_ADDS_CANDIDATES_PATTERN),
+            None,
+            id="find",
+        ),
+        pytest.param(
+            lambda document, keep: [element.attrs["href"] for element in document.find_all("a", href=keep, text=_WORD)],
+            ["/seed"] * 40,
+            id="find-all",
+        ),
+    ],
+)
+def test_text_python_path_filter_adds_candidates(
+    query: Callable[[Document, Callable[[str | None], bool]], object], expected: list[str] | None
+) -> None:
+    # the snapshot is sized before the structural filters run, and every call of this one adds another match
+    document: Final = parse("<a href='/seed'>z</a>" * 40)
+    body: Final = _el(document.find("body"))
+
+    def keep(value: str | None) -> bool:
+        assert value == "/seed"
+        body.append(Element("a", {"href": "/added"}, [Text("q")]))
+        return True
+
+    assert query(document, keep) == expected
+    assert len(document.find_all("a")) == 80
+
+
 @pytest.mark.parametrize("tag", ["div", "DIV", "custom", "Custom"])
 def test_xml_find_all_matches_exact_tag_name(tag: str, xml_case_document: Document) -> None:
     assert [element.tag for element in xml_case_document.find_all(tag)] == [tag]
