@@ -1214,6 +1214,12 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
                          name_utf8(local, local_len, buffer, sizeof(buffer)));
             return -1;
         }
+        if (u_eq_ascii(local, local_len, "list")) {
+            return xsd_require_members(schema, node, "itemType", 1);
+        }
+        if (u_eq_ascii(local, local_len, "union")) {
+            return xsd_require_members(schema, node, "memberTypes", 0);
+        }
     } else if (kind == XSD_ELEMENT) {
         if (xsd_require_ref(schema, node, &schema->elements, "element") < 0 || xsd_require_type(schema, node, 1) < 0) {
             return -1;
@@ -1238,10 +1244,6 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
             schema->complex_extension = 1;
         }
         return xsd_require_base(schema, node);
-    } else if (u_eq_ascii(local, local_len, "list")) {
-        return xsd_require_members(schema, node, "itemType", 1);
-    } else if (u_eq_ascii(local, local_len, "union")) {
-        return xsd_require_members(schema, node, "memberTypes", 0);
     }
     return 0;
 }
