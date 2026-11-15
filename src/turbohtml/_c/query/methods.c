@@ -2619,7 +2619,17 @@ retry:;
     return PyBool_FromLong(matched);
 }
 
-static int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) __attribute__((always_inline));
+/* The closest driver and its helpers stay inline in node_css_closest: an out-of-line copy adds a call to every
+ * closest(). */
+#if defined(_MSC_VER)
+#define CLOSEST_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define CLOSEST_INLINE inline __attribute__((always_inline))
+#else
+#define CLOSEST_INLINE inline
+#endif
+
+static CLOSEST_INLINE int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found);
 
 TH_NODE_API(, PyObject *, node_css_closest, (PyObject * self, PyObject *arg), (self, arg),
             (PyObject * self, PyObject *arg), (NodeObject *)self,
@@ -2657,7 +2667,7 @@ static TH_NOINLINE th_node *closest_sharing_dir(th_node *scope, const sel_compil
     return found;
 }
 
-static int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
+static CLOSEST_INLINE int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
     if (check_selector_arg(arg) < 0) {
         return -1;
     }
@@ -2752,12 +2762,6 @@ typedef struct {
     closest_entry *retry; /* grouped runs: the nodes that moved to another tree before their run took them */
     Py_ssize_t retries;
 } closest_call;
-
-#if defined(__GNUC__)
-#define CLOSEST_INLINE inline __attribute__((always_inline))
-#else
-#define CLOSEST_INLINE inline
-#endif
 
 /* What a run does with the node at position: CLOSEST_CLIMB from *start, CLOSEST_SKIP it (it moved to another tree
    and waits for the next round of the grouped runs), or CLOSEST_END the run there (a run without a group ends at the
