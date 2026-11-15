@@ -2675,7 +2675,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
     match->qualified_len = step->str_len;
     match->name_test = ctx->name_test;
     match->name_test_ctx = ctx->name_test_ctx;
-    match->strict_no_ns = ctx->strict_no_ns && step->prefix_len == 0; /* GCOVR_EXCL_BR_LINE: prefixes use callback */
+    match->strict_no_ns = ctx->strict_no_ns;
     if (step->test != NT_NAME) {
         return 0;
     }

@@ -9467,3 +9467,17 @@ def test_transform_pattern_matches_an_html_source() -> None:
         '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
     )
     assert transform(sheet, turbohtml.parse("<p>a</p><p>b</p>")) == "[a][b]"
+
+
+def test_transform_pattern_skips_a_foreign_element_moved_into_an_xml_tree() -> None:
+    document = parse_xml("<r/>")
+    svg = turbohtml.parse("<svg><rect/></svg>").select_one("svg")
+    root = document.select_one("r")
+    assert svg is not None
+    assert root is not None
+    root.append(svg)
+    sheet = _sheet(
+        '<xsl:template match="rect">[x]</xsl:template>'
+        '<xsl:template match="/"><xsl:apply-templates select="//rect"/></xsl:template>'
+    )
+    assert not transform(sheet, document)
