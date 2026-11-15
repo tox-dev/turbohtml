@@ -12,6 +12,7 @@ from bench.operations import INPUTS
 from turbohtml.clean import JSMinify, minify_js
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from types import ModuleType
 
     from work_steps import WorkSteps
@@ -1388,6 +1389,103 @@ def test_guard_chain_growth_preserves_return_order(count: int) -> None:
 )
 def test_guard_chain_growth_preserves_unfolded_statements(source: str, expected: str) -> None:
     assert minify_js(source) == expected
+
+
+# a statement list is flat, so the parser's nesting cap never meters its length: the guard fold must not turn that
+# length into a tree nested once per guard, which the fold, mangle and print walks then overflow the C stack on
+@pytest.mark.parametrize(
+    "guard",
+    [
+        pytest.param("if(c)return 4;", id="chain-in-alternate"),
+        pytest.param("if(!c)return 4;", id="chain-in-consequent"),
+        pytest.param("if(d)return d;", id="chain-refolds-to-logical"),
+    ],
+)
+@pytest.mark.parametrize(
+    "options",
+    [pytest.param(JSMinify(), id="mangle"), pytest.param(JSMinify(mangle=False), id="fold-only")],
+)
+def test_guard_chain_nesting_is_capped(guard: str, options: JSMinify) -> None:
+    minified: Final = minify_js(f"function f(){{{guard * 3_000}return 2}}", options)
+    assert minified.count("if(") == 2_104  # the guards past the cap stay statements
+    assert minify_js(minified, options) == minified
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [
+        pytest.param("return function(){", "}", id="rest"),
+        pytest.param("if(!c)return function(){", "};return 3", id="branch"),
+        pytest.param("if(function(){", "}())return 4;return 3", id="test"),
+    ],
+)
+def test_guard_chain_nesting_cap_spans_nested_functions(opening: str, closing: str) -> None:
+    # each `x();` holds the guards before it back one pass, so a function folds its long run a pass after the function
+    # inside it did: only a depth counted from the program root keeps the chains from stacking one under the other
+    body = "return 2"
+    for delay in range(11, 0, -1):
+        body = "if(!c)return 4;" * 880 + "if(!c)return 4;x();" * delay + opening + body + closing
+    minified: Final = minify_js(f"function f(){{{body}}}")
+    assert minify_js(minified) == minified  # the parser takes it back: no chain nests past its cap
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+def test_guard_chain_past_the_cap_preserves_behavior(tmp_path: Path) -> None:
+    guards: Final = "".join(
+        f"if(x==={index})return g({index});if(!(x!=={index + 1}))return-{index};" for index in range(0, 2000, 2)
+    )
+    calls: Final = "console.log([0,1,2,999,1100,1101,1998,1999,2000].map(f).join())"
+    source: Final = f"function g(v){{return v+1}}function f(x){{{guards}return g(-2)}}{calls}"
+    minified: Final = minify_js(source)
+    assert 0 < minified.count("if(") < 2000  # some guards folded, the rest stayed statements
+    script: Final = tmp_path / "guard_chain.js"
+    assert _run_file(script, minified) == _run_file(script, source)
+
+
+def _run_file(script: Path, code: str) -> str:
+    assert _NODE is not None  # the callers are skipped when node is unavailable
+    # a script past the Windows command-line limit (32767 characters) cannot go through `node -e`
+    script.write_text(code, encoding="utf-8")
+    result = subprocess.run([_NODE, str(script)], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true] - fixed argv, test-written script
+    return result.stdout + result.stderr
+
+
+def test_logical_groups_do_not_join_past_the_nesting_cap() -> None:
+    # the parser meters each parenthesised group on its own; rotated into one spine they would nest once per operand
+    group: Final = "&&".join(["b"] * 650)
+    groups: Final = "&&".join([f"({group})"] * 6)
+    minified: Final = minify_js(f"x={groups}")
+    assert (minified.count("("), minified.count("&&")) == (5, 3899)
+
+
+def test_logical_groups_join_up_to_the_nesting_cap() -> None:
+    group: Final = "||".join(["a"] * 100)
+    groups: Final = "||".join([f"({group})"] * 40)
+    minified: Final = minify_js(f"x={groups}")
+    assert (minified.count("("), minified.count("||")) == (32, 3999)
+
+
+def test_function_inline_does_not_stack_nesting() -> None:
+    # each declaration is read under 600 brackets: inlined, the bodies would hang one under the other, 600 levels apart
+    body = "return 1"
+    for number in range(14, 0, -1):
+        body = f"function f{number}(){{{body}}}return {'[' * 600}f{number}{']' * 600}"
+    minified: Final = minify_js(f"function o(){{{body}}}")
+    assert (minified.count("function("), minify_js(minified)) == (1, minified)
+
+
+def test_function_inline_under_a_short_expression_still_nests() -> None:
+    body = "return 1"
+    for number in range(11, 0, -1):
+        body = f"function f{number}(){{{body}}}return {'[' * 3}f{number}{']' * 3}"
+    opened: Final = "return[[[function(){" * 11
+    closed: Final = "}]]]" * 11
+    assert minify_js(f"function o(){{{body}}}") == f"function o(){{{opened}return 1{closed}}}"
+
+
+def test_labeled_function_declaration_is_not_measured_for_inlining() -> None:
+    # a labeled declaration sits outside any statement list, so no binding owns it and nothing inlines it
+    assert minify_js("function o(){L:function f(){}return f}") == "function o(){a:function f(){}return f}"
 
 
 @pytest.mark.parametrize("count", [pytest.param(2, id="small"), pytest.param(1000, id="long")])

@@ -13,6 +13,8 @@
 
 #include "js/jstypes.h"
 
+#include "core/fuzzing.h"
+
 #ifndef TH_NOINLINE
 #if defined(_MSC_VER)
 #define TH_NOINLINE __declspec(noinline)
@@ -20,6 +22,17 @@
 #define TH_NOINLINE __attribute__((noinline))
 #else
 #define TH_NOINLINE
+#endif
+#endif
+
+#ifndef TH_FORCEINLINE
+/* an unoptimized build keeps the call, so gcov counts each branch once rather than once per inlined call site */
+#if defined(_MSC_VER)
+#define TH_FORCEINLINE __forceinline
+#elif defined(__GNUC__) && defined(__OPTIMIZE__)
+#define TH_FORCEINLINE inline __attribute__((always_inline))
+#else
+#define TH_FORCEINLINE inline
 #endif
 #endif
 
@@ -273,6 +286,13 @@ static inline int jm_is_reference_operand(const jm_node *node, int identifiers) 
                             node->str[3] == 'l'));
 }
 
+/* How deep, in walk calls from the program root, a rewrite may leave the tree. The fold, mangle and print walks recurse
+   once per level and are sized for the height the parser's nesting cap (JM_MAX_DEPTH) admits, but three rewrites turn
+   something that cap never meters into height: the guard fold nests a statement list once per `if(c)return v;`, the
+   logical-chain rotation joins sibling parenthesised groups into one spine, and the single-use function inline hangs a
+   declaration's body under its read. Each stops growing the tree here, set under the parser's cap. */
+enum { JM_MAX_REWRITE_DEPTH = TH_DEPTH_LIMIT(900) };
+
 /* A lexical binding. name borrows the source; resolved follows references to their
    declaration after the whole program is parsed (a reference's symbol points at the
    nearest enclosing declaration once scopes close). uses counts references so the
@@ -303,6 +323,12 @@ typedef struct {
                          the binding's own declarator index runs before it initializes */
     int32_t ref_stmt; /* the innermost expression, return or throw statement around ref_node, or -1;
                          with ref_scope it tells whether the one read sits directly in a given statement */
+    /* Written by the analysis walk and read only for a function declaration it walked whose one read it saw, so
+       jm_sym_new leaves them unset. */
+    int32_t ref_depth; /* how deep, in analysis walk calls from the program root, ref_node sits */
+    int32_t fn_depth;  /* a function declaration: how deep its node sits, */
+    int32_t fn_height; /* how far below that its parameters and body reach, */
+    int32_t fn_scope;  /* and its own scope */
 } jm_sym;
 
 /* A scope node in the lexical scope tree. kind distinguishes a function/block/catch/
@@ -314,6 +340,8 @@ typedef struct {
     int32_t first_sym;    /* head of the chain of symbols declared here (jm_sym.scope == this) */
     int32_t first_child;  /* head of the child-scope list, for an O(scopes) tree walk */
     int32_t next_sibling; /* next scope with the same parent */
+    int32_t sunk;         /* levels this pass's inlines moved the scope's function down, with all it holds */
+    int32_t grown;        /* levels this pass's inlines added below nodes the scope holds */
     int32_t first_stmt;   /* a function scope's first body statement: nothing executes before it,
                              so a var literal declared there dominates every read (-1 elsewhere) */
 } jm_scope;
@@ -352,6 +380,7 @@ typedef struct jm_program {
     int32_t comment_cap;
 
     int shadows_undefined; /* some binding is named `undefined`, so the fold pass must check each read */
+    int never_undefined;   /* a fold found no binding named `undefined`; no pass creates a binding, so none appears */
     int resolved;          /* every identifier carries its symbol from a with/eval-free resolution */
     int has_regex;         /* a regex literal was parsed: only then can a binding be initialized to one */
 
