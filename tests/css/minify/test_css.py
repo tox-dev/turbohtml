@@ -579,6 +579,43 @@ def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> Non
     assert (result, minify_css(result)) == (expected, expected)
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("p{color:#0000\\5c}q{x:y}", "p{color:#0000\\\\}q{x:y}", id="escaped-backslash-keeps-brace"),
+        pytest.param("p{color:#FF\\\\DD}", "p{color:#FF\\\\DD}", id="escaped-backslash-pair"),
+        pytest.param("p{color:#AABBCC\\5c}q{x:y}", "p{color:#AABBCC\\\\}q{x:y}", id="escaped-six-digit-keeps-case"),
+        pytest.param("p{color:#ff00\\5c}q{x:y}", "p{color:#ff00\\\\}q{x:y}", id="escaped-four-digit"),
+        pytest.param("p{color:#FF\\41}q{x:y}", "p{color:#ffa}q{x:y}", id="decoded-escape-still-shortens"),
+    ],
+)
+def test_minify_css_hash_with_escape_keeps_spelling(source: str, expected: str) -> None:
+    result: Final = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_hash_with_escape_keeps_value(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    hash_escapes: Final = ("\\5c", "\\\\", "\\41", "\\66 ", "\\}", "\\ ")
+    pairs = "".join(rng.choice(["0", "f", "A", *hash_escapes]) * 2 for _ in range(rng.randint(1, 4)))
+    source = f"p{{color:#{pairs}{rng.choice(hash_escapes)}}}q{{x:y}}"
+    result: Final = minify_css(source)
+    assert minify_css(result) == result
+    assert result.endswith("q{x:y}")
+    ((_, source_value),) = _hash_tokens(source)
+    for representation, value in _hash_tokens(result):
+        if "\\" in representation:
+            assert value.lower() == source_value.lower()
+
+
+def _hash_tokens(css: str) -> list[tuple[str, str]]:
+    parser: Final = pytest.importorskip("tinycss2")
+    rule = next(node for node in parser.parse_stylesheet(css) if node.type == "qualified-rule")
+    declaration = next(node for node in parser.parse_declaration_list(rule.content) if node.type == "declaration")
+    return [(parser.serialize([token]), token.value) for token in declaration.value if token.type == "hash"]
+
+
 def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
     source: Final = (
         f"a{{x:0;{''.join(f'p{index}:0;' for index in range(15))}x:1;x:0;"
