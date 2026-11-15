@@ -313,23 +313,23 @@ static uint16_t rw_tag_atom(const th_buf *name) {
    node's only live link is its parent, so the whole stack is O(open-depth). */
 typedef struct {
     th_node *node;
-    int edited;            /* an attribute changed: rebuild the start tag instead of verbatim */
-    int drop_content;      /* suppress this element's inner tokens */
-    int drop_end_tag;      /* do not emit the element's end tag */
-    uint8_t ns;            /* the namespace the tree builder gives the element (the node stays HTML for matching) */
-    uint8_t integration;   /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
-    PyObject *append_html; /* emit just before the end tag (already escaped) */
-    PyObject *after_html;  /* emit just after the end tag (already escaped) */
-    int model;             /* the content model the start tag switched to, or -1 */
-    int literal;           /* a handler wrote unescaped text into this raw-text element */
-    th_node *shadow;       /* the element of the th_shadow this entry follows, or NULL */
-    Py_ssize_t followed;   /* index of the nearest entry from here down that follows one, or -1 */
-    Py_ssize_t line;       /* where the start tag began, which pairs the entry with the th_shadow element */
-    Py_ssize_t col;
-    uint16_t foreign_open;    /* SVG/MathML entries from here down */
-    uint16_t points_open;     /* integration point entries from here down */
+    PyObject *append_html;    /* emit just before the end tag (already escaped) */
+    PyObject *after_html;     /* emit just after the end tag (already escaped) */
+    th_node *shadow;          /* the element of the th_shadow this entry follows, or NULL */
     Py_ssize_t content_start; /* output offset where the element's content begins */
     Py_ssize_t end_at;        /* set when popped early: output offset the element ended at, or -1 (not in the output) */
+    uint32_t line;            /* where the start tag began, which pairs the entry with the th_shadow element */
+    uint32_t col;
+    int32_t followed;      /* index of the nearest entry from here down that follows one, or -1 */
+    uint16_t foreign_open; /* SVG/MathML entries from here down */
+    uint16_t points_open;  /* integration point entries from here down */
+    uint8_t edited;        /* an attribute changed: rebuild the start tag instead of verbatim */
+    uint8_t drop_content;  /* suppress this element's inner tokens */
+    uint8_t drop_end_tag;  /* do not emit the element's end tag */
+    uint8_t literal;       /* a handler wrote unescaped text into this raw-text element */
+    uint8_t ns;            /* the namespace the tree builder gives the element (the node stays HTML for matching) */
+    uint8_t integration;   /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
+    int8_t model;          /* the content model the start tag switched to, or -1 */
 } rw_open;
 
 typedef struct {
@@ -1682,7 +1682,7 @@ static int rw_follow_tree(rw_ctx *ctx, const th_token *token) {
     for (Py_ssize_t index = 0; index < ctx->depth; index++) {
         TH_WORK_STEP();
         rw_open *entry = &ctx->stack[index];
-        entry->followed = entry->shadow != NULL ? index : index > 0 ? ctx->stack[index - 1].followed : -1;
+        entry->followed = (int32_t)(entry->shadow != NULL ? index : index > 0 ? ctx->stack[index - 1].followed : -1);
     }
     return 0;
 }
@@ -1760,7 +1760,7 @@ static TH_NOINLINE uint8_t rw_foreign_start(rw_ctx *ctx, th_token *token, uint16
 static TH_NOINLINE void rw_track_start(const rw_ctx *ctx, rw_open *open) {
     open->integration = open->ns != TH_NS_HTML ? rw_integration(open->ns, open->node) : 0;
     const rw_open *below = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
-    open->followed = open->shadow != NULL ? ctx->depth : below != NULL ? below->followed : -1;
+    open->followed = (int32_t)(open->shadow != NULL ? ctx->depth : below != NULL ? below->followed : -1);
     open->foreign_open = (uint16_t)((below != NULL ? below->foreign_open : 0) + (open->ns != TH_NS_HTML));
     open->points_open = (uint16_t)((below != NULL ? below->points_open : 0) + (open->integration != 0));
 }
@@ -1829,7 +1829,12 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         return;                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
-    rw_open open = {.node = node, .model = model, .ns = ns, .shadow = shadow, .line = token->line, .col = token->col};
+    rw_open open = {.node = node,
+                    .model = (int8_t)model,
+                    .ns = ns,
+                    .shadow = shadow,
+                    .line = (uint32_t)token->line,
+                    .col = (uint32_t)token->col};
     if (foreign) {
         rw_track_start(ctx, &open);
     }
