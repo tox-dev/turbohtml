@@ -330,8 +330,8 @@ def test_whitespace_in_content_is_preserved() -> None:
 
 
 def test_long_namespace_uris_canonicalize_in_any_declaration_order() -> None:
-    uri_x = "urn:" + "x" * 129
-    uri_y = "urn:" + "y" * 130
+    uri_x = f"urn:{'x' * 129}"
+    uri_y = f"urn:{'y' * 130}"
     first = parse_xml(f'<svg xmlns:a="{uri_x}" xmlns:b="{uri_y}"><g a:p="1" b:q="2"/></svg>')
     second = parse_xml(f'<svg xmlns:b="{uri_y}" xmlns:a="{uri_x}"><g b:q="2" a:p="1"/></svg>')
     assert first.canonicalize() == second.canonicalize()
