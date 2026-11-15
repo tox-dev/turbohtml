@@ -1253,6 +1253,26 @@ def test_transform_template_matching_many_nodes_grows_match_set() -> None:
     assert _run(f"<r>{items}</r>", body) == "".join(f"{index}," for index in range(30))
 
 
+@pytest.mark.parametrize("rules", [pytest.param(1, id="match-set"), pytest.param(16, id="dispatch-cache")])
+def test_transform_matches_crowded_source_nodes_stays_linear(rules: int, work_steps: WorkSteps) -> None:
+    unused: Final = "".join(f'<xsl:template match="unused{index}"/>' for index in range(rules - 1))
+    convert: Final = Transform(_sheet(f'{unused}<xsl:template match="a">.</xsl:template>'))
+    assert convert(parse_xml(_crowded_source_markup(40))) == "." * 40
+    work_steps.assert_linear(lambda n: partial(convert, parse_xml(_crowded_source_markup(n))), (1000, 4000))
+
+
+def _crowded_source_markup(elements: int) -> str:
+    # Comments take a creation order number without entering a match set or the dispatch cache, so the markup picks
+    # which numbers become keys and places them in the lowest eighth of the table.
+    nodes: list[str] = []
+    placed = 0
+    while placed < elements:
+        crowded = len(nodes) * 0x61C88647 % 2**32 < 2**29
+        nodes.append("<a/>" if crowded else "<!---->")
+        placed += crowded
+    return f"<r>{''.join(nodes)}</r>"
+
+
 def test_transform_key_with_many_distinct_values_grows_table() -> None:
     items = "".join(f'<i k="v{index}">{index}</i>' for index in range(30))
     body = (
