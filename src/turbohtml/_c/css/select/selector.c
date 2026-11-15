@@ -1465,32 +1465,46 @@ static int sel_is_disableable(th_node *node) {
     }
 }
 
-/* Whether node sits inside fieldset's first legend, the region a disabled
-   fieldset does not disable (HTML "the fieldset element"). */
-static int sel_in_first_legend(th_node *fieldset, th_node *node) {
-    th_node *legend = NULL;
+/* Keys the first-legend answers in a memo that also holds :has() and sibling answers,
+   which key by their own selector objects. */
+static const char SEL_FIRST_LEGEND_KEY = 0;
+
+/* Whether child, the child of a fieldset that a control is or sits under, is that
+   fieldset's first legend, whose contents a disabled fieldset does not disable (HTML "the
+   fieldset element"). Every control below a legend asks about it again, so the walk over
+   its earlier siblings is memoized: run once per control, a fieldset of n children holding
+   n controls would cost n^2 steps. */
+static int sel_is_first_legend(th_node *child, sel_memo *memo) {
     /* a direct child with the legend atom is necessarily an HTML legend: foreign
        content only enters through an svg/math subtree, never as a bare child here */
-    for (th_node *child = fieldset->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && child->atom == TH_TAG_LEGEND) {
-            legend = child;
+    if (child->atom != TH_TAG_LEGEND) {
+        return 0;
+    }
+    /* the streaming rewriter matches against a bare ancestor chain: its fieldset lists no
+       children, so no legend there can be told to be the first and none is exempt */
+    if (child->parent->first_child == NULL) {
+        return 0;
+    }
+    int first = 1;
+    if (memo != NULL && sel_memo_get(memo, &SEL_FIRST_LEGEND_KEY, child, &first)) {
+        return first;
+    }
+    for (th_node *earlier = child->prev_sibling; earlier != NULL; earlier = earlier->prev_sibling) {
+        TH_WORK_STEP();
+        if (earlier->type == TH_NODE_ELEMENT && earlier->atom == TH_TAG_LEGEND) {
+            first = 0;
             break;
         }
     }
-    if (legend == NULL) {
-        return 0;
+    if (memo != NULL) {
+        sel_memo_put(memo, &SEL_FIRST_LEGEND_KEY, child, first);
     }
-    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
-        if (ancestor == legend) {
-            return 1;
-        }
-    }
-    return 0;
+    return first;
 }
 
 /* Whether node is actually disabled: its own disabled attribute, an option whose
    optgroup is disabled, or a control inside a disabled fieldset (HTML "disabled"). */
-static int sel_is_disabled(th_node *node) {
+static int sel_is_disabled(th_node *node, sel_memo *memo) {
     if (!sel_is_disableable(node)) {
         return 0;
     }
@@ -1506,11 +1520,14 @@ static int sel_is_disabled(th_node *node) {
     if (node->atom == TH_TAG_OPTGROUP || node->atom == TH_TAG_FIELDSET) {
         return 0; /* an optgroup/fieldset is disabled only by its own attribute */
     }
-    for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+    /* child trails ancestor up the chain, so each disabled fieldset is handed the child
+       node sits under and never has to look for it among its children */
+    th_node *child = node;
+    for (th_node *ancestor = node->parent; ancestor != NULL; child = ancestor, ancestor = ancestor->parent) {
         /* a fieldset-atom ancestor is necessarily HTML; the type guard skips the
            document node that ends the chain */
         if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == TH_TAG_FIELDSET &&
-            sel_has_attr(ancestor, TH_ATTR_DISABLED) && !sel_in_first_legend(ancestor, node)) {
+            sel_has_attr(ancestor, TH_ATTR_DISABLED) && !sel_is_first_legend(child, memo)) {
             return 1;
         }
     }
@@ -1568,12 +1585,12 @@ static int sel_is_contenteditable(th_node *node) {
 
 /* :read-write: a mutable text input, a writable textarea, or a contenteditable
    element. Everything else is :read-only. */
-static int sel_is_read_write(th_node *node) {
+static int sel_is_read_write(th_node *node, sel_memo *memo) {
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT) {
-        return sel_is_mutable_input(node) && !sel_has_attr(node, TH_ATTR_READONLY) && !sel_is_disabled(node);
+        return sel_is_mutable_input(node) && !sel_has_attr(node, TH_ATTR_READONLY) && !sel_is_disabled(node, memo);
     }
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_TEXTAREA) {
-        return !sel_has_attr(node, TH_ATTR_READONLY) && !sel_is_disabled(node);
+        return !sel_has_attr(node, TH_ATTR_READONLY) && !sel_is_disabled(node, memo);
     }
     return sel_is_contenteditable(node);
 }
@@ -1921,17 +1938,17 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_CHECKED:
         return sel_is_checked(node);
     case PSEUDO_DISABLED:
-        return sel_is_disabled(node);
+        return sel_is_disabled(node, ctx->legend_memo);
     case PSEUDO_ENABLED:
-        return sel_is_disableable(node) && !sel_is_disabled(node);
+        return sel_is_disableable(node) && !sel_is_disabled(node, ctx->legend_memo);
     case PSEUDO_REQUIRED:
         return sel_is_required_capable(node) && sel_has_attr(node, TH_ATTR_REQUIRED);
     case PSEUDO_OPTIONAL:
         return sel_is_required_capable(node) && !sel_has_attr(node, TH_ATTR_REQUIRED);
     case PSEUDO_READ_ONLY:
-        return !sel_is_read_write(node);
+        return !sel_is_read_write(node, ctx->legend_memo);
     case PSEUDO_READ_WRITE:
-        return sel_is_read_write(node);
+        return sel_is_read_write(node, ctx->legend_memo);
     case PSEUDO_DEFAULT:
         return sel_is_default(node, ctx->default_memo);
     case PSEUDO_LANG:
@@ -2511,7 +2528,8 @@ static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const 
     /* rest lives in this frame, so it must not key the :has() memo; the sibling memo keys a
        relative selector by its first compound instead, which outlives the frame. Without
        :scope in rel, nothing below depends on the scope, so the sibling memo carries over. */
-    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, NULL, ctx->nth_memo, ctx->default_memo, ctx->sibling_memo};
+    sel_ctx scoped = {ctx->tree,         anchor,          ctx->quirks, NULL, ctx->nth_memo, ctx->default_memo,
+                      ctx->sibling_memo, ctx->legend_memo};
     sel_memo *memo = lead == '~' ? &ctx->sibling_memo->table : NULL;
     const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
     th_node *memo_from = NULL;
@@ -2552,7 +2570,8 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
     /* inside a :has() relative selector the scope element is the anchor, so a written
        :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431),
        and sibling answers memoized under the outer scope do not carry over */
-    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo, ctx->default_memo, NULL};
+    sel_ctx scoped = {ctx->tree,         anchor, ctx->quirks,     ctx->has_memo, ctx->nth_memo,
+                      ctx->default_memo, NULL,   ctx->legend_memo};
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
@@ -2628,7 +2647,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 /* scope is the element :scope matches: the node the query was rooted at. A single
    test builds a throwaway context with no :has() memo (nothing to amortize over). */
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
 

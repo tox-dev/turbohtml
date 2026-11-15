@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, NoReturn
 
 import pytest
 
-from turbohtml import Document, Element, parse
+from turbohtml import Document, DocumentFragment, Element, Text, parse
 from turbohtml._html import _reconstruct
 
 if TYPE_CHECKING:
+    from work_steps import WorkSteps
+
     from turbohtml import Node
 
 
@@ -103,3 +106,51 @@ def test_reconstruct_rejects_a_host_that_already_has_a_shadow_root() -> None:
     host.attach_shadow("open")
     with pytest.raises(ValueError, match="already has a shadow root"):
         _reconstruct(_kind(Element("p").attach_shadow("open")), (host, 0), [])
+
+
+@pytest.mark.parametrize("per_level", [pytest.param(1, id="elements"), pytest.param(2, id="templates")])
+def test_rebuilding_a_deep_chain_stays_linear(per_level: int, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda depth: partial(_rebuild_chain, depth, per_level), (500, 2000))
+
+
+def _rebuild_chain(depth: int, per_level: int) -> None:
+    element, fragment = _kind(Element("div")), _kind(DocumentFragment())
+    node = _reconstruct(element, ("i", {}), [])
+    for _ in range(depth):
+        if per_level == 2:
+            node = _reconstruct(element, ("template", {}), [_reconstruct(fragment, None, [node])])
+        else:
+            node = _reconstruct(element, ("d", {}), [node])
+
+
+def test_reconstruct_copies_a_child_that_cannot_take_a_parent_in_place() -> None:
+    element = _kind(Element("div"))
+    outer = Element("div", {}, [Element("p", {}, [Text("x")]), Text("y")])
+    moved = _reconstruct(element, ("section", {}), [outer.children[0]])
+    assert (moved.html, outer.html) == ("<section><p>x</p></section>", "<div>y</div>")
+    document = parse("<p><b>x</b></p>")
+    paragraph = document.select_one("p")
+    assert paragraph is not None
+    moved = _reconstruct(element, ("section", {}), [paragraph])
+    assert moved.html == "<section><p><b>x</b></p></section>"
+    assert document.html == "<html><head></head><body></body></html>"
+    moved = _reconstruct(element, ("Section", {}), [Element("p", {}, [Text("x")])], 1)
+    assert moved.html == "<Section><p>x</p></Section>"
+
+
+def test_reconstruct_copies_a_shadow_root_child() -> None:
+    host = Element("div", {}, [Element("a")])
+    root = host.attach_shadow("open")
+    root.append(Element("p", {}, [Text("x")]))
+    moved = _reconstruct(_kind(Element("div")), ("section", {}), [root])
+    kept = host.shadow_root
+    assert kept is not None
+    assert (moved.html, host.html) == ("<section><p>x</p></section>", "<div><a></a></div>")
+    assert (kept.parent, kept.html) == (None, "<p>x</p>")
+
+
+def test_reconstruct_copies_a_rooted_fragment_into_a_fragment() -> None:
+    fragment = _kind(DocumentFragment())
+    outer = _reconstruct(fragment, None, [_reconstruct(fragment, None, [Element("p", {}, [Text("x")])]), Element("b")])
+    assert [type(child) for child in outer.children] == [DocumentFragment, Element]
+    assert outer.html == "<p>x</p><b></b>"
