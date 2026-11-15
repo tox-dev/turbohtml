@@ -361,6 +361,8 @@ def test_meta_refresh_with_valueless_content_has_no_link() -> None:
         pytest.param("éurl(hidden.png) url(real.png)", ["real.png"], id="non-ascii-identifier-prefix"),
         pytest.param("aurl(hidden.png) URL(real.png)", ["real.png"], id="ascii-identifier-prefix"),
         pytest.param("a_url(hidden.png) a-url(hidden.png) url(real.png)", ["real.png"], id="identifier-punctuation"),
+        pytest.param("Aurl(hidden.png) 1url(hidden.png) url(real.png)", ["real.png"], id="uppercase-and-digit-prefix"),
+        pytest.param("!url(a.png) url(real.png)", ["a.png", "real.png"], id="punctuation-before-url-is-not-identifier"),
         pytest.param("u @import 'a.css'", ["a.css"], id="short-ident-before-import"),
         pytest.param("a@import 'hidden.css'", [], id="import-in-identifier"),
         pytest.param(
