@@ -19,6 +19,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h"
+#include "core/node_map.h"
 #include "core/work_steps.h"
 
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
@@ -77,58 +78,86 @@ static int ucs4_eq_ascii(const Py_UCS4 *value, Py_ssize_t len, const char *lit) 
     return ucs4_eq_ascii_len(value, len, lit, (Py_ssize_t)strlen(lit));
 }
 
-static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, const char *uri) {
-    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
+/* The atom of the attribute that declares a namespace prefix: `xmlns:` and the prefix, which is either the UTF-8
+   [bytes, bytes + prefix_len) or, when `bytes` is NULL, the code points [text, text + prefix_len). UINT32_MAX when no
+   element of the tree carries that attribute, so nothing binds the prefix. Names are interned, which makes finding the
+   declaration an integer compare per attribute. Returns -1 on allocation failure. */
+static int xmlns_atom(th_tree *tree, const char *bytes, const Py_UCS4 *text, Py_ssize_t prefix_len, uint32_t *atom) {
+    char buffer[64];
+    char *name = buffer;
+    size_t needed = (size_t)prefix_len * (bytes != NULL ? 1 : 4) + 6;
+    if (needed > sizeof(buffer)) {
+        name = PyMem_Malloc(needed);
+        if (name == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+            return -1;        /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    }
+    memcpy(name, "xmlns:", 6);
+    Py_ssize_t len = 6;
+    if (bytes != NULL) {
+        memcpy(name + len, bytes, (size_t)prefix_len);
+        len += prefix_len;
+    }
+    for (Py_ssize_t index = 0; bytes == NULL && index < prefix_len; index++) {
+        Py_UCS4 character = text[index];
+        if (character < 0x80) {
+            name[len++] = (char)character;
+        } else if (character < 0x800) {
+            name[len++] = (char)(0xC0 | (character >> 6));
+            name[len++] = (char)(0x80 | (character & 0x3F));
+        } else if (character < 0x10000) {
+            name[len++] = (char)(0xE0 | (character >> 12));
+            name[len++] = (char)(0x80 | ((character >> 6) & 0x3F));
+            name[len++] = (char)(0x80 | (character & 0x3F));
+        } else {
+            name[len++] = (char)(0xF0 | (character >> 18));
+            name[len++] = (char)(0x80 | ((character >> 12) & 0x3F));
+            name[len++] = (char)(0x80 | ((character >> 6) & 0x3F));
+            name[len++] = (char)(0x80 | (character & 0x3F));
+        }
+    }
+    *atom = th_attr_lookup(tree, name, len);
+    if (name != buffer) {
+        PyMem_Free(name);
+    }
+    return 0;
+}
+
+/* The atom that declares the namespace of element `node`, whose tag has a prefix of `prefix_len` code points: plain
+   `xmlns` when it has none. Returns -1 on allocation failure. */
+static int tag_xmlns_atom(th_tree *tree, const th_node *node, Py_ssize_t prefix_len, uint32_t *atom) {
+    if (prefix_len == 0) {
+        *atom = th_attr_lookup(tree, "xmlns", 5);
+        return 0;
+    }
+    return xmlns_atom(tree, NULL, node->text, prefix_len, atom);
+}
+
+/* The nearest declaration stored under `atom` on `node` or an ancestor, NULL when none is in scope. */
+static const th_node_attr *xmlns_attr(th_node *node, uint32_t atom) {
+    for (th_node *ancestor = node; atom != UINT32_MAX && ancestor != NULL; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
         if (ancestor->type != TH_NODE_ELEMENT) {
             continue;
         }
         for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
-            th_node_attr *attr = &ancestor->attrs[index];
-            Py_ssize_t name_len;
-            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-            if (prefix_len == 0) {
-                if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
-                    return ucs4_eq_ascii(attr->value, attr->value_len, uri);
-                }
-                continue;
-            }
-            if (name_len < 7 || memcmp(name, "xmlns:", 6) != 0) {
-                continue;
-            }
-            int ascii = 1;
-            for (Py_ssize_t offset = 6; offset < name_len; offset++) {
-                if ((unsigned char)name[offset] >= 0x80) {
-                    ascii = 0;
-                    break;
-                }
-            }
-            if (ascii) {
-                if (name_len - 6 == prefix_len) {
-                    int same = 1;
-                    for (Py_ssize_t offset = 0; same && offset < prefix_len; offset++) {
-                        same = (unsigned char)name[offset + 6] == node->text[offset];
-                    }
-                    if (same) {
-                        return ucs4_eq_ascii(attr->value, attr->value_len, uri);
-                    }
-                }
-                continue;
-            }
-            PyObject *prefix = PyUnicode_DecodeUTF8(name + 6, name_len - 6, "strict");
-            if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: interned attribute names are valid UTF-8; allocation only */
-                return -1;        /* GCOVR_EXCL_LINE: allocation failure */
-            }
-            int same = PyUnicode_GET_LENGTH(prefix) == prefix_len;
-            for (Py_ssize_t offset = 0; same && offset < prefix_len; offset++) {
-                same = PyUnicode_READ_CHAR(prefix, offset) == node->text[offset];
-            }
-            Py_DECREF(prefix);
-            if (same) {
-                return ucs4_eq_ascii(attr->value, attr->value_len, uri);
+            TH_WORK_STEP();
+            if (ancestor->attrs[index].name_atom == atom) {
+                return &ancestor->attrs[index];
             }
         }
     }
-    return 0;
+    return NULL;
+}
+
+static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, const char *uri) {
+    uint32_t atom;
+    if (tag_xmlns_atom(tree, node, prefix_len, &atom) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                           /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    const th_node_attr *attr = xmlns_attr(node, atom);
+    return attr != NULL && ucs4_eq_ascii(attr->value, attr->value_len, uri);
 }
 
 static int default_namespace_at_node(th_tree *tree, th_node *node, const char *uri, int inherited) {
@@ -185,21 +214,12 @@ static int empty_namespace_is_or_missing(th_tree *tree, th_node *node) {
 
 static int namespace_bytes_is(th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
                               const char *uri) {
-    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
-        if (ancestor->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
-            th_node_attr *attr = &ancestor->attrs[index];
-            Py_ssize_t name_len;
-            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-            if (name_len == prefix_len + 6 && memcmp(name, "xmlns:", 6) == 0 &&
-                memcmp(name + 6, prefix, (size_t)prefix_len) == 0) {
-                return ucs4_eq_ascii(attr->value, attr->value_len, uri);
-            }
-        }
+    uint32_t atom;
+    if (xmlns_atom(tree, prefix, NULL, prefix_len, &atom) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return 0;                                                /* GCOVR_EXCL_LINE: the record build reports it */
     }
-    return 0;
+    const th_node_attr *attr = xmlns_attr(node, atom);
+    return attr != NULL && ucs4_eq_ascii(attr->value, attr->value_len, uri);
 }
 
 static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, const char *uri) {
@@ -303,13 +323,169 @@ static PyObject *node_text_trimmed(th_tree *tree, th_node *node) {
     return result;
 }
 
-static int xhtml_element(th_tree *tree, th_node *node, th_node *element) {
+/* One declaration a walk of XHTML content entered: the element carrying it and the binding it shadows. */
+typedef struct {
+    const th_node *node;
+    uint32_t atom;
+    const th_node_attr *previous;
+} xhtml_ns_frame;
+
+/* The binding a walk of XHTML content holds for one `xmlns` attribute atom: the declaration in scope, NULL while it
+   is not resolved. A free slot has the atom TH_ATTR_UNKNOWN. */
+typedef struct {
+    uint32_t atom;
+    const th_node_attr *attr;
+} xhtml_ns_slot;
+
+/* The namespace declarations in scope at the element a walk of XHTML content stands on, by attribute atom as the
+   xsl:number index in query/xslt.c keeps them. Entering an element shadows what it redeclares and leaving it restores
+   that, so resolving a name costs one lookup instead of a climb through every ancestor's attributes; a binding the
+   content inherits from its div or above is looked for once and kept. The open-addressing table holds only the atoms
+   the content uses, so a small construct stays cheap in a feed with many attribute names. */
+typedef struct {
+    th_tree *tree;
+    th_node *div;
+    xhtml_ns_slot *slots;
+    size_t slot_capacity;
+    size_t slot_count;
+    xhtml_ns_frame *frames;
+    size_t frame_count;
+    size_t frame_capacity;
+} xhtml_ns;
+
+/* The slot holding `atom`, or the free slot it would take. */
+static xhtml_ns_slot *xhtml_ns_slot_of(const xhtml_ns *scope, uint32_t atom) {
+    size_t slot = th_hash_slot(th_fibonacci_hash(atom), scope->slot_capacity);
+    while (scope->slots[slot].atom != TH_ATTR_UNKNOWN && scope->slots[slot].atom != atom) {
+        slot = (slot + 1) & (scope->slot_capacity - 1);
+    }
+    return &scope->slots[slot];
+}
+
+/* The slot of `atom`, claimed unresolved on first sight; the table grows at half load, as th_node_map does. Returns
+   NULL on allocation failure. */
+static xhtml_ns_slot *xhtml_ns_claim(xhtml_ns *scope, uint32_t atom) {
+    if (scope->slot_count >= scope->slot_capacity / 2) {
+        size_t capacity;
+        size_t bytes;
+        const int grew = th_grow_cap((scope->slot_count + 1) * 2, scope->slot_capacity, 16, sizeof(xhtml_ns_slot),
+                                     &capacity, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        xhtml_ns_slot *grown = PyMem_Calloc(1, bytes);
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        xhtml_ns_slot *slots = scope->slots;
+        size_t slot_capacity = scope->slot_capacity;
+        scope->slots = grown;
+        scope->slot_capacity = capacity;
+        for (size_t index = 0; index < slot_capacity; index++) {
+            if (slots[index].atom != TH_ATTR_UNKNOWN) {
+                *xhtml_ns_slot_of(scope, slots[index].atom) = slots[index];
+            }
+        }
+        PyMem_Free(slots);
+    }
+    xhtml_ns_slot *slot = xhtml_ns_slot_of(scope, atom);
+    if (slot->atom == TH_ATTR_UNKNOWN) {
+        slot->atom = atom;
+        scope->slot_count++;
+    }
+    return slot;
+}
+
+static int xhtml_ns_enter(xhtml_ns *scope, const th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *attr = &node->attrs[index];
+        Py_ssize_t len;
+        const char *name = th_attr_name(scope->tree, attr->name_atom, &len);
+        if (len < 5 || memcmp(name, "xmlns", 5) != 0 || (len != 5 && name[5] != ':')) {
+            continue;
+        }
+        xhtml_ns_slot *slot = xhtml_ns_claim(scope, attr->name_atom);
+        if (slot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (scope->frame_count == scope->frame_capacity) {
+            size_t capacity;
+            size_t bytes;
+            const int grew = th_grow_cap(scope->frame_count + 1, scope->frame_capacity, 8, sizeof(xhtml_ns_frame),
+                                         &capacity, &bytes);
+            if (!grew) {          /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+            xhtml_ns_frame *grown = PyMem_Realloc(scope->frames, bytes);
+            if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+            scope->frames = grown;
+            scope->frame_capacity = capacity;
+        }
+        scope->frames[scope->frame_count++] = (xhtml_ns_frame){node, attr->name_atom, slot->attr};
+        slot->attr = attr;
+    }
+    return 0;
+}
+
+static void xhtml_ns_leave(xhtml_ns *scope, const th_node *node) {
+    while (scope->frame_count != 0 && scope->frames[scope->frame_count - 1].node == node) {
+        const xhtml_ns_frame *frame = &scope->frames[--scope->frame_count];
+        xhtml_ns_slot_of(scope, frame->atom)->attr = frame->previous;
+    }
+}
+
+static void xhtml_ns_free(xhtml_ns *scope) {
+    PyMem_Free(scope->slots);
+    PyMem_Free(scope->frames);
+}
+
+/* The declaration stored under `atom` that is in scope at the element the walk stands on, NULL when there is none;
+   `unbound` keeps that answer, so a prefix nothing declares is not searched for again. Returns -1 on allocation
+   failure. */
+static int xhtml_ns_binding(xhtml_ns *scope, uint32_t atom, const th_node_attr **binding) {
+    static const th_node_attr unbound = {0};
+    *binding = NULL;
+    if (atom == UINT32_MAX) {
+        return 0;
+    }
+    xhtml_ns_slot *slot = xhtml_ns_claim(scope, atom);
+    if (slot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    if (slot->attr == NULL) {
+        const th_node_attr *inherited = xmlns_attr(scope->div, atom);
+        slot->attr = inherited != NULL ? inherited : &unbound;
+    }
+    if (slot->attr != &unbound) {
+        *binding = slot->attr;
+    }
+    return 0;
+}
+
+static int xhtml_namespace_is(xhtml_ns *scope, const th_node *node, Py_ssize_t prefix_len) {
+    uint32_t atom;
+    const th_node_attr *attr;
+    /* GCOVR_EXCL_BR_START: allocation failure */
+    if (tag_xmlns_atom(scope->tree, node, prefix_len, &atom) < 0 || xhtml_ns_binding(scope, atom, &attr) < 0) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    return attr != NULL && ucs4_eq_ascii(attr->value, attr->value_len, XHTML_URI);
+}
+
+static int xhtml_element(xhtml_ns *scope, th_node *node, th_node *element) {
     *element = *node;
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         if (node->text[index] != ':') {
             continue;
         }
-        int xhtml = namespace_is(tree, node, index, XHTML_URI);
+        int xhtml = xhtml_namespace_is(scope, node, index);
         if (xhtml < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
             return -1;   /* GCOVR_EXCL_LINE: allocation failure */
         }
@@ -319,36 +495,33 @@ static int xhtml_element(th_tree *tree, th_node *node, th_node *element) {
         }
         return xhtml;
     }
-    return namespace_is(tree, node, 0, XHTML_URI);
+    return xhtml_namespace_is(scope, node, 0);
 }
 
-static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len) {
+/* Returns 1 when nothing binds the prefix, -1 on allocation failure. */
+static int xhtml_inherit_prefix(sbuf *out, xhtml_ns *scope, th_node *node, const char *prefix, Py_ssize_t prefix_len) {
     if (prefix_len == 3 && memcmp(prefix, "xml", 3) == 0) {
         return 0;
     }
-    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
-        for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
-            th_node_attr *attr = &ancestor->attrs[index];
-            Py_ssize_t len;
-            const char *name = th_attr_name(tree, attr->name_atom, &len);
-            if (len != prefix_len + 6 || memcmp(name, "xmlns:", 6) != 0 ||
-                memcmp(name + 6, prefix, (size_t)prefix_len) != 0) {
-                continue;
-            }
-            if (attr->value == NULL || attr->value_len == 0) {
-                return 1;
-            }
-            if (ancestor != node) {
-                sbuf_puts(out, " xmlns:");
-                sbuf_put_utf8(out, prefix, prefix_len);
-                sbuf_puts(out, "=\"");
-                sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
-                sbuf_putc(out, '"');
-            }
-            return 0;
-        }
+    uint32_t atom;
+    const th_node_attr *attr;
+    /* GCOVR_EXCL_BR_START: allocation failure */
+    if (xmlns_atom(scope->tree, prefix, NULL, prefix_len, &atom) < 0 || xhtml_ns_binding(scope, atom, &attr) < 0) {
+        return -1; /* GCOVR_EXCL_LINE */
     }
-    return 1;
+    /* GCOVR_EXCL_BR_STOP */
+    if (attr == NULL || attr->value == NULL || attr->value_len == 0) {
+        return 1;
+    }
+    /* a binding `node` declares itself is written with its other attributes; one it inherits is repeated here */
+    if ((uintptr_t)attr - (uintptr_t)node->attrs >= (uintptr_t)node->attr_count * sizeof(*attr)) {
+        sbuf_puts(out, " xmlns:");
+        sbuf_put_utf8(out, prefix, prefix_len);
+        sbuf_puts(out, "=\"");
+        sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
+        sbuf_putc(out, '"');
+    }
+    return 0;
 }
 
 enum { XHTML_INLINE_PREFIXES = 8 };
@@ -412,7 +585,8 @@ static int xhtml_prefix_seen(xhtml_prefix_set *handled, const char *prefix, Py_s
     return !added;
 }
 
-static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *element) {
+static int xhtml_open_tag(sbuf *out, xhtml_ns *scope, th_node *node, th_node *element) {
+    th_tree *tree = scope->tree;
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, element->text, element->text_len);
     Py_ssize_t tag_prefix_len = 0;
@@ -430,9 +604,10 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
                     Py_DECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
                     return -1;                   /* GCOVR_EXCL_LINE: allocation failure */
                 }
-                if (xhtml_inherit_prefix(out, tree, node, tag_prefix, tag_prefix_len)) {
+                int unbound = xhtml_inherit_prefix(out, scope, node, tag_prefix, tag_prefix_len);
+                if (unbound != 0) {
                     Py_DECREF(tag_prefix_owner);
-                    return 1;
+                    return unbound;
                 }
                 break;
             }
@@ -456,10 +631,11 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
                     Py_XDECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
                     return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
                 }
-                if (!seen && xhtml_inherit_prefix(out, tree, node, name, prefix_len)) {
+                int unbound = seen ? 0 : xhtml_inherit_prefix(out, scope, node, name, prefix_len);
+                if (unbound != 0) {
                     Py_XDECREF(handled.overflow);
                     Py_XDECREF(tag_prefix_owner);
-                    return 1;
+                    return unbound;
                 }
             }
         }
@@ -642,18 +818,23 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
         return node_text_trimmed(tree, node);
     }
     sbuf out = {NULL, 0, 0, 0};
+    xhtml_ns scope = {tree, div, NULL, 0, 0, NULL, 0, 0};
     th_serialize_opts opts = {0};
     opts.xml = 1;
     for (th_node *child = div->first_child; child != NULL;) {
         if (child->type == TH_NODE_ELEMENT) {
             th_node element;
-            int xhtml = xhtml_element(tree, child, &element);
-            if (xhtml < 0) {          /* GCOVR_EXCL_BR_LINE: allocation failure */
-                PyMem_Free(out.data); /* GCOVR_EXCL_LINE: allocation failure */
-                return NULL;          /* GCOVR_EXCL_LINE: allocation failure */
+            /* GCOVR_EXCL_BR_START: allocation failure */
+            int xhtml = xhtml_ns_enter(&scope, child) < 0 ? -1 : xhtml_element(&scope, child, &element);
+            if (xhtml < 0) {
+                xhtml_ns_free(&scope); /* GCOVR_EXCL_LINE */
+                PyMem_Free(out.data);  /* GCOVR_EXCL_LINE */
+                return NULL;           /* GCOVR_EXCL_LINE */
             }
-            int opened = xhtml_open_tag(&out, tree, child, &element);
+            /* GCOVR_EXCL_BR_STOP */
+            int opened = xhtml_open_tag(&out, &scope, child, &element);
             if (opened != 0) {
+                xhtml_ns_free(&scope);
                 PyMem_Free(out.data);
                 return opened < 0 ? NULL : node_text_trimmed(tree, node); /* GCOVR_EXCL_BR_LINE: allocation failure */
             }
@@ -668,11 +849,13 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
             } else {
                 sbuf_puts(&out, "/>");
             }
+            xhtml_ns_leave(&scope, child);
         }
         if (child->type == TH_NODE_TEXT || child->type == TH_NODE_CDATA) {
             Py_ssize_t len;
             Py_UCS4 *data = th_node_data(tree, child, &len);
             if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure */
+                xhtml_ns_free(&scope);   /* GCOVR_EXCL_LINE: allocation failure */
                 PyMem_Free(out.data);    /* GCOVR_EXCL_LINE: allocation failure */
                 return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
             }
@@ -682,6 +865,7 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
             Py_ssize_t len;
             Py_UCS4 *data = th_node_serialize(tree, child, &opts, NULL, 0, &len);
             if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: serialization fails only on allocation */
+                xhtml_ns_free(&scope);   /* GCOVR_EXCL_LINE: allocation failure */
                 PyMem_Free(out.data);    /* GCOVR_EXCL_LINE: allocation failure */
                 return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
             }
@@ -691,14 +875,17 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
         while (child->next_sibling == NULL && child->parent != div) {
             child = child->parent;
             th_node element;
-            if (xhtml_element(tree, child, &element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                PyMem_Free(out.data);                       /* GCOVR_EXCL_LINE: allocation failure */
-                return NULL;                                /* GCOVR_EXCL_LINE: allocation failure */
+            if (xhtml_element(&scope, child, &element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                xhtml_ns_free(&scope);                        /* GCOVR_EXCL_LINE: allocation failure */
+                PyMem_Free(out.data);                         /* GCOVR_EXCL_LINE: allocation failure */
+                return NULL;                                  /* GCOVR_EXCL_LINE: allocation failure */
             }
             xhtml_close_tag(&out, &element);
+            xhtml_ns_leave(&scope, child);
         }
         child = child->next_sibling;
     }
+    xhtml_ns_free(&scope);
     if (out.failed) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyMem_Free(out.data);    /* GCOVR_EXCL_LINE: allocation failure */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
