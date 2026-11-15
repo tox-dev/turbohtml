@@ -4,6 +4,7 @@ import os
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fixed interpreter and script
 import sys
 import textwrap
+import urllib.parse
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -21,6 +22,7 @@ _LONG: Final[str] = "p" * 260
 _OVERLONG: Final[str] = "dir/" * (32_767 // 4 + 1)
 _START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
 _EXTERNAL_REF: Final[str] = '<externalRef href="x"/>'
+_BASE_URI_LIMIT: Final[int] = 8192
 
 
 @pytest.mark.parametrize(
@@ -52,6 +54,30 @@ _EXTERNAL_REF: Final[str] = '<externalRef href="x"/>'
             ("<foo/>", "<bar/>"),
             [True, False],
             id="xml-base-composed",
+        ),
+        pytest.param(
+            {
+                "main.rng": f'<choice {_NS} xml:base="sub1/"><externalRef href="x"/><choice xml:base="sub2/">'
+                '<externalRef href="x"/><externalRef href="y"/></choice><externalRef href="y"/></choice>',
+                "sub1/x": _ELEMENT,
+                "sub1/y": f'<element {_NS} name="bar"><empty/></element>',
+                "sub1/sub2/x": f'<element {_NS} name="baz"><empty/></element>',
+                "sub1/sub2/y": f'<element {_NS} name="qux"><empty/></element>',
+            },
+            ("<foo/>", "<bar/>", "<baz/>", "<qux/>", "<quux/>"),
+            [True, True, True, True, False],
+            id="xml-base-shared",
+        ),
+        pytest.param(
+            {
+                "main.rng": f'<group {_NS} xml:base="sub1/"><externalRef xml:base="sub2/" href="x">'
+                '<externalRef href="y"/></externalRef></group>',
+                "sub1/sub2/x": _ELEMENT,
+                "sub2/y": _ELEMENT,
+            },
+            ("<foo/>", "<bar/>"),
+            [True, False],
+            id="xml-base-detached",
         ),
         pytest.param(
             {"main.rng": f'<externalRef {_NS} href="x" ns="urn:example"/>', "x": _ELEMENT},
@@ -371,6 +397,43 @@ def test_relaxng_resources_reject(tmp_path: Path, files: dict[str, str], error: 
     root: Final = tmp_path / "root"
     with pytest.raises(error, match=match):
         _compile(root, files, include_root=root)
+
+
+def test_relaxng_resources_join_shared_xml_base_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # every reference below an xml:base joined it again, so one long base cost time per reference
+    joined: Final[list[str]] = []
+    urljoin: Final = urllib.parse.urljoin
+
+    def record(base: str, url: str) -> str:
+        joined.append(url)
+        return urljoin(base, url)
+
+    monkeypatch.setattr(urllib.parse, "urljoin", record)
+    files: Final = {
+        "main.rng": f'<choice {_NS} xml:base="sub1/"><choice xml:base="sub2/">{_EXTERNAL_REF * 50}</choice></choice>',
+        "sub1/sub2/x": _ELEMENT,
+    }
+    assert _verdicts(_compile(tmp_path, files), "<foo/>", "<bar/>") == [True, False]
+    assert (joined.count("sub1/"), joined.count("sub2/"), joined.count("x")) == (1, 1, 50)
+
+
+def test_relaxng_resources_xml_base_at_limit_compiles(tmp_path: Path) -> None:
+    files: Final = _length_limit_files(tmp_path, _BASE_URI_LIMIT)
+    assert _verdicts(_compile(tmp_path, files), "<foo/>", "<bar/>") == [True, False]
+
+
+def _length_limit_files(tmp_path: Path, length: int) -> dict[str, str]:
+    # a query is appended to the document URI unchanged, so the joined base is exactly length characters
+    document: Final = (tmp_path / "main.rng").resolve().as_uri()
+    query: Final = f"?{'q' * (length - len(document) - 1)}"
+    return {"main.rng": f'<choice {_NS} xml:base="{query}">{_EXTERNAL_REF * 2}</choice>', "x": _ELEMENT}
+
+
+def test_relaxng_resources_xml_base_past_limit_rejected(tmp_path: Path) -> None:
+    files: Final = _length_limit_files(tmp_path, _BASE_URI_LIMIT + 1)
+    message: Final = f"RELAX NG xml:base gives a base URI longer than {_BASE_URI_LIMIT} characters"
+    with pytest.raises(ValueError, match=message):
+        _compile(tmp_path, files)
 
 
 def test_relaxng_resources_need_base_url() -> None:

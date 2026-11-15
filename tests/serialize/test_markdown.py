@@ -572,6 +572,11 @@ def test_code_elements_preserve_text(tag: str, content: str, expected: str) -> N
             '<p><a href="t" title="a&amp;amp;">x</a></p>', '[x](t "a\\&amp;")', id="link-title-escapes-reference"
         ),
         pytest.param('<p><a href="t" title="a &amp; b">x</a></p>', '[x](t "a & b")', id="link-title-keeps-bare-amp"),
+        pytest.param(
+            '<p><a href="t" title="&lt;b&gt;a&lt;">x</a></p>', '[x](t "\\<b>a\\<")', id="link-title-escapes-angle"
+        ),
+        pytest.param('<p><img src="i" title="&lt;b&gt;"></p>', '![](i "\\<b>")', id="image-title-escapes-angle"),
+        pytest.param('<p><a href="t" title="a &lt; b">x</a></p>', '[x](t "a < b")', id="link-title-keeps-spaced-angle"),
         pytest.param('<a href="/t"><pre>x\ny</pre></a>', "[`x y`](/t)", id="code-block-in-link-text"),
         pytest.param(
             '<a href="/t"><h1><math><mtext>a<br>b</mtext></math></h1></a>',
@@ -1333,6 +1338,18 @@ def test_loose_list_nested_heading_and_link_stay_structural() -> None:
             "div > li",
             "4. b",
             id="selected-wrapper-item",
+        ),
+        pytest.param(
+            "<ol><li><table><li>nested</table></ol>",
+            "li > li",
+            "- nested",
+            id="item-foster-parented-into-an-item",
+        ),
+        pytest.param(
+            "<ol><li><table><li>other</table><div><table><li>nested</table></div></ol>",
+            "div > li",
+            "- nested",
+            id="wrapped-item-below-an-item-holding-an-item",
         ),
         pytest.param('<ol><li value="x">a</li></ol>', "li", "1. a", id="invalid-value"),
         pytest.param('<ol><li value="999999999999999999999999999999">a</li></ol>', "li", "1. a", id="overflow-value"),
@@ -2196,7 +2213,7 @@ def test_escaping_none(html: str, options: Markdown, expected: str) -> None:
         pytest.param('<a href="x&amp;amp;y">t</a>', "[t](x\\&amp;y)", id="reference-shaped-amp"),
         pytest.param('<a href="?a=1&amp;b=2">t</a>', "[t](?a=1&b=2)", id="query-amp"),
         pytest.param('<a href="&lt;x&gt;">t</a>', "[t](<\\<x\\>>)", id="leading-angle"),
-        pytest.param('<a href="a&lt;b">t</a>', "[t](a<b)", id="inner-angle-bare"),
+        pytest.param('<a href="a&lt;b">t</a>', "[t](a\\<b)", id="inner-angle-bare"),
         pytest.param('<a href="a b)">t</a>', "[t](<a b)>)", id="space-takes-parens"),
         pytest.param('<img src="a)b" alt="x">', "![x](a\\)b)", id="image-unbalanced"),
         pytest.param(
@@ -2204,7 +2221,7 @@ def test_escaping_none(html: str, options: Markdown, expected: str) -> None:
             "[http://x.com/a b](<http://x.com/a b>)",
             id="no-autolink-space",
         ),
-        pytest.param('<a href="http://x/&lt;">http://x/&lt;</a>', "[http://x/\\<](http://x/<)", id="no-autolink-lt"),
+        pytest.param('<a href="http://x/&lt;">http://x/&lt;</a>', "[http://x/\\<](http://x/\\<)", id="no-autolink-lt"),
         pytest.param('<a href="http://x/&gt;">http://x/&gt;</a>', "[http://x/>](http://x/>)", id="no-autolink-gt"),
         pytest.param(
             '<a href="http://x/\x7f">http://x/\x7f</a>', "[http://x/\x7f](<http://x/\x7f>)", id="no-autolink-del"
@@ -2234,7 +2251,9 @@ def test_link_destination(html: str, expected: str) -> None:
         pytest.param('<a href="x\\">t</a>', id="backslash"),
         pytest.param('<a href="x&amp;amp;y">t</a>', id="reference-shaped-amp"),
         pytest.param('<a href="&lt;x&gt;">t</a>', id="leading-angle"),
+        pytest.param('<a href="a&lt;b">t</a>', id="inner-angle-bare"),
         pytest.param('<a href="a b)">t</a>', id="space-takes-parens"),
+        pytest.param('<a href="http://x/&lt;">http://x/&lt;</a>', id="no-autolink-lt"),
         pytest.param('<a href="http://x/&gt;">http://x/&gt;</a>', id="no-autolink-gt"),
     ],
 )
@@ -2249,7 +2268,7 @@ def test_link_destination_renders_source_href(html: str) -> None:
     ("html", "expected"),
     [
         pytest.param('<a href="a b">t</a>', "[t](<http://s/a b>)", id="space"),
-        pytest.param('<a href="&lt;u">u</a>', "[u](http://s/<u)", id="leading-angle-after-base"),
+        pytest.param('<a href="&lt;u">u</a>', "[u](http://s/\\<u)", id="leading-angle-after-base"),
         pytest.param('<a href="">e</a>', "[e](http://s/)", id="empty-href-resolves-to-base"),
     ],
 )
@@ -2260,6 +2279,37 @@ def test_link_destination_base_url(html: str, expected: str) -> None:
 def test_reference_definition_escapes_destination() -> None:
     config: Final = Markdown(links=Markdown.Links(style="reference"))
     assert parse('<a href="a)b">t</a>').to_markdown(config) == "[t][1]\n\n[1]: a\\)b"
+
+
+def test_link_title_angle_renders_source_title() -> None:
+    html: Final = '<a href="t" title="&lt;b&gt; a &lt; b &lt;">x</a>'
+    assert parse(_render(md(html))).select("a")[0].attr("title") == "<b> a < b <"
+
+
+_DEEP: Final[str] = "(" * 40 + ")" * 40  # well past the nesting markdown-it reads in a bare destination
+_SCRIPT: Final[str] = "&lt;script&gt;x&lt;/script&gt;"
+_REFERENCE_LINKS: Final[Markdown] = Markdown(links=Markdown.Links(style="reference"))
+
+
+@pytest.mark.parametrize(
+    ("html", "config"),
+    [
+        pytest.param(f'<a href="http://a/{_DEEP}" title="{_SCRIPT}">t</a>', Markdown(), id="link-title"),
+        pytest.param(f'<img src="http://a/{_DEEP}" alt="t" title="{_SCRIPT}">', Markdown(), id="image-title"),
+        pytest.param(f'<a href="http://a/{_DEEP}{_SCRIPT}">t</a>', Markdown(), id="destination"),
+        pytest.param(f'<a href="http://a/{_DEEP}" title="{_SCRIPT}">t</a>', _REFERENCE_LINKS, id="definition-title"),
+        pytest.param(f'<a href="http://a/{_DEEP}{_SCRIPT}">t</a>', _REFERENCE_LINKS, id="definition-destination"),
+        pytest.param(
+            f'<a href="/a" title="{_SCRIPT}">x<table><tr><td><a href="/b">y</a></table></a>',
+            Markdown(),
+            id="link-in-link",
+        ),
+    ],
+)
+def test_refused_link_leaves_no_raw_html(html: str, config: Markdown) -> None:
+    rendered: Final = parse(MarkdownIt("commonmark", {"html": True}).render(parse(html).to_markdown(config)))
+    assert "<script>x</script>" in rendered.text
+    assert rendered.select("script") == []
 
 
 def test_atx_closed_heading_keeps_trailing_hash() -> None:
@@ -2448,6 +2498,14 @@ def test_to_markdown_on_text_node() -> None:
     paragraph = parse("<p>just text</p>").find("p")
     assert paragraph is not None
     assert paragraph.children[0].to_markdown() == "just text"
+
+
+def test_main_content_item_nested_in_an_item() -> None:
+    # the extractor picks the <li> the parser foster-parented into the outer item, which no list numbers
+    page: Final = "<ol><li><table><li><p>Another sentence, with a comma, that scores well. "
+    content: Final = parse(page).main_content()
+    assert content is not None
+    assert content.to_markdown() == "- Another sentence, with a comma, that scores well."
 
 
 def test_to_markdown_on_xml_document() -> None:

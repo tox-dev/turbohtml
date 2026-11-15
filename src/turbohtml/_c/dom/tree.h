@@ -134,6 +134,9 @@ struct th_node {
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
     uint8_t attr_values_shared;
+    /* Tree builder state: set once the element leaves the stack of open elements, which the streaming rewriter reads
+       to follow a th_shadow. */
+    uint8_t left_stack;
     /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
        exact-sized; nothing reads it once the tree is built. */
     uint8_t text_capacity_shift;
@@ -525,6 +528,42 @@ th_tree *th_stream_finish(th_stream *stream);
    in-progress tree. */
 void th_stream_free(th_stream *stream);
 
+/* Tree construction that follows a tokenizer someone else drives (the streaming rewriter): it switches that
+   tokenizer's content model and CDATA handling exactly as a document parse with scripting on does. */
+typedef struct th_shadow th_shadow;
+
+/* An empty tree that follows sm's input from its start. sm's input must be complete and stay in place while the
+   shadow lives. Returns NULL on allocation failure. */
+th_shadow *th_shadow_new(th_tokenizer *sm);
+
+/* Feed the tree the input from where it stopped up to `offset`, where a tag starts, through a tokenizer of its own;
+   the tokens after it come from sm through th_shadow_step. refs are as for th_shadow_compact. Returns 0, or -1 on
+   allocation failure. */
+int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride);
+
+/* Run the token sm just produced through tree construction, then set sm up for the next one. A TH_CHARREF counts as
+   its decoded text. Returns 0, or -1 on allocation failure. */
+int th_shadow_step(th_shadow *shadow, th_token *token);
+
+/* Once the tree has grown well past what tree construction can still reach, replace it by a copy of that part, so
+   the shadow holds memory for the open elements and active formatting elements, not for the document. Each of the
+   `count` element pointers at refs, `stride` bytes apart, moves to its copy, or to a stand-in that has left the
+   stack. Element pointers held anywhere else are invalid afterwards. Returns 0, or -1 on allocation failure. */
+int th_shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, size_t stride);
+
+/* Whether the insertion mode reads the start tags that follow as HTML does outside templates and framesets, with
+   the tokenizer in its data state: a consumer can then go on alone until it meets a tag it cannot read. */
+int th_shadow_parkable(const th_shadow *shadow);
+
+/* Stop following sm after the tag `token`; th_shadow_catch_up resumes from its end. */
+void th_shadow_park(th_shadow *shadow, const th_token *token);
+
+/* The stack of open elements, outermost first; *count receives its length. */
+th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count);
+
+/* Free the shadow and its tree; NULL is a no-op. */
+void th_shadow_free(th_shadow *shadow);
+
 /* Serialize the tree in the html5lib tree-construction "#document" format (one
    "| " indented line per node) into a freshly PyMem-allocated UCS4 buffer;
    *out_len receives the length. Returns NULL on allocation failure. Used by the
@@ -715,6 +754,11 @@ typedef struct {
     Py_ssize_t base;    /* code points of copies granted before any other output funds them */
 } th_xml_ns_spend;
 
+/* The attribute characters parser clones may write before other output funds more. The tree builder reopens an
+   unclosed formatting element in every block after it, attributes and all, so every writer of a clone starts from this
+   allowance. */
+#define TH_CLONE_ALLOWANCE 256
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -752,13 +796,15 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
-   indentation depth, the xlink walk and the inherited namespace declarations charged
-   so far. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}}. */
+   indentation depth, the xlink walk, the inherited namespace declarations charged
+   so far and the clone credit the earlier chunks left. Start it at
+   {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0}. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
     th_xml_ns_spend xml_ns;
+    Py_ssize_t clone_credit; /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from

@@ -38,11 +38,18 @@ that generate implied end tags), since ``</span>`` stops at the open ``<p>`` and
 ``</dd>`` also stays at the end of an ``<li>``, ``<dd>`` or ``<dt>``, whose own end tag is optional; an ``</rt>``,
 ``</rp>``, ``</optgroup>`` or ``</option>`` at the end of its parent stays when that parent is an SVG or MathML
 integration point, whose end tag is ignored under the open HTML child, or another of those four elements (an
-``<option>`` ending its ``<optgroup>`` aside); and a value is unquoted only when no character could end or re-open it.
-The minified doctype keeps its public and system identifiers, since they choose the document mode, and in quirks mode a
-``</p>`` before a ``<table>`` stays, because a quirks parse nests the table inside the open paragraph. The transforms
-that would *not* round-trip (deleting whitespace between block elements, or omitting a tag whose reparse changes
-nesting) are exactly the ones turbohtml declines to make.
+``<option>`` ending its ``<optgroup>`` aside); an ``</rt>``, ``</rp>`` or ``</optgroup>`` before a sibling of its kind
+also stays when its ``<ruby>`` or ``<select>`` is more than 512 levels up, deeper than the parser builds; and a value is
+unquoted only when no character could end or re-open it. The minified doctype keeps its public and system identifiers,
+since they choose the document mode, and in quirks mode a ``</p>`` before a ``<table>`` stays, because a quirks parse
+nests the table inside the open paragraph. The transforms that would *not* round-trip (deleting whitespace between block
+elements, or omitting a tag whose reparse changes nesting) are exactly the ones turbohtml declines to make.
+
+An unclosed formatting element is reopened in every block after it, and each copy carries the attributes of its one
+start tag. The writers draw those copied attributes on a budget: ``html``, ``serialize()``, ``to_source()``,
+``canonicalize()`` and the :class:`~turbohtml.Minify` layout fund it with the output written before the copy, and the
+Markdown writer funds its own with rendered text and start tags. A copy stops writing attributes at the first one the
+budget does not cover, so the output stays linear in the size of the input.
 
 ***************************
  HTML vs XML serialization
@@ -231,9 +238,11 @@ line start counts after a list marker too, so ``<li>1. x</li>`` becomes ``- 1\. 
 always escapes because GFM strikes text through between tildes. A ``<`` escapes unless whitespace follows it, since it
 could open raw HTML or an autolink, and a ``&`` escapes when it starts an ``&name;`` or ``&#65;`` reference. A link
 destination keeps balanced parentheses bare, backslash-escapes unbalanced ones, and switches to the ``<...>`` form for a
-space or a leading ``<``. The ``none`` mode drops the prose escapes for output that nothing will parse as Markdown, and
-keeps only the cell pipe escape, since an unescaped ``|`` would split the row it sits in; link destinations, titles and
-image alt text keep their own escapes because their syntax needs them.
+space or a leading ``<``. A ``<`` in a destination or a title is backslash-escaped as well: a reader that does not take
+the link, because the destination nests parentheses past its limit or the link text holds another link, reads both as
+running text, where that ``<`` would open raw HTML. The ``none`` mode drops the prose escapes for output that nothing
+will parse as Markdown, and keeps only the cell pipe escape, since an unescaped ``|`` would split the row it sits in;
+link destinations, titles and image alt text keep their own escapes because their syntax needs them.
 
 The walk holds no state outside its stack frame (no module-level buffers, no per-converter object), so two threads
 exporting two trees never interfere, and the binding takes the same per-tree critical section

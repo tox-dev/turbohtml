@@ -12,6 +12,7 @@ typedef struct {
     th_resource_policy policy;
     PyObject *urljoin;
     PyObject *active; /* resolved paths of the documents being loaded, outermost first, for the 4.6/4.7 loop check */
+    PyObject *bases;  /* node address to (parent base URI, base URI), for each xml:base rng_base_uri has joined */
 } rng_loader;
 
 typedef struct {
@@ -56,8 +57,14 @@ static int rng_collect_references(th_schema *schema, th_node *node, rng_nodes *o
     return 0;
 }
 
+/* Every reference below an xml:base joins its href onto that base, and urljoin reads all of the base, so a base as long
+   as the schema (a long query, or empty path segments that urljoin keeps) makes the references quadratic in the schema.
+   File URIs are far shorter. */
+#define RNG_BASE_URI_LIMIT 8192
+
 /* The base URI of node (XML Base 4.2): the document URI with every xml:base from the document element down to node
-   applied in turn. A detached subtree, the root of a document just read, ends the walk at its own root. */
+   applied in turn. A detached subtree, the root of a document just read, ends the walk at its own root. loader->bases
+   keeps each join beside the parent URI it was made onto, so the references below one xml:base share a single join. */
 static PyObject *rng_base_uri(rng_loader *loader, th_node *node, PyObject *document_uri) {
     PyObject *parent_uri = node->parent == NULL || node->parent->type != TH_NODE_ELEMENT
                                ? Py_NewRef(document_uri)
@@ -66,13 +73,39 @@ static PyObject *rng_base_uri(rng_loader *loader, th_node *node, PyObject *docum
     if (parent_uri == NULL || base == NULL) {
         return parent_uri;
     }
-    PyObject *value = rng_str(base->value, base->value_len);
-    if (value == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
+    /* the schema tree's arena keeps every node where it is for as long as the loader lives, so the address names it */
+    PyObject *key = PyLong_FromVoidPtr(node);
+    if (key == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
         Py_DECREF(parent_uri); /* GCOVR_EXCL_LINE */
         return NULL;           /* GCOVR_EXCL_LINE */
     }
-    PyObject *joined = PyObject_CallFunctionObjArgs(loader->urljoin, parent_uri, value, NULL);
-    Py_DECREF(value);
+    PyObject *joined = NULL;
+    PyObject *known = PyDict_GetItemWithError(loader->bases, key);
+    if (known != NULL && PyTuple_GET_ITEM(known, 0) == parent_uri) {
+        joined = Py_NewRef(PyTuple_GET_ITEM(known, 1));
+    } else if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: an int key lookup cannot raise */
+        PyObject *value = rng_str(base->value, base->value_len);
+        if (value != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            joined = PyObject_CallFunctionObjArgs(loader->urljoin, parent_uri, value, NULL);
+            Py_DECREF(value);
+        }
+        if (joined != NULL && PyUnicode_GET_LENGTH(joined) > RNG_BASE_URI_LIMIT) {
+            PyErr_Format(PyExc_ValueError, "RELAX NG xml:base gives a base URI longer than %d characters",
+                         RNG_BASE_URI_LIMIT);
+            Py_DECREF(joined);
+            joined = NULL;
+        }
+        if (joined != NULL) {
+            PyObject *pair = PyTuple_Pack(2, parent_uri, joined);
+            /* GCOVR_EXCL_BR_START: the pair and its dict entry fail only on allocation */
+            if (pair == NULL || PyDict_SetItem(loader->bases, key, pair) < 0) {
+                Py_CLEAR(joined); /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            Py_XDECREF(pair);
+        }
+    }
+    Py_DECREF(key);
     Py_DECREF(parent_uri);
     return joined;
 }
@@ -393,8 +426,10 @@ static int rng_resolve_resources(th_schema *schema, PyObject *base_url, PyObject
             parse == NULL ? NULL : PyObject_GetAttrString(parse, "urljoin"); /* GCOVR_EXCL_BR_LINE: bundled module */
         Py_XDECREF(parse);
         loader.active = PyList_New(0);
-        /* GCOVR_EXCL_BR_START: only allocation fails the bundled urllib lookup and the one-item list */
-        if (loader.urljoin != NULL && loader.active != NULL && PyList_Append(loader.active, path) == 0) {
+        loader.bases = PyDict_New();
+        /* GCOVR_EXCL_BR_START: only allocation fails the bundled urllib lookup, the one-item list and the empty dict */
+        if (loader.urljoin != NULL && loader.active != NULL && loader.bases != NULL &&
+            PyList_Append(loader.active, path) == 0) {
             /* GCOVR_EXCL_BR_STOP */
             th_node *root = rng_resolve_subtree(&loader, schema->root, uri);
             if (root != NULL) {
@@ -403,6 +438,7 @@ static int rng_resolve_resources(th_schema *schema, PyObject *base_url, PyObject
                                                  "schema compilation");
             }
         }
+        Py_XDECREF(loader.bases);
         Py_XDECREF(loader.active);
         Py_XDECREF(loader.urljoin);
         Py_DECREF(uri);

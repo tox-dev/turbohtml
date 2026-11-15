@@ -2211,7 +2211,8 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     } else if (ctx->extension != NULL) {
         ctx->root->mixed = 1; /* the result can lie in any subtree, and Python can move this tree's own nodes */
         if ((rc = xp_before_python(ctx)) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            rc = ctx->extension(ctx->extension_ctx, ctx->node, fn->str, fn->str_len, args, argc, out);
+            rc = ctx->extension(ctx->extension_ctx, (xp_item){ctx->node, ctx->attr}, fn->str, fn->str_len, args, argc,
+                                out);
         }
         if (rc == -2) {
             rc = raise_unknown_function(fn);

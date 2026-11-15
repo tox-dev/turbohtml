@@ -668,6 +668,12 @@ def _select_tree(text: str) -> None:
         document.select(selector)
 
 
+def _node_paths(text: str) -> None:
+    for element in parse(text).select(_PATH_ELEMENTS):
+        element.css_path()
+        element.xpath_path()
+
+
 def _xpath_input(text: str) -> None:
     _XPATH_HOST.xpath(text)
 
@@ -727,6 +733,9 @@ _TREE_SELECTORS: Final[tuple[str, ...]] = (
     ":nth-of-type(2)",
     ":dir(rtl)",
 )
+# a path is as long as its element is deep, so the paths of every element of a nested run cost elements times depth by
+# design; two levels keep each path short and still have every child cross its own sibling list and its parent's
+_PATH_ELEMENTS: Final[str] = "body > *, body > * > *"
 _XPATH_HOST: Final[Document] = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
 # node walks plus the EXSLT functions that size their result from document data (str:padding is #957)
 _TREE_XPATHS: Final[tuple[str, ...]] = (
@@ -788,6 +797,7 @@ TARGETS: Final[dict[str, Target]] = {
     "minify_js": Target(run=minify_js, sources=("js/*",), bound=Bound(slope=3.0, offset=64)),
     "selector": Target(run=_select_input, sources=("css/select/*",)),
     "select_tree": Target(run=_select_tree, sources=_HTML_SOURCES),
+    "node_paths": Target(run=_node_paths, sources=_HTML_SOURCES),
     "xpath": Target(run=_xpath_input, sources=("query/xpath/*",)),
     # string(/) never outgrows the document; str:padding stops at 100,000 characters (#957), the counts are short
     "xpath_tree": Target(

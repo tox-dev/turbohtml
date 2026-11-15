@@ -654,6 +654,7 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.xlink.last = NULL;
     self->cursor.xlink.scope = NULL;
     self->cursor.xml_ns = (th_xml_ns_spend){0, 0, TH_XML_NS_BASE};
+    self->cursor.clone_credit = 0;
     self->indent = indent;
     self->indent_len = indent_len;
     self->mutation_version = ((HandleObject *)handle)->mutation_version;
@@ -668,8 +669,8 @@ static void serialize_iter_dealloc(PyObject *self) {
     Py_DECREF(type);
 }
 
-/* normalize, linkify and strip_comments unlink nodes without bumping mutation_version, so a detached resume node shows
-   only as a broken parent chain, not as a version change. */
+/* normalize and strip_comments unlink nodes without bumping mutation_version, so a detached resume node shows only as
+   a broken parent chain, not as a version change. */
 static int cursor_reaches_root(const th_node *cursor, const th_node *root) {
     for (const th_node *node = cursor; node != NULL; node = node->parent) {
         if (node == root) {
@@ -2120,7 +2121,7 @@ PyDoc_STRVAR(find_doc,
              "find(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, **filters)\n--\n\n"
              "Find the first Element along axis matching the tag filter and every attribute\n"
              "filter. A filter is a str, bool, compiled regex, callable, or a list of those. A callable filter\n"
-             "must not modify the tree during the search; the result is unspecified if it does.\n\n"
+             "may edit the tree during the search; the search then carries on from the element it had reached.\n\n"
              ":param tag: filter on the tag name.\n"
              ":param axis: which nodes to walk relative to this one.\n"
              ":param attrs: a mapping of attribute name to filter.\n"
@@ -2136,8 +2137,8 @@ PyDoc_STRVAR(find_all_doc,
              "find_all(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, limit=None, "
              "**filters)\n--\n\n"
              "Find every Element along axis matching the tag filter and every attribute\n"
-             "filter, with the same filter forms as find(). A callable filter must not modify the tree during\n"
-             "the search; the result is unspecified if it does.\n\n"
+             "filter, with the same filter forms as find(). A callable filter may edit the tree during the\n"
+             "search; the search then carries on from the element it had reached.\n\n"
              ":param tag: filter on the tag name.\n"
              ":param axis: which nodes to walk relative to this one.\n"
              ":param attrs: a mapping of attribute name to filter.\n"

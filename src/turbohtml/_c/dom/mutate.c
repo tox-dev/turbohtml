@@ -1231,11 +1231,12 @@ static uint32_t fold_attr_atom(th_tree *tree, uint32_t atom) {
    spelled name, so an HTML element moving in drops the atom that made it raw text (a <script> would otherwise
    serialize "a<b" unescaped). An HTML tree stores and matches HTML element and attribute names in ASCII lowercase, and
    an XML tree's elements all carry the HTML namespace, so an XML element moving in is folded, keeping the first of two
-   attributes that fold to one name, as the HTML tokenizer does. Returns 0, or -1 on allocation failure. */
+   attributes that fold to one name, as the HTML tokenizer does. Either way a parser clone keeps its implied flag, so
+   the serializers still budget the attributes it repeats. Returns 0, or -1 on allocation failure. */
 static int convert_element_kind(th_tree *dest, th_node *node) {
     if (dest->xml) {
         node->atom = TH_TAG_UNKNOWN;
-        node->tag_flags = th_tag_flags(TH_TAG_UNKNOWN);
+        node->tag_flags = (uint8_t)(th_tag_flags(TH_TAG_UNKNOWN) | (node->tag_flags & TH_ELEM_IMPLIED));
         return 0;
     }
     char ascii[64];
@@ -1251,7 +1252,7 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
         }
     }
     node->atom = is_ascii ? th_tag_lookup(ascii, node->text_len) : TH_TAG_UNKNOWN;
-    node->tag_flags = th_tag_flags(node->atom);
+    node->tag_flags = (uint8_t)(th_tag_flags(node->atom) | (node->tag_flags & TH_ELEM_IMPLIED));
     Py_ssize_t kept = 0;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         uint32_t atom = fold_attr_atom(dest, node->attrs[index].name_atom);

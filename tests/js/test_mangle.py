@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
-from typing import Final
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml.clean import JSMinify, minify_js
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
 _NODE: Final[str | None] = shutil.which("node")
 
@@ -405,6 +411,12 @@ def test_function_declaration_shares_binding_preserves_behavior(snippet: str) ->
             "function f(b){try{throw 1}catch(a){var a=2;return b}}",
             id="pinned-catch-parameter",
         ),
+        # the var binds the function's a, past both catch parameters; only the inner one, which it redeclares, is kept
+        pytest.param(
+            "function f(x){try{throw 1}catch(a){try{throw 2}catch(a){var a=3}}return[a,x]}",
+            "function f(b){try{throw 1}catch(c){try{throw 2}catch(a){var a=3}}return[a,b]}",
+            id="pinned-inner-catch-parameter",
+        ),
         # a var in a catch body that names something else is an ordinary local
         pytest.param(
             "function f(){try{throw 1}catch(e){var longName=g();return[longName,e,longName]}}",
@@ -433,6 +445,29 @@ def test_rename_avoids_kept_names(source: str, expected: str) -> None:
 )
 def test_catch_parameter_redeclared_by_var_kept(source: str) -> None:
     assert minify_js(source) == source
+
+
+def _locals(count: int) -> str:
+    return ",".join(f"k{index}=h()" for index in range(count))  # the calls keep the compressor from dropping them
+
+
+def _catch_var_redeclarations(count: int) -> str:
+    return f"function f(){{var {_locals(count)};try{{h()}}catch(c){{var c=1{',c=2' * count}}}}}"
+
+
+def _arguments_reads(count: int) -> str:
+    return f"function f(){{var {_locals(count)};return[{'arguments,' * count}arguments]}}"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_catch_var_redeclarations, id="catch-var-redeclarations"),
+        pytest.param(_arguments_reads, id="arguments-reads"),
+    ],
+)
+def test_scope_analysis_of_many_bindings_stays_linear(build: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, build(n)), (1000, 4000))
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
