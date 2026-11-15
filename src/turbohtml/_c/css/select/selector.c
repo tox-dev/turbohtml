@@ -1194,9 +1194,11 @@ static int contains_ws_token(const Py_UCS4 *value, Py_ssize_t value_len, const P
             cursor++;
         }
         if (cursor > start && sel_eq(value + start, cursor - start, want, want_len, ci)) {
+            TH_WORK_STEPS_ADD(cursor);
             return 1;
         }
     }
+    TH_WORK_STEPS_ADD(value_len);
     return 0;
 }
 
@@ -1209,6 +1211,7 @@ static int sel_substr_kmp(const Py_UCS4 *value, Py_ssize_t value_len, const Py_U
     sel_kmp_prefix(want, want_len, ci, prefix);
     Py_ssize_t matched = 0;
     for (Py_ssize_t index = offset; index < value_len; index++) {
+        TH_WORK_STEP();
         while (matched > 0 && sel_fold(value[index], ci) != sel_fold(want[matched], ci)) {
             matched = prefix[matched - 1];
         }
@@ -1241,6 +1244,7 @@ static int sel_substr_long(const Py_UCS4 *value, Py_ssize_t value_len, const Py_
     Py_ssize_t last = want_len - 1;
     Py_UCS4 last_ch = sel_fold(want[last], ci);
     for (Py_ssize_t start = 0; start + want_len <= value_len; start++) {
+        TH_WORK_STEP();
         if (sel_fold(value[start + last], ci) != last_ch) {
             continue;
         }
@@ -1301,12 +1305,37 @@ static int sel_match_attr_op(const sel_simple *simple, const Py_UCS4 *value, Py_
             return 0;
         }
         for (Py_ssize_t start = 0; start + want_len <= value_len; start++) {
+            TH_WORK_STEP();
             if (sel_eq(value + start, want_len, want, want_len, ci)) {
                 return 1;
             }
         }
         return 0;
     }
+}
+
+/* A class, ~= or *= test on a long value. Each reads the whole value, and a query asks the
+   same one about the same value many times: the compound left of a combinator is tested on an
+   ancestor once per candidate below it, and every formatting element the tree builder
+   re-creates shares its source's value buffer (node_clone). The answer depends on the simple
+   selector, the case folding and the value alone, so the value memo keeps it under the simple
+   offset by the folding and the buffer, and the value is read once per selector. */
+static TH_NOINLINE int sel_match_long_value(const th_node *node, const sel_simple *simple, const Py_UCS4 *value,
+                                            Py_ssize_t value_len, int ci, const sel_ctx *ctx) {
+    const void *key = (const char *)simple + (ci != 0);
+    int matched;
+    if (sel_value_memo_get(ctx->value_memo, key, node, value, &matched)) {
+        return matched;
+    }
+    if (simple->kind == '.') {
+        matched = contains_ws_token(value, value_len, simple->name, simple->name_len, ci);
+    } else if (simple->kind == ':') { /* PSEUDO_SUBSTR_LONG */
+        matched = sel_substr_long(value, value_len, simple->value, simple->value_len, ci);
+    } else {
+        matched = sel_match_attr_op(simple, value, value_len, ci);
+    }
+    sel_value_memo_put(ctx->value_memo, key, node, value, matched);
+    return matched;
 }
 
 /* Two elements share a type when their namespace and tag match; a custom tag
@@ -2148,7 +2177,7 @@ static TH_NOINLINE int sel_direction(th_node *node, const sel_ctx *ctx) {
     return 1;
 }
 
-static int sel_match_substr_attr(th_node *node, const sel_simple *simple) {
+static int sel_match_substr_attr(th_node *node, const sel_simple *simple, const sel_ctx *ctx) {
     if (simple->attr_atom == UINT32_MAX) {
         return 0;
     }
@@ -2159,6 +2188,9 @@ static int sel_match_substr_attr(th_node *node, const sel_simple *simple) {
     const Py_UCS4 *value = attr->value != NULL ? attr->value : simple->value;
     Py_ssize_t value_len = attr->value != NULL ? attr->value_len : 0;
     int ci = simple->ci || (simple->ci_default && node->ns == TH_NS_HTML);
+    if (value_len >= SEL_VALUE_MEMO_MIN) {
+        return sel_match_long_value(node, simple, value, value_len, ci, ctx);
+    }
     return sel_substr_long(value, value_len, simple->value, simple->value_len, ci);
 }
 
@@ -2236,7 +2268,7 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_NEVER:
         return 0;
     case PSEUDO_SUBSTR_LONG:
-        return sel_match_substr_attr(node, simple);
+        return sel_match_substr_attr(node, simple, ctx);
     /* the functional pseudo-classes: :is()/:where() match the element against the
        nested list; :not() is its negation; :has() searches for a relative match
        anchored at it */
@@ -2279,6 +2311,9 @@ int sel_match_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx
         if (attr == NULL || attr->value == NULL) {
             return 0;
         }
+        if (attr->value_len >= SEL_VALUE_MEMO_MIN) {
+            return sel_match_long_value(node, simple, attr->value, attr->value_len, ctx->quirks, ctx);
+        }
         return contains_ws_token(attr->value, attr->value_len, simple->name, simple->name_len, ctx->quirks);
     }
     default: { /* '[' */
@@ -2293,6 +2328,10 @@ int sel_match_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx
         Py_ssize_t value_len = attr->value != NULL ? attr->value_len : 0;
         /* the HTML case-insensitive set applies only to HTML-namespace elements */
         int ci = simple->ci || (simple->ci_default && node->ns == TH_NS_HTML);
+        /* the other operators compare at most the selector's own value */
+        if (value_len >= SEL_VALUE_MEMO_MIN && (simple->op == OP_INCLUDE || simple->op == OP_SUBSTR)) {
+            return sel_match_long_value(node, simple, value, value_len, ci, ctx);
+        }
         return sel_match_attr_op(simple, value, value_len, ci);
     }
     }
@@ -2549,8 +2588,8 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
    one probe run, so the cost of a query hung on where the allocator placed the tree. The key rotates
    the node's slot because a node collects one entry per key it is probed with; hashing the node
    alone would put all of them in one probe run. */
-static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
-    return (th_hash_slot(th_fibonacci_hash(node->seq), mask + 1) +
+static size_t sel_memo_hash(const void *key, uint32_t seq, size_t mask) {
+    return (th_hash_slot(th_fibonacci_hash(seq), mask + 1) +
             (size_t)(((uintptr_t)key >> 4) * 0x9E3779B97F4A7C15u >> 32)) &
            mask;
 }
@@ -2560,8 +2599,9 @@ static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
    the walk takes the keyed stride the node maps take, which the document cannot predict, and an
    odd stride reaches every slot. Out of line so the inlined lookup keeps the cost of a plain
    linear probe. */
-static TH_NOINLINE size_t sel_memo_walk(const sel_memo *memo, const void *key, const th_node *node, size_t idx) {
-    const size_t step = th_node_probe_step(node->seq);
+static TH_NOINLINE size_t sel_memo_walk(const sel_memo *memo, const void *key, const void *node, uint32_t seq,
+                                        size_t idx) {
+    const size_t step = th_node_probe_step(seq);
     for (;;) {
         TH_WORK_STEP();
         const sel_memo_slot *slot = &memo->slots[idx];
@@ -2574,9 +2614,10 @@ static TH_NOINLINE size_t sel_memo_walk(const sel_memo *memo, const void *key, c
 
 /* Linear-probe from the pair's home slot to the slot holding the (key, node) pair or, if
    absent, the first empty slot it would occupy (the table is never full, so an empty slot
-   always exists). Shared by get and insert so one probe loop carries both. */
-static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node *node) {
-    size_t idx = sel_memo_hash(key, node, memo->mask);
+   always exists). Shared by get and insert so one probe loop carries both. seq only picks the
+   home slot: a node, or a value buffer, has one seq for as long as its entries live. */
+static size_t sel_memo_find(const sel_memo *memo, const void *key, const void *node, uint32_t seq) {
+    size_t idx = sel_memo_hash(key, seq, memo->mask);
     for (size_t walked = 0; walked < (size_t)TH_FAST_RUN_LIMIT; walked++) {
         TH_WORK_STEP();
         const sel_memo_slot *slot = &memo->slots[idx];
@@ -2589,15 +2630,15 @@ static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node
         }
         idx = (idx + 1) & memo->mask;
     }
-    return sel_memo_walk(memo, key, node, idx);
+    return sel_memo_walk(memo, key, node, seq, idx);
 }
 
-/* Look up (key, node); on a hit store the cached result in *out and return 1. */
-static int sel_memo_get(const sel_memo *memo, const void *key, const th_node *node, int *out) {
+/* Look up (key, node, seq); on a hit store the cached result in *out and return 1. */
+static int sel_memo_lookup(const sel_memo *memo, const void *key, const void *node, uint32_t seq, int *out) {
     if (memo->slots == NULL) {
         return 0;
     }
-    const sel_memo_slot *slot = &memo->slots[sel_memo_find(memo, key, node)];
+    const sel_memo_slot *slot = &memo->slots[sel_memo_find(memo, key, node, seq)];
     if (slot->key == NULL) {
         return 0;
     }
@@ -2605,10 +2646,14 @@ static int sel_memo_get(const sel_memo *memo, const void *key, const th_node *no
     return 1;
 }
 
-static void sel_memo_insert(sel_memo *memo, const void *key, const th_node *node, unsigned char result) {
-    sel_memo_slot *slot = &memo->slots[sel_memo_find(memo, key, node)];
+static int sel_memo_get(const sel_memo *memo, const void *key, const th_node *node, int *out) {
+    return sel_memo_lookup(memo, key, node, node->seq, out);
+}
+
+static void sel_memo_insert(sel_memo *memo, const void *key, const void *node, uint32_t seq, unsigned char result) {
+    sel_memo_slot *slot = &memo->slots[sel_memo_find(memo, key, node, seq)];
     memo->count += slot->key == NULL;
-    *slot = (sel_memo_slot){key, node, result};
+    *slot = (sel_memo_slot){key, node, seq, result};
 }
 
 /* Grow (or first-allocate) the table to the next power of two and rehash. Past limit, or on
@@ -2636,21 +2681,33 @@ static void sel_memo_grow(sel_memo *memo) {
     memo->count = 0;
     for (size_t idx = 0; idx < old_cap; idx++) {
         if (old_slots[idx].key != NULL) {
-            sel_memo_insert(memo, old_slots[idx].key, old_slots[idx].node, old_slots[idx].result);
+            sel_memo_insert(memo, old_slots[idx].key, old_slots[idx].node, old_slots[idx].seq, old_slots[idx].result);
         }
     }
     PyMem_Free(old_slots);
 }
 
-/* Cache a (key, node) answer, growing past a 0.75 load factor. */
-static void sel_memo_put(sel_memo *memo, const void *key, const th_node *node, int result) {
+/* Cache a (key, node, seq) answer, growing past a 0.75 load factor. */
+static void sel_memo_store(sel_memo *memo, const void *key, const void *node, uint32_t seq, int result) {
     if ((memo->count + 1) * 4 > (memo->mask + 1) * 3) {
         sel_memo_grow(memo);
         if (memo->failed) {
             return;
         }
     }
-    sel_memo_insert(memo, key, node, (unsigned char)(result != 0));
+    sel_memo_insert(memo, key, node, seq, (unsigned char)(result != 0));
+}
+
+static void sel_memo_put(sel_memo *memo, const void *key, const th_node *node, int result) {
+    sel_memo_store(memo, key, node, node->seq, result);
+}
+
+int sel_value_memo_get(const sel_memo *memo, const void *key, const th_node *node, const Py_UCS4 *value, int *out) {
+    return sel_memo_lookup(memo, key, value, th_node_values_seq(node), out);
+}
+
+void sel_value_memo_put(sel_memo *memo, const void *key, const th_node *node, const Py_UCS4 *value, int result) {
+    sel_memo_store(memo, key, value, th_node_values_seq(node), result);
 }
 
 void sel_memo_free(sel_memo *memo) {
@@ -2956,19 +3013,33 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
    test builds a throwaway context with no :has() memo (nothing to amortize over). A
    selector that reads a :disabled-family pseudo-class gets a legend memo, since one :has()
    or sibling walk tests many controls under one fieldset. */
-static TH_NOINLINE int sel_matches_with_legend(th_node *node, const sel_compiled *compiled, th_node *scope) {
+static TH_NOINLINE int sel_matches_with_legend(th_node *node, const sel_compiled *compiled, th_node *scope,
+                                               sel_memo *value_memo) {
     sel_memo legend_memo = {0};
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, &legend_memo, NULL};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, &legend_memo, NULL, value_memo};
     const int matched = sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
     sel_memo_free(&legend_memo);
     return matched;
 }
 
-int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    if (compiled->reads_legend) {
-        return sel_matches_with_legend(node, compiled, scope);
+/* A single test still gets a table: a :has() walk or the shared values of re-created formatting elements read one
+   value many times even then. Out of line, so a caller's loop keeps selector_matches inlined. */
+static TH_NOINLINE int selector_matches_once(th_node *node, const sel_compiled *compiled, th_node *scope) {
+    sel_memo own = {0};
+    const int matched = selector_matches(node, compiled, scope, &own);
+    sel_memo_free(&own);
+    return matched;
+}
+
+/* value_memo is the caller's table for long attribute values, or NULL for one that lives as long as the test. */
+int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope, sel_memo *value_memo) {
+    if (value_memo == NULL) {
+        return selector_matches_once(node, compiled, scope);
     }
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL};
+    if (compiled->reads_legend) {
+        return sel_matches_with_legend(node, compiled, scope, value_memo);
+    }
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL, value_memo};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
 
