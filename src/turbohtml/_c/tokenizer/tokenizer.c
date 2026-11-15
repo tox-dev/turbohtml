@@ -20,10 +20,8 @@
 
 #include <string.h>
 
-/* One open element on the spine tk_follow keeps. Outside foreign content a start tag records only key and name; the
-   other fields are filled in by tk_settle when a rule first reads them. */
+/* One open element on the spine tk_follow keeps. */
 typedef struct {
-    uint64_t key;       /* the name packed by tk_key, 0 for one that does not fit */
     Py_ssize_t name;    /* where the element's run of names begins */
     uint16_t atom;      /* TH_TAG_UNKNOWN for a name outside the tag table, which names then holds */
     uint8_t ns;         /* the namespace a browser gives the element */
@@ -47,9 +45,9 @@ typedef struct {
     Py_UCS4 *names;
     Py_ssize_t names_len;
     Py_ssize_t names_cap;
-    Py_ssize_t settled;     /* open[0, settled) carry every field; those above hold only key and name */
     Py_ssize_t foreign;     /* how many of the open elements are SVG/MathML */
     int capture_attributes; /* the caller's option; the machine also captures where foreign rules read them */
+    int machine_foreign;    /* the machine is set for foreign content: CDATA is text, attributes are captured */
 } TokenizerObject;
 
 typedef struct {
@@ -84,20 +82,20 @@ static int name_eq(const th_buf *name, const char *literal, size_t len) {
    long flat document reaches it too; past it the outer half is forgotten, because the innermost elements are the ones
    that decide the namespace. An end tag then walks at most this many entries.
 
-   Outside foreign content, which is all of ordinary HTML, no tag is looked up in the tag table (tk_follow): a start tag
-   records its name packed into a word, and an end tag that names the innermost element pops it by comparing the words.
-   The rules read the rest of an element's fields only from an <svg> or <math> start tag on, or for an end tag that
-   closes something other than the innermost element, and tk_settle fills them in then. */
+   The machine interns every tag name it emits (token->atom), so outside foreign content, which is all of ordinary
+   HTML, following the spine is one table read per start tag and one compare per end tag (tk_follow_html); the full
+   rules (tk_follow_rules) take the rest: <svg> and <math>, table elements, custom names, an end tag that closes more
+   than the innermost element, and every tag inside foreign content. */
 #define TK_MAX_DEPTH TH_MAX_TREE_DEPTH
 
 /* What a start tag the HTML rules process does, read off its atom: the content model it switches the machine into
-   (TK_MODEL, a TH_INIT_* value, 0 for none), whether a browser leaves no element
+   (TK_MODEL, a TH_INIT_* value, 0 for none), whether it begins foreign content, whether a browser leaves no element
    open for it (a void element; <html> and <body> only add attributes to the elements a browser already has, a <head>,
    <frame> or <frameset> it honors never holds an element followed here, and <image> is read as <img>), and whether it
    is a table part, which a browser ignores unless a table or template (TK_TABLE) is open. */
 enum {
     TK_MODEL = 7,
-    TK_FOREIGN = 8, /* what tk_html_start returns for <svg> and <math> */
+    TK_FOREIGN = 8,
     TK_CHILDLESS = 16,
     TK_TABLE_PART = 32,
     TK_TABLE = 64,
@@ -107,7 +105,7 @@ static const uint8_t TK_START[TH_TAG_XMP + 1] = {
     [TH_TAG_TITLE] = TH_INIT_RCDATA,       [TH_TAG_TEXTAREA] = TH_INIT_RCDATA,   [TH_TAG_STYLE] = TH_INIT_RAWTEXT,
     [TH_TAG_XMP] = TH_INIT_RAWTEXT,        [TH_TAG_IFRAME] = TH_INIT_RAWTEXT,    [TH_TAG_NOEMBED] = TH_INIT_RAWTEXT,
     [TH_TAG_NOFRAMES] = TH_INIT_RAWTEXT,   [TH_TAG_NOSCRIPT] = TH_INIT_RAWTEXT,  [TH_TAG_SCRIPT] = TH_INIT_SCRIPT_DATA,
-    [TH_TAG_PLAINTEXT] = TH_INIT_PLAINTEXT,
+    [TH_TAG_PLAINTEXT] = TH_INIT_PLAINTEXT, [TH_TAG_SVG] = TK_FOREIGN,           [TH_TAG_MATH] = TK_FOREIGN,
     [TH_TAG_AREA] = TK_CHILDLESS,          [TH_TAG_BASE] = TK_CHILDLESS,         [TH_TAG_BASEFONT] = TK_CHILDLESS,
     [TH_TAG_BGSOUND] = TK_CHILDLESS,       [TH_TAG_BR] = TK_CHILDLESS,           [TH_TAG_COL] = TK_CHILDLESS,
     [TH_TAG_EMBED] = TK_CHILDLESS,         [TH_TAG_HR] = TK_CHILDLESS,           [TH_TAG_IMG] = TK_CHILDLESS,
@@ -126,66 +124,6 @@ static void tk_switch_content(th_tokenizer *sm, uint16_t atom) {
     if (model != 0) {
         th_tok_switch(sm, (enum th_initial_state)model);
     }
-}
-
-/* A name of at most 8 Latin-1 bytes, nearly every tag, packed little-endian into one word as th_tag_keys holds it, so
-   two names compare as one integer; 0 for any other name. */
-static uint64_t tk_key(const th_buf *name) {
-    Py_ssize_t len = name->len; /* a tag name has at least one character */
-    /* the word read stays inside the name's allocation, and the bytes past the name are masked off */
-    /* GCOVR_EXCL_BR_START: only the fuzz build allocates a name below a word */
-    if (name->kind != PyUnicode_1BYTE_KIND || len > 8 || name->cap < 8) {
-        return 0;
-    }
-    /* GCOVR_EXCL_BR_STOP */
-    uint64_t key;
-    memcpy(&key, name->data, sizeof(key));
-#if !PY_LITTLE_ENDIAN
-    key = __builtin_bswap64(key);
-#endif
-    return key & (~(uint64_t)0 >> (64 - 8 * len));
-}
-
-/* The atom and category flags of a name tk_key packed. */
-static uint16_t tk_key_atom(uint64_t key, uint8_t *flags) {
-    uint8_t atom = th_tag_key_hash[(key * TH_TAG_KEY_MULTIPLIER) >> TH_TAG_KEY_SHIFT];
-    if (th_tag_keys[atom] != key) { /* a slot no name fills holds atom 0, whose key 0 no name packs to */
-        *flags = 0;
-        return TH_TAG_UNKNOWN;
-    }
-    *flags = th_tag_table[atom - 1].flags;
-    return atom;
-}
-
-static uint16_t tk_atom(const th_buf *name, uint8_t *flags) {
-    uint64_t key = tk_key(name);
-    if (key != 0) {
-        return tk_key_atom(key, flags);
-    }
-    *flags = 0;
-    if (name->kind != PyUnicode_1BYTE_KIND) {
-        return TH_TAG_UNKNOWN;
-    }
-    Py_ssize_t len = name->len;
-    const unsigned char *str = (const unsigned char *)name->data;
-    size_t slot = ((size_t)len * TH_TAG_HASH_LENGTH + (size_t)str[0] * TH_TAG_HASH_FIRST +
-                   (size_t)str[len - 1] * TH_TAG_HASH_LAST + (size_t)str[len > 1] * TH_TAG_HASH_SECOND) &
-                  TH_TAG_HASH_MASK;
-    uint8_t index = th_tag_hash[slot];
-    if (index == 0) {
-        return TH_TAG_UNKNOWN;
-    }
-    const th_tag_entry *entry = &th_tag_table[index - 1];
-    if (entry->name_len != len) {
-        return TH_TAG_UNKNOWN;
-    }
-    for (Py_ssize_t pos = 0; pos < len; pos++) {
-        if (str[pos] != (unsigned char)entry->name[pos]) {
-            return TH_TAG_UNKNOWN;
-        }
-    }
-    *flags = entry->flags;
-    return entry->atom;
 }
 
 static int tk_atom_in(uint16_t atom, const uint16_t *atoms, size_t count) {
@@ -384,7 +322,6 @@ static int tk_push(TokenizerObject *self, const th_token *token, uint16_t atom, 
     }
     int in_table = tk_in_table(self);
     tk_open *open = &self->open[self->depth++];
-    open->key = tk_key(&token->name);
     open->atom = atom;
     open->ns = ns;
     open->name = self->names_len;
@@ -471,13 +408,18 @@ static void tk_end_tag(TokenizerObject *self, const th_token *token, uint16_t at
     }
 }
 
-/* Put the machine in the state the innermost open element calls for once a tag in foreign content is followed. */
-static void tk_sync(const TokenizerObject *self, th_tokenizer *sm) {
+/* Put the machine in the state the innermost open element calls for once a tag in foreign content is followed. Inside
+   foreign content most tags leave it as it was, so the machine is told only of a change. */
+static void tk_sync(TokenizerObject *self, th_tokenizer *sm) {
     int foreign = self->depth > 0 && self->open[self->depth - 1].ns != TH_NS_HTML;
+    if (foreign == self->machine_foreign) {
+        return;
+    }
+    self->machine_foreign = foreign;
     th_tok_set_cdata(sm, foreign);
     if (!self->capture_attributes) {
         /* the foreign-content rules read a start tag's attributes (tk_foreign_breakout, tk_annotation_xml_is_html),
-           so the machine keeps them there; tk_hide_attrs keeps them out of what the caller sees */
+           so the machine keeps them there; tk_follow_rules keeps them out of what the caller sees */
         th_tok_capture_attributes(sm, foreign);
     }
 }
@@ -499,136 +441,54 @@ static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_toke
     return 0;
 }
 
-/* What an HTML start tag does outside foreign content: the content model it switches the machine into, TK_FOREIGN for
-   <svg> and <math>, or 0. Every start tag there asks, so the length picks the few names to compare. */
-static int tk_html_start(const th_buf *name) {
-    if (name->kind != PyUnicode_1BYTE_KIND) {
+/* Follow a tag outside foreign content in place where that is all it takes: a start tag that opens a known element
+   pushes it, a void element and the other start tags a browser leaves no element open for push nothing, and the end
+   tag of the innermost element pops it. Returns 1 when the tag needs tk_follow_rules. Inlined at both call sites: it
+   runs for every tag the Tokenizer hands over. */
+static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
+    if (self->foreign != 0) {
+        return 1;
+    }
+    uint16_t atom = record->atom;
+    if (record->kind == TH_END_TAG) {
+        if (atom != TH_TAG_UNKNOWN && self->depth > 0 && self->open[self->depth - 1].atom == atom) {
+            self->depth--;
+            return 0;
+        }
+        return 1;
+    }
+    uint8_t start = TK_START[atom];
+    /* the capacity doubles from a power of two up to TK_MAX_DEPTH, so room on it is room under the cap */
+    if ((start & ~TK_MODEL) == 0 && atom != TH_TAG_UNKNOWN && self->depth < self->open_cap) {
+        uint8_t in_table = self->depth > 0 && self->open[self->depth - 1].in_table;
+        self->open[self->depth++] =
+            (tk_open){self->names_len, atom, TH_NS_HTML, 0, record->tag_flags & (TH_TAG_SPECIAL | TH_TAG_SCOPING),
+                      in_table};
+        if (start != 0) {
+            th_tok_switch(sm, (enum th_initial_state)start);
+        }
         return 0;
     }
-    const char *data = (const char *)name->data;
-    switch (name->len) {
-    case 3:
-        if (memcmp(data, "svg", 3) == 0) {
-            return TK_FOREIGN;
-        }
-        return memcmp(data, "xmp", 3) == 0 ? TH_INIT_RAWTEXT : 0;
-    case 4:
-        return memcmp(data, "math", 4) == 0 ? TK_FOREIGN : 0;
-    case 5:
-        if (memcmp(data, "title", 5) == 0) {
-            return TH_INIT_RCDATA;
-        }
-        return memcmp(data, "style", 5) == 0 ? TH_INIT_RAWTEXT : 0;
-    case 6:
-        if (memcmp(data, "script", 6) == 0) {
-            return TH_INIT_SCRIPT_DATA;
-        }
-        return memcmp(data, "iframe", 6) == 0 ? TH_INIT_RAWTEXT : 0;
-    case 7:
-        return memcmp(data, "noembed", 7) == 0 ? TH_INIT_RAWTEXT : 0;
-    case 8:
-        if (memcmp(data, "textarea", 8) == 0) {
-            return TH_INIT_RCDATA;
-        }
-        return memcmp(data, "noframes", 8) == 0 || memcmp(data, "noscript", 8) == 0 ? TH_INIT_RAWTEXT : 0;
-    case 9:
-        return memcmp(data, "plaintext", 9) == 0 ? TH_INIT_PLAINTEXT : 0;
-    default:
-        return 0;
-    }
+    return (start & TK_CHILDLESS) == 0;
 }
 
-/* Fill in the fields of the open elements recorded outside foreign content, dropping those a browser leaves no element
-   open for, as tk_push would have decided when their start tags arrived: nothing below them has changed since. Returns
-   -1 when the names cannot grow. */
-static int tk_settle(TokenizerObject *self) {
-    Py_ssize_t kept = self->settled;
-    Py_ssize_t depth = self->depth;
-    for (Py_ssize_t index = self->settled; index < depth; index++) {
-        uint64_t key = self->open[index].key;
-        uint8_t flags;
-        uint16_t atom = tk_key_atom(key, &flags);
-        self->depth = kept; /* tk_html_childless reads the table scope of the elements kept so far */
-        if (tk_html_childless(self, atom)) {
-            continue;
-        }
-        Py_ssize_t name_len = 0;
-        if (atom == TH_TAG_UNKNOWN) {
-            while (name_len < 8 && ((key >> (8 * name_len)) & 0xFF) != 0) {
-                name_len++;
-            }
-            if (tk_names_reserve(self, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return -1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            for (Py_ssize_t pos = 0; pos < name_len; pos++) {
-                self->names[self->names_len + pos] = (Py_UCS4)((key >> (8 * pos)) & 0xFF);
-            }
-        }
-        int in_table = tk_in_table(self) || (TK_START[atom] & TK_TABLE) != 0;
-        self->open[kept++] = (tk_open){key, self->names_len, atom, TH_NS_HTML, 0,
-                                       flags & (TH_TAG_SPECIAL | TH_TAG_SCOPING), (uint8_t)in_table};
-        self->names_len += name_len;
-    }
-    self->depth = kept;
-    self->settled = kept;
-    return 0;
-}
-
-/* Follow a start or end tag. Outside foreign content no tag is looked up: a start tag records its packed name (and
-   switches the content model), and an end tag naming the innermost element pops it. Anything else, an <svg> or <math>
-   start tag first of all, settles the spine and takes the full rules, which every tag inside foreign content takes.
-   Returns -1 when the spine cannot grow. */
-static inline int tk_follow(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
-    if (self->foreign == 0) {
-        uint64_t key = tk_key(&record->name);
-        if (record->kind == TH_END_TAG) {
-            if (key != 0 && self->depth > 0 && self->open[self->depth - 1].key == key) {
-                self->names_len = self->open[--self->depth].name;
-                if (self->settled > self->depth) {
-                    self->settled = self->depth;
-                }
-                return 0;
-            }
-        } else {
-            int start = tk_html_start(&record->name);
-            /* the capacity doubles from a power of two up to TK_MAX_DEPTH, so room on it is room under the cap */
-            if (start != TK_FOREIGN && key != 0 && self->depth < self->open_cap) {
-                tk_open *open = &self->open[self->depth++];
-                open->key = key;
-                open->name = self->names_len;
-                if (start != 0) {
-                    th_tok_switch(sm, (enum th_initial_state)start);
-                }
-                return 0;
-            }
-        }
-        if (tk_settle(self) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;             /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-    }
-    uint8_t flags;
-    uint16_t atom = tk_atom(&record->name, &flags);
+/* Follow a tag with the full rules. Attributes the machine captured for those rules alone are not part of the token
+   the caller asked for: *hidden is how many were hidden, which the caller adds back once the token is handed over, so
+   the machine still resets every slot it filled. Returns -1 when the spine cannot grow. */
+static int tk_follow_rules(TokenizerObject *self, th_tokenizer *sm, th_token *record, Py_ssize_t *hidden) {
+    int captured = self->machine_foreign && !self->capture_attributes;
     int rc = 0;
     if (record->kind == TH_START_TAG) {
-        rc = tk_track_start(self, sm, record, atom, flags);
+        rc = tk_track_start(self, sm, record, record->atom, record->tag_flags);
     } else {
-        tk_end_tag(self, record, atom, flags);
+        tk_end_tag(self, record, record->atom, record->tag_flags);
         tk_sync(self, sm);
     }
-    self->settled = self->depth;
-    return rc;
-}
-
-/* Attributes the machine captured for tk_track_start alone are not part of the token the caller asked for. Returns
-   how many it hid; the caller adds them back once the token is handed over, so the machine still resets every slot it
-   filled. */
-static Py_ssize_t tk_hide_attrs(const TokenizerObject *self, th_token *record) {
-    if (self->capture_attributes) {
-        return 0;
+    if (captured) {
+        *hidden = record->attr_count;
+        record->attr_count = 0;
     }
-    Py_ssize_t hidden = record->attr_count;
-    record->attr_count = 0;
-    return hidden;
+    return rc;
 }
 
 static PyObject *iter_new(module_state *state, PyObject *owner) {
@@ -675,16 +535,17 @@ static PyObject *iter_next(PyObject *self) {
                                            cannot be forced from a test */
     case TH_STEP_TOKEN: {
         Py_ssize_t hidden = 0;
-        if (record->kind == TH_START_TAG || record->kind == TH_END_TAG) {
-            if (tk_follow(owner, sm, record) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                result = PyErr_NoMemory();          /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        if ((record->kind == TH_START_TAG || record->kind == TH_END_TAG) && tk_follow_html(owner, sm, record)) {
+            if (tk_follow_rules(owner, sm, record, &hidden) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                result = PyErr_NoMemory();                         /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-            hidden = tk_hide_attrs(owner, record);
         }
         /* one call site, so the compiler keeps the token builder inlined in this loop */
         result = token_from_record(state, sm, owner->source, record);
-        record->attr_count += hidden;
+        if (hidden != 0) {
+            record->attr_count = hidden;
+        }
         break;
     }
     case TH_STEP_ERROR:            /* GCOVR_EXCL_LINE: the only step error is an out-of-memory condition */
@@ -823,8 +684,8 @@ static PyObject *tokenizer_reset(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     /* no element is open any more, so the machine is back in HTML content with the caller's options */
     tokenizer->depth = 0;
     tokenizer->names_len = 0;
-    tokenizer->settled = 0;
     tokenizer->foreign = 0;
+    tokenizer->machine_foreign = 0;
     th_tok_set_cdata(tokenizer->sm, 0);
     th_tok_capture_attributes(tokenizer->sm, tokenizer->capture_attributes);
     Py_END_CRITICAL_SECTION();
@@ -1001,17 +862,25 @@ static PyObject *tokenizer_dispatch(PyObject *self, PyObject *handler) {
             tokenizer->line = record->line;
             tokenizer->col = record->col;
             if (record->kind == TH_START_TAG) {
-                if (tk_follow(tokenizer, sm, record) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    PyErr_NoMemory();                       /* GCOVR_EXCL_LINE: allocation-failure path */
-                    break;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+                Py_ssize_t hidden = 0;
+                if (tk_follow_html(tokenizer, sm, record) && tk_follow_rules(tokenizer, sm, record, &hidden) < 0) {
+                    PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                    break;            /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                Py_ssize_t hidden = tk_hide_attrs(tokenizer, record);
                 first = th_buf_to_str(&record->name);
                 second = attrs_of(record);
-                record->attr_count += hidden;
+                if (hidden != 0) {
+                    record->attr_count = hidden;
+                }
                 target = record->self_closing ? bound.fn[SAX_STARTENDTAG] : bound.fn[SAX_STARTTAG];
             } else if (record->kind == TH_END_TAG) {
-                tk_follow(tokenizer, sm, record); /* an end tag only shrinks the spine, so it cannot fail */
+                if (tk_follow_html(tokenizer, sm, record)) {
+                    Py_ssize_t hidden = 0;
+                    tk_follow_rules(tokenizer, sm, record, &hidden); /* an end tag only shrinks the spine */
+                    if (hidden != 0) {
+                        record->attr_count = hidden; /* handle_endtag takes no attributes */
+                    }
+                }
                 first = th_buf_to_str(&record->name);
                 target = bound.fn[SAX_ENDTAG];
             } else if (record->kind == TH_TEXT) {

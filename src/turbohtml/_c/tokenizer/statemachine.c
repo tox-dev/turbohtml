@@ -26,6 +26,7 @@
 #include "core/hash.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
+#include "data/tag_atom.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -1118,6 +1119,14 @@ static void rawtext_fallback(th_tokenizer *self, enum state ret) {
 
 static void finish_tag(th_tokenizer *self) {
     self->state = ST_DATA;
+    /* interned once here for every consumer: the tree builder, the Tokenizer following open elements, the rewriter */
+    th_buf *name = &self->tok.name;
+    if (name->kind == PyUnicode_1BYTE_KIND) {
+        self->tok.atom = th_tag_intern(name->data, name->len, name->cap, &self->tok.tag_flags);
+    } else {
+        self->tok.atom = TH_TAG_UNKNOWN; /* the table holds only ASCII names */
+        self->tok.tag_flags = 0;
+    }
     if (self->capture_locations) {
         /* the cursor has just passed the closing '>', so it marks the tag's end span */
         self->tok.end_line = self->line;

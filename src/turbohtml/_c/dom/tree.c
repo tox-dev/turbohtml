@@ -71,33 +71,11 @@ static inline Py_UCS4 input_read(const th_tree *tree, Py_ssize_t index) {
 }
 
 static uint16_t intern_atom(const th_buf *name, uint8_t *out_flags) {
-    *out_flags = 0;
     if (name->kind != PyUnicode_1BYTE_KIND || name->len == 0) { /* GCOVR_EXCL_BR_LINE: name is never empty */
-        return TH_TAG_UNKNOWN;                                  /* non-ASCII / empty tag names are never atoms */
+        *out_flags = 0;
+        return TH_TAG_UNKNOWN; /* non-ASCII / empty tag names are never atoms */
     }
-    const unsigned char *str = (const unsigned char *)name->data;
-    size_t slot = ((size_t)name->len * TH_TAG_HASH_LENGTH + (size_t)str[0] * TH_TAG_HASH_FIRST +
-                   (size_t)str[name->len - 1] * TH_TAG_HASH_LAST + (size_t)str[name->len > 1] * TH_TAG_HASH_SECOND) &
-                  TH_TAG_HASH_MASK;
-    uint8_t index = th_tag_hash[slot];
-    if (index == 0) {
-        return TH_TAG_UNKNOWN;
-    }
-    const th_tag_entry *entry = &th_tag_table[index - 1];
-    if (entry->name_len != name->len) {
-        return TH_TAG_UNKNOWN;
-    }
-    /* Verify with an inline byte loop, not memcmp: tag names are 1-10 bytes, so a
-       libc call's setup costs more than the compare it saves -- most of all for the
-       one-byte names (p, a, b, ...) a parse hits far more often than div or span. */
-    const unsigned char *en = (const unsigned char *)entry->name;
-    for (Py_ssize_t pos = 0; pos < name->len; pos++) {
-        if (str[pos] != en[pos]) {
-            return TH_TAG_UNKNOWN;
-        }
-    }
-    *out_flags = entry->flags;
-    return entry->atom;
+    return th_tag_intern(name->data, name->len, name->cap, out_flags);
 }
 
 /* The token's interned tag atom, cached on the token by the run loop once per
@@ -4791,11 +4769,8 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
             tree->drop_newline = 0;
         }
     reprocess:;
-        /* Intern the tag name once; every comparison and insert below reads
-           tok->atom / tok->tag_flags instead of re-interning the same name. */
-        if (tok->kind == TH_START_TAG || tok->kind == TH_END_TAG) {
-            tok->atom = intern_atom(&tok->name, &tok->tag_flags);
-        } else {
+        /* the machine interned a tag's name; every comparison and insert below reads tok->atom / tok->tag_flags */
+        if (tok->kind != TH_START_TAG && tok->kind != TH_END_TAG) {
             tok->atom = TH_TAG_UNKNOWN;
             tok->tag_flags = 0;
         }

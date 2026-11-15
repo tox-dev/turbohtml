@@ -296,16 +296,6 @@ static uint32_t rw_attr_atom(th_tree *tree, const char *bytes, Py_ssize_t len) {
     return intern_attr_dynamic(tree, bytes, len);
 }
 
-/* The interned tag atom for a token's name; the raw tokenizer leaves token->atom unset
-   (only the tree builder fills it), so the rewriter resolves it from the name bytes. A
-   non-ASCII name is never in the table, so it stays TH_TAG_UNKNOWN. */
-static uint16_t rw_tag_atom(const th_buf *name) {
-    if (name->kind != PyUnicode_1BYTE_KIND) {
-        return TH_TAG_UNKNOWN;
-    }
-    return th_tag_lookup((const char *)name->data, name->len);
-}
-
 /* One open element on the streaming spine, plus the edits its handler recorded. The
    node's only live link is its parent, so the whole stack is O(open-depth). */
 typedef struct {
@@ -1403,7 +1393,7 @@ static void rw_call_handler(rw_ctx *ctx, PyObject *handler, PyObject *handle) {
 
 static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
     int suppressed = ctx->suppress > 0;
-    uint16_t atom = rw_tag_atom(&token->name);
+    uint16_t atom = token->atom;
     int self_terminating = token->self_closing || th_tag_is_void(atom);
     th_node *parent = ctx->depth > 0 ? ctx->stack[ctx->depth - 1].node : ctx->document;
     th_node *node = rw_make_node(ctx, token, atom, parent);
@@ -1579,7 +1569,7 @@ static int rw_raw_content_closes_early(rw_ctx *ctx, const rw_open *element) {
 }
 
 static void rw_handle_end(rw_ctx *ctx, const th_token *token) {
-    uint16_t atom = rw_tag_atom(&token->name);
+    uint16_t atom = token->atom;
     /* find the matching open element, top-down; a known tag matches by atom, an
        unknown (custom) tag by its lowercased name */
     Py_ssize_t match = -1;
