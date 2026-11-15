@@ -36,14 +36,13 @@ static int c14n_1_1_inherits_xml_attribute(const char *name, Py_ssize_t len) {
 
 /* Append c14n text: only & < > and a carriage return take a reference (as &amp;
    &lt; &gt; &#xD;); tab and newline stay literal, unlike an attribute value. Each
-   clean run is bulk-copied and only the specials between are rewritten. */
+   clean run is bulk-copied and only the specials between are rewritten. A character
+   XML cannot hold stops the run and reaches no branch, so it is dropped. */
 static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && text[index] != '&' && text[index] != '<' && text[index] != '>' && text[index] != 0x0D) {
-            index++;
-        }
+        index = c14n_find_text_stop(text, index, len);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
@@ -55,8 +54,8 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&lt;");
             } else if (character == '>') {
                 sbuf_puts(out, "&gt;");
-            } else {
-                sbuf_puts(out, "&#xD;"); /* the only remaining flagged character is U+000D */
+            } else if (character == 0x0D) {
+                sbuf_puts(out, "&#xD;");
             }
             index++;
         }
@@ -65,15 +64,13 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
 
 /* Append a c14n attribute value: & < " take references, and the three whitespace
    controls tab/newline/carriage-return become &#x9; &#xA; &#xD; so a reparse cannot
-   normalize them away; `>` and `'` stay literal. */
+   normalize them away; `>` and `'` stay literal. A character XML cannot hold stops
+   the run and reaches no branch, so it is dropped. */
 static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && text[index] != '&' && text[index] != '<' && text[index] != '"' && text[index] != 0x09 &&
-               text[index] != 0x0A && text[index] != 0x0D) {
-            index++;
-        }
+        index = c14n_find_stop(text, index, len, C14N_ATTR_STOPS);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
@@ -89,8 +86,8 @@ static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&#x9;");
             } else if (character == 0x0A) {
                 sbuf_puts(out, "&#xA;");
-            } else {
-                sbuf_puts(out, "&#xD;"); /* the only remaining flagged character is U+000D */
+            } else if (character == 0x0D) {
+                sbuf_puts(out, "&#xD;");
             }
             index++;
         }
