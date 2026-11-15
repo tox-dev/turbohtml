@@ -1,1 +1,2 @@
-``rewrite()`` no longer lets a removed ``<script>`` through on pages nested past 8,192 open elements; edits it cannot apply there raise ``ValueError``.
+``rewrite()`` no longer lets a removed ``<script>`` through on pages nested past 8,192 open elements; edits it cannot
+apply there raise ``ValueError``.
