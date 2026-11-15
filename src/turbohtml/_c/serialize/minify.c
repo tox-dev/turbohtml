@@ -902,7 +902,8 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
                 break; /* void elements have no children or end tag */
             }
-            if (!(st->inner && node == root) && ser_needs_leading_newline(tree, node)) {
+            if (!(st->inner && node == root) &&
+                ser_leading_newline_before(tree, node, mini_first_content(node, opts->strip_comments))) {
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node, tree->scripting)) {

@@ -644,19 +644,22 @@ static inline Py_ssize_t doctype_name_len(const th_node *node) {
 /* A pre/textarea/listing element whose first child is a text node beginning with
    a newline needs an extra leading newline on output: the parser drops one such
    newline when reading, so re-emitting it keeps the round trip faithful. */
-static inline int ser_needs_leading_newline(th_tree *tree, th_node *node) {
+static inline int ser_leading_newline_before(th_tree *tree, th_node *node, th_node *first) {
     if (node->ns != TH_NS_HTML) {
         return 0;
     }
     if (node->atom != TH_TAG_PRE && node->atom != TH_TAG_TEXTAREA && node->atom != TH_TAG_LISTING) {
         return 0;
     }
-    th_node *first = node->first_child;
     if (first == NULL || first->type != TH_NODE_TEXT || first->text_len == 0) {
         return 0;
     }
     const Py_UCS4 *text = need_text(tree, first);
     return text != NULL && text[0] == '\n'; /* GCOVR_EXCL_BR_LINE: NULL is a lazy text OOM the walk reports */
+}
+
+static inline int ser_needs_leading_newline(th_tree *tree, th_node *node) {
+    return ser_leading_newline_before(tree, node, node->first_child);
 }
 
 /* ASCII case-insensitive compare of a UCS-4 attribute value against a lowercase

@@ -1454,6 +1454,14 @@ def test_minify_keeps_end_tag_guarded_by_trailing_formatting(source: str, expect
     assert minify(once) == once
 
 
+@pytest.mark.parametrize("tag", ["pre", "listing"])
+def test_minify_keeps_leading_newline_after_stripped_comment(tag: str) -> None:
+    # the parser drops the newline that opens the content, so the stripped comment must not hide the one before it
+    once: Final = minify(f"<{tag}><!--c-->\nx</{tag}>")
+    assert once == f"<{tag}>\n\nx</{tag}>"
+    assert minify(once) == once
+
+
 def test_minify_is_idempotent_over_seeded_documents() -> None:
     tokens = (
         "x",
