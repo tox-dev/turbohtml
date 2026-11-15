@@ -3120,3 +3120,54 @@ def test_rng_date_calendar_day(datatype: str, value: str, *, expected: bool) -> 
         f'<data type="{datatype}"/></element>'
     )
     assert validator.is_valid(parse_xml(f"<doc>{value}</doc>")) is expected
+
+
+_TOKEN_ALTERNATIVES: Final[str] = "<choice>{}</choice>".format('<data type="token"/>' * 200)
+_WORDS: Final[str] = " ".join(["word"] * 4_000)
+
+
+@pytest.mark.parametrize(
+    ("body", "xml"),
+    [
+        pytest.param(f'<attribute name="a">{_TOKEN_ALTERNATIVES}</attribute>', f'<doc a="{_WORDS}"/>', id="attribute"),
+        pytest.param(
+            f"<list><oneOrMore>{_TOKEN_ALTERNATIVES}</oneOrMore></list>", f"<doc>{'a ' * 10_000}</doc>", id="list"
+        ),
+    ],
+)
+def test_relaxng_normalized_values_keep_validation_memory_bounded(
+    peak_bytes: PeakBytes, tmp_path: Path, body: str, xml: str
+) -> None:
+    # every <data> normalizes the whitespace of the value it is tested against; a copy per check, kept until
+    # validation ended, grew with the number of alternatives
+    script: Final = (
+        "import sys, tracemalloc\nfrom pathlib import Path\nfrom turbohtml import parse_xml\n"
+        "from turbohtml.validate import RelaxNG\n"
+        "schema = RelaxNG(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "document = parse_xml(Path(sys.argv[2]).read_text(encoding='utf-8'))\n"
+        "tracemalloc.start()\nassert schema.validate(document).valid\nprint(tracemalloc.get_traced_memory()[1])\n"
+    )
+    schema_file: Final = tmp_path / "schema.rng"
+    schema_file.write_text(wrap(body, attrs=f'datatypeLibrary="{_DT}"'), encoding="utf-8")
+    document_file: Final = tmp_path / "document.xml"
+    document_file.write_text(xml, encoding="utf-8")
+    assert peak_bytes(script, (str(schema_file), str(document_file))) < 1_048_576
+
+
+def test_relaxng_data_normalizes_each_value_afresh() -> None:
+    # one buffer serves every normalization of a validate() call, so a value must not see what a longer one left in it
+    alternatives: Final = (
+        '<data type="token"><param name="maxLength">3</param></data>'
+        '<data type="token"><param name="pattern">[a-z]+ [a-z]+</param></data>'
+        '<data type="int"/>'
+    )
+    validator: Final = RelaxNG(
+        wrap(
+            f'<zeroOrMore><element name="e"><choice>{alternatives}</choice></element></zeroOrMore>',
+            attrs=f'datatypeLibrary="{_DT}"',
+        )
+    )
+    valid: Final = "<e>a</e><e>ab</e><e>  abcdef   ghijkl  </e><e> ab </e><e>\tx\ny\t</e><e> 12345 </e><e>  abc  </e>"
+    assert validator.validate(parse_xml(f"<doc>{valid}</doc>")).valid
+    assert not validator.validate(parse_xml(f"<doc>{valid}<e> abcd </e></doc>")).valid
+    assert not validator.validate(parse_xml(f"<doc>{valid}<e>ab cd ef</e></doc>")).valid

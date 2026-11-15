@@ -113,18 +113,8 @@ static int dt_default_ws(int id) {
     return 2;
 }
 
-/* Normalize `value` per the whitespace mode into an arena buffer, returning it and
-   its length. collapse trims and folds internal runs to a single space. */
-static const Py_UCS4 *dt_normalize_ws(arena *mem, int ws, const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *out_len) {
-    if (ws == 0) {
-        *out_len = len;
-        return value;
-    }
-    Py_UCS4 *buffer = arena_alloc(mem, (size_t)(len + 1) * sizeof(Py_UCS4));
-    if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        *out_len = len;   /* GCOVR_EXCL_LINE */
-        return value;     /* GCOVR_EXCL_LINE */
-    }
+/* Normalize `value` per the whitespace mode into `buffer` (room for len + 1 code points) and return the length. */
+static Py_ssize_t dt_ws_fill(Py_UCS4 *buffer, int ws, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t out = 0;
     if (ws == 1) {
         for (Py_ssize_t index = 0; index < len; index++) {
@@ -149,8 +139,48 @@ static const Py_UCS4 *dt_normalize_ws(arena *mem, int ws, const Py_UCS4 *value, 
         }
     }
     buffer[out] = 0;
-    *out_len = out;
+    return out;
+}
+
+/* A compiled <value> is read on every later check, so it gets its own arena copy rather than the per-call buffer. */
+static const Py_UCS4 *dt_normalize_ws_arena(arena *mem, int ws, const Py_UCS4 *value, Py_ssize_t len,
+                                            Py_ssize_t *out_len) {
+    if (ws == 0) {
+        *out_len = len;
+        return value;
+    }
+    Py_UCS4 *buffer = arena_alloc(mem, (size_t)(len + 1) * sizeof(Py_UCS4));
+    if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        *out_len = len;   /* GCOVR_EXCL_LINE */
+        return value;     /* GCOVR_EXCL_LINE */
+    }
+    *out_len = dt_ws_fill(buffer, ws, value, len);
     return buffer;
+}
+
+/* Normalize `value` per the whitespace mode, returning it and its length. collapse trims and folds internal runs to a
+   single space. A value the mode rewrites goes into the one buffer a validate() call keeps for this, so the result
+   lasts until the next normalization: a RELAX NG text is checked once for every <data> alternative it meets, and the
+   arena, which releases nothing until validation ends, would otherwise keep a copy of it for each. */
+static const Py_UCS4 *dt_normalize_ws(th_schema *schema, int ws, const Py_UCS4 *value, Py_ssize_t len,
+                                      Py_ssize_t *out_len) {
+    if (ws == 0) {
+        *out_len = len;
+        return value;
+    }
+    if (len >= schema->ws_cap) {
+        /* at least doubling keeps the buffers outgrown on the way, which stay in the arena, below the one in use */
+        const Py_ssize_t cap = len >= schema->ws_cap * 2 ? len + 1 : schema->ws_cap * 2;
+        Py_UCS4 *grown = arena_alloc(&schema->mem, (size_t)cap * sizeof(Py_UCS4));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            *out_len = len;  /* GCOVR_EXCL_LINE */
+            return value;    /* GCOVR_EXCL_LINE */
+        }
+        schema->ws_buffer = grown;
+        schema->ws_cap = cap;
+    }
+    *out_len = dt_ws_fill(schema->ws_buffer, ws, value, len);
+    return schema->ws_buffer;
 }
 
 /* ---- lexical-space checks ---- */

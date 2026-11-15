@@ -676,7 +676,7 @@ static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_n
         facets = &builtin;
     }
     Py_ssize_t norm_len = 0;
-    const Py_UCS4 *norm = dt_normalize_ws(&schema->mem, facets->ws, value, len, &norm_len);
+    const Py_UCS4 *norm = dt_normalize_ws(schema, facets->ws, value, len, &norm_len);
     if (!dt_check_lexical(facets->base_id, norm, norm_len)) {
         char buffer[128];
         report(ctx, node, "datatype", "value '%s' is not a valid %s", name_utf8(norm, norm_len, buffer, sizeof(buffer)),
