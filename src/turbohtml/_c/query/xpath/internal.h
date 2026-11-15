@@ -349,6 +349,7 @@ static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ct
 int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
+int xp_step_reads_position(const xp_program *prog, int32_t step_index);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
 
 #endif /* TURBOHTML_XPATH_INTERNAL_H */
