@@ -1,1 +1,2 @@
-:meth:`turbohtml.Node.canonicalize` on HTML-parsed trees now renders the ``xmlns:`` declarations that prefixed names use, so the output reparses in the same namespaces; a relative namespace URI raises ``ValueError``.
+:meth:`turbohtml.Node.canonicalize` on HTML-parsed trees now renders the ``xmlns:`` declarations that prefixed names
+use, so the output reparses in the same namespaces; a relative namespace URI raises ``ValueError``.

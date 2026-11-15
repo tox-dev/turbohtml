@@ -465,7 +465,6 @@ static void c14n_ns_put(sbuf *out, const c14n_ns *scope, Py_ssize_t count, int r
     }
 }
 
-
 /* The end of the declaration that starts at start in tag, when lead is what it starts with; start otherwise. A
    declaration's value is escaped, so its closing quote is the first one after lead. */
 static Py_ssize_t c14n_scoped_decl_end(const sbuf *tag, Py_ssize_t start, const char *lead) {
@@ -485,12 +484,11 @@ static Py_ssize_t c14n_scoped_decl_end(const sbuf *tag, Py_ssize_t start, const 
     return end + 1;
 }
 
-/* The start tag of an element that renders prefixed declarations. c14n_open_tag writes the default and xlink declarations
-   ahead of the attributes, so they are split off its output: the scope's declarations are written between them, in
-   prefix order, and the attributes follow. */
-static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
-                                 const th_c14n_opts *opts, const th_node **xlink_binding, c14n_ns *scope,
-                                 Py_ssize_t count) {
+/* The start tag of an element that renders prefixed declarations. c14n_open_tag writes the default and xlink
+   declarations ahead of the attributes, so they are split off its output: the scope's declarations are written between
+   them, in prefix order, and the attributes follow. */
+static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex, const th_c14n_opts *opts,
+                                 const th_node **xlink_binding, c14n_ns *scope, Py_ssize_t count) {
     sbuf tag = {NULL, 0, 0, 0};
     c14n_open_tag(&tag, tree, node, apex, opts, xlink_binding);
     Py_ssize_t default_end = c14n_scoped_decl_end(&tag, 1 + node->text_len, " xmlns=\"");
@@ -504,8 +502,8 @@ static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const 
 
 /* Emit one node of the subtree rooted at apex, the scoped counterpart of c14n_step: an element pushes its declarations
    and visible uses, and pops them as it closes. */
-static th_node *c14n_scoped_step(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
-                                 const th_c14n_opts *opts, c14n_ns *scope, const th_node **xlink_binding) {
+static th_node *c14n_scoped_step(sbuf *out, th_tree *tree, th_node *node, const th_node *apex, const th_c14n_opts *opts,
+                                 c14n_ns *scope, const th_node **xlink_binding) {
     th_node *descend = NULL;
     switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
     case TH_NODE_ELEMENT: {
