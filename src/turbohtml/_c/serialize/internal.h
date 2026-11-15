@@ -13,9 +13,10 @@
 #include "dom/tree.h"
 #include "dom/tree_internal.h" /* struct th_tree, need_text, is_void_atom */
 
-#include "core/ascii.h"  /* is_space, the shared HTML ASCII-whitespace predicate */
-#include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
-#include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
+#include "core/ascii.h"      /* is_space, the shared HTML ASCII-whitespace predicate */
+#include "core/common.h"     /* SWAR lane probes for the serializer's clean-run scan */
+#include "core/vec.h"        /* th_grow_cap overflow-safe buffer growth */
+#include "core/work_steps.h" /* TH_WORK_STEP, the loop counter the complexity tests read */
 #include "data/entity_names.h"
 
 #include <stdlib.h>
@@ -833,6 +834,46 @@ static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th
     }
 }
 
+static inline int ser_xml_declares_xlink(th_tree *tree, const th_node *node) {
+    for (Py_ssize_t position = 0; position < node->attr_count; position++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
+        if (name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether an ancestor of node carries xmlns:xlink, moving the walk on to node. Start tags are written in document
+   order, so the nodes from the last tag up to node's parent are those that closed in between, and the outermost
+   declaration still holds unless its element is one of them. Each node is passed once that way, where scanning every
+   ancestor for each tag is quadratic in the depth. Only the first tag to ask, and one under a parent whose own tag
+   was skipped as unwritable, scan the ancestors. */
+static inline int ser_xml_xlink_inherited(th_tree *tree, const th_node *node, th_xml_xlink_walk *walk) {
+    const th_node *scope = walk->scope;
+    const th_node *closed = walk->last;
+    for (; closed != NULL && closed != node->parent; closed = closed->parent) {
+        TH_WORK_STEP();
+        if (closed == scope) {
+            scope = NULL; /* the outermost one: nothing above it carries the declaration */
+        }
+    }
+    if (closed == NULL) {
+        scope = NULL;
+        for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+            TH_WORK_STEP();
+            if (ser_xml_declares_xlink(tree, ancestor)) {
+                scope = ancestor;
+            }
+        }
+    }
+    int inherited = scope != NULL;
+    walk->last = node;
+    walk->scope = !inherited && ser_xml_declares_xlink(tree, node) ? node : scope;
+    return inherited;
+}
+
 /* Emit the default namespace on a foreign subtree root and a missing xlink binding.
    XML trees keep inherited xlink declarations; HTML trees need the built-in URI. */
 static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node,
@@ -844,7 +885,11 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
                                                : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
         emitted.default_ns = 1;
     }
+    th_xml_xlink_walk *walk = opts->xml_xlink;
     if (node->attr_count == 0) {
+        if (walk != NULL && walk->last != NULL) {
+            ser_xml_xlink_inherited(tree, node, walk);
+        }
         if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
             ser_xml_inherited_ns_decls(out, tree, node, emitted);
         }
@@ -862,20 +907,10 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
             has_xlink_attr = 1;
         }
     }
-    if (has_xlink_attr && !has_xlink_decl && th_tree_is_xml(tree)) {
-        for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
-            for (Py_ssize_t position = 0; position < ancestor->attr_count; position++) {
-                Py_ssize_t name_len;
-                const char *name = th_attr_name(tree, ancestor->attrs[position].name_atom, &name_len);
-                if (name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0) {
-                    has_xlink_decl = 1;
-                    break;
-                }
-            }
-            if (has_xlink_decl) {
-                break;
-            }
-        }
+    /* Once a tag has asked, every later one keeps the walk's place, whether or not it asks itself. */
+    if (walk != NULL && (walk->last != NULL || (has_xlink_attr && !has_xlink_decl)) &&
+        ser_xml_xlink_inherited(tree, node, walk)) {
+        has_xlink_decl = 1;
     }
     /* A local binding is written with attributes; an XML ancestor already binds the prefix. */
     if (has_xlink_attr && !has_xlink_decl) {
