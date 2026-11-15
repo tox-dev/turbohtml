@@ -6674,6 +6674,68 @@ _RENAMED_PREFIX_SHEET: Final[str] = (
 
 
 @pytest.mark.parametrize(
+    ("source", "body", "expected"),
+    [
+        pytest.param(
+            "<doc><xml:note/><sec><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para">'
+            '<xsl:number/>,<xsl:number count="/doc/xml:note"/>,<xsl:number/>'
+            "</xsl:for-each></xsl:template>",
+            "1,,1",
+            id="count",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para[2]">'
+            '<xsl:number level="multiple"/>,<xsl:number count="/doc/xml:note"/>,<xsl:number level="multiple"/>'
+            "</xsl:for-each></xsl:template>",
+            "2,,2",
+            id="multiple",
+        ),
+        pytest.param(
+            "<doc><p/><xml:note/><sec><p/><p/><p/></sec></doc>",
+            '<xsl:template match="/">'
+            '<xsl:for-each select="/doc/p"><xsl:number level="any"/></xsl:for-each>'
+            '<xsl:for-each select="/doc/sec/p[3]">'
+            '<xsl:number/><xsl:number level="any" count="/doc/xml:note"/><xsl:number level="any"/>'
+            "</xsl:for-each>"
+            '<xsl:for-each select="/doc/sec/p[1]"><xsl:number level="any"/></xsl:for-each>'
+            "</xsl:template>",
+            "13142",
+            id="any",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para">'
+            '<xsl:number/>,<xsl:number from="/doc/xml:note"/>'
+            "</xsl:for-each></xsl:template>",
+            "1,1",
+            id="from",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/></sec></doc>",
+            '<xsl:key name="k" match="/doc/xml:note" use="string(.)"/>'
+            '<xsl:template match="/"><xsl:for-each select="//para">'
+            "<xsl:number/>,<xsl:value-of select=\"count(key('k', ''))\"/>,<xsl:number/>"
+            "</xsl:for-each></xsl:template>",
+            "1,1,1",
+            id="key",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para[2]">'
+            '<xsl:number/>,<xsl:for-each select="../para[1]"><xsl:number count="/doc/xml:note"/></xsl:for-each>,'
+            "<xsl:number/></xsl:for-each></xsl:template>",
+            "2,,2",
+            id="other-node",
+        ),
+    ],
+)
+def test_transform_number_after_pattern_starts_name_index(source: str, body: str, expected: str) -> None:
+    assert _run(source, body) == expected
+
+
+@pytest.mark.parametrize(
     ("name", "expected"),
     [
         pytest.param("a:title", "2", id="unbound"),

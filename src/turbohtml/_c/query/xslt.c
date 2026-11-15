@@ -3990,6 +3990,9 @@ static int number_index_extend(engine *eng, const th_node *target) {
     xslt_number_index *index = &eng->number_index;
     if (index->positions.count == 0) {
         index->next = eng->src_root;
+        /* A node remembered while there was no index is not in it, and number_name expects every element it is asked
+           about to be: forget the node, so the next default count extends the index up to it. */
+        eng->current_number_node = NULL;
     }
     if (th_node_map_find(&index->positions, target) != 0) {
         return 0;
