@@ -555,6 +555,10 @@ static int css_color_keyword_or_hash(css_buf *pool, const css_token *token, int 
         return 0;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
+        if (token->text[index] == '\\') {
+            /* a backslash is no hex digit: packing its pairs would leave a lone one to escape the next character */
+            return 0;
+        }
         data[index] = css_lower(token->text[index]);
     }
     if (len == 9 && data[7] == 'f' && data[8] == 'f') {
