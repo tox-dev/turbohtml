@@ -1159,6 +1159,7 @@ static int string_join(xp_ctx *ctx, xp_result *args, xp_result *out) {
     }
     int rc = 0;
     Py_ssize_t total = count > 0 ? sep_len * (count - 1) : 0;
+    Py_ssize_t text_total = 0;
     xp_gather seen;
     for (Py_ssize_t index = 0; index < count; index++) {
         parts[index] = is_set ? item_string(tree, args[0].nodes.items[index], &lens[index])
@@ -1167,9 +1168,10 @@ static int string_join(xp_ctx *ctx, xp_result *args, xp_result *out) {
             rc = -1;                /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         total += lens[index];
-        if (is_set && total > XP_GATHER_ALLOWANCE &&
+        text_total += lens[index];
+        if (is_set && text_total > XP_GATHER_ALLOWANCE &&
             charge_repeated(&seen, ctx, &args[0].nodes, NULL, index, lens[index],
-                            total - lens[index] <= XP_GATHER_ALLOWANCE) < 0) {
+                            text_total - lens[index] <= XP_GATHER_ALLOWANCE) < 0) {
             rc = -1;
             break;
         }
