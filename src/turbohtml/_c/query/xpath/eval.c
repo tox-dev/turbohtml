@@ -13,6 +13,15 @@
 #include <math.h>
 #include <string.h>
 
+/* The pattern walk calls the step helpers too; forced inline keeps them inlined into the forward path's step loop. */
+#if defined(_MSC_VER)
+#define XP_STEP_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define XP_STEP_INLINE inline __attribute__((always_inline))
+#else
+#define XP_STEP_INLINE inline
+#endif
+
 typedef struct {
     th_node_attr attribute;
     size_t references;
@@ -294,7 +303,7 @@ static int ucs4_eq_ascii(const Py_UCS4 *text, Py_ssize_t text_len, const char *a
     return 1;
 }
 
-static int element_name_matches(struct th_node *node, const step_match *match) {
+static XP_STEP_INLINE int element_name_matches(struct th_node *node, const step_match *match) {
     if (match->name_test != NULL) {
         return match->name_test(match->name_test_ctx, node, -1, match->qualified, match->qualified_len);
     }
@@ -320,7 +329,7 @@ static int element_name_matches(struct th_node *node, const step_match *match) {
 }
 
 /* Whether a node satisfies a step's node test on an element-principal axis. */
-static int node_test_matches(struct th_node *node, const xn *step, const step_match *match) {
+static XP_STEP_INLINE int node_test_matches(struct th_node *node, const xn *step, const step_match *match) {
     switch (step->test) {
     case NT_NAME:
         return node->type == TH_NODE_ELEMENT ? element_name_matches(node, match) : 0;
@@ -401,8 +410,8 @@ static int apply_descendant_step(xp_nodeset *out, struct th_node *root, const xn
     return 0;
 }
 
-static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, const xn *step, const step_match *match,
-                      xp_ctx *context) {
+static XP_STEP_INLINE int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, const xn *step,
+                                     const step_match *match, xp_ctx *context) {
     switch (axis) {
     case AX_ATTRIBUTE: {
         /* node() and * both match every attribute; a name test matches by atom; a
@@ -2877,6 +2886,295 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
         xp_caches_free(caches);
     }
     return rc;
+}
+
+/* A walk recurses once per step of the path, so a longer one keeps the forward evaluation. */
+#define XP_PATTERN_WALK_STEPS 32
+
+/* Level n of a pattern walk stands for the path's first n steps, level 0 for the root it starts at. member records
+   whether those steps select a node and within whether they select it or one of its ancestors (2 yes, 1 no, absent
+   unknown). A child step whose predicate reads the position runs from the parent, once per parent: ran holds the
+   parents it ran from, selected the children it selected there. */
+typedef struct {
+    const xn *step;
+    step_match match;
+    int positional;
+    th_node_map member;
+    th_node_map within;
+    th_node_map ran;
+    th_node_map selected;
+} xp_walk_level;
+
+struct xp_pattern_walk {
+    const xp_program *prog;
+    struct th_tree *tree;
+    xp_name_test_fn name_test;
+    void *name_test_ctx;
+    xp_caches *caches;
+    xp_root root;
+#ifdef TH_OPERATION_LIMIT
+    size_t operations;
+#endif
+    int32_t count;
+    xp_walk_level levels[];
+};
+
+int xp_pattern_walks_back(const xp_program *prog) {
+    const xn *path = &prog->nodes[prog->root];
+    if (path->kind != XN_PATH || !path->absolute) {
+        return 0;
+    }
+    int32_t count = 0;
+    for (int32_t index = path->first; index >= 0; index = prog->nodes[index].next) {
+        const xn *step = &prog->nodes[index];
+        /* an attribute has no children and no descendants, so only the last step can select one */
+        int fits = step->axis == AX_CHILD || (step->axis == AX_ATTRIBUTE && step->next < 0) ||
+                   ((step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF) &&
+                    !xp_step_reads_position(prog, index));
+        if (!fits || ++count > XP_PATTERN_WALK_STEPS) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int walk_member(const xp_program *prog, xp_pattern_walk *walk, xp_ctx *ctx, int32_t level, xp_item item);
+
+static int walk_note(th_node_map *map, const struct th_node *node, int found) {
+    if (th_node_map_insert(map, node, found + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();                               /* GCOVR_EXCL_LINE */
+        return -1;                                      /* GCOVR_EXCL_LINE */
+    }
+    return found;
+}
+
+/* Whether level selects node or one of its ancestors. The climb stops at the first node with an answer and records
+   the answer on every node it passed, so the climbs of one walk pass each node once. */
+static int walk_within(const xp_program *prog, xp_pattern_walk *walk, xp_ctx *ctx, int32_t level,
+                       struct th_node *node) {
+    th_node_map *known = &walk->levels[level].within;
+    struct th_node *end = NULL;
+    int found = 0;
+    for (struct th_node *up = node; up != NULL; up = up->parent) {
+        TH_WORK_STEP();
+        Py_ssize_t seen = th_node_map_find(known, up);
+        if (seen != 0) {
+            found = seen == 2;
+            end = up;
+            break;
+        }
+        found = walk_member(prog, walk, ctx, level, (xp_item){up, -1});
+        if (found != 0) {
+            if (found < 0) {
+                return found;
+            }
+            end = up->parent;
+            break;
+        }
+    }
+    for (struct th_node *up = node; up != end; up = up->parent) {
+        if (walk_note(known, up, found) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                         /* GCOVR_EXCL_LINE */
+        }
+    }
+    return found;
+}
+
+/* The nodes level's step selects from one context node, with its predicates applied in proximity order. */
+static int walk_run(const xp_program *prog, const xp_walk_level *at, xp_ctx *ctx, struct th_node *from,
+                    xp_nodeset *out) {
+    *out = (xp_nodeset){0};
+    /* the walk resolved the name test before it started, so only allocation can fail the axis walk */
+    if (apply_step(out, from, at->step->axis, at->step, &at->match, ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+        xp_nodeset_free(out);                                                   /* GCOVR_EXCL_LINE */
+        return -1;                                                              /* GCOVR_EXCL_LINE */
+    }
+    int rc =
+        at->step->first < 0 ? 0 : apply_predicates(prog, at->step->first, ctx, out, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+    if (rc < 0) {
+        xp_nodeset_free(out);
+    }
+    return rc;
+}
+
+/* Whether the attribute item is among those the last step, an attribute step, selects from its owner element. */
+static int walk_attribute(const xp_program *prog, const xp_walk_level *at, xp_ctx *ctx, xp_item item) {
+    xp_nodeset selected;
+    int rc = walk_run(prog, at, ctx, item.node, &selected);
+    if (rc < 0) {
+        return rc;
+    }
+    int found = 0;
+    for (Py_ssize_t index = 0; index < selected.len; index++) {
+        found |= selected.items[index].attr == item.attr;
+    }
+    xp_nodeset_free(&selected);
+    return found;
+}
+
+/* Whether a node that passes the step's node test and whose context the earlier steps select also passes the step's
+   predicates: tested on the node alone, or for a positional child step looked up among the children the step
+   selects from the parent. */
+static int walk_predicates(const xp_program *prog, xp_walk_level *at, xp_ctx *ctx, struct th_node *node) {
+    if (at->positional) {
+        struct th_node *parent = node->parent;
+        if (th_node_map_find(&at->ran, parent) == 0) {
+            xp_nodeset selected;
+            int rc = walk_run(prog, at, ctx, parent, &selected);
+            if (rc < 0) {
+                return rc;
+            }
+            for (Py_ssize_t index = 0; index < selected.len; index++) {
+                if (walk_note(&at->selected, selected.items[index].node, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+                    xp_nodeset_free(&selected);                                    /* GCOVR_EXCL_LINE */
+                    return -1;                                                     /* GCOVR_EXCL_LINE */
+                }
+            }
+            xp_nodeset_free(&selected);
+            if (walk_note(&at->ran, parent, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                            /* GCOVR_EXCL_LINE */
+            }
+        }
+        return th_node_map_find(&at->selected, node) != 0;
+    }
+    for (int32_t pred = at->step->first; pred >= 0; pred = prog->nodes[pred].next) {
+        xp_ctx pctx = *ctx;
+        pctx.node = node;
+        pctx.depth = ctx->depth + XP_HELD_DEPTH + XP_PREDICATE_DEPTH;
+        xp_result value;
+        int rc = eval_condition(prog, prog->nodes[pred].first, &pctx, &value);
+        if (rc < 0) {
+            return rc;
+        }
+        int keep = to_boolean(ctx->tree, &value);
+        xp_result_free(&value);
+        if (!keep) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether the path's first level steps select item. The earlier steps are matched first, so a predicate runs only on
+   the nodes the forward evaluation would run it on. */
+static int walk_member(const xp_program *prog, xp_pattern_walk *walk, xp_ctx *ctx, int32_t level, xp_item item) {
+    TH_WORK_STEP();
+    if (level == 0) {
+        return item.node == walk->root.node; /* the root carries no attribute */
+    }
+    xp_walk_level *at = &walk->levels[level];
+    enum xp_axis axis = at->step->axis;
+    if (axis == AX_ATTRIBUTE) {
+        if (!xp_is_attribute(item.attr)) {
+            return 0;
+        }
+        int found = walk_member(prog, walk, ctx, level - 1, (xp_item){item.node, -1});
+        return found > 0 ? walk_attribute(prog, at, ctx, item) : found;
+    }
+    struct th_node *node = item.node;
+    if (item.attr != -1 || (axis != AX_DESCENDANT_OR_SELF && node->parent == NULL)) {
+        return 0;
+    }
+    Py_ssize_t seen = th_node_map_find(&at->member, node);
+    if (seen != 0) {
+        return seen == 2;
+    }
+    int found = node_test_matches(node, at->step, &at->match);
+    if (found > 0) {
+        if (axis == AX_CHILD) {
+            found = walk_member(prog, walk, ctx, level - 1, (xp_item){node->parent, -1});
+        } else {
+            found = walk_within(prog, walk, ctx, level - 1, axis == AX_DESCENDANT ? node->parent : node);
+        }
+    }
+    if (found > 0) {
+        found = walk_predicates(prog, at, ctx, node);
+    }
+    return found < 0 ? found : walk_note(&at->member, node, found);
+}
+
+static xp_ctx walk_context(xp_pattern_walk *walk, xp_item item, xp_extension_fn extension, void *extension_ctx,
+                           const char **feature) {
+    return (xp_ctx){
+        walk->tree,
+        item.node,
+        item.attr,
+        1,
+        1,
+        feature,
+        NULL,
+        NULL,
+        extension,
+        extension_ctx,
+        1,
+        &walk->caches,
+        NULL,
+        NULL,
+        walk->name_test,
+        walk->name_test_ctx,
+        0,
+        &walk->root,
+        NULL,
+#ifdef TH_OPERATION_LIMIT
+        &walk->operations,
+#endif
+    };
+}
+
+void xp_pattern_walk_free(xp_pattern_walk *walk) {
+    if (walk == NULL) {
+        return;
+    }
+    if (walk->caches != NULL) {
+        xp_caches_free(walk->caches);
+    }
+    for (int32_t level = 0; level <= walk->count; level++) {
+        PyMem_Free(walk->levels[level].member.entries);
+        PyMem_Free(walk->levels[level].within.entries);
+        PyMem_Free(walk->levels[level].ran.entries);
+        PyMem_Free(walk->levels[level].selected.entries);
+    }
+    PyMem_Free(walk);
+}
+
+int xp_pattern_walk_start(const xp_program *prog, struct th_tree *tree, struct th_node *root, xp_name_test_fn name_test,
+                          void *name_test_ctx, xp_pattern_walk **out, const char **feature) {
+    const xn *path = &prog->nodes[prog->root];
+    int32_t count = 0;
+    for (int32_t index = path->first; index >= 0; index = prog->nodes[index].next) {
+        count++;
+    }
+    xp_pattern_walk *walk = PyMem_Calloc(1, sizeof(*walk) + (size_t)(count + 1) * sizeof(xp_walk_level));
+    if (walk == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    walk->prog = prog;
+    walk->tree = tree;
+    walk->name_test = name_test;
+    walk->name_test_ctx = name_test_ctx;
+    walk->root = (xp_root){root, 0, 1};
+    walk->count = count;
+    xp_ctx ctx = walk_context(walk, (xp_item){root, -1}, NULL, NULL, feature);
+    int32_t level = 1;
+    for (int32_t index = path->first; index >= 0; index = prog->nodes[index].next, level++) {
+        xp_walk_level *at = &walk->levels[level];
+        at->step = &prog->nodes[index];
+        at->positional = xp_step_reads_position(prog, index);
+        int rc = build_step_match(&ctx, at->step, &at->match);
+        if (rc < 0) {
+            xp_pattern_walk_free(walk);
+            return rc;
+        }
+    }
+    *out = walk;
+    return 0;
+}
+
+int xp_pattern_match(xp_pattern_walk *walk, xp_item item, xp_extension_fn extension, void *extension_ctx,
+                     const char **feature) {
+    xp_ctx ctx = walk_context(walk, item, extension, extension_ctx, feature);
+    return walk_member(walk->prog, walk, &ctx, walk->count, item);
 }
 
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,

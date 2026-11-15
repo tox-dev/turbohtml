@@ -5738,6 +5738,353 @@ def test_number_alternating_instructions_count_under_own_pattern(
 
 
 @pytest.mark.parametrize(
+    "number",
+    [
+        pytest.param('<xsl:number count="para[@lang=current()/@lang]"/>', id="single-count"),
+        pytest.param('<xsl:number count="book//para[@lang=current()/@lang]"/>', id="single-count-descendant"),
+        pytest.param('<xsl:number count="para[position()=current()/@at]"/>', id="single-count-position"),
+        pytest.param('<xsl:number level="multiple" count="para[@lang=current()/@lang]"/>', id="multiple-count"),
+        pytest.param('<xsl:number from="ch[@lang=current()/@lang]"/>', id="single-from"),
+        pytest.param(
+            '<xsl:number level="multiple" count="para" from="ch[@lang=current()/@lang]"/>', id="multiple-from"
+        ),
+    ],
+)
+def test_number_pattern_reading_current_node_scales_linearly(
+    number: str, prefix_transform: Callable[[str, str], Transform], work_steps: WorkSteps
+) -> None:
+    transform: Final = prefix_transform(f'<xsl:for-each select="book/ch/para">{number}|</xsl:for-each>', "")
+
+    def build(chapters: int) -> Callable[[], object]:
+        markup = "".join(f'<ch lang="{index % 3}"><para lang="{index % 3}" at="1"/></ch>' for index in range(chapters))
+        return partial(transform, parse_xml(f"<book>{markup}</book>"))
+
+    work_steps.assert_linear(build, (300, 1200))
+
+
+@pytest.mark.parametrize(
+    ("select", "attributes", "single", "multiple", "any_level"),
+    [
+        pytest.param(
+            "//para",
+            'count="para[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,2,3,",
+            id="count-child",
+        ),
+        pytest.param(
+            "//para",
+            'count="ch/para[@lang=current()/@lang]"',
+            "1,1,,1,1,,",
+            "1,1,,1,1,,",
+            "1,1,1,2,2,2,",
+            id="count-parent-step",
+        ),
+        pytest.param(
+            "//para",
+            'count="book//para[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,2,3,",
+            id="count-descendant",
+        ),
+        pytest.param(
+            "//para",
+            'count="ch//para[@lang=current()/@lang]"',
+            "1,1,1,1,1,,",
+            "1,1,1,1,1,,",
+            "1,1,2,3,2,2,",
+            id="count-descendant-of-step",
+        ),
+        pytest.param(
+            "//para",
+            'count="para[matches(@lang, current()/@lang)]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,2,3,",
+            id="count-regular-expression",
+        ),
+        pytest.param(
+            "//para",
+            f'count="{"/".join(["*"] * 40)}[@lang=current()/@lang]"',
+            ",,,,,,",
+            ",,,,,,",
+            "0,0,0,0,0,0,",
+            id="count-long-path",
+        ),
+        pytest.param(
+            "//text()",
+            "count=\"key('by-lang', current()/../@lang)/text()\"",
+            "1,1,,",
+            "1,1,,",
+            "1,1,1,",
+            id="count-below-key",
+        ),
+        pytest.param(
+            "//para",
+            'count="/book/ch/para[@lang=current()/@lang]"',
+            "1,1,,1,1,,",
+            "1,1,,1,1,,",
+            "1,1,1,2,2,2,",
+            id="count-absolute",
+        ),
+        pytest.param(
+            "//para",
+            'count="para[position()=current()/@at]"',
+            ",,,1,,1,",
+            ",,,1,,1,",
+            "0,1,0,3,0,4,",
+            id="count-position",
+        ),
+        pytest.param(
+            "//para",
+            'count="para[@lang=current()/@lang][2]"',
+            ",,,,,,",
+            ",,,,,,",
+            "0,0,0,0,0,0,",
+            id="count-position-after-filter",
+        ),
+        pytest.param(
+            "//para",
+            'count="para[not(@lang=current()/@lang)]"',
+            ",,1,,,,",
+            ",,1,,,,",
+            "0,1,1,1,3,3,",
+            id="count-function",
+        ),
+        pytest.param(
+            "//para",
+            'count="para[math:max(current()/@at)]"',
+            ",,,,,,",
+            ",,,,,,",
+            "0,1,0,1,1,1,",
+            id="count-extension-function",
+        ),
+        pytest.param(
+            "//para",
+            'count="b:para[@lang=current()/@lang] | para[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,4,2,3,",
+            id="count-prefixed",
+        ),
+        pytest.param(
+            "//para",
+            'count="ancestor::ch[@lang=current()/@lang]"',
+            "1,,1,,1,,",
+            "1,,1,,1,,",
+            "1,0,1,1,1,1,",
+            id="count-ancestor-axis",
+        ),
+        pytest.param(
+            "//para",
+            "count=\"key('by-lang', current()/@lang)\"",
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,2,3,",
+            id="count-key",
+        ),
+        pytest.param(
+            "//para",
+            'count="descendant-or-self::para[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,2,3,",
+            id="count-descendant-or-self",
+        ),
+        pytest.param(
+            "//para",
+            'count="*[@lang=current()/@lang] | ch"',
+            "1,1,1,1,1,3,",
+            "1.1,1.1,1.1,2.1,2.1,3,",
+            "2,2,3,6,4,5,",
+            id="count-with-static-alternative",
+        ),
+        pytest.param(
+            "//para",
+            'count="/ | para[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1.1,1.1,1.1,1.1,1.1,1.1,",
+            "2,2,3,4,3,4,",
+            id="count-root",
+        ),
+        pytest.param(
+            "//text()", 'count="text()[. = current()] | ch"', "1,1,1,", "1.1,1.1,2.1,", "2,2,3,", id="count-text"
+        ),
+        pytest.param(
+            "//@at",
+            'count="@at[. = current()]"',
+            "1,1,1,1,1,1,1,",
+            "1,1,1,1,1,1,1,",
+            "1,1,1,1,1,1,1,",
+            id="count-attribute",
+        ),
+        pytest.param(
+            "//@at",
+            'count="@*[. = current()] | para"',
+            "1,1,1,1,1,1,1,",
+            "1,1.1,2.1,1,1.1,2.1,1.1,",
+            "1,2,3,4,5,6,7,",
+            id="count-attribute-or-element",
+        ),
+        pytest.param(
+            "//@at",
+            'count="@at | para[@lang=current()/../@lang]"',
+            "1,1,1,1,1,1,1,",
+            "1,1.1,1.1,1,1.1,1.1,1.1,",
+            "1,2,2,2,4,3,4,",
+            id="count-attribute-without-predicate",
+        ),
+        pytest.param(
+            "//@at",
+            'count="@*[. = current()/../@lang]"',
+            "1,,,1,1,,,",
+            "1,,,1,1,,,",
+            "1,0,0,1,1,0,0,",
+            id="count-other-attribute",
+        ),
+        pytest.param(
+            "//@at",
+            'count="ch/@at[. = current()]"',
+            "1,,,1,,,,",
+            "1,,,1,,,,",
+            "1,0,0,1,0,0,0,",
+            id="count-attribute-of-step",
+        ),
+        pytest.param(
+            "//@at",
+            'count="@at/node()[current()]"',
+            ",,,,,,,",
+            ",,,,,,,",
+            "0,0,0,0,0,0,0,",
+            id="count-below-attribute",
+        ),
+        pytest.param(
+            "//para",
+            'from="ch[@lang=current()/@lang]"',
+            "1,2,1,1,2,1,",
+            "1,2,2.1,1,2,1,",
+            "1,2,3,4,2,3,",
+            id="from-child",
+        ),
+        pytest.param(
+            "//para",
+            'from="ch[position()=current()/@at]"',
+            "1,2,1,1,2,1,",
+            "1,2,2.1,1,2,1,",
+            "1,2,3,4,5,6,",
+            id="from-position",
+        ),
+        pytest.param(
+            "//para",
+            'count="para" from="//ch[@lang=current()/@lang]"',
+            "1,2,1,1,2,1,",
+            "1,2,2.1,1,2,1,",
+            "1,2,3,4,2,3,",
+            id="from-absolute",
+        ),
+        pytest.param(
+            "//para",
+            'count="para[@lang=current()/@lang]" from="ch[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,1,2,",
+            id="count-and-from",
+        ),
+        pytest.param(
+            "//@at",
+            'count="para" from="@at[. = current()]"',
+            ",,,,,,,",
+            ",,,,,,,",
+            "0,0,0,0,0,0,0,",
+            id="from-attribute",
+        ),
+        pytest.param("//comment()", 'count="comment()[. = current()]"', "1,", "1,", "1,", id="count-comment"),
+        pytest.param(
+            "//para",
+            'count="processing-instruction()[current()] | para[@lang=current()/@lang]"',
+            "1,1,1,1,1,1,",
+            "1,1,1,1,1,1,",
+            "1,1,2,3,2,3,",
+            id="count-processing-instruction",
+        ),
+    ],
+)
+def test_number_pattern_reading_current_node(
+    select: str, attributes: str, single: str, multiple: str, any_level: str
+) -> None:
+    source = (
+        '<book lang="0" xmlns:b="urn:b"><ch lang="1" at="1"><para lang="1" at="2">x</para>'
+        '<para lang="2" at="1">y<para lang="1"/></para><!--n--><b:para lang="1"/></ch>'
+        '<ch lang="2" at="2"><para lang="1" at="1"/>z<para lang="2" at="3"/></ch><para lang="2" at="1"/></book>'
+    )
+
+    def numbers(level: str) -> str:
+        body = (
+            '<xsl:key name="by-lang" match="para" use="@lang"/><xsl:template match="/">'
+            f'<xsl:for-each select="{select}"><xsl:number level="{level}" {attributes}/>,</xsl:for-each>'
+            "</xsl:template>"
+        )
+        return Transform(_sheet(body, declare='xmlns:b="urn:b" xmlns:math="http://exslt.org/math"'))(parse_xml(source))
+
+    assert (numbers("single"), numbers("multiple"), numbers("any")) == (single, multiple, any_level)
+
+
+@pytest.mark.parametrize(
+    ("attributes", "level", "expected"),
+    [
+        pytest.param('count="i[@k=current()/@k]"', "any", "1,1,2,2,", id="count"),
+        pytest.param('count="i" from="u[@k=current()/@k]"', "multiple", "1,2,1,2,", id="from"),
+    ],
+)
+def test_number_pattern_reading_current_node_in_html(attributes: str, level: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="//i">'
+        f'<xsl:number level="{level}" {attributes}/>,</xsl:for-each></xsl:template>'
+    )
+    document = turbohtml.parse('<u k="1"><i k="1"></i><i k="2"></i></u><u k="2"><i k="1"></i><i k="2"></i></u>')
+    assert Transform(_sheet(body))(document) == expected
+
+
+@pytest.mark.parametrize(
+    ("attributes", "level", "parse"),
+    [
+        pytest.param('count="u:para[@lang=current()/@lang]"', "single", parse_xml, id="count-unbound-prefix"),
+        pytest.param('count="u:para[@lang=current()/@lang]"', "single", turbohtml.parse, id="html-prefix"),
+        pytest.param('from="u:ch[@lang=current()/@lang]"', "single", parse_xml, id="from-unbound-prefix"),
+        pytest.param('count="para[@lang=$missing]"', "any", parse_xml, id="count-predicate"),
+        pytest.param(
+            'count="para[@lang=current()/@lang][$missing]"', "single", parse_xml, id="count-position-predicate"
+        ),
+        pytest.param('count="para[position() = $missing]"', "single", parse_xml, id="count-position-run"),
+        pytest.param('count="ch[@lang=$missing]//para"', "single", parse_xml, id="count-ancestor-predicate"),
+        pytest.param('count="ch/@lang[. = $missing]"', "single", parse_xml, id="count-attribute-predicate"),
+        pytest.param('count="ancestor::ch[@lang=$missing]"', "single", parse_xml, id="count-evaluated-whole"),
+        pytest.param(
+            'count="para[@lang=current()/@lang]" from="ch[@lang=$missing]"', "multiple", parse_xml, id="from-predicate"
+        ),
+        pytest.param(
+            'count="para[@lang=$missing]" from="ch[@lang=current()/@lang]"',
+            "multiple",
+            parse_xml,
+            id="count-before-from",
+        ),
+    ],
+)
+def test_number_pattern_reading_current_node_error(
+    attributes: str, level: str, parse: Callable[[str], turbohtml.Document]
+) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="//para | //@lang">'
+        f'<xsl:number level="{level}" {attributes}/>,</xsl:for-each></xsl:template>'
+    )
+    transform = Transform(_sheet(body))
+    with pytest.raises(ValueError, match="xsl:number pattern error"):
+        transform(parse('<book><ch lang="1"><para lang="1"/><para lang="2"/></ch></book>'))
+
+
+@pytest.mark.parametrize(
     ("markup", "selection", "parse"),
     [
         pytest.param(f"<r>{'<p/><q/>' * 100}</r>", "r/*", parse_xml, id="xml-names"),
