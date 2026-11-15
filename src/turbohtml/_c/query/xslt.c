@@ -1222,6 +1222,9 @@ static void scope_bindings(engine *eng, xp_binding *storage, xp_bindings *out) {
 
 /* ---- the XSLT extension functions ----------------------------------------- */
 
+enum xslt_level { XSLT_LEVEL_TEMPLATE, XSLT_LEVEL_SOURCE, XSLT_LEVEL_ATTRSET, XSLT_LEVEL_KEY };
+
+static int enter_deep_level(engine *eng, enum xslt_level level, const xslt_attrset *set);
 static int build_key(engine *eng, xslt_key *key);
 
 static int copy_result_value(const xp_result *src, xp_result *dst);
@@ -1669,8 +1672,7 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
 /* Populate one key's string->node table: for every source node the key match
    pattern selects, evaluate the use expression and index the node under each
    resulting string value. */
-static int build_key(engine *eng, xslt_key *key) {
-    key->built = 1;
+static int fill_key(engine *eng, xslt_key *key) {
     xp_result matched;
     const char *feature = NULL;
     xslt_pattern_scope scope = {.eng = eng, .instruction = key->instruction};
@@ -1770,6 +1772,18 @@ static int build_key(engine *eng, xslt_key *key) {
     }
     xp_result_free(&matched);
     return 0;
+}
+
+/* A use expression may call key() on a key that is not built yet, which builds that one from inside this build, so a
+   chain of keys nests here. Each build takes a level of the template-nesting cap and its stack check. */
+static int build_key(engine *eng, xslt_key *key) {
+    if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_KEY, NULL) < 0) {
+        return -1;
+    }
+    key->built = 1;
+    int rc = fill_key(eng, key);
+    eng->depth--;
+    return rc;
 }
 
 static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched) {
@@ -2415,8 +2429,6 @@ static int raise_attrset_depth(engine *eng, const xslt_attrset *set) {
     return fail_py(eng);
 }
 
-enum xslt_level { XSLT_LEVEL_TEMPLATE, XSLT_LEVEL_SOURCE, XSLT_LEVEL_ATTRSET };
-
 /* Admit a level deeper than XSLT_STACK_CHECK_DEPTH, or release it and raise RecursionError when it passes the cap or
    the thread's C stack has no room for it; `set` names the attribute set of an XSLT_LEVEL_ATTRSET level. Keeping the
    cap here lets each caller test one condition, which the cap's tests drive both ways, and leaves shallow levels one
@@ -2431,6 +2443,13 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
         eng->depth--;
         if (level == XSLT_LEVEL_ATTRSET) {
             return raise_attrset_depth(eng, set);
+        }
+        if (level == XSLT_LEVEL_KEY) {
+            PyErr_Format(PyExc_RecursionError,
+                         "xslt: building an xsl:key exceeds the nesting limit of %d levels, which key() calls in use "
+                         "expressions share with template nesting; shorten the chain of keys",
+                         XSLT_MAX_DEPTH);
+            return fail_py(eng);
         }
         if (level == XSLT_LEVEL_SOURCE) {
             PyErr_Format(PyExc_RecursionError,

@@ -1731,6 +1731,38 @@ def test_transform_key_use_evaluation_error() -> None:
         _run("<r><n/></r>", body)
 
 
+_KEY_LOOKUP: Final[str] = """<xsl:template match="/"><xsl:value-of select="count(key('k0', 'x'))"/></xsl:template>"""
+
+
+def _key_chain(links: int) -> str:
+    chain = "".join(
+        f"""<xsl:key name="k{index}" match="a" use="key('k{index + 1}', .)"/>""" for index in range(links)
+    )
+    return f'{chain}<xsl:key name="k{links}" match="a" use="."/>'
+
+
+def test_transform_key_use_builds_the_key_it_calls() -> None:
+    assert _run("<r><a>x</a><a>y</a></r>", _key_chain(3) + _KEY_LOOKUP) == "1"
+
+
+def test_transform_key_use_chain_is_depth_limited() -> None:
+    with pytest.raises(RecursionError, match="building an xsl:key exceeds the nesting limit of 400 levels"):
+        _run("<r><a>x</a></r>", _key_chain(400 + 2) + _KEY_LOOKUP)
+
+
+def test_transform_key_build_counts_toward_template_nesting() -> None:
+    # each recursion level counts twice toward the cap, which leaves the key builds below no room
+    recursion = (
+        f'<xsl:template match="/"><xsl:call-template name="rec"><xsl:with-param name="c" select="{400 // 2 - 2}"/>'
+        '</xsl:call-template></xsl:template><xsl:template name="rec"><xsl:param name="c"/><xsl:choose>'
+        '<xsl:when test="$c &gt; 0"><xsl:call-template name="rec"><xsl:with-param name="c" select="$c - 1"/>'
+        "</xsl:call-template></xsl:when>"
+        "<xsl:otherwise><xsl:value-of select=\"count(key('k0', 'x'))\"/></xsl:otherwise></xsl:choose></xsl:template>"
+    )
+    with pytest.raises(RecursionError, match="building an xsl:key exceeds the nesting limit of 400 levels"):
+        _run("<r><a>x</a></r>", _key_chain(2) + recursion)
+
+
 def test_transform_global_variable_evaluation_error() -> None:
     body = (
         '<xsl:variable name="g" select="$missing"/><xsl:template match="/"><xsl:value-of select="$g"/></xsl:template>'
