@@ -192,7 +192,7 @@ TH_NODE_API(static, int, node_set_data, (PyObject * self, PyObject *value, void 
     int rc;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     rc = th_node_set_data(tree_of(self), ((NodeObject *)self)->node, points, len);
-    handle_clear_css_cache((HandleObject *)((NodeObject *)self)->handle);
+    handle_clear_css_edit((HandleObject *)((NodeObject *)self)->handle, NULL, &((NodeObject *)self)->node, 1);
     Py_END_CRITICAL_SECTION();
     PyMem_Free(points);
     return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: th_node_set_data only fails on OOM */

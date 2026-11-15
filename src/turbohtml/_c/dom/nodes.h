@@ -145,6 +145,7 @@ typedef struct {
     void *css_sheets;
     Py_ssize_t css_sheet_count;
     uint32_t css_sheet_attr_gen;
+    uint64_t css_sheet_attr_version; /* the tree's attribute version the <style> types were last checked at */
     int css_sheets_ready;
     void *css_computed;
     void *slot_cache;       /* the slot tables of the shadow roots read through it (dom/shadow.c), or NULL */
@@ -888,12 +889,16 @@ static inline int append_wrapped(PyObject *out, module_state *state, PyObject *h
    with the bindings that populate them. */
 void handle_clear_caches(HandleObject *handle);
 
-/* Defined in cssom.c, where the private css_sheet type lives. */
+/* Defined in cssom.c, where the private css_sheet type lives. The edit form keeps the compiled sheets across an edit
+   that involves no <style> element. */
 void handle_clear_css_cache(HandleObject *handle);
+void handle_clear_css_edit(HandleObject *handle, const th_node *parent, th_node *const *nodes, Py_ssize_t count);
 
 /* Drop a handle's cached selector index and id map after a structural mutation. Lives in
-   element.c beside the mutation bindings; query/methods.c calls it from prune/remove/strip. */
+   element.c beside the mutation bindings; query/methods.c calls it from prune/remove/strip. The edit form is for a
+   mutation that only links or unlinks whole nodes (see handle_clear_css_edit). */
 void handle_drop_index(PyObject *handle_obj);
+void handle_drop_index_edit(PyObject *handle_obj, const th_node *parent, th_node *const *nodes, Py_ssize_t count);
 /* Free a handle's slot cache, which must exist. Defined in shadow.c, where the private slot table types live. */
 void handle_free_slots(HandleObject *handle);
 
