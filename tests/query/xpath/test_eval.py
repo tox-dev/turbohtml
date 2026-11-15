@@ -955,6 +955,90 @@ def test_xpath_path_reselects_only_this_element(element: Element) -> None:
     assert _PATH_DOCUMENT.xpath(element.xpath_path()) == [element]
 
 
+# The HTML tokenizer ends a tag name only at whitespace, "/" or ">", so a page can put XPath syntax into one, and
+# XPath 1.0 has no escape for it: such a step is "*[n]", the position among all element siblings, as in lxml's getpath.
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("k|child::q", id="union-and-axis"),
+        pytest.param("m|self::*[preceding::*[5=6]]", id="nested-predicates"),
+        pytest.param("x[7=8]", id="predicate"),
+        pytest.param("x|id('q')", id="function-call"),
+        pytest.param('x"', id="double-quote"),
+        pytest.param("x'", id="single-quote"),
+        pytest.param("x*", id="wildcard"),
+        pytest.param("x@y", id="attribute-axis"),
+        pytest.param("x$y", id="variable"),
+        pytest.param("x=y", id="comparison"),
+        pytest.param("x::y", id="axis-separator"),
+        pytest.param("c:d", id="undeclared-prefix"),
+        pytest.param("xml:lang", id="xml-prefix"),
+        pytest.param("x:", id="trailing-colon"),
+    ],
+)
+def test_xpath_path_does_not_write_xpath_syntax_from_a_tag_name(name: str) -> None:
+    document: Final = parse(f'<p id="a">one</p><{name}>two</{name}>')
+    element: Final = document.select("body > :last-child")[0]
+    path: Final = element.xpath_path()
+    assert (element.tag, path, document.xpath(path)) == (name, "/html/body/*[2]", [element])
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("x-y", id="dash"),
+        pytest.param("x.y", id="dot"),
+        pytest.param("x_y", id="underscore"),
+        pytest.param("x1", id="digit"),
+        pytest.param("x\u00e9", id="non-ascii"),
+        pytest.param("text", id="node-type-name"),
+        pytest.param("div", id="operator-name"),
+    ],
+)
+def test_xpath_path_keeps_a_tag_name_that_is_a_name_test(name: str) -> None:
+    document: Final = parse(f"<p>one</p><{name}>two</{name}>")
+    element: Final = document.select("body > :last-child")[0]
+    path: Final = element.xpath_path()
+    assert (path, document.xpath(path)) == (f"/html/body/{name}", [element])
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("1x", id="leading-digit"),
+        pytest.param("-x", id="leading-dash"),
+        pytest.param(".x", id="leading-dot"),
+        pytest.param("m|n", id="union"),
+    ],
+)
+def test_xpath_path_of_constructed_tag_name_outside_xpath_names(name: str) -> None:
+    assert Element(name).xpath_path() == "/*[1]"
+
+
+def test_xpath_path_of_qualified_xml_names_round_trips() -> None:
+    document: Final = parse_xml('<p:r xmlns:p="urn:p"><p:b/>text<b/><p:b><c/><p:c/></p:b></p:r>')
+    elements: Final = cast("list[Element]", document.xpath("//*"))
+    paths: Final = [element.xpath_path() for element in elements]
+    assert paths == ["/*[1]", "/*[1]/*[1]", "/*[1]/b", "/*[1]/*[3]", "/*[1]/*[3]/c", "/*[1]/*[3]/*[2]"]
+    assert [document.xpath(path) for path in paths] == [[element] for element in elements]
+
+
+def test_xpath_path_positions_count_every_element_sibling_in_any_order() -> None:
+    document: Final = parse("<x|a></x|a>text<b></b><!--c--><x|b></x|b><i></i><x|c></x|c>")
+    first, plain, second, _, third = document.select("body > *")
+    # the last first, so its count walks to the start; then the others stop at a sibling already placed
+    paths: Final = [element.xpath_path() for element in (third, first, second, third, plain)]
+    assert paths == ["/html/body/*[5]", "/html/body/*[1]", "/html/body/*[3]", "/html/body/*[5]", "/html/body/b"]
+
+
+def test_xpath_path_positions_follow_a_mutation() -> None:
+    document: Final = parse("<x|a></x|a><x|b></x|b>")
+    first, second = document.select("body > *")
+    assert (first.xpath_path(), second.xpath_path()) == ("/html/body/*[1]", "/html/body/*[2]")
+    first.decompose()
+    assert (second.xpath_path(), document.xpath(second.xpath_path())) == ("/html/body/*[1]", [second])
+
+
 # //@id expands to descendant-or-self::node()/@id, so the attribute axis visits the text
 # nodes in the tree. A text-node span reuses attr_count as a source offset with
 # attrs == NULL, so an axis that read attribute storage without an element-type gate

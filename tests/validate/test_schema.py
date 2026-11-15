@@ -384,3 +384,131 @@ def test_validate_accepts_a_document_built_by_copying(
     assert isinstance(document, Document)
     assert schema.validate(document).valid
     assert schema.is_valid(document)
+
+
+_GOOD_XSD: Final[str] = (
+    f'<xs:schema {_XS} targetNamespace="urn:first" elementFormDefault="qualified"><xs:element name="doc">'
+    '<xs:complexType><xs:sequence><xs:element name="item"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+)
+_GOOD_RNG: Final[str] = (
+    f'<element name="doc" ns="urn:first" xmlns="{_RELAXNG_NS}"><element name="item"><empty/></element></element>'
+)
+_BOTH_ENGINES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(xsd_ok, _GOOD_XSD, id="xsd"),
+    pytest.param(rng_ok, _GOOD_RNG, id="relaxng"),
+]
+_ONE_CHAR: Final[str] = "ŷ"
+_ITS_BYTES: Final[str] = "Å·"  # the UTF-8 bytes of _ONE_CHAR read as two code points
+_NON_ASCII_NAMES: Final[list[pytest.ParameterSet]] = [
+    pytest.param("köln", id="two-byte"),
+    pytest.param("中文", id="three-byte"),
+    pytest.param("\U0001d538bc", id="four-byte"),
+]
+
+
+@pytest.mark.parametrize("prefix", _NON_ASCII_NAMES)
+@pytest.mark.parametrize(("accepts", "schema"), _BOTH_ENGINES)
+def test_non_ascii_prefix_resolves_to_its_declaration(
+    accepts: Callable[[str, str], bool], schema: str, prefix: str
+) -> None:
+    # the prefix is code points and the xmlns:prefix attribute name is UTF-8, so the two differ in length
+    assert accepts(schema, f'<{prefix}:doc xmlns:{prefix}="urn:first"><{prefix}:item/></{prefix}:doc>')
+    assert not accepts(schema, f'<g:doc xmlns:g="urn:first" xmlns:{prefix}="urn:second"><{prefix}:item/></g:doc>')
+    assert not accepts(schema, f'<g:doc xmlns:g="urn:first"><{prefix}:item xmlns:{prefix}="urn:second"/></g:doc>')
+
+
+@pytest.mark.parametrize("prefix", _NON_ASCII_NAMES)
+@pytest.mark.parametrize(("accepts", "schema"), _BOTH_ENGINES)
+def test_non_ascii_prefix_among_many_declarations(
+    accepts: Callable[[str, str], bool], schema: str, prefix: str
+) -> None:
+    def document(item_ns: str) -> str:
+        siblings: Final = " ".join(f'xmlns:{prefix}{index}="urn:first"' for index in range(24))
+        return f'<{prefix}0:doc {siblings} xmlns:{prefix}="{item_ns}"><{prefix}:item/></{prefix}0:doc>'
+
+    assert accepts(schema, document("urn:first"))
+    assert not accepts(schema, document("urn:second"))
+
+
+@pytest.mark.parametrize(
+    ("prefix", "other"),
+    [
+        pytest.param(_ITS_BYTES, _ONE_CHAR, id="code-points-equal-to-its-bytes"),
+        pytest.param("ö", "õ", id="same-lead-byte"),
+        pytest.param("中", "丮", id="same-leading-bytes"),
+        pytest.param("ö", "öö", id="longer"),
+        pytest.param("öö", "ö", id="shorter"),
+        pytest.param("ab中", "abö", id="declaration-ends-inside-a-character"),
+    ],
+)
+@pytest.mark.parametrize(("accepts", "schema"), _BOTH_ENGINES)
+def test_prefix_is_not_resolved_by_the_declaration_of_another(
+    accepts: Callable[[str, str], bool], schema: str, prefix: str, other: str
+) -> None:
+    document: Final = (
+        f'<g:doc xmlns:g="urn:first" xmlns:{other}="urn:first" xmlns:{prefix}="urn:second"><{prefix}:item/></g:doc>'
+    )
+    assert not accepts(schema, document)
+    assert accepts(schema, document.replace(f'{prefix}="urn:second"', f'{prefix}="urn:first"'))
+
+
+@pytest.mark.parametrize("prefix", _NON_ASCII_NAMES)
+def test_schema_vocabulary_under_a_non_ascii_prefix(prefix: str) -> None:
+    xsd: Final = (
+        f'<{prefix}:schema xmlns:{prefix}="http://www.w3.org/2001/XMLSchema">'
+        f'<{prefix}:element name="doc" type="{prefix}:int"/></{prefix}:schema>'
+    )
+    assert xsd_ok(xsd, "<doc>3</doc>")
+    assert not xsd_ok(xsd, "<doc>three</doc>")
+    rng: Final = f'<{prefix}:element name="doc" xmlns:{prefix}="{_RELAXNG_NS}"><{prefix}:empty/></{prefix}:element>'
+    assert rng_ok(rng, "<doc/>")
+    assert not rng_ok(rng, "<doc>text</doc>")
+
+
+@pytest.mark.parametrize("padding", [pytest.param(0, id="scanned"), pytest.param(40, id="indexed")])
+def test_xsd_matches_non_ascii_attribute_names(padding: int) -> None:
+    # 32 or more attributes switch both the instance and the declared side to hash tables
+    names: Final = ["köln", "中文", "\U0001d538bc", _ITS_BYTES]
+    padded: Final = [f"a{index}" for index in range(padding)]
+    declared: Final = "".join(f'<xs:attribute name="{name}" use="required"/>' for name in (*names, *padded))
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="doc"><xs:complexType>{declared}</xs:complexType></xs:element></xs:schema>'
+    )
+
+    def document(*present: str) -> str:
+        attributes: Final = " ".join(f'{name}="1"' for name in (*present, *padded))
+        return f"<doc {attributes}/>"
+
+    assert xsd_ok(schema, document(*names))
+    result: Final = XMLSchema(schema).validate(parse_xml(document(*names[:3], _ONE_CHAR)))
+    assert sorted(error.message for error in result.errors) == [
+        f"attribute '{_ONE_CHAR}' is not declared",
+        f"required attribute '{_ITS_BYTES}' is missing",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "other"),
+    [
+        pytest.param("ö", "õ", id="same-lead-byte"),
+        pytest.param("ab中", "abö", id="declaration-ends-inside-a-character"),
+    ],
+)
+def test_type_reference_resolves_past_a_declaration_with_a_shared_start(prefix: str, other: str) -> None:
+    xsd: Final = (
+        f'<xs:schema {_XS} xmlns:{other}="urn:other" xmlns:{prefix}="urn:first" targetNamespace="urn:first" '
+        'elementFormDefault="qualified"><xs:simpleType name="item"><xs:restriction base="xs:int"/></xs:simpleType>'
+        f'<xs:element name="doc" nillable="false" type="{prefix}:item"/></xs:schema>'
+    )
+    assert xsd_ok(xsd, '<doc xmlns="urn:first">3</doc>')
+    assert not xsd_ok(xsd, '<doc xmlns="urn:first">three</doc>')
+
+
+def test_xsd_attribute_is_not_matched_by_a_name_ending_inside_its_last_character() -> None:
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="doc"><xs:complexType><xs:attribute name="ab中"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert xsd_ok(schema, '<doc ab中="1"/>')
+    result: Final = XMLSchema(schema).validate(parse_xml('<doc abö="1"/>'))
+    assert [error.message for error in result.errors] == ["attribute 'abö' is not declared"]

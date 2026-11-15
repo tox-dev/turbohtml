@@ -178,7 +178,8 @@ class Markdown:  # simplint: ignore[too-many-attributes]  # each field is a publ
         :param cell_blocks: what a table or list *inside* a cell becomes, since a pipe cell holds no block:
             ``html`` keeps its source markup (and a ``<br>`` for a line break), ``text`` flattens block layout while
             keeping compact list markers.
-        :param pad: align columns to a common width.
+        :param pad: align columns to a common width. A table too uneven to align within the padding budget is written
+            as plain pipe rows.
         """
 
         mode: Literal["markdown", "strip", "html"] = "markdown"

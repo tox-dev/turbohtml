@@ -33,6 +33,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The non-ASCII halves of the name compare and hash stay out of line, so the ASCII loops inline into their callers. */
+#ifndef TH_NOINLINE
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+#endif
+
 static const char XSD_NS[] = "http://www.w3.org/2001/XMLSchema";
 static const char XSD_DT_NS[] = "http://www.w3.org/2001/XMLSchema-datatypes";
 static const char RNG_NS[] = "http://relaxng.org/ns/structure/1.0";
@@ -123,6 +134,66 @@ static int u_eq_ascii(const Py_UCS4 *text, Py_ssize_t len, const char *ascii) {
         }
     }
     return ascii[len] == '\0';
+}
+
+static int utf8_encode(Py_UCS4 codepoint, unsigned char *out) {
+    if (codepoint < 0x80) {
+        out[0] = (unsigned char)codepoint;
+        return 1;
+    }
+    int extra = 1 + (codepoint >= 0x800) + (codepoint >= 0x10000);
+    static const unsigned char lead[] = {0, 0xC0, 0xE0, 0xF0};
+    out[0] = (unsigned char)(lead[extra] | (codepoint >> (6 * extra)));
+    for (int index = 1; index <= extra; index++) {
+        out[index] = (unsigned char)(0x80 | ((codepoint >> (6 * (extra - index))) & 0x3F));
+    }
+    return extra + 1;
+}
+
+TH_NOINLINE static int u_eq_utf8_wide(const Py_UCS4 *text, Py_ssize_t len, const char *bytes, Py_ssize_t bytes_len) {
+    Py_ssize_t at = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        unsigned char encoded[4];
+        int count = utf8_encode(text[index], encoded);
+        if (bytes_len - at < count || memcmp(bytes + at, encoded, (size_t)count) != 0) {
+            return 0;
+        }
+        at += count;
+    }
+    return at == bytes_len;
+}
+
+/* Whether UCS4 `text` equals the UTF-8 bytes of an interned name (th_attr_name). A name of as many bytes as code points
+   is all ASCII, so that case compares a byte per code point; sign-extending the byte keeps a lead or continuation byte
+   from equalling the Latin-1 code point of the same value. A longer byte string can match only when the last code point
+   and the last byte are both ASCII and equal or both not ASCII, which rules out most names before any encoding. */
+static inline int u_eq_utf8(const Py_UCS4 *text, Py_ssize_t len, const char *bytes, Py_ssize_t bytes_len) {
+    if (bytes_len == len) {
+        for (Py_ssize_t index = 0; index < len; index++) {
+            if (text[index] != (Py_UCS4)(signed char)bytes[index]) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    /* UTF-8 spends one to four bytes per code point, so only len < bytes_len <= 4 * len can match (none when empty) */
+    if ((size_t)(bytes_len - len - 1) >= (size_t)len * 3) {
+        return 0;
+    }
+    Py_UCS4 last = text[len - 1];
+    unsigned char tail = (unsigned char)bytes[bytes_len - 1];
+    if (last < 0x80 ? last != tail : tail < 0x80) {
+        return 0;
+    }
+    return u_eq_utf8_wide(text, len, bytes, bytes_len);
+}
+
+static Py_ssize_t utf8_length(const Py_UCS4 *text, Py_ssize_t len) {
+    Py_ssize_t bytes = len;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        bytes += (text[index] >= 0x80) + (text[index] >= 0x800) + (text[index] >= 0x10000);
+    }
+    return bytes;
 }
 
 static int u_eq_u(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
@@ -217,6 +288,7 @@ static void resolve_ns(th_tree *tree, th_node *node, const Py_UCS4 *prefix, Py_s
         *uri_len = sizeof("http://www.w3.org/XML/1998/namespace") - 1;
         return;
     }
+    Py_ssize_t prefix_bytes = utf8_length(prefix, prefix_len);
     for (th_node *walk = node; walk != NULL; walk = walk->parent) {
         if (walk->type != TH_NODE_ELEMENT) {
             continue;
@@ -229,8 +301,8 @@ static void resolve_ns(th_tree *tree, th_node *node, const Py_UCS4 *prefix, Py_s
                 *uri_len = walk->attrs[index].value_len;
                 return;
             }
-            if (prefix_len != 0 && alen == prefix_len + 6 && memcmp(abytes, "xmlns:", 6) == 0 &&
-                u_eq_ascii(prefix, prefix_len, abytes + 6)) {
+            if (prefix_len != 0 && alen == prefix_bytes + 6 && memcmp(abytes, "xmlns:", 6) == 0 &&
+                u_eq_utf8(prefix, prefix_len, abytes + 6, alen - 6)) {
                 *uri = walk->attrs[index].value;
                 *uri_len = walk->attrs[index].value_len;
                 return;
@@ -647,6 +719,7 @@ typedef struct th_schema {
        regex_full_match to search */
     struct rpattern *regex_patterns, **regex_sorted;
     size_t regex_count, regex_cap, regex_distinct;
+    size_t regex_states;            /* states in all compiled patterns, drawn from the one RX_MAX_STATES budget */
     size_t regex_max_states;        /* states in the largest compiled pattern, sizing the match buffers */
     struct rscratch *regex_scratch; /* match buffers of one validate() call, built on its first pattern check */
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */
@@ -752,7 +825,7 @@ static void ns_scope_resolve(const ns_scope *scope, const Py_UCS4 *prefix, Py_ss
                              Py_ssize_t *uri_len) {
     for (Py_ssize_t index = scope->len - 1; index >= 0; index--) {
         const ns_binding *binding = &scope->items[index];
-        if (binding->prefix_len == prefix_len && u_eq_ascii(prefix, prefix_len, binding->prefix)) {
+        if (u_eq_utf8(prefix, prefix_len, binding->prefix, binding->prefix_len)) {
             *uri = binding->uri;
             *uri_len = binding->uri_len;
             return;
@@ -846,13 +919,31 @@ static int named_push(th_schema *schema, named_vec *vec, const Py_UCS4 *name, Py
     return 0;
 }
 
-static uint64_t named_hash(const Py_UCS4 *name, Py_ssize_t len) {
+TH_NOINLINE static uint64_t named_hash_wide(const Py_UCS4 *name, Py_ssize_t len) {
     uint64_t hash = UINT64_C(1469598103934665603);
     for (Py_ssize_t index = 0; index < len; index++) {
+        unsigned char encoded[4];
+        int count = utf8_encode(name[index], encoded);
+        for (int byte = 0; byte < count; byte++) {
+            hash ^= encoded[byte];
+            hash *= UINT64_C(1099511628211);
+        }
+    }
+    return hash;
+}
+
+/* FNV-1a over the UTF-8 encoding of the name, the hash ns_hash_bytes and the attribute indexes take over interned
+   attribute-name bytes, so a table keyed one way is probed the other way without decoding. An ASCII name has one byte
+   per code point, so only a name holding a wider code point is hashed a second time. */
+static inline uint64_t named_hash(const Py_UCS4 *name, Py_ssize_t len) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    Py_UCS4 seen = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        seen |= name[index];
         hash ^= name[index];
         hash *= UINT64_C(1099511628211);
     }
-    return hash;
+    return seen < 0x80 ? hash : named_hash_wide(name, len);
 }
 
 static int named_index(th_schema *schema, named_vec *vec) {
@@ -959,15 +1050,6 @@ static Py_ssize_t ns_find_bytes(const nsscope *scope, const char *prefix, Py_ssi
     return -1;
 }
 
-static int ns_units_match(const Py_UCS4 *units, const char *bytes, Py_ssize_t len) {
-    for (Py_ssize_t index = 0; index < len; index++) {
-        if (units[index] != (Py_UCS4)(unsigned char)bytes[index]) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 static Py_ssize_t ns_find_units(const nsscope *scope, const Py_UCS4 *prefix, Py_ssize_t len) {
     if (scope->slots == NULL) {
         return -1;
@@ -975,7 +1057,7 @@ static Py_ssize_t ns_find_units(const nsscope *scope, const Py_UCS4 *prefix, Py_
     size_t mask = scope->slot_cap - 1;
     for (size_t slot = (size_t)named_hash(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
         const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
-        if (binding->prefix_len == len && ns_units_match(prefix, binding->prefix, len)) {
+        if (u_eq_utf8(prefix, len, binding->prefix, binding->prefix_len)) {
             return scope->slots[slot] - 1;
         }
     }
