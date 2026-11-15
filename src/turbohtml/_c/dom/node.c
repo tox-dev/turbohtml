@@ -651,6 +651,8 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->opts = *opts;
     self->cursor.node = root;
     self->cursor.depth = 0;
+    self->cursor.xlink.last = NULL;
+    self->cursor.xlink.scope = NULL;
     self->indent = indent;
     self->indent_len = indent_len;
     self->mutation_version = ((HandleObject *)handle)->mutation_version;
@@ -2346,7 +2348,7 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
         }
     }
     th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml, inner, NULL,
-                              0, charset_missing, NULL};
+                              0, charset_missing, NULL,         NULL};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2681,7 +2683,7 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                                           int sort_attributes, int meta_charset, int xml, int inner) {
     module_state *state = state_of(self);
     th_serialize_opts opts = {
-        0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL};
+        0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL, NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

@@ -13,8 +13,10 @@
 
 #include "dom/tree.h"
 
-/* One tree's observer registry, allocated lazily on the first observe(). Opaque here;
-   the layout and the queue-a-mutation-record algorithm stay in dom/observe.c. */
+/* One tree's observer registry, allocated lazily on the first observe(), and one of the
+   observers in it. Opaque here; the layout and the queue-a-mutation-record algorithm stay
+   in dom/observe.c. */
+typedef struct th_mo_registry th_mo_registry;
 typedef struct th_observer th_observer;
 
 /* Mutation-record kinds, matching the order MutationRecord.type reports. */

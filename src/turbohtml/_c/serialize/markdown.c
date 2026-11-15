@@ -229,6 +229,7 @@ typedef struct {
     int g_bold;
     int g_italic;
     int inline_only;
+    int deep_block_span;
     char list_end_marker;
 } md_converting;
 
@@ -323,6 +324,7 @@ typedef struct {
     int list_depth;             /* nesting depth of the current list, for bullet cycling */
     int indent_levels;          /* list and quote nesting that indents the prefix, capped by TH_MAX_INDENT_LEVELS */
     Py_ssize_t clone_budget;    /* the attribute characters the parser's clones of an element may still write */
+    Py_ssize_t tags_left;       /* the tag characters runs reopened as raw HTML may still add */
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
     char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
@@ -657,6 +659,26 @@ static int md_marker_html(md_ctx *ctx, Py_ssize_t index, Py_ssize_t first) {
            ((marker->flags & MD_MARK_OPEN_PUNCT) && md_edge(len > 0 ? ctx->out.data[len - 1] : ' ') == 0);
 }
 
+/* The characters a run's raw-HTML open and close tags take together. */
+static Py_ssize_t md_tags_len(uint8_t html) {
+    return (Py_ssize_t)(strlen(MD_HTML_TAGS[html - 1][0]) + strlen(MD_HTML_TAGS[html - 1][1]));
+}
+
+/* Spend md_ctx.tags_left on one more pair of a run's raw-HTML tags; 0 when it does not cover them. */
+static int md_fund_tags(md_ctx *ctx, uint8_t html) {
+    Py_ssize_t cost = md_tags_len(html);
+    if (cost > ctx->tags_left) {
+        return 0;
+    }
+    ctx->tags_left -= cost;
+    return 1;
+}
+
+/* Whether md_emit_pending left an emphasis run closed for the block: it wrote nothing, so it owes no close either. */
+static inline int md_folded(const md_marker *marker) {
+    return marker->html != MD_HTML_NONE && marker->open[0] == '\0';
+}
+
 /* Emit the deferred opening markers from outermost to innermost (skipping any
    already written), so nested emphasis opens in source order. */
 static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
@@ -664,6 +686,7 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
     while (first > ctx->marker_base && !ctx->markers[first - 1].emitted) {
         first--;
     }
+    unsigned opened = 0; /* the kinds of run, as bits of enum md_html, opened here around the next one */
     for (Py_ssize_t index = first; index < ctx->marker_count; index++) {
         md_marker *marker = &ctx->markers[index];
         /* An inner close next to its parent's star run otherwise merges into one run. */
@@ -674,10 +697,19 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
             marker->open = "_";
             marker->close = "_";
         }
-        if (ctx->deep_block_span && marker->html != 0) {
+        if ((ctx->deep_block_span || marker->spanning) && marker->html != 0) {
             marker->open = MD_HTML_TAGS[marker->html - 1][0];
             marker->close = MD_HTML_TAGS[marker->html - 1][1];
             marker->spanning = 1;
+            /* Every block and table cell reopens all the runs around it, which multiplies the output by the nesting
+               depth unless the tags are paid for. The outermost run of each kind always reopens, so the block keeps
+               its emphasis; a run inside one of its own kind changes nothing a reader sees, so it needs the budget
+               to cover its tags and stays closed for this block when it does not. */
+            if (ctx->deep_block_span && (opened & (1u << marker->html)) && !md_fund_tags(ctx, marker->html)) {
+                marker->open = "";
+                marker->close = "";
+            }
+            opened |= 1u << marker->html;
         } else if (md_marker_html(ctx, index, first)) {
             marker->open = MD_HTML_TAGS[marker->html - 1][0];
             marker->close = MD_HTML_TAGS[marker->html - 1][1];
@@ -997,6 +1029,8 @@ static void md_emit_text(md_ctx *ctx, th_node *node, const Py_UCS4 *text, Py_ssi
     }
     /* Source text funds at most the same number of attribute characters repeated by clones. */
     ctx->clone_budget += len;
+    /* Source text funds at most the same number of reopened tag characters. */
+    ctx->tags_left += len;
     /* a reference continues only when nothing comes between the last node's `&` and name
        and this node's first character; what is already written md_escape_split_reference
        reads back, and an opening run still pending would come between */
@@ -1428,7 +1462,7 @@ static int md_live_delimiter(const Py_UCS4 *data, Py_ssize_t at, Py_UCS4 delimit
    past, or NULL when a line end follows the close. */
 static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
     md_marker *marker = &ctx->markers[index];
-    if (!marker->emitted || marker->node == NULL || marker->open[0] == '<') {
+    if (!marker->emitted || marker->node == NULL || marker->open[0] == '<' || md_folded(marker)) {
         return;
     }
     const Py_UCS4 *data = ctx->out.data;
@@ -1547,6 +1581,9 @@ static void md_suspend_markers(md_ctx *ctx) {
         }
         marker->emitted = 0;
         ctx->open_markers--;
+        if (md_folded(marker)) {
+            continue;
+        }
         md_put_close(ctx, marker->close);
         if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return;            /* GCOVR_EXCL_LINE: allocation failure */
@@ -1568,7 +1605,8 @@ static const char *md_pop_marker(md_ctx *ctx, Py_ssize_t marker) {
         ctx->deep_block_span = 0;
     }
     md_settle_pending(ctx);
-    return ctx->markers[marker].emitted ? ctx->markers[marker].close : NULL;
+    const md_marker *popped = &ctx->markers[marker];
+    return popped->emitted && !md_folded(popped) ? popped->close : NULL;
 }
 
 static int md_enter_converter(md_ctx *ctx, th_node *node);
@@ -1694,6 +1732,7 @@ static void md_enter_emphasis(md_ctx *ctx, th_node *node, const char *delim, uin
     md_marker *marker = &ctx->markers[index];
     marker->node = node;
     marker->html = html;
+    ctx->tags_left += md_tags_len(html); /* each element pays for one pair of its own tags */
     if (ctx->raw_emphasis) {
         marker->open = MD_HTML_TAGS[html - 1][0];
         marker->close = MD_HTML_TAGS[html - 1][1];
@@ -2194,15 +2233,18 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     sbuf cell_open = {0};
     sbuf cell_close = {0};
     if (node->atom == TH_TAG_TABLE) {
+        /* every cell takes the whole wrap, so past the depth where runs span blocks as raw HTML it holds only the
+           outermost run of each kind, or the output grows with the nesting depth times the cell count */
+        Py_ssize_t nested[MD_HTML_STRIKE + 1] = {0};
         for (Py_ssize_t index = ctx->marker_base; index < ctx->marker_count; index++) {
             uint8_t marker_html = ctx->markers[index].html;
-            if (marker_html != MD_HTML_NONE) {
+            if (marker_html != MD_HTML_NONE && (nested[marker_html]++ == 0 || !ctx->deep_block_span)) {
                 sbuf_puts(&cell_open, MD_HTML_TAGS[marker_html - 1][0]);
             }
         }
         for (Py_ssize_t index = ctx->marker_count; index > ctx->marker_base; index--) {
             uint8_t marker_html = ctx->markers[index - 1].html;
-            if (marker_html != MD_HTML_NONE) {
+            if (marker_html != MD_HTML_NONE && (--nested[marker_html] == 0 || !ctx->deep_block_span)) {
                 sbuf_puts(&cell_close, MD_HTML_TAGS[marker_html - 1][1]);
             }
         }
@@ -3247,6 +3289,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .g_bold = ctx->g_bold,
         .g_italic = ctx->g_italic,
         .inline_only = ctx->inline_only,
+        .deep_block_span = ctx->deep_block_span,
         .list_end_marker = ctx->list_end_marker,
     };
     ctx->out = (sbuf){0};
@@ -3268,6 +3311,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
     ctx->g_bold = 0;
     ctx->g_italic = 0;
     ctx->inline_only = 0;
+    ctx->deep_block_span = 0; /* it counts the markers above marker_base, and a run closing in here must not clear it */
     ctx->list_end_marker = 0;
     return 1;
 }
@@ -3387,6 +3431,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     ctx->g_bold = saved->g_bold;
     ctx->g_italic = saved->g_italic;
     ctx->inline_only = saved->inline_only;
+    ctx->deep_block_span = saved->deep_block_span;
     ctx->list_end_marker = saved->list_end_marker;
     PyObject *tag = saved->tag;
     PyObject *converter = saved->converter;
@@ -4926,6 +4971,8 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.break_end = -1;
     /* a few short targets repeat in clones before any rendered text funds the budget */
     ctx.clone_budget = 256;
+    /* Let a few deep runs reopen in full before source text has to fund them. */
+    ctx.tags_left = 256;
     ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);
     /* mode="none" leaves prose as written apart from the asterisk and underscore
        choices, keeping only the cell pipe escape a pipe table cannot do without */

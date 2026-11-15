@@ -991,6 +991,11 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     if (turbohtml_node_borrow(module, node_obj, &tree, &node) < 0) {
         return NULL;
     }
+    /* Both validators read the root's tag name and attributes, which only an element has. */
+    if (node->type != TH_NODE_DOCUMENT && node->type != TH_NODE_ELEMENT) {
+        PyErr_SetString(PyExc_TypeError, "schema validation requires a Document or an Element");
+        return NULL;
+    }
     PyObject *errors = PyList_New(0);
     if (errors == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE */

@@ -146,7 +146,30 @@ def markdown_html_meaning(markup: str) -> tuple[_Meaning, ...]:
     if any(sum(1 for _ in element.ancestors) > 128 for element in root.iter_elements()):
         msg = "HTML nesting exceeds the meaning model"
         raise MarkdownProfileError(msg)
-    return _flow(_children(_tree(root), preserve=False))
+    return _outermost(_flow(_children(_tree(root), preserve=False)), frozenset())
+
+
+def _outermost(records: tuple[_Meaning, ...], inside: frozenset[str]) -> tuple[_Meaning, ...]:
+    # a run inside one of its own kind draws nothing more, and to_markdown keeps only the outermost run of a kind in a
+    # block once the text no longer funds reopening every nesting level there, so a nested run reads as its content
+    output: Final[list[_Meaning]] = []
+    for tag, attributes, children in records:
+        if tag in inside:
+            output.extend(_outermost(children, inside))
+        else:
+            nested: Final = inside | {tag} if tag in _EMPHASIS else inside
+            output.append(_Meaning(tag, attributes, _outermost(children, nested)))
+    return _merge(output)
+
+
+def _merge(records: Iterable[_Meaning]) -> tuple[_Meaning, ...]:
+    merged: Final[list[_Meaning]] = []
+    for record in records:
+        if record[0] == "#text" and merged and merged[-1][0] == "#text":
+            merged[-1] = _Meaning("#text", (("value", merged[-1][1][0][1] + record[1][0][1]),), ())
+        else:
+            merged.append(record)
+    return tuple(merged)
 
 
 def _flow(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
@@ -287,16 +310,6 @@ def _at_block_edge(neighbor: str | None, *, inline: bool) -> bool:
     if neighbor is None:
         return not inline
     return neighbor not in _FLOW_INLINE or neighbor == "br"
-
-
-def _merge(records: Iterable[_Meaning]) -> tuple[_Meaning, ...]:
-    merged: Final[list[_Meaning]] = []
-    for record in records:
-        if record[0] == "#text" and merged and merged[-1][0] == "#text":
-            merged[-1] = _Meaning("#text", (("value", merged[-1][1][0][1] + record[1][0][1]),), ())
-        else:
-            merged.append(record)
-    return tuple(merged)
 
 
 def _children(element: _TreeNode, *, preserve: bool) -> tuple[_Meaning, ...]:

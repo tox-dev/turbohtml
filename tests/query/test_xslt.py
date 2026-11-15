@@ -3836,6 +3836,10 @@ def test_transform_import_rejects_remote_file_url() -> None:
         pytest.param(r"\\attacker\share\base.xsl", id="bare-unc-backslash"),
         pytest.param("////attacker/share/base.xsl", id="bare-unc-forward-slash"),
         pytest.param("file:////attacker/share/base.xsl", id="file-unc"),
+        pytest.param("%5C%5Crelay%5Cexport%5Clib.xsl", id="encoded-unc-backslash"),
+        pytest.param("/%5Crelay/export/lib.xsl", id="encoded-unc-second-backslash"),
+        pytest.param("/%2Frelay/export/lib.xsl", id="encoded-unc-second-slash"),
+        pytest.param("file:///%5Crelay/export/lib.xsl", id="file-encoded-unc"),
     ],
 )
 def test_transform_import_rejects_unc_href(tmp_path: Path, href: str) -> None:

@@ -1209,12 +1209,29 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
     return 1;
 }
 
+/* The end of `value[start:end)` without its trailing whitespace. A whitespace after an odd run of backslashes stays: it
+   is escaped or ends a lone backslash, and without it that backslash would escape the separator written next. */
+static Py_ssize_t css_trim_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    while (end > start && is_space(value[end - 1])) {
+        Py_ssize_t run = end - 1;
+        while (run > start && value[run - 1] == '\\') {
+            run--;
+        }
+        if ((end - 1 - run) % 2) {
+            break;
+        }
+        end--;
+    }
+    return end;
+}
+
 /* Decide whether the declaration `value[start:end)`, split at `colon` into property and value, survives the policy:
    its property name must be allowlisted and its value free of expression()/url(disallowed-scheme). When `styles` is
    non-NULL, Policy.allowed_styles narrows further -- the property must be listed and its value match a pattern -- on
-   top of that baseline, never weakening it. On a keep, the trimmed declaration span (property start through the value's
-   last non-whitespace byte) is returned in *name_start and *decl_end. Returns 1 keep, 0 drop, -1 error. Shared by the
-   `style` attribute and `<style>` body scrubbers so the safety rules stay identical across both. */
+   top of that baseline, never weakening it. On a keep, the declaration span from the property start through the value
+   with its trailing whitespace trimmed by css_trim_end is returned in *name_start and *decl_end. Returns 1 keep, 0
+   drop, -1 error. Shared by the `style` attribute and `<style>` body scrubbers so the safety rules stay identical
+   across both. */
 static int css_declaration_kept(sanitizer *s, const style_allowlist *styles, const Py_UCS4 *value, Py_ssize_t start,
                                 Py_ssize_t end, Py_ssize_t colon, Py_ssize_t *name_start_out,
                                 Py_ssize_t *decl_end_out) {
@@ -1243,10 +1260,7 @@ static int css_declaration_kept(sanitizer *s, const style_allowlist *styles, con
     if (!value_ok) {
         return 0; /* an allowlisted property carrying expression()/url(disallowed-scheme) is still dropped */
     }
-    Py_ssize_t decl_end = end;
-    while (decl_end > colon + 1 && is_space(value[decl_end - 1])) {
-        decl_end--;
-    }
+    Py_ssize_t decl_end = css_trim_end(value, colon + 1, end);
     if (styles != NULL) {
         Py_ssize_t value_start = colon + 1;
         while (value_start < decl_end && is_space(value[value_start])) {
@@ -1370,14 +1384,16 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, co
 
 /* Copy the rule prelude (a selector or at-rule head) `value[start:end)` to `out`, trimmed of surrounding whitespace.
    The prelude stays verbatim because CSS selectors cannot run script and scrub_stylesheet already dropped any
-   declaration-shaped prelude a pre-nesting browser would apply. */
-static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_UCS4 *out,
+   declaration-shaped prelude a pre-nesting browser would apply. A prelude holding a `bad_string` keeps its trailing
+   whitespace: the newline that ended the string may be in it, and without it the quote would open a string over the
+   block. */
+static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, int bad_string, Py_UCS4 *out,
                              Py_ssize_t *out_len) {
     while (start < end && is_space(value[start])) {
         start++;
     }
-    while (end > start && is_space(value[end - 1])) {
-        end--;
+    if (!bad_string) {
+        end = css_trim_end(value, start, end);
     }
     for (Py_ssize_t index = start; index < end; index++) {
         out[(*out_len)++] = value[index];
@@ -1446,7 +1462,7 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
             if (colon >= 0 && css_value_allowed(s, value, colon + 1, index - 1, 1) == 0) {
                 index = css_skip_block(value, index, len);
             } else {
-                css_emit_prelude(value, seg_start, index - 1, out, &out_len);
+                css_emit_prelude(value, seg_start, index - 1, flags & CSS_TOKEN_BAD, out, &out_len);
                 out[out_len++] = '{';
                 brace_depth++;
             }

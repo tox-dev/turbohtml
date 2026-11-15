@@ -1545,3 +1545,81 @@ def test_normalize_file_rejects_port(url: str) -> None:
 
 def test_normalize_file_keeps_ascii_xn_host() -> None:
     assert normalize_url("file://xn--/p") == "file://xn--/p"
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param(
+            'https://good.example"@evil.example/a', "https://good.example%22@evil.example/a", id="quote-in-userinfo"
+        ),
+        pytest.param(
+            "https://origin.example<@target.example/b",
+            "https://origin.example%3C@target.example/b",
+            id="angle-in-userinfo",
+        ),
+        pytest.param(
+            'https://origin.example".target.example/c', 'https://origin.example".target.example/c', id="quote-in-host"
+        ),
+        pytest.param(
+            'https://origin.example"%2Etarget.example/c',
+            'https://origin.example".target.example/c',
+            id="encoded-dot-in-host",
+        ),
+        pytest.param(
+            'https://origin.example"\u3002target.example/c',
+            'https://origin.example".target.example/c',
+            id="idna-dot-in-host",
+        ),
+        pytest.param(
+            'https:\\\\origin.example">@target.example\\d"e',
+            "https://origin.example%22%3E@target.example/d",
+            id="backslashes",
+        ),
+    ],
+)
+def test_clean_does_not_truncate_inside_the_authority(href: str, expected: str) -> None:
+    # cut at the delimiter, each of these named origin.example, where the URL parser reads a host at target.example
+    assert clean_url(href) == expected
+    assert extract_links(f"<a href='{href}'>x</a>", "https://origin.example/", external_only=True) == {expected}
+
+
+def test_clean_does_not_truncate_inside_an_unwrapped_authority() -> None:
+    # the control the CDATA wrapper kept off the edge is stripped by the split, so the scheme starts after it
+    url: Final = '<![CDATA[\x01https://origin.example"@target.example/a]]>'
+    assert clean_url(url) == "https://origin.example%22@target.example/a"
+
+
+def test_extract_links_does_not_truncate_inside_a_resolved_authority() -> None:
+    page: Final = """<a href='//origin.example"@target.example/a'>x</a>"""
+    expected: Final = {"https://origin.example%22@target.example/a"}
+    assert extract_links(page, "https://origin.example/", external_only=True) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param('https://host.example"', id="quote-after-host"),
+        pytest.param('https://host.example">link</a>', id="tag-after-host"),
+        pytest.param("https://host.example<b>x", id="angle-after-host"),
+        pytest.param('https://host.example":443/', id="quote-before-port"),
+    ],
+)
+def test_clean_truncates_markup_run_into_the_host(url: str) -> None:
+    # nothing cut holds an '@' or a dot, so the host the URL parser reads ends in a label no resolver answers for
+    assert clean_url(url) == "https://host.example/"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param('https://host.example">host.example</a>', id="dotted-text-after-host"),
+        pytest.param('https://host.example">.target.example/', id="angle-then-dot"),
+        pytest.param("https://host.example<.target.example/", id="angle-alone-then-dot"),
+        pytest.param('https://host.example".target.example>/', id="dot-then-angle"),
+        pytest.param('https://host.example">b.example</a> and <a href="https://c.example/', id="two-anchors"),
+    ],
+)
+def test_clean_truncates_at_a_host_the_url_parser_rejects(url: str) -> None:
+    # with no '@' the host runs through the '<' or '>', a forbidden host code point: no browser reads another host
+    assert clean_url(url) == "https://host.example/"
