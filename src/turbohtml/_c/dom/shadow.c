@@ -604,6 +604,7 @@ TH_NODE_API(static, PyObject *, shadow_root_set_inner_html, (PyObject * self, Py
     while (root->first_child != NULL) {
         th_node_remove_silent(dest, root->first_child);
     }
+    th_tree_note_deepened(dest);
     for (th_node *child = th_tree_document(fragment)->first_child; child != NULL; child = child->next_sibling) {
         th_node *copy = th_tree_copy_node(dest, fragment, child);
         if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
