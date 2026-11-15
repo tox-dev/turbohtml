@@ -2695,6 +2695,43 @@ def test_closest_under_long_value_in_linear_time(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(deepest, (250, 1000))
 
 
+# threading.stack_size cannot go below the 2 MiB python.exe reserves on Windows, so there the thread
+# reserves its size with CreateThread, as tests/js/test_parser.py does
+_SMALL_STACK_THREAD: Final[str] = """\
+import sys
+import threading
+
+
+def start(target, size):
+    if sys.platform != "win32":
+        threading.stack_size(size)
+        worker = threading.Thread(target=target)
+        worker.start()
+        worker.join()
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32")
+    thread_main = ctypes.WINFUNCTYPE(wintypes.DWORD, wintypes.LPVOID)
+    kernel32.CreateThread.restype = wintypes.HANDLE
+    kernel32.CreateThread.argtypes = [
+        wintypes.LPVOID, ctypes.c_size_t, thread_main, wintypes.LPVOID, wintypes.DWORD, wintypes.LPVOID
+    ]
+
+    def entry(_):
+        target()
+        return 0
+
+    stack_size_param_is_a_reservation = 0x10000
+    callback = thread_main(entry)
+    handle = kernel32.CreateThread(None, size, callback, None, stack_size_param_is_a_reservation, None)
+    kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
+
+
+"""
+
+
 @pytest.mark.parametrize(
     "setup",
     [
@@ -2746,7 +2783,7 @@ def test_closest_under_long_value_in_linear_time(work_steps: WorkSteps) -> None:
 )
 def test_long_selector_chain_raises_recursion_error_on_a_small_stack(setup: str) -> None:
     code = (
-        "import threading\n"
+        f"{_SMALL_STACK_THREAD}"
         "from turbohtml import parse, parse_xml\n"
         f"{setup}"
         "outcome = []\n"
@@ -2755,10 +2792,7 @@ def test_long_selector_chain_raises_recursion_error_on_a_small_stack(setup: str)
         "        outcome.append(len(call()))\n"
         "    except RecursionError as error:\n"
         "        outcome.append(str(error))\n"
-        "threading.stack_size(256 * 1024)\n"
-        "worker = threading.Thread(target=run)\n"
-        "worker.start()\n"
-        "worker.join()\n"
+        "start(run, 256 * 1024)\n"
         "print(outcome[0])\n"
     )
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
@@ -2769,10 +2803,10 @@ def test_long_selector_chain_raises_recursion_error_on_a_small_stack(setup: str)
 
 def test_long_selector_chain_cached_on_a_large_stack_raises_on_a_small_one() -> None:
     code = (
-        "import threading\n"
+        f"{_SMALL_STACK_THREAD}"
         "from turbohtml import parse_xml\n"
-        "document = parse_xml('<s>' * 199 + '<t/>' + '</s>' * 199)\n"
-        "selector = ' > '.join(['s'] * 199 + ['t'])\n"
+        "document = parse_xml('<s>' * 1000 + '<t/>' + '</s>' * 1000)\n"
+        "selector = ' > '.join(['s'] * 1000 + ['t'])\n"
         "print(len(document.select(selector)))\n"
         "outcome = []\n"
         "def run():\n"
@@ -2780,16 +2814,15 @@ def test_long_selector_chain_cached_on_a_large_stack_raises_on_a_small_one() -> 
         "        outcome.append(len(document.select(selector)))\n"
         "    except RecursionError as error:\n"
         "        outcome.append(str(error))\n"
-        "threading.stack_size(256 * 1024)\n"
-        "worker = threading.Thread(target=run)\n"
-        "worker.start()\n"
-        "worker.join()\n"
+        "start(run, 256 * 1024)\n"
         "print(outcome[0])\n"
     )
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
     )
-    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr
+    assert (result.returncode, result.stdout.startswith("1\n"), "C stack" in result.stdout) == (0, True, True), (
+        result.stderr
+    )
 
 
 @pytest.mark.parametrize(
