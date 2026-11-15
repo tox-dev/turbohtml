@@ -1085,6 +1085,11 @@ typedef struct engine {
     int ns_counter; /* serial for the generated ns_N prefixes xsl:attribute namespace fixup mints */
     int precedence; /* import precedence being assigned as declarations are walked */
 
+    /* Whether a non-empty default namespace is in scope at the output parent, which a no-namespace result element
+       must undeclare. */
+    int default_bound;
+    th_node_map src_namespaced; /* source node -> 1 when its nearest default declaration is non-empty, 2 otherwise */
+
     struct strip_entry *stripped; /* text nodes detached from the source by whitespace stripping */
     Py_ssize_t nstripped;
     Py_ssize_t stripped_cap;
@@ -2783,6 +2788,100 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
     return rc;
 }
 
+static int number_has_namespaces(engine *eng);
+
+static int name_is_prefixed(const Py_UCS4 *name, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (name[index] == ':') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static const th_node_attr *xmlns_decl(th_tree *tree, const th_node *element) {
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(tree, element->attrs[index].name_atom, &name_len);
+        if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
+            return &element->attrs[index];
+        }
+    }
+    return NULL;
+}
+
+/* The nearest default namespace declaration on a stylesheet element or one of its ancestors, or NULL. */
+static const th_node_attr *sheet_default_decl(engine *eng, const th_node *element) {
+    for (const th_node *node = element; node != NULL; node = node->parent) {
+        const th_node_attr *decl = xmlns_decl(eng->sheet_tree, node);
+        if (decl != NULL) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
+/* Whether the nearest default namespace declaration on source node `node` or an ancestor is non-empty. A walk stops at
+   a node an earlier walk answered and records its answer for the nodes it passed, so a run answers each node once
+   rather than rewalking a deep ancestor chain for every copy. Returns -1 when the memo cannot grow. */
+static int source_namespaced(engine *eng, const th_node *node) {
+    const th_node *stop = node;
+    int namespaced = 0;
+    for (; stop != NULL; stop = stop->parent) {
+        TH_WORK_STEP();
+        Py_ssize_t known = th_node_map_find(&eng->src_namespaced, stop);
+        if (known != 0) {
+            namespaced = known == 1;
+            break;
+        }
+        const th_node_attr *decl = xmlns_decl(eng->src_tree, stop);
+        if (decl != NULL) {
+            namespaced = decl->value_len > 0;
+            break;
+        }
+    }
+    for (const th_node *walk = node; walk != stop; walk = walk->parent) {
+        if (th_node_map_insert(&eng->src_namespaced, walk, namespaced ? 1 : 2) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                                /* GCOVR_EXCL_LINE */
+        }
+    }
+    return namespaced;
+}
+
+/* Whether source element `node` is in no namespace: unprefixed, and neither it nor an ancestor declares a non-empty
+   default namespace. A source with no namespace declarations needs no walk. Returns -1 when the memo cannot grow. */
+static int source_in_no_namespace(engine *eng, const th_node *node) {
+    if (name_is_prefixed(node->text, node->text_len)) {
+        return 0;
+    }
+    if (!number_has_namespaces(eng)) {
+        return 1;
+    }
+    int namespaced = source_namespaced(eng, node);
+    if (namespaced < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    return !namespaced;
+}
+
+/* Writes the empty default namespace, which undeclares the default namespace an element inherits from its output
+   parent, so the element stays in no namespace when the output is parsed again. */
+static int undeclare_default(engine *eng, th_node *element) {
+    if (th_node_attr_set(eng->out_tree, element, "xmlns", 5, NULL, 0, 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory");                                      /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
+/* Instantiate the content of a result element, with `bound` as the default-namespace state inside it. */
+static int instantiate_under(engine *eng, th_node *body, th_node *element, int bound) {
+    int saved = eng->default_bound;
+    eng->default_bound = bound;
+    int rc = instantiate_body(eng, body, element);
+    eng->default_bound = saved;
+    return rc;
+}
+
 /* Deep-copy a source subtree into the output tree, appended to out_parent. */
 static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
     if (xp_is_attribute(item.attr)) {
@@ -2802,6 +2901,15 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     th_node_append_child(out_parent, copy);
+    if (eng->default_bound && item.node->type == TH_NODE_ELEMENT && xmlns_decl(eng->out_tree, copy) == NULL) {
+        int no_namespace = source_in_no_namespace(eng, item.node);
+        if (no_namespace < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        if (no_namespace && undeclare_default(eng, copy) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                          /* GCOVR_EXCL_LINE */
+        }
+    }
     return 0;
 }
 
@@ -2828,6 +2936,12 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
                     th_node *copy = th_tree_copy_node(eng->out_tree, eng->out_tree, child);
                     if (copy == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
                         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+                    }
+                    if (eng->default_bound && child->type == TH_NODE_ELEMENT &&
+                        !name_is_prefixed(child->text, child->text_len) && xmlns_decl(eng->out_tree, copy) == NULL) {
+                        if (undeclare_default(eng, copy) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                            return -1;                          /* GCOVR_EXCL_LINE */
+                        }
                     }
                     th_node_append_child(out_parent, copy);
                 }
@@ -3112,6 +3226,25 @@ static int instantiate_without_element(engine *eng, th_node *instruction, th_nod
     return 0;
 }
 
+/* Whether an xsl:element with an unprefixed name creates an element in no namespace: its namespace attribute evaluates
+   to the empty string, or it has none and the stylesheet's default namespace in scope is empty. */
+static int element_no_namespace(engine *eng, th_node *instruction) {
+    Py_ssize_t ns_avt_len = 0;
+    const Py_UCS4 *ns_avt = attr_lookup(eng->sheet_tree, instruction, "namespace", 9, &ns_avt_len);
+    if (ns_avt == NULL) {
+        const th_node_attr *decl = sheet_default_decl(eng, instruction);
+        return decl == NULL || decl->value_len == 0;
+    }
+    Py_UCS4 *nsuri;
+    Py_ssize_t nsuri_len = 0;
+    if (eval_avt(eng, ns_avt, ns_avt_len, &nsuri, &nsuri_len) < 0) {
+        return -1;
+    }
+    int empty = nsuri == NULL;
+    PyMem_Free(nsuri);
+    return empty;
+}
+
 /* xsl:element name={avt}: create an element and instantiate its body inside it. */
 static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t name_len = 0;
@@ -3135,12 +3268,25 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     th_node_append_child(out_parent, element);
+    int bound = eng->default_bound;
+    if (bound && !name_is_prefixed(element->text, element->text_len)) {
+        int no_namespace = element_no_namespace(eng, instruction);
+        if (no_namespace < 0) {
+            return -1;
+        }
+        if (no_namespace) {
+            if (undeclare_default(eng, element) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                             /* GCOVR_EXCL_LINE */
+            }
+            bound = 0;
+        }
+    }
     Py_ssize_t use_len = 0;
     const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
     if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
         return -1;
     }
-    return instantiate_body(eng, instruction, element);
+    return instantiate_under(eng, instruction, element, bound);
 }
 
 /* xsl:attribute name={avt}: set an attribute on the containing result element. */
@@ -3306,12 +3452,25 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
         th_node_append_child(out_parent, element);
+        int bound = eng->default_bound;
+        if (bound) {
+            int no_namespace = source_in_no_namespace(eng, node);
+            if (no_namespace < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
+            if (no_namespace) {
+                if (undeclare_default(eng, element) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                             /* GCOVR_EXCL_LINE */
+                }
+                bound = 0;
+            }
+        }
         Py_ssize_t use_len = 0;
         const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
         if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
             return -1;
         }
-        return instantiate_body(eng, instruction, element);
+        return instantiate_under(eng, instruction, element, bound);
     }
     if (node->type == TH_NODE_TEXT || node->type == TH_NODE_COMMENT || node->type == TH_NODE_PI) {
         th_node *copy = th_tree_copy_node(eng->out_tree, eng->src_tree, node);
@@ -5424,7 +5583,7 @@ static int compute_binding(engine *eng, th_node *declaration, xp_result *out_val
     if (fragment == NULL) {                /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    if (instantiate_body(eng, declaration, fragment) < 0) {
+    if (instantiate_under(eng, declaration, fragment, 0) < 0) {
         return -1;
     }
     Py_ssize_t text_len = 0;
@@ -6039,6 +6198,36 @@ static const Py_UCS4 *xsl_prefixed_attr(const engine *eng, const th_node *node, 
     return NULL;
 }
 
+/* Whether a literal result element that writes no default declaration is in no namespace: unprefixed, with no
+   stylesheet default in scope, unless a namespace-alias rebinds the default. Only asked where the output binds a
+   default namespace, so a stylesheet default that was not written is that same non-empty binding. */
+static int lre_no_namespace(engine *eng, th_node *element) {
+    if (name_is_prefixed(element->text, element->text_len)) {
+        return 0;
+    }
+    Py_ssize_t alias_len = 0;
+    if (alias_result_uri(eng, "#default", 8, &alias_len) != NULL) {
+        return alias_len == 0;
+    }
+    return sheet_default_decl(eng, element) == NULL;
+}
+
+/* The default-namespace state inside a literal result element once its namespace declarations are on the copy. A
+   declaration written there sets the state; a no-namespace element without one under a bound default undeclares it. */
+static TH_NOINLINE int literal_children_bound(engine *eng, th_node *element, th_node *copy) {
+    const th_node_attr *declared = xmlns_decl(eng->out_tree, copy);
+    if (declared != NULL) {
+        return declared->value_len > 0;
+    }
+    if (eng->default_bound && lre_no_namespace(eng, element)) {
+        if (undeclare_default(eng, copy) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
+        return 0;
+    }
+    return eng->default_bound;
+}
+
 /* Copy a literal result element into the output, resolving attribute value
    templates, then instantiate its children inside it. */
 static int instantiate_literal(engine *eng, th_node *element, th_node *out_parent) {
@@ -6049,6 +6238,13 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
     }
     if (copy_namespace_decls(eng, element, copy, out_parent) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    int bound = eng->default_bound;
+    if (bound || copy->attr_count != 0) {
+        bound = literal_children_bound(eng, element, copy);
+        if (bound < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;   /* GCOVR_EXCL_LINE */
+        }
     }
     Py_ssize_t use_len = 0;
     const Py_UCS4 *use = xsl_prefixed_attr(eng, element, "use-attribute-sets", &use_len);
@@ -6084,7 +6280,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
         }
     }
     th_node_append_child(out_parent, copy);
-    return instantiate_body(eng, element, copy);
+    return instantiate_under(eng, element, copy, bound);
 }
 
 /* Whether an element is an extension element: its name carries a prefix declared in the
@@ -7304,6 +7500,7 @@ static void engine_clear(engine *eng) {
     scope_drop(eng, 0);
     PyMem_Free(eng->scope);
     PyMem_Free(eng->ns_decls);
+    PyMem_Free(eng->src_namespaced.entries);
     if (eng->out_tree != NULL) {
         th_tree_free(eng->out_tree);
     }
@@ -7346,6 +7543,8 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->ns_decls = NULL;
     eng->ns_decls_len = 0;
     eng->ns_decls_cap = 0;
+    eng->default_bound = 0;
+    eng->src_namespaced = (th_node_map){0};
     eng->ns_counter = 0;
     eng->gen_counter = 0;
     eng->depth = 0;
