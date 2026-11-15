@@ -115,7 +115,9 @@ static int check_selector_arg(PyObject *arg) {
    compiled before a new attribute name was interned is recompiled in place so a
    once-absent attribute now resolves. The caller must already hold the handle's
    critical section and have type-checked arg; the returned pointer is borrowed
-   (the cache owns it). Returns NULL with a Python error set on a compile error. */
+   (the cache owns it). Returns NULL with a Python error set on a compile error, or when
+   the calling thread's stack cannot match the selector's chain: the cache may hold a
+   compile made on another thread, so the stack is checked on every call. */
 static sel_compiled *cached_compile(PyObject *selector_error, HandleObject *handle, PyObject *arg) {
 restart:;
     uint32_t gen = th_tree_attr_generation(handle->tree);
@@ -138,7 +140,11 @@ restart:;
             memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
             handle->sel_cache[0] = entry;
         }
-        return entry.compiled;
+        sel_compiled *hit = entry.compiled;
+        if (sel_stack_check(hit->chain) < 0) {
+            return NULL;
+        }
+        return hit;
     }
     if (handle->sel_cache_len == SEL_CACHE_CAP) {
         sel_cache_entry evicted = handle->sel_cache[--handle->sel_cache_len];
@@ -166,6 +172,9 @@ restart:;
     memmove(&handle->sel_cache[1], &handle->sel_cache[0],
             (size_t)(handle->sel_cache_len - 1) * sizeof(sel_cache_entry));
     handle->sel_cache[0] = (sel_cache_entry){Py_NewRef(arg), compiled, gen};
+    if (sel_stack_check(compiled->chain) < 0) {
+        return NULL;
+    }
     return compiled;
 }
 

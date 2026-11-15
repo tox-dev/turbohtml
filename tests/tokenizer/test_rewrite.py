@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from bisect import bisect_left, bisect_right
 from collections import Counter
 from difflib import SequenceMatcher
@@ -3548,7 +3550,8 @@ def _long_tag(count: int, prefix: str) -> str:
     return f"<p{names}>"
 
 
-def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
+# every name in turn: one name's probe run depends on the hash seed, the sweep averages over the table
+def test_removing_and_setting_each_name_in_turn_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda count: partial(rewrite, _long_tag(count, "a"), elements=[("p", _toggler(count))]), (500, 2000)
     )
@@ -3556,9 +3559,9 @@ def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_
 
 def _toggler(count: int) -> Callable[[Element], None]:
     def toggle(element: Element) -> None:
-        for _ in range(count):
-            element.remove_attribute("a0")
-            element.set_attribute("a0", "v")
+        for index in range(count):
+            element.remove_attribute(f"a{index}")
+            element.set_attribute(f"a{index}", "v")
 
     return toggle
 
@@ -3623,3 +3626,25 @@ def test_rewrite_long_class_above_many_elements_in_linear_time(child: str, work_
         ),
         (250, 1000),
     )
+
+
+def test_long_selector_chain_raises_recursion_error_on_a_small_stack() -> None:
+    code = (
+        "import threading\n"
+        "from turbohtml.rewrite import rewrite\n"
+        "outcome = []\n"
+        "def run():\n"
+        "    try:\n"
+        '        outcome.append(rewrite("<s></s>", elements=[(" ".join(["s"] * 6_144), lambda element: None)]))\n'
+        "    except RecursionError as error:\n"
+        "        outcome.append(str(error))\n"
+        "threading.stack_size(256 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(outcome[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr
