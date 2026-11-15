@@ -366,6 +366,21 @@ th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_
 int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len,
                      const Py_UCS4 *value, Py_ssize_t value_len, int has_value);
 
+/* The name and the value of one constructed attribute slot, for a caller that reads a value only for the names
+   it keeps. Each returns 0, or -1 on allocation failure. */
+int th_tree_set_attr_name(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len);
+int th_tree_set_attr_value(th_tree *tree, th_node *node, Py_ssize_t index, const Py_UCS4 *value, Py_ssize_t value_len,
+                           int has_value);
+
+/* An element with this many attributes or more folds its names and drops repeated ones through a sort
+   (th_node_attr_mark_repeats), not a pairwise scan. */
+#define TH_WIDE_ATTR_COUNT 32
+
+/* Mark with TH_ATTR_UNKNOWN every attribute whose name atom repeats an earlier one, keeping the first of each.
+   Returns 0, or -1 on allocation failure. th_node_attr_drop_marked then removes the marked attributes. */
+int th_node_attr_mark_repeats(th_node *node);
+void th_node_attr_drop_marked(th_node *node);
+
 /* Build a complete HTML5 document skeleton in the (empty) tree: a document node
    holding a <!DOCTYPE html>, then <html> owning <head> and <body>. A non-NULL lang
    sets html's lang attribute; a non-NULL charset adds a <meta charset> as head's
@@ -406,6 +421,12 @@ static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **
    Foreign elements can store a case-adjusted name (e.g. MathML definitionURL), so
    a missed atom match falls back to a case-insensitive scan for non-HTML nodes. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);
+/* An element with this many attributes keeps a hash index of their names behind the array (dom/mutate.c). */
+#define TH_ATTR_INDEX_MIN 32
+/* The index of the attribute whose name_atom is exactly atom on an element with TH_ATTR_INDEX_MIN or more attributes,
+   or -1; -2 on allocation failure. It answers from the element's attribute index, built here when the element has
+   none, so repeated lookups on one element do not rescan its array. */
+Py_ssize_t th_node_attr_find_atom(th_tree *tree, th_node *node, uint32_t atom);
 
 /* Remove the named attribute; returns 1 if one was removed, else 0. */
 int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);
