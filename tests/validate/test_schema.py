@@ -194,6 +194,66 @@ def test_errors_below_nested_elements_keep_document_order(
     assert [(error.path, error.message) for error in schema.validate(parse_xml(document)).errors] == expected
 
 
+def _xsd_content_nest(open_tag: str, close_tag: str = "</xs:sequence>") -> str:
+    return (
+        f'<xs:schema {_XS}><xs:element name="doc"><xs:complexType>{open_tag * _LEVELS}'
+        '<xs:element name="a" type="xs:string"/>'
+        f"{close_tag * _LEVELS}</xs:complexType></xs:element></xs:schema>"
+    )
+
+
+_UNION_MEMBERS: Final[str] = "".join(
+    f'<xs:simpleType name="u{index}"><xs:union memberTypes="u{index + 1} xs:string"/></xs:simpleType>'
+    for index in range(39)
+)
+_UNION_NEST: Final[str] = (
+    f"<xs:schema {_XS}>{_UNION_MEMBERS}"
+    '<xs:simpleType name="u39"><xs:restriction base="xs:string"/></xs:simpleType>'
+    '<xs:element name="doc" type="u0"/></xs:schema>'
+)
+
+
+@pytest.mark.parametrize(
+    ("source", "document", "stack_kib"),
+    [
+        pytest.param(_xsd_content_nest("<xs:sequence>"), "<doc><a>x</a></doc>", 128, id="sequence"),
+        pytest.param(_xsd_content_nest("<xs:sequence>"), "<doc><a>x</a></doc>", 32, id="sequence-tiny-stack"),
+        pytest.param(_xsd_content_nest("<xs:choice>", "</xs:choice>"), "<doc><a>x</a></doc>", 128, id="choice"),
+        pytest.param(
+            _xsd_content_nest('<xs:sequence minOccurs="0" maxOccurs="unbounded">'),
+            "<doc><a>x</a></doc>",
+            128,
+            id="repeated-sequence",
+        ),
+        pytest.param(_UNION_NEST, "<doc>x</doc>", 32, id="union-tiny-stack"),
+    ],
+)
+def test_deep_content_model_raises_or_validates_on_a_small_thread_stack(
+    source: str, document: str, stack_kib: int
+) -> None:
+    # matching a content model recurses once per particle level, so on a small thread a deep enough model raises
+    # RecursionError before the stack ends; the outcome is a verdict or that error, never a crashed worker
+    code = (
+        "import sys, threading\nfrom turbohtml import parse_xml, validate\nsource = sys.stdin.read()\n"
+        f"threading.stack_size({stack_kib} * 1024)\n"
+        f"document = parse_xml({document!r})\n"
+        "def run():\n    try:\n        print(validate.XMLSchema(source).validate(document).valid)\n"
+        "    except RecursionError:\n        print('RecursionError')\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, input on stdin
+        [sys.executable, "-c", code],
+        input=source,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
+
+
 @pytest.mark.parametrize(
     "schema",
     [

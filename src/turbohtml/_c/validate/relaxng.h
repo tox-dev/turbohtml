@@ -1623,6 +1623,9 @@ static RNG_FORCEINLINE int rng_refused(const pattern *x, const pattern *y) {
    A mark can only refuse, and a refusal keeps a group the residual could have dropped, so it never changes a
    verdict. */
 static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    if (schema_stack_low(schema)) {
+        return 0;
+    }
     if (x == y) {
         return 1;
     }
@@ -1777,6 +1780,9 @@ static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, co
 }
 
 static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+    if (schema_stack_low(schema)) {
+        return schema->p_notallowed;
+    }
     TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_text_deriv_step(schema, p, value, len);
@@ -1906,6 +1912,9 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open(th_schema *schema, pattern *p
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern *p, const qname *name) {
+    if (schema_stack_low(schema)) {
+        return schema->p_notallowed;
+    }
     TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_start_tag_open_step(schema, p, name);
@@ -2003,6 +2012,9 @@ static RNG_FORCEINLINE pattern *rng_att_deriv(th_schema *schema, pattern *p, con
 
 static RNG_NOINLINE pattern *rng_att_walk(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
                                           Py_ssize_t len) {
+    if (schema_stack_low(schema)) {
+        return schema->p_notallowed;
+    }
     TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_att_deriv_step(schema, p, name, value, len);
@@ -2058,6 +2070,9 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close(th_schema *schema, pattern *
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_close_walk(th_schema *schema, pattern *p) {
+    if (schema_stack_low(schema)) {
+        return schema->p_notallowed;
+    }
     TH_WORK_STEP();
     if (--schema->memo_budget >= 0) {
         return rng_start_tag_close_step(schema, p);
@@ -2461,6 +2476,9 @@ static int route_scan(th_schema *schema, route_unit *unit, int *bits, pattern *p
 }
 
 static RNG_NOINLINE route_state *route_state_build(th_schema *schema, const rng_route *route) {
+    if (schema_stack_low(schema)) {
+        return NULL;
+    }
     rng_routing *routing = schema->routing;
     if (route->id >= routing->state_cap) {
         Py_ssize_t cap = routing->state_cap == 0 ? 64 : routing->state_cap * 2;
