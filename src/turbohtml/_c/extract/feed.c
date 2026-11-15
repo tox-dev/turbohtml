@@ -322,7 +322,11 @@ static int xhtml_element(th_tree *tree, th_node *node, th_node *element) {
     return namespace_is(tree, node, 0, XHTML_URI);
 }
 
-static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len) {
+/* Bind prefix on node's start tag when an ancestor declares it; a NULL copied leaves the ancestor's declaration out.
+   Returns 1 when the prefix is unbound, so the content cannot be rendered, and 2 when the declarations copied (counted
+   in *copied) would outgrow the allowance the output funds. */
+static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
+                                Py_ssize_t *copied) {
     if (prefix_len == 3 && memcmp(prefix, "xml", 3) == 0) {
         return 0;
     }
@@ -338,12 +342,17 @@ static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const c
             if (attr->value == NULL || attr->value_len == 0) {
                 return 1;
             }
-            if (ancestor != node) {
+            if (ancestor != node && copied != NULL) {
+                Py_ssize_t start = out->len;
+                if (!xml_ns_copy_funded(*copied, start, prefix_len + attr->value_len + 10, TH_XML_NS_FEED_BASE)) {
+                    return 2;
+                }
                 sbuf_puts(out, " xmlns:");
                 sbuf_put_utf8(out, prefix, prefix_len);
                 sbuf_puts(out, "=\"");
                 sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
                 sbuf_putc(out, '"');
+                *copied += out->len - start; /* what was written: escaping can lengthen the value */
             }
             return 0;
         }
@@ -412,7 +421,7 @@ static int xhtml_prefix_seen(xhtml_prefix_set *handled, const char *prefix, Py_s
     return !added;
 }
 
-static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *element) {
+static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *element, Py_ssize_t *copied) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, element->text, element->text_len);
     Py_ssize_t tag_prefix_len = 0;
@@ -430,9 +439,10 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
                     Py_DECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
                     return -1;                   /* GCOVR_EXCL_LINE: allocation failure */
                 }
-                if (xhtml_inherit_prefix(out, tree, node, tag_prefix, tag_prefix_len)) {
+                int inherited = xhtml_inherit_prefix(out, tree, node, tag_prefix, tag_prefix_len, copied);
+                if (inherited) {
                     Py_DECREF(tag_prefix_owner);
-                    return 1;
+                    return inherited;
                 }
                 break;
             }
@@ -456,10 +466,11 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
                     Py_XDECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
                     return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
                 }
-                if (!seen && xhtml_inherit_prefix(out, tree, node, name, prefix_len)) {
+                int inherited = seen ? 0 : xhtml_inherit_prefix(out, tree, node, name, prefix_len, copied);
+                if (inherited) {
                     Py_XDECREF(handled.overflow);
                     Py_XDECREF(tag_prefix_owner);
-                    return 1;
+                    return inherited;
                 }
             }
         }
@@ -601,8 +612,14 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
     }
     if (atom_xml_media_type(node->attrs[type].value, node->attrs[type].value_len)) {
         Py_ssize_t len;
-        Py_UCS4 *value = th_node_inner_xml(tree, node, &len);
-        if (value == NULL) {         /* GCOVR_EXCL_BR_LINE: serialization fails only on allocation */
+        Py_UCS4 *value = th_node_inner_xml_construct(tree, node, &len);
+        if (value == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: NULL with no exception is allocation failure */
+            /* the inherited namespace declarations outgrew their allowance: keep the markup, which is the content
+               here, and leave the copies out rather than fail the feed or flatten it to text */
+            PyErr_Clear();
+            value = th_node_inner_xml_local(tree, node, &len);
+        }
+        if (value == NULL) {         /* GCOVR_EXCL_BR_LINE: serialization fails only on allocation from here */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
         }
         PyObject *result = ucs4_trimmed(value, len);
@@ -642,6 +659,8 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
         return node_text_trimmed(tree, node);
     }
     sbuf out = {NULL, 0, 0, 0};
+    Py_ssize_t copied = 0;
+    Py_ssize_t *spend = &copied;
     th_serialize_opts opts = {0};
     opts.xml = 1;
     for (th_node *child = div->first_child; child != NULL;) {
@@ -652,7 +671,15 @@ static PyObject *atom_xhtml_text(th_tree *tree, th_node *node, int binary) {
                 PyMem_Free(out.data); /* GCOVR_EXCL_LINE: allocation failure */
                 return NULL;          /* GCOVR_EXCL_LINE: allocation failure */
             }
-            int opened = xhtml_open_tag(&out, tree, child, &element);
+            int opened = xhtml_open_tag(&out, tree, child, &element, spend);
+            if (opened == 2) {
+                /* the inherited namespace declarations outgrew their allowance: start over and leave the copies out,
+                   as for XML content */
+                out.len = 0;
+                spend = NULL;
+                child = div->first_child;
+                continue;
+            }
             if (opened != 0) {
                 PyMem_Free(out.data);
                 return opened < 0 ? NULL : node_text_trimmed(tree, node); /* GCOVR_EXCL_BR_LINE: allocation failure */
