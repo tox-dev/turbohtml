@@ -875,6 +875,8 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         css_skip_block(cur);
         return;
     }
+    /* a bang comment inside the block is written after the rule holding it, since the block's text may be dropped */
+    cur->quiet++;
     comp_vec scratch = {NULL, 0, 0, pool->oom}; /* reused across this list's values, freed once below */
     /* A style="" value sits in no block and holds no nested rule, so at its own level a browser reads a declaration
        through its `;` whatever it holds, as the sanitizer and the CSSOM do: a `}` closes nothing there, and the text
@@ -967,6 +969,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         }
     }
     css_free(scratch.items);
+    cur->quiet--;
     css_nesting_leave(cur->vec);
 }
 
@@ -1072,21 +1075,6 @@ CSS_NOINLINE static Py_ssize_t css_skip_top_blank(const css_char *text, Py_ssize
     return index;
 }
 
-/* A bang comment is a banner the output keeps, even inside a rule the minifier drops as invalid. */
-CSS_NOINLINE static void css_keep_dropped_bangs(css_buf *pool, const token_vec *vec, Py_ssize_t start, Py_ssize_t end,
-                                                rule_item *item) {
-    css_buf text = {NULL, 0, 0, pool->oom};
-    for (Py_ssize_t index = start; index < end; index++) {
-        const css_token *token = &vec->items[index];
-        if (token->kind == CSS_COMMENT && token->text[2] == '!') {
-            cbuf_put_run(&text, token->text, token->text_len);
-        }
-    }
-    item->text_off = pool_run(pool, text.data, text.len);
-    item->text_len = text.len;
-    cbuf_free(&text);
-}
-
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
 static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyframe, rule_item *item) {
     item->is_rule = 0;
@@ -1102,7 +1090,6 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
         cur->index++;
         if (cur->vec->bad && css_holds_bad(cur->vec, prelude_start, prelude_end)) {
             css_skip_block(cur);
-            css_keep_dropped_bangs(pool, cur->vec, prelude_start, cur->index, item);
             return;
         }
         decl_vec decls = {NULL, 0, 0, pool->oom, 0};
@@ -1147,7 +1134,6 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
         if (block >= 0) {
             cur->index = block + 1;
             css_skip_block(cur);
-            css_keep_dropped_bangs(pool, cur->vec, prelude_start, cur->index, item);
             return;
         }
         cur->no_top_block = 1;
@@ -1169,6 +1155,10 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
     css_buf text = {NULL, 0, 0, pool->oom};
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *piece = &cur->vec->items[index];
+        if (css_is_bang(piece) && !cur->quiet) {
+            css_put_bang(&text, cur->vec, index);
+            continue;
+        }
         cbuf_put_run(&text, piece->text, piece->text_len);
         if (piece->kind == CSS_NUM) {
             cbuf_put_run(&text, (piece->text + piece->text_len), piece->unit_len);
@@ -1230,7 +1220,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     /* the merged body parses below the rule list that holds it, so it inherits that list's depth */
     token_vec tokens = {.depth = depth, .oom = pool->oom};
     css_tokenize(combined.data, combined.len, &tokens);
-    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0};
+    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0, 0};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
     Py_ssize_t scratch = pool->len;
     css_parse_declarations(pool, &inner, &decls, 0);
@@ -1242,7 +1232,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     pool->len = scratch;
     prev->body_off = pool_run(pool, body.data, body.len);
     prev->body_len = body.len;
-    css_free(tokens.items);
+    css_token_vec_free(&tokens);
     css_free(decls.items);
     cbuf_free(&body);
     cbuf_free(&combined);
@@ -1860,7 +1850,7 @@ static int css_media_continues(cursor *cur, css_buf *pool, css_buf *out, int top
             continue;
         }
         if (token->kind == CSS_COMMENT) {
-            if (token->text[2] == '!') {
+            if (css_is_bang(token)) {
                 break; /* a bang comment is a barrier between rules, so the blocks do not merge */
             }
             cur->index++;
@@ -1949,7 +1939,7 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     /* the block parses where the first one did, so it inherits the rule list's depth */
     token_vec tokens = {.depth = cur->vec->depth, .oom = pool->oom};
     css_tokenize(run->text.data, run->text.len, &tokens);
-    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0};
+    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0, 0};
     css_buf merged = {NULL, 0, 0, pool->oom};
     css_parse_at(pool, &inner, &merged, 0, 0);
     cbuf_free(&inner.media_next);
@@ -1959,7 +1949,7 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
         block->text_off = text_off;
         block->text_len = merged.len;
     }
-    css_free(tokens.items);
+    css_token_vec_free(&tokens);
     cbuf_free(&merged);
     cbuf_free(&run->text);
     css_free(run);
@@ -2092,6 +2082,23 @@ CSS_NOINLINE static void css_put_held(css_buf *pool, rule_vec *items, css_buf *h
     }
 }
 
+/* Append the bang comments of tokens [start, end) that no earlier step wrote, so each is written exactly once, after
+   the items its step added. */
+static void css_hoist_bangs(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, rule_vec *items) {
+    for (Py_ssize_t index = css_bang_first(vec, start); index < vec->bang_len && vec->bangs[index].index < end;
+         index++) {
+        css_bang *bang = &vec->bangs[index];
+        if (bang->done) {
+            continue;
+        }
+        bang->done = 1;
+        rule_item item = {0};
+        item.text_off = pool_run(pool, bang->text, bang->text_len);
+        item.text_len = bang->text_len;
+        rule_vec_push(items, item);
+    }
+}
+
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
    between rules are stray text; nested (inside an at-block) a '}' ends the list. media is 1 for the list of an @media
    block that may merge with a same-query sibling, 2 when that block sits at the top level. */
@@ -2114,28 +2121,22 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        they would let a browser honor a statement it ignores in the input. Each keeps its prelude, since a browser
        counts only a valid rule. */
     css_buf *held = NULL;
+    /* A step is one node, one skipped run, or one comment, and every bang comment its tokens hold is written after the
+       items the step added, so a comment inside a rule the minifier drops still reaches the output. */
     while (cur->index < cur->vec->len) {
+        Py_ssize_t step_start = cur->index;
+        int ends = 0;
         css_token *token = cursor_peek(cur);
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
-            /* a comment token's text starts with the slash-star the tokenizer matched and runs to at least four code
-               points, since th_minify_css_bytes closes a comment the input leaves open */
-            if (token->kind == CSS_COMMENT && token->text[2] == '!') {
-                /* a bang comment is a license/copyright banner kept byte-exact: its body (SPDX text, newlines,
-                   alignment) must survive verbatim, so copy the whole token unchanged */
-                rule_item item = {0};
-                item.text_off = pool_run(pool, token->text, token->text_len);
-                item.text_len = token->text_len;
-                rule_vec_push(&items, item);
-            }
             cur->index++;
-            continue;
+            goto step_end;
         }
         if (top && !cur->no_top_block &&
             (token->kind == CSS_DELIM ? token->delim == '<' : token->kind == CSS_IDENT && token->text[0] == '-')) {
             Py_ssize_t skipped = css_comment_delim_tokens(cur->vec, cur->index);
             if (skipped > 0) {
                 cur->index += skipped;
-                continue;
+                goto step_end;
             }
         }
         if (token->kind == CSS_DELIM && token->delim == '}' && !top) {
@@ -2147,9 +2148,10 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             int ends_in_stray = last != NULL && last->stray && !last->at_statement;
             if (media && !ends_in_stray && css_media_continues(cur, pool, out, media == 2)) {
                 joinable_at = items.len;
-                continue;
+                goto step_end;
             }
-            break;
+            ends = 1;
+            goto step_end;
         }
         if (token->kind == CSS_AT) {
             css_buf piece = {NULL, 0, 0, pool->oom};
@@ -2188,6 +2190,13 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
                     css_hold_rule(&held, pool, cur->vec, item.sel_off, item.sel_off + item.sel_len, NULL);
                 }
             }
+        }
+    step_end:
+        if (cur->vec->bang_len > 0 && !cur->quiet) {
+            css_hoist_bangs(pool, cur->vec, step_start, cur->index, &items);
+        }
+        if (ends) {
+            break;
         }
     }
     if (run != NULL) {

@@ -1041,6 +1041,7 @@ typedef struct {
     css_buf media_next;
     int no_top_block;
     int style_attr; /* the tokens are a style="" value, whose own level sits in no block and holds no nested rule */
+    int quiet;      /* nesting depth of declaration blocks: their bang comments are written by the rule holding them */
 } cursor;
 
 static css_token *cursor_peek(cursor *cur) {
