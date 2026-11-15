@@ -1121,6 +1121,93 @@ def test_all_without_members_allows_no_child() -> None:
     assert [error.message for error in check(schema, "<r><x/></r>").errors] == ["element 'x' is not allowed here"]
 
 
+_ALL_CONTENT_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/><xs:element name="c" minOccurs="0"/>'
+_ALL_CONTENT_SCHEMAS: Final[tuple[tuple[str, str], ...]] = (
+    (
+        "direct",
+        (
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all>'
+            "</xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+    (
+        "named-group",
+        (
+            f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+        ),
+    ),
+    (
+        "extension",
+        (
+            f'<xs:schema {_XS}><xs:complexType name="base"/><xs:element name="r"><xs:complexType>'
+            '<xs:complexContent><xs:extension base="base">'
+            f"<xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:extension></xs:complexContent>"
+            "</xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+    (
+        "restriction",
+        (
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:complexContent>'
+            f'<xs:restriction base="xs:anyType"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:restriction>'
+            "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+)
+
+
+@pytest.mark.parametrize("schema", [pytest.param(text, id=form) for form, text in _ALL_CONTENT_SCHEMAS])
+@pytest.mark.parametrize(
+    ("children", "messages"),
+    [
+        pytest.param("<a/><b/>", [], id="declaration-order"),
+        pytest.param("<b/><a/>", [], id="reverse-order"),
+        pytest.param("<c/><b/><a/>", [], id="optional-member-first"),
+        pytest.param("<b/>", ["required element 'a' is missing"], id="required-missing"),
+        pytest.param("<a/><b/><zz/>", ["element 'zz' is not allowed here"], id="undeclared"),
+    ],
+)
+def test_all_content_matches_members_in_any_order(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, f"<r>{children}</r>").errors] == messages
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        pytest.param('<xs:sequence><xs:group ref="g"/></xs:sequence>', id="group-ref-in-sequence"),
+        pytest.param('<xs:choice><xs:group ref="g"/></xs:choice>', id="group-ref-in-choice"),
+        pytest.param(f"<xs:sequence><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:sequence>", id="all-in-sequence"),
+        pytest.param(
+            '<xs:simpleContent><xs:extension base="xs:string"><xs:group ref="g"/></xs:extension></xs:simpleContent>',
+            id="group-ref-in-simple-content",
+        ),
+    ],
+)
+def test_all_outside_complex_type_content_raises(model: str) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:group>'
+        f'<xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
+    )
+    with pytest.raises(ValueError, match="an xs:all group may only be the content model of a complex type"):
+        XMLSchema(schema)
+
+
+def test_all_group_beside_sequence_content() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
+        '<xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:element name="all"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element>'
+        '<xs:element name="seq"><xs:complexType><xs:group ref="s"/></xs:complexType></xs:element>'
+        '<xs:element name="direct"><xs:complexType><xs:sequence><xs:element name="d"/></xs:sequence>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<all><b/><a/></all>").valid
+    assert check(schema, "<seq><c/></seq>").valid
+    assert not check(schema, "<seq><b/></seq>").valid
+    assert check(schema, "<direct><d/></direct>").valid
+
+
 @pytest.mark.parametrize(
     "count", [pytest.param(1, id="one"), pytest.param(2, id="two"), pytest.param(12, id="grown-table")]
 )
