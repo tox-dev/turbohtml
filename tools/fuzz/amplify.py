@@ -44,7 +44,7 @@ from multiprocessing.sharedctypes import RawValue
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias
 
-from turbohtml import Document, HTMLParseError, parse, parse_xml, tokenize
+from turbohtml import Document, Html, HTMLParseError, parse, parse_xml, tokenize
 from turbohtml.clean import linkify, minify_css, minify_js, sanitize
 from turbohtml.extract import clean_url, normalize_url
 from turbohtml.transform import Transform
@@ -686,6 +686,10 @@ def _parse_xml(text: str) -> None:
     parse_xml(text)
 
 
+def _serialize_xml(text: str) -> str:
+    return parse_xml(text).serialize(Html(xml=True))
+
+
 def _relaxng(text: str) -> None:
     RelaxNG(text)
 
@@ -781,6 +785,7 @@ TARGETS: Final[dict[str, Target]] = {
     "url": Target(run=_url, sources=("url/*",)),
     "idna": Target(run=_idna, sources=("url/idna.c", "url/url.c")),
     "parse_xml": Target(run=_parse_xml, sources=_XML_SOURCES),
+    "serialize_xml": Target(run=_serialize_xml, sources=(*_XML_SOURCES, "serialize/*"), bound=_SERIALIZED),
     "relaxng": Target(run=_relaxng, sources=(*_XML_SOURCES, "validate/relaxng.h", "validate/schema.c")),
     "relaxng_validate": Target(run=_relaxng_validate, sources=_XML_SOURCES),
     "xsd": Target(run=_xsd, sources=(*_XML_SOURCES, "validate/xsd.h", "validate/datatypes.h", "validate/schema.c")),
