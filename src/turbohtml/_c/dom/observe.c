@@ -17,6 +17,7 @@
 #include "dom/nodes.h"
 #include "dom/observe.h"
 
+#include "core/node_map.h"
 #include "core/vec.h" /* th_grow_cap */
 
 #include <string.h>
@@ -28,9 +29,15 @@ typedef struct {
 } th_mo_filter;
 
 /* One registration: a watched target and the options that gate which changes on it
-   (and, with subtree, in its subtree) reach the observer. */
-typedef struct {
+   (and, with subtree, in its subtree) reach the observer. It is linked into its target's
+   registered observer list, which a mutation reads, and into its observer's own list,
+   which disconnect() walks. */
+typedef struct th_mo_reg {
     th_node *target;
+    th_observer *observer;
+    struct th_mo_reg *next;       /* another observer's registration on the same target */
+    struct th_mo_reg *prev;       /* NULL for the head of the target's list */
+    struct th_mo_reg *next_owned; /* the same observer's registration on another target */
     uint8_t child_list;
     uint8_t attributes;
     uint8_t character_data;
@@ -58,12 +65,29 @@ typedef struct {
 } th_mo_record;
 
 struct th_observer {
-    th_mo_reg *regs;
-    Py_ssize_t reg_count;
-    Py_ssize_t reg_cap;
+    th_mo_reg *regs; /* linked through next_owned */
     th_mo_record *records;
     Py_ssize_t record_count;
     Py_ssize_t record_cap;
+    /* queue_record's scratch: the DOM's "interested observers" of the mutation being queued */
+    th_observer *next_interested;
+    uint8_t interested;
+    uint8_t want_old;
+};
+
+/* One tree's registry: the DOM's per-node "registered observer list", kept beside the
+   tree as a map from each watched node to the head of its list. A mutation reads only
+   the lists of the changed node and its ancestors, so its cost does not grow with the
+   number of watched nodes or observers elsewhere in the tree. A list that empties keeps
+   its NULL head, since the map is insert-only; the whole registry is freed with the
+   tree's last observer. */
+struct th_mo_registry {
+    Py_ssize_t observer_count;
+    Py_ssize_t subtree_regs; /* registrations with the subtree option; while 0 only a mutation's target is looked up */
+    th_node_map index;       /* watched node -> its slot in heads, plus one */
+    th_mo_reg **heads;
+    Py_ssize_t head_count;
+    Py_ssize_t head_cap;
 };
 
 typedef struct {
@@ -101,14 +125,22 @@ static void free_reg(th_mo_reg *reg) {
 }
 
 /* Drop every registration and queued record, leaving the observer empty but allocated. */
-static void mo_clear(th_observer *observer) {
-    for (Py_ssize_t index = 0; index < observer->reg_count; index++) {
-        free_reg(&observer->regs[index]);
+static void mo_clear(th_mo_registry *registry, th_observer *observer) {
+    while (observer->regs != NULL) {
+        th_mo_reg *reg = observer->regs;
+        observer->regs = reg->next_owned;
+        if (reg->prev != NULL) {
+            reg->prev->next = reg->next;
+        } else {
+            registry->heads[th_node_map_find(&registry->index, reg->target) - 1] = reg->next;
+        }
+        if (reg->next != NULL) {
+            reg->next->prev = reg->prev;
+        }
+        registry->subtree_regs -= reg->subtree;
+        free_reg(reg);
+        PyMem_Free(reg);
     }
-    PyMem_Free(observer->regs);
-    observer->regs = NULL;
-    observer->reg_count = 0;
-    observer->reg_cap = 0;
     for (Py_ssize_t index = 0; index < observer->record_count; index++) {
         PyMem_Free(observer->records[index].old_value);
     }
@@ -124,50 +156,38 @@ static th_observer *mo_ensure(th_tree *tree) {
     if (observer == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_observer ***observers = th_tree_observers_ptr(tree);
-    Py_ssize_t *count = th_tree_observer_count_ptr(tree);
-    Py_ssize_t *cap = th_tree_observer_cap_ptr(tree);
-    th_observer **grown = mo_grow(*observers, *count + 1, cap, 4, sizeof(th_observer *));
-    if (grown == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(observer); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    th_mo_registry **registry = th_tree_observers_ptr(tree);
+    if (*registry == NULL) {
+        *registry = PyMem_Calloc(1, sizeof(th_mo_registry));
+        if (*registry == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyMem_Free(observer); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
-    *observers = grown;
-    (*observers)[(*count)++] = observer;
+    (*registry)->observer_count++;
     th_tree_note_observed(tree);
     return observer;
 }
 
 /* Detach the observer from its tree and free it. */
 static void mo_destroy(th_tree *tree, th_observer *observer) {
-    mo_clear(observer);
-    th_observer ***observers = th_tree_observers_ptr(tree);
-    Py_ssize_t *count = th_tree_observer_count_ptr(tree);
-    Py_ssize_t *cap = th_tree_observer_cap_ptr(tree);
-    /* the observer is always registered, so the scan always breaks and never runs to the end */
-    for (Py_ssize_t index = 0; index < *count; index++) { /* GCOVR_EXCL_BR_LINE */
-        if ((*observers)[index] == observer) {
-            (*observers)[index] = (*observers)[*count - 1];
-            (*count)--;
-            break;
-        }
-    }
-    if (*count == 0) {
-        PyMem_Free(*observers);
-        *observers = NULL;
-        *cap = 0;
+    th_mo_registry **registry = th_tree_observers_ptr(tree);
+    mo_clear(*registry, observer);
+    if (--(*registry)->observer_count == 0) {
+        PyMem_Free((*registry)->index.entries);
+        PyMem_Free((*registry)->heads);
+        PyMem_Free(*registry);
+        *registry = NULL;
     }
     PyMem_Free(observer);
 }
 
 /* --- the DOM "queue a mutation record" algorithm --- */
 
-/* Whether target is target-or-a-descendant of a registration's watched node. */
-static int reg_covers(const th_mo_reg *reg, th_node *target) {
-    if (reg->target == target) {
-        return 1;
-    }
-    return is_ancestor(reg->target, target);
+/* The head of node's registered observer list, or NULL when no observer watches it. */
+static th_mo_reg *node_regs(const th_mo_registry *registry, const th_node *node) {
+    Py_ssize_t found = th_node_map_find(&registry->index, node);
+    return found == 0 ? NULL : registry->heads[found - 1];
 }
 
 static int filter_matches(th_tree *tree, const th_mo_reg *reg, uint32_t atom) {
@@ -215,19 +235,23 @@ static void append_record(th_observer *observer, int kind, th_node *target, uint
 }
 
 /* Queue a record on every observer with a registration that covers target and accepts
-   this kind of change, capturing the old value only for a registration that asked for it. */
+   this kind of change, capturing the old value only for a registration that asked for it.
+   As in the DOM, the walk is over target's inclusive ancestors and the registrations on
+   each, not over every registration in the tree. */
 static void queue_record(th_tree *tree, int kind, th_node *target, uint32_t atom, const Py_UCS4 *old_value,
                          Py_ssize_t old_len, int had_value, th_node *added, th_node *removed, th_node *prev,
                          th_node *next) {
-    th_observer **observers = *th_tree_observers_ptr(tree);
-    Py_ssize_t observer_count = *th_tree_observer_count_ptr(tree);
-    for (Py_ssize_t obs_index = 0; obs_index < observer_count; obs_index++) {
-        th_observer *observer = observers[obs_index];
-        int interested = 0;
-        int want_old = 0;
-        for (Py_ssize_t reg_index = 0; reg_index < observer->reg_count; reg_index++) {
-            const th_mo_reg *reg = &observer->regs[reg_index];
-            if (reg->target != target && !reg->subtree) {
+    const th_mo_registry *registry = *th_tree_observers_ptr(tree);
+    if (registry == NULL) {
+        return;
+    }
+    th_observer *interested = NULL;
+    /* an ancestor's registration only counts with the subtree option, so without one the climb is skipped: an edit
+       deep in a tree whose observers all watch single nodes costs one lookup, not one per ancestor */
+    for (const th_node *node = target; node != NULL; node = registry->subtree_regs > 0 ? node->parent : NULL) {
+        for (const th_mo_reg *reg = node_regs(registry, node); reg != NULL; reg = reg->next) {
+            TH_WORK_STEP();
+            if (node != target && !reg->subtree) {
                 continue;
             }
             if (kind == TH_MO_CHILD_LIST && !reg->child_list) {
@@ -244,19 +268,23 @@ static void queue_record(th_tree *tree, int kind, th_node *target, uint32_t atom
             if (kind == TH_MO_CHARACTER_DATA && !reg->character_data) {
                 continue;
             }
-            if (!reg_covers(reg, target)) {
-                continue;
+            th_observer *observer = reg->observer;
+            if (!observer->interested) {
+                observer->interested = 1;
+                observer->want_old = 0;
+                observer->next_interested = interested;
+                interested = observer;
             }
-            interested = 1;
             if ((kind == TH_MO_ATTRIBUTES && reg->attribute_old_value) ||
                 (kind == TH_MO_CHARACTER_DATA && reg->character_data_old_value)) {
-                want_old = 1;
+                observer->want_old = 1;
             }
         }
-        if (interested) {
-            int has_old = want_old && (kind != TH_MO_ATTRIBUTES || had_value);
-            append_record(observer, kind, target, atom, old_value, old_len, has_old, added, removed, prev, next);
-        }
+    }
+    for (th_observer *observer = interested; observer != NULL; observer = observer->next_interested) {
+        int has_old = observer->want_old && (kind != TH_MO_ATTRIBUTES || had_value);
+        observer->interested = 0;
+        append_record(observer, kind, target, atom, old_value, old_len, has_old, added, removed, prev, next);
     }
 }
 
@@ -274,9 +302,9 @@ void th_mo_child_removed(th_tree *tree, th_node *parent, th_node *child, th_node
     queue_record(tree, TH_MO_CHILD_LIST, parent, 0, NULL, 0, 0, NULL, child, prev, next);
 }
 
-/* The attribute and character-data hooks run unconditionally; queue_record iterates the
-   (empty for an observer-free tree) registry, so the fast path stays a single loop test.
-   The childList hooks above gate on th_tree_has_observers because they run from the
+/* The attribute and character-data hooks run unconditionally; queue_record returns at
+   once for an observer-free tree, which has no registry, so the fast path stays a single
+   test. The childList hooks above gate on th_tree_has_observers because they run from the
    binding layer for every structural edit, including on observer-free trees. */
 void th_mo_attr_changed(th_tree *tree, th_node *target, uint32_t name_atom, const Py_UCS4 *old_value,
                         Py_ssize_t old_len, int had_value) {
@@ -404,30 +432,76 @@ static int build_filter(PyObject *value, int *has_filter, th_mo_filter **out, Py
     return 0;
 }
 
-static int store_reg(th_observer *observer, th_node *target, const uint8_t opts[6], int has_filter,
-                     th_mo_filter *filter, Py_ssize_t filter_count) {
-    th_mo_reg *reg = NULL;
-    for (Py_ssize_t index = 0; index < observer->reg_count; index++) {
-        if (observer->regs[index].target == target) {
-            reg = &observer->regs[index];
-            free_reg(reg); /* replace the earlier options for this target */
-            break;
+/* The registration observer already holds on target, or NULL. It would be on both the
+   target's list and the observer's own, so the two are walked together and the shorter
+   ends the search: neither many observers of one node nor many targets of one observer
+   make each observe() scan them all. */
+static th_mo_reg *find_reg(th_mo_reg *on_target, th_mo_reg *owned, const th_observer *observer, const th_node *target) {
+    while (on_target != NULL && owned != NULL) {
+        if (on_target->observer == observer) {
+            return on_target;
         }
+        if (owned->target == target) {
+            return owned;
+        }
+        on_target = on_target->next;
+        owned = owned->next_owned;
     }
-    if (reg == NULL) {
-        th_mo_reg *grown = mo_grow(observer->regs, observer->reg_count + 1, &observer->reg_cap, 4, sizeof(th_mo_reg));
-        if (grown == NULL) {                  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    return NULL;
+}
+
+/* The slot holding the head of target's registered observer list, added on the first
+   registration of target; NULL on allocation failure. */
+static th_mo_reg **head_slot(th_mo_registry *registry, const th_node *target) {
+    Py_ssize_t found = th_node_map_find(&registry->index, target);
+    if (found != 0) {
+        return &registry->heads[found - 1];
+    }
+    th_mo_reg **grown = mo_grow(registry->heads, registry->head_count + 1, &registry->head_cap, 4, sizeof(th_mo_reg *));
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    registry->heads = grown;
+    /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+    if (th_node_map_insert(&registry->index, target, registry->head_count + 1) < 0) {
+        /* GCOVR_EXCL_BR_STOP */
+        return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    registry->heads[registry->head_count] = NULL;
+    return &registry->heads[registry->head_count++];
+}
+
+static int store_reg(th_mo_registry *registry, th_observer *observer, th_node *target, const uint8_t opts[6],
+                     int has_filter, th_mo_filter *filter, Py_ssize_t filter_count) {
+    th_mo_reg *reg = find_reg(node_regs(registry, target), observer->regs, observer, target);
+    if (reg != NULL) {
+        registry->subtree_regs -= reg->subtree;
+        free_reg(reg); /* replace the earlier options for this target */
+    } else {
+        th_mo_reg **head = head_slot(registry, target);
+        /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+        reg = head == NULL ? NULL : PyMem_Malloc(sizeof(th_mo_reg));
+        if (reg == NULL) {
+            /* GCOVR_EXCL_BR_STOP */
             free_names(filter, filter_count); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;                        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        observer->regs = grown;
-        reg = &observer->regs[observer->reg_count++];
+        reg->observer = observer;
+        reg->prev = NULL;
+        reg->next = *head;
+        if (*head != NULL) {
+            (*head)->prev = reg;
+        }
+        *head = reg;
+        reg->next_owned = observer->regs;
+        observer->regs = reg;
     }
     reg->target = target;
     reg->child_list = opts[0];
     reg->attributes = opts[1];
     reg->character_data = opts[2];
     reg->subtree = opts[3];
+    registry->subtree_regs += reg->subtree;
     reg->attribute_old_value = opts[4];
     reg->character_data_old_value = opts[5];
     reg->has_filter = (uint8_t)has_filter;
@@ -517,7 +591,8 @@ static PyObject *mo_observe(PyObject *self, PyObject *args, PyObject *kwds) {
         observer->observer = mo_ensure(tree);
     }
     if (observer->observer != NULL) { /* GCOVR_EXCL_BR_LINE: the else runs only when mo_ensure hits OOM */
-        stored = store_reg(observer->observer, target, opts, has_filter, filter, filter_count);
+        stored =
+            store_reg(*th_tree_observers_ptr(tree), observer->observer, target, opts, has_filter, filter, filter_count);
     } else {
         free_names(filter, filter_count); /* GCOVR_EXCL_LINE: mo_ensure only fails on OOM */
     }

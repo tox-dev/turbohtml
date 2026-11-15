@@ -221,6 +221,14 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
             value = minified = mini_style_attr_css(out, value, value_len, css_baseline, &value_len);
         }
         if (unquote && value_len == 0) {
+            if (position + 1 < node->attr_count) {
+                Py_ssize_t next_len;
+                const th_node_attr *next = &node->attrs[order != NULL ? order[position + 1] : position + 1];
+                /* after a bare name a leading "=" would open its value, so the empty value is written out */
+                if (th_attr_name(tree, next->name_atom, &next_len)[0] == '=') {
+                    sbuf_puts(out, "=\"\"");
+                }
+            }
             continue; /* an empty value reparses identically as a bare attribute name */
         }
         if (unquote && mini_attr_unquotable(value, value_len)) {
