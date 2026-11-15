@@ -206,4 +206,21 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
                        void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
                        const char **feature);
 
+/* Matches one item at a time against a pattern compiled as an absolute location path, as XSLT counts xsl:number
+   nodes: the item matches when the path selects it from root. Instead of selecting every node the path reaches, the
+   test walks back from the item through its parents, so it costs the item's ancestry and siblings rather than the
+   document. xp_pattern_walks_back says whether the program has a shape the walk supports: child steps, a last
+   attribute step, and descendant and descendant-or-self steps without a predicate that reads the position. A walk
+   keeps what it learns about the nodes it passes, so its answers hold only while the extension state the predicates
+   read (the XSLT current node) stays the same. xp_pattern_walk_start resolves the name tests, through name_test when
+   one is given and as xp_eval_at does otherwise, and returns 0 with *out set or a negative status as xp_eval does;
+   xp_pattern_match returns 1 or 0, or such a status. */
+typedef struct xp_pattern_walk xp_pattern_walk;
+int xp_pattern_walks_back(const xp_program *prog);
+int xp_pattern_walk_start(const xp_program *prog, struct th_tree *tree, struct th_node *root, xp_name_test_fn name_test,
+                          void *name_test_ctx, xp_pattern_walk **out, const char **feature);
+int xp_pattern_match(xp_pattern_walk *walk, xp_item item, xp_extension_fn extension, void *extension_ctx,
+                     const char **feature);
+void xp_pattern_walk_free(xp_pattern_walk *walk);
+
 #endif /* TURBOHTML_XPATH_H */
