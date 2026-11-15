@@ -32,9 +32,12 @@ querying, and editing a shadow tree take the same C code paths -- and the same c
 A shadow tree exposes ``<slot>`` elements as the seams the host's children flow into. Assignment is by name: a light-DOM
 child is assigned to the first slot, in tree order, whose ``name`` attribute equals the child's ``slot`` attribute (both
 default to the empty string, so the unnamed default slot collects everything unlabeled). turbohtml computes this on
-demand rather than caching an assignment on each edit -- :meth:`Element.assigned_nodes`,
+demand rather than updating an assignment on each edit -- :meth:`Element.assigned_nodes`,
 :meth:`Element.assigned_elements`, and :attr:`Node.assigned_slot` each run the spec's *find a slot* / *find slotables*
 walk when you ask -- so an assignment is always current with the tree, with no observer bookkeeping to keep in sync.
+Once a document has asked a few times about a large shadow tree, later questions share an index of each shadow tree that
+is kept until the next edit, so asking for every child's slot, or every slot's nodes, does not walk the tree once per
+question. Small trees keep the plain walk and never build one.
 
 The **flattened tree** is what a browser would actually render: the composed view in which every slot is replaced by the
 nodes assigned to it (or, when a slot got nothing, by its own fallback children). :attr:`Node.flattened_children`

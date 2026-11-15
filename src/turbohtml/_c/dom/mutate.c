@@ -477,12 +477,15 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, cons
     return node_attr_find_indexed(tree, node, name, name_len, atom);
 }
 
-/* Shared by both writers. Branch-free, so inlining it adds no coverage arc. */
+/* Shared by both writers. */
 static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     tree->attr_version++;
     mark_start_dirty(tree, node);
     uint32_t atom = th_attr_intern_utf8_inline(tree, name, name_len);
     tree->id_version += atom == TH_ATTR_ID;
+    if (tree->slot_cache_valid) {
+        tree->slot_cache_valid = (atom != TH_ATTR_SLOT) & ((atom != TH_ATTR_NAME) | (node->atom != TH_TAG_SLOT));
+    }
     return atom;
 }
 
@@ -652,6 +655,10 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     th_mo_attr_changed(tree, node, node->attrs[index].name_atom, node->attrs[index].value, node->attrs[index].value_len,
                        1);
     tree->id_version += node->attrs[index].name_atom == TH_ATTR_ID;
+    if (tree->slot_cache_valid) {
+        const uint32_t atom = node->attrs[index].name_atom;
+        tree->slot_cache_valid = (atom != TH_ATTR_SLOT) & ((atom != TH_ATTR_NAME) | (node->atom != TH_TAG_SLOT));
+    }
     for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
         TH_WORK_STEP();
         node->attrs[shift] = node->attrs[shift + 1];

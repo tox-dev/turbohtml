@@ -976,6 +976,77 @@ def test_repeated_particle_peak_memory_is_linear(model: str, peak_bytes: PeakByt
     assert peak_bytes(script, (_repeated_schema(model), document)) < 64 * len(document)
 
 
+_A_ELEMENT: Final[str] = '<xs:element name="a"/>'
+_AMBIGUOUS_REPEATS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        f'<xs:sequence maxOccurs="unbounded">{_A_ELEMENT}<xs:element name="a" minOccurs="0"/></xs:sequence>',
+        id="element-then-optional-element",
+    ),
+    pytest.param(
+        f'<xs:choice maxOccurs="unbounded">{_A_ELEMENT}<xs:sequence>{_A_ELEMENT * 2}</xs:sequence></xs:choice>',
+        id="element-or-pair",
+    ),
+    pytest.param(
+        f'<xs:choice maxOccurs="unbounded">{_A_ELEMENT}<xs:sequence>{_A_ELEMENT * 50}</xs:sequence></xs:choice>',
+        id="element-or-run-of-fifty",
+    ),
+]
+
+
+@pytest.mark.parametrize("model", _AMBIGUOUS_REPEATS)
+def test_ambiguous_repeated_particle_scales_linearly(model: str, work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema: Final = XMLSchema(_repeated_schema(model))
+        return partial(schema.validate, parse_xml(f"<r>{'<a/>' * count}</r>"))
+
+    work_steps.assert_linear(build, (300, 1200))
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(1, False, id="one-is-too-few"),
+        pytest.param(2, True, id="two-by-the-run"),
+        pytest.param(3, True, id="three-by-the-run-after-an-empty-prefix"),
+    ],
+)
+def test_optional_prefix_before_repeated_run(count: int, *, valid: bool) -> None:
+    run = '<xs:element name="a" minOccurs="2" maxOccurs="unbounded"/>'
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:sequence minOccurs="0" maxOccurs="1">{run}</xs:sequence>{run}'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(1, False, id="one-is-too-few"),
+        pytest.param(2, False, id="two-is-too-few"),
+        pytest.param(3, True, id="three-is-enough"),
+    ],
+)
+def test_run_of_at_least_three(count: int, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:sequence minOccurs="3" maxOccurs="unbounded"><xs:element name="a"/></xs:sequence>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+def test_nullable_pair_repeated_three_times_rejects_odd_count() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:sequence minOccurs="3" maxOccurs="unbounded">'
+        f'<xs:sequence minOccurs="0">{_A_ELEMENT * 2}</xs:sequence>'
+        "</xs:sequence></xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert not check(schema, "<r><a/><a/><a/></r>").valid
+
+
 def test_all_any_order_and_missing() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'
@@ -1192,6 +1263,124 @@ def test_simple_content_extension_and_mixed() -> None:
     assert check(schema, '<r u="x">42</r>').valid
     assert not check(schema, '<r u="x">notint</r>').valid
     assert not check(schema, '<r u="x"><child/></r>').valid
+
+
+_PERCENT: Final[str] = (
+    '<xs:simpleType name="percent"><xs:restriction base="xs:integer">'
+    '<xs:minInclusive value="0"/><xs:maxInclusive value="100"/></xs:restriction></xs:simpleType>'
+)
+_PERCENT_WITH_UNIT: Final[str] = (
+    '<xs:complexType name="measure"><xs:simpleContent>'
+    '<xs:extension base="percent"><xs:attribute name="unit" type="xs:string"/></xs:extension>'
+    "</xs:simpleContent></xs:complexType>"
+)
+_SPACED_CODE: Final[str] = (
+    '<xs:simpleType name="code"><xs:restriction base="xs:string">'
+    '<xs:whiteSpace value="collapse"/><xs:enumeration value="a b"/></xs:restriction></xs:simpleType>'
+)
+_CURRENCY: Final[str] = (
+    '<xs:simpleType name="currency"><xs:restriction base="xs:string">'
+    '<xs:enumeration value="EUR"/><xs:enumeration value="USD"/></xs:restriction></xs:simpleType>'
+)
+_TENTH: Final[str] = '<xs:maxInclusive value="10"/>'
+_LOWER: Final[str] = '<xs:pattern value="[a-z]+"/>'
+_FROM_FIVE: Final[str] = (
+    '<xs:simpleType><xs:restriction base="percent"><xs:minInclusive value="5"/></xs:restriction></xs:simpleType>'
+)
+
+
+@pytest.mark.parametrize(
+    ("types", "derivation", "value", "valid"),
+    [
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "50", True, id="extends-simple-type-in-range"),
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "-5000", False, id="extends-simple-type-below"),
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "abc", False, id="extends-simple-type-lexical"),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "10", True, id="own-facet-met"
+        ),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "50", False, id="own-facet-broken"
+        ),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "-1", False, id="base-facet-broken"
+        ),
+        pytest.param("", f'<xs:restriction base="xs:int">{_TENTH}</xs:restriction>', "50", False, id="builtin-base"),
+        pytest.param("", '<xs:extension base="xs:int"/>', " 50 ", True, id="builtin-base-whitespace"),
+        pytest.param(
+            "", f'<xs:restriction base="xs:string">{_LOWER}</xs:restriction>', "bob", True, id="own-pattern-met"
+        ),
+        pytest.param(
+            "", f'<xs:restriction base="xs:string">{_LOWER}</xs:restriction>', "BOB!", False, id="own-pattern-broken"
+        ),
+        pytest.param(_CURRENCY, '<xs:extension base="currency"/>', "USD", True, id="extends-enumeration-member"),
+        pytest.param(_CURRENCY, '<xs:extension base="currency"/>', "XXX", False, id="extends-enumeration-other"),
+        pytest.param(_SPACED_CODE, '<xs:extension base="code"/>', " a  b ", True, id="base-whitespace-met"),
+        pytest.param(_SPACED_CODE, '<xs:extension base="code"/>', "a c", False, id="base-whitespace-broken"),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            '<xs:extension base="measure"/>',
+            "100",
+            True,
+            id="extends-complex-type-in-range",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            '<xs:extension base="measure"/>',
+            "101",
+            False,
+            id="extends-complex-type-above",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_TENTH}</xs:restriction>',
+            "50",
+            False,
+            id="restricts-complex-type-own-facet",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_TENTH}</xs:restriction>',
+            "-1",
+            False,
+            id="restricts-complex-type-base-facet",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "7",
+            True,
+            id="inline-type-beside-base-met",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "4",
+            False,
+            id="inline-type-beside-base-broken",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "11",
+            False,
+            id="facet-after-inline-type-broken",
+        ),
+    ],
+)
+def test_simple_content_keeps_the_facets_of_its_base(types: str, derivation: str, value: str, *, valid: bool) -> None:
+    # the text of a simple-content element was checked against the built-in type at the root of its base alone, so
+    # giving a restricted value an attribute dropped every facet on it
+    schema = (
+        f'<xs:schema {_XS}>{types}<xs:element name="r"><xs:complexType>'
+        f"<xs:simpleContent>{derivation}</xs:simpleContent></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{value}</r>").valid is valid
+
+
+def test_simple_content_base_type_named_by_an_element() -> None:
+    schema = f'<xs:schema {_XS}>{_PERCENT}{_PERCENT_WITH_UNIT}<xs:element name="r" type="measure"/></xs:schema>'
+    assert check(schema, '<r unit="%">50</r>').valid
+    assert not check(schema, '<r unit="%">500</r>').valid
 
 
 def test_mixed_content() -> None:
@@ -3154,6 +3343,7 @@ _ANNOTATED_GROUP: Final[str] = (
             id="simple-content-base-is-a-complex-type",
         ),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">text</r>', True, id="simple-content-base-is-a-simple-type"),
+        pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">toolong</r>', False, id="simple-content-base-keeps-its-facet"),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x"><child/></r>', False, id="simple-content-rejects-a-child"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r/>", True, id="named-type-empty-complex-content"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r><x/></r>", False, id="named-type-empty-complex-content-child"),

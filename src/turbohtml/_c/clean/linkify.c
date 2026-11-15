@@ -1614,6 +1614,8 @@ TH_NODE_API(static, int, apply_existing,
             status = replace_anchor_text(tree, anchor, result->text);
         }
     }
+    /* the unwrap relinks the anchor's children and clears its attributes, both out of the slot cache's sight */
+    handle_drop_slots((HandleObject *)handle);
     Py_END_CRITICAL_SECTION();
     return status;
 }
@@ -1766,6 +1768,7 @@ TH_NODE_API(static, int, apply_text,
                 th_node_insert_before(parent, child, node);
             }
             th_node_remove_silent(tree, node);
+            handle_drop_slots((HandleObject *)handle);
         }
     }
     Py_END_CRITICAL_SECTION();

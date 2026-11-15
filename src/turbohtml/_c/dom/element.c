@@ -3663,6 +3663,8 @@ TH_NODE_API(static, PyObject *, element_normalize, (PyObject * self, PyObject *i
     int status;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     status = th_node_normalize(tree_of(self), ((NodeObject *)self)->node);
+    /* merging and emptying Text nodes changes slottables without any index drop */
+    handle_drop_slots((HandleObject *)((NodeObject *)self)->handle);
     Py_END_CRITICAL_SECTION();
     if (status < 0) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */

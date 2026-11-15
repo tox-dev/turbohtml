@@ -438,98 +438,12 @@ PyObject *turbohtml_query_closest(PyObject *module, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O!U", &PyList_Type, &nodes, &selector)) {
         return NULL;
     }
-#ifndef Py_GIL_DISABLED
-    uint16_t tag = TH_TAG_UNKNOWN;
-    Py_ssize_t len = PyUnicode_GET_LENGTH(selector);
-    char lowered[32];
-    if (len > 0 && len < (Py_ssize_t)sizeof(lowered)) {
-        int kind = PyUnicode_KIND(selector);
-        const void *data = PyUnicode_DATA(selector);
-        if (is_ascii_alpha(PyUnicode_READ(kind, data, 0))) {
-            Py_ssize_t index = 0;
-            for (; index < len; index++) {
-                Py_UCS4 ch = PyUnicode_READ(kind, data, index);
-                if (!is_ascii_alpha(ch) && !is_ascii_digit(ch) && ch != '-') {
-                    break;
-                }
-                lowered[index] = (char)lower_ascii(ch);
-            }
-            if (index == len) {
-                tag = th_tag_lookup(lowered, len);
-            }
-        }
-    }
-#endif
     PyObject *out = PyList_New(0);
-#ifndef Py_GIL_DISABLED
-    th_node_map seen = {0};
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;   /* GCOVR_EXCL_LINE */
     }
-#else
-    PyObject *seen = PySet_New(NULL);
-    /* GCOVR_EXCL_BR_START: list and set allocation cannot be forced to fail */
-    if (out == NULL || seen == NULL) {
-        Py_XDECREF(out);  /* GCOVR_EXCL_LINE */
-        Py_XDECREF(seen); /* GCOVR_EXCL_LINE */
-        return NULL;      /* GCOVR_EXCL_LINE */
-    }
-    /* GCOVR_EXCL_BR_STOP */
-#endif
-    int status = 0;
-    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(nodes); index++) {
-        PyObject *owner = PyList_GET_ITEM(nodes, index);
-        if (facade_node(module, owner) == NULL) {
-            status = -1;
-            break;
-        }
-#ifndef Py_GIL_DISABLED
-        th_node *node;
-        if (tag != TH_TAG_UNKNOWN && !th_tree_is_xml(((HandleObject *)((NodeObject *)owner)->handle)->tree)) {
-            node = ((NodeObject *)owner)->node;
-            for (; node != NULL; node = node->parent) {
-                if (node->type == TH_NODE_ELEMENT && node->atom == tag) {
-                    break;
-                }
-            }
-        } else {
-            if (node_css_closest_borrowed(owner, selector, &node) < 0) {
-                status = -1;
-                break;
-            }
-        }
-        if (node == NULL || th_node_map_find(&seen, node) != 0) {
-            continue;
-        }
-        if (th_node_map_insert(&seen, node, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory();                         /* GCOVR_EXCL_LINE */
-            status = -1;                              /* GCOVR_EXCL_LINE */
-            break;                                    /* GCOVR_EXCL_LINE */
-        }
-        PyObject *found = turbohtml_node_wrap_in(owner, node);
-        status = found == NULL ? -1 : PyList_Append(out, found); /* GCOVR_EXCL_BR_LINE: allocation failure */
-        Py_XDECREF(found);
-#else
-        PyObject *found = node_css_closest(owner, selector);
-        if (found == NULL) {
-            status = -1; /* an invalid selector */
-            break;
-        }
-        if (found != Py_None) {
-            status = facade_keep_new(out, seen, found);
-        }
-        Py_DECREF(found);
-#endif
-        if (status < 0) { /* GCOVR_EXCL_BR_LINE: the append only fails on allocation failure */
-            break;        /* GCOVR_EXCL_LINE */
-        }
-    }
-#ifndef Py_GIL_DISABLED
-    PyMem_Free(seen.entries);
-#else
-    Py_DECREF(seen);
-#endif
-    if (status < 0) {
+    /* the walk lives with the selector bindings: it shares one compiled selector and its memos across the set */
+    if (node_css_closest_each(module, nodes, selector, out) < 0) {
         Py_DECREF(out);
         return NULL;
     }
