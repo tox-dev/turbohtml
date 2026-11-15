@@ -39,6 +39,11 @@ enum {
     RX_FAIL_BRACKET
 };
 #define RX_MAX_STATES 2000000
+/* Matching steps every live NFA state once per character, and a counted repeat keeps many states live without
+   lengthening the pattern. The state visits of one validate() call are therefore budgeted, as the XPath regex steps
+   are: a base, plus a share for each character matched (see rx_share). */
+#define RX_BUDGET_BASE 100000000
+#define RX_BUDGET_PER_CHAR 1000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
 
 enum {
@@ -849,9 +854,17 @@ typedef struct rpattern {
     Py_ssize_t len;
     rstate *start;
     size_t count;
+    int64_t share; /* state visits one character of a value adds to the budget, see rx_share */
     int has_extended;
     int duplicate; /* an earlier pattern of the schema has the same text and holds the compiled form */
 } rpattern;
+
+/* The state visits one character of a value adds to the budget: twice the states the pattern spells out, which covers
+   a pattern without a counted repeat, plus RX_BUDGET_PER_CHAR for the copies a counted repeat keeps live. */
+static int64_t rx_share(const rpattern *pattern) {
+    const size_t spelled = pattern->count < (size_t)pattern->len + 1 ? pattern->count : (size_t)pattern->len + 1;
+    return 2 * (int64_t)spelled + RX_BUDGET_PER_CHAR;
+}
 
 /* A total order on pattern texts. The schema's distinct patterns are sorted by it once, so looking one up by its text
    is a binary search: a linear scan made a type with P pattern facets cost P * P steps for every value it checked. */
@@ -971,6 +984,7 @@ static int regex_cache_add(th_schema *schema, rpattern *pattern) {
     pattern->start = start;
     pattern->has_extended = parser.has_extended;
     pattern->count = compiler.count;
+    pattern->share = rx_share(pattern);
     if (compiler.count > schema->regex_max_states) {
         schema->regex_max_states = compiler.count;
     }
@@ -1065,6 +1079,7 @@ typedef struct rscratch {
     const rstate **lists, **stack;
     size_t *visited;
     size_t gen;
+    int64_t budget; /* state visits the call may still spend; negative once a match ran out of them */
 } rscratch;
 
 static rscratch *rx_scratch(th_schema *schema) {
@@ -1077,7 +1092,7 @@ static rscratch *rx_scratch(th_schema *schema) {
             return NULL;                                           /* GCOVR_EXCL_LINE */
         }
         memset(visited, 0, states * sizeof(size_t));
-        *scratch = (rscratch){lists, lists + states * 2, visited, 0};
+        *scratch = (rscratch){lists, lists + states * 2, visited, 0, RX_BUDGET_BASE};
         schema->regex_scratch = scratch;
     }
     return schema->regex_scratch;
@@ -1092,12 +1107,14 @@ static void rx_push(rscratch *scratch, size_t *top, const rstate *state) {
 
 /* Add every state reachable from start through split states. The iterative compiler builds long split chains, such as
    the one for a|a|a..., so walking them by recursion overflows a small thread stack; an explicit stack, as in RE2's
-   NFA, holds at most one entry per state because a state is marked when pushed. */
+   NFA, holds at most one entry per state because a state is marked when pushed. The states walked are charged to the
+   budget. */
 static void rx_add(rlist *list, const rstate *start, rscratch *scratch) {
-    size_t top = 0;
+    size_t top = 0, walked = 0;
     rx_push(scratch, &top, start);
     while (top > 0) {
         const rstate *state = scratch->stack[--top];
+        walked++;
         if (state->kind == RS_SPLIT) {
             rx_push(scratch, &top, state->out1);
             rx_push(scratch, &top, state->out);
@@ -1105,11 +1122,14 @@ static void rx_add(rlist *list, const rstate *start, rscratch *scratch) {
             list->items[list->len++] = state;
         }
     }
+    scratch->budget -= (int64_t)walked;
 }
 
 static Py_NO_INLINE rlist rx_match_extended(rscratch *scratch, rlist current, rlist next, const Py_UCS4 *value,
                                             Py_ssize_t len) {
-    for (Py_ssize_t index = 0; index < len; index++) {
+    /* each state a character steps was reached by a walk that rx_add already charged, so checking the budget per
+       character bounds the match */
+    for (Py_ssize_t index = 0; index < len && scratch->budget >= 0; index++) {
         scratch->gen++;
         next.len = 0;
         for (size_t state = 0; state < current.len; state++) {
@@ -1132,7 +1152,7 @@ static Py_NO_INLINE rlist rx_match_extended(rscratch *scratch, rlist current, rl
 
 static Py_NO_INLINE rlist rx_match_regular(rscratch *scratch, rlist current, rlist next, const Py_UCS4 *value,
                                            Py_ssize_t len) {
-    for (Py_ssize_t index = 0; index < len; index++) {
+    for (Py_ssize_t index = 0; index < len && scratch->budget >= 0; index++) { /* as in rx_match_extended */
         scratch->gen++;
         next.len = 0;
         for (size_t state = 0; state < current.len; state++) {
@@ -1167,6 +1187,12 @@ static const rpattern *regex_cache_find(const th_schema *schema, const Py_UCS4 *
     return NULL; /* GCOVR_EXCL_LINE: regex_cache_schema compiled every facet's pattern, so the search never misses */
 }
 
+/* Whether a pattern check of this validate() call ran out of budget. Its mismatch is then no verdict, so the entry
+   raises instead of reporting it. */
+static int regex_exhausted(const th_schema *schema) {
+    return schema->regex_scratch != NULL && schema->regex_scratch->budget < 0;
+}
+
 static int regex_full_match(th_schema *schema, const Py_UCS4 *text, Py_ssize_t text_len, const Py_UCS4 *value,
                             Py_ssize_t len) {
     const rpattern *pattern = regex_cache_find(schema, text, text_len);
@@ -1174,6 +1200,10 @@ static int regex_full_match(th_schema *schema, const Py_UCS4 *text, Py_ssize_t t
     if (scratch == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM; validate() raises the MemoryError */
         return 0;          /* GCOVR_EXCL_LINE: fail closed, the value does not match */
     }
+    if (scratch->budget < 0) {
+        return 0; /* the call already fails, so the rest of the document is not worth matching */
+    }
+    scratch->budget += ((int64_t)len + 1) * pattern->share;
     rlist current = {scratch->lists, 0};
     rlist next = {scratch->lists + schema->regex_max_states, 0};
     scratch->gen++;

@@ -1169,6 +1169,17 @@
     }
   },
   {
+    "name": "whatwg-emphasis-around-empty-quote",
+    "source": "https://html.spec.whatwg.org/multipage/text-level-semantics.html#the-q-element",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "<em><q></q></em>"
+    }
+  },
+  {
     "name": "xpath-id-document-walk",
     "source": "https://github.com/tox-dev/turbohtml/blob/8592a664a6a4efe3518ab0331a1a92c66a48379d/src/turbohtml/_c/query/xpath/functions.c#L953-L963",
     "targets": [

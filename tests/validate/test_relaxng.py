@@ -3991,3 +3991,12 @@ def test_relaxng_data_normalizes_each_value_afresh() -> None:
     assert validator.validate(parse_xml(f"<doc>{valid}</doc>")).valid
     assert not validator.validate(parse_xml(f"<doc>{valid}<e> abcd </e></doc>")).valid
     assert not validator.validate(parse_xml(f"<doc>{valid}<e>ab cd ef</e></doc>")).valid
+
+
+def test_rng_pattern_matching_past_the_step_budget_raises() -> None:
+    schema: Final = RelaxNG(
+        wrap('<data type="string"><param name="pattern">(b?){300000}</param></data>', attrs=f'datatypeLibrary="{_DT}"')
+    )
+    with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
+        schema.validate(parse_xml(f"<doc>{'b' * 1000}</doc>"))
+    assert schema.is_valid(parse_xml("<doc>b</doc>"))
