@@ -25,11 +25,11 @@ static PyObject *rng_str(const Py_UCS4 *data, Py_ssize_t len) {
     return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, len);
 }
 
-static int rng_collect_references(th_schema *schema, th_node *node, rng_nodes *out) {
-    if (node->type != TH_NODE_ELEMENT) {
-        return 0;
-    }
-    if (rng_is_reference(schema, node)) {
+static int rng_collect_references(th_schema *schema, th_node *root, rng_nodes *out) {
+    for (th_node *node = root; node != NULL; node = schema_walk_next(root, node)) {
+        if (node->type != TH_NODE_ELEMENT || !rng_is_reference(schema, node)) {
+            continue;
+        }
         if (out->len == (Py_ssize_t)out->cap) {
             size_t capacity;
             size_t bytes;
@@ -49,11 +49,6 @@ static int rng_collect_references(th_schema *schema, th_node *node, rng_nodes *o
         }
         out->items[out->len++] = node;
     }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (rng_collect_references(schema, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                        /* GCOVR_EXCL_LINE */
-        }
-    }
     return 0;
 }
 
@@ -62,17 +57,10 @@ static int rng_collect_references(th_schema *schema, th_node *node, rng_nodes *o
    File URIs are far shorter. */
 #define RNG_BASE_URI_LIMIT 8192
 
-/* The base URI of node (XML Base 4.2): the document URI with every xml:base from the document element down to node
-   applied in turn. A detached subtree, the root of a document just read, ends the walk at its own root. loader->bases
-   keeps each join beside the parent URI it was made onto, so the references below one xml:base share a single join. */
-static PyObject *rng_base_uri(rng_loader *loader, th_node *node, PyObject *document_uri) {
-    PyObject *parent_uri = node->parent == NULL || node->parent->type != TH_NODE_ELEMENT
-                               ? Py_NewRef(document_uri)
-                               : rng_base_uri(loader, node->parent, document_uri);
-    const th_node_attr *base = attr_exact(loader->schema->tree, node, "xml:base", 8);
-    if (parent_uri == NULL || base == NULL) {
-        return parent_uri;
-    }
+/* `parent_uri` with the xml:base of `node` applied, or NULL with an exception set. Consumes the reference to
+   parent_uri. loader->bases keeps each join beside the parent URI it was made onto, so the references below one
+   xml:base share a single join. */
+static PyObject *rng_join_base(rng_loader *loader, th_node *node, const th_node_attr *base, PyObject *parent_uri) {
     /* the schema tree's arena keeps every node where it is for as long as the loader lives, so the address names it */
     PyObject *key = PyLong_FromVoidPtr(node);
     if (key == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -108,6 +96,44 @@ static PyObject *rng_base_uri(rng_loader *loader, th_node *node, PyObject *docum
     Py_DECREF(key);
     Py_DECREF(parent_uri);
     return joined;
+}
+
+/* An element on the way to a node that carries an xml:base. */
+typedef struct {
+    th_node *node;
+    const th_node_attr *base;
+} rng_base_step;
+
+/* The base URI of node (XML Base 4.2): the document URI with every xml:base from the document element down to node
+   applied in turn. A detached subtree, the root of a document just read, ends the walk at its own root. The elements
+   on the way that carry an xml:base are gathered bottom up on an explicit stack, then applied top down. */
+static PyObject *rng_base_uri(rng_loader *loader, th_node *node, PyObject *document_uri) {
+    rng_base_step local[16];
+    rng_base_step *steps = local;
+    Py_ssize_t count = 0, cap = 16;
+    PyObject *uri = NULL;
+    for (th_node *walk = node;; walk = walk->parent) {
+        const th_node_attr *base = attr_exact(loader->schema->tree, walk, "xml:base", 8);
+        if (base != NULL) {
+            rng_base_step *grown = walk_reserve(steps, local, count, &cap, sizeof(rng_base_step));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                goto done;       /* GCOVR_EXCL_LINE */
+            }
+            steps = grown;
+            steps[count++] = (rng_base_step){walk, base};
+        }
+        if (walk->parent == NULL || walk->parent->type != TH_NODE_ELEMENT) {
+            break;
+        }
+    }
+    uri = Py_NewRef(document_uri);
+    while (count > 0 && uri != NULL) {
+        count--;
+        uri = rng_join_base(loader, steps[count].node, steps[count].base, uri);
+    }
+done:
+    walk_release(steps, local);
+    return uri;
 }
 
 static int rng_raise_loop(PyObject *active, PyObject *path) {
@@ -168,25 +194,28 @@ static int rng_remove_overridden(th_schema *schema, th_node *container, const Py
     int found = 0;
     th_node *child = container->first_child;
     while (child != NULL) {
-        th_node *next = child->next_sibling;
         if (rng_is_overridden(schema, child, name, name_len)) {
+            th_node *next = schema_walk_skip(container, child);
             th_node_remove(child);
             found = 1;
+            child = next;
         } else if (is_schema_el(schema, child, RNG_NS, "div")) {
-            found |= rng_remove_overridden(schema, child, name, name_len);
+            child = schema_walk_next(container, child);
+        } else {
+            child = schema_walk_skip(container, child);
         }
-        child = next;
     }
     return found;
 }
 
 static int rng_apply_overrides(th_schema *schema, th_node *overrides, th_node *grammar, PyObject *path) {
-    for (th_node *child = overrides->first_child; child != NULL; child = child->next_sibling) {
+    th_node *child = overrides->first_child;
+    while (child != NULL) {
         if (is_schema_el(schema, child, RNG_NS, "div")) {
-            if (rng_apply_overrides(schema, child, grammar, path) < 0) {
-                return -1;
-            }
-        } else if (is_schema_el(schema, child, RNG_NS, "start")) {
+            child = schema_walk_next(overrides, child);
+            continue;
+        }
+        if (is_schema_el(schema, child, RNG_NS, "start")) {
             if (!rng_remove_overridden(schema, grammar, NULL, 0)) {
                 PyErr_Format(PyExc_ValueError,
                              "RELAX NG include overrides start, which the included grammar does not define: %S", path);
@@ -202,6 +231,7 @@ static int rng_apply_overrides(th_schema *schema, th_node *overrides, th_node *g
                 return -1;
             }
         }
+        child = schema_walk_skip(overrides, child);
     }
     return 0;
 }

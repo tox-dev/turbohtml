@@ -3852,6 +3852,21 @@ def _reference_ladder(kind: str, levels: int, *, refs: int = 1, hidden: bool = F
     )
 
 
+def _measured_hub_chain() -> str:
+    # hub is measured first through its longer branch; the t chain then reaches it through that stored length
+    def link(name: str, target: str) -> str:
+        return f'<xs:group name="{name}"><xs:sequence><xs:group ref="{target}"/></xs:sequence></xs:group>'
+
+    leaf: Final = '<xs:sequence><xs:element name="x" minOccurs="0"/></xs:sequence>'
+    return (
+        f'<xs:schema {_XS}><xs:group name="hub"><xs:sequence><xs:group ref="l0"/><xs:group ref="short"/>'
+        f"</xs:sequence></xs:group>{''.join(link(f'l{n}', f'l{n + 1}') for n in range(70))}"
+        f'<xs:group name="l70">{leaf}</xs:group><xs:group name="short">{leaf}</xs:group>'
+        f"{''.join(link(f't{n}', f't{n + 1}' if n < 39 else 'hub') for n in range(40))}"
+        '<xs:element name="r"><xs:complexType><xs:group ref="t0"/></xs:complexType></xs:element></xs:schema>'
+    )
+
+
 def _hidden_group_chain(count: int, *, cycle: bool) -> str:
     defs: Final = [
         f'<xs:group name="g{n}"><xs:sequence><xs:annotation><xs:group ref="g{(n + 1) % count if cycle else n + 1}"/>'
@@ -4010,6 +4025,11 @@ def _identity_constraint(constraint: str) -> str:
             _group_chain(100, reverse=True),
             "group reference chain exceeds 100 hops",
             id="deep-group-chain-tail-compiled-first",
+        ),
+        pytest.param(
+            _measured_hub_chain(),
+            "group reference chain exceeds 100 hops",
+            id="deep-group-chain-through-measured-branches",
         ),
         pytest.param(
             _group_chain(7, reverse=False, nesting=60),
