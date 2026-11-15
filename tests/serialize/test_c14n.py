@@ -164,6 +164,38 @@ def test_content_drops_characters_xml_cannot_hold(
     ET.fromstring(out)  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own canonical output, parsed to assert it is well-formed
 
 
+@pytest.mark.parametrize(
+    "filler",
+    [
+        pytest.param("a", id="ascii"),
+        pytest.param("", id="private-use"),
+        pytest.param("\U0001f600", id="astral"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("probe", "written"),
+    [
+        pytest.param("\x00", "", id="nul"),
+        pytest.param("\x1f", "", id="unit-separator"),
+        pytest.param("\ud800", "", id="first-surrogate"),
+        pytest.param("\udfff", "", id="last-surrogate"),
+        pytest.param("￾", "", id="noncharacter-fffe"),
+        pytest.param("￿", "", id="noncharacter-ffff"),
+        pytest.param("&", "&amp;", id="ampersand"),
+        pytest.param(">", "&gt;", id="greater-than"),
+        pytest.param("\r", "&#xD;", id="carriage-return"),
+        pytest.param("\t", "\t", id="tab"),
+        pytest.param("\n", "\n", id="newline"),
+        pytest.param("퟿", "퟿", id="below-surrogates"),
+        pytest.param("�", "�", id="replacement-character"),
+    ],
+)
+def test_text_writes_a_character_at_every_offset(filler: str, probe: str, written: str) -> None:
+    placements = [(filler * at, filler * (length - at - 1)) for length in range(1, 20) for at in range(length)]
+    outs = [Element("p", children=[Text(head + probe + tail)]).canonicalize() for head, tail in placements]
+    assert outs == [f"<p>{head}{written}{tail}</p>".encode() for head, tail in placements]
+
+
 @pytest.mark.parametrize(("make_host", "tags"), _HOSTS)
 @pytest.mark.parametrize(
     ("value", "expected"),

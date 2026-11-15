@@ -232,30 +232,46 @@ static inline __m128i c14n_wide_invalid(__m128i lanes) {
                         _mm_cmpeq_epi32(_mm_or_si128(lanes, _mm_set1_epi32(1)), _mm_set1_epi32(0xFFFF)));
 }
 
-/* The same packed 16-bit lanes and mask layout as sbuf_block_special_bits. The wide test runs only when a lane
-   reaches the surrogate range, which the OR of both halves bounds from above. */
-static inline unsigned c14n_block_stop_bits(const Py_UCS4 *low_half, const Py_UCS4 *high_half) {
+/* The packed 16-bit lanes and mask layout of sbuf_block_special_bits. Tab and newline are flagged with the other
+   controls, which keeps the test to three compares, and c14n_first_stop_lane passes over them. The wide test runs
+   only when a lane reaches the surrogate range, which the OR of both halves bounds from above. */
+static inline unsigned c14n_block_candidate_bits(const Py_UCS4 *low_half, const Py_UCS4 *high_half) {
     __m128i low = _mm_loadu_si128((const __m128i *)low_half);
     __m128i high = _mm_loadu_si128((const __m128i *)high_half);
     __m128i lanes = _mm_packs_epi32(low, high);
-    __m128i literal = _mm_or_si128(_mm_cmpeq_epi16(lanes, _mm_set1_epi16('\t')),
-                                   _mm_cmpeq_epi16(lanes, _mm_set1_epi16('\n')));
-    __m128i hits = _mm_andnot_si128(literal, _mm_cmplt_epi16(lanes, _mm_set1_epi16(0x20)));
+    __m128i hits = _mm_cmplt_epi16(lanes, _mm_set1_epi16(0x20));
     hits = _mm_or_si128(hits, _mm_cmpeq_epi16(lanes, _mm_set1_epi16('&')));
-    hits = _mm_or_si128(
-        hits, _mm_or_si128(_mm_cmpeq_epi16(lanes, _mm_set1_epi16('<')), _mm_cmpeq_epi16(lanes, _mm_set1_epi16('>'))));
+    /* < and > differ only in bit 1 */
+    hits = _mm_or_si128(hits, _mm_cmpeq_epi16(_mm_or_si128(lanes, _mm_set1_epi16(2)), _mm_set1_epi16('>')));
     if (_mm_movemask_epi8(_mm_cmpgt_epi32(_mm_or_si128(low, high), _mm_set1_epi32(0xD7FF))) != 0) {
         hits = _mm_or_si128(hits, _mm_packs_epi32(c14n_wide_invalid(low), c14n_wide_invalid(high)));
     }
     return (unsigned)_mm_movemask_epi8(hits);
 }
 
+/* The first lane flagged in bits that is a stop, or -1, passing over tab and newline. Lanes 0-3 read low and lanes
+   4-7 read high, matching the halves the block was loaded from. */
+static inline int c14n_first_stop_lane(const Py_UCS4 *low, const Py_UCS4 *high, unsigned bits) {
+    while (bits != 0) {
+        int lane = sbuf_ctz(bits) / 2;
+        Py_UCS4 character = lane < 4 ? low[lane] : high[lane - 4];
+        if (character != '\t' && character != '\n') {
+            return lane;
+        }
+        bits &= ~(3u << (2 * lane));
+    }
+    return -1;
+}
+
 /* The first stop at or after index, or len, with the block layout of sbuf_find_special. */
 static inline Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
     while (index + SBUF_SCAN_STEP <= len) {
-        unsigned bits = c14n_block_stop_bits(&text[index], &text[index + 4]);
+        unsigned bits = c14n_block_candidate_bits(&text[index], &text[index + 4]);
         if (bits != 0) {
-            return index + sbuf_ctz(bits) / 2;
+            int lane = c14n_first_stop_lane(&text[index], &text[index + 4], bits);
+            if (lane >= 0) {
+                return index + lane;
+            }
         }
         index += SBUF_SCAN_STEP;
     }
@@ -264,17 +280,17 @@ static inline Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t ind
     }
     if (len >= SBUF_SCAN_STEP) {
         Py_ssize_t base = len - SBUF_SCAN_STEP;
-        unsigned bits = c14n_block_stop_bits(&text[base], &text[base + 4]) >> (2 * (index - base));
-        return bits != 0 ? index + sbuf_ctz(bits) / 2 : len;
+        unsigned bits = c14n_block_candidate_bits(&text[base], &text[base + 4]) & 0xFFFFu << (2 * (index - base));
+        int lane = c14n_first_stop_lane(&text[base], &text[base + 4], bits);
+        return lane >= 0 ? base + lane : len;
     }
     if (len >= 4) {
         Py_ssize_t first_high = index + 8 - len > 4 ? index + 8 - len : 4;
         unsigned keep = (index < 4 ? 0xFFu << (2 * index) & 0xFFu : 0) | (0xFFFFu << (2 * first_high) & 0xFF00u);
-        unsigned bits = c14n_block_stop_bits(text, &text[len - 4]) & keep;
-        if (bits == 0) {
+        int lane = c14n_first_stop_lane(text, &text[len - 4], c14n_block_candidate_bits(text, &text[len - 4]) & keep);
+        if (lane < 0) {
             return len;
         }
-        Py_ssize_t lane = sbuf_ctz(bits) / 2;
         return lane < 4 ? lane : len - 8 + lane;
     }
     while (index < len && !c14n_text_stop(text[index])) {
