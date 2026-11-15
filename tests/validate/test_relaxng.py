@@ -159,6 +159,22 @@ def test_data_param_facets() -> None:
     assert not check(schema, "<s>AB</s>").valid  # pattern
 
 
+def test_data_param_repeated_patterns() -> None:
+    # equal pattern texts compile once, and each param that repeats one finds that compiled form
+    def data(*patterns: str) -> str:
+        params = "".join(f'<param name="pattern">{pattern}</param>' for pattern in patterns)
+        return f'<data type="string">{params}</data>'
+
+    schema = grammar(
+        f'<start><element name="r"><element name="s">{data("[a-c]+", "a.*", "[a-c]+", "a.*", ".{2}")}</element>'
+        f'<element name="e">{data("", "a?", "")}</element></element></start>',
+        attrs=f'datatypeLibrary="{_DT}"',
+    )
+    assert check(schema, "<r><s>ab</s><e/></r>").valid
+    assert not check(schema, "<r><s>bb</s><e/></r>").valid  # a.*
+    assert not check(schema, "<r><s>ab</s><e>a</e></r>").valid  # the empty pattern
+
+
 def test_data_param_pattern_too_complex_raises() -> None:
     pattern = f"{'(' * 50000}a{')' * 50000}"
     schema = grammar(
