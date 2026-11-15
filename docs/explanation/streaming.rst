@@ -26,11 +26,11 @@ quoting, and whitespace are preserved exactly -- so a rewrite that edits nothing
 through a full parse, mutate, and serialize and reporting each one's peak resident memory -- the tree the streaming pass
 never builds.
 
-The one part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
-closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint.
-It also caps the open-element stack at 512 elements, so a pathologically deep or unclosed input cannot exhaust memory or
-the C stack the selector matcher walks. Start tags past the cap, formatting elements included, attach at the capped
-depth as siblings.
+One part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
+closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint,
+including the tree builder it runs for some markup (see `Foreign content follows the tree builder`_). It also caps the
+open-element stack at 512 elements, so a pathologically deep or unclosed input cannot exhaust memory or the C stack the
+selector matcher walks. Start tags past the cap, formatting elements included, attach at the capped depth as siblings.
 
 ***********************************
  Selectors match against the spine
@@ -79,3 +79,40 @@ forward to bytes not yet produced. Removing or replacing an element works by *su
 tokens stream past, not by deleting something already written; a nested handler inside a removed region does not run,
 because its output would be discarded anyway. This keeps every edit a forward, local decision -- the property that lets
 the whole transform run in one pass over a stream.
+
+One edit writes tags the source never had. Inside ``<svg>`` or ``<math>`` a browser ends the foreign content at an HTML
+start tag such as ``<p>``, ``<img>`` or ``<font color>``, and at the end tag of an HTML element around it, with no
+``</svg>`` in the source. When a handler removes, replaces or unwraps such a tag, the rewriter writes the end tags it
+stood for in its place, so ``<svg><font color=red><title>...`` with the ``<font>`` unwrapped becomes
+``<svg></svg><title>...`` and the markup after it is still parsed as the HTML it was.
+
+******************************************
+ Foreign content follows the tree builder
+******************************************
+
+Three decisions about a tag belong to the tree, not to the tokenizer. ``<title>``, ``<style>``, ``<xmp>`` and the other
+raw-text elements switch the tokenizer to text only as HTML elements: inside ``<svg>`` or ``<math>`` the same tags hold
+markup. A trailing ``/>`` closes an SVG or MathML element and is ignored on an HTML one, so ``<div/>`` stays open and
+``<xmp/>`` still starts raw text. ``<![CDATA[`` opens a section only in foreign content. A full parse answers all three
+from its stack of open elements. A CDATA section reaches the text handler as one node, and an untouched one is copied
+through verbatim.
+
+The rewriter answers them from the spine while the spine matches that stack: in HTML outside ``<svg>`` and ``<math>``,
+and inside them until a tag needs a rule the spine does not keep. Such a tag is one that breaks out of foreign content,
+such as ``<p>`` or ``<div>``, an HTML tag inside an integration point such as ``<foreignObject>`` or ``<desc>``, an end
+tag that names no open SVG or MathML element, or a ``<template>`` or ``<frameset>`` anywhere. At such a tag the rewriter
+runs the tree builder beside it, so each tag is read as a parse reads it, with the end tags a browser implies, the
+formatting elements it rebuilds, and the table, template and frameset insertion modes. Once the spine matches the stack
+again, outside templates, framesets and integration points, the tree builder waits, and at the next such tag it first
+reads the input it missed, so the cost stays linear and a page whose ``<svg>`` and ``<math>`` hold only their own
+elements and text, as inline icons and formulas do, never starts it.
+
+The tree builder keeps only what can still change how a later tag is read: the open elements, the active formatting
+elements, and the template insertion modes. Whenever the rest of its tree outgrows that part, it copies that part into a
+fresh tree and drops the old one, so its memory follows the open-element depth and the formatting list, not the
+document.
+
+Handlers can still change how a browser reads what follows: unwrapping a ``<foreignObject>``, or changing the
+``encoding`` of an ``<annotation-xml>``, turns the raw text after it into markup or back. A guarantee that has to hold
+against hostile markup, such as no script surviving, belongs to :func:`turbohtml.clean.sanitize`, which works on the
+parsed tree.
