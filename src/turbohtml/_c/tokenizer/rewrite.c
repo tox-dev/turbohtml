@@ -79,12 +79,17 @@ typedef struct {
     int failed;
 } rw_out;
 
+/* Whether a `<` in data text reads as the start of markup when `next` follows it. */
+static int rw_lt_joins(Py_UCS4 next) {
+    return is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+}
+
 /* Whether the pending tail, `<` and what follows it to the end of the output, reads as the start of markup once
    `next` is written after it. The source read it as text because what followed there ended it. */
 static int rw_tail_joins(const rw_out *out, Py_UCS4 next) {
     Py_ssize_t len = out->len - (out->tail - 1);
     if (!out->rcdata) {
-        return len == 2 || is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+        return len == 2 || rw_lt_joins(next);
     }
     if (len == 1) {
         return next == '/';
@@ -2607,10 +2612,35 @@ static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, const th_token *token) {
     out->room = out->len;
 }
 
+/* Whether the output at this point is content the tokenizer reads as data, outside any raw-text or RCDATA element. */
+static int rw_data_context(const rw_ctx *ctx) {
+    return ctx->depth == 0 || ctx->stack[ctx->depth - 1].model < 0;
+}
+
+/* Write a text run gathered from several source spans. A token dropped between the pieces (an empty end tag, or one a
+   handler removed) can leave a `<` in front of letters, `/`, `!` or `?`, which the output reads as markup, so such a
+   `<` is escaped. A `<` or `</` at the end of the run is left to the tail, which the next write settles. */
+static TH_NOINLINE int rw_emit_gathered(rw_out *out, const th_buf *text) {
+    Py_ssize_t len = text->len;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = buf_read(text, index);
+        Py_UCS4 next = index + 1 < len ? buf_read(text, index + 1) : 0;
+        if (ch == '<' && rw_lt_joins(next) && (next != '/' || index + 2 < len)) {
+            rw_out_ascii(out, "&lt;");
+        } else {
+            rw_out_char(out, ch);
+        }
+    }
+    return !out->failed;
+}
+
 /* Write an unedited leaf token as it was read. */
 static void rw_emit_read_leaf(rw_ctx *ctx, const th_token *token) {
-    if (!rw_emit_verbatim(&ctx->out, ctx->sm, token)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        return;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+    int written = token->kind == TH_TEXT && !token->is_slice && !token->has_source && rw_data_context(ctx)
+                      ? rw_emit_gathered(&ctx->out, &token->text)
+                      : rw_emit_verbatim(&ctx->out, ctx->sm, token);
+    if (!written) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_UCS4 last = ctx->out.data[ctx->out.len - 1];
     if (last == '<' || last == '/' ||
