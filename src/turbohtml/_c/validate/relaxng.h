@@ -796,20 +796,10 @@ static int def_add(th_schema *schema, const th_node_attr *name, th_node *node) {
 
 /* The RELAX NG `ns` in scope at `node` (inherited from the nearest ancestor-or-self
    ns attribute), or (NULL, 0) for no namespace. */
-static void rng_scope_ns(th_tree *tree, th_node *node, const Py_UCS4 **uri, Py_ssize_t *uri_len) {
-    for (th_node *walk = node; walk != NULL; walk = walk->parent) {
-        if (walk->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        const th_node_attr *attr = attr_exact(tree, walk, "ns", 2);
-        if (attr != NULL) {
-            *uri = attr->value;
-            *uri_len = attr->value_len;
-            return;
-        }
-    }
-    *uri = NULL;
-    *uri_len = 0;
+static void rng_scope_ns(th_schema *schema, th_node *node, const Py_UCS4 **uri, Py_ssize_t *uri_len) {
+    const th_node_attr *attr = inherited_attr(schema->tree_ns, node, "ns", 2);
+    *uri = attr == NULL ? NULL : attr->value;
+    *uri_len = attr == NULL ? 0 : attr->value_len;
 }
 
 static nameclass *nc_new(th_schema *schema, int type) {
@@ -839,7 +829,6 @@ static nameclass *nc_pair(th_schema *schema, int type, nameclass *left, nameclas
 /* A name class for a QName carried by @name or a <name> element. */
 static nameclass *nc_from_qname(th_schema *schema, th_node *owner, const Py_UCS4 *name, Py_ssize_t name_len,
                                 int is_attr) {
-    th_tree *tree = schema->tree;
     nameclass *nc = nc_new(schema, NC_NAME);
     if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return NULL;  /* GCOVR_EXCL_LINE */
@@ -850,9 +839,9 @@ static nameclass *nc_from_qname(th_schema *schema, th_node *owner, const Py_UCS4
     nc->local = local;
     nc->local_len = local_len;
     if (prefix_len > 0) {
-        resolve_ns(tree, owner, prefix, prefix_len, &nc->uri, &nc->uri_len);
+        resolve_ns(schema->tree_ns, owner, prefix, prefix_len, &nc->uri, &nc->uri_len);
     } else if (!is_attr) {
-        rng_scope_ns(tree, owner, &nc->uri, &nc->uri_len);
+        rng_scope_ns(schema, owner, &nc->uri, &nc->uri_len);
     }
     nc->hash = nc_name_hash(nc);
     return nc;
@@ -904,7 +893,7 @@ static nameclass *rng_nameclass_open(th_schema *schema, th_node *node, nc_frame 
         }
         const th_node_attr *ns = attr_exact(tree, node, "ns", 2);
         if (ns == NULL) {
-            rng_scope_ns(tree, node, &nc->uri, &nc->uri_len);
+            rng_scope_ns(schema, node, &nc->uri, &nc->uri_len);
         } else {
             nc->uri = ns->value;
             nc->uri_len = ns->value_len;
@@ -1018,12 +1007,7 @@ static int nc_contains(const nameclass *nc, const qname *name) {
 static int rng_datatype_id(th_schema *schema, th_node *node, int default_datatype) {
     th_tree *tree = schema->tree;
     const th_node_attr *type = attr_exact(tree, node, "type", 4);
-    const th_node_attr *library = NULL;
-    for (th_node *walk = node; walk != NULL && library == NULL; walk = walk->parent) {
-        if (walk->type == TH_NODE_ELEMENT) {
-            library = attr_exact(tree, walk, "datatypeLibrary", 15);
-        }
-    }
+    const th_node_attr *library = inherited_attr(schema->tree_ns, node, "datatypeLibrary", 15);
     int xsd_library = 0;
     if (library != NULL) {
         xsd_library = u_eq_ascii(library->value, library->value_len, XSD_DT_NS);

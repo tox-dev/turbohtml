@@ -4329,3 +4329,91 @@ def test_rng_pattern_matching_past_the_step_budget_raises() -> None:
     with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
         schema.validate(parse_xml(f"<doc>{'b' * 1000}</doc>"))
     assert schema.is_valid(parse_xml("<doc>b</doc>"))
+
+
+@pytest.mark.parametrize("padding", [pytest.param(0, id="few-attributes"), pytest.param(40, id="many-attributes")])
+@pytest.mark.parametrize(
+    ("schema", "valid", "invalid"),
+    [
+        pytest.param(
+            '<grammar {pad} ns="urn:a" xmlns="{rng}"><start><element name="r">'
+            '<element name="c" ns="urn:b"><empty/></element><element name="d" xy=""><empty/></element>'
+            "</element></start></grammar>",
+            '<r xmlns="urn:a"><c xmlns="urn:b"/><d/></r>',
+            '<r xmlns="urn:a"><c/><d/></r>',
+            id="inherited-ns",
+        ),
+        pytest.param(
+            '<element name="p:r" {pad} xmlns:p="urn:a" xmlns="{rng}">'
+            '<element name="p:c" {pad} xmlns:p="urn:b"><empty/></element><element name="p:d"><empty/></element>'
+            "</element>",
+            '<r xmlns="urn:a"><c xmlns="urn:b"/><d/></r>',
+            '<r xmlns="urn:a"><c xmlns="urn:b"/><d xmlns="urn:b"/></r>',
+            id="redeclared-prefix-stays-in-its-branch",
+        ),
+        pytest.param(
+            '<element name="r" {pad} xmlns:p="urn:a" xmlns="{rng}"><attribute name="p:x"/></element>',
+            '<r xmlns:q="urn:a" q:x="1"/>',
+            '<r x="1"/>',
+            id="prefixed-attribute",
+        ),
+        pytest.param(
+            '<element name="r" {pad} ns="urn:a" xmlns="{rng}">'
+            "<zeroOrMore><attribute><nsName/></attribute></zeroOrMore></element>",
+            '<r xmlns="urn:a" xmlns:q="urn:a" q:x="1"/>',
+            '<r xmlns="urn:a" x="1"/>',
+            id="ns-name",
+        ),
+        pytest.param(
+            f'<element name="r" {{pad}} datatypeLibrary="{_DT}" xmlns="{{rng}}"><data type="int"/></element>',
+            "<r>4</r>",
+            "<r>four</r>",
+            id="datatype-library",
+        ),
+    ],
+)
+def test_rng_names_resolve_below_many_attributes(schema: str, valid: str, invalid: str, padding: int) -> None:
+    # past a few dozen attributes on the way to the root a lookup reads a per-path scope instead of the ancestors
+    validator: Final = RelaxNG(schema.replace("{pad}", _padding(padding)).replace("{rng}", _RELAXNG_NS))
+    assert validator.validate(parse_xml(valid)).valid
+    assert not validator.validate(parse_xml(invalid)).valid
+
+
+def _padding(count: int) -> str:
+    return " ".join(f'p{index}=""' for index in range(count))
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        pytest.param('<element name="e{index}"><empty/></element>', id="element-name"),
+        pytest.param('<element name="e{index}"><data type="int"/></element>', id="datatype-library"),
+        pytest.param('<attribute name="p:a{index}"/>', id="prefixed-attribute"),
+    ],
+)
+def test_rng_compile_below_many_attributes_scales_linearly(work_steps: WorkSteps, item: str) -> None:
+    # every name below the root resolves through the root's attributes, which must not cost their count each time
+    def build(count: int) -> Callable[[], RelaxNG]:
+        body: Final = "".join(item.format(index=index) for index in range(count))
+        return partial(
+            RelaxNG,
+            grammar(
+                f'<start><element name="r"><choice>{body}</choice></element></start>',
+                attrs=f'{_padding(count)} datatypeLibrary="{_DT}" xmlns:p="urn:p"',
+            ),
+        )
+
+    work_steps.assert_linear(build, (70, 280))
+
+
+def test_rng_validate_builds_a_define_below_many_attributes_linearly(work_steps: WorkSteps) -> None:
+    # validate() builds the patterns of a define again, so it resolves the names below the root's attributes too
+    def build(count: int) -> Callable[[], ValidationResult]:
+        body: Final = "".join(f'<element name="e{index}"><empty/></element>' for index in range(count))
+        schema: Final = RelaxNG(
+            f'<grammar {_padding(count)} xmlns="{_RELAXNG_NS}"><start><ref name="d"/></start>'
+            f'<define name="d"><choice>{body}</choice></define></grammar>'
+        )
+        return partial(schema.validate, parse_xml("<e1/>"))
+
+    work_steps.assert_linear(build, (70, 280))

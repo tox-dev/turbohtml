@@ -1897,6 +1897,7 @@ static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
         copy->text = need_text(tree, source);
         copy->text_len = source->text_len;
+        source->text_capacity_shift = 0;    /* the buffer is shared now, so neither node may write into it */
         if (source->type != TH_NODE_TEXT) { /* compact text nodes omit attr_count */
             copy->attr_count = source->attr_count;
         }
