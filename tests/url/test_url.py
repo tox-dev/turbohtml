@@ -1046,6 +1046,11 @@ _SITE: Final[str] = "http://s.com/"
     ("content", "expected"),
     [
         pytest.param("5; url=next", (5.0, f"{_SITE}next"), id="delay-and-url"),
+        pytest.param("0 next", (0.0, f"{_SITE}next"), id="whitespace-separator"),
+        pytest.param(".5;next", (0.5, f"{_SITE}next"), id="fraction-only-delay-with-url"),
+        pytest.param(".", (0.0, _SITE), id="lone-dot-delay"),
+        pytest.param("1.2.3;next", (1.2, f"{_SITE}next"), id="repeated-dot-after-delay-is-discarded"),
+        pytest.param("5x;url=next", None, id="junk-after-delay-is-no-refresh"),
         pytest.param("10", (10.0, _SITE), id="delay-only"),
         pytest.param("2.5;url=x", (2.5, f"{_SITE}x"), id="float-delay"),
         pytest.param("2.5", (2.5, _SITE), id="float-delay-only"),
@@ -1061,15 +1066,15 @@ _SITE: Final[str] = "http://s.com/"
         pytest.param("5;uxxx", (5.0, f"{_SITE}uxxx"), id="u-without-rl-prefix"),
         pytest.param("5;urxx", (5.0, f"{_SITE}urxx"), id="ur-without-l-prefix"),
         pytest.param("5;url", (5.0, f"{_SITE}url"), id="bare-url-keyword-no-equals"),
-        pytest.param("5;url='", (5.0, f"{_SITE}'"), id="lone-quote-after-url"),
+        pytest.param("5;url='", (5.0, _SITE), id="lone-quote-after-url-is-empty"),
         pytest.param("6;", (6.0, _SITE), id="separator-without-url"),
         pytest.param("2;ab", (2.0, f"{_SITE}ab"), id="short-url-after-separator"),
-        pytest.param("0;url='unbalanced", (0.0, f"{_SITE}'unbalanced"), id="unbalanced-quote-kept"),
+        pytest.param("0;url='unbalanced", (0.0, f"{_SITE}unbalanced"), id="unbalanced-quote-runs-to-the-end"),
         pytest.param("0;url=a:b", (0.0, "a:b"), id="opaque-scheme-no-authority"),
         pytest.param("5;url=\x01", (5.0, _SITE), id="control-only-url"),
     ],
 )
-def test_meta_refresh_content(content: str, expected: tuple[float, str]) -> None:
+def test_meta_refresh_content(content: str, expected: tuple[float, str] | None) -> None:
     assert parse(f'<meta http-equiv=refresh content="{content}">').meta_refresh(_SITE) == expected
 
 

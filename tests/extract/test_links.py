@@ -279,19 +279,36 @@ def _urls(html: str) -> list[str]:
     [
         pytest.param("5; url=next.html", ["next.html"], id="standard"),
         pytest.param('0;url="dq.html"', ["dq.html"], id="double-quoted-url"),
+        pytest.param("0;url='sq.html' rest", ["sq.html"], id="quoted-url-ends-at-its-quote"),
+        pytest.param("0;url='open.html", ["open.html"], id="unclosed-quote-runs-to-the-end"),
+        pytest.param("0;url=' in.html '", ["in.html"], id="whitespace-inside-quotes-is-trimmed"),
+        pytest.param("0;'bare.html'", ["bare.html"], id="quoted-url-without-keyword"),
         pytest.param("5; url=", [], id="empty-url-after-equals"),
-        pytest.param("url=only.html", ["only.html"], id="url-first"),
+        pytest.param("url=only.html", [], id="no-time-is-no-refresh"),
+        pytest.param(" ", [], id="blank"),
+        pytest.param(" .5;url=dot.html", ["dot.html"], id="time-may-start-with-a-dot"),
+        pytest.param("5x; url=no.html", [], id="junk-after-time-is-no-refresh"),
         pytest.param("5; URL = spaced.html", ["spaced.html"], id="spaced-around-equals"),
-        pytest.param("5; url=a.html ignored", ["a.html"], id="unquoted-url-ends-at-whitespace"),
-        pytest.param("5", [], id="no-url-keyword"),
-        pytest.param("5; urlx=no.html", [], id="url-not-followed-by-equals"),
-        pytest.param("5; curl=no.html", [], id="url-is-tail-of-identifier"),
-        pytest.param("0;url", [], id="url-keyword-at-end"),
+        pytest.param("5; url=a.html more ", ["a.html more"], id="unquoted-url-runs-to-the-end"),
+        pytest.param("5", [], id="no-url"),
+        pytest.param("5 ", [], id="no-url-after-whitespace"),
+        pytest.param("5;", [], id="no-url-after-separator"),
+        pytest.param("0;next.html", ["next.html"], id="keyword-is-optional"),
+        pytest.param("0,next.html", ["next.html"], id="comma-separator"),
+        pytest.param("0 next.html", ["next.html"], id="whitespace-separator"),
+        pytest.param("1.2.3;next.html", ["next.html"], id="repeated-dot-after-delay-is-discarded"),
+        pytest.param("0 ; next.html", ["next.html"], id="whitespace-around-separator"),
+        pytest.param("0;;next.html", [";next.html"], id="only-one-separator-is-skipped"),
+        pytest.param("0;/one?url=/two", ["/one?url=/two"], id="later-keyword-is-part-of-the-url"),
+        pytest.param("0;url=/three /four", ["/three /four"], id="space-inside-unquoted-url"),
+        pytest.param("5; urlx=x.html", ["urlx=x.html"], id="url-not-followed-by-equals"),
+        pytest.param("5; curl=x.html", ["curl=x.html"], id="url-is-tail-of-identifier"),
+        pytest.param("0;url", ["url"], id="url-keyword-at-end"),
         pytest.param("0;url=''", [], id="empty-quoted-url"),
     ],
 )
 def test_meta_refresh_content_parsing(content: str, expected: list[str]) -> None:
-    assert _urls(f"<meta http-equiv='refresh' content='{content}'>") == expected
+    assert _urls(f'<meta http-equiv="refresh" content="{escape(content, quote=True)}">') == expected
 
 
 @pytest.mark.parametrize(
@@ -344,6 +361,8 @@ def test_meta_refresh_with_valueless_content_has_no_link() -> None:
         pytest.param("éurl(hidden.png) url(real.png)", ["real.png"], id="non-ascii-identifier-prefix"),
         pytest.param("aurl(hidden.png) URL(real.png)", ["real.png"], id="ascii-identifier-prefix"),
         pytest.param("a_url(hidden.png) a-url(hidden.png) url(real.png)", ["real.png"], id="identifier-punctuation"),
+        pytest.param("Aurl(hidden.png) 1url(hidden.png) url(real.png)", ["real.png"], id="uppercase-and-digit-prefix"),
+        pytest.param("!url(a.png) url(real.png)", ["a.png", "real.png"], id="punctuation-before-url-is-not-identifier"),
         pytest.param("u @import 'a.css'", ["a.css"], id="short-ident-before-import"),
         pytest.param("a@import 'hidden.css'", [], id="import-in-identifier"),
         pytest.param(
@@ -818,6 +837,11 @@ def test_meta_refresh_url_is_resolved() -> None:
     assert out == '<meta http-equiv="refresh" content="5; url=https://example.com/dir/next.html">'
 
 
+def test_meta_refresh_url_without_keyword_is_resolved() -> None:
+    out = _resolved('<meta http-equiv="refresh" content="0;next.html">')
+    assert out == '<meta http-equiv="refresh" content="0;https://example.com/dir/next.html">'
+
+
 def test_resolve_on_a_whole_document_returns_none() -> None:
     doc = parse('<html><body><a href="a.html">x</a></body></html>')
     assert doc.resolve_links(_RESOLVE_BASE) is None
@@ -1099,6 +1123,26 @@ def test_an_exception_from_replace_propagates() -> None:
 def _boom(url: str) -> str:
     msg = f"nope: {url}"
     raise ValueError(msg)
+
+
+def test_meta_refresh_rewrite_replaces_the_target_a_browser_follows() -> None:
+    seen: list[str] = []
+
+    def gateway(url: str) -> str:
+        seen.append(url)
+        return "/out"
+
+    html = (
+        '<meta http-equiv="refresh" content="0;/one?url=/two">'
+        '<meta http-equiv="refresh" content="0;/one">'
+        '<meta http-equiv="refresh" content="0;url=/three /four">'
+    )
+    assert _rewritten(html, gateway) == (
+        '<meta http-equiv="refresh" content="0;/out">'
+        '<meta http-equiv="refresh" content="0;/out">'
+        '<meta http-equiv="refresh" content="0;url=/out">'
+    )
+    assert seen == ["/one?url=/two", "/one", "/three /four"]
 
 
 def test_an_exception_during_a_meta_refresh_rewrite_stops_the_walk() -> None:
