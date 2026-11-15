@@ -280,18 +280,16 @@ static uint8_t c14n_parent_ns(const th_node *node, int is_apex, const c14n_left_
 
 /* Emit an element's start tag "<name decls attrs>": the namespace declarations the
    c14n namespace axis renders (default namespace, then the xlink prefix), followed
-   by the attributes in (namespace URI, local name) order. When node is an apex its
-   ancestors' xml: attributes are inherited onto it (c14n 1.1 excludes xml:id). A child of a left-out
-   element (left_out, NULL otherwise) is written against what that element's tag would have been. */
-static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex, const c14n_left_out *left_out,
-                          const th_c14n_opts *opts, const th_node **xlink_binding) {
+   by the attributes in (namespace URI, local name) order. When node is written as an
+   apex its ancestors' xml: attributes are inherited onto it (c14n 1.1 excludes xml:id). */
+static TH_TREE_INLINE void c14n_open_tag_as(sbuf *out, th_tree *tree, th_node *node, int is_apex, uint8_t parent_ns,
+                                            const th_c14n_opts *opts, const th_node **xlink_binding) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, node->text, node->text_len);
 
     /* the default namespace is rendered when it differs from the output parent's;
        comparing the ns enum covers this exactly, HTML being the empty default */
-    int is_apex = c14n_is_apex(node, apex, left_out);
-    if (node->ns != c14n_parent_ns(node, is_apex, left_out)) {
+    if (node->ns != parent_ns) {
         sbuf_puts(out, " xmlns=\"");
         sbuf_puts(out, c14n_default_uri(node->ns));
         sbuf_putc(out, '"');
@@ -420,6 +418,35 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
     sbuf_putc(out, '>');
 }
 
+/* The start tag of node in a subtree without left-out elements, an apex rendering against the empty default above
+   the subset. */
+static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex, const th_c14n_opts *opts,
+                          const th_node **xlink_binding) {
+    uint8_t parent_ns = TH_NS_HTML;
+    if (node != apex && node->parent->type == TH_NODE_ELEMENT) {
+        parent_ns = node->parent->ns;
+    }
+    c14n_open_tag_as(out, tree, node, node == apex, parent_ns, opts, xlink_binding);
+}
+
+#if defined(_MSC_VER)
+#define C14N_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define C14N_NOINLINE __attribute__((noinline))
+#else
+#define C14N_NOINLINE
+#endif
+
+/* The start tag of node in a walk leaving elements out: a child of a left-out element (left_out, NULL otherwise) is
+   written against what that element's tag would have been. Kept out of line so the walk without left-out elements
+   carries no copy of it. */
+static C14N_NOINLINE void c14n_left_out_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
+                                                 const c14n_left_out *left_out, const th_c14n_opts *opts,
+                                                 const th_node **xlink_binding) {
+    int is_apex = c14n_is_apex(node, apex, left_out);
+    c14n_open_tag_as(out, tree, node, is_apex, c14n_parent_ns(node, is_apex, left_out), opts, xlink_binding);
+}
+
 static void c14n_close_tag(sbuf *out, const th_node *node) {
     sbuf_puts(out, "</");
     sbuf_put_ucs4(out, node->text, node->text_len);
@@ -456,14 +483,6 @@ static int c14n_left_out_push(c14n_left_outs *left_outs, const th_node *node, co
     return 0;
 }
 
-#if defined(_MSC_VER)
-#define C14N_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define C14N_NOINLINE __attribute__((noinline))
-#else
-#define C14N_NOINLINE
-#endif
-
 static void c14n_walk_leaving_out(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
                                   const th_c14n_opts *opts, const th_node **xlink_binding);
 
@@ -479,23 +498,27 @@ static TH_TREE_INLINE th_node *c14n_step(sbuf *out, th_tree *tree, th_node *node
     th_node *descend = NULL;
     switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
     case TH_NODE_ELEMENT: {
-        const c14n_left_out *left_out = left_outs != NULL ? c14n_left_out_of(left_outs, node->parent) : NULL;
-        if (node->atom == TH_TAG_UNKNOWN && !ser_xml_element_name_wellformed(node)) {
-            if (left_outs == NULL) {
+        if (left_outs == NULL) {
+            if (node->atom == TH_TAG_UNKNOWN && !ser_xml_element_name_wellformed(node)) {
                 c14n_walk_leaving_out(out, tree, node, apex, opts, xlink_binding);
                 return NULL;
             }
-            if (node->first_child == NULL) {
+            c14n_open_tag(out, tree, node, apex, opts, xlink_binding);
+        } else {
+            const c14n_left_out *left_out = c14n_left_out_of(left_outs, node->parent);
+            if (node->atom == TH_TAG_UNKNOWN && !ser_xml_element_name_wellformed(node)) {
+                if (node->first_child == NULL) {
+                    break;
+                }
+                if (c14n_left_out_push(left_outs, node, apex, left_out, 0) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+                    out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                    return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                descend = node->first_child;
                 break;
             }
-            if (c14n_left_out_push(left_outs, node, apex, left_out, 0) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
-                out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            descend = node->first_child;
-            break;
+            c14n_left_out_open_tag(out, tree, node, apex, left_out, opts, xlink_binding);
         }
-        c14n_open_tag(out, tree, node, apex, left_out, opts, xlink_binding);
         if (node->first_child != NULL) {
             descend = node->first_child;
         } else {
