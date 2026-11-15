@@ -434,6 +434,11 @@ if TYPE_CHECKING:
             Markdown(converters={"span": lambda _element, content: content}),
             id="converter-list-prefix",
         ),
+        pytest.param("<ol><li><code>x</code></li></ol>", Markdown(), id="code-span-item-lead"),
+        pytest.param(
+            "<ul><li><span><code>x</code></span><div>y</div></li></ul>", Markdown(), id="code-span-nested-lead"
+        ),
+        pytest.param("<p>a<br><code>x</code></p>", Markdown(), id="code-span-after-break"),
     ],
 )
 def test_markdown_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, markup: str, options: Markdown) -> None:
@@ -449,6 +454,14 @@ def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: _Sw
         " co\x00\x00\x00\x00uote><><"
     )
     assert set(alloc_sweep(lambda document: document.to_markdown(), lambda: parse(markup))) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_c14n_prefixed_start_tag_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    # the name outgrows the start tag buffer's first allocation, so a failure can leave the tag cut short
+    name = f"p:{'n' * 300}"
+    markup = f'<r xmlns:p="urn:p"><{name}></{name}></r>'
+    assert set(alloc_sweep(lambda document: document.canonicalize(), lambda: parse(markup))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -639,6 +652,39 @@ _RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_RELAXNG)
     ],
 )
 def test_relaxng_allocation_failure_raises_memory_error(
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
+) -> None:
+    assert set(alloc_sweep(call, setup)) == {"MemoryError"}
+
+
+# a bound and an instance value too long for the stack buffer of the range comparison
+_LONG_NUMBER: Final[str] = f"{'0' * 90}3"
+_BOUNDED_XSD: Final[str] = (
+    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="v"><xs:simpleType>'
+    f'<xs:restriction base="xs:integer"><xs:maxInclusive value="{_LONG_NUMBER}"/></xs:restriction>'
+    "</xs:simpleType></xs:element></xs:schema>"
+)
+_BOUNDED_RELAXNG: Final[str] = (
+    '<element xmlns="http://relaxng.org/ns/structure/1.0" '
+    'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes" name="v">'
+    f'<data type="integer"><param name="maxInclusive">{_LONG_NUMBER}</param></data></element>'
+)
+_BOUNDED_XSD_SCHEMA: Final[XMLSchema] = XMLSchema(_BOUNDED_XSD)
+_BOUNDED_RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_BOUNDED_RELAXNG)
+
+
+@pytest.mark.fuzz_build
+@pytest.mark.parametrize(
+    ("call", "setup"),
+    [
+        pytest.param(_BOUNDED_XSD_SCHEMA.validate, lambda: parse_xml(f"<v>{_LONG_NUMBER}</v>"), id="xsd-validate"),
+        pytest.param(lambda _: RelaxNG(_BOUNDED_RELAXNG), lambda: None, id="relaxng-compile"),
+        pytest.param(
+            _BOUNDED_RELAXNG_SCHEMA.validate, lambda: parse_xml(f"<v>{_LONG_NUMBER}</v>"), id="relaxng-validate"
+        ),
+    ],
+)
+def test_schema_long_number_allocation_failure_raises_memory_error(
     alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}

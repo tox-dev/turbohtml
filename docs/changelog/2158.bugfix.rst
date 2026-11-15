@@ -1,0 +1,2 @@
+Serializing after an allocation failure now raises ``MemoryError`` instead of returning wrong Markdown or corrupting
+memory during canonicalization.

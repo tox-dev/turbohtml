@@ -973,7 +973,7 @@ static int set_textarea_value(PyObject *self, th_node *node, PyObject *value) {
     th_tree *tree = tree_of(self);
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, NULL, &node, 1);
     while (node->first_child != NULL) {
         th_node_remove_observed(tree, node->first_child);
     }
@@ -1819,13 +1819,9 @@ TH_NODE_API(static, PyObject *, element_attr, (PyObject * self, PyObject *args, 
     return value;
 }
 
-/* Drop the cached element index so the next whole-tree query rebuilds it. Called
-   under the handle's critical section from every structural mutator. */
-void handle_drop_index(PyObject *handle_obj) {
-    HandleObject *handle = (HandleObject *)handle_obj;
+static void drop_index(HandleObject *handle) {
     handle->mutation_version++;
     th_tree_note_element_edit(handle->tree);
-    handle_clear_css_cache(handle);
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);
     handle->index_offsets = NULL;
@@ -1839,6 +1835,23 @@ void handle_drop_index(PyObject *handle_obj) {
     handle->md_ordinals = NULL;
     path_positions_free(handle->path_child_positions);
     handle->path_child_positions = NULL;
+}
+
+/* Drop the cached element index so the next whole-tree query rebuilds it. Called
+   under the handle's critical section from every structural mutator. */
+void handle_drop_index(PyObject *handle_obj) {
+    HandleObject *handle = (HandleObject *)handle_obj;
+    handle_clear_css_cache(handle);
+    drop_index(handle);
+}
+
+/* handle_drop_index for a mutator that only unlinks nodes, each with its subtree, or links them under parent (NULL
+   when it links nothing): the compiled <style> sheets outlive an edit no <style> element is part of (see
+   handle_clear_css_edit). Called before the edit, while each node still has the parent it leaves. */
+void handle_drop_index_edit(PyObject *handle_obj, const th_node *parent, th_node *const *nodes, Py_ssize_t count) {
+    HandleObject *handle = (HandleObject *)handle_obj;
+    handle_clear_css_edit(handle, parent, nodes, count);
+    drop_index(handle);
 }
 
 PyDoc_STRVAR(element_doc, "An element node: a tag, a namespace, attributes, and child nodes.\n\n"
@@ -3252,8 +3265,9 @@ static int relocate_subtree(PyObject *dest_handle, PyObject *source_handle, th_n
 }
 
 /* Taking the source lock can suspend the destination's critical section, so callers
-   must recheck destination tree state after importing. */
-static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
+   must recheck destination tree state after importing. dest_parent is where the caller links the copy, or NULL when
+   the caller drops the caches itself once it has linked the copy. */
+static th_node *import_node(PyObject *dest_handle, const th_node *dest_parent, NodeObject *child) {
     HandleObject *dest = (HandleObject *)dest_handle;
 #ifdef Py_GIL_DISABLED
     node_guard guard;
@@ -3284,7 +3298,7 @@ static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* a reader may have rebuilt the index while the section was suspended */
-    handle_drop_index(dest_handle);
+    handle_drop_index_edit(dest_handle, dest_parent, &copy, 1);
     return copy;
 }
 
@@ -3342,24 +3356,27 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* a reader may have rebuilt the index while the section was suspended */
-    handle_drop_index(dest_handle);
+    handle_drop_index_edit(dest_handle, NULL, &copy, 1);
     return node_wrap(state_of(dest_handle), dest_handle, copy);
 }
 
 /* Prepare wrapper_obj, an element the wrap methods link in, to become a child of dest_parent in anchor's tree and
    return the th_node to link (already detached from any old position). A node in the same tree is moved in place, its
    wrapper unchanged; a node from another tree is imported (see import_node). handle is the tree lock the caller
-   holds. NULL with an exception on a cycle (making a node a descendant of itself) or allocation failure. */
+   holds. NULL with an exception on a cycle (making a node a descendant of itself) or allocation failure. The caches
+   are dropped for the link under dest_parent only: the nodes the caller then moves into the wrapper keep their <style>
+   elements and their text, so they do not change the sheets. */
 static th_node *adopt_into(PyObject *handle, th_node *dest_parent, PyObject *wrapper_obj) {
     NodeObject *child = (NodeObject *)wrapper_obj;
     th_tree *dest_tree = ((HandleObject *)handle)->tree;
     if (!node_owned_by(child, handle)) {
-        return import_node(handle, child);
+        return import_node(handle, dest_parent, child);
     }
     if (th_node_contains(dest_tree, child->node, dest_parent)) {
         PyErr_SetString(PyExc_ValueError, "cannot insert a node into its own subtree");
         return NULL;
     }
+    handle_drop_index_edit(handle, dest_parent, &child->node, 1);
     th_node_remove_observed(dest_tree, child->node);
     return child->node;
 }
@@ -3391,8 +3408,8 @@ int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_SETREF(*slot, local);
-    } else if (import_node(dest_handle, (NodeObject *)node) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-        return -1;                                                     /* GCOVR_EXCL_LINE: OOM path */
+    } else if (import_node(dest_handle, NULL, (NodeObject *)node) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        return -1;                                                           /* GCOVR_EXCL_LINE: OOM path */
     }
     return 1;
 }
@@ -3530,7 +3547,7 @@ static int insert_gathered(PyObject *handle, th_node *parent, PyObject *list, th
     if (nodes == NULL) {
         return -1;
     }
-    handle_drop_index(handle);
+    handle_drop_index_edit(handle, parent, nodes, count);
     link_gathered(((HandleObject *)handle)->tree, parent, nodes, count, ref, 0);
     PyMem_Free(nodes);
     return 0;
@@ -3571,8 +3588,8 @@ static int append_one(PyObject *self, th_node *parent, PyObject *item) {
     int fresh = 0;
     while (!node_owned_by(child, handle)) {
         uint64_t version = ((HandleObject *)handle)->mutation_version;
-        if (import_node(handle, child) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-            return -1;                            /* GCOVR_EXCL_LINE: OOM path */
+        if (import_node(handle, NULL, child) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+            return -1;                                  /* GCOVR_EXCL_LINE: OOM path */
         }
         /* the import bumps the version once; a further bump means another thread edited this tree while the import
            gave its lock up, and that edit can have linked the copy */
@@ -3589,7 +3606,7 @@ static int append_one(PyObject *self, th_node *parent, PyObject *item) {
         PyErr_SetString(PyExc_ValueError, message);
         return -1;
     }
-    handle_drop_index(handle);
+    handle_drop_index_edit(handle, parent, &node, 1);
     if (!fresh) {
         th_node_remove_observed(tree, node);
     }
@@ -3902,7 +3919,7 @@ TH_NODE_API(static, PyObject *, element_clear, (PyObject * self, PyObject *ignor
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *parent = ((NodeObject *)self)->node;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, NULL, &parent, 1);
     while (parent->first_child != NULL) {
         th_node_remove_observed(tree_of(self), parent->first_child);
     }
@@ -3938,7 +3955,6 @@ TH_NODE_API(static, PyObject *, element_wrap_children, (PyObject * self, PyObjec
     PyObject *handle = ((NodeObject *)self)->handle;
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle);
-    handle_drop_index(handle);
     th_node *wrapper = adopt_into(handle, parent, wrapper_obj);
     if (wrapper == NULL) {
         error = 1;
@@ -4037,10 +4053,11 @@ static PyObject *sibling_edit(PyObject *self, PyObject *nodes, enum sibling_edit
                                                         keep_self ? NULL : anchor, keep_self ? NULL : anchor, &count);
     if (gathered != NULL) {
         error = 0;
-        handle_drop_index(handle);
+        handle_drop_index_edit(handle, parent, gathered, count);
         link_gathered(((HandleObject *)handle)->tree, parent, gathered, count, anchor, edit == SIBLING_AFTER);
         PyMem_Free(gathered);
         if (!keep_self) {
+            handle_drop_index_edit(handle, NULL, &anchor, 1);
             th_node_remove_observed(((HandleObject *)handle)->tree, anchor);
         }
     }
@@ -4097,7 +4114,6 @@ TH_NODE_API(, PyObject *, node_wrap_in, (PyObject * self, PyObject *wrapper_obj)
     if (wrapped->parent == NULL) {
         standalone = 1;
     } else {
-        handle_drop_index(handle);
         th_node *parent = sibling_parent(wrapped, handle, wrapper_list);
         /* parent is NULL only when another thread detached this node, or on OOM */
         th_node *wrapper = /* GCOVR_EXCL_LINE: detached node or OOM */
@@ -4160,7 +4176,6 @@ TH_NODE_API(, PyObject *, node_wrap_siblings, (PyObject * self, PyObject *args, 
     const char *value_error = NULL;
     PyObject *handle = node->handle;
     Py_BEGIN_CRITICAL_SECTION(handle);
-    handle_drop_index(handle);
     /* The parent and the run are resolved under the lock after the wrapper import;
        reading them earlier could stale them against a concurrent move that relinks
        this node to another parent. */
@@ -4243,7 +4258,7 @@ TH_NODE_API(, PyObject *, node_unwrap, (PyObject * self, PyObject *ignored), (se
     if (parent == NULL) {
         error = 1;
     } else {
-        handle_drop_index(((NodeObject *)self)->handle);
+        handle_drop_index_edit(((NodeObject *)self)->handle, NULL, &node, 1);
         while (node->first_child != NULL) {
             th_node *child = node->first_child;
             th_node_remove_observed(tree_of(self), child);
@@ -4261,7 +4276,7 @@ TH_NODE_API(, PyObject *, node_unwrap, (PyObject * self, PyObject *ignored), (se
 TH_NODE_API(, PyObject *, node_extract, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, NULL, &((NodeObject *)self)->node, 1);
     th_node_remove_observed(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
     return Py_NewRef(self);
@@ -4270,7 +4285,7 @@ TH_NODE_API(, PyObject *, node_extract, (PyObject * self, PyObject *ignored), (s
 TH_NODE_API(, PyObject *, node_decompose, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, NULL, &((NodeObject *)self)->node, 1);
     th_node_remove_observed(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
     Py_RETURN_NONE;
@@ -4288,7 +4303,7 @@ TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, vo
     th_tree *tree = tree_of(self);
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, NULL, &node, 1);
     while (node->first_child != NULL) {
         th_node_remove_observed(tree, node->first_child);
     }
@@ -4635,9 +4650,10 @@ TH_NODE_API(static, PyObject *, element_set_inner_html, (PyObject * self, PyObje
         return NULL;
     }
     th_tree *dest = tree_of(self);
+    th_node *const edited[] = {node, th_tree_document(fragment)};
     int error;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, NULL, edited, 2);
     while (node->first_child != NULL) {
         th_node_remove_observed(dest, node->first_child);
     }
@@ -4680,9 +4696,10 @@ TH_NODE_API(static, PyObject *, element_insert_adjacent_html, (PyObject * self, 
         return NULL;
     }
     th_tree *dest = tree_of(self);
+    th_node *incoming = th_tree_document(fragment);
     int error;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    handle_drop_index(((NodeObject *)self)->handle);
+    handle_drop_index_edit(((NodeObject *)self)->handle, context, &incoming, 1);
     error = splice_fragment(dest, fragment, parent, node, position_kind);
     Py_END_CRITICAL_SECTION();
     th_tree_free(fragment);

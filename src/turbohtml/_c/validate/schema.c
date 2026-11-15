@@ -574,6 +574,7 @@ static int is_schema_el(const struct th_schema *schema, th_node *node, const cha
    `local`, or NULL. */
 static th_node *first_schema_child(const struct th_schema *schema, th_node *node, const char *ns, const char *local) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
         if (is_schema_el(schema, child, ns, local)) {
             return child;
         }
@@ -955,6 +956,9 @@ typedef struct th_schema {
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */
     Py_UCS4 *ws_buffer;
     Py_ssize_t ws_cap;
+    /* the buffer one validate() call copies a long number into to convert it; see dt_value_double */
+    char *number_buffer;
+    Py_ssize_t number_cap;
     /* XSD position sets of one validate() call that no matcher holds, and the length they were made for */
     struct posset_spare *posset_spares;
     Py_ssize_t posset_size;
@@ -968,6 +972,11 @@ typedef struct th_schema {
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
+    /* the children XSD validation asks a schema element for, one entry per parent that has any */
+    struct xchild_entry *child_entries;
+    size_t child_count, child_cap;
+    /* per sqnames entry of an XSD schema, at the same index: what xsd_cache_facets classified the element as */
+    struct xnode *xnodes;
     /* the xmlns declarations in scope on the instance walk of one validate() call */
     nsscope ns;
     int complex_extension; /* a complexContent extension exists, so the compile-time xs:all extension check has work to
@@ -1631,6 +1640,8 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     local.regex_scratch = NULL;
     local.ws_buffer = NULL;
     local.ws_cap = 0;
+    local.number_buffer = NULL;
+    local.number_cap = 0;
     local.posset_spares = NULL;
     local.edecl_items = NULL;
     local.edecl_cap = 0;
