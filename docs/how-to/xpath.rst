@@ -141,6 +141,11 @@ limits:
   :class:`ValueError`.
 - ``replace`` and ``re:replace`` hold at most 10 MiB of capture slots, which grow with the compiled size times the group
   count.
+- One XPath evaluation may add 16,777,216 characters (64 MiB) beyond its inputs through ``replace``, ``re:replace``,
+  ``str:replace``, ``str:padding`` and ``string-join`` before it raises :class:`ValueError`. A replacement spends the
+  characters its result has beyond its input, a ``string-join`` of ``n`` members spends the separator's length ``n - 2``
+  times, and ``str:padding`` spends the characters beyond its pattern. Nested calls draw on the same allowance, and a
+  predicate gets back what it spent on a node once that node is decided.
 - One XPath evaluation may spend 10,000,000 matching steps plus 100 for each character it searches before it raises
   :class:`ValueError`. Matching spends one step at each position of the text it visits, one more for every eight states
   of the pattern alive there and, in a ``replace``, one for every 64 capture slots those states carry. Ordinary patterns

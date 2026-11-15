@@ -4,6 +4,7 @@
 #include "query/xpath/regex.h"
 
 #include "core/ascii.h"
+#include "core/hash.h"
 #include "core/pycompat.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
@@ -96,6 +97,10 @@ typedef struct {
 #define XR_MAX_BYTES ((size_t)10 << 20)
 #define XR_MAX_CODE ((int32_t)(XR_MAX_BYTES / sizeof(xr_inst)))
 #define XR_MAX_TRAIL ((Py_ssize_t)(XR_MAX_BYTES / sizeof(xr_frame)))
+/* What replacing, joining and padding may add to their inputs in one evaluation. The allowance belongs to the
+   evaluation rather than to each call, since one call's result is the next call's input and a per-call share would
+   multiply with nesting. 64 MiB of characters leaves room for large documents to be rewritten in place. */
+#define XR_MAX_GROWTH ((Py_ssize_t)(((size_t)64 << 20) / sizeof(Py_UCS4)))
 /* PCRE2's default match_limit, plus a per-character share so a long text is not starved: 100 is five times the 18 a
    global replace of (\w+)\W+\1 over prose spends, the heaviest common pattern measured. */
 #define XR_BUDGET_BASE 10000000
@@ -2019,24 +2024,56 @@ typedef struct {
     Py_UCS4 *text;
     Py_ssize_t len;
     Py_ssize_t cap;
+    Py_ssize_t limit; /* the input's length plus the growth the evaluation still allows */
 } xr_buffer;
 
+static int xr_overgrown(void) {
+    PyErr_Format(
+        PyExc_ValueError,
+        "replacing, joining and padding add more than %zd characters (64 MiB) to their inputs in this XPath "
+        "evaluation; shorten the replacement, separator or padding, or replace fewer matches or join fewer items",
+        XR_MAX_GROWTH);
+    return -1;
+}
+
+int xr_charge_growth(xr_cache *cache, Py_ssize_t length, Py_ssize_t copies) {
+    if (length > (XR_MAX_GROWTH - cache->grown) / copies) {
+        return xr_overgrown();
+    }
+    cache->grown += length * copies;
+    return 0;
+}
+
+/* Grow the buffer for len more characters, never past its limit. Out of line, so the appends of a replace stay small
+   enough to inline where they are used. */
+static TH_NOINLINE int xr_buffer_grow(xr_buffer *buffer, Py_ssize_t len) {
+    if (len > buffer->limit - buffer->len) {
+        return xr_overgrown();
+    }
+    size_t cap, bytes;
+    /* GCOVR_EXCL_BR_START: size overflow */
+    if (!th_grow_cap((size_t)(buffer->len + len), (size_t)buffer->cap, 64, sizeof(Py_UCS4), &cap, &bytes)) {
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    if ((Py_ssize_t)cap > buffer->limit) {
+        cap = (size_t)buffer->limit;
+        bytes = cap * sizeof(Py_UCS4);
+    }
+    Py_UCS4 *grown = PyMem_Realloc(buffer->text, bytes);
+    if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    buffer->text = grown;
+    buffer->cap = (Py_ssize_t)cap;
+    return 0;
+}
+
 static int xr_append(xr_buffer *buffer, const Py_UCS4 *text, Py_ssize_t len) {
-    if (buffer->len + len > buffer->cap) {
-        size_t cap, bytes;
-        /* GCOVR_EXCL_BR_START: size overflow */
-        if (!th_grow_cap((size_t)(buffer->len + len), (size_t)buffer->cap, 64, sizeof(Py_UCS4), &cap, &bytes)) {
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
-            return -1;        /* GCOVR_EXCL_LINE */
-        }
-        /* GCOVR_EXCL_BR_STOP */
-        Py_UCS4 *grown = PyMem_Realloc(buffer->text, bytes);
-        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;        /* GCOVR_EXCL_LINE */
-        }
-        buffer->text = grown;
-        buffer->cap = (Py_ssize_t)cap;
+    if (buffer->len + len > buffer->cap && xr_buffer_grow(buffer, len) < 0) {
+        return -1;
     }
     if (len > 0) {
         memcpy(buffer->text + buffer->len, text, (size_t)len * sizeof(Py_UCS4));
@@ -2263,8 +2300,8 @@ static int xr_expand(xr_buffer *buffer, const xr_template *template, const Py_UC
             /* a group that did not take part in the match stands for the empty string */
             rc = from < 0 ? 0 : xr_append(buffer, text + from, spans[2 * part->group + 1] - from);
         }
-        if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (rc < 0) {
+            return -1;
         }
     }
     return 0;
@@ -2284,7 +2321,7 @@ int xr_replace(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, 
     }
     xr_template template = {0};
     template.error = error;
-    xr_buffer buffer = {0};
+    xr_buffer buffer = {.limit = text_len + XR_MAX_GROWTH - cache->grown};
     int rc = xr_template_parse(&template, program, replacement, replacement_len, xpath_syntax);
     Py_ssize_t last = 0;
     Py_ssize_t pos = 0;
@@ -2295,12 +2332,10 @@ int xr_replace(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, 
             rc = found;
             break;
         }
-        /* GCOVR_EXCL_BR_START: allocation failure */
         if (xr_append(&buffer, text + last, spans[0] - last) < 0 || xr_expand(&buffer, &template, text, spans) < 0) {
-            rc = -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;   /* GCOVR_EXCL_LINE */
+            rc = -1;
+            break;
         }
-        /* GCOVR_EXCL_BR_STOP */
         last = spans[1];
         pos = spans[1];
         must_advance = spans[0] == spans[1];
@@ -2321,6 +2356,9 @@ int xr_replace(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, 
     if (rc < 0) {
         PyMem_Free(buffer.text);
         return -1;
+    }
+    if (buffer.len > text_len) {
+        cache->grown += buffer.len - text_len;
     }
     *out = buffer.text;
     *out_len = buffer.len;

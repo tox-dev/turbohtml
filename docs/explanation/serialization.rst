@@ -311,6 +311,16 @@ attribute *value* -- the start-tag bytes live in the source, independent of the 
 flags a located element's start tag when it sets or deletes an attribute, and the walk rebuilds that one tag from the
 current attributes while leaving its end tag, its children, and its siblings verbatim.
 
+An element the source never closed is the one place the walk writes more than the source held. What closed it is not
+always written back in its place: the parser drops the ``<body>`` that breaks out of an ``<svg>`` and a second
+``<select>``, foster parenting moves content ahead of its table, and an edit can remove the sibling whose start tag did
+the closing. Such an element therefore goes without an end tag only where HTML makes the tag optional for the tree as it
+stands -- the rule the minifier applies, so ``<li>one<li>two`` stays as written -- and a foreign element only when its
+own ``/>`` closed it. Any other gets the end tag the parse implied, which keeps a reparse on the same tree. The rule
+errs toward the end tag as it does for the minifier, with one difference: a formatting element such as ``<a>`` or
+``<b>`` blocks leaving out an optional end tag inside it or right after it only when the source did not close it, so
+``<li><a href=x>y</a><li>`` stays as written.
+
 What round-trips byte for byte is therefore the tree that faithfully mirrors the source: input that parses without
 implied elements or content reordering. A document that spells out its structure (``<html>``, ``<head>``, ``<body>``, an
 explicit ``<tbody>``) reproduces exactly; a fragment reproduces through its children. Two normalizations the parser

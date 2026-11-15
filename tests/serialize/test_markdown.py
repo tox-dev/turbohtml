@@ -1512,6 +1512,63 @@ def test_list_item_below_foreign_parent() -> None:
     assert item.to_markdown() == "- x"
 
 
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param((0, 1, 2, 3, 4, 5, 6, 7), id="document-order"),
+        pytest.param((7, 6, 5, 4, 3, 2, 1, 0), id="reverse-order"),
+        pytest.param((2, 7, 0, 3, 5, 1, 4, 6), id="mixed-order"),
+    ],
+)
+def test_list_items_selected_one_by_one_keep_their_numbers(order: tuple[int, ...]) -> None:
+    # a call counts on from the nearest earlier item a call before it numbered, whichever order the calls come in;
+    # the list counts what its wrappers hold, a nested list's items included, and those items number from their own list
+    items = parse_fragment(
+        '<ol start="3"><li>a</li> <div><li value="8">b</li><ol><li>n</li><li>m</li></ol><span>s</span><li>c</li></div>'
+        "<ul><li>u</li></ul><menu><li>v</li></menu><li>d</li></ol>"
+    ).select("li")
+    expected = ("3. a", "8. b", "1. n", "2. m", "11. c", "- u", "- v", "14. d")
+    assert [items[index].to_markdown() for index in order] == [expected[index] for index in order]
+
+
+def test_list_item_numbers_follow_a_change() -> None:
+    first, second, third = parse_fragment("<ol><li>a</li><li>b</li><li>c</li></ol>").select("li")
+    assert [item.to_markdown() for item in (first, second, third)] == ["1. a", "2. b", "3. c"]
+    first.attrs["value"] = "5"
+    assert [item.to_markdown() for item in (third, second)] == ["7. c", "6. b"]
+    first.extract()
+    assert [item.to_markdown() for item in (third, second)] == ["2. c", "1. b"]
+
+
+def test_item_behind_wrappers_follows_a_change() -> None:
+    root = parse("<ol><div><hr><div><li>a</li></div></div></ol>")
+    outer = root.select("div")[0]
+    item = root.select("li")[0]
+    assert item.to_markdown() == "- a"
+    outer.append(parse_fragment("<li>b</li>").select("li")[0])
+    assert item.to_markdown() == "1. a"
+
+
+def test_each_item_of_a_long_ordered_list_converts_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(_each_item_to_markdown, parse(f"<ol>{'<li>row <em>k</em>' * n}")), (400, 1600)
+    )
+
+
+def _each_item_to_markdown(document: Node) -> None:
+    for item in document.select("li"):
+        item.to_markdown()
+
+
+def test_each_item_behind_wrappers_converts_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(
+            _each_item_to_markdown, parse(f"<ul><article>{'<br>' * n}<article>{'<li>row</li>' * n}</article></article>")
+        ),
+        (400, 1600),
+    )
+
+
 def test_ordered_list_item_value() -> None:
     assert md('<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>') == (
         '<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>'
@@ -2359,6 +2416,8 @@ def test_raw_table_respects_ignored_emphasis() -> None:
         pytest.param("<p>- not a bullet</p>", "\\- not a bullet", id="escape-line-start-dash"),
         pytest.param("<p>&gt; not a quote</p>", "\\> not a quote", id="escape-line-start-gt"),
         pytest.param("<p>+ not a bullet</p>", "\\+ not a bullet", id="escape-line-start-plus"),
+        pytest.param("<p><sub>- x</sub></p>", "\\- x", id="escape-line-start-after-empty-run"),
+        pytest.param("<p>a<br><sup>1. x</sup></p>", "a  \n1\\. x", id="escape-line-start-after-break-in-empty-run"),
         pytest.param("<p>mid - dash stays</p>", "mid - dash stays", id="no-escape-mid-line-dash"),
     ],
 )
@@ -4106,7 +4165,7 @@ def test_text_after_html_block_stays_text(html: str, config: Markdown) -> None:
         pytest.param(
             "<p><b><img><br>x</b></p>",
             Markdown(images=Markdown.Images(mode="alt")),
-            "**\\\nx**",
+            "\\\n**x**",
             id="break-after-empty-image-in-emphasis",
         ),
         pytest.param("<p><i><br><br></i><br>q</p>", Markdown(), "<br><br>  \nq", id="spaces-after-two-tags"),
@@ -4775,6 +4834,51 @@ def test_alt_only_image_text_on_detached_inline_element() -> None:
 def test_alt_only_image_text_follows_escaping_mode() -> None:
     opts: Final = Markdown(images=Markdown.Images(mode="alt"), escaping=Markdown.Escaping(mode="none"))
     assert parse('<p><img alt="[a] &lt;b&gt;"></p>').to_markdown(opts) == "[a] <b>"
+
+
+@pytest.mark.parametrize(
+    ("html", "opts", "expected"),
+    [
+        pytest.param("<strong><img></strong>", Markdown(images=Markdown.Images(mode="alt")), "", id="image-no-alt"),
+        pytest.param(
+            "<strong><img><br>z</strong>",
+            Markdown(images=Markdown.Images(mode="alt")),
+            "  \n**z**",
+            id="image-no-alt-break",
+        ),
+        pytest.param(
+            "<strong><img></strong>",
+            Markdown(images=Markdown.Images(mode="alt", default_alt="pic")),
+            " **pic**",
+            id="image-default-alt",
+        ),
+        pytest.param(
+            "<em><q></q></em>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="")),
+            " <em></em>",
+            id="quote-no-marks",
+        ),
+        pytest.param(
+            "<em><q><br>z</q></em>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="")),
+            " *\\\nz*",
+            id="quote-no-marks-break",
+        ),
+    ],
+)
+def test_emphasis_run_with_nothing_written_after_it(html: str, opts: Markdown, expected: str) -> None:
+    lead = "lorem ipsum dolor " * 6
+    paragraph = parse(f"<p>{lead}{html}</p>").find("p")
+    assert paragraph is not None
+    assert paragraph.to_markdown(opts) == lead.rstrip() + expected
+
+
+def test_alt_image_with_empty_alt_opens_no_emphasis() -> None:
+    document = parse("<p>a <em><img alt=x></em> b</p>")
+    image = document.find("img")
+    assert image is not None
+    image.attrs["alt"] = ""
+    assert document.to_markdown(Markdown(images=Markdown.Images(mode="alt", default_alt="pic"))) == "a b"
 
 
 @pytest.mark.parametrize(
