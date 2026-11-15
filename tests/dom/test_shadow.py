@@ -21,9 +21,13 @@ from turbohtml import (
     parse_fragment,
     parse_xml,
 )
+from turbohtml.clean import Linkify, linkify_node, strip_comments_node
+from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
+
+    from work_steps import WorkSteps
 
 
 @pytest.fixture
@@ -587,6 +591,16 @@ def test_a_dummy_same_length_attribute_is_not_shadowrootmode() -> None:
     assert _declarative_shadow_element(parse(markup).find(id="h")).shadow_root is not None
 
 
+_UTF16_ORDER: Final[str] = "utf-16-le" if sys.byteorder == "little" else "utf-16-be"
+
+
+def test_a_wide_attribute_whose_bytes_spell_shadowrootmode_is_not_shadowrootmode() -> None:
+    name = b"shadowrootmode".decode(_UTF16_ORDER) + "-" * 7
+    host = _declarative_shadow_element(parse(f"<div id=h><template {name}=open>x</template></div>").find(id="h"))
+    assert host.shadow_root is None
+    assert host.find("template") is not None
+
+
 def test_template_at_the_document_root_is_not_declarative() -> None:
     # the adjusted current node is the topmost element, so it makes a normal template
     doc = parse("<template shadowrootmode=open>x</template>")
@@ -714,6 +728,269 @@ def test_flattened_children_follow_a_slot_assigned_into_a_nested_shadow_tree() -
     inner: Final = _element(outer_root.select_one("section"))
     inner.attach_shadow().set_inner_html('<slot name="a"></slot><slot name="b"></slot>')
     assert [node.serialize() for node in inner.flattened_children] == ['<p slot="x">X</p>']
+
+
+def test_assigned_slot_of_every_child_stays_linear(work_steps: WorkSteps) -> None:
+    def read_every_child(count: int) -> Callable[[], object]:
+        host: Final = Element("div")
+        host.set_inner_html("<p></p>" * count)
+        root: Final = host.attach_shadow()
+        root.set_inner_html(f"{'<p></p>' * count}<slot></slot>")
+        children: Final = host.children
+        return lambda: [child.assigned_slot for child in children]
+
+    work_steps.assert_linear(read_every_child, (500, 2000))
+
+
+def test_assigned_slot_after_unrelated_attribute_edits_stays_linear(work_steps: WorkSteps) -> None:
+    def edit_then_read(count: int) -> Callable[[], object]:
+        host: Final = Element("div")
+        host.set_inner_html("<p></p>" * count)
+        root: Final = host.attach_shadow()
+        root.set_inner_html(f"{'<p></p>' * count}<slot></slot>")
+        paragraphs: Final = host.select("p")
+
+        def edit_and_read() -> list[Node | None]:
+            slots: list[Node | None] = []
+            for child in paragraphs:
+                child.attrs["class"] = "seen"
+                slots.append(child.assigned_slot)
+            return slots
+
+        return edit_and_read
+
+    work_steps.assert_linear(edit_then_read, (500, 2000))
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        pytest.param(lambda paragraph: paragraph.flattened_children, id="flattened-children"),
+        pytest.param(lambda paragraph: paragraph.select("slot")[0].assigned_nodes(), id="assigned-nodes"),
+        pytest.param(lambda paragraph: paragraph.select("slot")[0].assigned_nodes(flatten=True), id="flatten"),
+    ],
+)
+def test_slot_reads_across_a_shadow_tree_stay_linear(read: Callable[[Element], object], work_steps: WorkSteps) -> None:
+    def read_each_paragraph(count: int) -> Callable[[], object]:
+        host: Final = Element("div")
+        host.set_inner_html("<p></p>" * count)
+        root: Final = host.attach_shadow()
+        root.set_inner_html('<p><slot name="unused"></slot></p>' * count)
+        paragraphs: Final = root.select("p")
+        return lambda: [read(paragraph) for paragraph in paragraphs]
+
+    work_steps.assert_linear(read_each_paragraph, (500, 2000))
+
+
+def test_slot_names_that_collide_stay_linear(work_steps: WorkSteps) -> None:
+    def read_every_child(count: int) -> Callable[[], object]:
+        names: Final = _colliding_names(count)
+        host: Final = Element("div")
+        host.set_inner_html("".join(f'<b slot="{name}"></b>' for name in names))
+        root: Final = host.attach_shadow()
+        root.set_inner_html("".join(f'<slot name="{name}"></slot>' for name in names))
+        children: Final = host.select("b")
+        return lambda: ([child.assigned_slot for child in children], host.flattened_children)
+
+    work_steps.assert_linear(read_every_child, (200, 800))
+
+
+def _colliding_names(count: int) -> list[str]:
+    # The last code point makes each name's FNV-1a hash end in eight zero bits, so every table of up to 256 buckets
+    # homes all of them in one run, which only a keyed rehash can break up.
+    names: list[str] = []
+    for index in range(count):
+        state = 2166136261
+        prefix = f"n{index}"
+        for character in prefix:
+            state = ((state ^ ord(character)) * 16777619) & 0xFFFFFFFFFFFFFFFF
+        names.append(prefix + chr(0x4000 + (state & 0xFF)))
+    return names
+
+
+def test_slot_names_that_collide_find_their_own_slots() -> None:
+    names: Final = _colliding_names(200)
+    host: Final = Element("div")
+    host.set_inner_html("".join(f'<b slot="{name}"></b>' for name in names))
+    root: Final = host.attach_shadow()
+    root.set_inner_html("".join(f'<slot name="{name}"></slot>' for name in names))
+    children: Final = host.select("b")
+    slots: Final = root.select("slot")
+    for _ in range(2):  # the second read copies a bucket
+        assert [child.assigned_slot for child in children] == slots
+    assert host.flattened_children == children
+
+
+def test_flattened_children_alternate_between_two_shadow_trees() -> None:
+    outer: Final = Element("div")
+    outer.set_inner_html('<p slot="x">b</p><p>a</p>')
+    outer_root: Final = outer.attach_shadow()
+    outer_root.set_inner_html('<div><slot slot="inner" name="x"></slot></div>')
+    inner: Final = _element(outer_root.select_one("div"))
+    inner.attach_shadow().set_inner_html('<slot name="inner"></slot>')
+    assert [node.text for node in inner.flattened_children] == ["b"]
+
+
+# walked before every slot, so each scan is long enough to count toward the slot cache
+_PADDING: Final[str] = "<b></b>" * 32
+# every 64th scan of a handle is counted, from its first, and the second long one starts the slot cache
+_SCANS_BEFORE_CACHE: Final[int] = 65
+
+
+def test_assigned_slot_resumes_the_slot_walk() -> None:
+    host: Final = Element("div")
+    host.set_inner_html('<i slot="a"></i><i slot="b"></i>text<i slot="missing"></i><i></i>')
+    root: Final = host.attach_shadow()
+    root.set_inner_html(
+        f'{_PADDING}<slot name="a"></slot><p><slot name="a"></slot></p><slot name="b"></slot><slot></slot>'
+    )
+    first, _, second, default = root.select("slot")
+    named, other, text, missing, plain = host.children
+    _start_slot_cache(plain)
+    # each read walks on from where the last one stopped: to the first a, past its duplicate to the end of the tree for
+    # a name no slot has, and after that not at all
+    order: Final = [named, missing, other, text, missing, plain, named]
+    assert [node.assigned_slot for node in order] == [first, None, second, default, None, default, first]
+
+
+def _start_slot_cache(child: Node) -> None:
+    # the slot reads after these go through the slot cache
+    _ = [child.assigned_slot for _ in range(_SCANS_BEFORE_CACHE)]
+
+
+def test_assigned_nodes_of_every_slot_match_on_every_read() -> None:
+    host: Final = Element("div")
+    names: Final = "".join(f'<i slot="name-{index}">{index}</i>' for index in range(8))
+    host.set_inner_html(
+        f'<!--skipped--><i slot="a">1</i>text<i slot="missing">2</i><i slot="b">3</i><i slot="a">4</i>{names}'
+    )
+    root: Final = host.attach_shadow()
+    slots: Final = "".join(f'<slot name="{name}"></slot>' for name in ("b", *(f"name-{index}" for index in range(8))))
+    root.set_inner_html(
+        f'{_PADDING}<slot name="a"></slot><slot name="empty"></slot><slot name="a"></slot><p><slot></slot></p>{slots}'
+    )
+    expected: Final = [["1", "4"], [], [], ["text"], ["3"], *([str(index)] for index in range(8))]
+    scanned: Final = [[node.text for node in slot.assigned_nodes()] for slot in root.select("slot")]
+    _start_slot_cache(host.select("i")[0])
+    # the cache's first read buckets the host's children, and the rest copy a bucket
+    cached: Final = [[[node.text for node in slot.assigned_nodes()] for slot in root.select("slot")] for _ in range(2)]
+    assert (scanned, cached) == (expected, [expected] * 2)
+
+
+def test_assigned_nodes_of_a_slot_outside_a_shadow_tree() -> None:
+    slot: Final = Element("slot")
+    # one read in every 64 takes the sampled path, which has to stop at a slot with no shadow root above it
+    assert [slot.assigned_nodes() for _ in range(_SCANS_BEFORE_CACHE)] == [[]] * _SCANS_BEFORE_CACHE
+
+
+def test_assigned_nodes_of_a_host_holding_only_comments() -> None:
+    host: Final = Element("div")
+    host.set_inner_html("<!--comment-->" * 32)
+    root: Final = host.attach_shadow()
+    root.set_inner_html("<slot>fallback</slot>")
+    slot: Final = root.select("slot")[0]
+    # the comments make each scan long, so the last read goes through the slot cache
+    assert [slot.assigned_nodes() for _ in range(_SCANS_BEFORE_CACHE + 1)] == [[]] * (_SCANS_BEFORE_CACHE + 1)
+
+
+def test_normalize_reassigns_merged_text() -> None:
+    host: Final = Element("div", children=[Text("a"), Text(""), Text("b")])
+    root: Final = host.attach_shadow()
+    root.set_inner_html(f"{_PADDING}<slot></slot>")
+    slot: Final = root.select("slot")[0]
+    _start_slot_cache(host.children[0])
+    # the read buckets the host's children in the slot cache, which normalize then has to drop
+    before: Final = [node.text for node in slot.assigned_nodes()]
+    host.normalize()
+    assert (before, [node.text for node in slot.assigned_nodes()], slot.assigned_nodes()) == (
+        ["a", "", "b"],
+        ["ab"],
+        list(host.children),
+    )
+
+
+def test_linkify_node_reassigns_the_text_it_splits() -> None:
+    host: Final = Element("div")
+    host.set_inner_html("see http://example.com now")
+    root: Final = host.attach_shadow()
+    root.set_inner_html(f"{_PADDING}<slot></slot>")
+    slot: Final = root.select("slot")[0]
+    _start_slot_cache(host.children[0])
+    before: Final = [node.text for node in slot.assigned_nodes()]
+    # a vetoed link stays text, so no attribute write announces that three Text nodes replaced the one
+    linkify_node(host, Linkify(callbacks=[lambda link: None]))  # ruff:ignore[unused-lambda-argument]  # the callback vetoes every link
+    assert (before, [node.text for node in slot.assigned_nodes()], slot.assigned_nodes()) == (
+        ["see http://example.com now"],
+        ["see ", "http://example.com", " now"],
+        list(host.children),
+    )
+
+
+def test_linkify_node_reassigns_the_anchor_it_unwraps() -> None:
+    host: Final = Element("div")
+    host.set_inner_html('<a href="http://example.com/" slot="named">text</a>')
+    root: Final = host.attach_shadow()
+    root.set_inner_html(f'{_PADDING}<slot name="named"></slot><slot></slot>')
+    named, default = root.select("slot")
+    _start_slot_cache(host.children[0])
+    before: Final = (_tags(named.assigned_nodes()), default.assigned_nodes())
+    veto: Final = Linkify(callbacks=[lambda link: None], process_existing=True)  # ruff:ignore[unused-lambda-argument]  # the callback vetoes every link
+    linkify_node(host, veto)
+    assert (before, named.assigned_nodes(), default.assigned_nodes()) == ((["a"], []), [], list(host.children))
+
+
+def test_transform_keeps_shadow_assignments_matching_the_source() -> None:
+    document: Final = parse("<div> <b>x</b> </div>")
+    host: Final = _element(document.find("div"))
+    root: Final = host.attach_shadow()
+    root.set_inner_html(f"{_PADDING}<slot></slot>")
+    slot: Final = root.select("slot")[0]
+    _start_slot_cache(host.children[1])
+    assert slot.assigned_nodes() == list(host.children)
+    stylesheet: Final = Transform(
+        parse_xml(
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:strip-space elements="*"/><xsl:output method="text"/>'
+            '<xsl:template match="/">x</xsl:template></xsl:stylesheet>'
+        )
+    )
+    assert stylesheet(document) == "x"
+    assert slot.assigned_nodes() == list(host.children)
+
+
+def test_assigned_slot_resumes_after_comments_are_stripped() -> None:
+    host: Final = Element("div")
+    host.set_inner_html('<b slot="early"></b><i slot="late"></i>')
+    root: Final = host.attach_shadow()
+    root.set_inner_html(f'{_PADDING}<slot name="early"></slot><!--next--><slot name="late"></slot>')
+    _start_slot_cache(host.children[0])
+    # stripping comments drops no cache, so the walk that found the first slot must not be resting on the comment
+    before: Final = host.children[0].assigned_slot
+    strip_comments_node(root)
+    assert [before, host.children[1].assigned_slot] == root.select("slot")
+
+
+def test_assigned_slot_follows_edits_in_every_host() -> None:
+    section: Final = Element("section")
+    section.set_inner_html("<div><b>x</b><i>y</i></div>" * 6)
+    for host in section.select("div"):
+        host.attach_shadow().set_inner_html(f'{_PADDING}<slot name="named"></slot><slot></slot>')
+    children: Final = section.select("b, i")
+
+    def names() -> list[str | list[str] | None]:
+        return [_element(child.assigned_slot).attrs.get("name") for child in children]
+
+    _start_slot_cache(children[0])
+    before: Final = names()
+    children[3].attrs["slot"] = "named"
+    renamed: Final = names()
+    _start_slot_cache(children[0])
+    _shadow(section.select("div")[4].shadow_root).select("slot")[1].extract()
+    assert (before, renamed, [child.assigned_slot is None for child in children]) == (
+        [None] * 12,
+        [None, None, None, "named", None, None, None, None, None, None, None, None],
+        [False, False, False, False, False, False, False, False, True, True, False, False],
+    )
 
 
 def test_shadow_flatten_keeps_sibling_fallback_order() -> None:
@@ -1138,3 +1415,70 @@ def test_sibling_insert_rejects_a_bad_argument_before_moving_anything(argument: 
     with pytest.raises(TypeError, match=message):
         target.children[0].insert_before(first, argument)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     assert target.html == '<div id="a"><i></i></div>'
+
+
+def _rename_and_restore(node: Element) -> None:
+    node.attrs["name"] = "not-a-slot"
+    del node.attrs["name"]
+
+
+def _set_attribute(node: Element, name: str, value: str) -> None:
+    node.attrs[name] = value
+
+
+def _delete_attribute(node: Element, name: str) -> None:
+    del node.attrs[name]
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        pytest.param(
+            lambda one, _, __: _set_attribute(one, "title", "unrelated"),
+            ("first", "second", ["one"], ["two"]),
+            id="unrelated-attribute",
+        ),
+        pytest.param(
+            lambda one, _, __: _rename_and_restore(one), ("first", "second", ["one"], ["two"]), id="name-off-a-slot"
+        ),
+        pytest.param(
+            lambda one, _, __: _set_attribute(one, "slot", "b"),
+            ("second", "second", [], ["one", "two"]),
+            id="slot-write",
+        ),
+        pytest.param(
+            lambda _, two, __: _delete_attribute(two, "slot"), ("first", None, ["one"], []), id="slot-removal"
+        ),
+        pytest.param(
+            lambda _, __, first: _set_attribute(first, "name", "b"), (None, "first", ["two"], []), id="slot-name-write"
+        ),
+        pytest.param(
+            lambda _, __, first: _delete_attribute(first, "name"), (None, "second", [], ["two"]), id="slot-name-removal"
+        ),
+        pytest.param(lambda one, _, __: one.attrs.clear(), (None, "second", [], ["two"]), id="attributes-cleared"),
+    ],
+)
+def test_slot_cache_follows_slot_attribute_edits(
+    edit: Callable[[Element, Element, Element], object],
+    expected: tuple[str | None, str | None, list[str], list[str]],
+) -> None:
+    host: Final = Element("div")
+    host.set_inner_html('<span slot="a">one</span><span slot="b">two</span>')
+    root: Final = host.attach_shadow()
+    root.set_inner_html(f'{_PADDING}<slot name="a"></slot><slot name="b"></slot>')
+    first, second = root.select("slot")
+    one, two = host.select("span")
+    labels: Final = {"one": one, "two": two, "first": first, "second": second}
+
+    def label(node: Node | None) -> str | None:
+        return next((name for name, known in labels.items() if known == node), None)
+
+    _start_slot_cache(one)
+    assert first.assigned_nodes() == [one]  # buckets the host's children in the slot cache
+    edit(one, two, first)
+    assert (
+        label(one.assigned_slot),
+        label(two.assigned_slot),
+        [label(node) for node in first.assigned_nodes()],
+        [label(node) for node in second.assigned_nodes()],
+    ) == expected

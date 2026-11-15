@@ -1572,6 +1572,20 @@ def test_regex_nesting_needs_no_c_stack(shape: str, expected: str) -> None:
             id="shared-budget",
         ),
         pytest.param(
+            "x" * 24_000,
+            "re:test(/r, '^(x+)\\1y')",
+            r"regular expression back-references need more than 12400000 backtracking steps \(10000000 plus 100 per "
+            r"character searched in this XPath evaluation\); simplify the pattern or drop the back-reference$",
+            id="long-group",
+        ),
+        pytest.param(
+            "x" * 24_000,
+            "re:test(/r, '^(x+)\\1y', 'i')",
+            r"regular expression back-references need more than 12400000 backtracking steps \(10000000 plus 100 per "
+            r"character searched in this XPath evaluation\); simplify the pattern or drop the back-reference$",
+            id="long-group-ignore-case",
+        ),
+        pytest.param(
             "a" * 700_000,
             "re:test(/r, '(x)?a*\\1')",
             r"regular expression back-references need more than 655360 saved backtracking positions \(10 MiB\); "

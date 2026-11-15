@@ -1008,6 +1008,7 @@ typedef struct engine {
     Py_ssize_t ctx_size;
     int gen_counter;
     int depth;
+    int key_builds; /* key tables being built, each nested in the use expression of the one before */
 #if defined(__linux__)
     uintptr_t stack_floor; /* enter_deep_level's bound for the thread of this run; 0 until its first checked level */
 #endif
@@ -1512,6 +1513,9 @@ static void scope_bindings(engine *eng, xp_binding *storage, xp_bindings *out) {
 
 /* ---- the XSLT extension functions ----------------------------------------- */
 
+enum xslt_level { XSLT_LEVEL_TEMPLATE, XSLT_LEVEL_SOURCE, XSLT_LEVEL_ATTRSET, XSLT_LEVEL_KEY };
+
+static int enter_deep_level(engine *eng, enum xslt_level level, const xslt_attrset *set);
 static int build_key(engine *eng, xslt_key *key);
 
 static int copy_result_value(const xp_result *src, xp_result *dst);
@@ -1959,8 +1963,7 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
 /* Populate one key's string->node table: for every source node the key match
    pattern selects, evaluate the use expression and index the node under each
    resulting string value. */
-static int build_key(engine *eng, xslt_key *key) {
-    key->built = 1;
+static int fill_key(engine *eng, xslt_key *key) {
     xp_result matched;
     const char *feature = NULL;
     xslt_pattern_scope scope = {.eng = eng, .instruction = key->instruction};
@@ -2060,6 +2063,23 @@ static int build_key(engine *eng, xslt_key *key) {
     }
     xp_result_free(&matched);
     return 0;
+}
+
+/* A use expression may call key() on a key that is not built yet, which builds that one from inside this build, so a
+   chain of keys nests here. Each build takes a level of the template-nesting cap. A nested build also checks the stack
+   at any depth: a level of the chain, with its use expression, takes several times the stack XSLT_STACK_CHECK_DEPTH
+   assumes, so 32 unchecked levels overflow a 128 KiB thread, and a key builds at most once per run. */
+static int build_key(engine *eng, xslt_key *key) {
+    if ((++eng->depth > XSLT_STACK_CHECK_DEPTH || eng->key_builds > 0) &&
+        enter_deep_level(eng, XSLT_LEVEL_KEY, NULL) < 0) {
+        return -1;
+    }
+    key->built = 1;
+    eng->key_builds++;
+    int rc = fill_key(eng, key);
+    eng->key_builds--;
+    eng->depth--;
+    return rc;
 }
 
 static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched) {
@@ -2699,8 +2719,6 @@ static int raise_attrset_depth(engine *eng, const xslt_attrset *set) {
     return fail_py(eng);
 }
 
-enum xslt_level { XSLT_LEVEL_TEMPLATE, XSLT_LEVEL_SOURCE, XSLT_LEVEL_ATTRSET };
-
 /* Admit a level deeper than XSLT_STACK_CHECK_DEPTH, or release it and raise RecursionError when it passes the cap or
    the thread's C stack has no room for it; `set` names the attribute set of an XSLT_LEVEL_ATTRSET level. Keeping the
    cap here lets each caller test one condition, which the cap's tests drive both ways, and leaves shallow levels one
@@ -2716,6 +2734,13 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
         if (level == XSLT_LEVEL_ATTRSET) {
             return raise_attrset_depth(eng, set);
         }
+        if (level == XSLT_LEVEL_KEY) {
+            PyErr_Format(PyExc_RecursionError,
+                         "xslt: building an xsl:key exceeds the nesting limit of %d levels, which key() calls in use "
+                         "expressions share with template nesting; shorten the chain of keys",
+                         XSLT_MAX_DEPTH);
+            return fail_py(eng);
+        }
         if (level == XSLT_LEVEL_SOURCE) {
             PyErr_Format(PyExc_RecursionError,
                          "xslt: source nesting exceeds %d levels for the built-in template rules; reduce the input "
@@ -2729,12 +2754,6 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
                      XSLT_MAX_DEPTH);
         return fail_py(eng);
     }
-    /* only the 3.11-3.13 coverage jobs leave this branch untaken */
-    if (Py_EnterRecursiveCall(" while applying an XSLT stylesheet") != 0) { /* GCOVR_EXCL_BR_LINE */
-        eng->depth--;                                                       /* GCOVR_EXCL_LINE */
-        return fail_py(eng);                                                /* GCOVR_EXCL_LINE */
-    }
-    Py_LeaveRecursiveCall();
 #if defined(__linux__)
     if (eng->stack_floor == 0) {
         eng->stack_floor = find_stack_floor();
@@ -2748,6 +2767,13 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
         return fail_py(eng);
     }
 #endif
+    /* after the floor: CPython 3.14 aborts the process instead of raising when called from a frame already past its
+       stack limit. Which check answers first depends on the thread's stack, so the coverage jobs may not take it. */
+    if (Py_EnterRecursiveCall(" while applying an XSLT stylesheet") != 0) { /* GCOVR_EXCL_BR_LINE */
+        eng->depth--;                                                       /* GCOVR_EXCL_LINE */
+        return fail_py(eng);                                                /* GCOVR_EXCL_LINE */
+    }
+    Py_LeaveRecursiveCall();
     return 0;
 }
 
@@ -7566,6 +7592,8 @@ TH_NODE_API(, PyObject *, turbohtml_xslt_transform, (PyObject * module, PyObject
     } else { /* GCOVR_EXCL_LINE: allocation-failure block end */
         result = run_transform(&eng, compiled->sheet_root, params);
     }
+    /* whitespace stripping detaches the source's blank Text nodes for the run, with no index drop */
+    handle_drop_slots((HandleObject *)source_handle);
     Py_END_CRITICAL_SECTION();
     /* fail() sets eng.error without a Python exception; fail_py() sets the exception and
        leaves eng.error NULL. The two are exclusive, so eng.error != NULL implies no

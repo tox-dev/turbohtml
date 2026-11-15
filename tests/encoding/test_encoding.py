@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -157,6 +158,21 @@ def test_reparse_ignores_a_non_ascii_charset_label() -> None:
     # as "utf-8" with a leading U+00FC, which names no encoding: the parse is not redone
     late = b"<!-- " + b"x" * 1100 + b" --><meta charset=\xfctf-8>"
     assert parse(late + b"<p>x</p>").encoding == "windows-1252"
+
+
+_UTF16_ORDER: Final[str] = "utf-16-le" if sys.byteorder == "little" else "utf-16-be"
+
+
+def test_reparse_ignores_a_wide_attribute_name_whose_bytes_spell_charset() -> None:
+    name = b"charset\x00".decode(_UTF16_ORDER) + "xyz"
+    assert parse(f"<meta {name}=iso-8859-2><p>x</p>".encode()).encoding == "UTF-8"
+
+
+def test_reparse_ignores_wide_attribute_names_whose_bytes_spell_a_content_type_pragma() -> None:
+    pragma = b"http-equiv".decode(_UTF16_ORDER)
+    content = b"content\x00".decode(_UTF16_ORDER)
+    markup = f'<meta {pragma}vwxyz="content-type" {content}pqr="text/html; charset=iso-8859-2"><p>x</p>'
+    assert parse(markup.encode()).encoding == "UTF-8"
 
 
 @pytest.mark.parametrize(

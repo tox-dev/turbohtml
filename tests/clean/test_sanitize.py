@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Final, assert_type, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Comment, Document, Element, parse, parse_fragment, parse_xml
+from turbohtml import Comment, Document, DocumentFragment, Element, parse, parse_fragment, parse_xml
 from turbohtml.build import E
 from turbohtml.clean import (
     DEFAULT_ATTRIBUTES,
@@ -3330,6 +3330,24 @@ def test_the_node_form_gets_a_fragment_context_the_markup_could_not_touch() -> N
     # not have put its attributes on the context element parse_fragment returns
     root = parse_fragment("<html hidden title=x>Nice <b>post</b>!")
     assert sanitize_node(root).html == "<div>Nice <b>post</b>!</div>"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(sanitize_node, id="sanitize_node"),
+        pytest.param(lambda node, policy: sanitize_report_node(node, policy)[0], id="sanitize_report_node"),
+    ],
+)
+def test_the_node_forms_return_a_shadow_root_as_a_plain_fragment(entry: Callable[[Node, Policy], Node]) -> None:
+    # the sanitized copy has no host in its own tree, so it comes back as the fragment a shadow root is without one
+    host = parse('<div><template shadowrootmode="open"><b onclick="x()">1</b><i>2</i></template></div>').find("div")
+    assert host is not None
+    assert host.shadow_root is not None
+    clean = entry(host.shadow_root, Policy.relaxed())
+    assert type(clean) is DocumentFragment
+    clean.append(clean.children[0])
+    assert clean.html == "<i>2</i><b>1</b>"
 
 
 @pytest.mark.parametrize(

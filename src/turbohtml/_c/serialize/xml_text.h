@@ -75,4 +75,11 @@ static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t 
     }
 }
 
+/* Whether a copy of about `cost` code points fits the allowance of `base` plus TH_XML_NS_PER_CHAR per code point of
+   other output (dom/tree.h), `copied` of the `written` so far being copies already. Dividing instead of multiplying
+   keeps a huge output from wrapping. */
+static inline int xml_ns_copy_funded(Py_ssize_t copied, Py_ssize_t written, Py_ssize_t cost, Py_ssize_t base) {
+    return (copied + cost - base) / TH_XML_NS_PER_CHAR <= written - copied;
+}
+
 #endif /* TURBOHTML_SERIALIZE_XML_TEXT_H */

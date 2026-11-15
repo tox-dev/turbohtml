@@ -28,6 +28,11 @@ them absolute against a base URL in place:
 For a one-off transform (rewriting a CDN host, signing URLs), pass a function to :meth:`~turbohtml.Node.rewrite_links`;
 returning ``None`` leaves a link untouched.
 
+A URL in CSS is reported as the browser reads it, with its escapes decoded: ``url("a\2e png")`` is the link ``a.png``. A
+replacement is written back escaped for the string or ``url()`` token it lands in, so a quote, a parenthesis or a
+backslash in it stays part of the URL. Text that CSS does not read as a URL is not a link, such as a malformed unquoted
+``url()`` or a ``url(`` that is part of a longer identifier.
+
 ******************************
  Clean and canonicalize a URL
 ******************************

@@ -24,7 +24,8 @@ class Link(NamedTuple):
 
     :param element: the element the link was found on.
     :param attribute: the attribute carrying the link, or ``None`` for a ``<style>`` sheet's text.
-    :param url: the link exactly as it appears in the source, before any resolution.
+    :param url: the link as written in the source, before any resolution; a CSS ``url()`` or ``@import`` target has its
+        escapes decoded, so it is the URL a browser reads.
     """
 
     element: Element
@@ -32,7 +33,7 @@ class Link(NamedTuple):
     attribute: str | None
     """the attribute carrying the link, or ``None`` for a ``<style>`` sheet's text."""
     url: str
-    """the link exactly as it appears in the source, before any resolution."""
+    """the link as written in the source, before any resolution; a CSS target has its escapes decoded."""
 
 
 _register_links(Link)
