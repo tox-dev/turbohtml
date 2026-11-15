@@ -1344,6 +1344,14 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->col += 7;
                 if (self->cdata_ok) {
                     self->state = ST_CDATA; /* CDATA content is a plain text run */
+                    if (self->capture_source) {
+                        /* the section becomes a text token of its own (flush_cdata), so end the run before it */
+                        self->cdata_off = self->pos - 9;
+                        flush_text(self);
+                        if (self->queue_len != 0) {
+                            return RUN_EMITTED;
+                        }
+                    }
                     continue;
                 }
                 tok_error_at(self, "cdata-in-html-content", self->col - 1);
@@ -1854,6 +1862,10 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_CDATA:
             if (at_eof) {
                 tok_error(self, "eof-in-cdata");
+                if (self->capture_source) {
+                    flush_cdata(self);
+                    return RUN_DONE;
+                }
                 EOF_FLUSH();
             }
             if (ch != ']' && ch != '\n') {
@@ -1884,6 +1896,10 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (!at_eof && ch == '>') {
                 CONSUME();
                 self->state = ST_DATA;
+                if (self->capture_source) {
+                    flush_cdata(self);
+                    return RUN_EMITTED;
+                }
                 continue;
             }
             if (!at_eof && ch == ']') {
