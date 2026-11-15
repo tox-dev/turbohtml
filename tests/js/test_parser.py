@@ -4,6 +4,7 @@ import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 import threading
+from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -357,13 +358,12 @@ def test_deep_nesting_is_rejected(source: str) -> None:
 
 def _thread_stack_accepted(kib: int) -> bool:
     previous = threading.stack_size()
-    try:
+    accepted = False
+    with suppress(ValueError):  # the platform's minimum thread stack is above this size
         threading.stack_size(kib * 1024)
-    except ValueError:  # the platform's minimum thread stack is above this size
-        return False
-    finally:
-        threading.stack_size(previous)
-    return True
+        accepted = True
+    threading.stack_size(previous)
+    return accepted
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs the fixed
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from functools import partial
 from pathlib import Path
 from threading import Barrier
@@ -1722,13 +1723,12 @@ def _key_chain(links: int, *, match: str = "a") -> str:
 
 def _thread_stack_accepted(kib: int) -> bool:
     previous = threading.stack_size()
-    try:
+    accepted = False
+    with suppress(ValueError):  # the platform's minimum thread stack is above this size
         threading.stack_size(kib * 1024)
-    except ValueError:  # the platform's minimum thread stack is above this size
-        return False
-    finally:
-        threading.stack_size(previous)
-    return True
+        accepted = True
+    threading.stack_size(previous)
+    return accepted
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs 
 import sys
 import threading
 from collections import Counter
+from contextlib import suppress
 from functools import partial
 from operator import ge, gt, itemgetter, le, lt
 from types import MappingProxyType
@@ -2155,13 +2156,12 @@ def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermos
 
 def _thread_stack_accepted(kib: int) -> bool:
     previous = threading.stack_size()
-    try:
+    accepted = False
+    with suppress(ValueError):  # the platform's minimum thread stack is above this size
         threading.stack_size(kib * 1024)
-    except ValueError:  # the platform's minimum thread stack is above this size
-        return False
-    finally:
-        threading.stack_size(previous)
-    return True
+        accepted = True
+    threading.stack_size(previous)
+    return accepted
 
 
 @pytest.mark.parametrize(
