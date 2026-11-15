@@ -24,6 +24,11 @@ def test_base_element_wins_over_the_fetch_url() -> None:
     assert extract_links(html, _BASE) == {"https://cdn.test/assets/p"}
 
 
+def test_overlong_base_element_leaves_the_fetch_url_the_base() -> None:
+    html = f'<base href="https://cdn.test/{"b" * (2048 + 1)}/"><a href="p">x</a><a href="q">y</a>'
+    assert extract_links(html, _BASE) == {"https://test.com/dir/p", "https://test.com/dir/q"}
+
+
 def test_relative_links_without_a_base_are_dropped() -> None:
     assert extract_links('<a href="page.html">x</a><a href="https://a.example/x">y</a>') == {"https://a.example/x"}
 
@@ -891,6 +896,22 @@ def test_an_exception_on_the_first_of_several_style_texts_stops_the_walk() -> No
     with pytest.raises(ValueError, match="stop"):
         style.rewrite_links(boom)
     assert seen == ["one.png"]  # the second text node was never reached
+
+
+def test_replace_moving_the_walked_node_to_another_tree_finishes_on_the_old_one() -> None:
+    fragment = parse_fragment('<p><a href="/a">1</a><a href="/b">2</a></p>')
+    host = Element("div")
+    seen: list[str] = []
+
+    def replace(url: str) -> str:
+        seen.append(url)
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move leaves the walk its last owner
+        return f"{url}?t"
+
+    fragment.rewrite_links(replace)
+    assert seen == ["/a", "/b"]
+    # the copy the move made left before the first replacement was written, and the walk stays on the tree it began in
+    assert host.inner_html == '<div><p><a href="/a">1</a><a href="/b">2</a></p></div>'
 
 
 def test_rewrite_links_requires_a_callable() -> None:

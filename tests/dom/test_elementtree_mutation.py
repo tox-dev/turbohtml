@@ -10,6 +10,8 @@ from turbohtml.etree import document_fromstring, fragment_fromstring, fromstring
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from work_steps import WorkSteps
+
     from turbohtml.etree import ElementView
 
 
@@ -181,6 +183,36 @@ def test_element_tree_rejects_non_element(
 ) -> None:
     with pytest.raises(TypeError, match="ElementView"):
         operation(tree, cast("ElementView", "text"))
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<div><i>a</i>1<i>b</i>2<i>c</i>3</div>", "<div>123</div>", id="tail-each"),
+        pytest.param("<div><i>a</i><i>b</i><i>c</i>3</div>", "<div>3</div>", id="tail-last"),
+    ],
+)
+def test_element_tree_drop_tree_leaves_each_tail_in_parent(markup: str, expected: str) -> None:
+    tree: Final = etree.fromstring(markup)
+    dropped: Final = list(tree)
+    for element in reversed(dropped):
+        element.drop_tree()
+    assert ([element.tail for element in dropped], etree.tostring(tree, encoding="unicode")) == ([None] * 3, expected)
+
+
+def test_element_tree_repeated_drop_tree_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_repeated_drops, (1_000, 4_000))
+
+
+def _repeated_drops(count: int) -> Callable[[], None]:
+    tree: Final = etree.fromstring(f"<div>{'<i>a</i>t' * count}</div>")
+    elements: Final = tree.findall(".//i")
+
+    def drop() -> None:
+        for element in reversed(elements):
+            element.drop_tree()
+
+    return drop
 
 
 @pytest.fixture

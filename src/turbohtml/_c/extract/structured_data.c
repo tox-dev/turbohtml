@@ -35,6 +35,14 @@
    the mapping, so the limit caps how far one short term grows. The RDFa 1.1 initial context's longest IRI is 48. */
 #define RDFA_MAX_MAPPING_LENGTH 256
 
+/* How deep the Microdata or RDFa property elements whose value is their text content may nest in one another. Each of
+   them walks its whole subtree and copies the text there into a str of its own, so a run of text is walked and copied
+   once for every such element above it: without a limit a chain of them filling half the page, above text filling the
+   rest, takes time and memory quadratic in the page, and the 512 levels an HTML tree may have still multiply the text
+   five hundred times. Pages nest a text property in another one or two deep; a property that heads a deeper chain is
+   left out of its record, the way json_ld() skips a block past its nesting ceiling. */
+#define STRUCTURED_DATA_MAX_TEXT_DEPTH ((Py_ssize_t)32)
+
 /* The HTML script type that flags a JSON-LD block, matched case-insensitively after trimming. */
 static const char JSON_LD_TYPE[] = "application/ld+json";
 
@@ -217,6 +225,62 @@ typedef struct {
 
 static PyObject *build_item(micro_ctx *ctx, th_node *element);
 
+/* Whether the property elements that take their text content as their value nest more than
+   STRUCTURED_DATA_MAX_TEXT_DEPTH deep at `property`, which is one itself. The caller builds no text value this refuses,
+   so a node is walked and copied for at most that many property elements above it; the walk here stops at the first
+   element past the limit and visits a node no more often. The count follows the tree alone: the text below a property
+   is copied whichever item claims it, so an item boundary or an itemref between two of them does not start it again. */
+static int text_properties_too_deep(th_tree *tree, th_node *property, int (*is_text_property)(th_tree *, th_node *)) {
+    Py_ssize_t depth = 1;
+    th_node *current = property->first_child;
+    while (current != NULL) {
+        const int nested = current->type == TH_NODE_ELEMENT && is_text_property(tree, current);
+        if (nested && depth == STRUCTURED_DATA_MAX_TEXT_DEPTH) {
+            return 1;
+        }
+        if (current->first_child != NULL) {
+            depth += nested;
+            current = current->first_child;
+            continue;
+        }
+        while (current != property && current->next_sibling == NULL) {
+            current = current->parent;
+            depth -= current != property && current->type == TH_NODE_ELEMENT && is_text_property(tree, current);
+        }
+        current = current == property ? NULL : current->next_sibling;
+    }
+    return 0;
+}
+
+/* Whether `element` is a Microdata property whose value microdata_value takes from its text content: it names a
+   property, is no item, and its tag reads the value from no attribute. */
+static int microdata_text_property(th_tree *tree, th_node *element) {
+    const th_node_attr *itemprop = find_node_attr(element, TH_ATTR_ITEMPROP);
+    if (itemprop == NULL || itemprop->value == NULL || find_node_attr(element, TH_ATTR_ITEMSCOPE) != NULL) {
+        return 0;
+    }
+    if (element->atom == TH_TAG_TIME) {
+        Py_ssize_t datetime = th_node_attr_find(tree, element, "datetime", 8);
+        return datetime < 0 || element->attrs[datetime].value == NULL;
+    }
+    for (size_t index = 0; index < sizeof(MICRODATA_ATTR_PROPS) / sizeof(MICRODATA_ATTR_PROPS[0]); index++) {
+        if (element->atom == MICRODATA_ATTR_PROPS[index].atom) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The text content of a Microdata property element as its value, or None when text-valued properties nest past
+   STRUCTURED_DATA_MAX_TEXT_DEPTH in it and the property is to be left out. NULL only on the excluded allocation-failure
+   path. */
+static PyObject *microdata_text(micro_ctx *ctx, th_node *element) {
+    if (text_properties_too_deep(ctx->tree, element, microdata_text_property)) {
+        return Py_NewRef(Py_None);
+    }
+    return str_from_accessor(th_node_text, ctx->tree, element);
+}
+
 /* A URL-valued attribute's value with leading and trailing ASCII whitespace stripped (the URL parser trims it), or the
    empty string when the attribute is absent or valueless. NULL only on the excluded allocation-failure path. */
 static PyObject *attr_url_or_empty(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
@@ -248,7 +312,8 @@ static PyObject *attr_value_or_none(const th_node_attr *attr) {
 /* One Microdata property element's value: a nested MicrodataItem when it carries itemscope, otherwise the HTML
    Microdata value algorithm (a URL attribute for the link/media tags, datetime or text for <time>, content for <meta>,
    else the element's text content). A URL-valued attribute is absolutized against `base` when the caller passed one
-   (base is NULL otherwise, leaving values verbatim). NULL only on the excluded allocation-failure path. */
+   (base is NULL otherwise, leaving values verbatim). None for text content microdata_text refuses. NULL only on the
+   excluded allocation-failure path. */
 static PyObject *microdata_value(micro_ctx *ctx, th_node *element) {
     if (find_node_attr(element, TH_ATTR_ITEMSCOPE) != NULL) {
         return build_item(ctx, element);
@@ -258,7 +323,7 @@ static PyObject *microdata_value(micro_ctx *ctx, th_node *element) {
         if (datetime >= 0 && element->attrs[datetime].value != NULL) {
             return ucs4_to_str(element->attrs[datetime].value, element->attrs[datetime].value_len);
         }
-        return str_from_accessor(th_node_text, ctx->tree, element);
+        return microdata_text(ctx, element);
     }
     for (size_t index = 0; index < sizeof(MICRODATA_ATTR_PROPS) / sizeof(MICRODATA_ATTR_PROPS[0]); index++) {
         const microdata_attr_prop *prop = &MICRODATA_ATTR_PROPS[index];
@@ -279,7 +344,7 @@ static PyObject *microdata_value(micro_ctx *ctx, th_node *element) {
             return value;
         }
     }
-    return str_from_accessor(th_node_text, ctx->tree, element);
+    return microdata_text(ctx, element);
 }
 
 /* Whether the token at `index` repeats an earlier one: an element's property names are its itemprop tokens with the
@@ -651,7 +716,8 @@ static int crawl_local_properties(th_node *root, node_stack *results) {
 }
 
 /* Crawl the properties of the item rooted at `element` into `properties`, in document (tree) order per the spec's
-   final sort, each itemprop name mapping to its list of values. -1 only on the excluded allocation-failure path. */
+   final sort, each itemprop name mapping to its list of values. A property whose text content microdata_text refuses
+   is left out. -1 only on the excluded allocation-failure path. */
 static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *properties) {
     node_stack results = {NULL, 0, 0};
     int status = -1;
@@ -676,7 +742,10 @@ static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *proper
         if (value == NULL) {
             goto done;
         }
-        int failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
+        int failed = 0;
+        if (value != Py_None) {
+            failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
+        }
         Py_DECREF(value);
         if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             goto done; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1519,9 +1588,32 @@ static PyObject *expand_typeof(th_tree *tree, th_node *element, rdfa_ctx ctx) {
     return result;
 }
 
+/* Whether `element` is an RDFa property whose object rdfa_value can take from its text content: it names a property
+   and carries no @content, @typeof, @href, @src or <time> @datetime to take it from instead. A @resource counts, since
+   one that expands to nothing leaves the text. */
+static int rdfa_text_property(th_tree *tree, th_node *element) {
+    static const char *const names[] = {"content", "typeof", "href", "src"};
+    static const Py_ssize_t lens[] = {7, 6, 4, 3};
+    Py_ssize_t property = th_node_attr_find(tree, element, "property", 8);
+    if (property < 0 || element->attrs[property].value == NULL) {
+        return 0;
+    }
+    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
+        if (th_node_attr_find(tree, element, names[index], lens[index]) >= 0) {
+            return 0;
+        }
+    }
+    if (element->atom == TH_TAG_TIME) {
+        Py_ssize_t datetime = th_node_attr_find(tree, element, "datetime", 8);
+        return datetime < 0 || element->attrs[datetime].value == NULL;
+    }
+    return 1;
+}
+
 /* One RDFa property element's object: the @content literal, else a nested RdfaItem when the element carries @typeof,
    else the @resource/@href/@src IRI (absolutized against base when set), else a <time> @datetime literal, else the
-   element's text content. NULL only on the excluded allocation-failure path. */
+   element's text content, or None when text-valued properties nest past STRUCTURED_DATA_MAX_TEXT_DEPTH in it and the
+   property is to be left out. NULL only on the excluded allocation-failure path. */
 static PyObject *rdfa_value(th_tree *tree, module_state *state, th_node *element, rdfa_ctx ctx) {
     Py_ssize_t content = th_node_attr_find(tree, element, "content", 7);
     if (content >= 0) {
@@ -1564,6 +1656,9 @@ static PyObject *rdfa_value(th_tree *tree, module_state *state, th_node *element
         if (datetime >= 0 && element->attrs[datetime].value != NULL) {
             return ucs4_to_str(element->attrs[datetime].value, element->attrs[datetime].value_len);
         }
+    }
+    if (text_properties_too_deep(tree, element, rdfa_text_property)) {
+        return Py_NewRef(Py_None);
     }
     return str_from_accessor(th_node_text, tree, element);
 }
@@ -1737,8 +1832,11 @@ static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_
                     release_child_ctx(&child_ctx, vocab_owned, undo);
                     goto done;
                 }
-                int failed = rdfa_add_property(output, child->attrs[property].value, child->attrs[property].value_len,
+                int failed = 0;
+                if (value != Py_None) {
+                    failed = rdfa_add_property(output, child->attrs[property].value, child->attrs[property].value_len,
                                                child_ctx, value) < 0;
+                }
                 Py_DECREF(value);
                 if (failed) {                                         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
                     release_child_ctx(&child_ctx, vocab_owned, undo); /* GCOVR_EXCL_LINE */
