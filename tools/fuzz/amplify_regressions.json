@@ -154,6 +154,21 @@
     }
   },
   {
+    "name": "of-type-position-walk",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1945",
+    "targets": [
+      "select_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<div>",
+      "left": "<x{n}></x{n}>",
+      "tail": "</div>",
+      "counter": true
+    }
+  },
+  {
     "name": "cmark-backticks",
     "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L86",
     "targets": [
