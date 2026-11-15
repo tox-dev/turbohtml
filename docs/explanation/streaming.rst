@@ -112,7 +112,19 @@ elements, and the template insertion modes. Whenever the rest of its tree outgro
 fresh tree and drops the old one, so its memory follows the open-element depth and the formatting list, not the
 document.
 
-Handlers can still change how a browser reads what follows: unwrapping a ``<foreignObject>``, or changing the
-``encoding`` of an ``<annotation-xml>``, turns the raw text after it into markup or back. A guarantee that has to hold
-against hostile markup, such as no script surviving, belongs to :func:`turbohtml.clean.sanitize`, which works on the
-parsed tree.
+Handlers can still change how a browser reads what follows. Unwrapping a ``<foreignObject>``, adding ``color`` to a
+``<font>`` inside ``<svg>``, changing the ``encoding`` of an ``<annotation-xml>``, or removing an element that decided
+what a later end tag closes can turn the raw text after it into markup or back. Such an edit is one that drops or
+replaces tags, writes around an element or comment or into an element that is not raw text, edits text outside raw text
+or the doctype, or changes an attribute a parse reads: the ``type`` of an ``<input>``, or a ``<font>`` or
+``<annotation-xml>`` in foreign content. After one, the rewriter runs a second tree builder over its own output,
+starting at the edit when it is inside ``<svg>`` or ``<math>``, or else at the next ``<svg>``, ``<math>``,
+``<template>`` or ``<frameset>``, since only there can the difference change how a token is read. From then on it writes
+each token so that the output reads it as the source did: it ends raw text only the output opened, escapes raw text the
+output would read as markup, turns a CDATA section into text or a ``<![CDATA[`` bogus comment into a comment where the
+two disagree, and ends an SVG or MathML element that an end tag closed in the source but leaves open in the output. A
+rewrite with no such edit, or with one and no foreign content, template or frameset after it, never starts the second
+tree builder and writes what it always wrote.
+
+A guarantee that has to hold against hostile markup, such as no script surviving, still belongs to
+:func:`turbohtml.clean.sanitize`, which works on the parsed tree.
