@@ -354,6 +354,7 @@ class _StartTags(HTMLParser):
         pytest.param("<x-y><svg><g></x-z></x-yy><style><i>", ["x-y", "svg", "g", "style", "i"], id="custom-stray-end"),
         pytest.param("<div></dfn></span></dív><svg></div><style><i>", ["div", "svg", "style"], id="html-strays-keep-open"),
         pytest.param("<x-ő><svg></x-ő><style><i>", ["x-ő", "svg", "style"], id="wide-custom-end"),
+        pytest.param("<x-abcdef><svg></x-abcdef><style><i>", ["x-abcdef", "svg", "style"], id="word-custom-end"),
         pytest.param(
             "<svg></svg></x><x-y></x-y><section><x-element></section><style><i>",
             ["svg", "x-y", "section", "x-element", "style"],
