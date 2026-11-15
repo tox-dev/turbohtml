@@ -1206,23 +1206,47 @@ def test_rewrite_attribute_edits_by_name_on_a_long_tag(count: int) -> None:
     assert rewrite(f"<p{source}>t</p>", elements=[("p", handler)]) == f"<p{kept}{added}>t</p>"
 
 
-def test_rewrite_long_tag_attribute_names_sharing_an_interning_key() -> None:
+def test_rewrite_attribute_names_past_the_interning_key_stay_distinct() -> None:
     seen: list[_Read] = []
 
     def handler(element: Element) -> None:
         seen.append(element.get(first))
-        element.set_attribute(first, "set")
-        element.remove_attribute(first)
         seen.append(element.get(second))
-        element.remove_attribute(second)
+        element.set_attribute(second, "set")
+        seen.append(element.get(second))
+        element.remove_attribute(first)
         seen.append(element.has_attribute(first))
+        seen.append(element.get(second))
 
-    # names past the 256-byte encode buffer share one interned name; the first of them answers until it is removed
     first: Final = f"data-{'z' * 300}"
     second: Final = f"{first}y"
-    rest: Final = "".join(f" a{index}" for index in range(20))
-    assert rewrite(f"<p {first}=1{rest} {second}=2>t</p>", elements=[("p", handler)]) == f"<p{rest}>t</p>"
-    assert seen == ["1", "2", False]
+    assert rewrite(f"<p {first}=1 {second}=2>t</p>", elements=[("p", handler)]) == f'<p {second}="set">t</p>'
+    assert seen == ["1", "2", "set", False, "set"]
+
+
+def test_rewrite_edited_start_tag_writes_attribute_names_past_the_interning_key_whole() -> None:
+    first: Final = f"data-{'z' * 300}"
+    second: Final = f"{first}y"
+
+    def add_marker(element: Element) -> None:
+        element.set_attribute("marker", "1")
+
+    assert rewrite(f"<p {first}=1 {second}=2>t</p>", elements=[("p", add_marker)]) == (
+        f'<p {first}="1" {second}="2" marker="1">t</p>'
+    )
+
+
+def test_rewrite_selector_past_the_interning_key_matches_only_its_own_name() -> None:
+    first: Final = f"data-{'z' * 300}"
+    second: Final = f"{first}y"
+    seen: list[str] = []
+
+    def record(element: Element) -> None:
+        seen.append(element.tag)
+
+    source: Final = f"<p {first}=1><i {second}=2>t</i></p>"
+    assert rewrite(source, elements=[(f"[{second}]", record)]) == source
+    assert seen == ["i"]
 
 
 def _strip_each(element: Element) -> None:
@@ -1247,6 +1271,13 @@ def _set_each(element: Element) -> None:
 
 
 @pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("a", id="short-names"),
+        pytest.param("x" * 260, id="names-past-the-interning-key"),
+    ],
+)
+@pytest.mark.parametrize(
     "handler",
     [
         pytest.param(_strip_each, id="remove"),
@@ -1256,11 +1287,28 @@ def _set_each(element: Element) -> None:
     ],
 )
 def test_one_call_per_name_on_a_long_tag_scans_in_linear_time(
-    handler: Callable[[Element], None], work_steps: WorkSteps
+    handler: Callable[[Element], None], prefix: str, work_steps: WorkSteps
 ) -> None:
-    work_steps.assert_linear(lambda count: partial(rewrite, _long_tag(count), elements=[("p", handler)]), (500, 2000))
+    work_steps.assert_linear(
+        lambda count: partial(rewrite, _long_tag(count, prefix), elements=[("p", handler)]), (500, 2000)
+    )
 
 
-def _long_tag(count: int) -> str:
-    names: Final = "".join(f" a{index}" for index in range(count))
+def _long_tag(count: int, prefix: str) -> str:
+    names: Final = "".join(f" {prefix}{index}" for index in range(count))
     return f"<p{names}>"
+
+
+def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(rewrite, _long_tag(count, "a"), elements=[("p", _toggler(count))]), (500, 2000)
+    )
+
+
+def _toggler(count: int) -> Callable[[Element], None]:
+    def toggle(element: Element) -> None:
+        for _ in range(count):
+            element.remove_attribute("a0")
+            element.set_attribute("a0", "v")
+
+    return toggle

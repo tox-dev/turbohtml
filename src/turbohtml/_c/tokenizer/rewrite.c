@@ -220,12 +220,11 @@ static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token
     }
 }
 
-/* Encode a code-point run to lowercased UTF-8 in buf (leaving room for the 4-byte tail),
-   returning the byte length. The one place tag names, attribute names, and selector
-   attribute names all become the interning key. */
-static Py_ssize_t rw_encode_utf8(int kind, const void *data, Py_ssize_t len, char *buf, Py_ssize_t cap) {
+/* Encode a code-point run to lowercased UTF-8 in buf, which holds four bytes per code point, returning the byte
+   length. The one place tag names, attribute names, and selector attribute names all become the interning key. */
+static Py_ssize_t rw_encode_utf8(int kind, const void *data, Py_ssize_t len, char *buf) {
     Py_ssize_t at = 0;
-    for (Py_ssize_t index = 0; index < len && at < cap - 4; index++) {
+    for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 ch = PyUnicode_READ(kind, data, index);
         if (ch >= 'A' && ch <= 'Z') {
             ch += 32;
@@ -247,6 +246,44 @@ static Py_ssize_t rw_encode_utf8(int kind, const void *data, Py_ssize_t len, cha
         }
     }
     return at;
+}
+
+/* A name's lowercased UTF-8, whole: in small when four bytes per code point fit there, else in a fresh allocation, so
+   no name is cut short to fit a buffer. */
+#define RW_KEY_SMALL 256
+typedef struct {
+    char *bytes;
+    Py_ssize_t len;
+    char small[RW_KEY_SMALL];
+} rw_key;
+
+/* Returns 0, or -1 with MemoryError set when the long form cannot be allocated. */
+static int rw_key_encode(rw_key *key, int kind, const void *data, Py_ssize_t len) {
+    key->bytes = key->small;
+    if (4 * len > RW_KEY_SMALL) {
+        key->bytes = PyMem_Malloc((size_t)(4 * len));
+        if (key->bytes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory();     /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    key->len = rw_encode_utf8(kind, data, len, key->bytes);
+    return 0;
+}
+
+static void rw_key_free(rw_key *key) {
+    if (key->bytes != key->small) {
+        PyMem_Free(key->bytes);
+    }
+}
+
+/* The lowercased UTF-8 of a str name; returns -1 with a TypeError set for a non-str, or MemoryError. */
+static int rw_key_str(rw_key *key, PyObject *name) {
+    if (!PyUnicode_Check(name)) {
+        PyErr_SetString(PyExc_TypeError, "attribute name must be str");
+        return -1;
+    }
+    return rw_key_encode(key, PyUnicode_KIND(name), PyUnicode_DATA(name), PyUnicode_GET_LENGTH(name));
 }
 
 /* Resolve a lowercased attribute name (UTF-8) to the atom this tree uses, interning a
@@ -512,7 +549,7 @@ static PyObject *rw_removed_get(rw_handle *self, void *Py_UNUSED(closure)) {
    the array, or closed the gap a removed attribute left, would make one tag cost the square of its attribute count.
    So while a handler runs, a removed attribute keeps its slot as a dead one (name_atom TH_ATTR_UNKNOWN, which no name
    resolves to), rw_attrs_settle squeezes the dead slots out, and past RW_ATTR_SCAN slots a name is found through an
-   open-addressing table from its atom to its position. */
+   open-addressing table that holds the live attributes by atom. */
 #define RW_ATTR_SCAN 16
 
 /* The slot an atom probes from: the salted atom through the splitmix64 finalizer that tokenizer/xml.c hash_mix applies
@@ -524,8 +561,7 @@ static size_t rw_attr_slot(const rw_ctx *ctx, uint32_t atom) {
     return (size_t)(hash ^ (hash >> 31)) & (ctx->attr_index_cap - 1);
 }
 
-/* Positions are added in ascending order and nothing leaves the table, so of two attributes with one atom (names that
-   differ only past the 256-byte interning key) a probe meets the earlier one first, as a scan does. The table has at
+/* The table holds one entry per live attribute, so a probe chain holds only the attributes sharing its slot. It has at
    least two slots per array slot, so every probe ends at a free one. */
 static void rw_attr_index_add(rw_ctx *ctx, const th_node *node, Py_ssize_t position) {
     size_t slot = rw_attr_slot(ctx, node->attrs[position].name_atom);
@@ -571,6 +607,18 @@ static void rw_attr_index_append(rw_ctx *ctx, const th_node *node, Py_ssize_t po
     rw_attr_index_add(ctx, node, position);
 }
 
+/* The table slot of the element's live attribute with this atom, or SIZE_MAX when there is none. */
+static size_t rw_attr_index_probe(const rw_ctx *ctx, const th_node *node, uint32_t atom) {
+    for (size_t slot = rw_attr_slot(ctx, atom); ctx->attr_index[slot] != 0;
+         slot = (slot + 1) & (ctx->attr_index_cap - 1)) {
+        TH_WORK_STEP();
+        if (node->attrs[ctx->attr_index[slot] - 1].name_atom == atom) {
+            return slot;
+        }
+    }
+    return SIZE_MAX;
+}
+
 /* The element's first live attribute with this atom, or NULL. */
 static th_node_attr *rw_attr_find(rw_ctx *ctx, const th_node *node, uint32_t atom) {
     if (ctx->attr_index == NULL && node->attr_count > RW_ATTR_SCAN) {
@@ -585,16 +633,23 @@ static th_node_attr *rw_attr_find(rw_ctx *ctx, const th_node *node, uint32_t ato
         }
         return NULL;
     }
-    size_t slot = rw_attr_slot(ctx, atom);
-    while (ctx->attr_index[slot] != 0) {
+    size_t slot = rw_attr_index_probe(ctx, node, atom);
+    return slot == SIZE_MAX ? NULL : &node->attrs[ctx->attr_index[slot] - 1];
+}
+
+/* Empty the table slot at hole and move the entries behind it back over the gap, so each remaining entry stays
+   reachable from its probe start and no tombstone is left. */
+static void rw_attr_index_delete(rw_ctx *ctx, const th_node *node, size_t hole) {
+    size_t mask = ctx->attr_index_cap - 1;
+    for (size_t next = (hole + 1) & mask; ctx->attr_index[next] != 0; next = (next + 1) & mask) {
         TH_WORK_STEP();
-        th_node_attr *attr = &node->attrs[ctx->attr_index[slot] - 1];
-        if (attr->name_atom == atom) {
-            return attr;
+        size_t ideal = rw_attr_slot(ctx, node->attrs[ctx->attr_index[next] - 1].name_atom);
+        if (((next - ideal) & mask) >= ((next - hole) & mask)) {
+            ctx->attr_index[hole] = ctx->attr_index[next];
+            hole = next;
         }
-        slot = (slot + 1) & (ctx->attr_index_cap - 1);
     }
-    return NULL;
+    ctx->attr_index[hole] = 0;
 }
 
 /* Squeeze the dead slots out of the element's attribute array, keeping the order of the live ones, and drop the index
@@ -615,12 +670,17 @@ static void rw_attrs_settle(rw_ctx *ctx, th_node *node) {
     ctx->attr_dead = 0;
 }
 
-/* Look up the element's attribute value for a lowercased UTF-8 name; sets *found. */
-static PyObject *rw_attr_value(rw_ctx *ctx, th_node *node, const char *bytes, Py_ssize_t len, int *found) {
-    uint32_t atom = th_attr_atom(bytes, (size_t)len);
+/* The atom of a lowercased name in the tree, or UINT32_MAX when neither table holds it. */
+static uint32_t rw_lookup_atom(th_tree *tree, const rw_key *key) {
+    uint32_t atom = th_attr_atom(key->bytes, (size_t)key->len);
     if (atom == TH_ATTR_UNKNOWN) {
-        atom = th_attr_lookup(ctx->tree, bytes, len);
+        atom = th_attr_lookup(tree, key->bytes, key->len);
     }
+    return atom;
+}
+
+/* The element's value for an atom; sets *found. */
+static PyObject *rw_attr_value(rw_ctx *ctx, th_node *node, uint32_t atom, int *found) {
     *found = 0;
     if (atom == UINT32_MAX) {
         return NULL;
@@ -634,16 +694,6 @@ static PyObject *rw_attr_value(rw_ctx *ctx, th_node *node, const char *bytes, Py
         Py_RETURN_NONE;
     }
     return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
-}
-
-/* A NUL-free lowercased UTF-8 rendering of a name argument, into caller storage. Returns
-   the length, or -1 with a TypeError set for a non-str. */
-static Py_ssize_t rw_name_bytes(PyObject *name, char *buf, Py_ssize_t cap) {
-    if (!PyUnicode_Check(name)) {
-        PyErr_SetString(PyExc_TypeError, "attribute name must be str");
-        return -1;
-    }
-    return rw_encode_utf8(PyUnicode_KIND(name), PyUnicode_DATA(name), PyUnicode_GET_LENGTH(name), buf, cap);
 }
 
 static PyObject *rw_tag_get(rw_handle *self, void *Py_UNUSED(closure)) {
@@ -697,13 +747,14 @@ static PyObject *rw_get(rw_handle *self, PyObject *args) {
     if (rw_handle_check(self, RW_ELEMENT) < 0) {
         return NULL;
     }
-    char buf[256];
-    Py_ssize_t len = rw_name_bytes(name, buf, sizeof(buf));
-    if (len < 0) {
+    rw_key key;
+    if (rw_key_str(&key, name) < 0) {
         return NULL;
     }
+    uint32_t atom = rw_lookup_atom(self->ctx->tree, &key);
+    rw_key_free(&key);
     int found;
-    PyObject *value = rw_attr_value(self->ctx, self->open->node, buf, len, &found);
+    PyObject *value = rw_attr_value(self->ctx, self->open->node, atom, &found);
     if (found) {
         return value;
     }
@@ -714,13 +765,14 @@ static PyObject *rw_has(rw_handle *self, PyObject *name) {
     if (rw_handle_check(self, RW_ELEMENT) < 0) {
         return NULL;
     }
-    char buf[256];
-    Py_ssize_t len = rw_name_bytes(name, buf, sizeof(buf));
-    if (len < 0) {
+    rw_key key;
+    if (rw_key_str(&key, name) < 0) {
         return NULL;
     }
+    uint32_t atom = rw_lookup_atom(self->ctx->tree, &key);
+    rw_key_free(&key);
     int found;
-    PyObject *value = rw_attr_value(self->ctx, self->open->node, buf, len, &found);
+    PyObject *value = rw_attr_value(self->ctx, self->open->node, atom, &found);
     Py_XDECREF(value);
     return PyBool_FromLong(found);
 }
@@ -776,12 +828,25 @@ static PyObject *rw_set_attribute(rw_handle *self, PyObject *args) {
     if (rw_handle_check(self, RW_ELEMENT) < 0) {
         return NULL;
     }
-    char buf[256];
-    Py_ssize_t len = rw_name_bytes(name, buf, sizeof(buf));
-    if (len < 0 || th_validate_markup_name(name, 1) < 0) {
+    rw_key key;
+    if (rw_key_str(&key, name) < 0) {
         return NULL;
     }
-    uint32_t atom = th_attr_atom(buf, (size_t)len);
+    if (th_validate_markup_name(name, 1) < 0) {
+        rw_key_free(&key);
+        return NULL;
+    }
+    uint32_t atom = th_attr_atom(key.bytes, (size_t)key.len);
+    int fresh = 0;
+    if (atom == TH_ATTR_UNKNOWN) {
+        uint32_t count = self->ctx->tree->attr_rec_count;
+        atom = intern_attr_dynamic(self->ctx->tree, key.bytes, key.len);
+        fresh = self->ctx->tree->attr_rec_count != count;
+    }
+    rw_key_free(&key);
+    if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
+        return PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     self->open->edited = 1;
     th_node *node = self->open->node;
     Py_ssize_t new_len;
@@ -789,25 +854,13 @@ static PyObject *rw_set_attribute(rw_handle *self, PyObject *args) {
     if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (atom == TH_ATTR_UNKNOWN) {
-        uint32_t count = self->ctx->tree->attr_rec_count;
-        atom = intern_attr_dynamic(self->ctx->tree, buf, len);
-        if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
-            PyMem_Free(copy);          /* GCOVR_EXCL_LINE: allocation-failure path */
-            return PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (self->ctx->tree->attr_rec_count != count) {
-            goto append;
-        }
-    }
-    th_node_attr *slot = rw_attr_find(self->ctx, node, atom);
+    th_node_attr *slot = fresh ? NULL : rw_attr_find(self->ctx, node, atom);
     if (slot != NULL) {
         PyMem_Free(slot->value);
         slot->value = copy;
         slot->value_len = new_len;
         Py_RETURN_NONE;
     }
-append:
     slot = rw_attr_grow(node);
     if (slot == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(copy); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -827,20 +880,20 @@ static PyObject *rw_remove_attribute(rw_handle *self, PyObject *name) {
     if (rw_handle_check(self, RW_ELEMENT) < 0) {
         return NULL;
     }
-    char buf[256];
-    Py_ssize_t len = rw_name_bytes(name, buf, sizeof(buf));
-    if (len < 0) {
+    rw_key key;
+    if (rw_key_str(&key, name) < 0) {
         return NULL;
     }
-    uint32_t atom = th_attr_atom(buf, (size_t)len);
-    if (atom == TH_ATTR_UNKNOWN) {
-        atom = th_attr_lookup(self->ctx->tree, buf, len);
-    }
+    uint32_t atom = rw_lookup_atom(self->ctx->tree, &key);
+    rw_key_free(&key);
     self->open->edited = 1;
     th_node *node = self->open->node;
     th_node_attr *attr = rw_attr_find(self->ctx, node, atom);
     if (attr != NULL) {
         PyMem_Free(attr->value);
+        if (self->ctx->attr_index != NULL) {
+            rw_attr_index_delete(self->ctx, node, rw_attr_index_probe(self->ctx, node, atom));
+        }
         *attr = (th_node_attr){.name_atom = TH_ATTR_UNKNOWN};
         self->ctx->attr_dead++;
         if (self->ctx->attr_dead * 2 > node->attr_count) {
@@ -1209,9 +1262,13 @@ static int rw_validate_simple(sel_simple *simple, th_tree *tree, const char **re
     }
     if (simple->kind == '[' &&
         simple->attr_atom == UINT32_MAX) { /* a custom attribute selector always carries a name */
-        char buf[256];
-        Py_ssize_t len = rw_encode_utf8(PyUnicode_4BYTE_KIND, simple->name, simple->name_len, buf, sizeof(buf));
-        simple->attr_atom = intern_attr_dynamic(tree, buf, len);
+        rw_key key;
+        if (rw_key_encode(&key, PyUnicode_4BYTE_KIND, simple->name, simple->name_len) <
+            0) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        simple->attr_atom = intern_attr_dynamic(tree, key.bytes, key.len);
+        rw_key_free(&key);
         /* a failed interning leaves no reason, which the caller reports as MemoryError */
         return simple->attr_atom != TH_ATTR_UNKNOWN; /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
     }
@@ -1279,9 +1336,15 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
         }
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *attr = &token->attrs[index];
-            char buf[256];
-            Py_ssize_t at = rw_encode_utf8(attr->name.kind, attr->name.data, attr->name.len, buf, sizeof(buf));
-            uint32_t name_atom = rw_attr_atom(ctx->tree, buf, at);
+            rw_key key;
+            if (rw_key_encode(&key, attr->name.kind, attr->name.data, attr->name.len) <
+                0) {                      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                node->attr_count = index; /* GCOVR_EXCL_LINE: allocation-failure path */
+                rw_free_node(node);       /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            uint32_t name_atom = rw_attr_atom(ctx->tree, key.bytes, key.len);
+            rw_key_free(&key);
             if (name_atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
                 node->attr_count = index;       /* GCOVR_EXCL_LINE: allocation-failure path */
                 rw_free_node(node);             /* GCOVR_EXCL_LINE: allocation-failure path */
