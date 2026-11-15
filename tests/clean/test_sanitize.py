@@ -744,6 +744,8 @@ def _style_policy(
         # declaration; the declarations a browser applies after it are scrubbed like any other
         pytest.param("color:red\\';position:fixed", 'style="color:red\\\'"', id="escaped-single-quote"),
         pytest.param("color:red\\;position:fixed", 'style="color:red\\;position:fixed"', id="escaped-semicolon"),
+        pytest.param("color:blue\\ ; width:1px", 'style="color:blue\\ ; width:1px"', id="escaped-trailing-space"),
+        pytest.param("color:blue\\\\ ; width:1px", 'style="color:blue\\\\; width:1px"', id="escaped-backslash-trimmed"),
         # a newline ends a string as a bad string, which invalidates its declaration and leaves the separators after it
         # live, so the declarations a browser applies there are scrubbed like any other
         pytest.param("color: red; font-family: 'x&#10;; position: fixed", 'style="color: red"', id="bad-string-lf"),
@@ -1290,6 +1292,27 @@ def test_style_element_unterminated_token_is_a_fixpoint(css: str, expected_body:
     policy = _style_element_policy(css_properties=frozenset({"color", "content"}))
     once = sanitize(f"<style>{css}</style>", policy)
     assert (once, sanitize(once, policy)) == (f"<style>{expected_body}</style>", once)
+
+
+@pytest.mark.parametrize(
+    ("css", "expected_body"),
+    [
+        pytest.param("h2{'\n{color:';width:1px;x:'}", "h2{'\n{color:';width:1px;x:';}}", id="bad-string-ends-prelude"),
+        pytest.param("p['x\n] \t{color:red}", "p['x\n] \t{color:red;}", id="bad-string-inside-prelude"),
+        pytest.param("p{div,\\ {}}", "p{div,\\ {}}", id="escaped-space-ends-prelude"),
+        pytest.param("p{a\\\n{color:red}}", "p{a\\\n{color:red;}}", id="lone-backslash-ends-prelude"),
+        pytest.param("\\ {color:red}", "\\ {color:red;}", id="escaped-space-is-prelude"),
+        pytest.param("h1{span\\\\ {color:red}}", "h1{span\\\\{color:red;}}", id="escaped-backslash-ends-prelude"),
+        pytest.param("p{color:blue\\ }", "p{color:blue\\ ;}", id="escaped-space-ends-declaration"),
+        pytest.param("p{color:green\\\\ }", "p{color:green\\\\;}", id="escaped-backslash-ends-declaration"),
+    ],
+)
+def test_style_element_trim_keeps_token_whitespace(css: str, expected_body: str) -> None:
+    # trimming a prelude or a declaration never removes a whitespace that is part of a token: the newline that ends a
+    # bad string keeps its quote from opening a string over the block, and a whitespace after a backslash keeps that
+    # backslash from escaping the `{` or `;` written next. Either would turn text judged inert into live declarations
+    once = sanitize(f"<style>{css}</style>", _style_element_policy())
+    assert (once, sanitize(once, _style_element_policy())) == (f"<style>{expected_body}</style>", once)
 
 
 def test_style_element_empty_property_set_drops_all_css() -> None:
