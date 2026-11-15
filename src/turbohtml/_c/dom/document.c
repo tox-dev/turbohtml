@@ -1,6 +1,7 @@
 /* The Document root, the tree-owning handle, the push IncrementalParser, the parse()/parse_fragment()
    entry points, and the type registration that wires every node type onto the module. */
 
+#include "core/refresh.h"
 #include "dom/nodes.h"
 
 #include <stdbool.h>
@@ -1056,95 +1057,45 @@ static int meta_is_space(Py_UCS4 c) {
     return 0;
 }
 
-static int meta_is_digit(Py_UCS4 c) {
-    return c >= '0' && c <= '9';
-}
-
 /* Parse a meta-refresh `content` ("<delay>" or "<delay>;url=<url>") into ``(delay, url)``, resolving the url against
-   `fallback` and using `fallback` itself when the directive has none. Returns the tuple, None when there is no leading
-   delay, or NULL on error. */
+   `fallback` and using `fallback` itself when the directive has none. Returns the tuple, None when the value is not a
+   refresh directive, or NULL on error. */
 static PyObject *parse_meta_refresh(PyObject *content, PyObject *fallback) {
-    int kind = PyUnicode_KIND(content);
-    const void *data = PyUnicode_DATA(content);
     Py_ssize_t len = PyUnicode_GET_LENGTH(content);
-    Py_ssize_t pos = 0;
-    while (pos < len && meta_is_space(PyUnicode_READ(kind, data, pos))) {
-        pos++;
+    Py_UCS4 *value = PyUnicode_AsUCS4Copy(content);
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t number_start = pos;
-    while (pos < len && meta_is_digit(PyUnicode_READ(kind, data, pos))) {
-        pos++;
+    refresh_span span;
+    int refresh = refresh_read(value, len, &span);
+    int lone_dot = refresh && span.delay_end - span.delay_start == 1 && value[span.delay_start] == '.';
+    PyMem_Free(value);
+    if (!refresh) {
+        Py_RETURN_NONE;
     }
-    if (pos < len && PyUnicode_READ(kind, data, pos) == '.') {
-        pos++;
-        while (pos < len && meta_is_digit(PyUnicode_READ(kind, data, pos))) {
-            pos++;
-        }
-    }
-    if (pos == number_start) {
-        Py_RETURN_NONE; /* no leading number, so not a refresh directive */
-    }
-    PyObject *number = PyUnicode_Substring(content, number_start, pos);
+    PyObject *number = PyUnicode_Substring(content, span.delay_start, span.delay_end);
     if (number == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *delay = PyFloat_FromString(number);
+    PyObject *delay = lone_dot ? PyFloat_FromDouble(0.0) : PyFloat_FromString(number);
     Py_DECREF(number);
-    if (delay == NULL) { /* GCOVR_EXCL_BR_LINE: the substring is all digits and at most one dot */
+    if (delay == NULL) { /* GCOVR_EXCL_BR_LINE: the substring is digits with at most one dot */
         return NULL;     /* GCOVR_EXCL_LINE */
     }
     PyObject *url = NULL;
-    while (pos < len && PyUnicode_READ(kind, data, pos) != ';' && PyUnicode_READ(kind, data, pos) != ',') {
-        pos++;
-    }
-    if (pos < len) {
-        pos++; /* step past the ';' or ',' */
-        while (pos < len && meta_is_space(PyUnicode_READ(kind, data, pos))) {
-            pos++;
+    if (span.target_end > span.target_start) {
+        PyObject *raw = PyUnicode_Substring(content, span.target_start, span.target_end);
+        if (raw == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(delay); /* GCOVR_EXCL_LINE */
+            return NULL;      /* GCOVR_EXCL_LINE */
         }
-        /* an optional "url" "=" prefix, e.g. "url=next" or "URL = next" */
-        if (pos + 2 < len && (PyUnicode_READ(kind, data, pos) | 0x20) == 'u' &&
-            (PyUnicode_READ(kind, data, pos + 1) | 0x20) == 'r' &&
-            (PyUnicode_READ(kind, data, pos + 2) | 0x20) == 'l') {
-            Py_ssize_t after = pos + 3;
-            while (after < len && meta_is_space(PyUnicode_READ(kind, data, after))) {
-                after++;
-            }
-            if (after < len && PyUnicode_READ(kind, data, after) == '=') {
-                after++;
-                while (after < len && meta_is_space(PyUnicode_READ(kind, data, after))) {
-                    after++;
-                }
-                pos = after;
-            }
+        url = th_url_resolve(fallback, raw);
+        Py_DECREF(raw);
+        if (url == NULL) { /* a refresh target with an unbalanced IPv6 bracket cannot be resolved */
+            Py_DECREF(delay);
+            return NULL;
         }
-        Py_ssize_t url_end = len;
-        while (url_end > pos && meta_is_space(PyUnicode_READ(kind, data, url_end - 1))) {
-            url_end--;
-        }
-        if (url_end > pos) {
-            Py_UCS4 quote = PyUnicode_READ(kind, data, pos);
-            if ((quote == '"' || quote == '\'') && url_end - 1 > pos &&
-                PyUnicode_READ(kind, data, url_end - 1) == quote) {
-                pos++;
-                url_end--;
-            }
-        }
-        if (url_end > pos) {
-            PyObject *raw = PyUnicode_Substring(content, pos, url_end);
-            if (raw == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                Py_DECREF(delay); /* GCOVR_EXCL_LINE */
-                return NULL;      /* GCOVR_EXCL_LINE */
-            }
-            url = th_url_resolve(fallback, raw);
-            Py_DECREF(raw);
-            if (url == NULL) { /* a refresh target with an unbalanced IPv6 bracket cannot be resolved */
-                Py_DECREF(delay);
-                return NULL;
-            }
-        }
-    }
-    if (url == NULL) {
+    } else {
         url = Py_NewRef(fallback);
     }
     PyObject *result = PyTuple_Pack(2, delay, url);
@@ -1340,13 +1291,15 @@ TH_NODE_API(static, PyObject *, document_base_url, (PyObject * self, PyObject *a
     return result;
 }
 
-PyDoc_STRVAR(meta_refresh_doc, "meta_refresh(fallback='')\n--\n\n"
-                               "Read the document's <meta http-equiv=refresh> redirect. A refresh tag inside\n"
-                               "<noscript> is ignored.\n\n"
-                               ":param fallback: the URL the directive's target is resolved against, and the\n"
-                               "    target itself when the directive omits one.\n"
-                               ":returns: a (delay_seconds, url) pair, or None when the document has no\n"
-                               "    refresh directive.");
+PyDoc_STRVAR(meta_refresh_doc,
+             "meta_refresh(fallback='')\n--\n\n"
+             "Read the document's <meta http-equiv=refresh> redirect. A refresh tag inside\n"
+             "<noscript> is ignored.\n\n"
+             ":param fallback: the URL the directive's target is resolved against, and the\n"
+             "    target itself when the directive omits one.\n"
+             ":returns: a (delay_seconds, url) pair, or None when the document has no\n"
+             "    refresh directive. Text other than a separator right after the delay is not one, as\n"
+             "    in a browser.");
 
 /* A <meta> nested in <noscript> is ignored, as w3lib does; <script> needs no entry because it is a raw-text element, so
    the parser never nests a <meta> element inside one. */
@@ -1719,15 +1672,15 @@ static const th_encoding_entry *meta_declared_encoding(const th_tree *tree) {
     Py_ssize_t count;
     const th_meta_label *labels = th_tree_meta_labels(tree, &count);
     for (Py_ssize_t index = 0; index < count; index++) {
-        char extracted[64]; /* label may point into it, so it outlives the branch below */
         const char *label = labels[index].text;
+        Py_ssize_t label_len = (Py_ssize_t)strlen(label);
         if (labels[index].from_content) {
-            label = prescan_charset_in_content(label, extracted, sizeof(extracted));
+            label = prescan_charset_in_content(label, &label_len);
             if (label == NULL) {
                 continue;
             }
         }
-        const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+        const th_encoding_entry *entry = th_encoding_lookup(label, label_len);
         if (entry != NULL) {
             return th_encoding_declared(entry);
         }

@@ -42,18 +42,42 @@ static void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize
 }
 
 /* The WHATWG-conformant escaping the reserialized parts fall back to. */
-static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0,    NULL, 0,    0,    0,
-                                                NULL,          0, NULL, NULL, NULL, NULL, NULL};
+static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    0, 0, NULL, 0,
+                                                NULL,          NULL, NULL, NULL, NULL, 0};
+
+/* Whether the source code points [start, end) hold a "<" or "&", which element content reads back as markup or a
+   character reference. A span is whatever slice of the input the tokenizer left untouched, not only data-state text: a
+   CDATA section at an integration point, raw-text or <plaintext> content, and a stray "<" all stay spans. */
+static int source_has_markup(const th_tree *tree, Py_ssize_t start, Py_ssize_t end) {
+    if (tree->kind == PyUnicode_1BYTE_KIND) {
+        const Py_UCS1 *bytes = (const Py_UCS1 *)tree->data + start;
+        Py_ssize_t length = end - start;
+        return memchr(bytes, '<', length) != NULL || memchr(bytes, '&', length) != NULL;
+    }
+    for (Py_ssize_t index = start; index < end; index++) {
+        Py_UCS4 character = PyUnicode_READ(tree->kind, tree->data, index);
+        if (character == '<' || character == '&') {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 /* Emit a text node: its verbatim source span while it is still the zero-copy slice
-   the parse left (character references and raw ampersands preserved), or the WHATWG
-   escaping of its current code points once a read realized it or an edit replaced it. */
+   the parse left and that slice reads back as the same text, or the WHATWG escaping
+   of its current code points -- for a span that holds markup characters, and once a
+   read realized the text or an edit replaced it. */
 static void lossless_put_text(sbuf *out, th_tree *tree, th_node *node) {
     if (text_is_span(node)) {
         Py_ssize_t offset = text_span_offset(node);
-        sbuf_put_source(out, tree, offset, offset + node->text_len);
-    } else if (node->text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: an earlier lazy text OOM */
-        out->failed = 1;                                   /* GCOVR_EXCL_LINE: allocation failure */
+        if (!source_has_markup(tree, offset, offset + node->text_len)) {
+            sbuf_put_source(out, tree, offset, offset + node->text_len);
+            return;
+        }
+        need_text(tree, node);
+    }
+    if (node->text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: a lazy text OOM, now or earlier */
+        out->failed = 1;                            /* GCOVR_EXCL_LINE: allocation failure */
     } else { /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
         sbuf_put_text(out, node->text, node->text_len, 0, TH_FMT_WHATWG);
     }
@@ -79,10 +103,15 @@ static void lossless_put_rawtext(sbuf *out, th_tree *tree, th_node *node) {
 
 /* What the walk carries from one step to the next: the formatting elements open around the cursor that block
    end-tag omission (lossless_formatting_blocks), and whether a parsed <plaintext> has been written, after which
-   every end tag would reparse as its text. */
+   every end tag would reparse as its text (LOSSLESS_AFTER_PLAINTEXT), or whether the walk is below rawtext, a raw-text
+   element with a markup child, whose content starts at rawtext_content (LOSSLESS_IN_RAWTEXT). Both live in state so
+   that lossless_close_tag tests one field for either. */
+enum { LOSSLESS_AFTER_PLAINTEXT = 1, LOSSLESS_IN_RAWTEXT = 2 };
 typedef struct {
     int formatting;
-    int after_plaintext;
+    int state;
+    th_node *rawtext;
+    Py_ssize_t rawtext_content;
 } lossless_walk;
 
 /* Whether node is a formatting element that blocks leaving out an end tag around it, as every formatting element
@@ -136,19 +165,59 @@ static int lossless_end_tag_implied(th_tree *tree, th_node *node, const th_src_l
    same place, and a canonical close tag otherwise, as for a synthetic or inserted
    element the parse never located or a source-closed one renamed since. A parsed
    <plaintext> runs to the end of the input, so it and its ancestors get none. */
+/* lossless_close_tag's rare start, taken while walk->state is set: whether no end tag goes out at all, as after a
+   parsed <plaintext>. Leaving the raw-text element the walk entered for its markup child, it first adds the end tag
+   a double-escaped script needs, now that all of its content is written. */
+TH_NOINLINE static int lossless_close_held(sbuf *out, th_node *node, lossless_walk *walk) {
+    if (walk->state & LOSSLESS_AFTER_PLAINTEXT) {
+        return 1;
+    }
+    if (node == walk->rawtext) {
+        walk->state = 0;
+        ser_end_script_double_escape(out, node, walk->rawtext_content, 0);
+    }
+    return 0;
+}
+
 static void lossless_close_tag(sbuf *out, th_tree *tree, th_node *node, const th_src_loc *loc, lossless_walk *walk,
                                int trailing) {
-    if (walk->after_plaintext) {
+    if (walk->state != 0 && lossless_close_held(out, node, walk)) {
         return;
     }
     int located = loc != NULL && !loc->end_dirty;
     if (located && loc->has_end_tag) {
         sbuf_put_source(out, tree, loc->end_tag.start_offset, loc->end_tag.end_offset);
     } else if (located && node->ns == TH_NS_HTML && node->atom == TH_TAG_PLAINTEXT) {
-        walk->after_plaintext = 1;
+        walk->state |= LOSSLESS_AFTER_PLAINTEXT;
     } else if (!located || !lossless_end_tag_implied(tree, node, loc, walk, trailing)) {
         ser_close_tag(out, node);
     }
+}
+
+/* Write a raw-text element's text children and return its first markup child, which only the DOM API inserts and the
+   walk then takes over, or NULL after writing the end tag. Below another raw-text element's markup child the end tag
+   is text, and that element's end tag decides. */
+TH_NOINLINE static th_node *lossless_put_rawtext_element(sbuf *out, th_tree *tree, th_node *node, const th_src_loc *loc,
+                                                         lossless_walk *walk) {
+    Py_ssize_t content = out->len;
+    th_node *child = node->first_child;
+    for (; child != NULL && (child->type == TH_NODE_TEXT || child->type == TH_NODE_CDATA);
+         child = child->next_sibling) {
+        lossless_put_rawtext(out, tree, child);
+    }
+    if (child != NULL) {
+        if (walk->state == 0) {
+            walk->state = LOSSLESS_IN_RAWTEXT;
+            walk->rawtext = node;
+            walk->rawtext_content = content;
+        }
+        return child;
+    }
+    if (walk->state == 0) {
+        ser_end_script_double_escape(out, node, content, 1);
+    }
+    lossless_close_tag(out, tree, node, loc, walk, 0);
+    return NULL;
 }
 
 /* Emit one node and return the next the walk rooted at root visits, or NULL once the
@@ -168,16 +237,7 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
             sbuf_putc(out, '\n'); /* re-emit the newline pre/textarea/listing dropped on read */
         }
         if (is_rawtext_element(node, tree->scripting)) {
-            th_node *child = node->first_child;
-            for (; child != NULL && (child->type == TH_NODE_TEXT || child->type == TH_NODE_CDATA);
-                 child = child->next_sibling) {
-                lossless_put_rawtext(out, tree, child);
-            }
-            if (child == NULL) {
-                lossless_close_tag(out, tree, node, loc, walk, 0);
-                break;
-            }
-            descend = child; /* a markup child, which only the DOM API inserts: the walk takes it from here */
+            descend = lossless_put_rawtext_element(out, tree, node, loc, walk);
             break;
         }
         if (node->first_child != NULL) {
@@ -189,9 +249,9 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         break;
     }
     case TH_NODE_TEXT:
-        /* a span copies its source bytes either way, so only a realized or edited text pays the parent check */
-        if (!text_is_span(node) && lossless_in_rawtext(tree, node, root)) {
-            sbuf_put_ucs4(out, node->text, node->text_len);
+        /* the parent decides for a span too: its source bytes are literal in a raw-text element, escaped elsewhere */
+        if (lossless_in_rawtext(tree, node, root)) {
+            lossless_put_rawtext(out, tree, node);
         } else {
             lossless_put_text(out, tree, node);
         }
@@ -202,9 +262,8 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         sbuf_puts(out, "-->");
         break;
     case TH_NODE_DOCTYPE:
-        sbuf_puts(out, "<!DOCTYPE ");
-        sbuf_put_ucs4(out, node->text, doctype_name_len(node));
-        sbuf_putc(out, '>');
+        /* the name alone would move a quirks-mode document to no-quirks, where a <table> closes the open <p> */
+        ser_put_html_doctype(out, tree, node);
         break;
     case TH_NODE_PI:
         sbuf_put_html_pi(out, node->text, node->text_len);
@@ -249,7 +308,7 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
 Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0};
     sbuf_presize_for_root(&out, tree, node);
-    lossless_walk walk = {0, 0};
+    lossless_walk walk = {0, 0, NULL, 0};
     /* a subtree gets the end tags the whole document's walk writes for it, so the count starts above the root */
     for (th_node *up = node->parent; up != NULL; up = up->parent) {
         walk.formatting += lossless_formatting_blocks(tree, up);

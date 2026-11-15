@@ -396,6 +396,23 @@ def test_prefix_resolution_skips_a_decoy_attribute() -> None:
     assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
 
 
+def test_prefix_resolution_skips_a_same_length_declaration_of_another_prefix() -> None:
+    # xmlns:z is as long as xmlns:x and binds another prefix, so the resolver has to compare names, not lengths
+    schema = (
+        '<x:element xmlns:z="urn:decoy" xmlns:x="http://relaxng.org/ns/structure/1.0" name="r"><x:text/></x:element>'
+    )
+    assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
+
+
+def test_default_namespace_skips_a_same_length_decoy_attribute() -> None:
+    # label is as long as xmlns and is not a namespace declaration, so the default namespace is found past it
+    schema = (
+        '<grammar label="v" xmlns="http://relaxng.org/ns/structure/1.0">'
+        '<start><element name="r"><text/></element></start></grammar>'
+    )
+    assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
+
+
 @pytest.mark.parametrize(
     ("schema", "xml", "expected"),
     [
@@ -2450,6 +2467,18 @@ def test_shared_schema_validates_distinct_documents(name: str) -> None:
     assert [result.valid for result in results] == [child == name for child in children]
 
 
+def test_rng_routing_leaves_the_compiled_schema_unchanged(work_steps: WorkSteps) -> None:
+    # the first token takes enough steps to start routing, which adopts what it derived: the compiled <optional>
+    values: Final = "".join(f"<value>v{index}</value>" for index in range(100))
+    optional: Final = "<optional><value>a</value><value>b</value><empty/></optional>"
+    schema: Final = RelaxNG(wrap(f"<list><choice>{values}</choice>{optional}</list>"))
+    document: Final = parse_xml("<doc>v5 a b</doc>")
+    steps: Final = [work_steps(partial(schema.validate, document)) for _ in range(2)]
+    assert steps[0] > 0
+    assert steps[1] == steps[0]
+    assert schema.is_valid(document)
+
+
 @pytest.mark.parametrize(
     "index",
     [
@@ -4300,3 +4329,110 @@ def test_rng_pattern_matching_past_the_step_budget_raises() -> None:
     with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
         schema.validate(parse_xml(f"<doc>{'b' * 1000}</doc>"))
     assert schema.is_valid(parse_xml("<doc>b</doc>"))
+
+
+@pytest.mark.parametrize("padding", [pytest.param(0, id="few-attributes"), pytest.param(40, id="many-attributes")])
+@pytest.mark.parametrize(
+    ("schema", "valid", "invalid"),
+    [
+        pytest.param(
+            '<grammar {pad} ns="urn:a" xmlns="{rng}"><start><element name="r">'
+            '<element name="c" ns="urn:b"><empty/></element><element name="d" xy=""><empty/></element>'
+            "</element></start></grammar>",
+            '<r xmlns="urn:a"><c xmlns="urn:b"/><d/></r>',
+            '<r xmlns="urn:a"><c/><d/></r>',
+            id="inherited-ns",
+        ),
+        pytest.param(
+            '<element name="p:r" {pad} xmlns:p="urn:a" xmlns="{rng}">'
+            '<element name="p:c" {pad} xmlns:p="urn:b"><empty/></element><element name="p:d"><empty/></element>'
+            "</element>",
+            '<r xmlns="urn:a"><c xmlns="urn:b"/><d/></r>',
+            '<r xmlns="urn:a"><c xmlns="urn:b"/><d xmlns="urn:b"/></r>',
+            id="redeclared-prefix-stays-in-its-branch",
+        ),
+        pytest.param(
+            '<element name="r" {pad} xmlns:p="urn:a" xmlns="{rng}"><attribute name="p:x"/></element>',
+            '<r xmlns:q="urn:a" q:x="1"/>',
+            '<r x="1"/>',
+            id="prefixed-attribute",
+        ),
+        pytest.param(
+            '<element name="r" {pad} ns="urn:a" xmlns="{rng}">'
+            "<zeroOrMore><attribute><nsName/></attribute></zeroOrMore></element>",
+            '<r xmlns="urn:a" xmlns:q="urn:a" q:x="1"/>',
+            '<r xmlns="urn:a" x="1"/>',
+            id="ns-name",
+        ),
+        pytest.param(
+            f'<element name="r" {{pad}} datatypeLibrary="{_DT}" xmlns="{{rng}}"><data type="int"/></element>',
+            "<r>4</r>",
+            "<r>four</r>",
+            id="datatype-library",
+        ),
+    ],
+)
+def test_rng_names_resolve_below_many_attributes(schema: str, valid: str, invalid: str, padding: int) -> None:
+    # past a few dozen attributes on the way to the root a lookup reads a per-path scope instead of the ancestors
+    validator: Final = RelaxNG(schema.replace("{pad}", _padding(padding)).replace("{rng}", _RELAXNG_NS))
+    assert validator.validate(parse_xml(valid)).valid
+    assert not validator.validate(parse_xml(invalid)).valid
+
+
+def _padding(count: int) -> str:
+    return " ".join(f'p{index}=""' for index in range(count))
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        pytest.param('<element name="e{index}"><empty/></element>', id="element-name"),
+        pytest.param('<element name="e{index}"><data type="int"/></element>', id="datatype-library"),
+        pytest.param('<attribute name="p:a{index}"/>', id="prefixed-attribute"),
+    ],
+)
+def test_rng_compile_below_many_attributes_scales_linearly(work_steps: WorkSteps, item: str) -> None:
+    # every name below the root resolves through the root's attributes, which must not cost their count each time
+    def build(count: int) -> Callable[[], RelaxNG]:
+        body: Final = "".join(item.format(index=index) for index in range(count))
+        return partial(
+            RelaxNG,
+            grammar(
+                f'<start><element name="r"><choice>{body}</choice></element></start>',
+                attrs=f'{_padding(count)} datatypeLibrary="{_DT}" xmlns:p="urn:p"',
+            ),
+        )
+
+    work_steps.assert_linear(build, (70, 280))
+
+
+def test_rng_validate_builds_a_define_below_many_attributes_linearly(work_steps: WorkSteps) -> None:
+    # validate() builds the patterns of a define again, so it resolves the names below the root's attributes too
+    def build(count: int) -> Callable[[], ValidationResult]:
+        body: Final = "".join(f'<element name="e{index}"><empty/></element>' for index in range(count))
+        schema: Final = RelaxNG(
+            f'<grammar {_padding(count)} xmlns="{_RELAXNG_NS}"><start><ref name="d"/></start>'
+            f'<define name="d"><choice>{body}</choice></define></grammar>'
+        )
+        return partial(schema.validate, parse_xml("<e1/>"))
+
+    work_steps.assert_linear(build, (70, 280))
+
+
+@pytest.mark.parametrize(
+    ("datatype", "value", "expected"),
+    [
+        pytest.param("integer", f"{'0' * 64}250", False, id="zeros-then-digits-out-of-bound"),
+        pytest.param("integer", f"{'0' * 90}50", True, id="zeros-then-digits-in-bound"),
+        pytest.param("double", f"5.{'0' * 80}e30", False, id="long-fraction-then-exponent-out-of-bound"),
+        pytest.param("double", f"1{'0' * 70}e-70", True, id="long-integer-then-exponent-in-bound"),
+    ],
+)
+def test_rng_long_number_range(datatype: str, value: str, *, expected: bool) -> None:
+    # the digits or exponent that decide the comparison sit past the 63rd character of the value
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="{datatype}"><param name="maxInclusive">100</param></data>'
+        "</element>"
+    )
+    assert tuple(validator.validate(parse_xml(f"<doc>{value}</doc>")).valid for _ in range(2)) == (expected, expected)

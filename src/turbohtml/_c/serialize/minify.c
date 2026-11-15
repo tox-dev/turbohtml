@@ -713,7 +713,7 @@ static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *no
 }
 
 /* Whether the minified bytes reparse in quirks mode: the source tree was parsed in
-   it (mini_emit_doctype keeps it so), or a document's doctype is quirky or missing.
+   it (ser_put_html_doctype keeps it so), or a document's doctype is quirky or missing.
    An API-built tree defaults to no-quirks, but its doctype decides the reparse. */
 static int mini_reparses_quirks(th_tree *tree, th_node *root) {
     if (th_tree_quirks(tree)) {
@@ -773,8 +773,9 @@ static void mini_emit_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len, i
    its last identifier left unclosed, or a stray character after the name. An
    identifier HTML cannot spell would end early and leave its tail to reparse as
    markup, so its doctype keeps only the name, and the stray character when the
-   page reparses in quirks mode. */
-static void mini_emit_doctype(sbuf *out, th_tree *tree, th_node *node) {
+   page reparses in quirks mode. Shared with the lossless serializer, whose output
+   must reparse in the mode the source did. */
+void ser_put_html_doctype(sbuf *out, th_tree *tree, th_node *node) {
     int quirky = th_doctype_is_quirky(node);
     int force = th_tree_quirks(tree) && !quirky;
     sbuf_puts(out, "<!DOCTYPE ");
@@ -841,6 +842,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node, tree->scripting)) {
+                Py_ssize_t content = out->len;
                 /* the JS and CSS minifiers parse text alone, so a markup child keeps the content verbatim */
                 if (rawtext_markup_child(node) != NULL) {
                     ser_put_rawtext_markup(out, tree, node, node->first_child, st, opts->strip_comments);
@@ -853,6 +855,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 if (node->atom == TH_TAG_PLAINTEXT) {
                     after_plaintext = 1;
                 } else if (!(st->inner && node == root)) {
+                    ser_end_script_double_escape(out, node, content, 0);
                     ser_close_tag(out, node);
                 }
                 break;
@@ -903,7 +906,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             break; /* a stripped comment emits nothing, so last_was_space carries across it */
         case TH_NODE_DOCTYPE:
             last_was_space = 0;
-            mini_emit_doctype(out, tree, node);
+            ser_put_html_doctype(out, tree, node);
             break;
         case TH_NODE_PI:
             last_was_space = 0;

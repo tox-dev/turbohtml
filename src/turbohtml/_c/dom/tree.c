@@ -317,6 +317,10 @@ uint64_t th_tree_id_version(const th_tree *tree) {
     return tree->id_version;
 }
 
+void th_tree_note_element_edit(th_tree *tree) {
+    tree->id_version++;
+}
+
 int th_tree_slot_cache_valid(const th_tree *tree) {
     return tree->slot_cache_valid;
 }
@@ -888,24 +892,7 @@ static const char *meta_value_ascii(th_tree *tree, const th_buf *value) {
     return out;
 }
 
-/* Record a <meta> element's encoding declaration, if it carries one: a charset attribute,
-   or an http-equiv="content-type" whose content still needs its charset= token extracted.
-   Every other <meta> declares no encoding and is skipped. Kept in document order because an
-   unresolvable label falls through to the next declaration rather than ending the search. */
-static void record_meta_label(th_tree *tree, const th_token *token) {
-    const th_attr *declaration = token_attr(token, "charset", 7);
-    int from_content = 0;
-    if (declaration == NULL || !declaration->has_value) {
-        const th_attr *pragma = token_attr(token, "http-equiv", 10);
-        if (pragma == NULL || !pragma->has_value || !buf_iequals_ascii(&pragma->value, "content-type", 12)) {
-            return;
-        }
-        declaration = token_attr(token, "content", 7);
-        if (declaration == NULL || !declaration->has_value) {
-            return;
-        }
-        from_content = 1;
-    }
+static void append_meta_label(th_tree *tree, const th_buf *value, int from_content) {
     if (tree->meta_label_count == tree->meta_label_cap) {
         Py_ssize_t cap = tree->meta_label_cap == 0 ? TH_INITIAL_CAPACITY(4) : tree->meta_label_cap * 2;
         th_meta_label *grown = PyMem_Realloc(tree->meta_labels, (size_t)cap * sizeof(*grown));
@@ -916,13 +903,32 @@ static void record_meta_label(th_tree *tree, const th_token *token) {
         tree->meta_labels = grown;
         tree->meta_label_cap = cap;
     }
-    const char *text = meta_value_ascii(tree, &declaration->value);
+    const char *text = meta_value_ascii(tree, value);
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     tree->meta_labels[tree->meta_label_count].text = text;
     tree->meta_labels[tree->meta_label_count].from_content = from_content;
     tree->meta_label_count++;
+}
+
+/* Record a <meta> element's encoding declarations in the order the tree-construction rule tries them: its charset
+   value, then -- for an http-equiv="content-type" element -- its content value, whose charset= token still needs
+   extracting. A value that names no encoding falls through to the next declaration rather than ending the search,
+   so every declaration is kept, in document order. Other <meta> elements declare nothing. */
+static void record_meta_label(th_tree *tree, const th_token *token) {
+    const th_attr *charset = token_attr(token, "charset", 7);
+    if (charset != NULL && charset->has_value) {
+        append_meta_label(tree, &charset->value, 0);
+    }
+    const th_attr *pragma = token_attr(token, "http-equiv", 10);
+    if (pragma == NULL || !pragma->has_value || !buf_iequals_ascii(&pragma->value, "content-type", 12)) {
+        return;
+    }
+    const th_attr *content = token_attr(token, "content", 7);
+    if (content != NULL && content->has_value) {
+        append_meta_label(tree, &content->value, 1);
+    }
 }
 
 static th_node *insert_element(th_tree *tree, const th_token *token) {
@@ -1563,8 +1569,9 @@ static th_node *node_clone(th_tree *tree, th_node *src, int with_attrs) {
         }
         memcpy(node->attrs, src->attrs, (size_t)src->attr_count * sizeof(th_node_attr));
         /* the slots are the clone's own, the values they point at are not */
+        th_node_share_values(src);
         node->attr_values_shared = 1;
-        src->attr_values_shared = 1;
+        node->values_seq = src->values_seq;
         node->attr_count = src->attr_count;
     }
     if (tree->track_positions) {
@@ -1897,6 +1904,7 @@ static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
         copy->text = need_text(tree, source);
         copy->text_len = source->text_len;
+        source->text_capacity_shift = 0;    /* the buffer is shared now, so neither node may write into it */
         if (source->type != TH_NODE_TEXT) { /* compact text nodes omit attr_count */
             copy->attr_count = source->attr_count;
         }
@@ -4300,8 +4308,15 @@ static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc, int
         insert_text(tree, text, len);
         return TH_DRAIN_NEXT;
     }
-    /* end tag (or EOF) closes the raw-text/RCDATA element; a depth-capped one never reached the stack */
+    /* the end tag closes the raw-text/RCDATA element; a depth-capped one never reached the stack */
     if (pushed) {
+        th_node *element = current_node(tree);
+        /* the tokenizer reads a script's end tag only outside the double escaped state, so a re-parse of its text,
+           which the inserts merge into one node, ends there too and the serializer can skip its scan; the end of input
+           pops a script elsewhere, so the one it ends inside keeps the scan */
+        if (element->atom == TH_TAG_SCRIPT && element->first_child != NULL) {
+            element->first_child->script_text_closes = 1;
+        }
         stack_pop(tree);
     }
     dc->mode = dc->original_mode;
@@ -5489,6 +5504,7 @@ struct th_shadow {
     Py_ssize_t allocated; /* arena bytes the tree holds */
     Py_ssize_t budget;    /* allocated past which th_shadow_compact copies the tree */
     th_node gone;         /* stands in for an element the tree let go of: it has left the stack */
+    int mirror;           /* sm is the shadow's own, fed by th_shadow_mirror_feed, and its input moves */
 };
 
 /* Arena growth a shadow tree may reach before its first copy, and on top of three times what the last copy kept. */
@@ -5496,7 +5512,7 @@ struct th_shadow {
 /* Set on an element of the tree being copied once it has its copy, which prev_sibling then points at. */
 #define SHADOW_COPIED 0x80
 
-static th_tree *shadow_tree(th_tokenizer *sm) {
+static th_tree *shadow_tree(th_tokenizer *sm, int mirror) {
     th_tree *tree = tree_new_document(1, 0); /* the start tag positions pair the elements with the consumer's */
     if (tree == NULL) {                      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;                         /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -5504,9 +5520,10 @@ static th_tree *shadow_tree(th_tokenizer *sm) {
     /* the settings of a document parse that runs scripts, as a browser does */
     tree->scripting = 1;
     tree->declarative_shadow = 1;
-    /* the consumer's input is final and outlives the tree, so text can stay a span of it; any slice may hold a NUL */
+    /* the consumer's input is final and outlives the tree, so text can stay a span of it, but a mirror's tokenizer
+       drops what it has read on the next feed; any slice may hold a NUL */
     tree->data = th_tok_input_data(sm, &tree->kind);
-    tree->can_span = 1;
+    tree->can_span = !mirror;
     tree->has_nul = 1;
     return tree;
 }
@@ -5518,12 +5535,13 @@ static void shadow_count_arena(th_shadow *shadow) {
     shadow->counted = shadow->tree->arena;
 }
 
-th_shadow *th_shadow_new(th_tokenizer *sm) {
+static th_shadow *shadow_new(th_tokenizer *sm, int mirror) {
     th_shadow *shadow = PyMem_Calloc(1, sizeof(th_shadow));
     if (shadow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    shadow->tree = shadow_tree(sm);
+    shadow->mirror = mirror;
+    shadow->tree = shadow_tree(sm, mirror);
     if (shadow->tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(shadow);     /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -5541,6 +5559,10 @@ th_shadow *th_shadow_new(th_tokenizer *sm) {
     shadow_count_arena(shadow);
     shadow->budget = shadow->allocated + SHADOW_SLACK;
     return shadow;
+}
+
+th_shadow *th_shadow_new(th_tokenizer *sm) {
+    return shadow_new(sm, 0);
 }
 
 static void shadow_take(th_shadow *shadow, th_token *token) {
@@ -5612,7 +5634,7 @@ static th_node *shadow_copy_detached(th_tree *dest, th_tree *src, th_node *node)
    pointers at refs, `stride` bytes apart, is moved to its element's copy, or to a stand-in that has left the stack. */
 static int shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, size_t stride) {
     th_tree *src = shadow->tree;
-    th_tree *dest = shadow_tree(shadow->sm);
+    th_tree *dest = shadow_tree(shadow->sm, shadow->mirror);
     if (dest == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -5763,6 +5785,45 @@ void th_shadow_free(th_shadow *shadow) {
     if (shadow == NULL) {
         return;
     }
+    if (shadow->mirror) {
+        th_tok_free(shadow->sm);
+    }
     th_tree_free(shadow->tree);
     PyMem_Free(shadow);
+}
+
+th_shadow *th_shadow_mirror_new(void) {
+    th_tokenizer *sm = th_tok_new();
+    if (sm == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_shadow *mirror = shadow_new(sm, 1);
+    if (mirror == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tok_free(sm);  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return mirror;
+}
+
+int th_shadow_mirror_feed(th_shadow *mirror, const Py_UCS4 *data, Py_ssize_t length, th_node **refs, Py_ssize_t count,
+                          size_t stride) {
+    th_tok_feed(mirror->sm, PyUnicode_4BYTE_KIND, data, length);
+    mirror->tree->data = th_tok_input_data(mirror->sm, &mirror->tree->kind);
+    th_token *token;
+    while (th_tok_set_cdata(mirror->sm, th_shadow_foreign(mirror)), th_tok_next(mirror->sm, &token) == TH_STEP_TOKEN) {
+        shadow_take(mirror, token);
+        /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+        if (mirror->tree->failed || (count >= 0 && th_shadow_compact(mirror, refs, count, stride) < 0)) {
+            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+    }
+    return th_tok_failed(mirror->sm) ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+}
+
+enum th_initial_state th_shadow_mirror_model(const th_shadow *mirror, const th_buf **end_tag) {
+    return th_tok_content_model(mirror->sm, end_tag);
+}
+
+int th_shadow_foreign(const th_shadow *shadow) {
+    return shadow->tree->open_len > 0 && shadow->tree->open[shadow->tree->open_len - 1]->ns != TH_NS_HTML;
 }

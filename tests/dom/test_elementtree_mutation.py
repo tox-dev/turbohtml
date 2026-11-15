@@ -38,6 +38,35 @@ def test_element_tree_insert_into_childless(incoming: ElementView, index: int) -
 
 
 @pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(0, "<ul><li>d</li><li>c</li><li>b</li><li>a</li></ul>", id="front-reverses"),
+        pytest.param(-1, "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>", id="before-last-restores"),
+    ],
+)
+def test_element_tree_insert_moving_each_child_near_either_end_orders_them(index: int, expected: str) -> None:
+    listing = etree.fromstring("<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>")
+    for item in list(listing):
+        listing.insert(index, item)
+    assert etree.tostring(listing, encoding="unicode") == expected
+
+
+@pytest.mark.parametrize("index", [pytest.param(1, id="second"), pytest.param(-2, id="second-from-end")])
+def test_element_tree_insert_near_either_end_stays_linear(index: int, work_steps: WorkSteps) -> None:
+    def move_each(size: int) -> Callable[[], object]:
+        listing = etree.fromstring(f"<ol>{'<li>i</li>' * size}</ol>")
+        items = list(listing)
+
+        def move_all() -> None:
+            for item in items:
+                listing.insert(index, item)
+
+        return move_all
+
+    work_steps.assert_linear(move_each, (500, 2000))
+
+
+@pytest.mark.parametrize(
     ("operation", "expected"),
     [
         pytest.param(
@@ -83,6 +112,14 @@ def test_element_tree_clear(tree: ElementView, expected: str, *, keep_tail: bool
     tree[0].set("class", "one two")
     tree[0].clear(keep_tail=keep_tail)
     assert tostring(tree, encoding="unicode") == expected
+
+
+def test_element_tree_clear_removes_many_attributes_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: _attributed_element(count).clear, (1_000, 4_000))
+
+
+def _attributed_element(count: int) -> ElementView:
+    return fromstring(f"<p {' '.join(f'k{index}' for index in range(count))}></p>")
 
 
 def test_element_tree_unwrap_keeps_text(tree: ElementView) -> None:
@@ -293,3 +330,27 @@ def tree() -> ElementView:
 @pytest.fixture
 def incoming() -> ElementView:
     return fragment_fromstring("<strong>N</strong>tail")
+
+
+@pytest.mark.parametrize(
+    ("attribute", "path", "expected"),
+    [
+        pytest.param("text", "p/text()", "price: 10 EUR", id="text"),
+        pytest.param("tail", "text()", "after: 10 EUR", id="tail"),
+    ],
+)
+def test_element_tree_text_setter_keeps_one_text_node(attribute: str, path: str, expected: str) -> None:
+    tree: Final = fragment_fromstring("<div><p>price: </p>after: </div>")
+    for more in ("1", "0", " EUR"):
+        setattr(tree[0], attribute, getattr(tree[0], attribute) + more)
+    texts: Final = tree.xpath(path)
+    assert isinstance(texts, list)
+    assert [str(value) for value in texts] == [expected]  # XPath sees one text node, as lxml does
+
+
+def test_element_tree_text_setter_writes_into_the_held_text_node() -> None:
+    tree: Final = fragment_fromstring("<div>one<b></b></div>")
+    held: Final = tree.node.children[0]
+    assert isinstance(held, Text)
+    tree.text = "two"
+    assert (held.data, held.parent) == ("two", tree.node)

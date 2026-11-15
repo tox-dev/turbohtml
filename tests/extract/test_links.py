@@ -279,19 +279,36 @@ def _urls(html: str) -> list[str]:
     [
         pytest.param("5; url=next.html", ["next.html"], id="standard"),
         pytest.param('0;url="dq.html"', ["dq.html"], id="double-quoted-url"),
+        pytest.param("0;url='sq.html' rest", ["sq.html"], id="quoted-url-ends-at-its-quote"),
+        pytest.param("0;url='open.html", ["open.html"], id="unclosed-quote-runs-to-the-end"),
+        pytest.param("0;url=' in.html '", ["in.html"], id="whitespace-inside-quotes-is-trimmed"),
+        pytest.param("0;'bare.html'", ["bare.html"], id="quoted-url-without-keyword"),
         pytest.param("5; url=", [], id="empty-url-after-equals"),
-        pytest.param("url=only.html", ["only.html"], id="url-first"),
+        pytest.param("url=only.html", [], id="no-time-is-no-refresh"),
+        pytest.param(" ", [], id="blank"),
+        pytest.param(" .5;url=dot.html", ["dot.html"], id="time-may-start-with-a-dot"),
+        pytest.param("5x; url=no.html", [], id="junk-after-time-is-no-refresh"),
         pytest.param("5; URL = spaced.html", ["spaced.html"], id="spaced-around-equals"),
-        pytest.param("5; url=a.html ignored", ["a.html"], id="unquoted-url-ends-at-whitespace"),
-        pytest.param("5", [], id="no-url-keyword"),
-        pytest.param("5; urlx=no.html", [], id="url-not-followed-by-equals"),
-        pytest.param("5; curl=no.html", [], id="url-is-tail-of-identifier"),
-        pytest.param("0;url", [], id="url-keyword-at-end"),
+        pytest.param("5; url=a.html more ", ["a.html more"], id="unquoted-url-runs-to-the-end"),
+        pytest.param("5", [], id="no-url"),
+        pytest.param("5 ", [], id="no-url-after-whitespace"),
+        pytest.param("5;", [], id="no-url-after-separator"),
+        pytest.param("0;next.html", ["next.html"], id="keyword-is-optional"),
+        pytest.param("0,next.html", ["next.html"], id="comma-separator"),
+        pytest.param("0 next.html", ["next.html"], id="whitespace-separator"),
+        pytest.param("1.2.3;next.html", ["next.html"], id="repeated-dot-after-delay-is-discarded"),
+        pytest.param("0 ; next.html", ["next.html"], id="whitespace-around-separator"),
+        pytest.param("0;;next.html", [";next.html"], id="only-one-separator-is-skipped"),
+        pytest.param("0;/one?url=/two", ["/one?url=/two"], id="later-keyword-is-part-of-the-url"),
+        pytest.param("0;url=/three /four", ["/three /four"], id="space-inside-unquoted-url"),
+        pytest.param("5; urlx=x.html", ["urlx=x.html"], id="url-not-followed-by-equals"),
+        pytest.param("5; curl=x.html", ["curl=x.html"], id="url-is-tail-of-identifier"),
+        pytest.param("0;url", ["url"], id="url-keyword-at-end"),
         pytest.param("0;url=''", [], id="empty-quoted-url"),
     ],
 )
 def test_meta_refresh_content_parsing(content: str, expected: list[str]) -> None:
-    assert _urls(f"<meta http-equiv='refresh' content='{content}'>") == expected
+    assert _urls(f'<meta http-equiv="refresh" content="{escape(content, quote=True)}">') == expected
 
 
 @pytest.mark.parametrize(
@@ -344,6 +361,8 @@ def test_meta_refresh_with_valueless_content_has_no_link() -> None:
         pytest.param("éurl(hidden.png) url(real.png)", ["real.png"], id="non-ascii-identifier-prefix"),
         pytest.param("aurl(hidden.png) URL(real.png)", ["real.png"], id="ascii-identifier-prefix"),
         pytest.param("a_url(hidden.png) a-url(hidden.png) url(real.png)", ["real.png"], id="identifier-punctuation"),
+        pytest.param("Aurl(hidden.png) 1url(hidden.png) url(real.png)", ["real.png"], id="uppercase-and-digit-prefix"),
+        pytest.param("!url(a.png) url(real.png)", ["a.png", "real.png"], id="punctuation-before-url-is-not-identifier"),
         pytest.param("u @import 'a.css'", ["a.css"], id="short-ident-before-import"),
         pytest.param("a@import 'hidden.css'", [], id="import-in-identifier"),
         pytest.param(
@@ -638,6 +657,58 @@ def test_srcset_with_a_trailing_comma_and_varied_whitespace() -> None:
         pytest.param("a.png, b.png 2x", ["a.png", "b.png"], id="trailing-comma"),
         pytest.param("a.png,, b.png 2x", ["a.png", "b.png"], id="multiple-trailing-commas"),
         pytest.param("a.png,b.png,", ["a.png,b.png"], id="internal-and-trailing-comma"),
+        pytest.param(
+            "hero.jpg (w,h),https://cdn.test/hero.jpg 1x",
+            ["https://cdn.test/hero.jpg"],
+            id="comma-in-parens",
+        ),
+        pytest.param("a.png 1x (x,y) z,b.png 2x", ["b.png"], id="comma-in-later-parens"),
+        pytest.param("a.png ((x),b.png 2x", ["b.png"], id="parens-do-not-nest"),
+        pytest.param("a.png x),b.png 2x", ["b.png"], id="stray-close-paren"),
+        pytest.param("a.png (x,b.png 2x", [], id="unclosed-parens-run-to-the-end"),
+        pytest.param("a.jpg 1w 2w, b.jpg 1x", ["b.jpg"], id="duplicate-width"),
+        pytest.param("a.jpg 1x 1.5x, b.jpg 1x", ["b.jpg"], id="duplicate-density"),
+        pytest.param("a.jpg 3w 2x, b.jpg 1x", ["b.jpg"], id="width-then-density"),
+        pytest.param("a.jpg 2x 3w, b.jpg 1x", ["b.jpg"], id="density-then-width"),
+        pytest.param("a.jpg 1w 2x, b.jpg 1x", ["b.jpg"], id="width-with-density"),
+        pytest.param("a.jpg 0w, b.jpg 1x", ["b.jpg"], id="zero-width"),
+        pytest.param("a.jpg 0.0x, b.jpg 0x", ["a.jpg", "b.jpg"], id="zero-density"),
+        pytest.param("a.jpg -0x, b.jpg -0.0e5x", ["a.jpg", "b.jpg"], id="negative-zero-density"),
+        pytest.param("a.jpg -0.5x, b.jpg 1x", ["b.jpg"], id="negative-fraction-density"),
+        pytest.param("a.jpg -x, b.jpg 1x", ["b.jpg"], id="bare-sign-density"),
+        pytest.param("a.jpg .x, b.jpg 1x", ["b.jpg"], id="bare-dot-density"),
+        pytest.param("a.jpg -1x, b.jpg 1x", ["b.jpg"], id="negative-density"),
+        pytest.param("a.jpg +1x, b.jpg 1x", ["b.jpg"], id="signed-density"),
+        pytest.param("a.jpg .5x, b.jpg -.5x", ["a.jpg"], id="density-without-integer-part"),
+        pytest.param("a.jpg 5.x, b.jpg 1x", ["b.jpg"], id="density-without-fraction-digits"),
+        pytest.param("a.jpg 1ex, b.jpg 1x", ["b.jpg"], id="exponent-without-digits"),
+        pytest.param("a.jpg 1.5w, b.jpg 1x", ["b.jpg"], id="fractional-width"),
+        pytest.param("a.jpg fx, b.jpg 1x", ["b.jpg"], id="non-numeric-density"),
+        pytest.param("a.jpg x, b.jpg 1x", ["b.jpg"], id="bare-unit"),
+        pytest.param("a.jpg 2h, b.jpg 1x", ["b.jpg"], id="height-without-width"),
+        pytest.param("a.jpg 1w 2h 3h, b.jpg 1x", ["b.jpg"], id="duplicate-height"),
+        pytest.param("a.jpg 2h 1x, b.jpg 1x", ["b.jpg"], id="height-with-density"),
+        pytest.param("a.jpg 1y, b.jpg 1x", ["b.jpg"], id="unknown-unit"),
+        pytest.param("a.jpg 1X, b.jpg 1x", ["b.jpg"], id="uppercase-unit"),
+        pytest.param("a.jpg 1w 2h, b.jpg 1x", ["a.jpg", "b.jpg"], id="width-with-height"),
+        pytest.param("a.jpg\t01w\n2h, b.jpg 1x", ["a.jpg", "b.jpg"], id="integer-with-leading-zero"),
+        pytest.param("a.jpg 1.5x, b.jpg 1e2x", ["a.jpg", "b.jpg"], id="exponent-density"),
+        pytest.param("a.jpg 1E+2x, b.jpg 0.5x", ["a.jpg", "b.jpg"], id="signed-exponent-density"),
+        pytest.param("a.jpg 1e-2x, b.jpg 1x", ["a.jpg", "b.jpg"], id="negative-exponent-density"),
+        pytest.param("a.jpg 1.5e2x, b.jpg 1x", ["a.jpg", "b.jpg"], id="fraction-then-exponent-density"),
+        pytest.param("a.jpg w, b.jpg 1x", ["b.jpg"], id="bare-width-unit"),
+        pytest.param("a.jpg 0h, b.jpg 1x", ["b.jpg"], id="zero-height"),
+        pytest.param("a.jpg 1x 2h, b.jpg 1x", ["b.jpg"], id="density-then-height"),
+        pytest.param("a.jpg 1ax, b.jpg 1x", ["b.jpg"], id="density-with-trailing-letter"),
+        pytest.param("a.jpg 1.5ax, b.jpg 1x", ["b.jpg"], id="fraction-with-trailing-letter"),
+        pytest.param("a.jpg 1e2ax, b.jpg 1x", ["b.jpg"], id="exponent-with-trailing-letter"),
+        pytest.param("a.jpg 640w, b.jpg 1280w", ["a.jpg", "b.jpg"], id="widths"),
+        pytest.param("a.jpg 1x , b.jpg 2x\n", ["a.jpg", "b.jpg"], id="space-after-descriptor"),
+        pytest.param("a.jpg 2x, b.jpg 12", ["a.jpg"], id="digits-without-unit-at-the-end"),
+        pytest.param("a.jpg 12 , b.jpg 1x", ["b.jpg"], id="digits-without-unit"),
+        pytest.param("a.jpg 1xe, b.jpg 1x", ["b.jpg"], id="letter-after-unit"),
+        pytest.param("a.jpg 640w 1x, b.jpg 1x", ["b.jpg"], id="second-descriptor-after-width"),
+        pytest.param("a.jpg 0640w, b.jpg 00w", ["a.jpg"], id="width-with-leading-zero"),
     ],
 )
 def test_srcset_url_boundaries(value: str, expected: list[str]) -> None:
@@ -816,6 +887,11 @@ def test_css_comments_and_strings_are_not_resolved() -> None:
 def test_meta_refresh_url_is_resolved() -> None:
     out = _resolved('<meta http-equiv="refresh" content="5; url=next.html">')
     assert out == '<meta http-equiv="refresh" content="5; url=https://example.com/dir/next.html">'
+
+
+def test_meta_refresh_url_without_keyword_is_resolved() -> None:
+    out = _resolved('<meta http-equiv="refresh" content="0;next.html">')
+    assert out == '<meta http-equiv="refresh" content="0;https://example.com/dir/next.html">'
 
 
 def test_resolve_on_a_whole_document_returns_none() -> None:
@@ -1072,6 +1148,16 @@ def test_rewrite_srcset_url_with_comma() -> None:
     assert out == '<img srcset="X 1x, c 2x">'
 
 
+def test_rewrite_srcset_candidate_after_parenthesised_descriptor() -> None:
+    out = _rewritten('<img srcset="hero.jpg (w,h),//cdn.test/hero.jpg 1x">', lambda url: "X" if "//" in url else None)
+    assert out == '<img srcset="hero.jpg (w,h),X 1x">'
+
+
+def test_rewrite_srcset_leaves_a_candidate_with_invalid_descriptors_alone() -> None:
+    out = _rewritten('<img srcset="a.jpg 1w 2w, b.jpg 2x">', lambda _url: "X")
+    assert out == '<img srcset="a.jpg 1w 2w, X 2x">'
+
+
 def test_a_shorter_replacement_shrinks_the_value() -> None:
     assert _rewritten('<a href="a-long-url">x</a>', lambda _url: "z") == '<a href="z">x</a>'
 
@@ -1099,6 +1185,26 @@ def test_an_exception_from_replace_propagates() -> None:
 def _boom(url: str) -> str:
     msg = f"nope: {url}"
     raise ValueError(msg)
+
+
+def test_meta_refresh_rewrite_replaces_the_target_a_browser_follows() -> None:
+    seen: list[str] = []
+
+    def gateway(url: str) -> str:
+        seen.append(url)
+        return "/out"
+
+    html = (
+        '<meta http-equiv="refresh" content="0;/one?url=/two">'
+        '<meta http-equiv="refresh" content="0;/one">'
+        '<meta http-equiv="refresh" content="0;url=/three /four">'
+    )
+    assert _rewritten(html, gateway) == (
+        '<meta http-equiv="refresh" content="0;/out">'
+        '<meta http-equiv="refresh" content="0;/out">'
+        '<meta http-equiv="refresh" content="0;url=/out">'
+    )
+    assert seen == ["/one?url=/two", "/one", "/three /four"]
 
 
 def test_an_exception_during_a_meta_refresh_rewrite_stops_the_walk() -> None:

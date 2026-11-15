@@ -1488,13 +1488,16 @@ typedef struct {
 } css_specificity;
 
 /* A parsed stylesheet kept alive for the cascade: the cleaned buffer, its rules,
-   and each rule's compiled selector (NULL when the selector did not compile). */
+   and each rule's compiled selector (NULL when the selector did not compile). A <style>
+   whose type is not CSS keeps an empty sheet, so a later write to its type is seen. */
 typedef struct {
     Py_UCS4 *clean;
     css_rule *rules;
     Py_ssize_t rule_count;
     sel_compiled **compiled;
     css_specificity *specificities;
+    const th_node *style;
+    int supported;
 } css_sheet;
 
 typedef struct {
@@ -1514,6 +1517,8 @@ typedef struct {
     sel_position_memo position_memo;
     css_computed_entry entries[2];
     sel_memo legend_memo;
+    /* one answer per rule and long attribute value, a product the page sets both factors of, so capped as has_memo */
+    sel_memo value_memo;
 } css_computed_cache;
 
 static void css_free_computed(HandleObject *handle) {
@@ -1522,6 +1527,7 @@ static void css_free_computed(HandleObject *handle) {
         /* Memo keys borrow stylesheet selectors, so clear them before rebuilding sheets. */
         sel_memo_free(&cache->has_memo);
         sel_memo_free(&cache->legend_memo);
+        sel_memo_free(&cache->value_memo);
         sel_position_memo_free(&cache->position_memo);
         css_free_map(cache->entries[0].values);
         css_free_map(cache->entries[1].values);
@@ -1561,6 +1567,34 @@ void handle_clear_css_cache(HandleObject *handle) {
     handle->css_sheets = NULL;
     handle->css_sheet_count = 0;
     handle->css_sheets_ready = 0;
+}
+
+static int css_inside_style(const th_node *node) {
+    for (; node != NULL; node = node->parent) {
+        if (node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_STYLE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Called while each node is still where the edit finds it. Any edit can change a match, so the computed values always
+   go; the compiled sheets depend only on the <style> elements and their text, so they go only when one is involved. */
+void handle_clear_css_edit(HandleObject *handle, const th_node *parent, th_node *const *nodes, Py_ssize_t count) {
+    css_free_computed(handle);
+    if (!handle->css_sheets_ready) {
+        return;
+    }
+    int styled = css_inside_style(parent);
+    for (Py_ssize_t index = 0; !styled && index < count; index++) {
+        styled = css_inside_style(nodes[index]->parent);
+        for (th_node *node = nodes[index]; !styled && node != NULL; node = preorder_next(node, nodes[index])) {
+            styled = node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_STYLE;
+        }
+    }
+    if (styled) {
+        handle_clear_css_cache(handle);
+    }
 }
 
 static void css_prioritize_subject(sel_compiled *compiled) {
@@ -1616,7 +1650,21 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
     Py_ssize_t count = 0;
     Py_ssize_t capacity = 0;
     for (th_node *node = root; node != NULL; node = preorder_next(node, root)) {
-        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_STYLE || !css_style_type_supported(node)) {
+        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_STYLE) {
+            continue;
+        }
+        if (count == capacity) {
+            Py_ssize_t grown = capacity == 0 ? TH_INITIAL_CAPACITY(4) : capacity * 2;
+            css_sheet *bigger = PyMem_Realloc(sheets, (size_t)grown * sizeof(css_sheet));
+            if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                goto fail;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            sheets = bigger;
+            capacity = grown;
+        }
+        const int supported = css_style_type_supported(node);
+        sheets[count++] = (css_sheet){.style = node, .supported = supported};
+        if (!supported) {
             continue;
         }
         Py_ssize_t text_len = 0;
@@ -1674,22 +1722,10 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
                 alternative_count += compiled[rule]->count;
             }
         }
-        if (count == capacity) {
-            Py_ssize_t grown = capacity == 0 ? TH_INITIAL_CAPACITY(4) : capacity * 2;
-            css_sheet *bigger = PyMem_Realloc(sheets, (size_t)grown * sizeof(css_sheet));
-            if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                for (Py_ssize_t rule = 0; rule < rule_count; rule++) { /* GCOVR_EXCL_LINE: alloc-failure path */
-                    selector_free(compiled[rule]);                     /* GCOVR_EXCL_LINE: alloc-failure path */
-                } /* GCOVR_EXCL_LINE: alloc-failure path */
-                PyMem_Free(compiled);              /* GCOVR_EXCL_LINE: allocation-failure path */
-                css_free_rules(rules, rule_count); /* GCOVR_EXCL_LINE: allocation-failure path */
-                PyMem_Free(clean);                 /* GCOVR_EXCL_LINE: allocation-failure path */
-                goto fail;                         /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            sheets = bigger;
-            capacity = grown;
-        }
-        sheets[count++] = (css_sheet){clean, rules, rule_count, compiled, NULL};
+        sheets[count - 1].clean = clean;
+        sheets[count - 1].rules = rules;
+        sheets[count - 1].rule_count = rule_count;
+        sheets[count - 1].compiled = compiled;
         if (alternative_count == 0) {
             continue;
         }
@@ -1718,9 +1754,24 @@ fail:                               /* GCOVR_EXCL_LINE: allocation-failure path 
     return NULL;                    /* GCOVR_EXCL_LINE: allocation-failure path */
 }
 
+static int css_style_types_moved(const css_sheet *sheets, Py_ssize_t count) {
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (css_style_type_supported(sheets[index].style) != sheets[index].supported) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* An edit that links or unlinks a <style>, or a node inside one, or writes the text of one, clears the cache itself
+   (handle_clear_css_edit). An attribute write relinks nothing and clears nothing, so once the tree's attribute version
+   moves, the cache checks whether a write changed which <style> elements count as CSS. */
 static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, Py_ssize_t *out_count) {
     uint32_t attr_gen = th_tree_attr_generation(handle->tree);
-    if (!handle->css_sheets_ready || handle->css_sheet_attr_gen != attr_gen) {
+    const uint64_t attr_version = th_tree_attr_version(handle->tree);
+    if (!handle->css_sheets_ready || handle->css_sheet_attr_gen != attr_gen ||
+        (handle->css_sheet_attr_version != attr_version &&
+         css_style_types_moved(handle->css_sheets, handle->css_sheet_count))) {
         handle_clear_css_cache(handle);
         Py_ssize_t count = 0;
         css_sheet *sheets = css_collect_sheets(state, handle->tree, th_tree_document(handle->tree), &count);
@@ -1733,6 +1784,7 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
         handle->css_sheet_attr_gen = attr_gen;
         handle->css_sheets_ready = 1;
     }
+    handle->css_sheet_attr_version = attr_version;
     *out_count = handle->css_sheet_count;
     return handle->css_sheets;
 }
@@ -1745,8 +1797,16 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
     css_slot slots[NUM_PROPS] = {0};
     /* the legend memo keeps its own table: it holds one answer per legend, so it needs no cap and must outlive a
        :has() table dropped at CSS_HAS_MEMO_LIMIT; one dir=auto answer per element shares it for the same reason */
-    sel_ctx ctx = {
-        tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->legend_memo, &cache->position_memo};
+    sel_ctx ctx = {tree,
+                   element,
+                   quirks,
+                   NULL,
+                   &cache->nth_memo,
+                   NULL,
+                   NULL,
+                   &cache->legend_memo,
+                   &cache->position_memo,
+                   &cache->value_memo};
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
@@ -1862,6 +1922,7 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
         }
         cache->attr_version = version;
         cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
+        cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
         handle->css_computed = cache;
     }
     int parent_slot = -1;

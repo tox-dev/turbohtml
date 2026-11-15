@@ -439,6 +439,63 @@ SER_NOINLINE static void ser_put_rawtext(sbuf *out, th_tree *tree, th_node *elem
     }
 }
 
+/* Whether text[at..len) spells "script", in any case, and then a character that ends a tag name. A CR is one: a
+   re-parse reads the LF it normalizes to. */
+static int ser_script_name_at(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t at) {
+    if (len - at <= 6 || !starts_with_ascii_ci(text + at, 6, "script")) {
+        return 0;
+    }
+    Py_UCS4 after = text[at + 6];
+    return is_space(after) || after == '/' || after == '>';
+}
+
+/* Whether a re-parse of out[content..] as script content ends in the script data double escaped state. */
+static int ser_script_double_escaped(const sbuf *out, Py_ssize_t content) {
+    enum { SCRIPT_DATA, SCRIPT_ESCAPED, SCRIPT_DOUBLE_ESCAPED } state = SCRIPT_DATA;
+    int dashes = 0; /* the "-" run just read, counted up to the two a ">" needs to end the escape */
+    for (Py_ssize_t index = content; index < out->len; index++) {
+        if (state == SCRIPT_DATA) {
+            /* nearly all script text stays in this state: jump from one "<" to the next */
+            index = sbuf_find_special(out->data, index, out->len, 0, 0);
+            if (index == out->len) {
+                break;
+            }
+            if (out->data[index] == '<' && starts_with_ascii_ci(out->data + index, out->len - index, "<!--")) {
+                state = SCRIPT_ESCAPED;
+                dashes = 2; /* so "<!-->" and "<!--->" end the escape they start */
+                index += 3;
+            }
+            continue;
+        }
+        Py_UCS4 character = out->data[index];
+        if (character == '-') {
+            dashes += dashes < 2;
+        } else if (character == '>' && dashes == 2) {
+            state = SCRIPT_DATA;
+        } else {
+            dashes = 0;
+            if (character == '<') {
+                int closing = index + 1 < out->len && out->data[index + 1] == '/';
+                if (ser_script_name_at(out->data, out->len, index + 1 + closing)) {
+                    /* an end tag met while only escaped is the element's own: what follows it is not script text */
+                    state = closing ? SCRIPT_ESCAPED : SCRIPT_DOUBLE_ESCAPED;
+                    index += 6 + closing;
+                }
+            }
+        }
+    }
+    return state == SCRIPT_DOUBLE_ESCAPED;
+}
+
+SER_NOINLINE void ser_script_end_scan(sbuf *out, th_node *element, Py_ssize_t content, th_node *alone) {
+    if (ser_script_double_escaped(out, content)) {
+        ser_close_tag(out, element);
+    } else if (alone != NULL) {
+        /* a later serialization writes the same text: skip the scan until a write to the text clears this */
+        alone->script_text_closes = 1;
+    }
+}
+
 /* HTML doctypes can contain characters XML forbids, so discard them in XML output. */
 static void ser_put_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len) {
     Py_UCS4 quote = '"';
@@ -628,7 +685,12 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         if (is_rawtext_element(node, tree->scripting)) {
             if (opts->markdown != TH_MARKDOWN_HTML_INLINE) {
+                Py_ssize_t content = out->len;
                 ser_put_rawtext(out, tree, node, opts);
+                /* nested in another raw-text element this end tag is text, and the outer element's end tag decides */
+                if (!opts->in_rawtext) {
+                    ser_end_script_double_escape(out, node, content, 1);
+                }
             }
             ser_close_tag(out, node);
             break;
@@ -770,6 +832,7 @@ SER_NOINLINE void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *elem
                                          const th_serialize_opts *opts, int strip_comments) {
     th_serialize_opts content = *opts;
     content.inner = 1;
+    content.in_rawtext = 1;
     th_node *node = from;
     while (node != NULL) {
         if ((node->type == TH_NODE_TEXT || node->type == TH_NODE_CDATA) &&
@@ -1284,8 +1347,8 @@ int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf, Py_ssize_t 
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:
    minimal escaping, source attribute order, no charset injection. */
-static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0,    NULL, 0,    0,    0,
-                                                   NULL,          0, NULL, NULL, NULL, NULL, NULL};
+static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    0, 0, NULL, 0,
+                                                   NULL,          NULL, NULL, NULL, NULL, 0};
 
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0};
@@ -1299,7 +1362,7 @@ Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html co
                                Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0};
     const th_serialize_opts opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0, 0, 0, NULL, (int)context, NULL,
-                                    clone_budget,  NULL, NULL, NULL};
+                                    clone_budget,  NULL, NULL, NULL, 0};
     serialize_compact(&out, tree, node, &opts);
     return sbuf_finish(&out, out_len);
 }
@@ -1308,7 +1371,7 @@ Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_htm
                                    Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0};
     const th_serialize_opts opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0, 0, 0, NULL, (int)context, NULL,
-                                    clone_budget,  NULL, NULL, NULL};
+                                    clone_budget,  NULL, NULL, NULL, 0};
     ser_open_tag(&out, tree, node, &opts);
     sbuf_putc(&out, '>');
     return sbuf_finish(&out, out_len);
@@ -1318,7 +1381,7 @@ Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell
                                      Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0};
     const th_serialize_opts opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0, 0, 0, NULL, TH_MARKDOWN_HTML_CELL, NULL,
-                                    clone_budget,  NULL, NULL, NULL};
+                                    clone_budget,  NULL, NULL, NULL, 0};
     th_node *current = node;
     while (current != NULL) {
         current = serialize_compact_step(&out, tree, current, node, &opts, wrap);
@@ -1343,8 +1406,8 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 }
 
 /* The inner_html defaults with XML/XHTML syntax on, the same rules Node.serialize(Html(xml=True)) emits under. */
-static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0,    NULL, 0,    1,    0,
-                                               NULL,          0, NULL, NULL, NULL, NULL, NULL};
+static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    1, 0, NULL, 0,
+                                               NULL,          NULL, NULL, NULL, NULL, 0};
 
 /* The children of node as XML. A non-NULL spend has each child of an XML tree carry the namespace declarations it
    inherits, charged to that account; NULL leaves them out. */
@@ -1352,7 +1415,9 @@ static Py_UCS4 *inner_xml(th_tree *tree, th_node *node, th_xml_ns_spend *spend, 
     sbuf out = {NULL, 0, 0, 0, 0};
     th_serialize_opts opts = ser_xml_opts;
     th_xml_xlink_walk xlink = {NULL, NULL};
-    opts.xml_boundary = spend != NULL && th_tree_is_xml(tree) ? node : NULL;
+    th_xml_ns_scope scope;
+    ser_xml_ns_scope_init(&scope, node);
+    opts.xml_scope = spend != NULL && th_tree_is_xml(tree) ? &scope : NULL;
     opts.xml_xlink = th_tree_is_xml(tree) ? &xlink : NULL;
     opts.xml_ns_spend = spend;
     th_xml_unwrap unwrap = {.spend = {0, 0, TH_XML_NS_BASE}};
@@ -1361,6 +1426,7 @@ static Py_UCS4 *inner_xml(th_tree *tree, th_node *node, th_xml_ns_spend *spend, 
         serialize_compact(&out, tree, child, &opts);
     }
     th_xml_unwrap_free(&unwrap);
+    ser_xml_ns_scope_free(&scope);
     return sbuf_finish(&out, out_len);
 }
 
@@ -1391,7 +1457,9 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
     th_xml_xlink_walk xlink = {NULL, NULL};
     th_xml_ns_spend spend = {0, 0, TH_XML_NS_BASE};
     th_xml_unwrap unwrap = {.spend = {0, 0, TH_XML_NS_BASE}};
-    context.xml_boundary = opts->xml && th_tree_is_xml(tree) ? (opts->inner ? node : node->parent) : NULL;
+    th_xml_ns_scope scope;
+    ser_xml_ns_scope_init(&scope, opts->inner ? node : node->parent);
+    context.xml_scope = opts->xml && th_tree_is_xml(tree) ? &scope : NULL;
     context.xml_xlink = th_tree_is_xml(tree) ? &xlink : NULL;
     context.xml_ns_spend = opts->inner ? &spend : NULL; /* the one copy a whole subtree carries multiplies nothing */
     context.xml_unwrap = &unwrap;
@@ -1404,6 +1472,7 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
         serialize_pretty(&out, tree, node, &pretty, 0);
     }
     th_xml_unwrap_free(&unwrap);
+    ser_xml_ns_scope_free(&scope);
     return sbuf_finish(&out, out_len);
 }
 
@@ -1413,11 +1482,21 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
    bounded to roughly one chunk, which is the point: no full-size string is built. */
 #define TH_SERIALIZE_CHUNK 8192
 
+/* The tree may be edited between chunks, so each chunk gathers the namespace scope it needs afresh rather than the
+   cursor carrying one that points into the tree. A scope larger than a chunk would then cost more to gather than the
+   chunk costs to write, every chunk, so a chunk that gathered one runs on until it holds as many code points as the
+   gather walked ancestors and attributes. */
+static int chunk_has_room(const sbuf *out, const th_xml_ns_scope *scope) {
+    return out->len < TH_SERIALIZE_CHUNK || out->len < scope->walked;
+}
+
 Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
                                  Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, cursor->clone_credit}; /* the earlier chunks still fund clone attributes */
     th_serialize_opts context = *opts;
-    context.xml_boundary = opts->xml && th_tree_is_xml(tree) ? (opts->inner ? root : root->parent) : NULL;
+    th_xml_ns_scope scope;
+    ser_xml_ns_scope_init(&scope, opts->inner ? root : root->parent);
+    context.xml_scope = opts->xml && th_tree_is_xml(tree) ? &scope : NULL;
     context.xml_xlink = th_tree_is_xml(tree) ? &cursor->xlink : NULL; /* kept across chunks, like the resume node */
     context.xml_ns_spend = opts->inner ? &cursor->xml_ns : NULL;
     context.xml_unwrap = &cursor->unwrap;
@@ -1427,17 +1506,18 @@ Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serializ
        every chunk (a node straddling the limit still forces at most one more grow) */
     sbuf_reserve(&out, TH_SERIALIZE_CHUNK);
     if (indent == NULL || inner_preserves_text(tree, root, opts)) {
-        while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
+        while (cursor->node != NULL && chunk_has_room(&out, &scope)) {
             cursor->node = serialize_compact_step(&out, tree, cursor->node, root, opts, NULL);
         }
     } else {
         ser_opts pretty = {opts, indent, indent_len};
-        while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
+        while (cursor->node != NULL && chunk_has_room(&out, &scope)) {
             cursor->node = serialize_pretty_step(&out, tree, cursor->node, root, &pretty, &cursor->depth);
         }
     }
     cursor->xml_ns.flushed += out.len;
     cursor->unwrap.spend.flushed += out.len;
     cursor->clone_credit = out.clone_credit + out.len;
+    ser_xml_ns_scope_free(&scope);
     return sbuf_finish(&out, out_len);
 }

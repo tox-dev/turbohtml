@@ -407,10 +407,13 @@ static int32_t xr_class_new(xr_parser *parser, int categories, int fold) {
     return parser->class_count++;
 }
 
+/* Ranges with equal lo order by hi: a tie that compared both ways would leave qsort's result to the libc. */
 static int xr_range_order(const void *left, const void *right) {
     const xr_range *first = left;
     const xr_range *second = right;
-    return (first->lo > second->lo) - (first->lo < second->lo);
+    const uint64_t first_key = ((uint64_t)first->lo << 32) | first->hi;
+    const uint64_t second_key = ((uint64_t)second->lo << 32) | second->hi;
+    return (first_key > second_key) - (first_key < second_key);
 }
 
 /* Sort and merge the class's ranges for binary search, then precompute the ASCII answers so the common case is one bit
@@ -1824,13 +1827,11 @@ static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4
     return 1;
 }
 
-/* One leftmost-first attempt at origin: 1 on a match, 0 when every path fails, -1 when the budget or trail runs out. */
+/* One leftmost-first attempt at origin: 1 on a match, 0 when every path fails, -1 when the budget or trail runs out.
+   The caller hands over the slots unset, and a 0 hands them back that way. */
 static int xr_backtrack_at(xr_program *program, xr_cache *cache, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t origin,
                            Py_ssize_t start, int must_advance, Py_ssize_t *spans) {
     Py_ssize_t *caps = program->scratch;
-    for (int32_t slot = 0; slot < program->slots + program->registers; slot++) {
-        caps[slot] = -1;
-    }
     Py_ssize_t depth = 0;
     int32_t pc = 0;
     Py_ssize_t pos = origin;
@@ -1907,6 +1908,16 @@ static int xr_search(xr_program *program, xr_cache *cache, const Py_UCS4 *text, 
     }
     if (xr_prepare(program, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* Once per search, not per origin: a failed attempt unwinds its trail and puts back every slot it wrote. Groups
+       have no cap and (){0} adds slots without instructions, so the reset is charged to the budget. */
+    cache->budget -= program->slots + program->registers;
+    if (cache->budget < 0) {
+        return xr_exhausted(cache);
+    }
+    for (int32_t slot = 0; slot < program->slots + program->registers; slot++) {
+        TH_WORK_STEP();
+        program->scratch[slot] = -1;
     }
     for (Py_ssize_t origin = start; origin <= len && (origin == start || !program->anchored); origin++) {
         if (program->prefilter >= 0) {

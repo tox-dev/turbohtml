@@ -21,11 +21,14 @@ from turbohtml.clean import (
     DEFAULT_CSS_PROPERTIES,
     DEFAULT_SCHEMES,
     DEFAULT_TAGS,
+    CSSMinify,
+    Minify,
     OnDisallowed,
     Policy,
     Removed,
     Sanitizer,
     Transform,
+    minify,
     sanitize,
     sanitize_node,
     sanitize_report,
@@ -631,6 +634,54 @@ def test_set_attributes_preserves_foreign_attribute_case() -> None:
     assert sanitize("<svg></svg>", policy) == '<svg viewBox="0 0 10 10"></svg>'
 
 
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('REL="x" title="t"', 'title="t" rel="noopener"', id="variant-without-exact-dropped"),
+        pytest.param('rel="a" REL="b"', 'rel="noopener" REL="b"', id="variant-after-exact-kept"),
+        pytest.param('REL="b" rel="a"', 'rel="noopener"', id="variant-before-exact-dropped"),
+        pytest.param('REL="b" rel="a" Rel="c"', 'rel="noopener" Rel="c"', id="variants-around-exact"),
+        pytest.param('data-id="1" REL="x"', 'data-id="1" rel="noopener"', id="non-letter-names-kept"),
+    ],
+)
+def test_set_attributes_drops_case_variants_ahead_of_the_exact_name(attributes: str, expected: str) -> None:
+    # an XML element keeps its names' case, so REL is a variant of the forced rel; only the variants written before
+    # the exact rel are dropped, as a scan for each forced name drops them
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset({"data-id", "rel", "REL", "Rel", "title"})},
+        set_attributes={"a": {"rel": "noopener"}},
+    )
+    root = parse_xml(f"<r><a {attributes}/></r>").root
+    assert root is not None
+    assert sanitize_node(root, policy).html == f"<r><a {expected}></a></r>"
+
+
+def test_set_attributes_forcing_many_names_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(sanitize, "<a>t</a>", _forcing_policy(count)), (2000, 8000))
+
+
+def _forcing_policy(count: int) -> Policy:
+    return Policy(tags=frozenset({"a"}), set_attributes={"a": {f"data-{index}": "1" for index in range(count)}})
+
+
+def test_set_attributes_over_many_case_variants_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_variants_under_forced_names, (2000, 8000))
+
+
+def _variants_under_forced_names(count: int) -> Callable[[], object]:
+    names = [f"DATA-{index}" for index in range(count)]
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset(names)},
+        set_attributes={"a": {f"data-{index}": "1" for index in range(count)}},
+    )
+    attributes = " ".join(f'{name}="1"' for name in names)
+    root = parse_xml(f"<r><a {attributes}/></r>").root
+    assert root is not None
+    return partial(sanitize_node, root, policy)
+
+
 def test_set_attributes_pass_through_media_host_check() -> None:
     policy = Policy(
         tags=frozenset({"p", "video"}),
@@ -716,6 +767,8 @@ def test_style_dropped_when_not_allowed() -> None:
         pytest.param("", id="empty-value"),
         pytest.param("position: fixed; z-index: 9", id="all-dropped-removes-attribute"),
         pytest.param("é: red", id="non-ascii-property-name"),
+        pytest.param("color: <!--url(q';z-index:1; width: 1px", id="cdo-then-unclosed-bad-url"),
+        pytest.param("color: U+7furl(q'); width: 1px", id="unicode-range-then-bad-url"),
     ],
 )
 def test_style_scrubbing_drops_the_attribute(style: str) -> None:
@@ -803,11 +856,74 @@ def _style_policy(
             'style="cursor: urls(/*);color:red;*/); width: 1px"',
             id="longer-name-is-function",
         ),
+        # `<!--` is one token, so the name after it starts afresh and a `url(` there is a url token
+        pytest.param("font-family: <!--url(javascript:q); width: 1px", 'style="width: 1px"', id="cdo-then-url-scheme"),
+        pytest.param("color: <!--a; width: <!-", 'style="color: &lt;!--a; width: &lt;!-"', id="cdo-then-name"),
+        pytest.param("color: \\\\<!--url(javascript:q); width: 1px", 'style="width: 1px"', id="escaped-backslash-cdo"),
+        pytest.param("color: <!--u+eurl(q');top:0;r:'); width: 1px", 'style="width: 1px"', id="cdo-then-unicode-range"),
+        pytest.param("color: <!--expression(q); width: 1px", 'style="width: 1px"', id="cdo-then-expression"),
+        pytest.param(
+            "--a(1); width: a!--b(2) var(--c) -e(3) d+1 u+",
+            'style="width: a!--b(2) var(--c) -e(3) d+1 u+"',
+            id="dashed-names-without-cdo",
+        ),
+        # an escaped `<` joins the name before it, so the `<!--` after it is no CDO
+        pytest.param(
+            "color: a\\<!--url(q/*); width: '*/);top:0;r:'",
+            'style="color: a\\&lt;!--url(q/*); width: \'*/)"',
+            id="escaped-less-than-is-no-cdo",
+        ),
+        # a hash or an at-keyword takes the whole name, so the `(` after it opens a block whose comments count
+        pytest.param(
+            "color: #url(q/*); width: '*/);top:0;r:'",
+            'style="color: #url(q/*); width: \'*/)"',
+            id="hash-named-url-is-no-url",
+        ),
+        pytest.param(
+            "color: @url(q/*); width: '*/);top:0;r:'",
+            'style="color: @url(q/*); width: \'*/)"',
+            id="at-keyword-named-url-is-no-url",
+        ),
+        pytest.param(
+            "color: #u\\72l(q/*); width: '*/);top:0;r:'",
+            'style="color: #u\\72l(q/*); width: \'*/)"',
+            id="hash-escaped-name-is-no-url",
+        ),
+        # a legacy unicode-range token is dropped with its declaration, since tokenizers disagree on where it ends
+        pytest.param("color: u+?url(javascript:x); width: 1px", 'style="width: 1px"', id="unicode-range-wildcard"),
+        pytest.param("color: U+26; width: 1px", 'style="width: 1px"', id="unicode-range-drops-declaration"),
+        pytest.param("color: au+e; width: U+g", 'style="color: au+e; width: U+g"', id="not-a-unicode-range"),
+        pytest.param(
+            "color: #U+26; width: @u+1", 'style="color: #U+26; width: @u+1"', id="sign-name-is-no-unicode-range"
+        ),
+        # a url token's body holds no comment, so a `/*` in it hides nothing after the token
+        pytest.param(
+            "cursor: url(q/*) url(javascript:r) /* */; width: 1px", 'style="width: 1px"', id="url-body-comment"
+        ),
+        pytest.param(
+            "cursor: url(q/*) url(javascript:r); width: 1px", 'style="width: 1px"', id="url-body-open-comment"
+        ),
+        pytest.param(
+            "cursor: url(q/*) url(s) /* */; width: 1px",
+            'style="cursor: url(q/*) url(s) /* */; width: 1px"',
+            id="url-body-comment-safe-urls",
+        ),
+        # a sign no name follows is a delimiter, so the `url(` after it is a url token
+        pytest.param("cursor: # url(q/*); position: fixed; */)", 'style="cursor: # url(q/*)"', id="lone-hash-then-url"),
+        pytest.param("color: red; width: 1px @", 'style="color: red; width: 1px @"', id="lone-at-sign-at-end"),
     ],
 )
 def test_style_scrubbing_keeps_the_declarations(style: str, expected: str) -> None:
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
     assert expected in out
+
+
+def test_style_block_tail_stays_dead_when_minified() -> None:
+    # the scrubber keeps `color:navy{}top:0` as one color declaration, which no browser applies; the CSS minifier reads
+    # the value the same way, so minifying what the scrubber kept sets no top declaration free
+    kept: Final = sanitize('<p style="color:navy{}top:0;width:1px">x</p>', _style_policy())
+    assert kept == '<p style="color:navy{}top:0; width:1px">x</p>'
+    assert minify(kept, Minify(minify_css=CSSMinify())) == "<p style=color:navy{};width:1px>x"
 
 
 def test_style_escaped_double_quote_opens_no_string() -> None:
@@ -1181,6 +1297,16 @@ def test_allowed_styles_empty_is_a_noop() -> None:
         pytest.param("p{cursor:url(x'y);color:red}", "p{color:red;}", id="bad-url-dropped"),
         pytest.param("p{color:red;cursor:url(x", "p{color:red;}", id="unterminated-url-dropped"),
         pytest.param("p{color:red;cursor:url(x'", "p{color:red;}", id="unterminated-bad-url-dropped"),
+        pytest.param("p{color:<!--url(q');top:0;r:'}", "p{}", id="cdo-then-bad-url"),
+        pytest.param("p{color:U+7furl(q);width:1px}", "p{width:1px;}", id="unicode-range-drops-declaration"),
+        pytest.param("u+a{color:red}p{color:red}", "p{color:red;}", id="unicode-range-in-prelude-drops-rule"),
+        pytest.param("<!--u+a{color:red}p{color:red}", "p{color:red;}", id="cdo-then-unicode-range-prelude"),
+        pytest.param("p{color:<!--u+e;width:1px}", "p{width:1px;}", id="cdo-then-unicode-range"),
+        pytest.param(
+            "p{color:#url(q/*);width:'*/);top:0}",
+            "p{color:#url(q/*);width:'*/);}",
+            id="hash-named-url-is-no-url",
+        ),
     ],
 )
 def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:
@@ -1550,6 +1676,17 @@ def test_every_url_attribute_is_scheme_checked(attr: str) -> None:
         pytest.param("javascript:alert(1) 1x", False, id="first-candidate-script"),
         pytest.param("a.jpg 1x, javascript:alert(1) 2x", False, id="later-candidate-script"),
         pytest.param("https://ok/a.jpg 1x, vbscript:msgbox(1) 2x", False, id="later-candidate-vbscript"),
+        pytest.param("a.jpg (x,y) 1x, b.jpg 2x", True, id="parenthesised-descriptor"),
+        pytest.param("hero.jpg (w,h),vbscript:msgbox(2) 1x", False, id="script-after-parenthesised-descriptor"),
+        pytest.param("hero.jpg x),vbscript:msgbox(2) 1x", False, id="script-after-stray-close-paren"),
+        pytest.param("hero.jpg (w,vbscript:msgbox 1x", True, id="unclosed-parens-are-one-descriptor"),
+        pytest.param("hero.jpg 1w 2w, vbscript:msgbox(3) 1x", False, id="script-after-invalid-candidate"),
+        pytest.param("vbscript:msgbox(3) 1w 2w", True, id="invalid-candidate-script-not-loaded"),
+        pytest.param("hero.jpg 2h, vbscript:msgbox(3) 1x", False, id="script-after-height-without-width"),
+        pytest.param("hero.jpg 1x 2x, https://ok/a.jpg 1x", True, id="allowed-after-invalid-candidate"),
+        pytest.param("vbscript:msgbox(3) 0w", True, id="zero-width-script-not-loaded"),
+        pytest.param("vbscript:msgbox(3) 0x", False, id="zero-density-script-loaded"),
+        pytest.param("hero.jpg 2x 1x , vbscript:msgbox(3) 1x", False, id="script-after-two-densities"),
     ],
 )
 def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
@@ -1930,6 +2067,26 @@ def test_add_link_rel_skipped_without_href() -> None:
 def test_add_link_rel_scans_other_attributes_for_href() -> None:
     # name (same length as href, different bytes) and title (different length) exercise both has_attr comparisons
     assert sanitize('<a name="n" title="t">y</a>', Policy.relaxed()) == '<a name="n" title="t">y</a>'
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('rel="x" REL="y"', '<a rel="noopener" REL="y" href="http://x"></a>', id="exact-before-variant"),
+        pytest.param('REL="y" rel="x"', '<a rel="noopener" href="http://x"></a>', id="variant-before-exact"),
+    ],
+)
+def test_add_link_rel_replaces_exact_rel_ahead_of_case_variants(attributes: str, expected: str) -> None:
+    # the HTML reparse keeps the first rel, so the forced value must land on the exact name whatever case variants sit
+    # around it in a parse_xml element
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset({"href", "rel", "REL"})},
+        add_link_rel=frozenset({"noopener"}),
+    )
+    root = parse_xml(f'<r><a {attributes} href="http://x"/></r>').root
+    assert root is not None
+    assert sanitize_node(root, policy).html == f"<r>{expected}</r>"
 
 
 def test_short_and_o_prefixed_attributes_are_not_event_handlers() -> None:
@@ -4997,6 +5154,152 @@ def test_control_characters_are_dropped_from_xml() -> None:
     out = sanitize("<p>bad\x0cchar\x01here</p>", _XML)
     assert out == "<p>badcharhere</p>"
     _well_formed(out)
+
+
+_EITHER_FORM: Final[Policy] = Policy(
+    tags=frozenset({"p", "a", "style", "meta", "img", "video"}),
+    attributes={
+        "p": frozenset({"style", "title"}),
+        "a": frozenset({"href"}),
+        "meta": frozenset({"content", "http-equiv"}),
+        "img": frozenset({"srcset"}),
+        "video": frozenset({"src", "poster"}),
+    },
+    css_properties=frozenset({"color", "font-family", "background-image", "width"}),
+    media_hosts=frozenset({"media.example"}),
+    strip_comments=False,
+    strip_template_markers=True,
+)
+
+
+@pytest.mark.parametrize(
+    ("html", "as_html", "as_xml"),
+    [
+        pytest.param(
+            '<p style=\'font-family:"q\\\x1f\\";width:1px;margin:0;"\'>x</p>',
+            '<p style="font-family:&quot;q\\\\&quot;; width:1px">x</p>',
+            '<p style="font-family:&quot;q\\\\&quot;; width:1px">x</p>',
+            id="css-string-closed-by-drop",
+        ),
+        pytest.param(
+            '<p style="color:red;background-image:u\x02rl(javascript:void(0))">x</p>',
+            '<p style="color:red">x</p>',
+            '<p style="color:red">x</p>',
+            id="css-url-joined",
+        ),
+        pytest.param(
+            f'<p style=\'font-family:"q\\\x1f\\";{"color:red;" * 6}x:1;"\'>x</p>',
+            f'<p style="font-family:&quot;q\\\\&quot;{"; color:red" * 6}">x</p>',
+            f'<p style="font-family:&quot;q\\\\&quot;{"; color:red" * 6}">x</p>',
+            id="css-rescrub-same-length",
+        ),
+        pytest.param('<p style="width:expre\ufffession(1)">x</p>', "<p>x</p>", "<p>x</p>", id="css-expression-joined"),
+        pytest.param(
+            "<style>i{background-image:u\x1erl(javascript:void(0));color:blue}</style>",
+            "<style>i{color:blue;}</style>",
+            "<style>i{color:blue;}</style>",
+            id="stylesheet-url-joined",
+        ),
+        pytest.param("<p>${\x02x}</p>", "<p> </p>", "<p> </p>", id="template-text"),
+        pytest.param("<p>${x}a$\x02</p>", "<p> a$\x02</p>", "<p> a$</p>", id="template-opener-at-end"),
+        pytest.param("<p>&lt;\x02% x %\x02&gt;</p>", "<p> </p>", "<p> </p>", id="template-text-angle"),
+        pytest.param(
+            '<p title="{\x1f{ y }\x1f}">z</p>', '<p title=" ">z</p>', '<p title=" ">z</p>', id="template-attr"
+        ),
+        pytest.param(
+            '<meta http-equiv="Re\x1fFresh" content="1; URL=javascript:void(0)">',
+            '<meta http-equiv="Re\x1fFresh">',
+            '<meta http-equiv="ReFresh"/>',
+            id="refresh-joined",
+        ),
+        pytest.param(
+            '<meta http-equiv="refreshed" content="1; URL=/next">',
+            '<meta http-equiv="refreshed" content="1; URL=/next">',
+            '<meta http-equiv="refreshed" content="1; URL=/next"/>',
+            id="not-refresh",
+        ),
+        pytest.param('<a href="https:/\uffff/[x">y</a>', "<a>y</a>", "<a>y</a>", id="href-authority-joined"),
+        pytest.param('<img srcset="https:/\uffff/[x 1x">', "<img>", "<img/>", id="srcset-authority-joined"),
+        pytest.param(
+            '<video src="https://media.example/clip\x02.mp4" poster="/still.png"></video>',
+            '<video src="https://media.example/clip\x02.mp4" poster="/still.png"></video>',
+            '<video src="https://media.example/clip.mp4" poster="/still.png"/>',
+            id="media-host-kept",
+        ),
+        pytest.param(
+            '<p style="color:gr\x02een" title="t\x02u">v\x02w</p>',
+            '<p style="color:gr\x02een" title="t\x02u">v\x02w</p>',
+            '<p style="color:green" title="tu">vw</p>',
+            id="harmless-kept",
+        ),
+    ],
+)
+def test_checks_judge_the_form_each_serializer_writes(html: str, as_html: str, as_xml: str) -> None:
+    # the XML serializer drops what XML cannot hold, joining its neighbors, so a value must pass in both forms
+    node = sanitize_node(parse_fragment(html), _EITHER_FORM)
+    assert (sanitize(html, _EITHER_FORM), node.inner_html) == (as_html, as_html)
+    assert (sanitize(html, replace(_EITHER_FORM, xml=True)), node.inner_xml) == (as_xml, as_xml)
+    _well_formed(as_xml)
+
+
+def test_html_output_keeps_the_characters_xml_drops() -> None:
+    html = '<p style="color:gr\x02een" title="t\x02u">{\x02x}</p>'
+    assert sanitize(html, _EITHER_FORM) == html
+
+
+@pytest.mark.parametrize(
+    ("policy", "html", "expected"),
+    [
+        pytest.param(
+            replace(_EITHER_FORM, attribute_predicate=lambda _tag, _name, value: "secret" not in value),
+            '<p title="sec\x1fret">a</p><p title="sec\x1fond">b</p>',
+            '<p>a</p><p title="sec\x1fond">b</p>',
+            id="attribute-predicate",
+        ),
+        pytest.param(
+            replace(_EITHER_FORM, attribute_values={"p": {"title": frozenset({"one\x01two"})}}),
+            '<p title="one\x01two">a</p>',
+            "<p>a</p>",
+            id="attribute-values",
+        ),
+        pytest.param(
+            Policy(
+                tags=frozenset({"button"}),
+                custom_element_check=lambda name: name != "x-blocked",
+                allow_customized_builtins=True,
+            ),
+            '<button is="x-bl\x01ocked">a</button><button is="x-op\x01en">b</button>',
+            '<button>a</button><button is="x-op\x01en">b</button>',
+            id="customized-builtin",
+        ),
+        pytest.param(
+            replace(_EITHER_FORM, attribute_filter=lambda _tag, _name, value: value.replace("?", "\x1f")),
+            '<p title="$?{x}">a</p>',
+            '<p title=" ">a</p>',
+            id="attribute-filter",
+        ),
+        pytest.param(
+            replace(
+                _EITHER_FORM, set_attributes={"p": {"style": "background-image:u\x02rl(javascript:void(0));color:red"}}
+            ),
+            "<p>a</p>",
+            '<p style="color:red">a</p>',
+            id="set-attributes",
+        ),
+    ],
+)
+def test_policy_values_are_judged_in_the_xml_form(policy: Policy, html: str, expected: str) -> None:
+    assert sanitize(html, policy) == expected
+
+
+def test_attribute_predicate_raising_on_the_xml_form_propagates() -> None:
+    def predicate(_tag: str, _name: str, value: str) -> bool:
+        if "\x01" not in value:
+            raise ValueError(value)
+        return True
+
+    with pytest.raises(ValueError, match=r"^ab$"):
+        sanitize('<p title="a\x01b">c</p>', replace(_EITHER_FORM, attribute_predicate=predicate))
 
 
 def test_kept_comment_is_neutralized_for_xml() -> None:

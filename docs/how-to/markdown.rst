@@ -42,9 +42,10 @@ more. Its knobs are grouped into themed sub-configs (``Markdown.Headings``, ``Ma
 field.
 
 Code fences use the first nonempty ``language-*`` class on the sole ``<code>`` child of ``<pre>``, then on ``<pre>``
-itself. Class order and ASCII whitespace between classes do not affect recognition. Whitespace around the ``<code>``
-child remains part of the code content. ``Markdown.Code(language="python")`` supplies a fallback for blocks without a
-language class; an element's class takes precedence.
+itself. Class order and ASCII whitespace between classes do not affect recognition. A class that contains a backtick is
+skipped, since a backtick fence cannot carry one in its language. Whitespace around the ``<code>`` child remains part of
+the code content. ``Markdown.Code(language="python")`` supplies a fallback for blocks without a language class; an
+element's class takes precedence. A fallback that contains a backtick is not written.
 
 Inline CSS ``white-space: pre``, ``pre-wrap`` and ``break-spaces`` exports the element's text as a preformatted block,
 preserving spaces, tabs and line breaks. ``pre-line`` keeps line breaks and collapses spaces and tabs. Descendants
@@ -64,8 +65,11 @@ inherit the mode and can override it with their own inline declaration. Styled p
 
 Preformatted output preserves spacing at the cost of inline emphasis and link formatting inside that element. It also
 turns a styled inline element into a block. Table cells, headings and link text use embedded ``<pre>`` HTML instead of
-fences; character references keep those fragments on one Markdown source line. Markdown readers must allow embedded HTML
-to display these fragments. This conversion considers inline declarations and their inheritance, without loading
+fences; character references keep those fragments on one Markdown source line. A fragment never starts a source line,
+where a reader would take it for an HTML block: a hard break in front of it is written ``<br>``, and a setext heading
+that begins with it is written as an ATX heading. Converter output that ends a line leaves the fragment at a line start,
+so it is written as a ``<span style="white-space:pre">`` element instead. Markdown readers must allow embedded HTML to
+display these fragments. This conversion considers inline declarations and their inheritance, without loading
 stylesheets or reproducing browser line wrapping.
 
 .. testcode::

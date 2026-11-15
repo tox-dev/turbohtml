@@ -66,39 +66,71 @@ static int rw_content_model(const th_buf *name) {
     return -1;
 }
 
-/* A grow-on-demand UCS4 output buffer; realized to a str once at the end. */
+/* A grow-on-demand UCS4 output buffer; realized to a str once at the end. A write past room takes rw_out_make_room,
+   which grows the buffer and settles a pending tail (rw_hold_tail). */
 typedef struct {
     Py_UCS4 *data;
     Py_ssize_t len;
     Py_ssize_t cap;
+    Py_ssize_t room;  /* cap, or len while a tail is pending, so the next write settles it */
+    Py_ssize_t tail;  /* one past the offset of the pending tail's `<`, or 0 for none */
+    Py_ssize_t moved; /* one past the offset the last settled tail ended at, which its escape moved up by 3 */
+    int rcdata;       /* the pending tail is RCDATA text */
     int failed;
 } rw_out;
 
-static void rw_out_reserve(rw_out *out, Py_ssize_t extra) {
+/* Whether the pending tail, `<` and what follows it to the end of the output, reads as the start of markup once
+   `next` is written after it. The source read it as text because what followed there ended it. */
+static int rw_tail_joins(const rw_out *out, Py_UCS4 next) {
+    Py_ssize_t len = out->len - (out->tail - 1);
+    if (!out->rcdata) {
+        return len == 2 || is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+    }
+    if (len == 1) {
+        return next == '/';
+    }
+    return is_ascii_alpha(next) || (len > 2 && (is_space(next) || next == '/' || next == '>'));
+}
+
+/* Make room for extra code points, the first of them `next`. A pending tail that `next` would join is escaped in
+   place first, while it is still the end of the output. */
+static TH_NOINLINE void rw_out_make_room(rw_out *out, Py_ssize_t extra, Py_UCS4 next) {
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (out->len + extra <= out->cap) {
-        return;
+    Py_ssize_t escape = out->tail > 0 && rw_tail_joins(out, next) ? 3 : 0;
+    Py_ssize_t need = out->len + escape + extra;
+    if (need > out->cap) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)need, (size_t)out->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: a length this large cannot be allocated to reach here */
+            out->failed = 1; /* GCOVR_EXCL_LINE: overflow-guard path */
+            return;          /* GCOVR_EXCL_LINE: overflow-guard path */
+        }
+        Py_UCS4 *grown = PyMem_Realloc(out->data, bytes);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        out->data = grown;
+        out->cap = (Py_ssize_t)cap;
     }
-    size_t cap;
-    size_t bytes;
-    int grew = th_grow_cap((size_t)(out->len + extra), (size_t)out->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
-    if (!grew) {         /* GCOVR_EXCL_BR_LINE: a length this large cannot be allocated to reach here */
-        out->failed = 1; /* GCOVR_EXCL_LINE: overflow-guard path */
-        return;          /* GCOVR_EXCL_LINE: overflow-guard path */
+    if (escape) {
+        Py_UCS4 *lt = out->data + out->tail - 1;
+        memmove(lt + 4, lt + 1, (size_t)(out->len - out->tail) * sizeof(Py_UCS4));
+        memcpy(lt, (const Py_UCS4[]){'&', 'l', 't', ';'}, 4 * sizeof(Py_UCS4));
+        out->moved = out->len + 1;
+        out->len += 3;
     }
-    Py_UCS4 *grown = PyMem_Realloc(out->data, bytes);
-    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;          /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    out->data = grown;
-    out->cap = (Py_ssize_t)cap;
+    out->tail = 0;
+    out->room = out->cap;
 }
 
 static void rw_out_char(rw_out *out, Py_UCS4 ch) {
-    rw_out_reserve(out, 1);
+    if (out->len + 1 > out->room) {
+        rw_out_make_room(out, 1, ch);
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -106,7 +138,9 @@ static void rw_out_char(rw_out *out, Py_UCS4 ch) {
 }
 
 static void rw_out_run(rw_out *out, const Py_UCS4 *run, Py_ssize_t len) {
-    rw_out_reserve(out, len);
+    if (out->len + len > out->room) {
+        rw_out_make_room(out, len, run[0]);
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -124,12 +158,14 @@ static void rw_out_ascii(rw_out *out, const char *text) {
 /* Append a str's code points at whatever storage width it uses. */
 static void rw_out_str(rw_out *out, PyObject *str) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(str);
-    rw_out_reserve(out, len);
+    int kind = PyUnicode_KIND(str);
+    const void *data = PyUnicode_DATA(str);
+    if (out->len + len > out->room) {
+        rw_out_make_room(out, len, PyUnicode_READ(kind, data, 0));
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int kind = PyUnicode_KIND(str);
-    const void *data = PyUnicode_DATA(str);
     for (Py_ssize_t index = 0; index < len; index++) {
         out->data[out->len++] = PyUnicode_READ(kind, data, index);
     }
@@ -188,39 +224,46 @@ static void rw_out_utf8(rw_out *out, const char *bytes, Py_ssize_t len) {
 
 /* The verbatim source slice a token came from, appended untouched. Every markup token
    carries a source span under capture_source, and so does the text of a CDATA section;
-   any other text run is a borrowed input slice. */
-static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token *token) {
+   any other text run is a borrowed input slice. Returns 0 when the output could not grow. */
+static int rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token *token) {
     int kind;
     const char *base = th_tok_input_data(sm, &kind);
     if (token->is_slice) {
-        rw_out_reserve(out, token->src_len);
+        if (out->len + token->src_len > out->room) {
+            rw_out_make_room(out, token->src_len, PyUnicode_READ(kind, base, token->src_start));
+        }
         if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            return 0;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         for (Py_ssize_t index = 0; index < token->src_len; index++) {
             out->data[out->len++] = PyUnicode_READ(kind, base, token->src_start + index);
         }
-        return;
+        return 1;
     }
     if (token->has_source) {
-        rw_out_reserve(out, token->src_span);
+        if (out->len + token->src_span > out->room) {
+            rw_out_make_room(out, token->src_span, PyUnicode_READ(kind, base, token->src_off));
+        }
         if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            return 0;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         for (Py_ssize_t index = 0; index < token->src_span; index++) {
             out->data[out->len++] = PyUnicode_READ(kind, base, token->src_off + index);
         }
-        return;
+        return 1;
     }
     /* a text/comment run the tokenizer normalized (so it is neither a borrowed slice nor
        a captured span): emit its buffered code points */
-    rw_out_reserve(out, token->text.len);
+    if (out->len + token->text.len > out->room) {
+        rw_out_make_room(out, token->text.len, buf_read(&token->text, 0));
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        return 0;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t index = 0; index < token->text.len; index++) {
         out->data[out->len++] = PyUnicode_READ(token->text.kind, token->text.data, index);
     }
+    return 1;
 }
 
 /* Encode a code-point run to lowercased UTF-8 in buf, which holds four bytes per code point, returning the byte
@@ -306,26 +349,34 @@ typedef struct {
     PyObject *append_html;    /* emit just before the end tag (already escaped) */
     PyObject *after_html;     /* emit just after the end tag (already escaped) */
     th_node *shadow;          /* the element of the th_shadow this entry follows, or NULL */
+    th_node *mirrored;        /* the SVG/MathML element the mirror opened for the start tag, or NULL */
     Py_ssize_t content_start; /* output offset where the element's content begins */
     Py_ssize_t end_at;        /* set when popped early: output offset the element ended at, or -1 (not in the output) */
     uint32_t line;            /* where the start tag began, which pairs the entry with the th_shadow element */
     uint32_t col;
-    int32_t followed;      /* index of the nearest entry from here down that follows one, or -1 */
-    uint16_t foreign_open; /* SVG/MathML entries from here down */
-    uint16_t points_open;  /* integration point entries from here down */
-    uint8_t edited;        /* an attribute changed: rebuild the start tag instead of verbatim */
-    uint8_t drop_content;  /* suppress this element's inner tokens */
-    uint8_t drop_end_tag;  /* do not emit the element's end tag */
-    uint8_t literal;       /* a handler wrote unescaped text into this raw-text element */
-    uint8_t ns;            /* the namespace the tree builder gives the element (the node stays HTML for matching) */
-    uint8_t integration;   /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
-    int8_t model;          /* the content model the start tag switched to, or -1 */
+    int32_t followed;       /* index of the nearest entry from here down that follows one, or -1 */
+    uint16_t foreign_open;  /* SVG/MathML entries from here down */
+    uint16_t points_open;   /* integration point entries from here down */
+    uint8_t edited;         /* an attribute changed: rebuild the start tag instead of verbatim */
+    uint8_t drop_content;   /* suppress this element's inner tokens */
+    uint8_t drop_end_tag;   /* do not emit the element's end tag */
+    uint8_t literal;        /* a handler wrote unescaped text into this raw-text element */
+    uint8_t ns;             /* the namespace the tree builder gives the element (the node stays HTML for matching) */
+    uint8_t integration;    /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
+    int8_t model;           /* the content model the start tag switched to, or -1 */
+    Py_ssize_t long_values; /* code points of its values long enough for the value memo (rw_long_values) */
 } rw_open;
 
 typedef struct {
     sel_compiled *compiled;
     PyObject *handler;
 } rw_rule;
+
+/* A spine element an end tag closed, kept until the tag is written to learn whether the output closed it too. */
+typedef struct {
+    th_node *node;
+    th_node *mirrored;
+} rw_closed;
 
 /* The whole streaming rewrite: the tokenizer, the shared interning tree, the compiled
    selector rules, the open-element spine, and the growing output. */
@@ -347,21 +398,76 @@ typedef struct {
     Py_ssize_t suppress;
     rw_out out;
     PyObject *handle_type;
-    PyObject *append_text;  /* the handled element's append_html as ordinary text, for when its tags are dropped */
-    int error;              /* a Python exception is set; abort the drive */
-    int cdata;              /* the tokenizer opens a CDATA section at "<![CDATA[" (rw_sync_cdata) */
-    th_shadow *shadow;      /* tree construction run alongside once the spine alone cannot follow it, or NULL */
-    th_shadow *parked;      /* that tree construction while the spine follows the input alone again, or NULL */
+    PyObject *append_text; /* the handled element's append_html as ordinary text, for when its tags are dropped */
+    int error;             /* a Python exception is set; abort the drive */
+    int cdata;             /* the tokenizer opens a CDATA section at "<![CDATA[" (rw_sync_cdata) */
+    th_shadow *shadow;     /* tree construction run alongside once the spine alone cannot follow it, or NULL */
+    th_shadow *parked;     /* that tree construction while the spine follows the input alone again, or NULL */
+    th_shadow *mirror;     /* tree construction over the output once an edit can make it parse unlike the input */
+    Py_ssize_t mirrored;   /* output code points the mirror has read */
+    rw_closed *closing;    /* elements the end tag being handled closed, for rw_mirror_close */
+    Py_ssize_t closing_len;
+    Py_ssize_t closing_cap;
+    /* a handler edit may change how a parse reads the markup after it (see rw_note_element_edits) */
+    int edited;
+    int frameset_hazard;    /* a removed element would have made a parse ignore a later <frameset> */
     Py_ssize_t *attr_index; /* position + 1 per slot, 0 when free; NULL until a by-name call needs it */
     size_t attr_index_cap;  /* power-of-two slot count, at least twice the attribute slots */
     uint64_t attr_seed;     /* salt so chosen attribute names cannot flood one slot */
     Py_ssize_t attr_dead;   /* removed attributes still holding a slot of the element's array */
+    /* The selector's answers for long attribute values, kept across start tags: each descendant tests the long values
+       of its open ancestors again. The memo keys a value by its buffer, so a freed long buffer waits in the retired
+       list (linked through its own first bytes) until the memo is emptied, and no later buffer can take its address
+       while an entry names it. The memo is emptied once the retired code points outnumber those still open, so a
+       value read again afterwards is paid for by the retired ones and the list never outgrows the open values. */
+    sel_memo value_memo;
+    void *retired;
+    Py_ssize_t retired_len;
+    Py_ssize_t open_len;
+    uint32_t next_seq; /* the value memo hashes a spine element by its seq */
 } rw_ctx;
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
    but not pushed, so a pathologically deep or unclosed input keeps the spine (and the C
    stack the selector matcher walks) bounded rather than growing without limit. */
 #define RW_MAX_DEPTH TH_DEPTH_LIMIT(8192)
+
+/* Empty the value memo and free the long value buffers retired while it held entries. */
+static void rw_values_flush(rw_ctx *ctx) {
+    sel_memo_free(&ctx->value_memo);
+    while (ctx->retired != NULL) {
+        void *next;
+        memcpy(&next, ctx->retired, sizeof(next));
+        PyMem_Free(ctx->retired);
+        ctx->retired = next;
+    }
+    ctx->retired_len = 0;
+}
+
+/* Free an attribute value buffer, or retire it while the value memo may key it (see rw_ctx.value_memo). */
+static void rw_free_value(rw_ctx *ctx, Py_UCS4 *value, Py_ssize_t value_len) {
+    if (value_len < SEL_VALUE_MEMO_MIN || ctx->value_memo.slots == NULL) {
+        PyMem_Free(value);
+        return;
+    }
+    memcpy(value, &ctx->retired, sizeof(ctx->retired));
+    ctx->retired = value;
+    ctx->retired_len += value_len;
+    if (ctx->retired_len > ctx->open_len) {
+        rw_values_flush(ctx);
+    }
+}
+
+/* The code points of the element's values that the value memo may key. */
+static Py_ssize_t rw_long_values(const th_node *node) {
+    Py_ssize_t total = 0;
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        if (node->attrs[index].value_len >= SEL_VALUE_MEMO_MIN) {
+            total += node->attrs[index].value_len;
+        }
+    }
+    return total;
+}
 
 /* --- the handle object handed to a Python handler --- */
 
@@ -378,6 +484,7 @@ typedef struct {
     PyObject *replace_html; /* replacement for the whole node, or NULL */
     int replace_raw;
     PyObject *before_html; /* emitted before the node (accumulated) */
+    PyObject *before_text; /* an element's before_html with its text escaped, for rw_mirror_opened */
     PyObject *after_html;  /* emitted after the node (accumulated) */
     PyObject *set_text;    /* new text/comment body, or NULL */
     int set_text_raw;      /* set_text lands in a raw-text element, so it is written unescaped */
@@ -388,11 +495,37 @@ static int rw_model_is_raw(int model) {
     return model == TH_INIT_RAWTEXT || model == TH_INIT_SCRIPT_DATA || model == TH_INIT_PLAINTEXT;
 }
 
+/* Whether a spine element's (lowercased) name is the tag name in buf. */
+static int rw_name_is(const th_node *node, const th_buf *name) {
+    if (node->text_len != name->len) {
+        return 0;
+    }
+    for (Py_ssize_t pos = 0; pos < node->text_len; pos++) {
+        if (node->text[pos] != buf_read(name, pos)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether the output reads what is written next as the raw text or RCDATA of an element named as this one, which
+   ends at the same end tag. Only while the mirror runs. */
+static int rw_output_raw(const rw_ctx *ctx, const rw_open *element) {
+    const th_buf *name;
+    return th_shadow_mirror_model(ctx->mirror, &name) != TH_INIT_DATA && rw_name_is(element->node, name);
+}
+
+/* Whether the token being handled is the text of a raw-text or RCDATA element whose start tag is in the output. */
+static int rw_source_raw(const rw_ctx *ctx) {
+    return ctx->depth > 0 && ctx->stack[ctx->depth - 1].model >= 0 && !ctx->stack[ctx->depth - 1].drop_end_tag;
+}
+
 /* The raw-text element that text written through this handle lands in: the handled element itself for the calls
    that edit its content, the enclosing element for a text node. A browser reads script, style and the other RAWTEXT
    and PLAINTEXT content without decoding character references, so text there is written unescaped and the element
    is marked for rw_raw_content_closes_early; RCDATA title/textarea decode references and keep escaped text. An
-   element whose tags were dropped leaves no raw-text context in the output, so text there is escaped as anywhere. */
+   element whose tags were dropped leaves no raw-text context in the output, and neither does one the output reads
+   as markup (see rw_mirror_opened for the handled element's own content), so text there is escaped as anywhere. */
 static rw_open *rw_raw_target(rw_handle *self, int inside_element) {
     rw_open *target = NULL;
     if (self->kind == RW_ELEMENT) {
@@ -400,7 +533,8 @@ static rw_open *rw_raw_target(rw_handle *self, int inside_element) {
     } else if (self->kind == RW_TEXT && self->ctx->depth > 0) {
         target = &self->ctx->stack[self->ctx->depth - 1];
     }
-    if (target == NULL || target->drop_end_tag || !rw_model_is_raw(target->model)) {
+    if (target == NULL || target->drop_end_tag || !rw_model_is_raw(target->model) ||
+        (self->kind == RW_TEXT && self->ctx->mirror != NULL && !rw_output_raw(self->ctx, target))) {
         return NULL;
     }
     target->literal = 1;
@@ -430,7 +564,7 @@ static PyObject *rw_escape_arg(PyObject *content, int raw) {
     if (raw) {
         return Py_NewRef(content);
     }
-    rw_out scratch = {NULL, 0, 0, 0};
+    rw_out scratch = {.data = NULL};
     rw_out_content(&scratch, content, 0);
     if (scratch.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(scratch.data); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -861,7 +995,7 @@ static PyObject *rw_set_attribute(rw_handle *self, PyObject *args) {
     }
     th_node_attr *slot = fresh ? NULL : rw_attr_find(self->ctx, node, atom);
     if (slot != NULL) {
-        PyMem_Free(slot->value);
+        rw_free_value(self->ctx, slot->value, slot->value_len);
         slot->value = copy;
         slot->value_len = new_len;
         Py_RETURN_NONE;
@@ -895,7 +1029,7 @@ static PyObject *rw_remove_attribute(rw_handle *self, PyObject *name) {
     th_node *node = self->open->node;
     th_node_attr *attr = rw_attr_find(self->ctx, node, atom);
     if (attr != NULL) {
-        PyMem_Free(attr->value);
+        rw_free_value(self->ctx, attr->value, attr->value_len);
         if (self->ctx->attr_index != NULL) {
             rw_attr_index_delete(self->ctx, node, rw_attr_index_probe(self->ctx, node, atom));
         }
@@ -1031,6 +1165,12 @@ static PyObject *rw_prepend(rw_handle *self, PyObject *args, PyObject *kwds) {
             return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_SETREF(self->before_html, joined);
+    }
+    if (!rw_model_is_raw(self->open->model)) {
+        Py_RETURN_NONE;
+    }
+    if (rw_accumulate(&self->before_text, content, raw) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
+        return NULL;                                           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_RETURN_NONE;
 }
@@ -1202,6 +1342,7 @@ static void rw_handle_dealloc(PyObject *self) {
     rw_handle *handle = (rw_handle *)self;
     Py_XDECREF(handle->replace_html);
     Py_XDECREF(handle->before_html);
+    Py_XDECREF(handle->before_text);
     Py_XDECREF(handle->after_html);
     Py_XDECREF(handle->set_text);
     type->tp_free(self);
@@ -1301,9 +1442,9 @@ static int rw_validate_alts(sel_complex *alts, int count, th_tree *tree, const c
 /* --- the driver --- */
 
 /* Free a self-managed spine node and its attribute copies. */
-static void rw_free_node(th_node *node) {
+static void rw_free_node(rw_ctx *ctx, th_node *node) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-        PyMem_Free(node->attrs[index].value);
+        rw_free_value(ctx, node->attrs[index].value, node->attrs[index].value_len);
     }
     PyMem_Free(node->attrs);
     PyMem_Free(node->text);
@@ -1322,6 +1463,7 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
     node->atom = atom;
     node->tag_flags = th_tag_flags(atom);
     node->parent = parent;
+    node->seq = ++ctx->next_seq;
     Py_ssize_t tag_len = token->name.len; /* a start tag always carries a name, so tag_len >= 1 */
     node->text = PyMem_Malloc((size_t)tag_len * sizeof(Py_UCS4));
     if (node->text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1345,14 +1487,14 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
             const int failed = rw_key_encode(&key, attr->name.kind, attr->name.data, attr->name.len) < 0;
             if (failed) {                 /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 node->attr_count = index; /* GCOVR_EXCL_LINE: allocation-failure path */
-                rw_free_node(node);       /* GCOVR_EXCL_LINE: allocation-failure path */
+                rw_free_node(ctx, node);  /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             uint32_t name_atom = rw_attr_atom(ctx->tree, key.bytes, key.len);
             rw_key_free(&key);
             if (name_atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
                 node->attr_count = index;       /* GCOVR_EXCL_LINE: allocation-failure path */
-                rw_free_node(node);             /* GCOVR_EXCL_LINE: allocation-failure path */
+                rw_free_node(ctx, node);        /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;                    /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             node->attrs[index].name_atom = name_atom;
@@ -1362,7 +1504,7 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
                     PyMem_Malloc((size_t)(attr->value.len ? attr->value.len : 1) * sizeof(Py_UCS4));
                 if (node->attrs[index].value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
                     node->attr_count = index;           /* GCOVR_EXCL_LINE: allocation-failure path */
-                    rw_free_node(node);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+                    rw_free_node(ctx, node);            /* GCOVR_EXCL_LINE: allocation-failure path */
                     return NULL;                        /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 for (Py_ssize_t pos = 0; pos < attr->value.len; pos++) {
@@ -1490,18 +1632,166 @@ static void rw_end_tag_at(Py_UCS4 *at, const th_node *node) {
 
 /* Append the end tag of an open element. */
 static void rw_emit_end_tag(rw_out *out, const th_node *node) {
-    rw_out_reserve(out, node->text_len + 3);
-    if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    rw_end_tag_at(out->data + out->len, node);
-    out->len += node->text_len + 3;
+    rw_out_ascii(out, "</");
+    rw_out_run(out, node->text, node->text_len);
+    rw_out_char(out, '>');
 }
 
 /* Whether the spine's innermost element is an SVG/MathML element: until a th_shadow runs, exactly when the tree
    builder's current node is one. */
 static int rw_spine_foreign(const rw_ctx *ctx) {
     return ctx->depth > 0 && ctx->stack[ctx->depth - 1].ns != TH_NS_HTML;
+}
+
+/* The spine and the th_shadow read the input; the output is the input with the handlers' edits, and a browser parses
+   the output. Edits to attributes, to comments and to the text of a raw-text element leave every later token read as
+   in the input, as does removing a raw-text element. Dropping any other tag or writing anywhere else can change it:
+   without a <desc> its <title> child is an SVG element whose text is markup, without a <font> start tag the </font>
+   no longer ends an <svg>, and a removed <img> moves where a formatting element is rebuilt and so what a later end tag
+   closes. Only SVG/MathML content, templates and framesets turn such a difference into tokens read differently, so
+   once such an edit is made the first of their tags (or the edit itself, inside one) starts the mirror: tree
+   construction over the output written so far, then over what is written as it is written. Each token is written so
+   that the output reads it as the input did: raw text only the output opened gets its end tag first, the text of a
+   raw-text element the output reads as markup is escaped, a CDATA section where the output opens none becomes text
+   and a bogus comment where it opens one becomes a comment, and an SVG/MathML element an end tag closed in the input
+   but not in the output gets its own end tag. */
+
+static th_node **rw_mirror_refs(const rw_ctx *ctx) {
+    return ctx->stack != NULL ? &ctx->stack[0].mirrored : NULL;
+}
+
+/* Feed the mirror what was written since it last read. compact lets it copy its tree, which moves the spine's
+   mirrored pointers and invalidates every other pointer into it. */
+static void rw_mirror_sync(rw_ctx *ctx, int compact) {
+    /* a pending tail may still be escaped, so the mirror reads it once it settles */
+    Py_ssize_t end = ctx->out.tail > 0 ? ctx->out.tail - 1 : ctx->out.len;
+    if (ctx->mirrored == end) {
+        return;
+    }
+    Py_ssize_t count = compact ? ctx->depth : -1;
+    /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+    if (th_shadow_mirror_feed(ctx->mirror, ctx->out.data + ctx->mirrored, end - ctx->mirrored, rw_mirror_refs(ctx),
+                              count, sizeof(rw_open)) < 0) {
+        ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    ctx->mirrored = end;
+}
+
+static TH_NOINLINE void rw_mirror_start(rw_ctx *ctx) {
+    ctx->mirror = th_shadow_mirror_new();
+    if (ctx->mirror == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        ctx->error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+}
+
+static th_node *rw_mirror_current(const rw_ctx *ctx) {
+    Py_ssize_t count;
+    th_node *const *open = th_shadow_open(ctx->mirror, &count);
+    return count > 0 ? open[count - 1] : NULL;
+}
+
+static int rw_buf_eq(const th_buf *left, const th_buf *right) {
+    if (left->len != right->len) {
+        return 0;
+    }
+    for (Py_ssize_t pos = 0; pos < left->len; pos++) {
+        if (buf_read(left, pos) != buf_read(right, pos)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Before a token: raw text the output reads where the input reads markup would swallow the token, so it gets its end
+   tag first. The text of the raw-text element the input reads it in, and the end tag leaving it, read on as they do
+   in the input; PLAINTEXT has no end tag and swallows anything. */
+static TH_NOINLINE void rw_mirror_before(rw_ctx *ctx, const th_token *token) {
+    rw_mirror_sync(ctx, 1);
+    const th_buf *name;
+    enum th_initial_state model = th_shadow_mirror_model(ctx->mirror, &name);
+    if (model == TH_INIT_DATA || model == TH_INIT_PLAINTEXT) {
+        return;
+    }
+    if (token->kind == TH_END_TAG ? rw_buf_eq(&token->name, name)
+                                  : (token->kind == TH_TEXT || token->kind == TH_CHARREF) && rw_source_raw(ctx) &&
+                                        rw_name_is(ctx->stack[ctx->depth - 1].node, name)) {
+        return;
+    }
+    rw_out_ascii(&ctx->out, "</");
+    for (Py_ssize_t pos = 0; pos < name->len; pos++) {
+        rw_out_char(&ctx->out, buf_read(name, pos));
+    }
+    rw_out_char(&ctx->out, '>');
+    rw_mirror_sync(ctx, 1);
+}
+
+/* How a leaf token is written while the mirror runs (rw_emit_leaf). */
+enum rw_leaf_form { RW_AS_READ, RW_AS_TEXT, RW_AS_COMMENT };
+
+/* Whether a comment token is a bogus comment "<![CDATA[...>", which opens a CDATA section where the output's current
+   node is foreign. */
+static int rw_opens_cdata(const rw_ctx *ctx, const th_token *token) {
+    static const char opener[] = "<![CDATA[";
+    if (token->src_span < (Py_ssize_t)sizeof(opener) - 1) {
+        return 0;
+    }
+    int kind;
+    const void *data = th_tok_input_data(ctx->sm, &kind);
+    for (size_t pos = 0; pos < sizeof(opener) - 1; pos++) {
+        if (PyUnicode_READ(kind, data, token->src_off + (Py_ssize_t)pos) != (Py_UCS4)opener[pos]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The form a leaf token takes in the output so the output reads it as the input did. */
+static TH_NOINLINE enum rw_leaf_form rw_mirror_reading(rw_ctx *ctx, const th_token *token) {
+    rw_mirror_sync(ctx, 0); /* after what a handler wrote before the token */
+    if (token->kind == TH_COMMENT) {
+        return th_shadow_foreign(ctx->mirror) && rw_opens_cdata(ctx, token) ? RW_AS_COMMENT : RW_AS_READ;
+    }
+    if (token->kind == TH_TEXT && token->has_source) { /* a CDATA section, copied with its delimiters */
+        return th_shadow_foreign(ctx->mirror) ? RW_AS_READ : RW_AS_TEXT;
+    }
+    return rw_source_raw(ctx) && !rw_output_raw(ctx, &ctx->stack[ctx->depth - 1]) ? RW_AS_TEXT : RW_AS_READ;
+}
+
+/* After an end tag is written: the SVG/MathML elements it closed in the input that the output still has open get
+   their end tags, innermost first. */
+static TH_NOINLINE void rw_mirror_close(rw_ctx *ctx) {
+    rw_mirror_sync(ctx, 0);
+    for (Py_ssize_t index = ctx->closing_len - 1; index >= 0; index--) {
+        if (!ctx->closing[index].mirrored->left_stack) {
+            rw_emit_end_tag(&ctx->out, ctx->closing[index].node);
+            rw_mirror_sync(ctx, 0);
+        }
+        rw_free_node(ctx, ctx->closing[index].node);
+    }
+    ctx->closing_len = 0;
+}
+
+/* Hold a closed spine element for rw_mirror_close; frees it instead when it cannot grow the list. */
+static void rw_mirror_hold(rw_ctx *ctx, const rw_open *open) {
+    if (ctx->closing_len == ctx->closing_cap) {
+        size_t cap = 0;
+        size_t bytes = 0;
+        /* the spine depth bounds the list, so the size never overflows */
+        th_grow_cap((size_t)(ctx->closing_len + 1), (size_t)ctx->closing_cap, 8, sizeof(rw_closed), &cap, &bytes);
+        rw_closed *grown = PyMem_Realloc(ctx->closing, bytes);
+        if (grown == NULL) {               /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->error = 1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();              /* GCOVR_EXCL_LINE: allocation-failure path */
+            rw_free_node(ctx, open->node); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        ctx->closing = grown;
+        ctx->closing_cap = (Py_ssize_t)cap;
+    }
+    ctx->closing[ctx->closing_len++] = (rw_closed){.node = open->node, .mirrored = open->mirrored};
 }
 
 /* Close the open elements above the first `keep`, which a tag ends in a browser with no end tag of their own, so
@@ -1534,8 +1824,10 @@ static Py_ssize_t rw_pop_to(rw_ctx *ctx, Py_ssize_t keep) {
    output: once a handler drops it they stay open there, and the <title>, <style>, <xmp>, ... after it, which the
    tokenizer rightly read as HTML raw text, are SVG/MathML elements whose content is markup. `dropped` says the tag is
    not written (or no longer breaks out), so each element gets the end tag the tag stood for, at the offset the
-   element ended at: ahead of its own after() content and of whatever the dropped tag's handler wrote before it. */
-static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped) {
+   element ended at: ahead of its own after() content and of whatever the dropped tag's handler wrote before it.
+   `hold` says the tag is an end tag the output keeps while the mirror runs, which may still close fewer elements
+   there: the elements the mirror paired go to rw_mirror_close instead of being freed. */
+static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped, int hold) {
     if (closed == 0) {
         return;
     }
@@ -1547,15 +1839,20 @@ static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped) {
             extra += popped[index].node->text_len + 3;
         }
     }
-    rw_out_reserve(out, extra);
+    if (out->len + extra > out->room) {
+        rw_out_make_room(out, extra, '<');
+    }
     if (extra > 0 && !out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         /* one pass from the back: each stretch of output moves once, past the end tags that go in before it */
         Py_ssize_t tail = out->len;
         out->len += extra;
         for (Py_ssize_t index = 0; index < closed; index++) {
-            const rw_open *open = &popped[index];
+            rw_open *open = &popped[index];
             if (open->end_at < 0) {
                 continue;
+            }
+            if (open->end_at + 1 == out->moved) { /* it ended after a tail escaped since */
+                open->end_at += 3;
             }
             memmove(out->data + open->end_at + extra, out->data + open->end_at,
                     (size_t)(tail - open->end_at) * sizeof(Py_UCS4));
@@ -1565,7 +1862,12 @@ static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped) {
         }
     }
     for (Py_ssize_t index = 0; index < closed; index++) {
-        rw_free_node(popped[index].node);
+        ctx->open_len -= popped[index].long_values;
+        if (hold && popped[index].end_at >= 0 && popped[index].mirrored != NULL) {
+            rw_mirror_hold(ctx, &popped[index]);
+        } else {
+            rw_free_node(ctx, popped[index].node);
+        }
     }
 }
 
@@ -1783,7 +2085,64 @@ static TH_NOINLINE void rw_release_start(rw_ctx *ctx, Py_ssize_t closed, const r
     if (open->edited && open->node->atom == TH_TAG_FONT && !rw_font_breakout(ctx, open->node)) {
         dropped = 1;
     }
-    rw_release_foreign(ctx, closed, dropped);
+    rw_release_foreign(ctx, closed, dropped, 0);
+}
+
+/* Note whether a handler's edits to an element can change how a parse reads the markup after it, and start the
+   mirror when that can already matter (see rw_mirror_before). Writing before or after the element, or in place of its
+   tags, puts text or markup into the surrounding content; keeping the tags but writing their content puts it into the
+   element's own. Both are harmless only inside a raw-text element, which also makes removing one harmless. An attribute
+   counts for the <input> type, which table and frameset handling read, and for a <font> or <annotation-xml> read
+   under the foreign-content rules. `written` is the output length before the handlers ran. */
+static TH_NOINLINE void rw_note_element_edits(rw_ctx *ctx, const rw_handle *handle, const rw_open *open, int foreign,
+                                              Py_ssize_t written) {
+    uint16_t atom = open->node->atom;
+    int around =
+        ctx->out.len != written || open->after_html != NULL ||
+        (handle->removed && (handle->replace_html != NULL || !open->drop_content || open->append_html != NULL));
+    int inside = handle->removed || handle->before_html != NULL || open->append_html != NULL;
+    int read_attr =
+        open->edited && (atom == TH_TAG_INPUT || (foreign && (atom == TH_TAG_FONT || atom == TH_TAG_ANNOTATION_XML)));
+    if (!around && !inside && !read_attr) {
+        return;
+    }
+    if (!around && !read_attr && open->ns == TH_NS_HTML && open->model >= 0 && atom != TH_TAG_XMP &&
+        atom != TH_TAG_PLAINTEXT) {
+        /* an <iframe> or <textarea> start tag keeps a later <frameset> from replacing the body */
+        ctx->frameset_hazard |= handle->removed && (atom == TH_TAG_IFRAME || atom == TH_TAG_TEXTAREA);
+        return;
+    }
+    ctx->edited = 1;
+    if (foreign && ctx->mirror == NULL) {
+        rw_mirror_start(ctx);
+    }
+}
+
+/* The output's current node before the start tag of an element that keeps its tags is written, for rw_mirror_opened. */
+static TH_NOINLINE th_node *rw_mirror_opening(rw_ctx *ctx) {
+    rw_mirror_sync(ctx, 0);
+    return rw_mirror_current(ctx);
+}
+
+/* Once that start tag is written: pair an SVG/MathML element that stays open with the element the output opened for
+   it, and when a handler wrote text unescaped as the element's raw text but the output reads markup there, write that
+   text escaped instead. */
+static TH_NOINLINE void rw_mirror_opened(rw_ctx *ctx, rw_open *open, rw_handle *handle, const th_node *was) {
+    rw_mirror_sync(ctx, 0);
+    if (open->ns != TH_NS_HTML) {
+        th_node *now = rw_mirror_current(ctx);
+        if (now != was) {
+            open->mirrored = now;
+        }
+    }
+    if (open->literal && !rw_output_raw(ctx, open)) {
+        open->literal = 0; /* only a handler sets it, so handle is set */
+        Py_XSETREF(handle->before_html, handle->before_text);
+        handle->before_text = NULL;
+        Py_XSETREF(open->append_html, ctx->append_text);
+        ctx->append_text = NULL;
+    }
+    Py_CLEAR(ctx->append_text); /* the tags stay, so the content stays raw text */
 }
 
 static void rw_handle_element(rw_ctx *ctx, th_token *token) {
@@ -1799,8 +2158,19 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
        markup */
     int model = -1;
     /* ordinary HTML outside <svg> and <math> skips the foreign-content rules with this one test */
+    if (ctx->mirror != NULL) {
+        rw_mirror_before(ctx, token);
+    }
     int foreign = ctx->shadow != NULL || rw_spine_foreign(ctx) || rw_watched(atom);
     if (foreign) {
+        if (ctx->mirror == NULL && rw_watched(atom) &&
+            (ctx->edited || (atom == TH_TAG_FRAMESET && ctx->frameset_hazard))) {
+            rw_mirror_start(ctx);
+            if (ctx->error) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return;       /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            rw_mirror_before(ctx, token);
+        }
         ns = rw_foreign_start(ctx, token, atom, &self_terminating, &model, &closed, &shadow);
         if (ctx->error) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;       /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1812,11 +2182,11 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     int suppressed = ctx->suppress > 0;
     th_node *parent = ctx->depth > 0 ? ctx->stack[ctx->depth - 1].node : ctx->document;
     th_node *node = rw_make_node(ctx, token, atom, parent);
-    if (node == NULL) {                     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        rw_release_foreign(ctx, closed, 0); /* GCOVR_EXCL_LINE: allocation-failure path */
-        ctx->error = 1;                     /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyErr_NoMemory();                   /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (node == NULL) {                        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        rw_release_foreign(ctx, closed, 0, 0); /* GCOVR_EXCL_LINE: allocation-failure path */
+        ctx->error = 1;                        /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
     /* a start tag past the depth cap is not pushed, so it switches no content model and nothing checks the text
@@ -1831,8 +2201,9 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         rw_track_start(ctx, &open);
     }
     rw_handle *handle = NULL;
+    Py_ssize_t written = ctx->out.len;
     for (Py_ssize_t index = 0; index < ctx->rule_count && !suppressed && !ctx->error; index++) {
-        if (!selector_matches(node, ctx->rules[index].compiled, NULL)) {
+        if (!selector_matches(node, ctx->rules[index].compiled, NULL, &ctx->value_memo)) {
             continue;
         }
         if (handle == NULL) {
@@ -1860,8 +2231,18 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             Py_DECREF(handle);
         }
         Py_XDECREF(open.append_html);
-        rw_free_node(node);
+        rw_free_node(ctx, node);
         return;
+    }
+    if (handle != NULL) {
+        rw_note_element_edits(ctx, handle, &open, foreign, written);
+        if (ctx->error) {                 /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            handle->live = 0;             /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(handle);            /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_XDECREF(open.append_html); /* GCOVR_EXCL_LINE: allocation-failure path */
+            rw_free_node(ctx, node);      /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
 
     int emit = !suppressed;
@@ -1874,8 +2255,9 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             Py_SETREF(open.append_html, ctx->append_text);
             ctx->append_text = NULL;
         }
-    } else if (handle != NULL) {
-        Py_CLEAR(ctx->append_text); /* the tags stay, so the content stays raw text */
+    } else if (handle != NULL && ctx->mirror == NULL) {
+        /* the tags stay, so the content stays raw text; while the mirror runs, rw_mirror_opened decides */
+        Py_CLEAR(ctx->append_text);
     }
 
     if (emit) {
@@ -1883,10 +2265,17 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             if (handle->replace_html != NULL) {
                 rw_out_content(&ctx->out, handle->replace_html, handle->replace_raw);
             }
-        } else if (open.edited) {
-            rw_emit_start_tag(ctx, node, token->self_closing);
         } else {
-            rw_emit_verbatim(&ctx->out, ctx->sm, token);
+            int mirroring = ctx->mirror != NULL;
+            const th_node *was = mirroring ? rw_mirror_opening(ctx) : NULL;
+            if (open.edited) {
+                rw_emit_start_tag(ctx, node, token->self_closing);
+            } else {
+                rw_emit_verbatim(&ctx->out, ctx->sm, token);
+            }
+            if (mirroring) {
+                rw_mirror_opened(ctx, &open, handle, was);
+            }
         }
         open.content_start = ctx->out.len;
         /* prepend content, then any inner replacement, all inside the element */
@@ -1914,7 +2303,7 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             handle->live = 0;
             Py_DECREF(handle);
         }
-        rw_free_node(node);
+        rw_free_node(ctx, node);
         if (foreign) {
             rw_sync_cdata(ctx);
         }
@@ -1930,29 +2319,31 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         /* keep the spine bounded: emit the element's content inline but do not track it,
            so it never nests deeper than the guard (its end tag streams as a stray) */
         Py_XDECREF(open.append_html);
-        rw_free_node(node);
+        rw_free_node(ctx, node);
         return; /* at the limit nothing was popped either, so the CDATA state stands */
     }
     if (ctx->depth == ctx->stack_cap) {
         size_t cap;
         size_t bytes;
         int grew = th_grow_cap((size_t)(ctx->depth + 1), (size_t)ctx->stack_cap, 32, sizeof(rw_open), &cap, &bytes);
-        if (!grew) {            /* GCOVR_EXCL_BR_LINE: the depth guard caps growth first */
-            ctx->error = 1;     /* GCOVR_EXCL_LINE: unreachable overflow-guard path */
-            PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
-            rw_free_node(node); /* GCOVR_EXCL_LINE */
-            return;             /* GCOVR_EXCL_LINE */
+        if (!grew) {                 /* GCOVR_EXCL_BR_LINE: the depth guard caps growth first */
+            ctx->error = 1;          /* GCOVR_EXCL_LINE: unreachable overflow-guard path */
+            PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+            rw_free_node(ctx, node); /* GCOVR_EXCL_LINE */
+            return;                  /* GCOVR_EXCL_LINE */
         }
         rw_open *grown = PyMem_Realloc(ctx->stack, bytes);
-        if (grown == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            ctx->error = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
-            rw_free_node(node); /* GCOVR_EXCL_LINE */
-            return;             /* GCOVR_EXCL_LINE */
+        if (grown == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->error = 1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+            rw_free_node(ctx, node); /* GCOVR_EXCL_LINE */
+            return;                  /* GCOVR_EXCL_LINE */
         }
         ctx->stack = grown;
         ctx->stack_cap = (Py_ssize_t)cap;
     }
+    open.long_values = rw_long_values(node);
+    ctx->open_len += open.long_values;
     ctx->stack[ctx->depth++] = open;
     if (open.drop_content) {
         ctx->suppress++;
@@ -2062,19 +2453,26 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
     }
     if (match < 0) {
         /* a stray end tag still closes what the tree builder closed for it, such as </p> the SVG/MathML elements */
-        rw_release_foreign(ctx, rw_pop_to(ctx, rw_left_from(ctx)), 0);
+        rw_release_foreign(ctx, rw_pop_to(ctx, rw_left_from(ctx)), 0, ctx->mirror != NULL);
         if (ctx->suppress <= 0) {
             rw_emit_verbatim(&ctx->out, ctx->sm, token);
+        }
+        if (ctx->closing_len > 0) {
+            rw_mirror_close(ctx);
         }
         return -1;
     }
     /* the elements above the match end where it does, with their trailing edits; dropped, the end tag closes none of
        them in the output, so each gets the end tag it stood for (see rw_release_foreign) */
-    rw_release_foreign(ctx, rw_pop_to(ctx, match + 1), ctx->stack[match].drop_end_tag);
+    int dropped = ctx->stack[match].drop_end_tag;
+    rw_release_foreign(ctx, rw_pop_to(ctx, match + 1), dropped, !dropped && ctx->mirror != NULL);
     return match;
 }
 
 static void rw_handle_end(rw_ctx *ctx, th_token *token) {
+    if (ctx->mirror != NULL) {
+        rw_mirror_before(ctx, token);
+    }
     uint16_t atom = token->atom;
     int foreign = ctx->shadow != NULL || rw_spine_foreign(ctx);
     Py_ssize_t end_from = ctx->depth;
@@ -2112,7 +2510,8 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
-        rw_free_node(open->node);
+        ctx->open_len -= open->long_values;
+        rw_free_node(ctx, open->node);
     }
     ctx->depth = match + 1; /* an error below leaves only the closing element for rw_ctx_clear */
     rw_open *closing = &ctx->stack[match];
@@ -2133,15 +2532,60 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
     } else if (emit) {
         rw_emit_verbatim(&ctx->out, ctx->sm, token);
     }
+    if (foreign && ctx->closing_len > 0) { /* only rw_foreign_end holds elements */
+        rw_mirror_close(ctx);
+    }
     if (emit && closing->after_html != NULL) {
         rw_out_str(&ctx->out, closing->after_html);
     }
     Py_XDECREF(closing->append_html);
     Py_XDECREF(closing->after_html);
-    rw_free_node(closing->node);
+    ctx->open_len -= closing->long_values;
+    rw_free_node(ctx, closing->node);
     ctx->depth = match;
     if (foreign) {
         rw_sync_cdata(ctx);
+    }
+}
+
+/* Hold the tail of source text written as read for rw_out_make_room to settle: a `<` at its end, or in RCDATA an
+   end tag cut short, read as text there because what followed in the source ended it, but a handler can drop or
+   change what follows, and what it writes in its place, or the markup a dropped node exposes, would join the tail
+   into a tag. Raw text reads `<` as text whatever follows it, and a comment, doctype or CDATA section ends in one only
+   at the end of the input. */
+static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, const th_token *token) {
+    const rw_open *top = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
+    int rcdata = top != NULL && top->model == TH_INIT_RCDATA;
+    if (token->kind != TH_TEXT || token->has_source || (top != NULL && top->model >= 0 && !rcdata)) {
+        return;
+    }
+    rw_out *out = &ctx->out;
+    Py_ssize_t start = out->len - (token->is_slice ? token->src_len : token->text.len);
+    Py_ssize_t lt = out->len - 1;
+    if (out->data[lt] != '<') {
+        Py_ssize_t slash = lt;
+        while (rcdata && slash > start && is_ascii_alpha(out->data[slash])) {
+            slash--;
+        }
+        if (out->data[slash] != '/' || slash == start || out->data[slash - 1] != '<') {
+            return;
+        }
+        lt = slash - 1;
+    }
+    out->tail = lt + 1;
+    out->rcdata = rcdata;
+    out->room = out->len;
+}
+
+/* Write an unedited leaf token as it was read. */
+static void rw_emit_read_leaf(rw_ctx *ctx, const th_token *token) {
+    if (!rw_emit_verbatim(&ctx->out, ctx->sm, token)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS4 last = ctx->out.data[ctx->out.len - 1];
+    if (last == '<' || last == '/' ||
+        (is_ascii_alpha(last) && ctx->depth > 0 && ctx->stack[ctx->depth - 1].model == TH_INIT_RCDATA)) {
+        rw_hold_tail(ctx, token);
     }
 }
 
@@ -2156,6 +2600,37 @@ static void rw_emit_escaped(rw_ctx *ctx, const th_token *token) {
         return;
     }
     rw_out_escaped(&ctx->out, token->text.kind, token->text.data, token->text.len);
+}
+
+/* Write an unedited leaf token in the form rw_mirror_reading picked. */
+static TH_NOINLINE void rw_emit_leaf(rw_ctx *ctx, const th_token *token, enum rw_leaf_form form) {
+    if (form == RW_AS_TEXT) {
+        rw_emit_escaped(ctx, token);
+    } else if (form == RW_AS_COMMENT) {
+        rw_out_ascii(&ctx->out, "<!--");
+        for (Py_ssize_t pos = 0; pos < token->text.len; pos++) {
+            rw_out_char(&ctx->out, buf_read(&token->text, pos));
+        }
+        rw_out_ascii(&ctx->out, "-->");
+    } else {
+        rw_emit_read_leaf(ctx, token);
+    }
+}
+
+/* Note whether a text, comment or doctype handler's edits can change how a parse reads the markup after the token,
+   and start the mirror inside SVG/MathML content (see rw_note_element_edits). Text in a raw-text element, and a
+   comment's own text, never can; the doctype picks the quirks mode the tree builder runs in. */
+static TH_NOINLINE void rw_note_leaf_edits(rw_ctx *ctx, const rw_handle *handle) {
+    int around = handle->before_html != NULL || handle->after_html != NULL || handle->replace_html != NULL;
+    if (handle->kind == RW_COMMENT ? !around
+                                   : (!around && !handle->removed && handle->set_text == NULL) ||
+                                         (handle->kind == RW_TEXT && rw_source_raw(ctx))) {
+        return;
+    }
+    ctx->edited = 1;
+    if (ctx->mirror == NULL && (ctx->shadow != NULL || rw_spine_foreign(ctx))) {
+        rw_mirror_start(ctx);
+    }
 }
 
 /* Run a text/comment/doctype handler and emit the result; escape writes an unedited token with rw_emit_escaped. */
@@ -2174,6 +2649,11 @@ static inline void rw_call_leaf_handler(rw_ctx *ctx, const th_token *token, PyOb
         Py_DECREF(handle);
         return;
     }
+    rw_note_leaf_edits(ctx, handle);
+    if (ctx->error) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(handle); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     if (handle->before_html != NULL) {
         rw_out_str(&ctx->out, handle->before_html);
     }
@@ -2191,8 +2671,10 @@ static inline void rw_call_leaf_handler(rw_ctx *ctx, const th_token *token, PyOb
         }
     } else if (escape) {
         rw_emit_escaped(ctx, token);
+    } else if (ctx->mirror != NULL) {
+        rw_emit_leaf(ctx, token, rw_mirror_reading(ctx, token));
     } else {
-        rw_emit_verbatim(&ctx->out, ctx->sm, token);
+        rw_emit_read_leaf(ctx, token);
     }
     if (handle->after_html != NULL) {
         rw_out_str(&ctx->out, handle->after_html);
@@ -2211,10 +2693,31 @@ static TH_NOINLINE void rw_handle_escaped_leaf(rw_ctx *ctx, const th_token *toke
     rw_call_leaf_handler(ctx, token, handler, kind, 1);
 }
 
+/* rw_handle_leaf while the mirror runs. */
+static TH_NOINLINE void rw_handle_mirrored_leaf(rw_ctx *ctx, const th_token *token, PyObject *handler,
+                                                enum rw_kind kind) {
+    rw_mirror_before(ctx, token);
+    if (ctx->suppress != 0) {
+        if (ctx->suppress < 0) {
+            rw_handle_escaped_leaf(ctx, token, handler, kind);
+        }
+        return;
+    }
+    if (handler == NULL) {
+        rw_emit_leaf(ctx, token, rw_mirror_reading(ctx, token));
+        return;
+    }
+    rw_call_leaf_handler(ctx, token, handler, kind, 0);
+}
+
 /* Drive a text/comment/doctype token through its handler and emit the result. */
 static void rw_handle_leaf(rw_ctx *ctx, th_token *token, PyObject *handler, enum rw_kind kind) {
     if (ctx->shadow != NULL) {
         rw_shadow_step(ctx, token); /* text and comments move the tree builder too (frameset-ok, table text, ...) */
+    }
+    if (ctx->mirror != NULL) {
+        rw_handle_mirrored_leaf(ctx, token, handler, kind);
+        return;
     }
     if (ctx->suppress != 0) {
         if (ctx->suppress < 0) {
@@ -2223,7 +2726,7 @@ static void rw_handle_leaf(rw_ctx *ctx, th_token *token, PyObject *handler, enum
         return;
     }
     if (handler == NULL) {
-        rw_emit_verbatim(&ctx->out, ctx->sm, token);
+        rw_emit_read_leaf(ctx, token);
         return;
     }
     rw_call_leaf_handler(ctx, token, handler, kind, 0);
@@ -2234,10 +2737,15 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     for (Py_ssize_t index = 0; index < ctx->depth; index++) {
         Py_XDECREF(ctx->stack[index].append_html);
         Py_XDECREF(ctx->stack[index].after_html);
-        rw_free_node(ctx->stack[index].node);
+        rw_free_node(ctx, ctx->stack[index].node);
     }
     th_shadow_free(ctx->shadow); /* its text spans the tokenizer's input, freed below */
     th_shadow_free(ctx->parked);
+    if (ctx->mirror != NULL) {
+        th_shadow_free(ctx->mirror);
+        PyMem_Free(ctx->closing); /* empty: rw_mirror_close lets go of each element right after the tag is written */
+    }
+    rw_values_flush(ctx);
     Py_XDECREF(ctx->append_text); /* still set only when a handler failed */
     PyMem_Free(ctx->stack);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
@@ -2412,7 +2920,8 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
-        rw_free_node(open->node);
+        ctx.open_len -= open->long_values;
+        rw_free_node(&ctx, open->node);
         ctx.depth--;
     }
 

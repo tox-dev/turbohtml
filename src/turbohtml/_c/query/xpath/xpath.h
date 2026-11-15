@@ -68,10 +68,12 @@ typedef struct xp_live_frame xp_live_frame;
 typedef int (*xp_before_python_fn)(void *ctx, const xp_live_frame *frame);
 const xp_live_frame *xp_live_previous(const xp_live_frame *frame);
 uint64_t xp_live_id(const xp_live_frame *frame);
-uint64_t xp_live_version(const xp_live_frame *frame);
 Py_ssize_t xp_live_append_count(const xp_live_frame *frame);
 int xp_visit_frame_append(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
                           void *data);
+Py_ssize_t xp_live_result_count(const xp_live_frame *frame);
+int xp_visit_frame_results(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
+                           void *data);
 int xp_visit_frame_nodes(const xp_live_frame *frame, int (*visitor)(void *, struct th_node *), void *data);
 
 void xp_nodeset_free(xp_nodeset *ns);
@@ -160,6 +162,17 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                      xp_before_python_fn before_python, xp_result *out, const char **feature);
 
+/* What id() keeps from one lookup to the next: the root its last unindexed lookup walked, and the index of the
+   elements under a root by id that a second lookup there builds. The index records the tree's id version
+   (th_tree_id_version) it was built at and is rebuilt once it moves, so it outlives Python code that leaves the tree
+   alone. */
+typedef struct xp_id_index xp_id_index;
+typedef struct {
+    struct th_node *walked;
+    xp_id_index *index;
+} xp_id_cache;
+void xp_id_cache_clear(xp_id_cache *cache);
+
 /* The language each node a deep lang() climb passed inherits (eval.c). */
 typedef struct xp_lang_memo xp_lang_memo;
 void xp_lang_memo_free(xp_lang_memo *memo);
@@ -171,10 +184,12 @@ void xp_lang_memo_free(xp_lang_memo *memo);
    extension included: the engine evaluates once per instruction and node, all of them under its source root, so it
    passes that rather than have each evaluation climb to it. langs is NULL, or a slot holding NULL or a memo that
    outlives the call and that the caller ends with xp_lang_memo_free, for the same reason: lang() then climbs each
-   ancestor about once per run rather than once per evaluation. */
+   ancestor about once per run rather than once per evaluation. ids is NULL, or a zeroed cache the caller owns
+   and ends with xp_id_cache_clear, so the id() index outlives the call: the engine indexes its source once
+   per run rather than walk it once per node. */
 int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
-               xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_result *out,
+               xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids, xp_result *out,
                const char **feature);
 
 /* xp_eval_at for an expression the caller only converts to a boolean, as the test of xsl:if and xsl:when is: a
@@ -183,12 +198,29 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *cont
 int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
                          struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
-                         xp_lang_memo **langs, xp_result *out, const char **feature);
+                         xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature);
 
 typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
                                Py_ssize_t name_len);
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
                        void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
                        const char **feature);
+
+/* Matches one item at a time against a pattern compiled as an absolute location path, as XSLT counts xsl:number
+   nodes: the item matches when the path selects it from root. Instead of selecting every node the path reaches, the
+   test walks back from the item through its parents, so it costs the item's ancestry and siblings rather than the
+   document. xp_pattern_walks_back says whether the program has a shape the walk supports: child steps, a last
+   attribute step, and descendant and descendant-or-self steps without a predicate that reads the position. A walk
+   keeps what it learns about the nodes it passes, so its answers hold only while the extension state the predicates
+   read (the XSLT current node) stays the same. xp_pattern_walk_start resolves the name tests, through name_test when
+   one is given and as xp_eval_at does otherwise, and returns 0 with *out set or a negative status as xp_eval does;
+   xp_pattern_match returns 1 or 0, or such a status. */
+typedef struct xp_pattern_walk xp_pattern_walk;
+int xp_pattern_walks_back(const xp_program *prog);
+int xp_pattern_walk_start(const xp_program *prog, struct th_tree *tree, struct th_node *root, xp_name_test_fn name_test,
+                          void *name_test_ctx, xp_pattern_walk **out, const char **feature);
+int xp_pattern_match(xp_pattern_walk *walk, xp_item item, xp_extension_fn extension, void *extension_ctx,
+                     const char **feature);
+void xp_pattern_walk_free(xp_pattern_walk *walk);
 
 #endif /* TURBOHTML_XPATH_H */

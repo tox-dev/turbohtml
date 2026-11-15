@@ -213,6 +213,8 @@ typedef struct {
     struct th_node *node; /* NULL until found, unless the caller of xp_eval_at supplied it */
     int mixed;
     int fixed;
+    xp_id_cache *ids; /* the caller's id() cache, or NULL to use own */
+    xp_id_cache own;  /* the evaluation's id() cache, cleared when it ends */
 } xp_root;
 
 typedef struct {
@@ -243,7 +245,6 @@ typedef struct {
 struct xp_live_frame {
     const xp_live_frame *previous;
     uint64_t id;
-    uint64_t version;
     struct th_node *node;
     const xp_nodeset *sets[2];
     const xp_nodeset *append;
@@ -263,12 +264,6 @@ static inline void xp_live_enter(xp_ctx *ctx, xp_live_frame *frame) {
 static inline void xp_live_leave(xp_ctx *ctx, xp_live_frame *frame) {
     if (ctx->live != NULL) {
         ctx->live->current = (xp_live_frame *)frame->previous;
-    }
-}
-
-static inline void xp_live_changed(xp_ctx *ctx) {
-    if (ctx->live != NULL) {
-        ctx->live->current->version++;
     }
 }
 
@@ -304,9 +299,10 @@ struct th_node *document_next(struct th_node *node);
 /* The document order the evaluation's sort uses (eval.c), also for the functions that read a node-set member by
    member. A caller shares xp_order_budget(len) steps across one set of len items; xp_node_order answers negative when
    left precedes right and positive otherwise (the two are never the same node), and XP_ORDER_UNKNOWN once the walks
-   would spend more, so a set whose order the links settle only after long walks (a wide sibling list, a deep chain) is
-   ranked once instead. xp_first_out_of_order ranks one: it gives the first node item after start that does not follow
-   the node item before it, ignoring repeats of that node, else len, or -1 with MemoryError. */
+   would spend more or the nodes lie in separate trees, which no link orders. A set whose order the links settle only
+   after long walks (a wide sibling list, a deep chain) is ranked once instead. xp_first_out_of_order ranks one: it
+   gives the first node item after start that does not follow the node item before it, ignoring repeats of that node,
+   else len, or -1 with MemoryError. */
 #define XP_ORDER_UNKNOWN 2
 
 static inline Py_ssize_t xp_order_budget(Py_ssize_t len) {
@@ -361,6 +357,7 @@ static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ct
 int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
+int xp_step_reads_position(const xp_program *prog, int32_t step_index);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
 
 #endif /* TURBOHTML_XPATH_INTERNAL_H */

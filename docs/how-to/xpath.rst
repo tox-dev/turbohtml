@@ -9,11 +9,13 @@ custom extensions, and the compiled :class:`turbohtml.XPath` object.
 :meth:`~turbohtml.Node.xpath` evaluates an XPath 1.0 expression relative to a node and returns a list for a node-set
 (elements, comments, and the document as nodes, attribute and ``text()`` values as ``str``, in document order), or the
 matching ``float`` / ``str`` / ``bool`` for a scalar expression like ``count(...)`` or ``string(...)``. The return type
-is that union, so narrow it with ``isinstance`` before iterating when a type checker is watching.
-:meth:`~turbohtml.Node.xpath_one` returns the first result or ``None``, and :meth:`~turbohtml.Node.xpath_iter` returns
-an iterator. The engine supports the structural axes, the ``name`` / ``*`` / ``node()`` / ``text()`` / ``comment()`` /
-``processing-instruction()`` node tests, predicates, the boolean, relational, and arithmetic operators, unions, and the
-complete XPath 1.0 core function library:
+is that union, so narrow it with ``isinstance`` before iterating when a type checker is watching. Nodes from separate
+trees, such as a detached subtree and the document, have no document order between them. They come back grouped by tree,
+in the order each tree first occurs while the expression collects its nodes. :meth:`~turbohtml.Node.xpath_one` returns
+the first result or ``None``, and :meth:`~turbohtml.Node.xpath_iter` returns an iterator. The engine supports the
+structural axes, the ``name`` / ``*`` / ``node()`` / ``text()`` / ``comment()`` / ``processing-instruction()`` node
+tests, predicates, the boolean, relational, and arithmetic operators, unions, and the complete XPath 1.0 core function
+library:
 
 .. testcode::
 
@@ -153,7 +155,8 @@ limits:
   stay far below 100 steps a character. A pattern with counted repeats nested inside each other, or a ``replace`` that
   scans the remaining text again after every match, can exceed that.
 - Back-references such as ``(\w+) \1`` run on a backtracking matcher that keeps at most 655,360 saved positions (10
-  MiB). A back-reference costs a step for each character it compares.
+  MiB). A back-reference costs a step for each character it compares, and each search spends two steps for each group in
+  the pattern before it starts.
 - One XPath evaluation keeps up to 64 compiled patterns for reuse, holding at most 220 MiB together besides the one in
   use: room for four patterns at every limit above. A pattern that does not fit is compiled again each time the
   expression returns to it.

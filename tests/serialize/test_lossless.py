@@ -38,6 +38,7 @@ _DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
         pytest.param(_DOC.format('<svg width="1"><rect/></svg>'), id="foreign-svg"),
         pytest.param(_DOC.format("<template><p>t</p></template>"), id="template-content"),
         pytest.param(_DOC.format("<script>a<b && c</script>"), id="raw-text-element"),
+        pytest.param(_DOC.format("<p>Ωé and 😀</p>"), id="wide-text"),
         pytest.param(
             "<!DOCTYPE html><html><head><style>\na { color: red }\nb { color: blue }\n</style></head>"
             "<body></body></html>",
@@ -54,6 +55,49 @@ _DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
 )
 def test_unedited_round_trip_is_byte_identical(markup: str) -> None:
     assert parse(markup, source_locations=True).to_source() == markup
+
+
+@pytest.mark.parametrize(
+    ("doctype", "expected"),
+    [
+        pytest.param(
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2//EN">',
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2//EN">',
+            id="quirky-public",
+        ),
+        pytest.param(
+            "<!doctype html system 'http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd'>",
+            '<!DOCTYPE html SYSTEM "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd">',
+            id="quirky-system",
+        ),
+        pytest.param("<!DOCTYPE html bogus>", "<!DOCTYPE html x>", id="forced-quirks-name"),
+        pytest.param('<!DOCTYPE html PUBLIC "a" "b>', '<!DOCTYPE html PUBLIC "a" "b>', id="forced-quirks-system"),
+    ],
+)
+def test_doctype_keeps_the_document_mode(doctype: str, expected: str) -> None:
+    # the <table> nests in the <p> only in quirks mode, so the output must reparse in the source's mode
+    rest = "<html><head></head><body><p>x<table></table></body></html>"
+    doc = parse(doctype + rest, source_locations=True)
+    assert doc.to_source() == expected + rest
+    assert parse(doc.to_source()).html == doc.html
+
+
+def test_doctype_identifiers_round_trip() -> None:
+    markup = '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">'
+    markup += "<html><head></head><body></body></html>"
+    assert parse(markup, source_locations=True).to_source() == markup
+
+
+@pytest.mark.parametrize(
+    ("doctype", "expected"),
+    [
+        pytest.param('<!DOCTYPE r SYSTEM "r.dtd">', '<!DOCTYPE r SYSTEM "r.dtd">', id="spellable"),
+        pytest.param('<!DOCTYPE r SYSTEM "a><img>">', "<!DOCTYPE r x>", id="system-ends-the-doctype"),
+        pytest.param("<!DOCTYPE r PUBLIC \"p\" 'a><img>'>", "<!DOCTYPE r x>", id="public-and-system"),
+    ],
+)
+def test_xml_doctype_literal_is_not_written_as_markup(doctype: str, expected: str) -> None:
+    assert parse_xml(f"{doctype}<r/>").to_source() == f"{expected}<r></r>"
 
 
 def test_carriage_returns_use_retained_normalized_source() -> None:
@@ -308,6 +352,66 @@ def test_inserted_processing_instruction_and_cdata_stay_inert() -> None:
     paragraph.append(ProcessingInstruction("a", "b><i>y</i>"))
     paragraph.append(CData("c><b>z</b>"))
     assert parse(doc.to_source()).select("b, i") == []
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            "<math><mi><![CDATA[<img src=x title=text>]]></mi></math>",
+            "<math><mi>&lt;img src=x title=text&gt;</mi></math>",
+            id="cdata-at-mathml-text-integration-point",
+        ),
+        pytest.param(
+            "<svg><desc><![CDATA[&lt;b&gt;]]></desc></svg>",
+            "<svg><desc>&amp;lt;b&amp;gt;</desc></svg>",
+            id="cdata-at-html-integration-point",
+        ),
+        pytest.param(
+            "<p><<b>x</b>img src=x title=text></p>",
+            "<p>&lt;<b>x</b>img src=x title=text></p>",
+            id="less-than-ahead-of-a-tag",
+        ),
+        pytest.param(
+            "<math><mi><![CDATA[<i title=text>Ωé]]></mi></math>",
+            "<math><mi>&lt;i title=text&gt;Ωé</mi></math>",
+            id="wide-cdata-at-mathml-text-integration-point",
+        ),
+        pytest.param(
+            "<svg><desc><![CDATA[&lt;Ω&gt;]]></desc></svg>",
+            "<svg><desc>&amp;lt;Ω&amp;gt;</desc></svg>",
+            id="wide-cdata-with-reference-at-html-integration-point",
+        ),
+    ],
+)
+def test_source_text_holding_markup_characters_is_escaped(body: str, expected: str) -> None:
+    doc = parse(_DOC.format(body), source_locations=True)
+    assert doc.to_source() == _DOC.format(expected)
+    assert parse(doc.to_source()).serialize() == doc.serialize()
+
+
+def test_text_left_adjacent_by_a_removal_stays_text() -> None:
+    doc = parse(_DOC.format("<p><<b></b>img src=x title=text></p>"), source_locations=True)
+    node = doc.select_one("b")
+    assert node is not None
+    node.decompose()
+    assert doc.to_source() == _DOC.format("<p>&lt;img src=x title=text></p>")
+    assert parse(doc.to_source()).select("img") == []
+
+
+def test_raw_text_of_a_renamed_element_is_escaped() -> None:
+    node = parse("<body><plaintext><img src=x title=text> &amp;", source_locations=True).select_one("plaintext")
+    assert node is not None
+    node.tag = "div"
+    assert node.to_source() == "<div>&lt;img src=x title=text&gt; &amp;amp;</div>"
+
+
+def test_raw_text_after_an_inserted_element_stays_literal() -> None:
+    doc = parse(_DOC.format("<script>a && b</script>"), source_locations=True)
+    node = doc.select_one("script")
+    assert node is not None
+    node.insert(0, Element("i"))
+    assert doc.to_source() == _DOC.format("<script><i></i>a && b</script>")
 
 
 def test_a_fragment_round_trips_through_its_children() -> None:

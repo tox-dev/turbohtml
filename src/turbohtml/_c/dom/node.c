@@ -1516,7 +1516,8 @@ TH_NODE_API(static, PyObject *, node_to_annotated_text, (PyObject * self, PyObje
 PyDoc_STRVAR(links_doc, "links()\n--\n\n"
                         "Find every link in this node and its subtree. Beyond <a href>, this finds the\n"
                         "URLs hidden in srcset/ping/archive lists, a <meta http-equiv=refresh>\n"
-                        "redirect, and CSS url()/@import in a style attribute or a <style> sheet.\n\n"
+                        "redirect, and CSS url()/@import in a style attribute or a <style> sheet.\n"
+                        "A srcset candidate whose descriptors a browser rejects is skipped.\n\n"
                         ":returns: the Link records in document order.");
 
 TH_NODE_API(static, PyObject *, node_links, (PyObject * self, PyObject *ignored), (self, ignored),
@@ -2369,7 +2370,8 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
                               NULL,
                               NULL,
                               NULL,
-                              NULL};
+                              NULL,
+                              0};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2721,7 +2723,8 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                               NULL,
                               NULL,
                               NULL,
-                              NULL};
+                              NULL,
+                              0};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

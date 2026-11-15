@@ -10,9 +10,12 @@
 #include "core/ascii.h"
 #include "core/common.h"
 
+#include "core/refresh.h"
+#include "core/srcset.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
+#include "dom/nodes.h"
 #include "dom/tree.h"
 
 #include <string.h>
@@ -31,8 +34,8 @@ typedef int (*scanner_fn)(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, 
 #define CSS_BARE_URL ((Py_UCS4)'(')
 #define CSS_NO_CODE_POINT ((Py_UCS4) - 1) /* what css_escape_end decodes a backslash that escapes nothing to */
 
-/* A CSS/identifier byte, used to reject url(/import/url= matches that are only the tail of a longer identifier (e.g.
-   "blur(" must not match "url(", "curl" must not match the refresh keyword). */
+/* A CSS/identifier byte, used to reject url(/@import matches that are only the tail of a longer identifier (e.g.
+   "blur(" must not match "url("). */
 static int is_ident(Py_UCS4 c) {
     return is_ascii_alpha(c) || is_ascii_digit(c) || c == '_' || c == '-' || c >= 0x80;
 }
@@ -90,7 +93,7 @@ static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit,
 }
 
 /* A comma inside a srcset URL belongs to the URL; only trailing URL commas and descriptor commas separate candidates.
- */
+   A candidate whose descriptors are invalid is not one the browser keeps, so it is not reported (core/srcset.h). */
 static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
@@ -108,14 +111,9 @@ static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, voi
         while (value[end - 1] == ',') {
             end--;
         }
-        if (emit(ctx, start, end, 0) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
-            return -1;                      /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (end < pos) {
-            continue;
-        }
-        while (pos < len && value[pos] != ',') {
-            pos++;
+        int valid = end < pos || srcset_descriptors_valid(value, len, &pos);
+        if (valid && emit(ctx, start, end, 0) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
+            return -1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     return 0;
@@ -374,41 +372,13 @@ static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *
     return 0;
 }
 
-/* A <meta http-equiv=refresh content="delay; url=..."> target: the value after the first url= keyword, trimmed and
-   unquoted. A bare timed refresh with no url= carries no link. */
+/* A <meta http-equiv=refresh> target, read by the shared refresh steps that Document.meta_refresh also uses. */
 static int scan_meta_refresh(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
-    for (Py_ssize_t pos = 0; pos < len; pos++) {
-        int boundary = pos == 0 || !is_ident(value[pos - 1]);
-        if (!boundary || !imatch(value, len, pos, "url", 3)) {
-            continue;
-        }
-        Py_ssize_t after = pos + 3;
-        while (after < len && is_space(value[after])) {
-            after++;
-        }
-        if (after >= len || value[after] != '=') {
-            continue;
-        }
-        after++;
-        while (after < len && is_space(value[after])) {
-            after++;
-        }
-        Py_UCS4 quote = 0;
-        if (after < len && (value[after] == '"' || value[after] == '\'')) {
-            quote = value[after++];
-        }
-        Py_ssize_t start = after;
-        Py_ssize_t end = len;
-        while (after < len && (quote ? value[after] != quote : !is_space(value[after]))) {
-            after++;
-        }
-        end = after;
-        if (end > start) {
-            return emit(ctx, start, end, 0);
-        }
+    refresh_span span;
+    if (!refresh_read(value, len, &span) || span.target_end == span.target_start) {
         return 0;
     }
-    return 0;
+    return emit(ctx, span.target_start, span.target_end, 0);
 }
 
 typedef struct {
@@ -724,8 +694,14 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
         out[out_len++] = value[cursor];
     }
     TH_WORK_STEPS_ADD(out_len);
-    int status = attr_name != NULL ? th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1)
-                                   : th_node_set_data(walk->tree, target, out, out_len);
+    int status;
+    if (attr_name != NULL) {
+        status = th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1);
+    } else {
+        status = th_node_set_data(walk->tree, target, out, out_len);
+        /* the text node is a <style>'s, and computed_style() keeps that sheet compiled across edits */
+        handle_clear_css_cache((HandleObject *)walk->handle);
+    }
     PyMem_Free(out);
     return status;
 }

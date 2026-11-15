@@ -1,0 +1,2 @@
+``minify_css`` no longer starts its output with an ``@charset`` rule unless the input did, so browsers decode the output
+as they decode the input.

@@ -601,7 +601,7 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
         *out_off = off;
         *out_len = len;
     }
-    css_free(tokens.items);
+    css_token_vec_free(&tokens);
     cbuf_free(&call);
 }
 
@@ -684,7 +684,8 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
         }
         /* a lone '-' tokenizes as an identifier, never a delim, so only '+' appears as a delim operator here */
         if (!is_var && keep_ws && token->kind == CSS_DELIM && token->delim == '+') {
-            if (out->len > 0 && out->data[out->len - 1] != ' ') {
+            if (out->len > 0 &&
+                (out->data[out->len - 1] != ' ' || (vec->escapes && css_ends_in_escape(out->data, out->len)))) {
                 cbuf_putc(out, ' ');
             }
             cbuf_putc(out, token->delim);

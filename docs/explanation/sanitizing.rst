@@ -8,11 +8,12 @@ worked example.
 
 A style declaration passes through three gates in turn. The non-configurable safety baseline drops ``expression()``,
 ``url(javascript:...)``, ``behavior``, and ``-moz-binding``. It decodes CSS escapes before matching tokens, while text
-inside strings and comments stays inert. Then ``css_properties`` drops names outside the property allowlist. A
-declaration that clears both reaches ``allowed_styles``, which checks its value against the patterns for the element's
-tag or ``"*"``. The sanitizer scrubs a kept ``<style>`` body rule by rule with the same gates. It reads a declaration
-written before a nested-rule ``{``, such as ``color:expression(...){}``, as a declaration: the baseline checks its value
-and drops the whole rule when it carries ``expression()`` or ``url()``.
+inside strings and comments stays inert. It also drops a declaration or rule holding a legacy unicode-range token such
+as ``U+26``, since browsers disagree on where that token ends. Then ``css_properties`` drops names outside the property
+allowlist. A declaration that clears both reaches ``allowed_styles``, which checks its value against the patterns for
+the element's tag or ``"*"``. The sanitizer scrubs a kept ``<style>`` body rule by rule with the same gates. It reads a
+declaration written before a nested-rule ``{``, such as ``color:expression(...){}``, as a declaration: the baseline
+checks its value and drops the whole rule when it carries ``expression()`` or ``url()``.
 
 The layering is deliberately one-directional. ``allowed_styles`` *narrows* -- it can reject a value the earlier layers
 would have kept, but it can never re-admit one they dropped. A caller who writes ``{"color": [r".*"]}`` has not opened a
@@ -127,10 +128,12 @@ well-formedness, which HTML does not require and XML does: an empty element self
 follow the XML escaping rules, a foreign root declares its namespace, and the two constructs HTML tolerates but XML
 forbids are neutralized in the serializer, not the walk -- a comment's ``--`` and trailing ``-`` gain a space, and a
 character outside XML's ``Char`` production (a C0 control, a lone surrogate) is dropped, along with an attribute whose
-name is not a valid XML name. Because this is a property of the one serialization pass rather than a second reparse, the
-sanitizer keeps its parse-once-serialize-once shape: the tree the walk cleared is emitted directly as XML, with no round
-trip for a mutation-XSS vector to re-enter through. Every DOMPurify corpus vector, serialized this way, reparses through
-:func:`turbohtml.parse_xml` without error.
+name is not a valid XML name. Dropping a character joins the two around it, so every check that reads a value, in either
+mode, judges it both as written and without those characters and keeps it only when both forms pass: a tree sanitized
+under one mode stays safe when written in the other. Because this is a property of the one serialization pass rather
+than a second reparse, the sanitizer keeps its parse-once-serialize-once shape: the tree the walk cleared is emitted
+directly as XML, with no round trip for a mutation-XSS vector to re-enter through. Every DOMPurify corpus vector,
+serialized this way, reparses through :func:`turbohtml.parse_xml` without error.
 
 **A tree in, a tree out.** The walk never needed a string: :func:`~turbohtml.clean.sanitize` parses one, and
 :func:`~turbohtml.clean.sanitize_node` takes a parsed node instead and returns the sanitized copy as a tree, in its own

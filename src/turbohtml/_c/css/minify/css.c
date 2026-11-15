@@ -83,6 +83,15 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     return minified;
 }
 
+/* A style="" value has no rule list to write its bang comments after, so they lead its declarations. */
+static void css_lead_bangs(token_vec *tokens, css_buf *out) {
+    for (Py_ssize_t index = 0; index < tokens->bang_len; index++) {
+        css_bang *bang = &tokens->bangs[index];
+        cbuf_put_run(out, bang->text, bang->text_len);
+        bang->done = 1;
+    }
+}
+
 static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
                                  Py_ssize_t *out_len) {
     /* one flag for the whole call: every buffer and vector below points at it, so a failed allocation anywhere,
@@ -117,11 +126,12 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
     }
     css_buf pool = {NULL, 0, 0, &oom};
     css_buf out = {NULL, 0, 0, &oom};
-    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0};
+    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0, inline_mode, 0};
     /* readers index the pool from its start, so the parsers run only on complete tokens and an allocated pool */
     if (!oom && cbuf_reserve(&pool, CSS_POOL_RESERVE(length)) && /* GCOVR_EXCL_BR_LINE: OOM only */
         cbuf_reserve(&out, length)) {                            /* GCOVR_EXCL_BR_LINE: OOM only */
         if (inline_mode) {
+            css_lead_bangs(&tokens, &out);
             decl_vec decls = {NULL, 0, 0, &oom, 0};
             css_parse_declarations(&pool, &cur, &decls, 0);
             css_render_declarations(&pool, &decls, baseline, &out, CSS_DECL_NORMAL);
@@ -131,7 +141,7 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
         }
     }
     cbuf_free(&cur.media_next);
-    css_free(tokens.items);
+    css_token_vec_free(&tokens);
     cbuf_free(&pool);
     if (oom) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         cbuf_free(&out); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -200,7 +210,7 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
 
 static css_char *css_minify_spelled(token_vec *tokens, css_buf *spelled, int inline_mode, int baseline,
                                     Py_ssize_t *out_len) {
-    css_free(tokens->items);
+    css_token_vec_free(tokens);
     if (*spelled->oom) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         cbuf_free(spelled); /* GCOVR_EXCL_LINE */
         *out_len = 1;       /* GCOVR_EXCL_LINE */
@@ -307,6 +317,20 @@ static void css_serialize_name(const css_char *name, Py_ssize_t len, int mode, i
     }
 }
 
+/* Whether the name token at index decodes to a leading `--` right after a `<!`. The tokens read as one name here, but a
+   `<!--` the spelling writes or keeps is a CDO to a browser, which starts a new token after it (CSS Syntax 3 §4.3.1):
+   respelled, `<!-\--->` would become `<!---->`, a CDO and a CDC that the top level skips, and `<!--\-->` would lose its
+   name the same way. */
+static int css_follows_cdo_start(const token_vec *tokens, Py_ssize_t index, const css_buf *decoded) {
+    if (tokens->items[index].kind != CSS_IDENT || index < 2 || decoded->len < 2 || decoded->data[0] != '-' ||
+        decoded->data[1] != '-') {
+        return 0;
+    }
+    const css_token *bang = &tokens->items[index - 1];
+    const css_token *less = &tokens->items[index - 2];
+    return bang->kind == CSS_DELIM && bang->delim == '!' && less->kind == CSS_DELIM && less->delim == '<';
+}
+
 /* Preserve hash type and raw @charset spelling: encoding sniffing precedes tokenization
    (CSS Syntax 3 §3.2 and §4.3.1). */
 static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssize_t length, css_buf *spelled) {
@@ -331,7 +355,8 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
         decoded.len = 0;
         css_decode_name(name, name_len, &decoded);
         if ((!starts_ident && token->kind != CSS_HASH) ||
-            (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0)) {
+            (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0) ||
+            css_follows_cdo_start(tokens, index, &decoded)) {
             /* a name kept as written still gets the space closing a hex escape at its end, as a spelled one does,
                unless a `;`, `{`, `}` or the end of the input follows it, where no output can put whitespace after it */
             const css_char *after = name + name_len;
@@ -400,6 +425,12 @@ static PyObject *css_minify_entry(PyObject *args, int inline_mode) {
     const char *utf8 = PyUnicode_AsUTF8AndSize(source, &length);
     if (utf8 == NULL) {
         return NULL;
+    }
+    /* a standalone stylesheet's BOM is the encoding signature a decoder consumes; declaration lists and document text
+       were decoded already, so their U+FEFF is content */
+    if (!inline_mode && length >= 3 && memcmp(utf8, "\xEF\xBB\xBF", 3) == 0) {
+        utf8 += 3;
+        length -= 3;
     }
     Py_ssize_t out_len = 0;
     css_char *data = th_minify_css_bytes((const css_char *)utf8, length, inline_mode, baseline, &out_len);

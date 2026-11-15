@@ -219,6 +219,9 @@ attributes at once, ``pop`` removes one and hands back its value, and ``copy`` o
     ['btn', 'primary'] <a href="/new" rel="next" title="Next page">go</a>
     True
 
+Reading, setting and removing by name stay cheap however many attributes an element has, except that removing one from
+the middle of a very large element costs time proportional to its attribute count, as it does in a Python list.
+
 ***************************
  Edit an element's classes
 ***************************

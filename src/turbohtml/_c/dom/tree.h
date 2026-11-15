@@ -128,8 +128,21 @@ struct th_node {
        lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
     uint8_t reaches_selectedcontent;
     /* Tree builder state: set while the element is an entry of the list of active formatting elements. The list
-       outlives the stack of open elements, so membership is read here instead of searched. */
-    uint8_t afe_listed;
+       outlives the stack of open elements, so membership is read here instead of searched. Only the tree builder
+       and the streaming rewriter write it. */
+    uint8_t afe_listed : 1;
+    /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
+       Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
+       selectedcontent mirror reuses the option's text). The bit fields share their byte with afe_listed, which only the
+       tree builder writes; this keeps the node at 96 bytes. */
+    uint8_t text_exclusive : 1;
+    /* Text only: this text, written alone as a script's content, leaves a re-parse outside the script data double
+       escaped state, so the serializer skips that scan (ser_end_script_double_escape). The tree builder sets it on
+       the text of a script its end tag closed, the serializer after a scan under the tree's lock, and th_node_set_data,
+       th_node_delete_data and normalize clear it. A whitespace collapse (clean/transforms.c) keeps it: it leaves one
+       space of each run, and the scan's answer depends on whitespace only as a tag-name end and a break in a "-" run,
+       which one space still is. */
+    uint8_t script_text_closes : 1;
     /* An attribute value buffer of this element is also the value of another element: a clone takes its source's
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
@@ -137,16 +150,16 @@ struct th_node {
     /* Tree builder state: set once the element leaves the stack of open elements, which the streaming rewriter reads
        to follow a th_shadow. */
     uint8_t left_stack;
-    /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
-       exact-sized; nothing reads it once the tree is built. */
+    /* Character data: log2 of a capacity the buffer at text has, zero when none is known. insert_text, th_node_set_data
+       and normalize write within it in place, so a node that shares its buffer with another, or whose text no longer
+       starts at its buffer, must keep it zero. */
     uint8_t text_capacity_shift;
     /* Element: whether its name is an XML QName, worked out by the first canonicalization that needs it: 0 not yet, 1
        yes, 2 no. A rename resets it. */
     uint8_t xml_name_wellformed;
-    /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
-       Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
-       selectedcontent mirror reuses the option's text). */
-    uint8_t text_exclusive;
+    /* Valid while attr_values_shared: the seq of the element whose values the sharing started from, the same for
+       every element sharing them, so the selector memo hashes a shared value alike from each (th_node_values_seq). */
+    uint32_t values_seq;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -159,6 +172,8 @@ struct th_node {
     Py_ssize_t attr_count;
 };
 
+_Static_assert(sizeof(void *) != 8 || sizeof(th_node) == 96, "a 64-bit parsed node is 96 bytes");
+
 /* Set in attr_capacity_shift while dom/mutate.c keeps a hash index behind the attribute array. Bit 0x40 rather than
    0x80 lets th_node_attr_capacity mask it with 63, which x86-64 shifts apply for free. An indexed array has at least
    ATTR_INDEX_MIN slots, so the flag never sits on a zero shift and the zero test can read the byte unmasked. */
@@ -167,6 +182,19 @@ struct th_node {
 static inline size_t th_node_attr_capacity(const th_node *node) {
     const unsigned shift = node->attr_capacity_shift;
     return shift ? (size_t)1 << (shift & (TH_ATTR_INDEXED - 1)) : 0;
+}
+
+/* Mark src's attribute values as shared by a clone or copy, which takes values_seq from src afterwards. */
+static inline void th_node_share_values(th_node *src) {
+    if (!src->attr_values_shared) {
+        src->values_seq = src->seq;
+        src->attr_values_shared = 1;
+    }
+}
+
+/* A sequence that every element pointing at the same attribute value buffers reports alike. */
+static inline uint32_t th_node_values_seq(const th_node *node) {
+    return node->attr_values_shared ? node->values_seq : node->seq;
 }
 
 /* The next node of a pre-order walk bounded to root's subtree, or NULL once the walk is done. */
@@ -216,9 +244,10 @@ typedef struct th_tree th_tree;
 /* One character-encoding declaration a <meta> element carried, recorded in document
    order while the tree is built. text is the charset attribute's value, or -- when
    from_content is set -- the whole http-equiv="content-type" content value, whose
-   charset= token still has to be extracted. Both are the raw declaration: resolving a
-   label to an encoding is dom/document.c's job, because only the first label that
-   resolves decides, exactly as the prescan's fall-through does. */
+   charset= token still has to be extracted. A <meta> that carries both records its
+   charset value first. Both are the raw declaration: resolving a label to an encoding
+   is dom/document.c's job, because only the first label that resolves decides, exactly
+   as the prescan's fall-through does. */
 typedef struct {
     const char *text;
     int from_content;
@@ -345,6 +374,21 @@ th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_
 int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len,
                      const Py_UCS4 *value, Py_ssize_t value_len, int has_value);
 
+/* The name and the value of one constructed attribute slot, for a caller that reads a value only for the names
+   it keeps. Each returns 0, or -1 on allocation failure. */
+int th_tree_set_attr_name(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len);
+int th_tree_set_attr_value(th_tree *tree, th_node *node, Py_ssize_t index, const Py_UCS4 *value, Py_ssize_t value_len,
+                           int has_value);
+
+/* An element with this many attributes or more folds its names and drops repeated ones through a sort
+   (th_node_attr_mark_repeats), not a pairwise scan. */
+#define TH_WIDE_ATTR_COUNT 32
+
+/* Mark with TH_ATTR_UNKNOWN every attribute whose name atom repeats an earlier one, keeping the first of each.
+   Returns 0, or -1 on allocation failure. th_node_attr_drop_marked then removes the marked attributes. */
+int th_node_attr_mark_repeats(th_node *node);
+void th_node_attr_drop_marked(th_node *node);
+
 /* Build a complete HTML5 document skeleton in the (empty) tree: a document node
    holding a <!DOCTYPE html>, then <html> owning <head> and <body>. A non-NULL lang
    sets html's lang attribute; a non-NULL charset adds a <meta charset> as head's
@@ -385,12 +429,21 @@ static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **
    Foreign elements can store a case-adjusted name (e.g. MathML definitionURL), so
    a missed atom match falls back to a case-insensitive scan for non-HTML nodes. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);
+/* An element with this many attributes keeps a hash index of their names behind the array (dom/mutate.c). */
+#define TH_ATTR_INDEX_MIN 32
+/* The index of the attribute whose name_atom is exactly atom on an element with TH_ATTR_INDEX_MIN or more attributes,
+   or -1; -2 on allocation failure. It answers from the element's attribute index, built here when the element has
+   none, so repeated lookups on one element do not rescan its array. */
+Py_ssize_t th_node_attr_find_atom(th_tree *tree, th_node *node, uint32_t atom);
 
 /* Remove the named attribute; returns 1 if one was removed, else 0. */
 int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);
 /* Remove every attribute of an element, counted as an attribute write that may drop an id. The slot cache is the
    caller's to drop, as handle_drop_slots does. */
 void th_node_attrs_clear(th_tree *tree, th_node *node);
+/* Remove the attribute at index (0 <= index < attr_count). A caller that already holds the position skips the name
+   lookup th_node_attr_del() pays. */
+void th_node_attr_del_at(th_tree *tree, th_node *node, Py_ssize_t index);
 
 /* Replace a node's character data with a copy of len code points. Returns 0, or -1
    with MemoryError set on allocation failure. */
@@ -581,6 +634,23 @@ th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count);
 /* Free the shadow and its tree; NULL is a no-op. */
 void th_shadow_free(th_shadow *shadow);
 
+/* Tree construction over markup handed to it piece by piece through a tokenizer of its own, as a parse of the
+   markup's concatenation reads it: the streaming rewriter feeds it what it writes, to learn how a browser reads the
+   output so far. Compacts and frees as th_shadow_compact and th_shadow_free. Returns NULL on allocation failure. */
+th_shadow *th_shadow_mirror_new(void);
+
+/* Read the next length code points; the tokens they complete are built at once, a token they leave open waits for
+   the next feed. With count >= 0 the tree may be compacted on the way, moving refs as th_shadow_compact does; with
+   count < 0 every element pointer stays valid. Returns 0, or -1 on allocation failure. */
+int th_shadow_mirror_feed(th_shadow *mirror, const Py_UCS4 *data, Py_ssize_t length, th_node **refs, Py_ssize_t count,
+                          size_t stride);
+
+/* The content model the mirror reads its next code point in (see th_tok_content_model). */
+enum th_initial_state th_shadow_mirror_model(const th_shadow *mirror, const th_buf **end_tag);
+
+/* Whether the current node is an SVG/MathML element, where "<![CDATA[" opens a section. */
+int th_shadow_foreign(const th_shadow *shadow);
+
 /* Serialize the tree in the html5lib tree-construction "#document" format (one
    "| " indented line per node) into a freshly PyMem-allocated UCS4 buffer;
    *out_len receives the length. Returns NULL on allocation failure. Used by the
@@ -597,7 +667,15 @@ th_node *th_tree_document(th_tree *tree);
    cached compiled selector whose attribute atoms were resolved against the tree. */
 uint32_t th_tree_attr_generation(const th_tree *tree);
 uint64_t th_tree_attr_version(const th_tree *tree);
+/* Moves on every write or delete of an id attribute and on every edit that can add, drop or reorder the tree's
+   elements, so a cache of the tree's elements by id holds while it stands. */
 uint64_t th_tree_id_version(const th_tree *tree);
+/* Bump th_tree_id_version for an edit to the tree's elements. Every structural mutator calls it through
+   handle_drop_index, and nothing else does, so the id version runs ahead of th_tree_attr_version by at most the
+   handle's mutation_version. It shares the id counter because th_tree has no room for another one within pymalloc's
+   512-byte small-object limit, and leaves the attribute version alone so the caches keyed on it, such as lang()'s,
+   outlive a structural edit. */
+void th_tree_note_element_edit(th_tree *tree);
 /* Whether the handle's slot cache still matches the slot attributes: set when the cache starts, cleared by an attribute
    edit that changes slot assignment (see th_tree.slot_cache_valid). */
 int th_tree_slot_cache_valid(const th_tree *tree);
@@ -797,6 +875,9 @@ void th_xml_unwrap_free(th_xml_unwrap *unwrap);
    allowance. */
 #define TH_CLONE_ALLOWANCE 256
 
+/* The namespace declarations in scope where a subtree is cut out of an XML tree (serialize/internal.h). */
+typedef struct th_xml_ns_scope th_xml_ns_scope;
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -809,14 +890,16 @@ typedef struct {
     int xml;   /* XML/XHTML syntax: self-close empty elements, XML escaping and namespace decls; drop the
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
-    const th_node *xml_boundary;
+    th_xml_ns_scope *xml_scope;    /* set by the serializer while it writes part of an XML tree, NULL otherwise */
     int markdown;                  /* a th_markdown_html context, or 0 outside Markdown */
     int *charset_missing;          /* non-NULL when charset is a placeholder no label names: a writer sets
                                     *charset_missing instead of writing it, and the caller refuses the output */
     Py_ssize_t *clone_budget;      /* Markdown: the attribute characters parser clones may still write, or NULL */
     th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
-    th_xml_ns_spend *xml_ns_spend; /* set by the serializer when xml_boundary has every child carry its own copy */
+    th_xml_ns_spend *xml_ns_spend; /* set when every xml_scope boundary child carries its own copy */
     th_xml_unwrap *xml_unwrap;     /* set by the serializer whenever xml is */
+    int in_rawtext;                /* set while writing the text of a raw-text element: a script nested there ends
+                                      with text, so the element that holds it decides its end tag */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

@@ -692,6 +692,22 @@ static int step_has_positional_predicate(const xp_program *prog, int32_t step_in
     return 0;
 }
 
+/* step_has_positional_predicate, also answering yes for a predicate an extension function computes, since one can
+   return a number, which then selects by position. */
+int xp_step_reads_position(const xp_program *prog, int32_t step_index) {
+    for (int32_t pred = prog->nodes[step_index].first; pred >= 0; pred = prog->nodes[pred].next) {
+        const xn *expr = &prog->nodes[prog->nodes[pred].first];
+        int extension = 0;
+        for (Py_ssize_t index = 0; expr->kind == XN_FUNC && index < expr->str_len && !extension; index++) {
+            extension = expr->str[index] == ':';
+        }
+        if (extension || predicate_is_positional(prog, prog->nodes[pred].first)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Collapse `descendant-or-self::node()/child::X` (the `//X` abbreviation) into a
    single `descendant::X` step, so `//a` is one descendant walk testing for a rather
    than materializing every node and then filtering its children. The two forms are

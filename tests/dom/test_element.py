@@ -2018,6 +2018,77 @@ def test_insert_clamps_out_of_range_index(index: int, text: str, expected: str) 
     assert paragraph.html == expected
 
 
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(-2, "<p><a></a>N<b></b><c></c></p>", id="second-from-end"),
+        pytest.param(-3, "<p>N<a></a><b></b><c></c></p>", id="reaches-first-child"),
+        pytest.param(-4, "<p>N<a></a><b></b><c></c></p>", id="one-past-first-child"),
+    ],
+)
+def test_insert_negative_index_counts_back_from_the_last_child(index: int, expected: str) -> None:
+    paragraph = _found(parse("<p><a></a><b></b><c></c></p>"), "p")
+    paragraph.insert(index, Text("N"))
+    assert paragraph.html == expected
+
+
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(10, id="last-child-after-a-full-block"),
+        pytest.param(11, id="end-after-a-full-block"),
+        pytest.param(14, id="past-end-in-the-remainder"),
+        pytest.param(20, id="past-end-inside-a-block"),
+        pytest.param(-11, id="first-child-after-a-full-block"),
+        pytest.param(-12, id="start-after-a-full-block"),
+        pytest.param(-15, id="before-start-in-the-remainder"),
+        pytest.param(-21, id="before-start-inside-a-block"),
+    ],
+)
+def test_insert_far_index_lands_where_list_insert_puts_it(index: int) -> None:
+    names = [f"c{position}" for position in range(11)]
+    listing = _found(parse(f"<ol>{''.join(f'<li>{name}</li>' for name in names)}</ol>"), "ol")
+    listing.insert(index, Text("N"))
+    names.insert(index, "N")
+    assert listing.html == f"<ol>{''.join(name if name == 'N' else f'<li>{name}</li>' for name in names)}</ol>"
+
+
+@pytest.mark.parametrize("index", [pytest.param(0, id="zero"), pytest.param(-1, id="negative")])
+def test_insert_into_an_empty_parent_appends(index: int) -> None:
+    paragraph = Element("p")
+    paragraph.insert(index, Text("only"))
+    assert paragraph.html == "<p>only</p>"
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(0, "<ul><li>d</li><li>c</li><li>b</li><li>a</li></ul>", id="front-reverses"),
+        pytest.param(-1, "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>", id="before-last-restores"),
+    ],
+)
+def test_insert_moving_each_child_near_either_end_orders_them(index: int, expected: str) -> None:
+    listing = _found(parse("<ul><li>a<li>b<li>c<li>d</ul>"), "ul")
+    for item in listing.children:
+        listing.insert(index, item)
+    assert listing.html == expected
+
+
+@pytest.mark.parametrize("index", [pytest.param(1, id="second"), pytest.param(-2, id="second-from-end")])
+def test_insert_near_either_end_stays_linear(index: int, work_steps: WorkSteps) -> None:
+    def move_each(size: int) -> Callable[[], object]:
+        listing = _found(parse(f"<ol>{'<li>i</li>' * size}</ol>"), "ol")
+        items = listing.children
+
+        def move_all() -> None:
+            for item in items:
+                listing.insert(index, item)
+
+        return move_all
+
+    work_steps.assert_linear(move_each, (500, 2000))
+
+
 def test_insert_moving_a_node_onto_its_own_slot_keeps_it_there() -> None:
     doc = parse("<p><a></a><b></b><c></c></p>")
     paragraph = _found(doc, "p")
@@ -3075,6 +3146,162 @@ def test_attrs_clear_removes_everything() -> None:
     element = _anchor()
     element.attrs.clear()
     assert element.html == "<a></a>"
+
+
+def test_attrs_clear_records_each_removal_last_first() -> None:
+    element = _anchor()
+    observer = MutationObserver()
+    observer.observe(element, attribute_old_value=True)
+    element.attrs.clear()
+    assert [(record.attribute_name, record.old_value) for record in observer.take_records()] == [
+        ("href", "h"),
+        ("class", "c1 c2"),
+        ("id", "x"),
+    ]
+
+
+def _drain_with_popitem(attrs: MutableMapping[str, str | list[str] | None], _names: list[str]) -> None:
+    while attrs:
+        attrs.popitem()
+
+
+def _delete_each(attrs: MutableMapping[str, str | list[str] | None], names: list[str]) -> None:
+    for name in names:
+        del attrs[name]
+
+
+def _pop_each(attrs: MutableMapping[str, str | list[str] | None], names: list[str]) -> None:
+    for name in names:
+        attrs.pop(name)
+
+
+def _read_each(attrs: MutableMapping[str, str | list[str] | None], names: list[str]) -> None:
+    for name in names:
+        attrs[name]
+
+
+def _cycle_through_front(attrs: MutableMapping[str, str | list[str] | None], names: list[str]) -> None:
+    for name in names * 3:
+        del attrs[name]
+        attrs[name] = None
+
+
+@pytest.mark.parametrize(
+    ("operation", "reverse"),
+    [
+        pytest.param(lambda attrs, _names: attrs.clear(), False, id="clear"),
+        pytest.param(_drain_with_popitem, False, id="popitem"),
+        pytest.param(_delete_each, False, id="del-first-to-last"),
+        pytest.param(_delete_each, True, id="del-last-to-first"),
+        pytest.param(_pop_each, False, id="pop-first-to-last"),
+        pytest.param(_pop_each, True, id="pop-last-to-first"),
+        pytest.param(_read_each, False, id="read-each"),
+        pytest.param(_cycle_through_front, False, id="del-first-then-append"),
+    ],
+)
+def test_attrs_by_name_and_drain_stay_linear(
+    work_steps: WorkSteps,
+    operation: Callable[[MutableMapping[str, str | list[str] | None], list[str]], None],
+    *,
+    reverse: bool,
+) -> None:
+    def build(count: int) -> Callable[[], None]:
+        names = [f"q{index}x" for index in range(count)]
+        return partial(operation, first(f"<p {' '.join(names)}>", "p").attrs, names[::-1] if reverse else names)
+
+    work_steps.assert_linear(build, (700, 2_800))
+
+
+@pytest.mark.parametrize(
+    "removed",
+    [
+        pytest.param([0, 1, 2], id="leading"),
+        pytest.param([47, 46, 45], id="trailing"),
+        pytest.param([10, 30, 20, 25], id="middle"),
+        pytest.param(list(range(48)), id="all-first-to-last"),
+    ],
+)
+def test_attrs_delete_by_name_keeps_the_rest_in_order(removed: list[int]) -> None:
+    names = [f"m{index}" for index in range(48)]
+    element = first(f"<p {' '.join(f'{name}={index}' for index, name in enumerate(names))}>", "p")
+    for index in removed:
+        del element.attrs[names[index]]
+    kept = [name for index, name in enumerate(names) if index not in removed]
+    assert (list(element.attrs), [element.attrs[name] for name in kept], element.attrs.get(names[removed[0]])) == (
+        kept,
+        [str(names.index(name)) for name in kept],
+        None,
+    )
+
+
+def test_attrs_foreign_names_found_after_removals_move_them() -> None:
+    names = [f"f{index}" for index in range(40)]
+    spelled = [*names[:5], "viewBox", *names[5:35], "preserveAspectRatio", *names[35:]]
+    svg = first(f"<svg {' '.join(f'{name}={name}' for name in spelled)}></svg>", "svg")
+    del svg.attrs["f8"]
+    del svg.attrs["f33"]
+    found = (svg.attrs.get("viewbox"), svg.attrs.get("preserveaspectratio"))
+    del svg.attrs["viewBox"]
+    assert (found, "viewbox" in svg.attrs, list(svg.attrs)) == (
+        ("viewBox", "preserveAspectRatio"),
+        False,
+        [name for name in spelled if name not in {"f8", "f33", "viewBox"}],
+    )
+
+
+def test_attrs_removal_finds_names_deep_in_shared_chains() -> None:
+    interned = [f"c{index}" for index in range(700)]
+    spaced = interned[::64][:11]
+    kept = [*spaced, *interned[1:30]]
+    element = parse(f"<i {' '.join(interned)}></i><p {' '.join(f'{name}={name}' for name in kept)}></p>").find("p")
+    assert element is not None
+    for name in spaced[:3]:
+        del element.attrs[name]
+    del element.attrs[spaced[-1]]
+    remaining = [name for name in kept if name not in {*spaced[:3], spaced[-1]}]
+    assert (list(element.attrs), [element.attrs[name] for name in remaining]) == (remaining, remaining)
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<body a><body b>", ["a", "b"], id="grows"),
+        pytest.param("<body a><body b><body c><body d>", ["a", "b", "c", "d"], id="fits-after-growth"),
+    ],
+)
+def test_attrs_merged_from_repeated_body_tags(html: str, expected: list[str]) -> None:
+    assert list(first(html, "body").attrs) == expected
+
+
+def test_attrs_removal_by_position_after_growth_keeps_lookups_right() -> None:
+    names = [f"g{index}" for index in range(63)]
+    element = first(f"<p {' '.join(names)}>", "p")
+    assert "g0" in element.attrs
+    element.attrs["extra1"] = "1"
+    element.attrs["extra2"] = "2"
+    for _ in range(34):
+        element.attrs.popitem()
+    del element.attrs["g0"]
+    del element.attrs["g30"]
+    element.attrs["tail"] = "t"
+    assert (list(element.attrs), "g1" in element.attrs, "g0" in element.attrs) == (
+        [*names[1:30], "tail"],
+        True,
+        False,
+    )
+
+
+def test_attrs_appends_after_leading_removals_keep_order() -> None:
+    element = first(f"<p {' '.join(f'h{index}' for index in range(40))}>", "p")
+    added = [f"n{index}" for index in range(100)]
+    for index, name in enumerate(added):
+        del element.attrs[next(iter(element.attrs))]
+        element.attrs[name] = str(index)
+    assert (list(element.attrs), element.attrs["n99"], element.html.count("=")) == (
+        added[60:],
+        "99",
+        40,
+    )
 
 
 def test_attrs_setdefault_keeps_an_existing_value() -> None:

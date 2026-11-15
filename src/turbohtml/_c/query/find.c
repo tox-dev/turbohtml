@@ -2,7 +2,17 @@
    filters, the everyday query API that pulls matching elements out of a parsed tree. */
 
 #include "core/work_steps.h"
+#include "css/select/selector.h"
 #include "dom/nodes.h"
+
+/* Rare reads run out of line, so the per-candidate loops keep the registers they need. */
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
 
 /* Plain strings and literal regexes need no Python callback. Other predicates
    snapshot candidates under the lock because callbacks can mutate the tree. */
@@ -47,6 +57,8 @@ typedef struct {
        per token. class_ucs4 is NULL unless class_filter is a single str. */
     Py_UCS4 *class_ucs4;
     Py_ssize_t class_len;
+    /* class_ucs4's answer per long class value: the tree builder's re-created formatting elements share one */
+    sel_memo class_values;
 } query_t;
 
 static void free_query(query_t *query) {
@@ -56,6 +68,9 @@ static void free_query(query_t *query) {
     PyMem_Free(query->attrs);
     PyMem_Free(query->class_ucs4);
     PyMem_Free(query->text_needle);
+    if (query->class_values.slots != NULL) {
+        sel_memo_free(&query->class_values);
+    }
 }
 
 /* Whether a node's UCS4 value equals a str filter's code points, with no
@@ -192,11 +207,7 @@ static int class_matches(module_state *state, th_node *node, PyObject *filter) {
 
 /* class_matches for a plain-string filter: compare the filter's code points to
    the whole class value and then each token directly, allocating nothing. */
-static int class_matches_plain(th_node *node, const Py_UCS4 *want, Py_ssize_t want_len) {
-    const th_node_attr *attr = find_node_attr(node, TH_ATTR_CLASS);
-    if (attr == NULL || attr->value == NULL) {
-        return 0; /* a string filter never matches an absent or valueless class */
-    }
+static int class_tokens_match(const th_node_attr *attr, const Py_UCS4 *want, Py_ssize_t want_len) {
     size_t bytes = (size_t)want_len * sizeof(Py_UCS4);
     if (attr->value_len == want_len && memcmp(attr->value, want, bytes) == 0) {
         return 1; /* the whole value equals the filter */
@@ -211,10 +222,34 @@ static int class_matches_plain(th_node *node, const Py_UCS4 *want, Py_ssize_t wa
             cursor++;
         }
         if (cursor - start == want_len && memcmp(&attr->value[start], want, bytes) == 0) {
+            TH_WORK_STEPS_ADD(cursor);
             return 1;
         }
     }
+    TH_WORK_STEPS_ADD(attr->value_len);
     return 0;
+}
+
+TH_NOINLINE static int class_matches_long(const query_t *query, th_node *node, const th_node_attr *attr) {
+    /* the memo is the caller's: query is a writable local of the search */
+    sel_memo *memo = (sel_memo *)&query->class_values;
+    int matched;
+    if (!sel_value_memo_get(memo, query, node, attr->value, &matched)) {
+        matched = class_tokens_match(attr, query->class_ucs4, query->class_len);
+        sel_value_memo_put(memo, query, node, attr->value, matched);
+    }
+    return matched;
+}
+
+static int class_matches_plain(const query_t *query, th_node *node) {
+    const th_node_attr *attr = find_node_attr(node, TH_ATTR_CLASS);
+    if (attr == NULL || attr->value == NULL) {
+        return 0; /* a string filter never matches an absent or valueless class */
+    }
+    if (attr->value_len < SEL_VALUE_MEMO_MIN) {
+        return class_tokens_match(attr, query->class_ucs4, query->class_len);
+    }
+    return class_matches_long(query, node, attr);
 }
 
 /* For a plain-string tag filter, whether node's tag name matches: a known name is
@@ -253,7 +288,7 @@ static int node_matches(module_state *state, th_node *node, const query_t *query
         }
     }
     if (query->class_ucs4 != NULL) {
-        if (class_matches_plain(node, query->class_ucs4, query->class_len) == 0) {
+        if (class_matches_plain(query, node) == 0) {
             return 0;
         }
     } else if (query->class_filter != NULL) {
@@ -463,6 +498,7 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
     query->tag_atom = TH_TAG_UNKNOWN;
     query->class_ucs4 = NULL;
     query->class_len = 0;
+    query->class_values = (sel_memo){0};
 
     PyObject *tag = NULL;
     if (!PyArg_ParseTuple(args, "|O:find", &tag)) {
@@ -603,7 +639,7 @@ static int text_candidate(const query_t *query, th_node *node) {
     if (query->tag_plain && query->tag_atom != TH_TAG_UNKNOWN && node->atom != query->tag_atom) {
         return 0;
     }
-    if (query->class_ucs4 != NULL && class_matches_plain(node, query->class_ucs4, query->class_len) == 0) {
+    if (query->class_ucs4 != NULL && class_matches_plain(query, node) == 0) {
         return 0;
     }
     return 1;
@@ -875,14 +911,6 @@ static int scratch_ensure(Py_UCS4 **scratch, Py_ssize_t *cap, Py_ssize_t need) {
 #define TEXT_SCAN_INDEXED (-2)
 /* What a lookup returns for a candidate the text_index does not hold. */
 #define TEXT_SCAN_ABSENT (-3)
-/* The weighing runs out of line, so the per-candidate loop keeps the registers it needs for the reads. */
-#if defined(_MSC_VER)
-#define TH_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define TH_NOINLINE __attribute__((noinline))
-#else
-#define TH_NOINLINE
-#endif
 
 /* One element of a text_index: hit says whether its text passes the query's C scan. While the building walk is
    inside the element, start is the count of code points of text the walk met before it and outer the entry of the

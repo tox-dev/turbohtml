@@ -63,12 +63,13 @@ any element with no children self-closes as ``<div/>`` and a childless ``<br>`` 
 ``<div>`` does, not a special case. A ``frame`` the DOM gave children still serializes as void in HTML, so its
 ``inner_html`` is empty, while XML writes the children. The second is raw text. HTML copies the text of a ``<script>``
 or ``<style>`` verbatim, because those elements switch the tokenizer into a raw-text state on the way back in; an
-element or comment child added through the DOM still writes as markup, and reparses as part of that text. XML has no
-raw-text elements, so a ``<`` inside a script escapes like any other text and reparses to the same character. The third
-is escaping. XML predefines only ``&amp; &lt; &gt; &quot; &apos;``, so the HTML no-break-space shortcut ``&nbsp;`` --
-undefined without a DTD -- cannot appear; turbohtml writes a literal U+00A0 (the output is Unicode), while the
-whitespace characters XML would otherwise normalize away inside an attribute (tab, newline, carriage return) become
-numeric references so the value round-trips.
+element or comment child added through the DOM still writes as markup, and reparses as part of that text. A script whose
+text ends in the double escaped state gets two end tags, since the first ``</script>`` there only leaves that state and
+the element would stay open. XML has no raw-text elements, so a ``<`` inside a script escapes like any other text and
+reparses to the same character. The third is escaping. XML predefines only ``&amp; &lt; &gt; &quot; &apos;``, so the
+HTML no-break-space shortcut ``&nbsp;`` -- undefined without a DTD -- cannot appear; turbohtml writes a literal U+00A0
+(the output is Unicode), while the whitespace characters XML would otherwise normalize away inside an attribute (tab,
+newline, carriage return) become numeric references so the value round-trips.
 
 The fourth is namespaces. turbohtml parses HTML, so an inline ``<svg>`` or ``<math>`` lands in the SVG or MathML
 namespace inside an otherwise-HTML tree, with no namespace prefixes -- HTML has none. XML has no such implicit
@@ -325,7 +326,10 @@ What round-trips byte for byte is therefore the tree that faithfully mirrors the
 implied elements or content reordering. A document that spells out its structure (``<html>``, ``<head>``, ``<body>``, an
 explicit ``<tbody>``) reproduces exactly; a fragment reproduces through its children. Two normalizations the parser
 itself performs are not reversible from the tree and so are not preserved: a lowercase ``<!doctype html>`` re-emits as
-``<!DOCTYPE html>``, and a character reference the tokenizer resolved re-emits in its canonical spelling (``&amp;``,
-``&lt;``, ``&gt;``, ``&nbsp;``, and a carriage return as ``&#13;`` survive, since the escaper re-encodes them; a legacy
-or numeric reference becomes its character). Where every byte must survive an error-recovering or reordering parse,
-reach for the streaming rewriter, which sees the token stream the tree has already discarded.
+``<!DOCTYPE html>`` (keeping its public and system identifiers as the minified form does, since they choose the document
+mode the rest of the source re-parses in), and a character reference the tokenizer resolved re-emits in its canonical
+spelling (``&amp;``, ``&lt;``, ``&gt;``, ``&nbsp;``, and a carriage return as ``&#13;`` survive, since the escaper
+re-encodes them; a legacy or numeric reference becomes its character). A text run whose source bytes hold a literal
+``<`` or ``&`` -- a CDATA section in SVG or MathML, a stray ``<`` -- likewise re-emits escaped rather than copied, so
+text never comes back as markup whatever an edit leaves around it. Where every byte must survive an error-recovering or
+reordering parse, reach for the streaming rewriter, which sees the token stream the tree has already discarded.

@@ -260,12 +260,11 @@ static RNG_NOINLINE int rng_event_over(th_schema *schema) {
         return 0;
     }
     schema->choice_limit = -1;
-    schema->mem.no_memory = 1;
     return 1;
 }
 
-/* Charges the event in progress; true once it has spent more than the schema allows, which marks the arena like a
-   merge past the choice limit. Under the floor the limit cannot be reached, so the common event never computes it. */
+/* Charges the event in progress; true once it has spent more than the schema allows, which marks the choice limit
+   like a merge past it. Under the floor the limit cannot be reached, so the common event never computes it. */
 static RNG_FORCEINLINE int rng_event_spend(th_schema *schema, Py_ssize_t units) {
     schema->event_work += units;
     return schema->event_work > (Py_ssize_t)RNG_CHOICE_FLOOR * RNG_EVENT_WORK_PER_LEAF && rng_event_over(schema);
@@ -594,9 +593,8 @@ static pattern *trie_of(th_schema *schema, pattern *p, Py_ssize_t *work) {
 
 /* The memo derives each node once per event, but a content model whose places double with each define still leaves a
    residual choice with one leaf per place. A merge is the only step that grows a choice past two leaves, so past the
-   limit it yields NotAllowed and marks the arena, and validate() raises; a limit of -1 marks that this happened. A
-   merge also charges the event its work, which bounds what one event spends on choices that each stay under the
-   limit. */
+   limit it yields NotAllowed and sets the choice limit to -1, and validate() raises. A merge also charges the event
+   its work, which bounds what one event spends on choices that each stay under the limit. */
 static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t work = 0;
     pattern *merged = trie_union(schema, trie_of(schema, p1, &work), trie_of(schema, p2, &work), &work);
@@ -607,7 +605,6 @@ static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pa
     /* the limit is never below RNG_CHOICE_FLOOR, so a smaller choice needs no check */
     if (trie_size(merged) > RNG_CHOICE_FLOOR && trie_size(merged) > rng_choice_limit(schema)) {
         schema->choice_limit = -1;
-        schema->mem.no_memory = 1;
         return schema->p_notallowed;
     }
     return merged;
@@ -796,20 +793,10 @@ static int def_add(th_schema *schema, const th_node_attr *name, th_node *node) {
 
 /* The RELAX NG `ns` in scope at `node` (inherited from the nearest ancestor-or-self
    ns attribute), or (NULL, 0) for no namespace. */
-static void rng_scope_ns(th_tree *tree, th_node *node, const Py_UCS4 **uri, Py_ssize_t *uri_len) {
-    for (th_node *walk = node; walk != NULL; walk = walk->parent) {
-        if (walk->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        const th_node_attr *attr = attr_exact(tree, walk, "ns", 2);
-        if (attr != NULL) {
-            *uri = attr->value;
-            *uri_len = attr->value_len;
-            return;
-        }
-    }
-    *uri = NULL;
-    *uri_len = 0;
+static void rng_scope_ns(th_schema *schema, th_node *node, const Py_UCS4 **uri, Py_ssize_t *uri_len) {
+    const th_node_attr *attr = inherited_attr(schema->tree_ns, node, "ns", 2);
+    *uri = attr == NULL ? NULL : attr->value;
+    *uri_len = attr == NULL ? 0 : attr->value_len;
 }
 
 static nameclass *nc_new(th_schema *schema, int type) {
@@ -839,7 +826,6 @@ static nameclass *nc_pair(th_schema *schema, int type, nameclass *left, nameclas
 /* A name class for a QName carried by @name or a <name> element. */
 static nameclass *nc_from_qname(th_schema *schema, th_node *owner, const Py_UCS4 *name, Py_ssize_t name_len,
                                 int is_attr) {
-    th_tree *tree = schema->tree;
     nameclass *nc = nc_new(schema, NC_NAME);
     if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return NULL;  /* GCOVR_EXCL_LINE */
@@ -850,9 +836,9 @@ static nameclass *nc_from_qname(th_schema *schema, th_node *owner, const Py_UCS4
     nc->local = local;
     nc->local_len = local_len;
     if (prefix_len > 0) {
-        resolve_ns(tree, owner, prefix, prefix_len, &nc->uri, &nc->uri_len);
+        resolve_ns(schema->tree_ns, owner, prefix, prefix_len, &nc->uri, &nc->uri_len);
     } else if (!is_attr) {
-        rng_scope_ns(tree, owner, &nc->uri, &nc->uri_len);
+        rng_scope_ns(schema, owner, &nc->uri, &nc->uri_len);
     }
     nc->hash = nc_name_hash(nc);
     return nc;
@@ -904,7 +890,7 @@ static nameclass *rng_nameclass_open(th_schema *schema, th_node *node, nc_frame 
         }
         const th_node_attr *ns = attr_exact(tree, node, "ns", 2);
         if (ns == NULL) {
-            rng_scope_ns(tree, node, &nc->uri, &nc->uri_len);
+            rng_scope_ns(schema, node, &nc->uri, &nc->uri_len);
         } else {
             nc->uri = ns->value;
             nc->uri_len = ns->value_len;
@@ -1018,12 +1004,7 @@ static int nc_contains(const nameclass *nc, const qname *name) {
 static int rng_datatype_id(th_schema *schema, th_node *node, int default_datatype) {
     th_tree *tree = schema->tree;
     const th_node_attr *type = attr_exact(tree, node, "type", 4);
-    const th_node_attr *library = NULL;
-    for (th_node *walk = node; walk != NULL && library == NULL; walk = walk->parent) {
-        if (walk->type == TH_NODE_ELEMENT) {
-            library = attr_exact(tree, walk, "datatypeLibrary", 15);
-        }
-    }
+    const th_node_attr *library = inherited_attr(schema->tree_ns, node, "datatypeLibrary", 15);
     int xsd_library = 0;
     if (library != NULL) {
         xsd_library = u_eq_ascii(library->value, library->value_len, XSD_DT_NS);
@@ -1691,7 +1672,7 @@ static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets,
     if ((facets->has_min_inclusive || facets->has_max_inclusive || facets->has_min_exclusive ||
          facets->has_max_exclusive) &&
         dt_is_numeric(datatype_id)) {
-        double number = dt_to_double(norm, norm_len);
+        double number = dt_value_double(schema, norm, norm_len);
         if (facets->has_min_inclusive && !(number >= facets->min_inclusive)) {
             return 0;
         }
@@ -2976,8 +2957,12 @@ static route_span route_side(th_schema *schema, pattern *side, const rng_route *
 /* Routes the plain join `p` when its sides hold operands of one route, in order. The ranges say what the sides hold,
    whatever operator joins them and wherever the join came from, so a routed derivative of it skips only sides that
    cannot match. With a `hint`, the sides must hold operands of that route; a node that failed one keeps it so it is
-   not tried again. */
+   not tried again. A join of the compiled schema stays plain: the ranges would outlive this validation and race with
+   the others that read the node. */
 static int route_place(th_schema *schema, pattern *p, const rng_route *hint) {
+    if (p->seq < schema->shared_patterns) {
+        return 0;
+    }
     TH_WORK_STEP();
     const route_pair *seen = route_pair_get(schema, p, NULL, 0);
     if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -5127,6 +5112,7 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     }
     memset(intern, 0, sizeof(*intern));
     schema->intern = intern;
+    schema->shared_patterns = schema->pattern_count;
     /* On the stack, so a validation that never needs the memo lays out its arena patterns as before. */
     patmemo memos[2] = {{NULL, 0, 0, 1, NULL}, {NULL, 0, 0, 1, NULL}};
     schema->memo = schema->event_memo = &memos[0];

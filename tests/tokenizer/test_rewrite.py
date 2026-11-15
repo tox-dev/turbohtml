@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from bisect import bisect_left
+from difflib import SequenceMatcher
 from functools import partial
+from operator import methodcaller
 from typing import TYPE_CHECKING
 
 import pytest
@@ -1893,6 +1895,14 @@ def _misread(source: str) -> list[str]:
     mark = "\ue000"
     marked = rewrite(source, elements=[("*", lambda element: element.before(mark))])
     starts = [at - before for before, at in enumerate(at for at, char in enumerate(marked) if char == mark)]
+    if (written := marked.replace(mark, "")) != source:
+        # text before a <frameset> makes a parse ignore it, so the rewrite adds the end tags that keep the output
+        # reading the rest as the source does; map each call back to where the source has the tag
+        blocks = SequenceMatcher(None, written, source, autojunk=False).get_matching_blocks()
+        starts = [
+            next(source_at + at - written_at for written_at, source_at, size in blocks if at < written_at + size)
+            for at in starts
+        ]
     seen = set(starts)
     located = [
         (element, location)
@@ -1980,6 +1990,453 @@ def test_rewrite_unwrapped_foreign_end_tag_leaves_end_tags_for_the_elements_it_c
     handlers: list[tuple[str, Callable[[Element], None]]], expected: str
 ) -> None:
     assert rewrite("<svg><g><circle><path></g><title>", elements=handlers) == expected
+
+
+_RUN: Final[str] = "<script>run()</script>"
+_RUN_TEXT: Final[str] = "&lt;script&gt;run()&lt;/script&gt;"
+
+
+def _prepend_inside_inserted_xmp(element: Element) -> None:
+    element.before("<xmp>", html=True)
+    element.prepend("<i>")
+
+
+@pytest.mark.parametrize(
+    ("source", "handlers", "expected"),
+    [
+        pytest.param(
+            f"<svg><g><desc><title>{_RUN}</title>",
+            [("desc", _unwrap)],
+            f"<svg><g><title>{_RUN_TEXT}</title>",
+            id="integration-point-unwrapped",
+        ),
+        pytest.param(
+            f"<svg><title k><title>{_RUN}</title>",
+            [("title[k]", _unwrap)],
+            f"<svg><title>{_RUN_TEXT}</title>",
+            id="integration-point-around-raw-text-unwrapped",
+        ),
+        pytest.param(
+            f"</br><font><div><svg></font><title>{_RUN}</title>",
+            [("font", _unwrap)],
+            f"</br><div><svg></font></svg><title>{_RUN}</title>",
+            id="formatting-end-tag-closes-less",
+        ),
+        pytest.param(
+            f"<svg><g><p><title>{_RUN}</title>", [("p", _remove)], "<svg><g></g></svg>", id="breakout-removed"
+        ),
+        pytest.param(
+            f"<svg><noembed><desc><xmp></noembed>{_RUN}</xmp>",
+            [("svg", _unwrap)],
+            f"<noembed></noembed><desc><xmp></noembed>{_RUN}</xmp>",
+            id="raw-text-start-tag-now-html",
+        ),
+        pytest.param(
+            f"<b><object><svg></b><style><desc><xmp></style>{_RUN}</xmp>",
+            [("object", _unwrap)],
+            f"<b><svg></b><style></style><desc><xmp></style>{_RUN}</xmp>",
+            id="scope-boundary-unwrapped",
+        ),
+        pytest.param(
+            f"<p><b>x</p><img><table></b></table><svg></b><title>{_RUN}</title>",
+            [("img", _remove)],
+            f"<p><b>x</p><table></b></table><svg></b></svg><title>{_RUN}</title>",
+            id="formatting-element-reopened-elsewhere",
+        ),
+        pytest.param(
+            f"<p><b>x</p><i></i><table></b></table><svg></b><style><desc><xmp></style>{_RUN}</xmp>",
+            [("i", methodcaller("after", "x"))],
+            "<p><b>x</p><i></i>x<table></b></table><svg></b><style><desc><xmp></style></xmp>",
+            id="text-inserted",
+        ),
+        pytest.param(
+            f"<table><tr><td>a<svg><g></td><title>{_RUN}</title>",
+            [("table", _unwrap)],
+            f"<tr><td>a<svg><g></td></g></svg><title>{_RUN}</title>",
+            id="table-unwrapped",
+        ),
+        pytest.param(
+            f"<svg><font><noembed><desc><xmp></noembed>{_RUN}</xmp>",
+            [("font", _set("color", "red"))],
+            f'<svg><font color="red"><noembed></noembed><desc><xmp></noembed>{_RUN}</xmp>',
+            id="font-breaks-out",
+        ),
+        pytest.param(
+            f"<math><annotation-xml encoding=text/html><title>{_RUN}</title>",
+            [("annotation-xml", methodcaller("remove_attribute", "encoding"))],
+            f"<math><annotation-xml><title>{_RUN_TEXT}</title>",
+            id="annotation-xml-encoding-removed",
+        ),
+        pytest.param(
+            f"<table><svg><title><td><style><title>{_RUN}</title>",
+            [("title", _remove)],
+            f"<table><svg><td><style>&lt;title&gt;{_RUN_TEXT}&lt;/title&gt;",
+            id="integration-point-in-table-removed",
+        ),
+        pytest.param(
+            "<svg><![CDATA[><img src=x onerror=run()>]]></svg>",
+            [("svg", _unwrap)],
+            "&gt;&lt;img src=x onerror=run()&gt;",
+            id="cdata-section-in-html",
+        ),
+        pytest.param(
+            f"<math><mi><b><![CDATA[a><xmp>]]>{_RUN}</xmp>",
+            [("b", _unwrap)],
+            f"<math><mi><!--[CDATA[a--><xmp>]]>{_RUN}</xmp>",
+            id="bogus-comment-in-foreign-content",
+        ),
+        pytest.param(
+            "<svg><g><!--c--><!--longer one--></g></svg>",
+            [("g", methodcaller("before", "x"))],
+            "<svg>x<g><!--c--><!--longer one--></g></svg>",
+            id="comments",
+        ),
+        pytest.param(
+            "<svg><g></g></svg><title>a&amp;b</title><style>a</style>",
+            [("g", _remove), ("style", methodcaller("append", "</b>"))],
+            "<svg></svg><title>a&amp;b</title><style>a</b></style>",
+            id="raw-text-read-alike",
+        ),
+        pytest.param(
+            "<svg><g></g></svg><style>a<b</style>",
+            [("g", _remove), ("style", _unwrap)],
+            "<svg></svg>a&lt;b",
+            id="raw-text-unwrapped",
+        ),
+        pytest.param(
+            "<svg><g></g></svg><style>a<b</style>",
+            [("g", _remove), ("style", _prepend_inside_inserted_xmp)],
+            "<svg></svg><xmp><style>&lt;i&gt;</xmp>a&lt;b</style>",
+            id="raw-text-inside-inserted-raw-text",
+        ),
+        pytest.param(
+            "<svg><g></g></svg><style>a<b</style>",
+            [("g", _remove), ("style", methodcaller("before", "<title>", html=True))],
+            "<svg></svg><title><style></title>a&lt;b</style>",
+            id="raw-text-inside-inserted-raw-text-of-same-length",
+        ),
+        pytest.param(
+            "<svg><g></g></svg><p><br>a<br></pre><br></b></p>",
+            [("g", _remove), ("br", methodcaller("after", "<xmp>", html=True))],
+            "<svg></svg><p><br><xmp></xmp>a<br><xmp></xmp></pre><br><xmp></xmp></b></p>",
+            id="tokens-after-inserted-raw-text",
+        ),
+        pytest.param(
+            f"<iframe></iframe><frameset><title>{_RUN}</title>",
+            [("iframe", _remove)],
+            f"<frameset><title>{_RUN_TEXT}</title>",
+            id="frameset-after-removed-iframe",
+        ),
+        pytest.param(
+            f"<textarea></textarea><frameset><title>{_RUN}</title>",
+            [("textarea", _remove)],
+            f"<frameset><title>{_RUN_TEXT}</title>",
+            id="frameset-after-removed-textarea",
+        ),
+        pytest.param(
+            f"<style></style><frameset><title>{_RUN}</title>",
+            [("style", methodcaller("set_content", "a"))],
+            "<style>a</style><frameset><title></title>",
+            id="frameset-after-raw-text-edit",
+        ),
+        pytest.param(
+            f"<svg><g><circle></p><title>{_RUN}</title>",
+            [("circle", _unwrap)],
+            f"<svg><g></p><title>{_RUN}</title>",
+            id="end-tag-closes-unwrapped",
+        ),
+        pytest.param(
+            f"<svg><g><title>{_RUN}</title>", [("g", _set("id", "a"))], '<svg><g id="a"><title></title>', id="attribute"
+        ),
+        pytest.param(
+            "<svg><g></g></svg><p><plaintext>x",
+            [("g", _remove), ("plaintext", _remove)],
+            "<svg></svg><p>",
+            id="plaintext",
+        ),
+        pytest.param(
+            f"<table><input type=hidden><svg><title>{_RUN}</title>",
+            [("input", _set("type", "text"))],
+            '<table><input type="text"><svg><title></title>',
+            id="input-type-changed",
+        ),
+        pytest.param("<p>a<xmp>b</xmp>c</p><svg>", [("xmp", _remove)], "<p>ac</p><svg>", id="xmp-removed"),
+    ],
+)
+def test_rewrite_output_reads_as_the_input_after_an_edit_changes_the_tree(
+    source: str, handlers: list[tuple[str, Callable[[Element], None]]], expected: str
+) -> None:
+    result = rewrite(source, elements=[*handlers, ("script", _remove)])
+    assert result == expected
+    assert not parse(result, scripting=True).select("script, img")
+
+
+@pytest.mark.parametrize("method", ["prepend", "append", "set_content"])
+def test_rewrite_text_written_into_raw_text_the_output_reads_as_markup_is_escaped(method: str) -> None:
+    handlers = [("desc", _unwrap), ("style", methodcaller(method, "<img src=x onerror=run()>"))]
+    result = rewrite("<svg><desc><style>x</style></desc></svg>", elements=handlers)
+    assert "<svg><style>" in result
+    assert "&lt;img src=x onerror=run()&gt;" in result
+    assert not parse(result).select("img")
+
+
+@pytest.mark.parametrize(
+    ("source", "handlers", "leaves", "expected"),
+    [
+        pytest.param(
+            "x<frameset><svg><g></g></svg>", [], {"text": _remove}, "<frameset><svg><g></g></svg>", id="text-removed"
+        ),
+        pytest.param(
+            f"<!doctype html><svg><title>{_RUN}</title>",
+            [],
+            {"doctype": _remove},
+            "<svg><title></title>",
+            id="doctype-removed",
+        ),
+        pytest.param(
+            f"<svg><!--c--><title>{_RUN}</title>",
+            [],
+            {"comments": methodcaller("before", "x")},
+            "<svg>x<!--c--><title></title>",
+            id="text-before-comment",
+        ),
+        pytest.param(
+            f"<svg><!--c--><title>{_RUN}</title>",
+            [],
+            {"comments": _remove},
+            "<svg><title></title>",
+            id="comment-removed",
+        ),
+        pytest.param(
+            "<svg><g></g></svg><style>a</style>",
+            [("g", _remove)],
+            {"text": methodcaller("set_text", "b<i>")},
+            "<svg></svg><style>b<i></style>",
+            id="raw-text-set",
+        ),
+        pytest.param(
+            "<svg><desc><style>a</style></desc></svg>",
+            [("desc", _unwrap)],
+            {"text": methodcaller("set_text", "b<i>")},
+            "<svg><style>b&lt;i&gt;</style></svg>",
+            id="raw-text-read-as-markup-set",
+        ),
+        pytest.param(
+            "<svg><g>t</g></svg>",
+            [("g", methodcaller("before", "x"))],
+            {"text": lambda _: None},
+            "<svg>x<g>t</g></svg>",
+            id="text-unedited",
+        ),
+        pytest.param(
+            f"<!doctype html><svg><g><title>{_RUN}</title>",
+            [("g", methodcaller("before", "x"))],
+            {"doctype": lambda _: None},
+            "<!doctype html><svg>x<g><title></title>",
+            id="doctype-unedited",
+        ),
+        pytest.param(
+            f"<svg><!--c--><title>{_RUN}</title>",
+            [],
+            {"comments": methodcaller("set_text", "d")},
+            "<svg><!--d--><title></title>",
+            id="comment-set",
+        ),
+        pytest.param(
+            f"<svg><g>t</g><title>{_RUN}</title>",
+            [],
+            {"text": methodcaller("set_text", "u")},
+            "<svg><g>u</g><title></title>",
+            id="text-set",
+        ),
+        pytest.param(
+            f"<svg><g>t</g><title>{_RUN}</title>",
+            [("g", methodcaller("before", "x"))],
+            {"text": methodcaller("set_text", "u")},
+            "<svg>x<g>u</g><title></title>",
+            id="text-set-after-element-edit",
+        ),
+        pytest.param(
+            f"<template>t</template><svg><title>{_RUN}</title>",
+            [],
+            {"text": methodcaller("set_text", "u")},
+            "<template>u</template><svg><title></title>",
+            id="text-set-in-template",
+        ),
+    ],
+)
+def test_rewrite_output_reads_as_the_input_after_a_node_edit(
+    source: str,
+    handlers: list[tuple[str, Callable[[Element], None]]],
+    leaves: dict[str, Callable[[Element], None]],
+    expected: str,
+) -> None:
+    result = rewrite(source, elements=[*handlers, ("script", _remove)], **leaves)
+    assert result == expected
+    assert not parse(result, scripting=True).select("script, i")
+
+
+def _on_reference(edit: Callable[[Element], None]) -> Callable[[Element], None]:
+    def handler(text: Element) -> None:
+        if text.text == "&":
+            edit(text)
+
+    return handler
+
+
+def _before_and_unwrap(element: Element) -> None:
+    element.before("c")
+    element.remove_and_keep_content()
+
+
+@pytest.mark.parametrize(
+    ("source", "handlers", "leaves", "expected"),
+    [
+        pytest.param("a<&amp;i>b", [], {"text": _on_reference(_remove)}, "a&lt;i>b", id="top-level"),
+        pytest.param("<p>a<&amp;i>b", [], {"text": _on_reference(_remove)}, "<p>a&lt;i>b", id="tag-name"),
+        pytest.param("<p>a<&amp;/p>b", [], {"text": _on_reference(_remove)}, "<p>a&lt;/p>b", id="end-tag"),
+        pytest.param("<p>a<&amp;!--b-->", [], {"text": _on_reference(_remove)}, "<p>a&lt;!--b-->", id="comment"),
+        pytest.param("<p>a<&amp;?b>", [], {"text": _on_reference(_remove)}, "<p>a&lt;?b>", id="processing-instruction"),
+        pytest.param("<p>a<<em>i>b</em>", [("em", _unwrap)], {}, "<p>a&lt;i>b", id="element-unwrapped"),
+        pytest.param("<p>a<<!--c-->i>b", [], {"comments": _remove}, "<p>a&lt;i>b", id="comment-removed"),
+        pytest.param(
+            "<p>a<<em></em>",
+            [("em", methodcaller("replace", "i>b", html=True))],
+            {},
+            "<p>a&lt;i>b",
+            id="element-replaced",
+        ),
+        pytest.param(
+            "<p>a<&amp;",
+            [],
+            {"text": _on_reference(methodcaller("before", "i>", html=True))},
+            "<p>a&lt;i>&amp;",
+            id="text-before",
+        ),
+        pytest.param(
+            "<p>a<&amp;",
+            [],
+            {"text": _on_reference(methodcaller("replace", "i>", html=True))},
+            "<p>a&lt;i>",
+            id="text-replaced",
+        ),
+        pytest.param(
+            "<p>a<&amp;", [], {"text": _on_reference(methodcaller("set_text", "i"))}, "<p>a&lt;i", id="text-set"
+        ),
+        pytest.param(
+            "<p>a<", [("p", methodcaller("append", "i>", html=True))], {}, "<p>a&lt;i>", id="appended-at-the-end"
+        ),
+        pytest.param(
+            "<p>a</", [("p", methodcaller("after", "i>", html=True))], {}, "<p>a&lt;/i>", id="end-tag-at-the-end"
+        ),
+        pytest.param(
+            "<p>a<&amp;",
+            [],
+            {"text": _on_reference(methodcaller("replace", "<b>", html=True))},
+            "<p>a<<b>",
+            id="tag-follows",
+        ),
+        pytest.param(
+            "<p>a<&amp;",
+            [],
+            {"text": _on_reference(methodcaller("replace", " i>", html=True))},
+            "<p>a< i>",
+            id="space-follows",
+        ),
+        pytest.param("<svg>a<<p>b", [("p", _before_and_unwrap)], {}, "<svg>a&lt;</svg>cb", id="foreign-closed"),
+        pytest.param("<svg>a<<p>b", [("p", _unwrap)], {}, "<svg>a<</svg>b", id="foreign-closed-in-place"),
+        pytest.param(
+            "<svg><g></g>a<&amp;i>", [("g", _remove)], {"text": _on_reference(_remove)}, "<svg>a&lt;i>", id="mirrored"
+        ),
+        pytest.param(
+            "<title>a<&amp;/title><i>",
+            [],
+            {"text": _on_reference(_remove)},
+            "<title>a&lt;/title><i>",
+            id="rcdata-end-tag",
+        ),
+        pytest.param(
+            "<title>a</&amp;title><i>",
+            [],
+            {"text": _on_reference(_remove)},
+            "<title>a&lt;/title><i>",
+            id="rcdata-end-tag-name",
+        ),
+        pytest.param(
+            "<title>a</tit&amp;le><i>",
+            [],
+            {"text": _on_reference(_remove)},
+            "<title>a&lt;/title><i>",
+            id="rcdata-end-tag-name-continues",
+        ),
+        pytest.param(
+            "<title>a</title&amp;><i>",
+            [],
+            {"text": _on_reference(methodcaller("replace", " "))},
+            "<title>a&lt;/title ><i>",
+            id="rcdata-end-tag-space",
+        ),
+        pytest.param(
+            "<title>a</title&amp;/><i>",
+            [],
+            {"text": _on_reference(_remove)},
+            "<title>a&lt;/title/><i>",
+            id="rcdata-end-tag-solidus",
+        ),
+        pytest.param(
+            "<title>a</title&amp;><i>",
+            [],
+            {"text": _on_reference(_remove)},
+            "<title>a&lt;/title><i>",
+            id="rcdata-end-tag-gt",
+        ),
+        pytest.param(
+            "<textarea>a</textare&amp;a><i>",
+            [],
+            {"text": _on_reference(_remove)},
+            "<textarea>a&lt;/textarea><i>",
+            id="textarea",
+        ),
+        pytest.param(
+            "<title>a</tit&amp;1>", [], {"text": _on_reference(_remove)}, "<title>a</tit1>", id="rcdata-digit"
+        ),
+        pytest.param("<title>a<&amp;i>", [], {"text": _on_reference(_remove)}, "<title>a<i>", id="rcdata-tag-name"),
+        pytest.param("<title>a</&amp; >", [], {"text": _on_reference(_remove)}, "<title>a</ >", id="rcdata-space"),
+    ],
+)
+def test_rewrite_source_lt_stays_text_whatever_follows_it(
+    source: str,
+    handlers: list[tuple[str, Callable[[Element], None]]],
+    leaves: dict[str, Callable[[Element], None]],
+    expected: str,
+) -> None:
+    result = rewrite(source, elements=handlers, **leaves)
+    assert result == expected
+    assert not parse(result).select("i")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<style>a<</style>", id="raw-text"),
+        pytest.param("<p>a/&amp;", id="solidus"),
+        pytest.param("<p>a<&amp;b", id="lt-before-reference"),
+        pytest.param("<p>a</", id="end-tag-open-at-the-end"),
+        pytest.param("<p>a<<b>c", id="lt-before-tag"),
+        pytest.param("<p>abc<!--c-->", id="comment"),
+        pytest.param("<p><!--a<", id="comment-at-the-end"),
+        pytest.param("<svg><![CDATA[a<]]><![CDATA[b<", id="cdata"),
+        pytest.param("abc", id="top-level"),
+        pytest.param("<title>&amp;abc", id="rcdata-letters"),
+        pytest.param("<title>&amp;/abc", id="rcdata-solidus-first"),
+        pytest.param("<title>a/bc", id="rcdata-solidus"),
+        pytest.param("<title>a<&amp;</title>", id="rcdata-lt-before-reference"),
+        pytest.param("<title>a</&amp;</title>", id="rcdata-end-tag-open-before-reference"),
+        pytest.param("<title>a</tit&amp;le</title>", id="rcdata-end-tag-name-before-reference"),
+    ],
+)
+def test_rewrite_source_lt_unedited_is_kept(source: str) -> None:
+    assert rewrite(source, elements=[("*", lambda _: None)], text=lambda _: None, comments=lambda _: None) == source
 
 
 def test_rewrite_follows_the_tree_builder_in_linear_time(work_steps: WorkSteps) -> None:
@@ -2201,3 +2658,65 @@ def _toggler(count: int) -> Callable[[Element], None]:
             element.set_attribute("a0", "v")
 
     return toggle
+
+
+# 320 characters: past the length from which a class answer is kept while the element stays open
+_PAD: Final[str] = "w " * 160
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            f'<ol class="{_PAD}hit"><li></li><li></li></ol><ol class="{_PAD}"><li></li></ol>',
+            f'<ol class="{_PAD}hit"><li k=""></li><li k=""></li></ol><ol class="{_PAD}"><li></li></ol>',
+            id="ancestor",
+        ),
+        pytest.param(
+            f'<ol class="{_PAD}"><li class="{_PAD}"></li></ol><ol class="{_PAD}hit"><li></li></ol>',
+            f'<ol class="{_PAD}"><li class="{_PAD}"></li></ol><ol class="{_PAD}hit"><li k=""></li></ol>',
+            id="value-freed-before-a-later-ancestor",
+        ),
+    ],
+)
+def test_rewrite_long_class_value_answers(source: str, expected: str) -> None:
+    assert rewrite(source, elements=[(".hit li", _mark)]) == expected
+
+
+def _mark(element: Element) -> None:
+    element.set_attribute("k", "")
+
+
+def test_rewrite_handler_replaces_long_values_of_a_matched_element() -> None:
+    source: Final = f'<ol class="{_PAD}hit"><li class="{_PAD}" data-v="{_PAD}"><i></i></li></ol>'
+    expected: Final = f'<ol class="{_PAD}hit"><li class="short"><i k=""></i></li></ol>'
+    assert rewrite(source, elements=[(".hit li", _replace_long_values), (".hit i", _mark)]) == expected
+
+
+def _replace_long_values(element: Element) -> None:
+    element.set_attribute("class", "short")
+    element.remove_attribute("data-v")
+
+
+def test_rewrite_long_value_under_type_rule_is_kept() -> None:
+    source: Final = f'<ol class="{_PAD}"><li data-v="{_PAD}"></li></ol>'
+    expected: Final = f'<ol class="{_PAD}"><li data-v="{_PAD}" k=""></li></ol>'
+    assert rewrite(source, elements=[("li", _mark)]) == expected
+
+
+@pytest.mark.parametrize(
+    "child",
+    [
+        pytest.param("<li></li>", id="short-children"),
+        pytest.param(f'<li class="{_PAD}"></li>', id="long-children"),
+        pytest.param(f'<li class="{_PAD}"><b class="{_PAD}"></b></li>', id="nested-long-children"),
+    ],
+)
+def test_rewrite_long_class_above_many_elements_in_linear_time(child: str, work_steps: WorkSteps) -> None:
+    # each start tag below the list tests the list's class value again
+    work_steps.assert_linear(
+        lambda count: partial(
+            rewrite, f'<ol class="{"w " * count}">{child * count}</ol>', elements=[(".hit *", _mark)]
+        ),
+        (250, 1000),
+    )

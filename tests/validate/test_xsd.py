@@ -865,6 +865,134 @@ def test_nested_repeats_of_an_empty_group_scale_linearly(work_steps: WorkSteps) 
 
 
 @pytest.mark.parametrize(
+    ("declaration", "definitions", "item"),
+    [
+        pytest.param("<xs:complexType>{children}<xs:sequence/></xs:complexType>", "", "<g/>", id="content-model"),
+        pytest.param(
+            '<xs:complexType><xs:sequence>{children}<xs:element name="x" minOccurs="0"/></xs:sequence>'
+            "</xs:complexType>",
+            "",
+            "<g/>",
+            id="sequence-children",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:choice>{children}<xs:element name="x" minOccurs="0"/></xs:choice></xs:complexType>',
+            "",
+            "<g/>",
+            id="choice-children",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:complexContent>{children}<xs:extension base="base"/></xs:complexContent>'
+            "</xs:complexType>",
+            '<xs:complexType name="base"/>',
+            "<g/>",
+            id="complex-content",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:simpleContent>{children}<xs:extension base="xs:string"/></xs:simpleContent>'
+            "</xs:complexType>",
+            "",
+            "<g>text</g>",
+            id="simple-content",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:group ref="group"/></xs:complexType>',
+            '<xs:group name="group">{children}<xs:sequence/></xs:group>',
+            "<g/>",
+            id="group-definition",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:attributeGroup ref="group"/></xs:complexType>',
+            '<xs:attributeGroup name="group">{children}<xs:attribute name="a"/></xs:attributeGroup>',
+            '<g a=""/>',
+            id="attribute-group-definition",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:attribute name="a">{children}<xs:simpleType><xs:restriction base="xs:int"/>'
+            "</xs:simpleType></xs:attribute></xs:complexType>",
+            "",
+            '<g a="1"/>',
+            id="attribute-declaration",
+        ),
+        pytest.param("{children}<xs:complexType/>", "", "<g/>", id="element-declaration"),
+    ],
+)
+def test_schema_children_are_not_searched_per_element(
+    work_steps: WorkSteps, declaration: str, definitions: str, item: str
+) -> None:
+    # Each <g> reads the children of its declaration and of the definitions it reaches. With as many unrelated children
+    # as there are <g> elements, a scan per <g> grows as the square of the count. The schema is compiled inside the
+    # measured call as well, so the count still grows on a path whose validation counts no steps.
+    def build(count: int) -> Callable[[], None]:
+        children = "<ignored/>" * count
+        source: Final = (
+            f'<xs:schema {_XS}>{definitions.format(children=children)}<xs:element name="r">'
+            "<xs:complexType><xs:sequence>"
+            f'<xs:element name="g" maxOccurs="unbounded">{declaration.format(children=children)}</xs:element>'
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        document: Final = parse_xml(f"<r>{item * count}</r>")
+
+        def validate() -> None:
+            assert XMLSchema(source).validate(document).valid
+
+        return validate
+
+    work_steps.assert_linear(build, (100, 400))
+
+
+@pytest.mark.parametrize(
+    ("content", "xml", "messages"),
+    [
+        pytest.param(
+            '<xs:choice><xs:element name="b"/></xs:choice><ignored/><xs:sequence><xs:element name="a"/></xs:sequence>'
+            '<xs:sequence><xs:element name="c"/></xs:sequence>',
+            "<r><a/></r>",
+            [],
+            id="first-sequence-before-a-choice",
+        ),
+        pytest.param(
+            '<xs:group ref="late"/><xs:all><xs:element name="a"/></xs:all>',
+            "<r><b/></r>",
+            ["element 'b' is not allowed here", "required element 'a' is missing"],
+            id="all-before-a-group",
+        ),
+        pytest.param(
+            '<xs:annotation/><xs:group ref="late"/><!-- the model --><xs:group ref="unused"/>',
+            "<r><b/></r>",
+            [],
+            id="first-group",
+        ),
+        pytest.param(
+            '<xs:attribute name="z" use="required"/><ignored/>text<xs:attributeGroup ref="attrs"/><xs:complexContent>'
+            '<xs:restriction base="other"/><xs:extension base="base"/></xs:complexContent>'
+            '<xs:attribute name="a" use="required"/>',
+            "<r/>",
+            [
+                "required attribute 'z' is missing",
+                "required attribute 'grouped' is missing",
+                "required attribute 'inherited' is missing",
+                "required attribute 'a' is missing",
+            ],
+            id="attribute-declarations-in-document-order",
+        ),
+    ],
+)
+def test_schema_children_found_as_the_schema_orders_them(content: str, xml: str, messages: list[str]) -> None:
+    result: Final = check(
+        f'<xs:schema {_XS}><xs:group name="late"><ignored/><xs:choice><xs:element name="b"/></xs:choice>'
+        '<xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:group name="unused"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:complexType name="base"><xs:attribute name="inherited" use="required"/></xs:complexType>'
+        '<xs:complexType name="other"><xs:attribute name="skipped" use="required"/></xs:complexType>'
+        '<xs:attributeGroup name="attrs"><xs:attribute name="grouped" use="required"/></xs:attributeGroup>'
+        f'<xs:element name="r"><xs:complexType>{content}</xs:complexType></xs:element></xs:schema>',
+        xml,
+    )
+    assert [error.message for error in result.errors] == messages
+
+
+@pytest.mark.parametrize(
     ("value", "valid"),
     [
         pytest.param("", True, id="matches-every-pattern"),
@@ -1145,6 +1273,81 @@ def test_nullable_pair_repeated_three_times_rejects_odd_count() -> None:
         "</xs:sequence></xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
     assert not check(schema, "<r><a/><a/><a/></r>").valid
+
+
+_WIDE_CHILDREN: Final[str] = "".join(f'<xs:element name="e{index}"/>' for index in range(200))
+_WIDE_ATTRIBUTES: Final[str] = "".join(f'<xs:attribute name="a{index}"/>' for index in range(200))
+_EMPTY_ATTRIBUTES: Final[str] = " ".join(f'a{index}=""' for index in range(32))
+
+
+@pytest.mark.parametrize(
+    ("content", "instance"),
+    [
+        pytest.param(
+            f'<xs:choice minOccurs="0" maxOccurs="0">{_WIDE_CHILDREN}</xs:choice>',
+            "<v/>",
+            id="child-declarations-unused",
+        ),
+        pytest.param(
+            f'<xs:sequence><xs:element name="first"/><xs:choice minOccurs="0" maxOccurs="0">{_WIDE_CHILDREN}'
+            "</xs:choice></xs:sequence>",
+            "<v><first/></v>",
+            id="child-declarations",
+        ),
+        pytest.param(_WIDE_ATTRIBUTES, "<v/>", id="attribute-declarations"),
+        pytest.param(_WIDE_ATTRIBUTES, f"<v {_EMPTY_ATTRIBUTES}/>", id="attribute-name-index"),
+    ],
+)
+def test_wide_type_costs_no_memory_per_instance(content: str, instance: str) -> None:
+    # The arena keeps every allocation until validate() returns, so a per-instance copy of the type's declarations
+    # grows with the instance count. maxOccurs="0" keeps the content-model matcher, which allocates for itself, out of
+    # the wide choice. PyPy has no tracemalloc; the lists are C and the CPython run covers them.
+    tracing: Final = pytest.importorskip("tracemalloc")
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS}><xs:element name="root"><xs:complexType><xs:sequence>'
+        '<xs:element name="section" maxOccurs="unbounded"><xs:complexType><xs:sequence>'
+        f'<xs:element name="v" maxOccurs="unbounded"><xs:complexType>{content}</xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element>"
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    document: Final = parse_xml(f"<root>{f'<section>{instance * 50}</section>' * 30}</root>")
+    tracing.start()
+    try:
+        assert schema.validate(document).valid
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < 4_000_000, f"validating 1500 instances peaked at {peak} bytes"
+
+
+def test_child_declarations_outlive_a_sibling_subtree() -> None:
+    # validating <a> refills the one lookup list with the declarations of its own children before <b> is reached
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="a"><xs:complexType><xs:sequence><xs:element name="x"/><xs:element name="y"/>'
+        '</xs:sequence></xs:complexType></xs:element><xs:element name="b" type="xs:int"/>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<r><a><x/><y/></a><b>1</b></r>").valid
+    assert [error.message for error in check(schema, "<r><a><x/><y/></a><b>x</b></r>").errors] == [
+        "value 'x' is not a valid int"
+    ]
+
+
+def test_attribute_name_index_is_rebuilt_for_each_element() -> None:
+    # <b> reuses the buffers <a> indexed its 200 declarations in, and must not find a0 there
+    narrow: Final = "".join(f'<xs:attribute name="b{index}"/>' for index in range(32))
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:element name="a"><xs:complexType>{_WIDE_ATTRIBUTES}</xs:complexType></xs:element>'
+        f'<xs:element name="b"><xs:complexType>{narrow}</xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    attributes_a: Final = " ".join(f'a{index}=""' for index in range(64))
+    attributes_b: Final = " ".join(f'b{index}=""' for index in range(32))
+    assert check(schema, f"<r><a {attributes_a}/><b {attributes_b}/></r>").valid
+    undeclared: Final = check(schema, f'<r><a {attributes_a}/><b {attributes_b} a0=""/></r>')
+    assert [error.message for error in undeclared.errors] == ["attribute 'a0' is not declared"]
 
 
 _OPTIONAL_A: Final[str] = '<xs:element name="a" minOccurs="0"/>'
@@ -1553,6 +1756,32 @@ def test_all_base_extended_with_particles_raises(schema: str) -> None:
         XMLSchema(schema)
 
 
+_SEQUENCE_BASE: Final[str] = f'<xs:complexType name="base"><xs:sequence>{_AB}</xs:sequence></xs:complexType>'
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}>{_SEQUENCE_BASE}<xs:complexType name="middle"><xs:complexContent>'
+            f'<xs:extension base="base"><xs:all>{_AB}</xs:all></xs:extension></xs:complexContent></xs:complexType>'
+            '<xs:element name="r" type="middle"/></xs:schema>',
+            id="direct-all-over-sequence",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_SEQUENCE_BASE}<xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+            '<xs:complexType name="middle"><xs:complexContent><xs:extension base="base"><xs:group ref="g"/>'
+            "</xs:extension></xs:complexContent></xs:complexType>"
+            '<xs:element name="r" type="middle"/></xs:schema>',
+            id="group-all-over-sequence",
+        ),
+    ],
+)
+def test_all_extension_of_base_with_content_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all content model cannot extend a base type with content"):
+        XMLSchema(schema)
+
+
 def test_extension_of_builtin_base_chain_compiles() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:complexType name="a"><xs:complexContent><xs:extension base="xs:anyType"/>'
@@ -1893,6 +2122,138 @@ def test_attribute_group_and_ref() -> None:
     )
     assert check(schema, '<r gid="5"/>').valid
     assert not check(schema, "<r/>").valid
+
+
+@pytest.mark.parametrize("namespaces", [pytest.param(False, id="attributes"), pytest.param(True, id="namespaces")])
+@pytest.mark.parametrize("count", [pytest.param(0, id="none"), pytest.param(3, id="few"), pytest.param(40, id="many")])
+def test_declaration_is_read_among_ignored_attributes(count: int, *, namespaces: bool) -> None:
+    extra: Final = _ignored_attributes(count, namespaces=namespaces)
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"{extra}>'
+        f'<xs:element{extra} name="r"><xs:complexType{extra}><xs:sequence{extra}>'
+        f'<xs:element{extra} name="item" type="t:int" minOccurs="0" maxOccurs="unbounded"/>'
+        f'</xs:sequence><xs:attribute{extra} name="a" type="t:int" use="required" fixed="7"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    documents: Final = [
+        '<r a="7"/>',
+        '<r a="7"><item>1</item></r>',
+        "<r><item>1</item></r>",
+        '<r a="8"/>',
+        '<r a="7"><item>x</item></r>',
+        '<r a="7"><other/></r>',
+    ]
+    assert [schema.is_valid(parse_xml(document)) for document in documents] == [True, True, False, False, False, False]
+
+
+def _ignored_attributes(count: int, *, namespaces: bool = False) -> str:
+    # names that share a prefix with the properties XSD reads, so a sorted list must order them apart from those
+    near_misses: Final = (
+        "name2",
+        "names",
+        "ref2",
+        "refs",
+        "typ",
+        "types",
+        "use2",
+        "uses",
+        "fixed2",
+        "value",
+        "values",
+        "a",
+    )
+    names: Final = [*near_misses, *(f"z{index}" for index in range(count))][:count]
+    if namespaces:
+        return "".join(f' xmlns:{name}="urn:{name}"' for name in names)
+    return "".join(f' {name}="0"' for name in names)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="a" xmlns:xs="urn:other"/><xs:element name="v" type="xs:int"/>'
+            "</xs:schema>",
+            id="sibling-after-a-shadowing-element",
+        ),
+        pytest.param(
+            '<schema xmlns="http://www.w3.org/2001/XMLSchema"><element name="v" type="int"/></schema>',
+            id="default-namespace",
+        ),
+    ],
+)
+def test_qname_prefix_resolves_in_its_scope(schema: str) -> None:
+    checked: Final = XMLSchema(schema)
+    assert checked.is_valid(parse_xml("<v>1</v>"))
+    assert not checked.is_valid(parse_xml("<v>x</v>"))
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema">'
+            '<xs:element name="v" type="t:int" xmlns:t="urn:other"/></xs:schema>',
+            id="shadowed-on-the-declaration",
+        ),
+        pytest.param(f'<xs:schema {_XS}><xs:element name="v" type="q:int"/></xs:schema>', id="unbound-prefix"),
+    ],
+)
+def test_qname_prefix_out_of_scope_does_not_resolve(schema: str) -> None:
+    with pytest.raises(ValueError, match="does not resolve"):
+        XMLSchema(schema)
+
+
+def test_declaration_properties_scale_linearly(work_steps: WorkSteps) -> None:
+    def validation(count: int) -> Callable[[], object]:
+        schema: Final = XMLSchema(_declaration_schema(count))
+        return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
+
+    work_steps.assert_linear(validation, (250, 1000))
+
+
+def _declaration_schema(count: int) -> str:
+    return (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+        f'<xs:attribute{_ignored_attributes(count)} name="x" type="xs:int"/>'
+        "</xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+
+
+def test_namespace_declarations_scale_linearly(work_steps: WorkSteps) -> None:
+    def validation(count: int) -> Callable[[], object]:
+        declarations: Final = _ignored_attributes(count, namespaces=True)
+        schema: Final = XMLSchema(
+            f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"><xs:element name="r"><xs:complexType>'
+            '<xs:sequence><xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+            f'<xs:attribute{declarations} name="x" type="t:int"/>'
+            "</xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
+
+    work_steps.assert_linear(validation, (250, 1000))
+
+
+def test_facet_names_compile_linearly(work_steps: WorkSteps) -> None:
+    def compilation(count: int) -> Callable[[], object]:
+        facets: Final = "".join(f'<xs:enumeration value="v{index}"/>' for index in range(count))
+        return partial(
+            XMLSchema,
+            f'<xs:schema {_XS}><xs:simpleType name="t"><xs:restriction{_ignored_attributes(count)} base="xs:string">'
+            f"{facets}</xs:restriction></xs:simpleType></xs:schema>",
+        )
+
+    work_steps.assert_linear(compilation, (250, 1000))
+
+
+def test_schema_namespace_scope_compiles_linearly(work_steps: WorkSteps) -> None:
+    def compilation(count: int) -> Callable[[], object]:
+        declarations: Final = _ignored_attributes(count, namespaces=True)
+        elements: Final = "".join(f'<xs:element name="e{index}"/>' for index in range(count))
+        return partial(XMLSchema, f"<xs:schema {_XS}{declarations}>{elements}</xs:schema>")
+
+    work_steps.assert_linear(compilation, (250, 1000))
 
 
 def test_complex_content_extension() -> None:
@@ -2352,6 +2713,64 @@ def test_instance_with_foreign_prefixed_attribute() -> None:
     assert xsd_ok(schema, xml)
 
 
+_XSI: Final[str] = 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+_SIMPLE_ROUTES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(f'<xs:schema {_XS}><xs:element name="v" type="xs:int"/></xs:schema>', "<v{attrs}>5</v>", id="builtin"),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:simpleType name="n"><xs:restriction base="xs:int"/></xs:simpleType>'
+        '<xs:element name="v" type="n"/></xs:schema>',
+        "<v{attrs}>5</v>",
+        id="named",
+    ),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:element name="v"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType>'
+        "</xs:element></xs:schema>",
+        "<v{attrs}>5</v>",
+        id="inline",
+    ),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:element name="w"><xs:complexType><xs:sequence>'
+        '<xs:element name="g" type="xs:int"/></xs:sequence></xs:complexType></xs:element></xs:schema>',
+        "<w><g{attrs}>5</g></w>",
+        id="local",
+    ),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:element name="g" type="xs:int"/><xs:element name="w"><xs:complexType>'
+        '<xs:sequence><xs:element ref="g"/></xs:sequence></xs:complexType></xs:element></xs:schema>',
+        "<w><g{attrs}>5</g></w>",
+        id="ref",
+    ),
+]
+_SIMPLE_REJECTED_ATTRS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(' a="1"', id="undeclared"),
+    pytest.param(f' {_XSI} xsi:foo="1"', id="xsi-other-local-name"),
+    pytest.param(' xmlns:x="urn:x" x:nil="false"', id="other-namespace-nil"),
+    pytest.param(' xml:lang="en"', id="xml-namespace"),
+]
+_SIMPLE_ALLOWED_ATTRS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(' xmlns:x="urn:x"', id="namespace-declaration"),
+    pytest.param(' xmlns=""', id="default-namespace-declaration"),
+    pytest.param(f' {_XSI} xsi:type="xs:int"', id="xsi-type"),
+    pytest.param(f' {_XSI} xsi:nil="false"', id="xsi-nil"),
+    pytest.param(f' {_XSI} xsi:schemaLocation="urn:x a.xsd"', id="xsi-schemaLocation"),
+    pytest.param(f' {_XSI} xsi:noNamespaceSchemaLocation="a.xsd"', id="xsi-noNamespaceSchemaLocation"),
+    pytest.param(' xmlns:i="http://www.w3.org/2001/XMLSchema-instance" i:nil="false"', id="xsi-under-other-prefix"),
+]
+
+
+@pytest.mark.parametrize(("schema", "template"), _SIMPLE_ROUTES)
+@pytest.mark.parametrize("attrs", _SIMPLE_REJECTED_ATTRS)
+def test_simple_typed_element_rejects_attribute(schema: str, template: str, attrs: str) -> None:
+    errors = XMLSchema(schema).validate(parse_xml(template.format(attrs=attrs))).errors
+    assert [error.message for error in errors] == ["simple-typed element must not have attributes"]
+
+
+@pytest.mark.parametrize(("schema", "template"), _SIMPLE_ROUTES)
+@pytest.mark.parametrize("attrs", _SIMPLE_ALLOWED_ATTRS)
+def test_simple_typed_element_keeps_allowed_attributes(schema: str, template: str, attrs: str) -> None:
+    assert xsd_ok(schema, template.format(attrs=attrs))
+
+
 def test_extension_without_own_particle() -> None:
     schema = (
         f"<xs:schema {_XS}>"
@@ -2364,9 +2783,107 @@ def test_extension_without_own_particle() -> None:
     assert xsd_ok(schema, '<r k="v"><a>x</a></r>')
 
 
+def _extension_chain(middle: str) -> str:
+    return (
+        f"<xs:schema {_XS}>"
+        '<xs:complexType name="base"><xs:sequence><xs:element name="a" type="xs:int"/></xs:sequence></xs:complexType>'
+        f'<xs:complexType name="middle"><xs:complexContent>{middle}</xs:complexContent></xs:complexType>'
+        '<xs:complexType name="derived"><xs:complexContent><xs:extension base="middle">'
+        '<xs:sequence><xs:element name="c" type="xs:int"/></xs:sequence>'
+        "</xs:extension></xs:complexContent></xs:complexType>"
+        '<xs:element name="r" type="derived"/></xs:schema>'
+    )
+
+
+_EXTENDED_TWICE: Final[str] = _extension_chain(
+    '<xs:extension base="base"><xs:sequence><xs:element name="b" type="xs:int"/></xs:sequence></xs:extension>'
+)
+_EXTENDED_OVER_BARE_STEP: Final[str] = _extension_chain('<xs:extension base="base"/>')
+_EXTENDED_OVER_RESTRICTION: Final[str] = _extension_chain(
+    '<xs:restriction base="base"><xs:sequence><xs:element name="b" type="xs:int"/></xs:sequence></xs:restriction>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "xml", "valid"),
+    [
+        pytest.param(_EXTENDED_TWICE, "<r><a>1</a><b>2</b><c>3</c></r>", True, id="twice-whole-chain"),
+        pytest.param(_EXTENDED_TWICE, "<r><b>2</b><c>3</c></r>", False, id="twice-root-content-missing"),
+        pytest.param(_EXTENDED_TWICE, "<r><a>1</a><c>3</c></r>", False, id="twice-middle-content-missing"),
+        pytest.param(_EXTENDED_TWICE, "<r><b>2</b><a>1</a><c>3</c></r>", False, id="twice-out-of-order"),
+        pytest.param(_EXTENDED_TWICE, "<r><a>x</a><b>2</b><c>3</c></r>", False, id="twice-root-content-typed"),
+        pytest.param(_EXTENDED_OVER_BARE_STEP, "<r><a>1</a><c>3</c></r>", True, id="bare-step-whole-chain"),
+        pytest.param(_EXTENDED_OVER_BARE_STEP, "<r><c>3</c></r>", False, id="bare-step-root-content-missing"),
+        pytest.param(_EXTENDED_OVER_RESTRICTION, "<r><b>2</b><c>3</c></r>", True, id="restriction-replaces-its-base"),
+        pytest.param(_EXTENDED_OVER_RESTRICTION, "<r><a>1</a><b>2</b><c>3</c></r>", False, id="restriction-ends-chain"),
+    ],
+)
+def test_extension_chain_keeps_every_base(schema: str, xml: str, valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
+    assert xsd_ok(schema, xml) is valid
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r><a/><b/><c/></r>", True, id="sequence-group-after-base"),
+        pytest.param("<r><a/><b/></r>", False, id="sequence-group-missing"),
+    ],
+)
+def test_sequence_group_extends_base_with_content(xml: str, valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
+    sequence_group: str = '<xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+    schema = (
+        f"<xs:schema {_XS}>{_SEQUENCE_BASE}{sequence_group}"
+        '<xs:complexType name="middle"><xs:complexContent><xs:extension base="base"><xs:group ref="s"/>'
+        "</xs:extension></xs:complexContent></xs:complexType>"
+        '<xs:element name="r" type="middle"/></xs:schema>'
+    )
+    assert xsd_ok(schema, xml) is valid
+
+
 def test_simple_typed_element_with_child() -> None:
     schema = f'<xs:schema {_XS}><xs:element name="v" type="xs:int"/></xs:schema>'
     assert not xsd_ok(schema, "<v><child/></v>")
+
+
+_INLINE_STRING: Final[str] = (
+    '<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="[a-z]+"/></xs:restriction></xs:simpleType>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "document"),
+    [
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element></xs:schema>',
+            "<v>bob<child>x</child></v>",
+            id="root",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+            f'<xs:element name="v">{_INLINE_STRING}</xs:element>'
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>",
+            "<r><v>bob<child>x</child></v></r>",
+            id="sequence-particle",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element>'
+            '<xs:element name="r"><xs:complexType><xs:sequence><xs:element ref="v"/></xs:sequence>'
+            "</xs:complexType></xs:element></xs:schema>",
+            "<r><v>bob<child>x</child></v></r>",
+            id="ref",
+        ),
+    ],
+)
+def test_inline_simple_typed_element_with_child(schema: str, document: str) -> None:
+    result = check(schema, document)
+    assert [(error.type, error.message) for error in result.errors] == [
+        ("structure", "simple-typed element must not contain child elements"),
+    ]
+
+
+def test_inline_simple_typed_element_keeps_comment_child() -> None:
+    schema = f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element></xs:schema>'
+    assert xsd_ok(schema, "<v>bob<!--note--></v>")
 
 
 def test_occurs_multi_digit_and_bounds() -> None:
@@ -2959,6 +3476,15 @@ def test_schema_with_unnamespaced_sequence_is_not_recognized() -> None:
     assert not xsd_ok(schema, "<r><a>x</a></r>")
 
 
+def test_all_with_unnamespaced_element_declares_nothing() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'
+        '<element name="a"/></xs:all></xs:complexType></xs:element></xs:schema>'
+    )
+    assert xsd_ok(schema, "<r/>")
+    assert not xsd_ok(schema, "<r><a/></r>")
+
+
 def test_simple_typed_element_with_text_and_element_child() -> None:
     schema = f'<xs:schema {_XS}><xs:element name="v" type="xs:string"/></xs:schema>'
     assert not xsd_ok(schema, "<v>text<child/>more</v>")
@@ -3048,6 +3574,20 @@ def test_xsd_attribute_group_without_ref_is_skipped() -> None:
 def test_xsd_group_without_ref_matches_nothing(model: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
     assert xsd_ok(schema, xml) is ok
+
+
+@pytest.mark.parametrize("xml", ["<r><e/></r>", "<r><e><a/></e></r>"])
+def test_xsd_group_ref_without_model_group_matches_nothing_beside_a_group_all(xml: str) -> None:
+    # the group ref to an xs:all makes validation resolve every group ref content model, the empty one included
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="members"><xs:all><xs:element name="a"/></xs:all></xs:group>'
+        '<xs:group name="empty"><xs:annotation/></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="h" minOccurs="0"><xs:complexType><xs:group ref="members"/></xs:complexType></xs:element>'
+        '<xs:element name="e"><xs:complexType><xs:group ref="empty"/></xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert not xsd_ok(schema, xml)
 
 
 @pytest.mark.parametrize(
@@ -3826,6 +4366,40 @@ def test_xsd_long_decimal_bound(value: str, *, expected: bool) -> None:
 
 
 @pytest.mark.parametrize(
+    ("base", "value", "expected"),
+    [
+        pytest.param("xs:integer", f"{'0' * 64}250", False, id="zeros-then-digits-out-of-bound"),
+        pytest.param("xs:integer", f"{'0' * 90}50", True, id="zeros-then-digits-in-bound"),
+        pytest.param("xs:decimal", f"{'0' * 64}250.5", False, id="decimal-zeros-then-digits-out-of-bound"),
+        pytest.param("xs:double", f"5.{'0' * 80}e30", False, id="long-fraction-then-exponent-out-of-bound"),
+        pytest.param("xs:float", f"5.{'0' * 80}e30", False, id="float-long-fraction-then-exponent-out-of-bound"),
+        pytest.param("xs:double", f"1{'0' * 70}e-70", True, id="long-integer-then-exponent-in-bound"),
+    ],
+)
+def test_xsd_long_number_range(base: str, value: str, *, expected: bool) -> None:
+    # the digits or exponent that decide the comparison sit past the 63rd character of the value
+    assert check(restricted('<xs:maxInclusive value="100"/>', base), f"<v>{value}</v>").valid is expected
+
+
+def test_xsd_long_range_facet_value() -> None:
+    schema: Final = restricted(f'<xs:maxInclusive value="{"0" * 80}3"/>', "xs:integer")
+    assert [check(schema, f"<v>{value}</v>").valid for value in ("3", "4")] == [True, False]
+
+
+def test_xsd_long_number_buffer_grows_per_value() -> None:
+    # one validate() call grows its buffer for each longer value and reuses it for shorter ones
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:integer">'
+        '<xs:maxInclusive value="100"/></xs:restriction></xs:simpleType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    in_bound: Final = "".join(f"<v>{'0' * (length - 2)}50</v>" for length in (3, 64, 100, 300, 200))
+    out_of_bound: Final = f"{in_bound}<v>{'0' * 199}101</v>"
+    assert [check(schema, f"<r>{document}</r>").valid for document in (in_bound, out_of_bound)] == [True, False]
+
+
+@pytest.mark.parametrize(
     "document",
     [
         pytest.param("<v>bad</v>", id="datatype"),
@@ -4489,3 +5063,53 @@ def test_ordinary_patterns_fit_the_step_budget(pattern: str, value: str, *, vali
     schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
     element: Final = f"<v>{value}</v>"
     assert schema.is_valid(parse_xml(f"<r>{element}{element}</r>")) is valid
+
+
+@pytest.mark.parametrize("padding", [pytest.param(0, id="few-attributes"), pytest.param(40, id="many-attributes")])
+def test_xsd_type_prefixes_resolve_below_many_attributes(padding: int) -> None:
+    # b is the XSD namespace only where an element redeclares it; elsewhere b:int names the string type declared here
+    pad: Final = _padding(padding)
+    xsd: Final = 'xmlns:b="http://www.w3.org/2001/XMLSchema"'
+    schema: Final = XMLSchema(
+        f'<xs:schema {pad} {_XS} xmlns:b="urn:t">'
+        '<xs:simpleType name="int"><xs:restriction base="xs:string"/></xs:simpleType>'
+        f'<xs:simpleType name="small"><xs:restriction base="b:int" {pad} {xsd}>'
+        '<xs:maxInclusive value="5"/></xs:restriction></xs:simpleType>'
+        '<xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:element name="c" type="b:int" {pad} {xsd}/><xs:element name="d" type="b:int"/>'
+        '<xs:element name="s" type="small"/></xs:sequence>'
+        f'<xs:attribute name="e" type="b:int" {pad} {xsd}/><xs:attribute name="f" type="b:int"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert schema.validate(parse_xml('<r e="1" f="x"><c>1</c><d>x</d><s>3</s></r>')).valid
+    result: Final = schema.validate(parse_xml('<r e="x" f="x"><c>x</c><d>x</d><s>7</s></r>'))
+    assert len(result.errors) == 3
+
+
+def _padding(count: int) -> str:
+    return " ".join(f'pad{index}=""' for index in range(count))
+
+
+def test_xsd_type_prefixes_below_many_attributes_compile_linearly(work_steps: WorkSteps) -> None:
+    # each type reference resolves its prefix through the attributes of xs:schema, which must not cost their count
+    def build(count: int) -> Callable[[], XMLSchema]:
+        body: Final = "".join(f'<xs:element name="e{index}" type="xs:int"/>' for index in range(count))
+        return partial(XMLSchema, f"<xs:schema {_padding(count)} {_XS}>{body}</xs:schema>")
+
+    work_steps.assert_linear(build, (70, 280))
+
+
+def test_xsd_type_prefixes_below_many_attributes_validate_linearly(work_steps: WorkSteps) -> None:
+    # every instance element and attribute looks its declared type up again
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema: Final = XMLSchema(
+            f'<xs:schema {_padding(count)} {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+            '<xs:element name="v" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>'
+            '<xs:extension base="xs:int"><xs:attribute name="a" type="xs:int"/></xs:extension>'
+            "</xs:simpleContent></xs:complexType></xs:element>"
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        item: Final = '<v a="1">2</v>'
+        return partial(schema.validate, parse_xml(f"<r>{item * count}</r>"))
+
+    work_steps.assert_linear(build, (70, 280))
