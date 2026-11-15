@@ -23,6 +23,8 @@ from turbohtml.clean import linkify_node
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from work_steps import WorkSteps
+
     from turbohtml import Node
 
 _SHOW_ELEMENT: Final[int] = NodeFilter.SHOW_ELEMENT
@@ -745,7 +747,11 @@ def test_iterator_removal_before_reference_without_following_falls_back() -> Non
 
 @pytest.mark.parametrize(
     "removed",
-    [pytest.param("#p2", id="unrelated"), pytest.param("#p0", id="root-itself")],
+    [
+        pytest.param("#p2", id="unrelated"),
+        pytest.param("#p0", id="root-itself"),
+        pytest.param("#r", id="root-ancestor"),
+    ],
 )
 def test_iterator_ignores_removal_outside_its_reference_path(removed: str) -> None:
     removal_doc = _removal_doc()
@@ -753,6 +759,14 @@ def test_iterator_ignores_removal_outside_its_reference_path(removed: str) -> No
     _walk_to(iterator, 2)  # reference: b, pointer after
     _el(removal_doc.select_one(removed)).decompose()
     assert _tags(iterator.reference_node) == "b"
+
+
+def test_iterator_follows_removal_of_a_distant_reference_ancestor() -> None:
+    document = parse("<div id=r><p id=p0><i><u><b></b></u></i></p><p id=p1></p></div>")
+    iterator = NodeIterator(_el(document.select_one("#r")))
+    _walk_to(iterator, 5)  # reference: b, pointer after; p0 holds it at the end of a chain with no other node
+    _el(document.select_one("#p0")).decompose()
+    assert (_ids([iterator.reference_node]), iterator.pointer_before_reference_node) == (["r"], False)
 
 
 def test_iterator_adjusts_the_candidate_when_the_filter_removes_nodes() -> None:
@@ -848,3 +862,44 @@ def test_many_iterators_on_one_tree_all_follow_removals() -> None:
         _walk_to(iterator, 3)  # reference: b, pointer after
     _el(removal_doc.select_one("#p0")).decompose()
     assert [_ids([iterator.reference_node]) for iterator in iterators] == [["r"]] * 6
+
+
+def _extract_each_returned_item(size: int) -> Callable[[], object]:
+    # The iterator's root sits under size wrappers; the removal steps used to climb past all of them on each removal.
+    items = _el(turbohtml.parse_xml(f"{'<w>' * size}<ol>{'<li/>' * size}</ol>{'</w>' * size}").find("ol"))
+
+    def run() -> None:
+        for node in NodeIterator(items, _SHOW_ELEMENT):
+            if _named(node, "li"):
+                node.extract()
+        assert not items.children
+
+    return run
+
+
+def _extract_items_beside_a_deep_reference(size: int) -> Callable[[], object]:
+    # The reference rests at the bottom of a size-deep chain the removed items sit beside, not inside.
+    document = turbohtml.parse_xml(f"<doc><ol>{'<li/>' * size}</ol>{'<w>' * size}{'</w>' * size}</doc>")
+    iterator = NodeIterator(document, _SHOW_ELEMENT)
+    *_, deepest = iterator
+    items = _el(document.find("ol"))
+
+    def run() -> None:
+        for item in items.children:
+            item.extract()
+        assert iterator.reference_node is deepest
+
+    return run
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_extract_each_returned_item, id="root-nested-deep"),
+        pytest.param(_extract_items_beside_a_deep_reference, id="reference-nested-deep"),
+    ],
+)
+def test_iterator_removal_steps_stay_linear_in_nesting(
+    build: Callable[[int], Callable[[], object]], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(build, (300, 1_200))

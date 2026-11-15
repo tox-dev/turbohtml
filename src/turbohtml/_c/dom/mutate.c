@@ -752,11 +752,33 @@ static int is_inclusive_ancestor_of(const th_node *ancestor, const th_node *node
     return 0;
 }
 
+/* Whether removed is an inclusive ancestor of node but not of root, the removals the steps below act on. node sits
+   inside root (the steps below keep it there, and th_tree_verify counts an iterator that breaks this), so the climb
+   from it always meets root, and ends there rather than at the top of the tree: reaching root first means removed is
+   root, above it, or off node's path. Each step up also advances a pre-order walk of removed's descendants, and the
+   climb ends when they run out: a node still below removed after that many steps would need it to hold more descendants
+   than it has. The test so costs no more than the nodes the removal unlinks, however deep the document nests root or
+   node (the XML parser sets no nesting limit). */
+static int removal_holds_pointer(const th_node_iterator *iterator, th_node *removed, const th_node *node) {
+    th_node *descendant = removed->first_child;
+    for (const th_node *walk = node; walk != iterator->root; walk = walk->parent) {
+        TH_WORK_STEP();
+        if (walk == removed) {
+            return 1;
+        }
+        if (descendant == NULL) {
+            return 0;
+        }
+        descendant = preorder_next(descendant, removed);
+    }
+    return 0;
+}
+
 /* The DOM "adjust a node pointer" steps for removed, which is about to leave its parent: a pointer into the removed
    subtree moves to the first node after that subtree within root when it pointed before its node, else (or when no
    such node exists) to the node just before the subtree, pointing after it. */
 static void adjust_node_pointer(const th_node_iterator *iterator, th_node *removed, th_node **node, int *before) {
-    if (!is_inclusive_ancestor_of(removed, *node) || is_inclusive_ancestor_of(removed, iterator->root)) {
+    if (!removal_holds_pointer(iterator, removed, *node)) {
         return;
     }
     if (*before) {
