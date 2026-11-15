@@ -1913,6 +1913,38 @@ void xr_cache_clear(xr_cache *cache) {
     }
 }
 
+/* What a program holds beyond its pattern's length: the instructions, the frames and state lists its first search
+   sizes from them, the trail, and the capture slots once a replace has run it. */
+static size_t xr_program_bytes(const xr_program *program) {
+    size_t count = (size_t)program->code_count;
+    size_t bytes = count * (sizeof(xr_inst) + sizeof(xr_frame) + 6 * sizeof(int32_t)) +
+                   (size_t)program->trail_cap * sizeof(xr_frame);
+    if (program->cells != NULL) {
+        bytes += (2 * count + 1) * (size_t)program->slots * sizeof(Py_ssize_t);
+    }
+    return bytes;
+}
+
+/* The size caps are per program, so with no bound of their own the slots could hold XR_CACHE_SLOTS times what one
+   program may. Four programs at every cap fit, so an expression alternating among that many of the largest patterns
+   compiles each once. */
+#define XR_CACHE_BYTES                                                                                                 \
+    (4 * ((size_t)XR_MAX_CODE * (sizeof(xr_inst) + sizeof(xr_frame) + 6 * sizeof(int32_t)) + 2 * XR_MAX_BYTES))
+
+/* Keep the program in use compiled in its slot when it fits beside the others, and free it when not. Only the program
+   in use grows, so the rest are counted as it stops being used. Keeping the ones already in rather than making room
+   means an expression cycling through more large patterns than fit compiles only the extra ones again. */
+static void xr_cache_release(xr_cache *cache) {
+    xr_program *program = cache->recent;
+    size_t bytes = xr_program_bytes(program);
+    if (bytes <= XR_CACHE_BYTES - cache->rest) {
+        cache->rest += bytes;
+        return;
+    }
+    cache->programs[xr_hash(program->pattern, program->pattern_len) & (XR_CACHE_SLOTS - 1)] = NULL;
+    xr_program_free(program);
+}
+
 /* The compiled program for pattern, from the evaluation's cache when it holds one, and the budget topped up for a
    search over text_len characters. */
 static xr_program *xr_cache_get(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t len, int flags, Py_ssize_t text_len,
@@ -1933,17 +1965,26 @@ static xr_program *xr_cache_get(xr_cache *cache, const Py_UCS4 *pattern, Py_ssiz
     program = *slot;
     if (program != NULL && program->flags == flags && program->pattern_len == len &&
         memcmp(program->pattern, pattern, (size_t)len * sizeof(Py_UCS4)) == 0) {
-        cache->recent = program;
-        return program;
-    }
-    program = xr_compile(pattern, len, flags, error);
-    if (program != NULL) {
+        cache->rest -= xr_program_bytes(program);
+    } else {
+        program = xr_compile(pattern, len, flags, error);
+        if (program == NULL) {
+            return NULL;
+        }
         if (*slot != NULL) {
+            if (*slot == cache->recent) {
+                cache->recent = NULL;
+            } else {
+                cache->rest -= xr_program_bytes(*slot);
+            }
             xr_program_free(*slot);
         }
         *slot = program;
-        cache->recent = program;
     }
+    if (cache->recent != NULL) {
+        xr_cache_release(cache);
+    }
+    cache->recent = program;
     return program;
 }
 
