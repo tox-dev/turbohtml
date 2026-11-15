@@ -1609,6 +1609,35 @@ def test_xml_name_test_follows_mutations_between_evaluations() -> None:
     assert document.xpath("//a:e1", namespaces={"a": "urn:a"}) == []
 
 
+def test_prefix_bound_to_an_empty_uri_matches_nothing() -> None:
+    assert parse_xml('<r xmlns="urn:a"><e/></r>').xpath("//p:e", namespaces={"p": ""}) == []
+
+
+def test_xml_name_test_fills_a_node_appended_after_a_query() -> None:
+    document = parse_xml('<r xmlns:p="urn:p"><p:x/></r>')
+    assert tags(document.xpath("//p:x", namespaces={"p": "urn:p"})) == ["p:x"]
+    fresh = parse_xml('<q xmlns:p="urn:p"><p:y/></q>').select_one("q")
+    assert fresh is not None
+    one(document, "/r").append(fresh)
+    assert tags(document.xpath("//p:y", namespaces={"p": "urn:p"})) == ["p:y"]
+    assert tags(document.xpath("//p:x", namespaces={"p": "urn:p"})) == ["p:x"]
+
+
+def test_xml_attribute_name_test_sees_an_attribute_a_callback_adds_mid_step() -> None:
+    document = parse_xml('<r xmlns:p="urn:p"><x p:a="1"/><x/></r>')
+    second = document.select("x")[1]
+    added: list[bool] = []
+
+    def add(_context: SimpleNamespace) -> bool:
+        if not added:
+            added.append(True)
+            second.attrs["p:a"] = "2"
+        return True
+
+    result = document.xpath("//x/@p:a[1][add()]", namespaces={"p": "urn:p"}, extensions={(None, "add"): add})
+    assert result == ["1", "2"]
+
+
 def test_xml_name_test_reads_the_tree_after_a_callback_edits_it() -> None:
     document = parse_xml('<r xmlns:p="urn:a"><p:x><p:y/></p:x></r>')
     root = one(document, "/r")

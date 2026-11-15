@@ -9459,3 +9459,11 @@ _ATOM_FEED: Final[str] = '<feed xmlns="http://www.w3.org/2005/Atom"><entry/><x x
 def test_for_each_unprefixed_name_test_follows_xpath_namespaces(source: str, select: str, expected: str) -> None:
     body = f'<xsl:template match="/"><xsl:for-each select="{select}"><xsl:value-of select="name()"/>;</xsl:for-each>'
     assert transform(_sheet(f"{body}</xsl:template>"), parse_xml(source)) == expected
+
+
+def test_transform_pattern_matches_an_html_source() -> None:
+    sheet = _sheet(
+        '<xsl:template match="p">[<xsl:value-of select="."/>]</xsl:template>'
+        '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    )
+    assert transform(sheet, turbohtml.parse("<p>a</p><p>b</p>")) == "[a][b]"

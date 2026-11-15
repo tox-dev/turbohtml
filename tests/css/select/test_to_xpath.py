@@ -258,6 +258,23 @@ def test_of_type_pseudo_class_without_a_type_selector_raises(compound: str, pseu
         css_to_xpath(compound + pseudo)
 
 
+def test_lone_type_past_the_output_limit_raises() -> None:
+    with pytest.raises(ExpressionError, match="more than 16777216"):
+        css_to_xpath("x" * 16_777_216)
+
+
+@pytest.mark.parametrize("selector", ["ol > li.item > a", "ol > li > a.x", "div.a > span.b > em"])
+def test_middle_compound_with_conditions_selects_like_select(selector: str) -> None:
+    page = parse(
+        '<ol><li class="item"><a class="x">1</a></li></ol><div class="a"><span class="b"><em>2</em></span></div>'
+    )
+    expected = [node.tag for node in page.select(selector)]
+    assert expected
+    result = page.xpath(css_to_xpath(selector))
+    assert isinstance(result, list)
+    assert [node.tag for node in result if isinstance(node, Element)] == expected
+
+
 def test_syntax_error_is_the_one_unified_selector_error() -> None:
     assert SelectorSyntaxError is turbohtml.SelectorSyntaxError is query.SelectorSyntaxError
     assert issubclass(SelectorSyntaxError, ValueError)
