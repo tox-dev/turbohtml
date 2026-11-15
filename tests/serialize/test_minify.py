@@ -461,6 +461,50 @@ def test_omit_keeps_item_end_tag_last_in_item(source: str, expected: str) -> Non
     assert parse_fragment(expected, "div").html == parse_fragment(source, "div").html
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "<span><li><dd>a</dd></li><li>b</li></span>c", "<span><li><dd>a</dd><li>b</li></span>c", id="dd-in-li"
+        ),
+        pytest.param(
+            "<span><dd><li>a</li></dd><dd>b</dd></span>c", "<span><dd><li>a</li><dd>b</dd></span>c", id="li-in-dd"
+        ),
+        pytest.param(
+            "<span><dt><li>a</li></dt><dd>b</dd></span>c", "<span><dt><li>a</li><dd>b</dd></span>c", id="li-in-dt"
+        ),
+        pytest.param("<template><li>a</li></template>b", "<template><li>a</template>b", id="li-in-template-dropped"),
+        pytest.param("<rt><rt>a</rt></rt>b", "<rt><rt>a</rt></rt>b", id="rt-in-rt"),
+        pytest.param(
+            "<optgroup><optgroup>a</optgroup></optgroup>b",
+            "<optgroup><optgroup>a</optgroup></optgroup>b",
+            id="optgroup-in-optgroup",
+        ),
+        pytest.param("<rt><rp>a</rp></rt>b", "<rt><rp>a</rp></rt>b", id="rp-in-rt"),
+        pytest.param(
+            "<rp><option><rp>a</rp></option></rp>b", "<rp><option><rp>a</rp></option></rp>b", id="option-in-rp"
+        ),
+        pytest.param(
+            "<option><rt>a</rt></option><option>b</option>c", "<option><rt>a</rt><option>b</option>c", id="rt-in-option"
+        ),
+        pytest.param(
+            "<math><mi><option>a</option></mi></math>b", "<math><mi><option>a</option></mi></math>b", id="option-in-mi"
+        ),
+        pytest.param(
+            "<select><optgroup><option>a</option></optgroup></select>b",
+            "<select><optgroup><option>a</select>b",
+            id="option-in-optgroup-dropped",
+        ),
+    ],
+)
+def test_omit_keeps_last_child_end_tag_the_parent_does_not_close(source: str, expected: str) -> None:
+    # an li or dd holds the next item's start tag inside it, an end tag of the child's own name closes only the
+    # child, an rt, rp or option may lose its own end tag too, and a foreign parent's end tag is ignored while an
+    # HTML child is open: in each case what follows would reparse inside the child
+    assert frag(source) == expected
+    assert parse(f"<div>{expected}</div>").html == parse(f"<div>{source}</div>").html
+
+
 def test_omit_keeps_p_end_inside_formatting() -> None:
     # the <p> ends inside a reconstructed <i>, so dropping </p> would change the reparse
     out = frag("<i>a<p>b</i>", strip_comments=False)

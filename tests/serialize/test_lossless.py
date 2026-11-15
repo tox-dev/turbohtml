@@ -30,6 +30,10 @@ _DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
         pytest.param(_DOC.format("<a href=plain>t</a>"), id="unquoted-attr"),
         pytest.param(_DOC.format("<img src=x><br><hr>"), id="void-elements"),
         pytest.param(_DOC.format("<ul><li>a<li>b</li></ul>"), id="implicitly-closed"),
+        pytest.param(
+            _DOC.format("<dl><dt>a<dd>b</dl><table><tbody><tr><td>c<td>d<tr><td>e</table><p>f<p>g"),
+            id="optional-end-tags",
+        ),
         pytest.param(_DOC.format("<!--a comment--><p>x</p>"), id="comment"),
         pytest.param(_DOC.format('<svg width="1"><rect/></svg>'), id="foreign-svg"),
         pytest.param(_DOC.format("<template><p>t</p></template>"), id="template-content"),
@@ -141,6 +145,132 @@ def test_attribute_edit_on_a_synthetic_element_reserializes_it() -> None:
     assert body is not None
     body.attrs["class"] = "c"
     assert '<body class="c">' in doc.to_source()
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<svg><body><style><img src=x onerror=alert(1)></style>", id="svg-closed-by-a-dropped-body"),
+        pytest.param("<math><head><xmp><img src=x onerror=alert(1)></xmp>", id="math-closed-by-a-dropped-head"),
+        pytest.param("<svg><g><body><style><img src=x></style>", id="nested-foreign"),
+        pytest.param("<table><td><svg><body><td><style><img src=x></style></table>", id="foreign-last-in-a-cell"),
+        pytest.param(
+            "<select><select><style></select><img src=x onerror=alert(1)></style>", id="select-closed-by-a-select"
+        ),
+        pytest.param("<div><select><select></div><style><img src=x></style>", id="select-last-in-its-parent"),
+        pytest.param("<table><div>x<tr><td>y</table>", id="foster-parented"),
+        pytest.param("<table><li><dd>a<tr><li>b</table>", id="fostered-item-ending-an-item"),
+        pytest.param("<table><option><rt>a<tr><option>b</table>", id="fostered-rt-ending-an-option"),
+        pytest.param("<table><optgroup><optgroup>a</table>", id="fostered-optgroup-ending-an-optgroup"),
+        pytest.param("<table><math><mi><option>a</table>", id="fostered-option-ending-a-foreign-element"),
+        pytest.param("<b><i>x</b>y", id="reconstructed-formatting"),
+        pytest.param("<i><dd><li><dd></i>", id="inside-formatting"),
+        pytest.param("<form><div><p>x</form>y", id="p-before-text"),
+        pytest.param("<textarea>x", id="rcdata-at-eof"),
+        pytest.param("<script>x", id="raw-text-at-eof"),
+        pytest.param("<div><plaintext>x</div>", id="plaintext"),
+        pytest.param("<svg><path><path/><g/></path><g></g></svg>", id="foreign-self-closing"),
+        pytest.param("<svg><path d=x/><g/></svg>", id="foreign-slash-in-an-unquoted-value"),
+    ],
+)
+def test_an_element_the_source_did_not_close_keeps_its_extent(markup: str) -> None:
+    doc = parse(markup, source_locations=True)
+    assert parse(doc.to_source()).serialize() == doc.serialize()
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<svg><body><style><a></style>",
+            "<html><head></head><body><svg></svg><style><a></style></body></html>",
+            id="foreign",
+        ),
+        pytest.param(
+            "<select><select><style><a></style>",
+            "<html><head></head><body><select></select><style><a></style></body></html>",
+            id="no-optional-end-tag",
+        ),
+        pytest.param(
+            _DOC.format("<div><span>x</div>"), _DOC.format("<div><span>x</span></div>"), id="closed-by-its-parent"
+        ),
+        pytest.param(_DOC.format("<p>a<p>b<div>c</div>"), _DOC.format("<p>a<p>b<div>c</div>"), id="optional-end-tag"),
+        pytest.param(_DOC.format("<svg><path/><g/></svg>"), _DOC.format("<svg><path/><g/></svg>"), id="self-closing"),
+        pytest.param(
+            "<div><plaintext>x</div>",
+            "<html><head></head><body><div><plaintext>x</div>",
+            id="nothing-after-plaintext",
+        ),
+    ],
+)
+def test_a_missing_end_tag_is_written_unless_a_reparse_implies_it(markup: str, expected: str) -> None:
+    assert parse(markup, source_locations=True).to_source() == expected
+
+
+def test_removing_the_sibling_that_closed_an_element_keeps_it_closed() -> None:
+    doc = parse(_DOC.format("<svg><p></p><style><a></style>"), source_locations=True)
+    node = doc.select_one("p")
+    assert node is not None
+    node.extract()
+    assert doc.to_source() == _DOC.format("<svg></svg><style><a></style>")
+
+
+def test_editing_a_self_closed_foreign_element_closes_it() -> None:
+    doc = parse(_DOC.format("<svg><path/><g/></svg>"), source_locations=True)
+    node = doc.select_one("path")
+    assert node is not None
+    node.attrs["d"] = "1"
+    assert doc.to_source() == _DOC.format('<svg><path d="1"></path><g/></svg>')
+
+
+def test_a_self_closed_foreign_element_given_a_child_opens_around_it() -> None:
+    doc = parse(_DOC.format("<svg><g/><g/></svg>"), source_locations=True)
+    node = doc.select_one("g")
+    assert node is not None
+    node.append(Text("x"))
+    assert doc.to_source() == _DOC.format("<svg><g>x</g><g/></svg>")
+
+
+def test_a_detached_element_the_source_left_open_is_closed() -> None:
+    node = parse(_DOC.format("<ul><li>a<li>b</ul>"), source_locations=True).select_one("li")
+    assert node is not None
+    assert node.to_source() == "<li>a"
+    node.extract()
+    assert node.to_source() == "<li>a</li>"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("<ul><li><a href=x>y</a><li>b</ul>", id="item-ending-in-a-link"),
+        pytest.param("<p>a <b>b</b><p>c", id="paragraph-ending-in-bold"),
+        pytest.param(
+            "<table><tbody><tr><td><i>a</i><td><a href=x>b</a><tr><td>c</table>", id="cell-ending-in-formatting"
+        ),
+        pytest.param("<dl><dt><em>a</em><dd><strong>b</strong></dl>", id="description-ending-in-formatting"),
+        pytest.param("<a href=x><ul><li>a<li>b</ul></a><ul><li>c<li>d</ul>", id="list-inside-a-link"),
+    ],
+)
+def test_optional_end_tag_stays_out_around_formatting_the_source_closed(body: str) -> None:
+    # a formatting element written back with its own source end tag leaves nothing for a reparse to reconstruct
+    doc = parse(_DOC.format(body), source_locations=True)
+    assert doc.to_source() == _DOC.format(body)
+    assert parse(doc.to_source()).serialize() == doc.serialize()
+
+
+def test_a_subtree_closes_what_the_document_walk_closes() -> None:
+    # the unclosed <b> around the first list blocks omission there, for the whole document and for one item alike
+    doc = parse(_DOC.format("<b><ul><li>a<li>b</ul><ul><li>c<li>d</ul>"), source_locations=True)
+    assert doc.to_source() == _DOC.format("<b><ul><li>a</li><li>b</li></ul><ul><li>c</li><li>d</li></ul></b>")
+    assert [item.to_source() for item in doc.select("li")] == ["<li>a</li>", "<li>b</li>", "<li>c</li>", "<li>d</li>"]
+
+
+def test_a_renamed_formatting_element_blocks_omission_inside_it() -> None:
+    doc = parse(_DOC.format("<i><ul><li>a<li>b</ul></i>"), source_locations=True)
+    node = doc.select_one("i")
+    assert node is not None
+    node.tag = "b"
+    assert doc.to_source() == _DOC.format("<b><ul><li>a</li><li>b</li></ul></b>")
 
 
 def test_to_source_on_a_subtree_root() -> None:
