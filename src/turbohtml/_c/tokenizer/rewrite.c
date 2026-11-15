@@ -474,7 +474,7 @@ static int rw_go_deep(rw_ctx *ctx, int climbs) {
 static void rw_deep_flush(rw_ctx *ctx) {
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
         if (ctx->rules[index].deep != NULL) {
-            sel_memo_free(&ctx->rules[index].deep->memo);
+            sel_deep_memo_free(&ctx->rules[index].deep->memo);
         }
     }
     while (ctx->retired_nodes != NULL) {

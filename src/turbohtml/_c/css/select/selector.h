@@ -64,6 +64,7 @@ enum sel_pseudo {
     /* never parsed: the lone simple of the stand-in sel_deep_enter hands a query, whose sub is the real selector list
      */
     PSEUDO_DEEP,
+    PSEUDO_DEEP_LISTS, /* the stand-in's simple for a selector of SEL_CLIMBS_LISTS */
 };
 
 typedef struct {
@@ -82,6 +83,10 @@ typedef struct {
     Py_ssize_t value_len;
     sel_complex *sub; /* ':': the nested selector list for :is()/:where()/:has()/:not() */
     int sub_count;    /* ':': number of comma-separated alternatives in sub */
+    /* ':' with a sub, set by sel_alts_nest: 0 when one match asks it about an element once; otherwise the deep matcher
+       keeps its answers: SEL_NEST_ALWAYS or SEL_NEST_DEEP for :is(), :where() and :not(), and for an 'of S' clause its
+       1-based slot in sel_deep_memo.counts */
+    int nest;
 } sel_simple;
 
 typedef struct {
@@ -90,9 +95,26 @@ typedef struct {
     char combinator; /* ' ', '>', '+', '~': the combinator joining the compound on the left */
 } sel_compound;
 
+/* What sel_alts_nest finds a list's walks reach: only ancestors, a number the tree's depth bounds, or siblings and
+   subtrees, which it does not */
+#define SEL_WALKS_UP 1
+#define SEL_WALKS_WIDE 2
+
+/* sel_simple.nest of an :is(), :where() or :not() asked again: its walks reach wide or ask a list again themselves,
+   or only climb, so the direct walk costs no more than the tree nests and wins on a tree known to nest shallow */
+#define SEL_NEST_DEEP 1
+#define SEL_NEST_ALWAYS 2
+
+/* sel_complex.walks bits, set by sel_alts_nest on the alternatives of a nested list */
+#define SEL_ALT_WALKS 1  /* matching it can walk: a combinator, :has(), :lang(), :dir(), or a list that walks */
+#define SEL_ALT_SCOPED 2 /* it writes :scope outside a :has(), so its answer depends on the scope element */
+#define SEL_ALT_AHEAD                                                                                                  \
+    4 /* it writes :scope in the S of an :nth-last-child(), which reads the siblings after an element */
+
 struct sel_complex {
     sel_compound *compounds; /* left to right; matched from the rightmost (the subject) */
     int count;
+    int walks; /* SEL_ALT_WALKS | SEL_ALT_SCOPED | SEL_ALT_AHEAD, for an alternative of a nested list */
 };
 
 typedef struct {
@@ -110,6 +132,10 @@ typedef struct {
        2 when a match walks ancestors from each ancestor such a walk passes, a square of how far the tree nests */
     int climbs;
 } sel_compiled;
+
+/* sel_compiled.climbs of a selector with a nested list one match asks again (sel_simple.nest): it runs on the deep
+   matcher on any tree, which keeps those answers */
+#define SEL_CLIMBS_LISTS 3
 
 /* One memoized bit: key names the question (a :has() argument, or the compound a general
    sibling combinator looks for) and node is the element it was answered for, or for a class
@@ -263,6 +289,39 @@ void sel_value_memo_put(sel_memo *memo, const void *key, const th_node *node, co
 void sel_position_memo_free(sel_position_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
 
+/* The answers of an 'of S' clause the deep matcher keeps: each element sibling's count of the earlier siblings that
+   match S, plus one. scope is the scope element they were counted under when S writes :scope. */
+typedef struct {
+    th_node_map map;
+    const th_node *scope;
+} sel_deep_counts;
+
+/* The tables of the deep matcher past the ancestor memo, allocated by the first match that needs one. lists keeps the
+   answers of the nested lists one match asks again (sel_simple.nest): whether an alternative that walks matches an
+   element and whether a :has() holds for one, which hold under any scope; scoped keeps the answers that depend on the
+   scope element, for scoped_for alone. */
+typedef struct {
+    sel_memo lists;
+    sel_memo scoped;
+    const th_node *scoped_for;
+    /* the driver binds :scope to the element it tests (the cascade, matches(), Matcher.filter), so an answer about any
+       other element the match reaches holds under every scope, unless it reads siblings after the element */
+    int subject_scope;
+    sel_deep_counts *counts;
+    int count_slots;
+    sel_position_memo positions; /* sibling positions inside an 'of S' clause, for a context that has none */
+} sel_deep_kept;
+
+/* The memo of the deep matcher. memo comes first, so the matcher, which threads a sel_memo pointer, reaches kept
+   (sel_deep_tables). kept stays on the heap: a stand-in any larger than a table and a pointer grows the stack frame of
+   every query enough to change how the compiler inlines the query loops. */
+typedef struct {
+    sel_memo memo;
+    sel_deep_kept *kept;
+} sel_deep_memo;
+
+void sel_deep_memo_free(sel_deep_memo *memo);
+
 /* A query's stand-in for a selector that climbs (sel_compiled.climbs) on a tree that may nest deep. The HTML tree
    builder nests no deeper than TH_MAX_TREE_DEPTH, but an XML or a built tree nests without limit, and an ancestor walk
    from every candidate of a deep one is quadratic. The stand-in is one compound of one PSEUDO_DEEP simple whose sub is
@@ -274,7 +333,7 @@ typedef struct {
     sel_complex complex;
     sel_compound compound;
     sel_simple simple;
-    sel_memo memo;
+    sel_deep_memo memo;
 } sel_deep_query;
 
 sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep);
@@ -294,13 +353,13 @@ int selector_matches_deep(th_node *node, sel_compiled *compiled, th_node *scope)
 /* The selector a query over compiled runs: compiled itself, or the stand-in in deep when sel_climbs_deep.
    sel_deep_leave frees what the stand-in kept. */
 static inline sel_compiled *sel_deep_enter(sel_compiled *compiled, sel_deep_query *deep) {
-    deep->memo.slots = NULL;
+    deep->compiled.alts = NULL;
     return compiled->climbs != 0 && sel_climbs_deep(compiled) ? sel_deep_wrap(compiled, deep) : compiled;
 }
 
 static inline void sel_deep_leave(sel_deep_query *deep) {
-    if (deep->memo.slots != NULL) {
-        sel_memo_free(&deep->memo);
+    if (deep->compiled.alts != NULL) {
+        sel_deep_memo_free(&deep->memo);
     }
 }
 void sel_free_alts(sel_complex *alts, int count);
