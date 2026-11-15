@@ -411,6 +411,9 @@ from ._stubs.serialize import (
     Minify as Minify,
 )
 from ._stubs.serialize import (
+    _minify_document as _minify_document,
+)
+from ._stubs.serialize import (
     _minify_js_parse as _minify_js_parse,
 )
 from ._stubs.serialize import (

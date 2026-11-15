@@ -227,6 +227,7 @@ static PyMethodDef html_methods[] = {
     {"_parse_tree", turbohtml_parse_tree, METH_VARARGS, NULL},
     {"_parse_fragment", turbohtml_parse_fragment, METH_VARARGS, NULL},
     {"_parse_only", turbohtml_parse_only, METH_O, NULL},
+    {"_minify_document", turbohtml_minify_document, METH_VARARGS, NULL},
     {"_xpath_parse", turbohtml_xpath_parse, METH_O, NULL},
     {"_css_to_xpath", turbohtml_css_to_xpath, METH_VARARGS, NULL},
     {"_xpath_literal", turbohtml_xpath_literal, METH_O, NULL},

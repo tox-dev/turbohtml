@@ -581,6 +581,9 @@ static inline th_node *rawtext_markup_child(const th_node *node) {
     return child;
 }
 
+/* Append the parsed source's code points [start, end), widening the input to UCS-4. */
+void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize_t end);
+
 /* Append a raw-text element's content from its first markup child on, as the compact layout writes it, dropping
    comments when the minifier strips them. */
 void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *element, th_node *from, const th_serialize_opts *opts,

@@ -2329,6 +2329,7 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
         opts->minify_js_mangle = minify->minify_js_mangle;
         opts->minify_css = minify->minify_css;
         opts->minify_css_baseline = minify->minify_css_baseline;
+        opts->source = NULL;
         *mode = TH_LAYOUT_MINIFY;
         return 0;
     }
@@ -2410,6 +2411,67 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
+    return result;
+}
+
+/* The first unstable noscript span, or NULL. */
+static const th_noscript_span *first_unstable(const th_noscript_track *track) {
+    for (Py_ssize_t index = 0; index < track->count; index++) {
+        if (!track->spans[index].stable) {
+            return &track->spans[index];
+        }
+    }
+    return NULL;
+}
+
+/* _minify_document(html, layout): parse html with scripting off and minify the document, copying each stable
+   noscript's content from the source. From the first noscript the two scripting modes part at, the rest of the source
+   follows verbatim when the minified markup before it rebuilds the parser's state there; otherwise html comes back
+   unchanged. */
+PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
+    PyObject *html;
+    PyObject *layout;
+    if (!PyArg_ParseTuple(args, "UO:_minify_document", &html, &layout)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    enum th_layout_mode mode;
+    const Py_UCS4 *indent_unit = NULL;
+    Py_ssize_t indent_len = 0;
+    th_minify_opts minify_opts;
+    if (resolve_layout(state, layout, &mode, &indent_unit, &indent_len, &minify_opts) < 0) {
+        return NULL;
+    }
+    if (mode != TH_LAYOUT_MINIFY) {
+        PyErr_SetString(PyExc_TypeError, "layout must be a Minify");
+        return NULL;
+    }
+    th_noscript_track track = {0};
+    th_tree *tree =
+        th_tree_parse_noscript(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html), &track);
+    if (tree == NULL) {                 /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
+        th_noscript_track_free(&track); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+    }
+    const th_noscript_span *unstable = first_unstable(&track);
+    PyObject *result;
+    if (unstable != NULL && !unstable->cut) {
+        result = Py_NewRef(html);
+    } else {
+        th_minify_source source = {track.spans, track.count};
+        minify_opts.source = track.count > 0 ? &source : NULL; /* with no noscript, the walk skips the source checks */
+        th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL, 0};
+        Py_ssize_t out_len;
+        Py_UCS4 *data = th_node_minify(tree, th_tree_document(tree), &minify_opts, &opts, &out_len);
+        if (data == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            result = PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        } else {
+            result = ucs4_to_str(data, out_len);
+            PyMem_Free(data);
+        }
+    }
+    th_tree_free(tree);
+    th_noscript_track_free(&track);
     return result;
 }
 
