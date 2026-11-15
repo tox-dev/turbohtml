@@ -73,6 +73,7 @@ static void item_release(xp_item item) {
 static int visit_set(const xp_nodeset *set, int (*visitor)(void *, struct th_node *), void *data) {
     for (Py_ssize_t index = 0; index < set->len; index++) {
         if (set->items[index].node != NULL) {
+            TH_WORK_STEP();
             if (visitor(data, set->items[index].node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 return -1;                                   /* GCOVR_EXCL_LINE */
             }
@@ -89,10 +90,6 @@ uint64_t xp_live_id(const xp_live_frame *frame) {
     return frame->id;
 }
 
-uint64_t xp_live_version(const xp_live_frame *frame) {
-    return frame->version;
-}
-
 Py_ssize_t xp_live_append_count(const xp_live_frame *frame) {
     return frame->append != NULL ? frame->append->len : 0;
 }
@@ -102,6 +99,24 @@ int xp_visit_frame_append(const xp_live_frame *frame, Py_ssize_t start, int (*vi
     for (Py_ssize_t index = start; index < xp_live_append_count(frame); index++) {
         if (visitor(data, frame->append->items[index].node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;                                             /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+Py_ssize_t xp_live_result_count(const xp_live_frame *frame) {
+    return frame->result_count;
+}
+
+/* A frame's results only grow (a function call stores its arguments one by one), so a caller that has seen the first
+   `start` of them visits the rest. */
+int xp_visit_frame_results(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
+                           void *data) {
+    for (Py_ssize_t index = start; index < frame->result_count; index++) {
+        if (frame->results[index].kind == XP_NODESET) {
+            if (visit_set(&frame->results[index].nodes, visitor, data) < 0) { /* GCOVR_EXCL_BR_LINE: alloc failure */
+                return -1;                                                    /* GCOVR_EXCL_LINE */
+            }
         }
     }
     return 0;
@@ -120,13 +135,8 @@ int xp_visit_frame_nodes(const xp_live_frame *frame, int (*visitor)(void *, stru
             }
         }
     }
-    for (Py_ssize_t index = 0; index < frame->result_count; index++) {
-        if (frame->results[index].kind == XP_NODESET) {
-            int rc = visit_set(&frame->results[index].nodes, visitor, data);
-            if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return -1; /* GCOVR_EXCL_LINE */
-            }
-        }
+    if (xp_visit_frame_results(frame, 0, visitor, data) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                             /* GCOVR_EXCL_LINE */
     }
     for (Py_ssize_t index = 0; frame->vars != NULL && index < frame->vars->len; index++) {
         const xp_result *value = &frame->vars->items[index].value;

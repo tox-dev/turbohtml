@@ -1216,9 +1216,9 @@ typedef struct xpath_ext_ctx {
 
 typedef struct xpath_frame_pins {
     uint64_t activation;
-    uint64_t version;
     size_t references;
     Py_ssize_t appended;
+    Py_ssize_t results;
     xpath_ext_ctx pins;
 } xpath_frame_pins;
 
@@ -1501,7 +1501,7 @@ static int xpath_before_python(void *context, const xp_live_frame *frame) {
         xpath_frame_pins *pins = NULL;
         for (size_t index = 0; index < ec->frame_count; index++) {
             xpath_frame_pins *prior = ec->frames[index];
-            if (prior->activation == xp_live_id(active) && prior->version == xp_live_version(active)) {
+            if (prior->activation == xp_live_id(active)) {
                 pins = prior;
                 pins->references++;
                 break;
@@ -1515,7 +1515,6 @@ static int xpath_before_python(void *context, const xp_live_frame *frame) {
                 return -1;                       /* GCOVR_EXCL_LINE */
             }
             pins->activation = xp_live_id(active);
-            pins->version = xp_live_version(active);
             pins->references = 1;
             pins->pins = (xpath_ext_ctx){.handle = ec->handle, .state = ec->state, .tree = ec->tree, .previous = ec};
             current.frames[current.frame_count++] = pins;
@@ -1526,8 +1525,19 @@ static int xpath_before_python(void *context, const xp_live_frame *frame) {
             }
             pins->pins.previous = NULL;
             pins->appended = xp_live_append_count(active);
+            pins->results = xp_live_result_count(active);
         } else {
             current.frames[current.frame_count++] = pins;
+            if (pins->results < xp_live_result_count(active)) {
+                pins->pins.previous = ec;
+                int visited = xp_visit_frame_results(active, pins->results, xpath_capture_owner, &pins->pins);
+                pins->pins.previous = NULL;
+                if (visited < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
+                    return -1;                       /* GCOVR_EXCL_LINE */
+                }
+                pins->results = xp_live_result_count(active);
+            }
             if (pins->appended < xp_live_append_count(active)) {
                 pins->pins.previous = ec;
                 int visited = xp_visit_frame_append(active, pins->appended, xpath_capture_owner, &pins->pins);

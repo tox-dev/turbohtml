@@ -68,10 +68,12 @@ typedef struct xp_live_frame xp_live_frame;
 typedef int (*xp_before_python_fn)(void *ctx, const xp_live_frame *frame);
 const xp_live_frame *xp_live_previous(const xp_live_frame *frame);
 uint64_t xp_live_id(const xp_live_frame *frame);
-uint64_t xp_live_version(const xp_live_frame *frame);
 Py_ssize_t xp_live_append_count(const xp_live_frame *frame);
 int xp_visit_frame_append(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
                           void *data);
+Py_ssize_t xp_live_result_count(const xp_live_frame *frame);
+int xp_visit_frame_results(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
+                           void *data);
 int xp_visit_frame_nodes(const xp_live_frame *frame, int (*visitor)(void *, struct th_node *), void *data);
 
 void xp_nodeset_free(xp_nodeset *ns);

@@ -1,0 +1,1 @@
+XPath function calls with many arguments now run in linear time when the expression uses regex or extension functions.
