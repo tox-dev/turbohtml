@@ -825,13 +825,18 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         ),
         pytest.param(
             "function f(){var y=2;g({y});if(c)var {y}=o}",
-            "function f(){g({y:2});if(c)var {y:a}=o}",
+            "function f(){var a=2;g({y:a});if(c)var {y:a}=o}",
             id="shorthand-read-before-pattern-expands-key",
         ),
         pytest.param(
-            "function p(o){function g(){}let {g}=o;if(c)q();else k(g)}",
-            "function p(a){let {g:b}=a;c?q():k(function(){})}",
+            "function p(o){function g(){}var {g}=o;if(c)q();else k(g)}",
+            "function p(b){function a(){}var {g:a}=b;c?q():k(a)}",
             id="shorthand-pattern-not-a-function-inline-slot",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {x}=o;return x+x}",
+            "function f(b){var a=5,{x:a}=b;return a+a}",
+            id="shorthand-pattern-redeclares-literal",
         ),
         pytest.param(
             "function g(){var k=function([{k}]?1:0){};return k}",
@@ -847,6 +852,123 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
 )
 def test_compresses(source: str, expected: str) -> None:
     assert minify_js(source) == expected
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(
+    ("snippet", "expected"),
+    [
+        pytest.param(
+            "function f(o){var x=5;var {x}=o;return{x}}console.log(JSON.stringify(f({x:7})))",
+            '{"x":7}\n',
+            id="object-literal-read",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {x}=o;return x}console.log(f({x:7}))", "7\n", id="object-pattern-one-read"
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {x}=o;return x+x}console.log(f({x:7}))", "14\n", id="object-pattern-two-reads"
+        ),
+        pytest.param(
+            "function f(o){var {x}=o;var x=5;return x+x}console.log(f({x:7}))", "10\n", id="object-pattern-before-var"
+        ),
+        pytest.param(
+            "function f(o){var x=5;console.log(x);var {x}=o;return x}console.log(f({x:7}))",
+            "5\n7\n",
+            id="object-pattern-after-read",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {x=1}=o;return x+x}console.log(f({}),f({x:7}))",
+            "2 14\n",
+            id="object-pattern-default",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {a:{x}}=o;return x+x}console.log(f({a:{x:7}}))",
+            "14\n",
+            id="object-pattern-nested",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {a:{x=1}={}}=o;return x+x}console.log(f({}),f({a:{x:7}}))",
+            "2 14\n",
+            id="object-pattern-nested-default",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {...x}=o;return JSON.stringify(x)}console.log(f({y:7}))",
+            '{"y":7}\n',
+            id="object-pattern-rest",
+        ),
+        pytest.param(
+            "function f(o){var x=5;var {x}=o;return()=>x}console.log(f({x:7})())",
+            "7\n",
+            id="object-pattern-closure-read",
+        ),
+        pytest.param(
+            "function f(){var x=5;for(var {x} of [{x:7}])console.log(x);return x}console.log(f())",
+            "7\n7\n",
+            id="for-of-object-pattern",
+        ),
+        pytest.param(
+            "function f(){var x=5;for(var [x] in {ab:1});return x}console.log(f())", "a\n", id="for-in-array-pattern"
+        ),
+        pytest.param(
+            "function f(o){var x=5;var [x]=o;return x+x}console.log(f([7]))", "14\n", id="array-pattern-two-reads"
+        ),
+        pytest.param(
+            "function f(o){var x=5;var [...x]=o;return JSON.stringify([x,x])}console.log(f([7,8]))",
+            "[[7,8],[7,8]]\n",
+            id="array-pattern-rest",
+        ),
+        pytest.param(
+            "function f({x},o){var {x}=o;return x+x}console.log(f({x:1},{x:7}))",
+            "14\n",
+            id="parameter-pattern-redeclared",
+        ),
+        pytest.param(
+            "function f({x}){var x=5;var {x}={x:7};return x+x}console.log(f({x:1}))",
+            "14\n",
+            id="parameter-pattern-redeclared-by-literal-pattern",
+        ),
+        pytest.param(
+            "function f({x=1},o){var {x}=o;return x}console.log(f({},{x:7}))", "7\n", id="parameter-default-redeclared"
+        ),
+        pytest.param(
+            "function f({a:{x}},o){var {x}=o;return x}console.log(f({a:{x:1}},{x:7}))",
+            "7\n",
+            id="parameter-nested-redeclared",
+        ),
+        pytest.param("function f(o){var x=5;({x}=o);return x+x}console.log(f({x:7}))", "14\n", id="assignment-pattern"),
+        pytest.param(
+            "function f(o){var x=5;({x=1}=o);return x+x}console.log(f({}),f({x:7}))",
+            "2 14\n",
+            id="assignment-pattern-default",
+        ),
+        pytest.param(
+            "function f(o){var x=5;({a:{x}}=o);return x+x}console.log(f({a:{x:7}}))",
+            "14\n",
+            id="assignment-pattern-nested",
+        ),
+        pytest.param(
+            "function f(o){var x=5;({a:{x=1}={}}=o);return x+x}console.log(f({}),f({a:{x:7}}))",
+            "2 14\n",
+            id="assignment-pattern-nested-default",
+        ),
+        pytest.param(
+            "function p(o){function g(){return 1}var {g}=o;console.log(g())}p({g:function(){return 2}})",
+            "2\n",
+            id="function-declaration-pattern",
+        ),
+    ],
+)
+def test_binding_shorthand_preserves_behavior(snippet: str, expected: str) -> None:
+    assert (_run(snippet), _run(minify_js(snippet))) == (expected, expected)
+
+
+def _run(code: str) -> str:
+    assert _NODE is not None  # the callers are skipped when node is unavailable
+    # the first node start on a cold Windows runner has taken over a minute on its own; the timeout
+    # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
+    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
+    return result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(
@@ -1151,14 +1273,6 @@ def test_indirect_eval_leaves_locals_renamable() -> None:
 )
 def test_folding_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
-
-
-def _run(code: str) -> str:
-    assert _NODE is not None  # the callers are skipped when node is unavailable
-    # the first node start on a cold Windows runner has taken over a minute on its own; the timeout
-    # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
-    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
-    return result.stdout + result.stderr
 
 
 _BS: Final[str] = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous
