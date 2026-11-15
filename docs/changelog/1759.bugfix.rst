@@ -1,0 +1,2 @@
+Commas inside parentheses in a ``srcset`` or ``imagesrcset`` descriptor no longer split an image candidate, so links,
+rewriting and sanitizing see the URL a browser loads.

@@ -657,6 +657,15 @@ def test_srcset_with_a_trailing_comma_and_varied_whitespace() -> None:
         pytest.param("a.png, b.png 2x", ["a.png", "b.png"], id="trailing-comma"),
         pytest.param("a.png,, b.png 2x", ["a.png", "b.png"], id="multiple-trailing-commas"),
         pytest.param("a.png,b.png,", ["a.png,b.png"], id="internal-and-trailing-comma"),
+        pytest.param(
+            "hero.jpg (w,h),https://cdn.test/hero.jpg 1x",
+            ["hero.jpg", "https://cdn.test/hero.jpg"],
+            id="comma-in-parens",
+        ),
+        pytest.param("a.png 1x (x,y) z,b.png 2x", ["a.png", "b.png"], id="comma-in-later-parens"),
+        pytest.param("a.png ((x),b.png 2x", ["a.png", "b.png"], id="parens-do-not-nest"),
+        pytest.param("a.png x),b.png 2x", ["a.png", "b.png"], id="stray-close-paren"),
+        pytest.param("a.png (x,b.png 2x", ["a.png"], id="unclosed-parens-run-to-the-end"),
     ],
 )
 def test_srcset_url_boundaries(value: str, expected: list[str]) -> None:
@@ -1094,6 +1103,11 @@ def test_only_some_candidates_change() -> None:
 def test_rewrite_srcset_url_with_comma() -> None:
     out = _rewritten('<img srcset="a,b 1x, c 2x">', lambda url: "X" if url == "a,b" else None)
     assert out == '<img srcset="X 1x, c 2x">'
+
+
+def test_rewrite_srcset_candidate_after_parenthesised_descriptor() -> None:
+    out = _rewritten('<img srcset="hero.jpg (w,h),//cdn.test/hero.jpg 1x">', lambda url: "X" if "//" in url else None)
+    assert out == '<img srcset="hero.jpg (w,h),X 1x">'
 
 
 def test_a_shorter_replacement_shrinks_the_value() -> None:

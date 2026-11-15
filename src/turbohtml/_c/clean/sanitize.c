@@ -477,7 +477,15 @@ static int srcset_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
             continue;
         }
         while (pos < len && value[pos] != ',') {
-            pos++; /* skip the candidate's descriptor */
+            if (value[pos] == '(') {
+                while (pos < len && value[pos] != ')') {
+                    pos++;
+                }
+                if (pos == len) {
+                    break;
+                }
+            }
+            pos++;
         }
     }
     return 1;

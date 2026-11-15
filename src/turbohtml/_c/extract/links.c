@@ -90,8 +90,8 @@ static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit,
     return 0;
 }
 
-/* A comma inside a srcset URL belongs to the URL; only trailing URL commas and descriptor commas separate candidates.
- */
+/* A comma inside a srcset URL belongs to the URL; only trailing URL commas and descriptor commas separate candidates,
+   and a descriptor comma inside parentheses does not (HTML's "parse a srcset attribute"). */
 static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
@@ -116,6 +116,14 @@ static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, voi
             continue;
         }
         while (pos < len && value[pos] != ',') {
+            if (value[pos] == '(') {
+                while (pos < len && value[pos] != ')') {
+                    pos++;
+                }
+                if (pos == len) {
+                    break;
+                }
+            }
             pos++;
         }
     }
