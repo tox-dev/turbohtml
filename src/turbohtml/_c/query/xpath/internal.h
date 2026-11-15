@@ -238,7 +238,6 @@ typedef struct {
 struct xp_live_frame {
     const xp_live_frame *previous;
     uint64_t id;
-    uint64_t version;
     struct th_node *node;
     const xp_nodeset *sets[2];
     const xp_nodeset *append;
@@ -258,12 +257,6 @@ static inline void xp_live_enter(xp_ctx *ctx, xp_live_frame *frame) {
 static inline void xp_live_leave(xp_ctx *ctx, xp_live_frame *frame) {
     if (ctx->live != NULL) {
         ctx->live->current = (xp_live_frame *)frame->previous;
-    }
-}
-
-static inline void xp_live_changed(xp_ctx *ctx) {
-    if (ctx->live != NULL) {
-        ctx->live->current->version++;
     }
 }
 

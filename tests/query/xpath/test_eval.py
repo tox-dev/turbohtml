@@ -2523,6 +2523,28 @@ def test_xpath_frame_completed_arguments_keep_adopted_node() -> None:
 
 
 @pytest.mark.parametrize(
+    ("call", "extensions"),
+    [
+        pytest.param("matches('a', 'b')", None, id="regex"),
+        pytest.param("ext()", {(None, "ext"): lambda _context: False}, id="extension"),
+    ],
+)
+def test_arguments_stored_before_a_python_call_are_pinned_once(
+    call: str, extensions: XPathExtensions | None, work_steps: WorkSteps
+) -> None:
+    def expression(count: int) -> str:
+        return f"concat(//li{',1=1' * count},{call})"
+
+    assert parse("<li>" * 3).xpath(expression(3), extensions=extensions) == f"{'true' * 3}false"
+
+    def build(size: int) -> Callable[[], object]:
+        document: Final = parse("<li>" * size)
+        return partial(document.xpath, expression(size), extensions=extensions)
+
+    work_steps.assert_linear(build, (250, 1000))
+
+
+@pytest.mark.parametrize(
     "expression",
     [pytest.param("div/b[adopt()]", id="contexts"), pytest.param("div[seen()]/b[adopt()]", id="steps")],
 )
