@@ -2789,8 +2789,12 @@ static route_span route_side(th_schema *schema, pattern *side, const rng_route *
 /* Routes the plain join `p` when its sides hold operands of one route, in order. The ranges say what the sides hold,
    whatever operator joins them and wherever the join came from, so a routed derivative of it skips only sides that
    cannot match. With a `hint`, the sides must hold operands of that route; a node that failed one keeps it so it is
-   not tried again. */
+   not tried again. A join of the compiled schema stays plain: the ranges would outlive this validation and race with
+   the others that read the node. */
 static int route_place(th_schema *schema, pattern *p, const rng_route *hint) {
+    if (p->seq < schema->shared_patterns) {
+        return 0;
+    }
     TH_WORK_STEP();
     const route_pair *seen = route_pair_get(schema, p, NULL, 0);
     if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -4756,6 +4760,7 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     }
     memset(intern, 0, sizeof(*intern));
     schema->intern = intern;
+    schema->shared_patterns = schema->pattern_count;
     /* On the stack, so a validation that never needs the memo lays out its arena patterns as before. */
     patmemo memos[2] = {{NULL, 0, 0, 1, NULL}, {NULL, 0, 0, 1, NULL}};
     schema->memo = schema->event_memo = &memos[0];

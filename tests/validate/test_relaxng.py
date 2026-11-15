@@ -2388,6 +2388,18 @@ def test_shared_schema_validates_distinct_documents(name: str) -> None:
     assert [result.valid for result in results] == [child == name for child in children]
 
 
+def test_rng_routing_leaves_the_compiled_schema_unchanged(work_steps: WorkSteps) -> None:
+    # the first token takes enough steps to start routing, which adopts what it derived: the compiled <optional>
+    values: Final = "".join(f"<value>v{index}</value>" for index in range(100))
+    optional: Final = "<optional><value>a</value><value>b</value><empty/></optional>"
+    schema: Final = RelaxNG(wrap(f"<list><choice>{values}</choice>{optional}</list>"))
+    document: Final = parse_xml("<doc>v5 a b</doc>")
+    steps: Final = [work_steps(partial(schema.validate, document)) for _ in range(2)]
+    assert steps[0] > 0
+    assert steps[1] == steps[0]
+    assert schema.is_valid(document)
+
+
 @pytest.mark.parametrize(
     "index",
     [
