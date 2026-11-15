@@ -2850,6 +2850,67 @@ def test_minify_css_stray_top_delimiter_is_a_fixed_point(source: str, expected: 
     assert minify_css(minify_css(source)) == expected
 
 
+# A stray bracket, or an ident the input wrote apart from a `(`, must come out of the first pass in the form a second
+# pass keeps. A name that opens a block is no declaration (CSS Syntax 3 §5.4.5), and an ident joined to a `(` makes a
+# function token that takes in the text after it. The sheet column is a stylesheet's output, the inline column a
+# style="" value's.
+_STRAY_BRACKET: Final[list[pytest.ParameterSet]] = [
+    pytest.param("(:);", "(:)", "", id="paren-name-semicolon"),
+    pytest.param("(:)", "(:)", "", id="paren-name"),
+    pytest.param("[:];", "[:]", "", id="bracket-name-semicolon"),
+    pytest.param("[:]}", "[:]", "", id="bracket-name-before-brace"),
+    pytest.param("(url:);", "(url:)", "", id="paren-name-with-ident"),
+    pytest.param("(:)url;", "(:)url", "", id="paren-name-then-ident"),
+    pytest.param("(:);(", "(:)(", "", id="paren-name-then-open-paren"),
+    pytest.param("zoom(:1);color:red", "zoom(:1)color:red", "color:red", id="function-name"),
+    pytest.param("a{(:);b:c}", "a{b:c}", "a{b:c}", id="paren-name-in-rule"),
+    pytest.param("a{b:c;(:)}", "a{b:c}", "a{b:c}", id="paren-name-last-in-rule"),
+    pytest.param("a{*(:);b:c}", "a{b:c}", "a{b:c}", id="star-paren-name"),
+    pytest.param("*zoom:1px", "*zoom:1px", "*zoom:1px", id="star-hack-kept"),
+    pytest.param("url;(", "url (", "", id="ident-then-open-paren"),
+    pytest.param("url}(", "url (", "", id="ident-then-open-paren-after-brace"),
+    pytest.param("url;[", "url[", "", id="ident-then-open-bracket"),
+    pytest.param("a:b;(", "a:b (", "a:b", id="declaration-then-open-paren"),
+    pytest.param("b;@b ur;l(", "b@b ur l(", "@b ur", id="ident-after-at-statement-then-function"),
+    pytest.param("x;@a b;c(", "x@a b c(", "@a b", id="ident-after-at-statement-then-open-paren"),
+    pytest.param("a{b:calc(calc(1", "a{b:1}", "a{b:1}", id="nested-calc-open-at-eof"),
+    pytest.param("a{b:calc((1", "a{b:1}", "a{b:1}", id="nested-paren-calc-open-at-eof"),
+    pytest.param("a{b:(<!--\\2d", "a{b:(<!--\\2d )}", "a{b:(<!--\\2d )}", id="hex-escape-before-closer"),
+    pytest.param("a{b:[<!--\\2d", "a{b:[<!--\\2d ]}", "a{b:[<!--\\2d ]}", id="hex-escape-before-bracket-closer"),
+    pytest.param("a:(<!--\\2d", "a:(<!--\\2d", "a:(<!--\\2d )", id="declaration-hex-escape-before-closer"),
+    pytest.param("@1\\2d}x", "@1\\2d  }x;", "@1\\2d", id="hex-escape-at-keyword-before-brace"),
+    pytest.param("@1\\2d }x", "@1\\2d  }x;", "@1\\2d ", id="hex-escape-at-keyword-then-space-before-brace"),
+    pytest.param("@1\\2d}@b", "@1\\2d  }@b;", "@1\\2d", id="hex-escape-at-keyword-before-brace-and-at-rule"),
+    pytest.param("<!--;<!--}}@b", ";<!--;@b;", "", id="cdo-behind-delimiter-before-at-rule"),
+    pytest.param(";;<!--}}@b", ";<!--;@b;", "", id="cdo-behind-empty-delimiter-before-at-rule"),
+    pytest.param(";;-->}}@b", ";-->;@b;", "", id="cdc-behind-empty-delimiter-before-at-rule"),
+    pytest.param(";-->}}@import", ";-->;@import;", "", id="cdc-before-import-at-rule"),
+    pytest.param("}-->}@media}<:)", ";-->;@media;<:)", "", id="cdc-at-rule-before-stray-text"),
+]
+
+
+@pytest.mark.parametrize(("source", "stylesheet", "inline"), _STRAY_BRACKET)
+def test_minify_stray_bracket(source: str, stylesheet: str, inline: str) -> None:
+    assert (minify_css(source), minify_css_inline(source)) == (stylesheet, inline)
+
+
+@pytest.mark.parametrize(("source", "stylesheet", "inline"), _STRAY_BRACKET)
+def test_minify_stray_bracket_is_a_fixed_point(source: str, stylesheet: str, inline: str) -> None:
+    assert (minify_css(minify_css(source)), minify_css_inline(minify_css_inline(source))) == (stylesheet, inline)
+
+
+@pytest.mark.parametrize("seed", range(10000))
+def test_minify_stray_bracket_output_is_a_fixed_point(seed: int) -> None:
+    segments = ("(:)", "[:]", "(", "[", "{", ")", "]", "}", "url", "b", ":", ";", " ", "(:", "url(", "ur", "l(", "(;")
+    segments += ("<!--", "-->", "@1\\2d", "\\2d", "@import", "@b")
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    source = "".join(rng.choice(segments) for _ in range(rng.randint(1, 6)))
+    stylesheet = minify_css(source)
+    inline = minify_css_inline(source)
+    assert minify_css(stylesheet) == stylesheet
+    assert minify_css_inline(inline) == inline
+
+
 # The sheet's top level decides which at-statements a browser honors (CSS Syntax 3 §5.4.1): a `}` there closes nothing,
 # so a statement reads on to `;` or a block; `<!--` and `-->` are skipped; and @import, @namespace and @charset count
 # only ahead of every other valid rule, so a rule that minifies away keeps its place in front of one. A name spelled
@@ -3132,6 +3193,46 @@ def test_minify_css_keeps_bang_comment_in_construct_is_a_fixed_point(source: str
 )
 def test_minify_css_inline_keeps_bang_comment(source: str, expected: str) -> None:
     assert minify_css_inline(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("width:calc(/*!*/-)", "width:calc(/*!*/-)", id="calc-invalid-written-once"),
+        pytest.param("7:calc(/*!*/-", "7:calc(/*!*/-)", id="calc-unclosed"),
+        pytest.param("~:calc(/*!*/+", "~:calc(/*!*/+)", id="calc-unclosed-after-plus"),
+        pytest.param("-:calc(+/*!*/b", "-:calc(+/*!*/b)", id="calc-unclosed-before-name"),
+        pytest.param("x:calc(+ /*!k*/ 1)", "x:calc(+ /*!k*/ 1)", id="calc-valid-written-once"),
+        pytest.param("x:min(/*!k*/-, 1)", "x:min(/*!k*/-, 1)", id="min-leading-argument"),
+        pytest.param("x:max(/*!k*/-, 1", "x:max(/*!k*/-, 1)", id="max-unclosed"),
+        pytest.param("x:clamp(1, /*!k*/-, 2", "x:clamp(1, /*!k*/-, 2)", id="clamp-unclosed"),
+        pytest.param("x:var(--a,calc(/*!k*/-", "x:var(--a,calc(/*!k*/-))", id="var-unclosed-calc"),
+        pytest.param("/*!a*/x:calc(/*!b*/-)", "/*!a*/x:calc(/*!b*/-)", id="leading-bang-and-calc-bang"),
+        pytest.param("x:min(1,- /*!k*/)", "/*!k*/x:min(1,- )", id="trailing-argument-bang-leads"),
+    ],
+)
+def test_minify_css_inline_bang_in_function_is_written_once(source: str, expected: str) -> None:
+    once = minify_css_inline(source)
+    assert once == expected
+    assert minify_css_inline(once) == once
+
+
+_INLINE_FUNCTION_WORDS: Final[tuple[str, ...]] = (
+    "1", "-", "+", "x", ",", "(", "*", "/", "2px", "rgb(1,2,3)", "u+", "?", ";", "b:", "calc(", "min(", "max(",
+    "clamp(", "var(--a,",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("shape", ["calc(", "min(", "max(", "clamp(", "var(--a,"])
+@pytest.mark.parametrize("seed", range(2000))
+def test_minify_css_inline_bang_in_function_is_a_fixed_point(shape: str, seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    words = [f"width:{shape}", *(rng.choice(_INLINE_FUNCTION_WORDS) for _ in range(rng.randint(0, 12)))]
+    words.extend(")" for _ in range(rng.randint(0, 3)))
+    source, count = _words_with_bangs(words, rng)
+    once = minify_css_inline(source)
+    assert minify_css_inline(once) == once, source
+    assert once.count("/*!") == count, source
 
 
 def test_minify_css_keeps_bang_comment_past_the_nesting_limit() -> None:

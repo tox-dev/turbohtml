@@ -28,8 +28,8 @@ CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t star
     css_blocks_close_at_end(&blocks, args);
 }
 
-/* Whether a declaration's tokens [start, end) that run to the end of the input leave a block open. Kept out of line:
-   only the last declaration of an unterminated stylesheet reaches it. */
+/* Whether the tokens [start, end) of a declaration leave a block open. Kept out of line: only a name that is not one
+   ident, and a `!important` ending a stylesheet that runs to the end of the input, reach it. */
 CSS_NOINLINE static int css_leaves_block_open(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
     css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
     css_collect_open_blocks(vec, start, end, 0, &blocks);
@@ -45,7 +45,7 @@ CSS_NOINLINE static void css_close_bare_blocks(css_buf *pool, token_vec *vec, Py
     css_blocks blocks = {.deep = {NULL, 0, 0, pool->oom}};
     css_collect_open_blocks(vec, start, end, 1, &blocks);
     Py_ssize_t closers = pool->len;
-    css_blocks_close(&blocks, pool);
+    css_blocks_close_at_end(&blocks, pool);
     for (Py_ssize_t index = closers; index < pool->len; index++) {
         css_comp closer = {0};
         closer.off = index;

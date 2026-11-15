@@ -1,0 +1,2 @@
+``minify_css_inline()`` no longer repeats a bang comment that sits inside an unclosed or invalid CSS function on each
+pass.
