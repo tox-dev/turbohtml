@@ -587,6 +587,16 @@ def test_a_dummy_same_length_attribute_is_not_shadowrootmode() -> None:
     assert _declarative_shadow_element(parse(markup).find(id="h")).shadow_root is not None
 
 
+_UTF16_ORDER: Final[str] = "utf-16-le" if sys.byteorder == "little" else "utf-16-be"
+
+
+def test_a_wide_attribute_whose_bytes_spell_shadowrootmode_is_not_shadowrootmode() -> None:
+    name = b"shadowrootmode".decode(_UTF16_ORDER) + "-" * 7
+    host = _declarative_shadow_element(parse(f"<div id=h><template {name}=open>x</template></div>").find(id="h"))
+    assert host.shadow_root is None
+    assert host.find("template") is not None
+
+
 def test_template_at_the_document_root_is_not_declarative() -> None:
     # the adjusted current node is the topmost element, so it makes a normal template
     doc = parse("<template shadowrootmode=open>x</template>")
