@@ -2235,6 +2235,63 @@ def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # r
     assert ("src=" in out) is kept
 
 
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param(" //attacker.test/://videos.test/x", False, id="leading-space-protocol-relative"),
+        pytest.param("\x01//attacker.test/://videos.test/x", False, id="leading-control-protocol-relative"),
+        pytest.param("/\t/attacker.test/://videos.test/x", False, id="tab-between-slashes"),
+        pytest.param("\\\t\\attacker.test/://videos.test/x", False, id="tab-between-backslashes"),
+        pytest.param("https:\t//attacker.test/://videos.test/x", False, id="tab-after-scheme"),
+        pytest.param("https:/\t/attacker.test/x://videos.test/x", False, id="tab-between-scheme-slashes"),
+        pytest.param("http:attacker.test/://videos.test/x", False, id="special-scheme-no-slashes"),
+        pytest.param("https://attacker.test/://videos.test/x", False, id="decoy-in-path"),
+        pytest.param("https://attacker.test?u=https://videos.test/x", False, id="decoy-in-query"),
+        pytest.param("//attacker.test#https://videos.test/x", False, id="decoy-in-fragment"),
+        pytest.param("/x://videos.test/x", False, id="rooted-relative-decoy"),
+        pytest.param("x/y://videos.test/x", False, id="relative-path-decoy"),
+        pytest.param("1https://videos.test/x", False, id="digit-led-relative-decoy"),
+        pytest.param(" https://videos.test/x", True, id="leading-space-allowed-host"),
+        pytest.param("\n//videos.test/x", True, id="leading-newline-protocol-relative-allowed-host"),
+        pytest.param("ht\ntps://videos.test/x", True, id="newline-in-scheme-allowed-host"),
+        pytest.param("https://videos.test/://attacker.test/x", True, id="allowed-host-foreign-decoy"),
+    ],
+)
+def test_media_host_allowlist_reads_authority_where_browser_does(src: str, *, kept: bool) -> None:
+    # a browser opens the authority only after the scheme or at the start, so a later "://" is path, query, or fragment
+    assert ("src=" in sanitize(f'<video src="{src}">', _media_policy(frozenset({"videos.test"})))) is kept
+
+
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param("foo://videos.test/x", True, id="non-special-allowed-host"),
+        pytest.param("foo://attacker.test\\@videos.test/x", True, id="non-special-backslash-userinfo-allowed-host"),
+        pytest.param("foo://videos.test\\@attacker.test/x", False, id="non-special-backslash-userinfo-decoy"),
+        pytest.param("foo://videos.test\\x", False, id="non-special-backslash-in-host"),
+        pytest.param("foo:\\\\videos.test/x", False, id="non-special-backslashes-open-no-authority"),
+        pytest.param("f\too://videos.test\\@attacker.test/x", False, id="non-special-tab-in-scheme"),
+        pytest.param("https://videos.test\\@attacker.test/x", True, id="special-backslash-ends-authority"),
+        pytest.param("ht\ntps://videos.test\\@attacker.test/x", True, id="special-newline-in-scheme"),
+        pytest.param(
+            "custom+scheme://videos.test\\@attacker.test/x", False, id="non-special-long-scheme-userinfo-decoy"
+        ),
+        pytest.param("\\\\videos.test/x", True, id="relative-backslash-allowed-host"),
+        pytest.param("\\\\attacker.test/x", False, id="relative-backslash-decoy"),
+    ],
+)
+def test_media_host_allowlist_backslash_follows_scheme(src: str, *, kept: bool) -> None:
+    # a browser reads '\' as '/' only under a special scheme (a value without one is relative to a special base);
+    # under any other scheme it is part of the host
+    policy = Policy(
+        tags=frozenset({"video"}),
+        attributes={"*": frozenset({"src"})},
+        url_schemes=frozenset({"http", "https", "foo", "custom+scheme"}),
+        media_hosts=frozenset({"videos.test"}),
+    )
+    assert ("src=" in sanitize(f'<video src="{src}">', policy)) is kept
+
+
 def test_media_host_ipv6_literal_rejected_even_when_listed() -> None:
     # the shared authority parser extracts ::1 from [::1], but the sanitizer still rejects an IPv6 literal so a
     # bracketed host admits no media src -- the pre-unification behavior, kept so routing never weakens the allowlist
