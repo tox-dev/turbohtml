@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import copy
 from functools import partial
 from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 
-from turbohtml import Document, Element, SelectorSyntaxError, Text, parse, parse_xml
+from turbohtml import Document, Element, Range, SelectorSyntaxError, Text, parse, parse_xml
 from turbohtml.clean import linkify_node
+from turbohtml.query import Query
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -2561,3 +2563,131 @@ def test_nth_with_an_offset_near_int_min_matches_nothing(pseudo: str, offset: in
 def test_nth_integer_beyond_int_range_saturates(selector: str, texts: list[str]) -> None:
     document: Final = parse("<ul><li>1<li>2<li>3</ul>")
     assert [element.text for element in document.select(selector)] == texts
+
+
+# 320 characters: past the length from which a class, ~= or *= answer is kept per value for the rest of the query
+_PAD: Final[str] = "w " * 160
+_LONG_VALUES: Final[str] = (
+    "<!doctype html>"
+    f'<ul id=u1 class="{_PAD}hit" data-v="{_PAD}needle"><li id=i1></li><li id=i2></li></ul>'
+    f'<ul id=u2 class="{_PAD}"><li id=i3></li><svg id=s class="{_PAD}Hit"><path id=g></path></svg></ul>'
+)
+
+
+@pytest.mark.parametrize(
+    ("selector", "ids"),
+    [
+        pytest.param(".hit li", ["i1", "i2"], id="class"),
+        pytest.param(".w > li", ["i1", "i2", "i3"], id="class-first-token"),
+        pytest.param(".Hit *", ["g"], id="class-case-sensitive"),
+        pytest.param("ul.nope li", [], id="class-absent"),
+        pytest.param("[class~=hit] li", ["i1", "i2"], id="include"),
+        pytest.param("[class~=HIT i] *", ["i1", "i2", "g"], id="include-case-insensitive"),
+        pytest.param("[class*='w hit'] li", ["i1", "i2"], id="substring"),
+        pytest.param("[class*='W HIT' i] *", ["i1", "i2", "g"], id="substring-case-insensitive"),
+        pytest.param(f"[data-v*='{'w ' * 30}needle'] li", ["i1", "i2"], id="self-overlapping-substring"),
+        pytest.param(f"[data-v*='{'w ' * 30}nope'] li", [], id="self-overlapping-substring-absent"),
+        pytest.param("[class^='w w'] > li", ["i1", "i2", "i3"], id="prefix-read-directly"),
+        pytest.param(".hit, [class~=hit]", ["u1"], id="subject"),
+        pytest.param(":has(> .Hit)", ["u2"], id="inside-has"),
+    ],
+)
+def test_long_attribute_value_answers(selector: str, ids: list[str]) -> None:
+    document: Final = parse(_LONG_VALUES)
+    assert [element.attrs.get("id") for element in document.select(selector)] == ids
+    assert [element.attrs.get("id") for element in document.select("[id]") if element.matches(selector)] == ids
+
+
+def test_long_class_value_folds_case_in_quirks_mode() -> None:
+    quirks: Final = parse(f'<ol class="{_PAD}hit"><li><li></ol>')
+    standard: Final = parse(f'<!doctype html><ol class="{_PAD}hit"><li><li></ol>')
+    counts: Final = [len(document.select(".HIT li")) for document in (quirks, standard)]
+    assert (*counts, len(standard.select(".hit li"))) == (2, 0, 2)
+
+
+def test_long_class_value_shared_by_recreated_formatting_elements() -> None:
+    # every <li> re-creates the open <u>, and each copy points at the class value of the original
+    document: Final = parse(f'<ul><li><u class="{_PAD}hit">{"<li>v" * 4}')
+    counts: Final = [len(document.select(selector)) for selector in ("u", ".hit", ".nope", "li > .hit", "[class~=hit]")]
+    assert counts == [5, 5, 0, 5, 5]
+    assert len(copy.deepcopy(document).select(".hit")) == 5
+
+
+def test_long_class_value_shared_by_copies_in_the_same_tree() -> None:
+    document: Final = parse(f'<ul><li><u class="{_PAD}hit">{"<li>v" * 4}')
+    items: Final = document.select("ul")[0]
+    boundary: Final = Range(items, 0)
+    boundary.set_end(items, 5)
+    document.select("body")[0].append(boundary.clone_contents())
+    assert [len(document.select(selector)) for selector in (".hit", "li > .hit", ".nope")] == [10, 10, 0]
+
+
+def test_long_class_value_is_read_again_after_a_change() -> None:
+    document: Final = parse(f'<ol class="{_PAD}hit"><li></ol>')
+    before: Final = len(document.select(".hit li"))
+    document.select("ol")[0].attrs["class"] = _PAD
+    assert (before, len(document.select(".hit li"))) == (1, 0)
+
+
+def _long_class_recreated(size: int) -> Document:
+    return parse(f'<ul><li><u class="{"w " * size}">{"<li>v" * size}')
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        pytest.param(".hit li", id="descendant"),
+        pytest.param(".hit > li", id="child"),
+        pytest.param("ol.hit li", id="compound"),
+        pytest.param("[class~=hit] li", id="include"),
+        pytest.param("[class*=hitx] li", id="substring"),
+        pytest.param("[class*='w w x'] li", id="self-overlapping-substring"),
+    ],
+)
+def test_long_value_above_many_candidates_matches_in_linear_time(selector: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda size: partial(_long_class_above(size).select, selector), (250, 1000))
+
+
+def _long_class_above(size: int) -> Document:
+    return parse(f'<ol class="{"w " * size}">{"<li>" * size}')
+
+
+@pytest.mark.parametrize("operation", ["select_one", "remove", "prune", "strip_tags"])
+def test_long_value_above_many_candidates_edits_in_linear_time(operation: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda size: partial(getattr(_long_class_above(size), operation), ".hit li:not(.hit)"), (250, 1000)
+    )
+
+
+def test_long_value_filter_over_many_candidates_in_linear_time(work_steps: WorkSteps) -> None:
+    def filtered(size: int) -> Callable[[], object]:
+        return partial(Query(_long_class_above(size))("li").filter, ".hit li")
+
+    work_steps.assert_linear(filtered, (250, 1000))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_long_class_recreated, id="parsed"),
+        pytest.param(lambda size: copy.deepcopy(_long_class_recreated(size)), id="copied"),
+    ],
+)
+def test_long_value_shared_by_recreated_elements_matches_in_linear_time(
+    build: Callable[[int], Document], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda size: partial(build(size).select, ".hit"), (250, 1000))
+
+
+def test_long_value_shared_by_recreated_elements_in_one_test_in_linear_time(work_steps: WorkSteps) -> None:
+    def has_hit(size: int) -> Callable[[], object]:
+        return partial(_long_class_recreated(size).select("ul")[0].matches, ":has(.hit)")
+
+    work_steps.assert_linear(has_hit, (250, 1000))
+
+
+def test_closest_under_long_value_in_linear_time(work_steps: WorkSteps) -> None:
+    def deepest(size: int) -> Callable[[], object]:
+        return partial(parse(f'<section class="{"w " * size}">{"<div>" * size}').select("div")[-1].closest, ".hit *")
+
+    work_steps.assert_linear(deepest, (250, 1000))

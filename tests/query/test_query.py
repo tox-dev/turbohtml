@@ -464,6 +464,16 @@ def test_query_closest_sibling_combinator_over_a_long_run(selector: str, count: 
     assert len(found) == count
 
 
+@pytest.mark.parametrize("selector", [pytest.param(".hit *", id="plain"), pytest.param(".hit :scope", id="scoped")])
+def test_query_closest_under_long_class_grows_linearly(selector: str, work_steps: WorkSteps) -> None:
+    # every climb asks the class value of the shared parent
+    work_steps.assert_linear(
+        lambda n: partial(Query(parse(f'<ol class="{"w " * n}">{"<li>" * n}'))("li").closest, selector), (250, 1000)
+    )
+    found: Final = Query(parse(f'<ol class="{"w " * 200}hit"><li><li></ol>'))("li").closest(selector)
+    assert [node.tag for node in found] == ["li", "li"]
+
+
 def test_query_closest_deeply_nested_grows_linearly(work_steps: WorkSteps) -> None:
     # Counted steps rather than seconds: a wall-clock budget is flaky on shared runners.
     work_steps.assert_linear(
