@@ -2138,6 +2138,18 @@ int xp_pattern_is_static(const xp_program *prog) {
     return 1;
 }
 
+/* Whether the pattern reads a variable or calls a function outside the core set, so its matches can differ between
+   two evaluations over one source. A prefixed name test cannot: its namespace is fixed where the pattern is written. */
+int xp_pattern_reads_call(const xp_program *prog) {
+    for (int32_t index = 0; index < prog->count; index++) {
+        const xn *node = &prog->nodes[index];
+        if (node->kind == XN_VAR || (node->kind == XN_FUNC && func_signature(node) == NULL)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* A fresh Python str of the called function's name, for an error message. */
 static PyObject *function_name(const xn *fn) {
     return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, fn->str, fn->str_len);

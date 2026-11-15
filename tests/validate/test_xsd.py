@@ -3708,6 +3708,151 @@ def test_compiled_facet_cyclic_inheritance(facet_schema: Callable[[str], XMLSche
     ]
 
 
+_PCT: Final[str] = (
+    '<xs:simpleType name="percent"><xs:restriction base="xs:int">'
+    '<xs:minInclusive value="0"/><xs:maxInclusive value="90"/></xs:restriction></xs:simpleType>'
+)
+_INT_LIST: Final[str] = '<xs:simpleType name="ints"><xs:list itemType="xs:int"/></xs:simpleType>'
+_INT_OR_WORD: Final[str] = '<xs:simpleType name="intOrWord"><xs:union memberTypes="xs:int xs:string"/></xs:simpleType>'
+_INLINE_PERCENT: Final[str] = (
+    '<xs:simpleType><xs:restriction base="xs:int"><xs:maxInclusive value="100"/></xs:restriction></xs:simpleType>'
+)
+_AUTO: Final[str] = (
+    '<xs:simpleType><xs:restriction base="xs:string"><xs:enumeration value="auto"/></xs:restriction></xs:simpleType>'
+)
+_SIX_MEMBERS: Final[str] = '<xs:union memberTypes="xs:int xs:boolean xs:date xs:time xs:duration xs:hexBinary"/>'
+
+
+@pytest.mark.parametrize(
+    ("derivation", "declarations", "value", "expected"),
+    [
+        pytest.param("<xs:annotation/>", "", "any text", True, id="no-derivation-stays-a-string"),
+        pytest.param('<xs:list itemType="percent"/>', _PCT, "50", True, id="list-item"),
+        pytest.param('<xs:list itemType="percent"/>', _PCT, " 1\n2\t3  ", True, id="list-collapses"),
+        pytest.param('<xs:list itemType="percent"/>', _PCT, "", True, id="list-empty"),
+        pytest.param('<xs:list itemType="percent"/>', _PCT, "95", False, id="list-item-out-of-range"),
+        pytest.param('<xs:list itemType="percent"/>', _PCT, "1 x 3", False, id="list-item-not-a-number"),
+        pytest.param('<xs:list itemType="percent"/>', _PCT, "1 <b/>", False, id="list-markup"),
+        pytest.param(f"<xs:list>{_INLINE_PERCENT}</xs:list>", "", "1 100", True, id="list-inline-item"),
+        pytest.param(f"<xs:list>{_INLINE_PERCENT}</xs:list>", "", "1 101", False, id="list-inline-item-rejects"),
+        pytest.param('<xs:union memberTypes="percent xs:boolean"/>', _PCT, "50", True, id="union-first"),
+        pytest.param('<xs:union memberTypes="percent xs:boolean"/>', _PCT, " true ", True, id="union-second"),
+        pytest.param('<xs:union memberTypes="percent xs:boolean"/>', _PCT, "95", False, id="union-no-member"),
+        pytest.param('<xs:union memberTypes="percent xs:boolean"/>', _PCT, "<b/>", False, id="union-markup"),
+        pytest.param(f'<xs:union memberTypes="xs:int">{_AUTO}</xs:union>', "", "auto", True, id="union-inline"),
+        pytest.param(f'<xs:union memberTypes="xs:int">{_AUTO}</xs:union>', "", " auto", False, id="union-inline-ws"),
+        pytest.param(f"<xs:union>{_AUTO}{_INLINE_PERCENT}</xs:union>", "", "7", True, id="union-inline-only"),
+        pytest.param(f"<xs:union>{_AUTO}{_INLINE_PERCENT}</xs:union>", "", "700", False, id="union-inline-rejects"),
+        pytest.param(_SIX_MEMBERS, "", "0aF1", True, id="union-sixth-member"),
+        pytest.param(_SIX_MEMBERS, "", "0aF", False, id="union-six-members-reject"),
+        pytest.param('<xs:union memberTypes="ints xs:boolean"/>', _INT_LIST, "1 2", True, id="union-of-list"),
+        pytest.param('<xs:union memberTypes="ints xs:boolean"/>', _INT_LIST, "1 no", False, id="union-of-list-rejects"),
+        pytest.param('<xs:list itemType="intOrBool"/>', "", "1 true 2", True, id="list-of-union"),
+        pytest.param('<xs:list itemType="intOrBool"/>', "", "1 maybe", False, id="list-of-union-rejects"),
+        pytest.param('<xs:union memberTypes="intOrBool xs:date"/>', "", "2020-01-01", True, id="union-of-union"),
+        pytest.param('<xs:union memberTypes="intOrBool xs:date"/>', "", "2020", True, id="union-of-union-inner"),
+        pytest.param('<xs:union memberTypes="intOrBool xs:date"/>', "", "2020-13", False, id="union-of-union-rejects"),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:maxLength value="3"/></xs:restriction>',
+            _INT_LIST,
+            "3 4 5",
+            True,
+            id="list-max-length-counts-items",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:maxLength value="3"/></xs:restriction>',
+            _INT_LIST,
+            "1 2 3 4",
+            False,
+            id="list-over-max-length",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:maxLength value="3"/></xs:restriction>',
+            _INT_LIST,
+            "word",
+            False,
+            id="restricted-list-item-rejects",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:minLength value="1"/></xs:restriction>',
+            _INT_LIST,
+            " ",
+            False,
+            id="list-under-min-length",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:length value="2"/></xs:restriction>',
+            _INT_LIST,
+            "10000 20000",
+            True,
+            id="list-length",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:length value="2"/></xs:restriction>',
+            _INT_LIST,
+            "12",
+            False,
+            id="list-length-rejects",
+        ),
+        pytest.param(
+            '<xs:restriction><xs:simpleType><xs:list itemType="xs:int"/></xs:simpleType>'
+            '<xs:maxLength value="3"/></xs:restriction>',
+            "",
+            "1000 2000 3000",
+            True,
+            id="inline-list-max-length-counts-items",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:enumeration value="3 4"/><xs:pattern value="[0-9 ]+"/></xs:restriction>',
+            _INT_LIST,
+            " 3   4 ",
+            True,
+            id="list-enumeration-on-collapsed-value",
+        ),
+        pytest.param(
+            '<xs:restriction base="ints"><xs:enumeration value="3 4"/></xs:restriction>',
+            _INT_LIST,
+            "4 3",
+            False,
+            id="list-enumeration-rejects",
+        ),
+        pytest.param(
+            '<xs:restriction base="intOrWord"><xs:enumeration value="5"/><xs:enumeration value="a"/></xs:restriction>',
+            _INT_OR_WORD,
+            " 5 ",
+            True,
+            id="union-enumeration-as-the-accepting-member-normalizes",
+        ),
+        pytest.param(
+            '<xs:restriction base="intOrWord"><xs:enumeration value="5"/><xs:enumeration value="a"/></xs:restriction>',
+            _INT_OR_WORD,
+            " a",
+            False,
+            id="union-enumeration-keeps-string-whitespace",
+        ),
+        pytest.param(
+            '<xs:restriction base="intOrWord"><xs:pattern value="[a-z0-9]"/></xs:restriction>',
+            _INT_OR_WORD,
+            "55",
+            False,
+            id="union-pattern-rejects",
+        ),
+    ],
+)
+def test_list_and_union_types(derivation: str, declarations: str, value: str, *, expected: bool) -> None:
+    int_or_bool: Final = '<xs:simpleType name="intOrBool"><xs:union memberTypes="xs:int xs:boolean"/></xs:simpleType>'
+    schema: Final = _variety(derivation, declarations + int_or_bool)
+    body: Final = value.replace("<", "&lt;")
+    assert schema.is_valid(parse_xml(f"<v>{body}</v>")) is expected
+
+
+def _variety(derivation: str, declarations: str = "") -> XMLSchema:
+    return XMLSchema(
+        f"<xs:schema {_XS}>{declarations}"
+        f'<xs:element name="v"><xs:simpleType>{derivation}</xs:simpleType></xs:element></xs:schema>'
+    )
+
+
 @pytest.mark.parametrize(
     ("base", "facet", "restated", "value"),
     [
@@ -3834,17 +3979,205 @@ def test_long_derivation_chain_validates_in_linear_steps(work_steps: WorkSteps) 
         pytest.param('<xs:union memberTypes="xs:int xs:double"/>', id="union"),
     ],
 )
-def test_compiled_facet_string_fallback(facet_schema: Callable[[str], XMLSchema], derivation: str) -> None:
+def test_list_and_union_types_by_name(facet_schema: Callable[[str], XMLSchema], derivation: str) -> None:
     schema: Final = facet_schema(
-        f'<xs:simpleType name="item"><xs:restriction><xs:simpleType>{derivation}'
-        '</xs:simpleType><xs:maxLength value="3"/></xs:restriction></xs:simpleType><xs:element '
-        'name="root"><xs:complexType><xs:sequence><xs:element name="value" '
-        'type="item"/></xs:sequence><xs:attribute name="code" type="item"/></xs:complexType></xs:element>'
+        f'<xs:simpleType name="item">{derivation}</xs:simpleType>'
+        '<xs:complexType name="holder"><xs:simpleContent><xs:extension base="item"/></xs:simpleContent>'
+        '</xs:complexType><xs:element name="root"><xs:complexType><xs:sequence><xs:element name="value" type="item"/>'
+        '<xs:element name="held" type="holder"/></xs:sequence><xs:attribute name="code" type="item"/>'
+        "</xs:complexType></xs:element>"
     )
     assert [
-        schema.validate(parse_xml(f'<root code="{value}"><value>{value}</value></root>')).valid
-        for value in ("abc", "abcd")
-    ] == [True, False]
+        [error.path for error in schema.validate(parse_xml(document)).errors]
+        for document in (
+            '<root code="1"><value>2</value><held>3</held></root>',
+            '<root code="x"><value>2</value><held>3</held></root>',
+            '<root code="1"><value>x</value><held>3</held></root>',
+            '<root code="1"><value>2</value><held>x</held></root>',
+        )
+    ] == [[], ["/root"], ["/root/value"], ["/root/held"]]
+
+
+def test_union_reports_one_error_for_a_value_no_member_accepts() -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS}><xs:simpleType name="u"><xs:union memberTypes="xs:int xs:boolean xs:date"/></xs:simpleType>'
+        '<xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="a" type="u"/><xs:element name="b" type="xs:int"/><xs:element name="c" type="u"/>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    rejected: Final = schema.validate(parse_xml("<r><a>nope</a><b>x</b><c>true</c></r>"))
+    assert [(error.path, error.message) for error in rejected.errors] == [
+        ("/r/a", "value 'nope' is not valid for any member type of the union"),
+        ("/r/b", "value 'x' is not a valid int"),
+    ]
+    accepted: Final = schema.validate(parse_xml("<r><a>2020-01-01</a><b>1</b><c>true</c></r>"))
+    assert (accepted.valid, list(accepted.errors)) == (True, [])
+
+
+def test_list_reports_each_invalid_item() -> None:
+    result: Final = _variety('<xs:list itemType="xs:int"/>').validate(parse_xml("<v>1 x 2 y</v>"))
+    assert [error.message for error in result.errors] == [f"value '{item}' is not a valid int" for item in "xy"]
+
+
+def _union_chain(count: int, *, reverse: bool = False) -> str:
+    types: Final = [
+        f'<xs:simpleType name="u{index}"><xs:union memberTypes="u{index + 1}"/></xs:simpleType>'
+        for index in range(count - 1)
+    ]
+    types.append(f'<xs:simpleType name="u{count - 1}"><xs:union memberTypes="xs:int"/></xs:simpleType>')
+    return "".join(reversed(types) if reverse else types)
+
+
+def _union_ladder(rungs: int) -> str:
+    rungs_xml: Final[str] = "".join(
+        f'<xs:simpleType name="u{rung}"><xs:union memberTypes="u{rung - 1} u{rung - 1}"/></xs:simpleType>'
+        for rung in range(1, rungs + 1)
+    )
+    return f'<xs:simpleType name="u0"><xs:union memberTypes="xs:int xs:boolean"/></xs:simpleType>{rungs_xml}'
+
+
+@pytest.mark.parametrize(
+    ("declarations", "type_name"),
+    [
+        pytest.param(_union_chain(100), "u0", id="chain-of-100"),
+        pytest.param(_union_chain(100, reverse=True), "u0", id="chain-of-100-measured-from-its-end"),
+        pytest.param(_union_ladder(8), "u8", id="ladder-of-512"),
+    ],
+)
+def test_union_within_the_compile_limits(
+    facet_schema: Callable[[str], XMLSchema], declarations: str, type_name: str
+) -> None:
+    schema: Final = facet_schema(f'{declarations}<xs:element name="v" type="{type_name}"/>')
+    assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("7", "x")] == [True, False]
+
+
+_NESTED_TOO_DEEP: Final[str] = "simple type nests xs:list and xs:union definitions more than 100 deep"
+
+
+@pytest.mark.parametrize(
+    ("declarations", "message"),
+    [
+        pytest.param(
+            '<xs:simpleType name="t"><xs:list itemType="nope"/></xs:simpleType>',
+            "type 'nope' does not resolve to a declared type",
+            id="unresolved-item-type",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:union memberTypes="xs:int no:such"/></xs:simpleType>',
+            "type 'no:such' does not resolve to a declared type",
+            id="unresolved-member-type",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:union memberTypes="xs:int xs:madeUp"/></xs:simpleType>',
+            "type 'xs:madeUp' does not resolve to a declared type",
+            id="unknown-built-in-member-type",
+        ),
+        pytest.param(
+            '<xs:complexType name="c"/><xs:simpleType name="t"><xs:list itemType="c"/></xs:simpleType>',
+            "type 'c' does not resolve to a declared type",
+            id="complex-item-type",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:list/></xs:simpleType>',
+            "xs:list requires one item type: an itemType attribute or a simpleType child",
+            id="list-without-item-type",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:list itemType="xs:int xs:date"/></xs:simpleType>',
+            "xs:list requires one item type",
+            id="list-with-two-item-types",
+        ),
+        pytest.param(
+            f'<xs:simpleType name="t"><xs:list itemType="xs:int">{_AUTO}</xs:list></xs:simpleType>',
+            "xs:list requires one item type",
+            id="list-with-named-and-inline-item-type",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:union memberTypes=" "><xs:annotation/></xs:union></xs:simpleType>',
+            "xs:union requires a member type: a memberTypes attribute or a simpleType child",
+            id="union-without-member-type",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:union memberTypes="xs:int t"/></xs:simpleType>',
+            "circular simple type definition through xs:list or xs:union",
+            id="union-of-itself",
+        ),
+        pytest.param(
+            '<xs:simpleType name="t"><xs:list itemType="r"/></xs:simpleType>'
+            '<xs:simpleType name="r"><xs:restriction base="t"/></xs:simpleType>',
+            "circular simple type definition through xs:list or xs:union",
+            id="list-of-its-own-restriction",
+        ),
+        pytest.param(_union_chain(101), _NESTED_TOO_DEEP, id="chain-of-101"),
+        pytest.param(_union_chain(101, reverse=True), _NESTED_TOO_DEEP, id="chain-of-101-measured-from-its-end"),
+        pytest.param(
+            _union_ladder(9),
+            "simple type tries a value against more than 1000 union member types",
+            id="ladder-of-1024",
+        ),
+    ],
+)
+def test_list_and_union_rejected_at_compile(
+    facet_schema: Callable[[str], XMLSchema], declarations: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        facet_schema(declarations)
+
+
+_PAIR: Final[str] = (
+    '<xs:simpleType name="pair"><xs:restriction base="xs:NMTOKENS"><xs:maxLength value="2"/>'
+    "</xs:restriction></xs:simpleType>"
+)
+_INT_OR_NMTOKENS: Final[str] = (
+    '<xs:simpleType name="tokenOrInt"><xs:union memberTypes="xs:int xs:NMTOKENS"/></xs:simpleType>'
+)
+_PRESERVED_NMTOKENS: Final[str] = (
+    '<xs:simpleType name="kept"><xs:restriction base="xs:NMTOKENS"><xs:whiteSpace value="preserve"/>'
+    "</xs:restriction></xs:simpleType>"
+)
+
+
+@pytest.mark.parametrize(
+    ("declarations", "type_name", "value", "expected"),
+    [
+        pytest.param("", "xs:NMTOKENS", "x-1 y.2", True, id="nmtokens"),
+        pytest.param("", "xs:NMTOKENS", "  x\n 1  ", True, id="nmtokens-collapses"),
+        pytest.param("", "xs:NMTOKENS", "", False, id="nmtokens-needs-an-item"),
+        pytest.param("", "xs:NMTOKENS", "x 1!", False, id="nmtokens-item-rejects"),
+        pytest.param("", "xs:IDREFS", "a b", True, id="idrefs"),
+        pytest.param("", "xs:IDREFS", "a 1b", False, id="idrefs-item-is-an-ncname"),
+        pytest.param("", "xs:ENTITIES", "a:b", False, id="entities-item-is-an-ncname"),
+        pytest.param("", "xs:ENTITIES", " ", False, id="entities-needs-an-item"),
+        pytest.param(_PAIR, "pair", "a b", True, id="restricted-counts-items"),
+        pytest.param(_PAIR, "pair", "a b c", False, id="restricted-over-max-items"),
+        pytest.param(_INT_OR_NMTOKENS, "tokenOrInt", "7", True, id="union-member-int"),
+        pytest.param(_INT_OR_NMTOKENS, "tokenOrInt", "a b", True, id="union-member-nmtokens"),
+        pytest.param(_INT_OR_NMTOKENS, "tokenOrInt", "", False, id="union-member-nmtokens-needs-an-item"),
+        pytest.param(_PRESERVED_NMTOKENS, "kept", " a  b ", True, id="restricted-list-stays-collapsed"),
+    ],
+)
+def test_builtin_list_types(declarations: str, type_name: str, value: str, *, expected: bool) -> None:
+    schema: Final = XMLSchema(f'<xs:schema {_XS}>{declarations}<xs:element name="v" type="{type_name}"/></xs:schema>')
+    assert schema.is_valid(parse_xml(f"<v>{value}</v>")) is expected
+
+
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(60, id="beyond-the-base-depth-cutoff"),
+        pytest.param(150, id="long-chain"),
+    ],
+)
+def test_restriction_chain_of_a_list_checks_items(facet_schema: Callable[[str], XMLSchema], count: int) -> None:
+    links: Final[str] = "".join(
+        f'<xs:simpleType name="r{index}"><xs:restriction base="r{index - 1}"/></xs:simpleType>'
+        for index in range(1, count + 1)
+    )
+    schema: Final = facet_schema(
+        f'<xs:simpleType name="r0"><xs:list itemType="xs:int"/></xs:simpleType>{links}'
+        f'<xs:element name="v" type="r{count}"/>'
+    )
+    assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("1 2", "1 x")] == [True, False]
 
 
 def test_compiled_facets_with_schema_comments(facet_schema: Callable[[str], XMLSchema]) -> None:
@@ -4778,6 +5111,7 @@ _ANNOTATED_GROUP: Final[str] = (
         ),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">text</r>', True, id="simple-content-base-is-a-simple-type"),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">toolong</r>', False, id="simple-content-base-keeps-its-facet"),
+        pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">longer</r>', False, id="simple-content-base-facet-applies"),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x"><child/></r>', False, id="simple-content-rejects-a-child"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r/>", True, id="named-type-empty-complex-content"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r><x/></r>", False, id="named-type-empty-complex-content-child"),

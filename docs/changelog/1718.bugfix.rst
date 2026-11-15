@@ -1,0 +1,2 @@
+Keep :func:`~turbohtml.cssom.computed_style` fast on deeply nested documents in any call order, instead of restyling
+every ancestor on each call.

@@ -1199,6 +1199,24 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type) {
     Py_RETURN_NONE;
 }
 
+/* Live frames past which a call into Python finds a pinned node through one index instead of each frame's own map.
+   Common expressions stay below it and pay nothing for the index; nested predicates and operators can stack up to
+   XP_MAX_DEPTH frames, where probing every frame for every pinned node costs the depth over again. */
+#define XPATH_PIN_INDEX_FRAMES 16
+
+/* A wrapper the live frames pin and how many of them hold it; the slot outlives them, empty, for the next to pin. */
+typedef struct {
+    PyObject *wrapper;
+    size_t frames;
+} xpath_index_pin;
+
+typedef struct {
+    th_node_map nodes[2]; /* a node's owner, and a text node's parent */
+    xpath_index_pin *pins;
+    size_t len;
+    size_t cap;
+} xpath_pin_index;
+
 typedef struct xpath_ext_ctx {
     PyObject *extensions; /* {(None, name): callable}; only set when non-empty */
     PyObject *handle;
@@ -1212,6 +1230,7 @@ typedef struct xpath_ext_ctx {
     struct xpath_ext_ctx *previous;
     struct xpath_frame_pins **frames;
     size_t frame_count;
+    xpath_pin_index *index; /* every frame's pins, once the frames first reach XPATH_PIN_INDEX_FRAMES */
 } xpath_ext_ctx;
 
 typedef struct xpath_frame_pins {
@@ -1409,7 +1428,12 @@ static PyObject *xpath_retained_node(xpath_ext_ctx *ec, th_node *node, int paren
     if (index != 0) {
         return ec->retained[index - 1];
     }
+    if (ec->index != NULL) {
+        index = th_node_map_find(&ec->index->nodes[parent], node);
+        return index != 0 ? ec->index->pins[index - 1].wrapper : NULL;
+    }
     for (size_t frame = 0; frame < ec->frame_count; frame++) {
+        TH_WORK_STEP();
         xpath_ext_ctx *pins = &ec->frames[frame]->pins;
         index = th_node_map_find(parent ? &pins->text_parents : &pins->owners, node);
         if (index != 0) {
@@ -1426,6 +1450,100 @@ static PyObject *xpath_text_parent(xpath_ext_ctx *ec, th_node *node) {
 static PyObject *xpath_owned_node(xpath_ext_ctx *ec, th_node *node) {
     PyObject *owner = xpath_retained_node(ec, node, 0);
     return owner != NULL ? Py_NewRef(owner) : node_wrap(ec->state, ec->handle, node);
+}
+
+/* Count one more frame pinning node; the index keeps the wrapper while any frame does. */
+static int xpath_index_hold(xpath_pin_index *index, const th_node *node, int parent, PyObject *wrapper) {
+    Py_ssize_t slot = th_node_map_find(&index->nodes[parent], node);
+    if (slot == 0) {
+        if (index->len == index->cap) {
+            size_t capacity;
+            size_t bytes;
+            int grew = th_grow_cap(index->len + 1, index->cap, 8, sizeof(xpath_index_pin), &capacity, &bytes);
+            if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation size overflow */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+            xpath_index_pin *pins = PyMem_Realloc(index->pins, bytes);
+            if (pins == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+            index->pins = pins;
+            index->cap = capacity;
+        }
+        slot = (Py_ssize_t)index->len + 1;
+        if (th_node_map_insert(&index->nodes[parent], node, slot) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();                                            /* GCOVR_EXCL_LINE */
+            return -1;                                                   /* GCOVR_EXCL_LINE */
+        }
+        index->pins[index->len++] = (xpath_index_pin){0};
+    }
+    xpath_index_pin *pin = &index->pins[slot - 1];
+    if (pin->frames++ == 0) {
+        pin->wrapper = Py_NewRef(wrapper);
+    }
+    return 0;
+}
+
+/* Count every node a frame pins, each held by the wrapper its map's value names in the frame. */
+static int xpath_index_hold_frame(xpath_pin_index *index, const xpath_ext_ctx *pins) {
+    for (int parent = 0; parent < 2; parent++) {
+        const th_node_map *held = parent ? &pins->text_parents : &pins->owners;
+        for (size_t slot = 0; slot < held->capacity; slot++) {
+            const th_node_map_entry *entry = &held->entries[slot];
+            if (entry->node == NULL) {
+                continue;
+            }
+            int status = xpath_index_hold(index, entry->node, parent, pins->retained[entry->value - 1]);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;    /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return 0;
+}
+
+/* A frame's pins go away: uncount each node they held. */
+static void xpath_index_release_frame(xpath_pin_index *index, const xpath_ext_ctx *pins) {
+    for (int parent = 0; parent < 2; parent++) {
+        const th_node_map *held = parent ? &pins->text_parents : &pins->owners;
+        for (size_t slot = 0; slot < held->capacity; slot++) {
+            if (held->entries[slot].node == NULL) {
+                continue;
+            }
+            xpath_index_pin *pin = &index->pins[th_node_map_find(&index->nodes[parent], held->entries[slot].node) - 1];
+            if (--pin->frames == 0) {
+                Py_SETREF(pin->wrapper, NULL);
+            }
+        }
+    }
+}
+
+static void xpath_index_free(xpath_pin_index *index) {
+    for (size_t slot = 0; slot < index->len; slot++) {
+        Py_XDECREF(index->pins[slot].wrapper);
+    }
+    PyMem_Free(index->pins);
+    PyMem_Free(index->nodes[0].entries);
+    PyMem_Free(index->nodes[1].entries);
+    PyMem_Free(index);
+}
+
+/* The live frames reached XPATH_PIN_INDEX_FRAMES: index the pins of every frame still held. Every frame made from now
+   until the evaluation ends counts its own pins in the index too. */
+static int xpath_index_start(xpath_ext_ctx *ec) {
+    ec->index = PyMem_Calloc(1, sizeof(xpath_pin_index));
+    if (ec->index == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
+        return -1;           /* GCOVR_EXCL_LINE */
+    }
+    for (size_t index = 0; index < ec->frame_count; index++) {
+        if (xpath_index_hold_frame(ec->index, &ec->frames[index]->pins) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+            return -1;                                                         /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
 }
 
 static int xpath_capture_owner(void *context, th_node *node) {
@@ -1467,6 +1585,23 @@ static int xpath_capture_owner(void *context, th_node *node) {
     return 0;
 }
 
+/* xpath_capture_owner for a frame the evaluation's index counts: the wrappers it retains, the node's own and then a
+   text node's parent, are counted in the index as well. */
+static int xpath_capture_counted(void *context, th_node *node) {
+    xpath_ext_ctx *ec = context;
+    size_t taken = ec->retained_len;
+    if (xpath_capture_owner(ec, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                           /* GCOVR_EXCL_LINE */
+    }
+    for (size_t parent = 0; taken + parent < ec->retained_len; parent++) {
+        int held = xpath_index_hold(ec->previous->index, node, (int)parent, ec->retained[taken + parent]);
+        if (held < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;  /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
 static void xpath_extension_clear(xpath_ext_ctx *ec) {
     for (size_t index = 0; index < ec->retained_len; index++) {
         Py_DECREF(ec->retained[index]);
@@ -1484,6 +1619,86 @@ static void xpath_extension_clear(xpath_ext_ctx *ec) {
     PyMem_Free(ec->frames);
 }
 
+/* An evaluation ends: its context goes away, and with it the index its frames started, which still counts the pins of
+   the frames held at the end. */
+static void xpath_evaluation_clear(xpath_ext_ctx *ec) {
+    xpath_extension_clear(ec);
+    if (ec->index != NULL) {
+        xpath_index_free(ec->index);
+    }
+}
+
+/* Pin into current the nodes of one live frame: every node of a frame new since the last call (pins NULL), or the
+   results and appended nodes a frame the last call kept has gained since. */
+static inline int xpath_pin_frame(xpath_ext_ctx *ec, xpath_ext_ctx *current, const xp_live_frame *active,
+                                  xpath_frame_pins *pins, int (*capture)(void *, th_node *)) {
+    if (pins == NULL) {
+        pins = PyMem_Calloc(1, sizeof(xpath_frame_pins));
+        if (pins == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        pins->activation = xp_live_id(active);
+        pins->references = 1;
+        pins->pins = (xpath_ext_ctx){.handle = ec->handle, .state = ec->state, .tree = ec->tree, .previous = ec};
+        current->frames[current->frame_count++] = pins;
+        if (xp_visit_frame_nodes(active, capture, &pins->pins) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                                /* GCOVR_EXCL_LINE */
+        }
+        pins->pins.previous = NULL;
+        pins->appended = xp_live_append_count(active);
+        pins->results = xp_live_result_count(active);
+        return 0;
+    }
+    current->frames[current->frame_count++] = pins;
+    if (pins->results < xp_live_result_count(active)) {
+        pins->pins.previous = ec;
+        int visited = xp_visit_frame_results(active, pins->results, capture, &pins->pins);
+        pins->pins.previous = NULL;
+        if (visited < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;     /* GCOVR_EXCL_LINE */
+        }
+        pins->results = xp_live_result_count(active);
+    }
+    if (pins->appended < xp_live_append_count(active)) {
+        pins->pins.previous = ec;
+        int visited = xp_visit_frame_append(active, pins->appended, capture, &pins->pins);
+        pins->pins.previous = NULL;
+        if (visited < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;     /* GCOVR_EXCL_LINE */
+        }
+        pins->appended = xp_live_append_count(active);
+    }
+    return 0;
+}
+
+/* The pinning of xpath_before_python once the evaluation has an index: every pin counts in it, and since the held
+   frames run from the innermost out like the live ones and a frame entered later has the larger id, one pass over both
+   pairs them. A frame only the last call held is freed with it, so its pins stop counting. */
+static int xpath_pin_counted_frames(xpath_ext_ctx *ec, xpath_ext_ctx *current, const xp_live_frame *frame) {
+    size_t held = 0;
+    for (const xp_live_frame *active = frame; active != NULL; active = xp_live_previous(active)) {
+        while (held < ec->frame_count && ec->frames[held]->activation > xp_live_id(active)) {
+            TH_WORK_STEP();
+            held++;
+        }
+        xpath_frame_pins *pins = NULL;
+        if (held < ec->frame_count && ec->frames[held]->activation == xp_live_id(active)) {
+            pins = ec->frames[held];
+            pins->references++;
+        }
+        if (xpath_pin_frame(ec, current, active, pins, xpath_capture_counted) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                               /* GCOVR_EXCL_LINE */
+        }
+    }
+    for (size_t index = 0; index < ec->frame_count; index++) {
+        if (ec->frames[index]->references == 1) {
+            xpath_index_release_frame(ec->index, &ec->frames[index]->pins);
+        }
+    }
+    return 0;
+}
+
 static int xpath_before_python(void *context, const xp_live_frame *frame) {
     xpath_ext_ctx *ec = context;
     xpath_ext_ctx current = {
@@ -1492,66 +1707,42 @@ static int xpath_before_python(void *context, const xp_live_frame *frame) {
     for (const xp_live_frame *active = frame; active != NULL; active = xp_live_previous(active)) {
         count++;
     }
+    if (count >= XPATH_PIN_INDEX_FRAMES && ec->index == NULL) {
+        if (xpath_index_start(ec) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                   /* GCOVR_EXCL_LINE */
+        }
+    }
     current.frames = PyMem_Malloc(count * sizeof(xpath_frame_pins *));
     if (current.frames == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyErr_NoMemory();         /* GCOVR_EXCL_LINE */
         return -1;                /* GCOVR_EXCL_LINE */
     }
-    for (const xp_live_frame *active = frame; active != NULL; active = xp_live_previous(active)) {
-        xpath_frame_pins *pins = NULL;
-        for (size_t index = 0; index < ec->frame_count; index++) {
-            xpath_frame_pins *prior = ec->frames[index];
-            if (prior->activation == xp_live_id(active)) {
-                pins = prior;
-                pins->references++;
-                break;
-            }
+    if (ec->index != NULL) {
+        if (xpath_pin_counted_frames(ec, &current, frame) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            xpath_extension_clear(&current);                     /* GCOVR_EXCL_LINE */
+            return -1;                                           /* GCOVR_EXCL_LINE */
         }
-        if (pins == NULL) {
-            pins = PyMem_Calloc(1, sizeof(xpath_frame_pins));
-            if (pins == NULL) {                  /* GCOVR_EXCL_BR_LINE: allocation failure */
-                PyErr_NoMemory();                /* GCOVR_EXCL_LINE */
-                xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
-                return -1;                       /* GCOVR_EXCL_LINE */
-            }
-            pins->activation = xp_live_id(active);
-            pins->references = 1;
-            pins->pins = (xpath_ext_ctx){.handle = ec->handle, .state = ec->state, .tree = ec->tree, .previous = ec};
-            current.frames[current.frame_count++] = pins;
-            int visited = xp_visit_frame_nodes(active, xpath_capture_owner, &pins->pins);
-            if (visited < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
-                xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
-                return -1;                       /* GCOVR_EXCL_LINE */
-            }
-            pins->pins.previous = NULL;
-            pins->appended = xp_live_append_count(active);
-            pins->results = xp_live_result_count(active);
-        } else {
-            current.frames[current.frame_count++] = pins;
-            if (pins->results < xp_live_result_count(active)) {
-                pins->pins.previous = ec;
-                int visited = xp_visit_frame_results(active, pins->results, xpath_capture_owner, &pins->pins);
-                pins->pins.previous = NULL;
-                if (visited < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
-                    return -1;                       /* GCOVR_EXCL_LINE */
+    } else {
+        for (const xp_live_frame *active = frame; active != NULL; active = xp_live_previous(active)) {
+            xpath_frame_pins *pins = NULL;
+            for (size_t index = 0; index < ec->frame_count; index++) {
+                TH_WORK_STEP();
+                xpath_frame_pins *prior = ec->frames[index];
+                if (prior->activation == xp_live_id(active)) {
+                    pins = prior;
+                    pins->references++;
+                    break;
                 }
-                pins->results = xp_live_result_count(active);
             }
-            if (pins->appended < xp_live_append_count(active)) {
-                pins->pins.previous = ec;
-                int visited = xp_visit_frame_append(active, pins->appended, xpath_capture_owner, &pins->pins);
-                pins->pins.previous = NULL;
-                if (visited < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
-                    return -1;                       /* GCOVR_EXCL_LINE */
-                }
-                pins->appended = xp_live_append_count(active);
+            if (xpath_pin_frame(ec, &current, active, pins, xpath_capture_owner) < 0) { /* GCOVR_EXCL_BR_LINE */
+                xpath_extension_clear(&current); /* GCOVR_EXCL_LINE: allocation failure */
+                return -1;                       /* GCOVR_EXCL_LINE */
             }
         }
     }
     xpath_ext_ctx previous = *ec;
     current.previous = NULL;
+    current.index = previous.index;
     *ec = current;
     xpath_extension_clear(&previous);
     return 0;
@@ -1862,7 +2053,7 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
             xp_free(prog);
         }
     }
-    xpath_extension_clear(&ext_ctx);
+    xpath_evaluation_clear(&ext_ctx);
     Py_END_CRITICAL_SECTION();
     Py_XDECREF(extensions);
     Py_DECREF(handle);
@@ -1901,7 +2092,7 @@ static PyObject *xpath_run_program(module_state *state, PyObject *handle, th_nod
     if (status == 0) {
         out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
     }
-    xpath_extension_clear(&ext_ctx);
+    xpath_evaluation_clear(&ext_ctx);
     Py_END_CRITICAL_SECTION();
     Py_XDECREF(extensions);
     Py_DECREF(handle);

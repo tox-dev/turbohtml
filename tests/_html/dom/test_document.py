@@ -154,3 +154,17 @@ def test_reconstruct_copies_a_rooted_fragment_into_a_fragment() -> None:
     outer = _reconstruct(fragment, None, [_reconstruct(fragment, None, [Element("p", {}, [Text("x")])]), Element("b")])
     assert [type(child) for child in outer.children] == [DocumentFragment, Element]
     assert outer.html == "<p>x</p><b></b>"
+
+
+@pytest.mark.parametrize(
+    ("ns", "expected", "urls"),
+    [pytest.param(0, (5.0, "x"), ["x"], id="html"), pytest.param(1, None, [], id="svg")],
+)
+def test_meta_refresh_reads_only_an_html_meta(ns: int, expected: tuple[float, str] | None, urls: list[str]) -> None:
+    # the parser never nests a foreign <meta>, so only a rebuilt payload puts one under the document
+    meta = _reconstruct(_kind(Element("div")), ("meta", {"http-equiv": "refresh", "content": "5;url=x"}, ns), [])
+    head = _reconstruct(_kind(Element("div")), ("head", {}), [meta])
+    document = _reconstruct(_kind(parse("")), None, [_reconstruct(_kind(Element("div")), ("html", {}), [head])])
+    assert isinstance(document, Document)
+    assert document.meta_refresh() == expected
+    assert [link.url for link in document.links()] == urls

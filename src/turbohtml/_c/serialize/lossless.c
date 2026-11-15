@@ -16,9 +16,8 @@
 
 #include <string.h>
 
-/* Append the source code points [start, end) to the buffer, widening the borrowed
-   input to UCS-4. The three arms mirror the input's storage kind. */
-static void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize_t end) {
+/* The three arms mirror the input's storage kind. */
+void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize_t end) {
     Py_ssize_t len = end - start;
     sbuf_reserve(out, len);
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

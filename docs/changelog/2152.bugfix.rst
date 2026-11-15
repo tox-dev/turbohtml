@@ -1,0 +1,2 @@
+XSLT ``xsl:copy`` and ``xsl:copy-of`` now keep the namespace declarations in scope at the copied element, so prefixed
+names stay bound in the output.

@@ -22,14 +22,15 @@ both.
 leaves. The engine compiles a symbol table of the global declarations and then *interprets the schema tree directly*: it
 walks the instance element against its declaration, matching a content model with an NFA-style reachable-position set so
 repetition needs no backtracking, and resolving each leaf to a built-in datatype plus the facets gathered up its
-restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, so ``targetNamespace`` and
-``elementFormDefault="qualified"`` validate correctly. The compiler resolves each reference up front and raises
-:class:`ValueError` for a ``ref``, ``type``, or ``base`` that names no component, for a cycle through ``group``,
-``attributeGroup``, or complex-type derivation, for an identity constraint the validator does not enforce, for an
-``xs:all`` group outside a complex type's content model, for an ``xs:all`` that occurs more than once, and for an
-extension that adds particles to an ``xs:all`` content model, and for an ``xs:group`` whose ``xs:all``, ``xs:sequence``,
-or ``xs:choice`` declares ``minOccurs`` or ``maxOccurs``. A schema with such a gap fails to compile, so it cannot accept
-a document it was written to reject.
+restriction chain, or to the item type of an ``xs:list`` or the member types of an ``xs:union``. Namespaces resolve from
+the in-scope ``xmlns`` declarations, so ``targetNamespace`` and ``elementFormDefault="qualified"`` validate correctly.
+The compiler resolves each reference up front and raises :class:`ValueError` for a ``ref``, ``type``, ``base``,
+``itemType``, or ``memberTypes`` that names no component, for a cycle through ``group``, ``attributeGroup``, or
+complex-type derivation, for an identity constraint the validator does not enforce, for an ``xs:all`` group outside a
+complex type's content model, for an ``xs:all`` that occurs more than once, and for an extension that adds particles to
+an ``xs:all`` content model, and for an ``xs:group`` whose ``xs:all``, ``xs:sequence``, or ``xs:choice`` declares
+``minOccurs`` or ``maxOccurs``. A schema with such a gap fails to compile, so it cannot accept a document it was written
+to reject.
 
 **RELAX NG** is a pattern algebra -- ``element``, ``attribute``, ``group``, ``choice``, ``interleave``, ``oneOrMore``,
 ``text``, ``data``, ``value``, ``list``, and ``ref`` -- and it is validated by James Clark's *derivative* algorithm
