@@ -42,14 +42,10 @@ integration point, whose end tag is ignored under the open HTML child, or anothe
 also stays when its ``<ruby>`` or ``<select>`` is more than 512 levels up, deeper than the parser builds; and a value is
 unquoted only when no character could end or re-open it. The minified doctype keeps its public and system identifiers,
 since they choose the document mode, and in quirks mode a ``</p>`` before a ``<table>`` stays, because a quirks parse
-nests the table inside the open paragraph. The transforms that would *not* round-trip (deleting whitespace between block
-elements, or omitting a tag whose reparse changes nesting) are exactly the ones turbohtml declines to make.
-
-An unclosed formatting element is reopened in every block after it, and each copy carries the attributes of its one
-start tag. The writers draw those copied attributes on a budget: ``html``, ``serialize()``, ``to_source()``,
-``canonicalize()`` and the :class:`~turbohtml.Minify` layout fund it with the output written before the copy, and the
-Markdown writer funds its own with rendered text and start tags. A copy stops writing attributes at the first one the
-budget does not cover, so the output stays linear in the size of the input.
+nests the table inside the open paragraph. A doctype with an identifier HTML cannot spell (an XML system literal may
+hold a ``>``, which ends an HTML doctype) keeps only its name and, on a quirks page, a stray character that keeps the
+mode. The transforms that would *not* round-trip (deleting whitespace between block elements, or omitting a tag whose
+reparse changes nesting) are exactly the ones turbohtml declines to make.
 
 ***************************
  HTML vs XML serialization
