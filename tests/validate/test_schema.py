@@ -217,7 +217,7 @@ _UNION_NEST: Final[str] = (
     ("source", "document", "stack_kib"),
     [
         pytest.param(_xsd_content_nest("<xs:sequence>"), "<doc><a>x</a></doc>", 128, id="sequence"),
-        pytest.param(_xsd_content_nest("<xs:sequence>"), "<doc><a>x</a></doc>", 32, id="sequence-tiny-stack"),
+        pytest.param(_xsd_content_nest("<xs:sequence>"), "<doc><a>x</a></doc>", 16, id="sequence-tiny-stack"),
         pytest.param(_xsd_content_nest("<xs:choice>", "</xs:choice>"), "<doc><a>x</a></doc>", 128, id="choice"),
         pytest.param(
             _xsd_content_nest('<xs:sequence minOccurs="0" maxOccurs="unbounded">'),
@@ -225,7 +225,7 @@ _UNION_NEST: Final[str] = (
             128,
             id="repeated-sequence",
         ),
-        pytest.param(_UNION_NEST, "<doc>x</doc>", 32, id="union-tiny-stack"),
+        pytest.param(_UNION_NEST, "<doc>x</doc>", 16, id="union-tiny-stack"),
     ],
 )
 def test_deep_content_model_raises_or_validates_on_a_small_thread_stack(
@@ -235,7 +235,8 @@ def test_deep_content_model_raises_or_validates_on_a_small_thread_stack(
     # RecursionError before the stack ends; the outcome is a verdict or that error, never a crashed worker
     code = (
         "import sys, threading\nfrom turbohtml import parse_xml, validate\nsource = sys.stdin.read()\n"
-        f"threading.stack_size({stack_kib} * 1024)\n"
+        f"for kib in range({stack_kib}, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
         f"document = parse_xml({document!r})\n"
         "def run():\n    try:\n        print(validate.XMLSchema(source).validate(document).valid)\n"
         "    except RecursionError:\n        print('RecursionError')\n"

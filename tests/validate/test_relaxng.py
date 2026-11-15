@@ -3457,7 +3457,8 @@ def _run_on_small_stack(schema: str, document: str, stack_kib: int = 128) -> sub
     code: Final = (
         "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
         "data = json.load(sys.stdin)\n"
-        f"threading.stack_size({stack_kib} * 1024)\n"
+        f"for kib in range({stack_kib}, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
         "def run():\n    try:\n        print(RelaxNG(data['schema']).validate(parse_xml(data['xml'])).valid)\n"
         "    except RecursionError:\n        print('RecursionError')\n"
         "worker = threading.Thread(target=run)\n"
@@ -3487,7 +3488,7 @@ _ATTRIBUTE_GROUPS: Final[str] = "".join(f'<group><attribute name="x{index}"/>' f
     ("schema", "document", "stack_kib"),
     [
         pytest.param(wrap(f"{'<group>' * _DEEP}<text/>{'</group>' * _DEEP}"), "<doc>x</doc>", 128, id="group-text"),
-        pytest.param(wrap(f"{'<group>' * 50}<text/>{'</group>' * 50}"), "<doc>x</doc>", 32, id="group-text-tiny-stack"),
+        pytest.param(wrap(f"{'<group>' * 50}<text/>{'</group>' * 50}"), "<doc>x</doc>", 16, id="group-text-tiny-stack"),
         pytest.param(
             wrap(f"{'<group>' * _DEEP}{_GROUP_OF_A * _DEEP}{_LEAF_B}"),
             "<doc><a/></doc>",
@@ -3503,7 +3504,7 @@ _ATTRIBUTE_GROUPS: Final[str] = "".join(f'<group><attribute name="x{index}"/>' f
         pytest.param(
             wrap(f"{_CHOICE_BRANCHES}{_LEAF_B}{'</choice>' * _DEEP}"),
             "<doc><a0/></doc>",
-            32,
+            16,
             id="choice-elements-tiny-stack",
         ),
         pytest.param(
@@ -3513,33 +3514,33 @@ _ATTRIBUTE_GROUPS: Final[str] = "".join(f'<group><attribute name="x{index}"/>' f
             id="one-or-more-element",
         ),
         pytest.param(
-            wrap(f"<oneOrMore><group>{'<group>' * 44}{'<text/>' * 300}{'</group>' * 45}</oneOrMore>"),
+            wrap(f"<oneOrMore><group>{'<group>' * 59}{'<text/>' * 300}{'</group>' * 60}</oneOrMore>"),
             "<doc>xy xy xy</doc>",
             128,
             id="one-or-more-wide-nest",
         ),
         pytest.param(
-            wrap(f"<oneOrMore><group>{'<group>' * 44}{'<text/>' * 300}{'</group>' * 45}</oneOrMore>"),
+            wrap(f"<oneOrMore><group>{'<group>' * 59}{'<text/>' * 300}{'</group>' * 60}</oneOrMore>"),
             "<doc>xy xy xy</doc>",
-            32,
+            16,
             id="one-or-more-wide-nest-tiny-stack",
         ),
         pytest.param(
             wrap(f'{_INTERLEAVE_BRANCHES}<attribute name="q"/>{"</interleave>" * _DEEP}'),
             '<doc q="1"><a0/></doc>',
-            32,
+            16,
             id="interleave-attribute-tiny-stack",
         ),
         pytest.param(
             wrap(f"{'<group>' * 40}{_LEAF_A * 300}{'</group>' * 40}"),
             "<doc><a/></doc>",
-            32,
+            16,
             id="group-elements-tiny-stack",
         ),
         pytest.param(
             wrap(f"{_ATTRIBUTE_GROUPS}<empty/>{'</group>' * 50}"),
             '<doc x0="1"/>',
-            32,
+            16,
             id="attribute-groups-tiny-stack",
         ),
         pytest.param(
@@ -3554,7 +3555,7 @@ _ATTRIBUTE_GROUPS: Final[str] = "".join(f'<group><attribute name="x{index}"/>' f
                 f"{'(' * 240}a{')' * 240}</param></data>"
             ),
             "<doc>a</doc>",
-            32,
+            16,
             id="pattern-groups-tiny-stack",
         ),
     ],
