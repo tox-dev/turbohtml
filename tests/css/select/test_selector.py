@@ -1759,6 +1759,13 @@ def test_closest_dir_resolves_each_auto_ancestor(html: str) -> None:
     assert closest.attrs.get("id") == "o"
 
 
+def test_closest_dir_reads_disabled_in_the_same_walk() -> None:
+    span = parse("<fieldset disabled><div id=o dir=auto>א<input><span></span></div></fieldset>").select("span")[0]
+    closest = span.closest(":dir(rtl):has(> input:disabled)")
+    assert closest is not None
+    assert closest.attrs.get("id") == "o"
+
+
 def test_closest_dir_takes_a_known_strong_answer_for_the_outer_element() -> None:
     span = parse("<div dir=auto>1<p dir=auto>א<span></span></p>x</div>").select("span")[0]
     assert span.closest("div:dir(ltr)") is None

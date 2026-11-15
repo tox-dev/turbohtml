@@ -1124,6 +1124,10 @@ static int sel_is_has_pseudo(int pseudo) {
     return pseudo == PSEUDO_HAS;
 }
 
+static int sel_is_dir_pseudo(int pseudo) {
+    return pseudo == PSEUDO_DIR;
+}
+
 static int sel_is_legend_pseudo(int pseudo) {
     return pseudo == PSEUDO_DISABLED || pseudo == PSEUDO_ENABLED || pseudo == PSEUDO_READ_ONLY ||
            pseudo == PSEUDO_READ_WRITE;
@@ -1152,6 +1156,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     }
     compiled->has_relational = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_has_pseudo);
     compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
+    compiled->reads_dir = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_dir_pseudo);
     return compiled;
 }
 
