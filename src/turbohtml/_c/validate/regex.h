@@ -10,6 +10,8 @@
 #ifndef TURBOHTML_VALIDATE_REGEX_H
 #define TURBOHTML_VALIDATE_REGEX_H
 
+#include "core/work_steps.h"
+
 #include "data/xsd_digit_table.h"
 #include "data/xsd_category_table.h"
 #include "data/xsd_block_table.h"
@@ -832,19 +834,52 @@ typedef struct rpattern {
     rstate *start;
     size_t count;
     int has_extended;
-    struct rpattern *next;
+    int duplicate; /* an earlier pattern of the schema has the same text and holds the compiled form */
 } rpattern;
 
-static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t len) {
-    for (rpattern *cached = schema->regex_patterns; cached != NULL; cached = cached->next) {
-        if (u_eq_u(text, len, cached->text, cached->len)) {
-            return 0;
+/* A total order on pattern texts. The schema's distinct patterns are sorted by it once, so looking one up by its text
+   is a binary search: a linear scan made a type with P pattern facets cost P * P steps for every value it checked. */
+static int rx_text_order(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
+    if (left_len != right_len) {
+        return left_len < right_len ? -1 : 1;
+    }
+    return left_len == 0 ? 0 : memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4));
+}
+
+/* Equal texts order by position in regex_patterns, so each run of duplicates opens with the first in document order. */
+static int rpattern_order(const void *left, const void *right) {
+    const rpattern *first = *(const rpattern *const *)left;
+    const rpattern *second = *(const rpattern *const *)right;
+    const int order = rx_text_order(first->text, first->len, second->text, second->len);
+    return order != 0 ? order : (first > second) - (first < second);
+}
+
+static int regex_cache_push(th_schema *schema, const Py_UCS4 *text, Py_ssize_t len) {
+    if (schema->regex_count == schema->regex_cap) {
+        size_t capacity, bytes;
+        const int fits =
+            th_grow_cap(schema->regex_count + 1, schema->regex_cap, 8, sizeof(rpattern), &capacity, &bytes);
+        if (!fits) {          /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
         }
+        rpattern *patterns = arena_alloc(&schema->mem, bytes);
+        if (patterns == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;          /* GCOVR_EXCL_LINE */
+        }
+        if (schema->regex_count > 0) {
+            memcpy(patterns, schema->regex_patterns, schema->regex_count * sizeof(rpattern));
+        }
+        schema->regex_patterns = patterns;
+        schema->regex_cap = capacity;
     }
-    rpattern *pattern = arena_alloc(&schema->mem, sizeof(*pattern));
-    if (pattern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;         /* GCOVR_EXCL_LINE */
-    }
+    schema->regex_patterns[schema->regex_count++] = (rpattern){.text = text, .len = len};
+    return 0;
+}
+
+static int regex_cache_add(th_schema *schema, rpattern *pattern) {
+    const Py_UCS4 *text = pattern->text;
+    const Py_ssize_t len = pattern->len;
     rparser parser = {.pattern = text, .len = len, .mem = &schema->mem};
     rnode *ast = rx_parse_alt(&parser);
     if (!parser.failed && parser.pos < len) {
@@ -917,25 +952,21 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
                      RX_MAX_STATES);
         return -1;
     }
-    pattern->text = text;
-    pattern->len = len;
     pattern->start = start;
     pattern->has_extended = parser.has_extended;
     pattern->count = compiler.count;
     if (compiler.count > schema->regex_max_states) {
         schema->regex_max_states = compiler.count;
     }
-    pattern->next = schema->regex_patterns;
-    schema->regex_patterns = pattern;
     return 0;
 }
 
-static int regex_cache_schema(th_schema *schema, th_node *node) {
+static int regex_cache_collect(th_schema *schema, th_node *node) {
     if (schema->kind == 0 && is_schema_el(schema, node, XSD_NS, "pattern")) {
         const th_node_attr *value = attr_exact(schema->tree, node, "value", 5);
         if (value != NULL) {
-            if (regex_cache_add(schema, value->value, value->value_len) < 0) {
-                return -1;
+            if (regex_cache_push(schema, value->value, value->value_len) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;                                                      /* GCOVR_EXCL_LINE */
             }
         }
     } else if (schema->kind != 0 && is_schema_el(schema, node, RNG_NS, "param")) {
@@ -946,21 +977,62 @@ static int regex_cache_schema(th_schema *schema, th_node *node) {
             if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
                 return -1;          /* GCOVR_EXCL_LINE: allocation failure */
             }
-            if (regex_cache_add(schema, text, len) < 0) {
-                return -1;
+            if (regex_cache_push(schema, text, len) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;                                 /* GCOVR_EXCL_LINE */
             }
         }
     }
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_ELEMENT) {
-            if (regex_cache_schema(schema, child) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-                return -1;                               /* GCOVR_EXCL_LINE */
+            if (regex_cache_collect(schema, child) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;                                /* GCOVR_EXCL_LINE */
             }
         } else if (is_chardata(child) && child->text_len > 0) {
             /* Lazy definitions must not realize shared schema spans during validation. */
             if (th_node_realize_text(schema->tree, child) == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 return -1;                                           /* GCOVR_EXCL_LINE */
             }
+        }
+    }
+    return 0;
+}
+
+/* Compile each distinct pattern of the schema once. The walk lists the patterns in document order; sorting pointers to
+   them brings equal texts together, and the first of each run is compiled, still in document order so the schema's
+   first invalid pattern is the one reported. The sorted pointers that remain are what regex_full_match searches. */
+static int regex_cache_schema(th_schema *schema, th_node *node) {
+    if (regex_cache_collect(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        return -1;                               /* GCOVR_EXCL_LINE */
+    }
+    if (schema->regex_count == 0) {
+        return 0;
+    }
+    rpattern **sorted = arena_alloc(&schema->mem, schema->regex_count * sizeof(rpattern *));
+    if (sorted == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    for (size_t index = 0; index < schema->regex_count; index++) {
+        sorted[index] = &schema->regex_patterns[index];
+    }
+    qsort(sorted, schema->regex_count, sizeof(rpattern *), rpattern_order);
+    size_t distinct = 1;
+    for (size_t index = 1; index < schema->regex_count; index++) {
+        const rpattern *kept = sorted[distinct - 1];
+        if (rx_text_order(kept->text, kept->len, sorted[index]->text, sorted[index]->len) == 0) {
+            sorted[index]->duplicate = 1;
+        } else {
+            sorted[distinct++] = sorted[index];
+        }
+    }
+    schema->regex_sorted = sorted;
+    schema->regex_distinct = distinct;
+    for (size_t index = 0; index < schema->regex_count; index++) {
+        if (schema->regex_patterns[index].duplicate) {
+            continue;
+        }
+        TH_WORK_STEP();
+        if (regex_cache_add(schema, &schema->regex_patterns[index]) < 0) {
+            return -1;
         }
     }
     return 0;
@@ -1060,12 +1132,28 @@ static Py_NO_INLINE rlist rx_match_regular(rscratch *scratch, rlist current, rli
     return current;
 }
 
+static const rpattern *regex_cache_find(const th_schema *schema, const Py_UCS4 *text, Py_ssize_t len) {
+    size_t low = 0, high = schema->regex_distinct;
+    while (low < high) { /* GCOVR_EXCL_BR_LINE: the pattern is always present, so the loop exits by return */
+        const size_t middle = low + (high - low) / 2;
+        const rpattern *pattern = schema->regex_sorted[middle];
+        TH_WORK_STEP();
+        const int order = rx_text_order(pattern->text, pattern->len, text, len);
+        if (order == 0) {
+            return pattern;
+        }
+        if (order < 0) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return NULL; /* GCOVR_EXCL_LINE: regex_cache_schema compiled every facet's pattern, so the search never misses */
+}
+
 static int regex_full_match(th_schema *schema, const Py_UCS4 *text, Py_ssize_t text_len, const Py_UCS4 *value,
                             Py_ssize_t len) {
-    const rpattern *pattern = schema->regex_patterns;
-    while (!u_eq_u(text, text_len, pattern->text, pattern->len)) {
-        pattern = pattern->next;
-    }
+    const rpattern *pattern = regex_cache_find(schema, text, text_len);
     rscratch *scratch = rx_scratch(schema);
     if (scratch == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM; validate() raises the MemoryError */
         return 0;          /* GCOVR_EXCL_LINE: fail closed, the value does not match */

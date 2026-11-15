@@ -3528,6 +3528,29 @@ def test_transform_import_reports_malformed_file(tmp_path: Path, confinement: Ca
         Transform(_import_sheet("imported.xsl"), base_url=str(tmp_path / "main.xsl"), import_root=confinement(tmp_path))
 
 
+_OVERLONG: Final[str] = "dir/" * (32_767 // 4 + 1)
+
+
+@pytest.mark.parametrize(
+    ("href", "base_url"),
+    [
+        pytest.param(f"{_OVERLONG}base.xsl", "main.xsl", id="href"),
+        pytest.param("base.xsl", f"{_OVERLONG}main.xsl", id="base_url"),
+    ],
+)
+@pytest.mark.parametrize("confinement", _IMPORT_CONFINEMENT)
+def test_transform_import_rejects_overlong_path(
+    tmp_path: Path, href: str, base_url: str, confinement: Callable[[Path], Path | None]
+) -> None:
+    with pytest.raises(OSError, match="too long"):
+        Transform(_import_sheet(href), base_url=str(tmp_path / base_url), import_root=confinement(tmp_path))
+
+
+def test_transform_import_rejects_overlong_root(tmp_path: Path) -> None:
+    with pytest.raises(OSError, match="too long"):
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path / _OVERLONG)
+
+
 def test_transform_import_rejects_malformed_url() -> None:
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         Transform(_import_sheet(), base_url="http://[")

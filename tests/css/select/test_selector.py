@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 
-from turbohtml import Document, Element, SelectorSyntaxError, parse, parse_xml
+from turbohtml import Document, Element, SelectorSyntaxError, Text, parse, parse_xml
 from turbohtml.clean import linkify_node
 
 if TYPE_CHECKING:
@@ -879,22 +879,25 @@ def _chain_grown_after_query(depth: int) -> Element:
     return root
 
 
-def test_has_memo_links_nested_by_linkify(work_steps: WorkSteps) -> None:
-    document: Final = _links_nested_by_linkify(_NESTED_DEPTH)
-    assert len(document.select("a:has(a)")) == _NESTED_DEPTH - 1
-    assert document.select("a:has(entry)") == []
+def test_has_memo_deep_chain_linkified(work_steps: WorkSteps) -> None:
+    document: Final = _deep_chain_linkified(_NESTED_DEPTH)
+    assert len(document.select("span:has(a)")) == _NESTED_DEPTH
+    assert document.select("span:has(entry)") == []
     work_steps.assert_linear(
-        lambda size: partial(_links_nested_by_linkify(size).select, "a:has(entry)"), (1000, _NESTED_DEPTH)
+        lambda size: partial(_deep_chain_linkified(size).select, "span:has(entry)"), (1000, _NESTED_DEPTH)
     )
 
 
-def _links_nested_by_linkify(depth: int) -> Document:
-    document: Final = parse("<p>https://example.com</p>")
-    owner = document.find("p")
+def _deep_chain_linkified(depth: int) -> Document:
+    document: Final = parse("<p>shallow</p>")
+    innermost = document.find("body")
+    assert innermost is not None
     for _ in range(depth):
-        assert owner is not None
-        linkify_node(owner)
-        owner = owner.find("a")
+        child = Element("span")
+        innermost.append(child)
+        innermost = child
+    innermost.append(Text("see https://example.com"))
+    linkify_node(innermost)
     return document
 
 
@@ -1815,6 +1818,22 @@ def test_ui_pseudo_coverage_cases(html: str, selector: str, ids: list[str]) -> N
             ["b"],
             id="fieldset-messy-children-legend-exempt",
         ),
+        # only the first legend is exempt, and every control below a legend shares its answer
+        pytest.param(
+            "<fieldset disabled><legend><input id=a><input id=b></legend>t<legend><input id=c><input id=d></legend>"
+            "</fieldset>",
+            "input:disabled",
+            ["c", "d"],
+            id="fieldset-later-legend-not-exempt",
+        ),
+        # each disabled fieldset up the chain is asked about the child the control sits under
+        pytest.param(
+            "<fieldset disabled><legend><fieldset disabled><legend><input id=a></legend><input id=b></fieldset>"
+            "</legend><div><legend><input id=c></legend></div></fieldset>",
+            "input:disabled",
+            ["b", "c"],
+            id="fieldset-nested-legend-chain",
+        ),
         # :lang() argument quoting and edge ranges
         pytest.param("<span lang id=x>v</span>", ":lang(en)", [], id="lang-valueless-attr"),
         pytest.param('<span lang="en" id=x>v</span>', ':lang("en")', ["x"], id="lang-double-quoted"),
@@ -1832,6 +1851,23 @@ def test_ui_pseudo_coverage_cases(html: str, selector: str, ids: list[str]) -> N
 )
 def test_pseudo_branch_coverage(html: str, selector: str, ids: list[str]) -> None:
     assert _ids(html, selector) == ids
+
+
+def test_disabled_fieldset_legend_single_match() -> None:
+    document = parse("<fieldset disabled><legend><input id=a></legend><legend><input id=b></legend></fieldset>")
+    first, later = document.select("input")
+    assert (first.matches(":enabled"), later.matches(":enabled")) == (True, False)
+
+
+# Controls beside a late legend are disabled and controls inside it are not. Finding the legend among the fieldset's
+# children once per control is quadratic in the fieldset's width; one memoized pass per legend is linear.
+def test_disabled_fieldset_late_legend_scales_linearly(work_steps: WorkSteps) -> None:
+    def build(width: int) -> Callable[[], list[Element]]:
+        document = parse(f"<fieldset disabled>{'<input>' * width}<legend>{'<input>' * width}</legend></fieldset>")
+        return lambda: document.select("input:enabled")
+
+    assert len(build(3)()) == 3
+    work_steps.assert_linear(build, (500, 2000))
 
 
 def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:

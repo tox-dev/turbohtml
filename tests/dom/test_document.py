@@ -1054,6 +1054,46 @@ def test_pickled_shadow_root_is_a_shadow_root(mode: str) -> None:
     assert (clone.mode, clone.html, clone.host.html) == (mode, "<b></b>", '<div id="h">light</div>')
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<r><a/><b><c/><d/></b><e/></r>", id="largest-in-the-middle"),
+        pytest.param("<r><b><c/><d/></b><a/></r>", id="largest-first"),
+        pytest.param("<r><a/><b><c/><d/></b></r>", id="largest-last"),
+        pytest.param("<r><a><c/></a><b><c/></b></r>", id="equal-sizes"),
+        pytest.param('<R K="v">t<A><B/>u</A><?p d?><A><B><C/><![CDATA[w]]></B></A><!--n--></R>', id="mixed-nodes"),
+    ],
+)
+def test_pickled_siblings_keep_their_order_around_the_largest(markup: str) -> None:
+    root = _element(parse_xml(markup).root)
+    clone = _roundtrip(root)
+    assert clone.parent is None
+    assert clone.equals(root)
+    assert clone.html == root.html
+
+
+_NESTED_TEMPLATES: Final[str] = '<template><section><p id="a">x</p></section>t<template><b>y</b></template></template>'
+
+
+def test_pickled_template_keeps_its_contents_off_the_tree_root() -> None:
+    template = _element(parse(_NESTED_TEMPLATES).select_one("template"))
+    clone = _element(_roundtrip(template))
+    contents = clone.children[0]
+    assert isinstance(contents, DocumentFragment)
+    assert (clone.parent, contents.parent, clone.html) == (None, clone, template.html)
+    paragraph = _element(_element(contents.children[0]).children[0])
+    assert (paragraph.css_path(), paragraph.xpath("/*")) == ("section > p", [])
+
+
+def test_pickled_fragment_is_the_root_of_its_tree() -> None:
+    contents = _element(parse(_NESTED_TEMPLATES).select_one("template")).children[0]
+    clone = _roundtrip(contents)
+    assert isinstance(clone, DocumentFragment)
+    assert (clone.parent, clone.html) == (None, contents.html)
+    section = _element(clone.children[0])
+    assert (_element(section.children[0]).css_path(), section.xpath("/*")) == ("#a", [section, clone.children[2]])
+
+
 def test_pickled_xml_document_round_trips() -> None:
     document = parse_xml('<R a="1"><Q/>t</R>')
     assert _roundtrip(document).equals(document)

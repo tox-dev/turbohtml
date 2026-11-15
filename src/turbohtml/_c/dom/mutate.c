@@ -1256,6 +1256,7 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
 
 /* Copy one node without its children, materializing borrowed text and re-interning per-tree attribute atoms. */
 th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node) {
+    TH_WORK_STEP();
     th_node *node = node_new(dest, src_node->type);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1447,6 +1448,14 @@ th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
         }
     }
     return copy;
+}
+
+uint32_t th_tree_node_count(const th_tree *tree) {
+    return tree->node_seq;
+}
+
+void th_tree_set_document(th_tree *tree, th_node *document) {
+    tree->document = document;
 }
 
 th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks) {

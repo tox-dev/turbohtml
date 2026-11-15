@@ -193,7 +193,7 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
     HandleObject *handle_obj = (HandleObject *)handle;
     sel_ctx ctx = {
         compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-        &default_memo,  &memo};
+        &default_memo,  &memo,  &memo.table};
     if (selector_use_index(handle_obj, origin, compiled)) {
         Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
         for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -399,7 +399,8 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
                 if (!node_owned_by(candidate, handle)) {
                     break;
                 }
-                sel_ctx ctx = {compiled->tree, candidate->node, compiled->quirks, NULL, NULL, NULL, memo};
+                sel_ctx ctx = {compiled->tree, candidate->node,    compiled->quirks, NULL, NULL, NULL,
+                               memo,           &sibling_memo.table};
                 int matched = selector_matches_c(candidate->node, compiled, &ctx);
                 results[index] = (unsigned char)matched;
                 matched_count += matched;
@@ -881,7 +882,7 @@ retry:;
         const sel_simple *single = sel_single_simple(compiled);
         sel_ctx ctx = {
             compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-            &default_memo,  &memo};
+            &default_memo,  &memo,  &memo.table};
         if (selector_use_index(handle_obj, origin, compiled)) {
             Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
             for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -2513,7 +2514,7 @@ retry:;
         const sel_simple *single = sel_single_simple(compiled);
         sel_ctx ctx = {
             compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-            &default_memo,  &memo};
+            &default_memo,  &memo,  &memo.table};
         for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
             if (node->type != TH_NODE_ELEMENT) {
                 continue;
@@ -2616,7 +2617,7 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
     sel_sibling_memo memo = {0}; /* shared across the walk so :has() and ~ memoize their scans */
     sel_ctx ctx = {
         compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-        &default_memo,  &memo};
+        &default_memo,  &memo,  &memo.table};
     int result = 0;
     for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
         if (node->type != TH_NODE_ELEMENT) {
