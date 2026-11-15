@@ -3578,8 +3578,8 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
 
 def test_rng_routed_chain_on_small_thread_stack_raises_or_validates() -> None:
     # the wide choice costs its event more than the free steps, so the next event builds the routes from the root, one
-    # build per chained define; on a small thread a long enough chain runs that build out of stack
-    result: Final = _run_on_small_stack(_routed_chain(30), "<root><w5/><leaf/></root>", stack_kib=32)
+    # build per chained define; a 100-define chain overruns a 32 KiB thread, so the build reaches the stack floor
+    result: Final = _run_on_small_stack(_routed_chain(100), "<root><w5/><leaf/></root>", stack_kib=32)
     assert result.returncode == 0, result.stderr
     assert result.stdout in {"True\n", "RecursionError\n"}, result.stderr
 
