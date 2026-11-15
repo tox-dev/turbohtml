@@ -2089,6 +2089,12 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
     if (inline_types->first[XSD_COMPLEX_TYPE] != NULL) {
         xsd_validate_complex(ctx, instance, inline_types->first[XSD_COMPLEX_TYPE], frame);
     } else if (inline_types->first[XSD_SIMPLE_TYPE] != NULL) {
+        for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
+            if (child->type == TH_NODE_ELEMENT) {
+                report(ctx, child, "structure", "simple-typed element must not contain child elements");
+                break;
+            }
+        }
         Py_ssize_t text_len = 0;
         const Py_UCS4 *text = element_text(ctx, instance, &text_len);
         xsd_validate_simple(ctx, instance, DT_STRING, inline_types->first[XSD_SIMPLE_TYPE], text, text_len);

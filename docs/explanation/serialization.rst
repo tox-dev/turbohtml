@@ -327,5 +327,7 @@ explicit ``<tbody>``) reproduces exactly; a fragment reproduces through its chil
 itself performs are not reversible from the tree and so are not preserved: a lowercase ``<!doctype html>`` re-emits as
 ``<!DOCTYPE html>``, and a character reference the tokenizer resolved re-emits in its canonical spelling (``&amp;``,
 ``&lt;``, ``&gt;``, ``&nbsp;``, and a carriage return as ``&#13;`` survive, since the escaper re-encodes them; a legacy
-or numeric reference becomes its character). Where every byte must survive an error-recovering or reordering parse,
-reach for the streaming rewriter, which sees the token stream the tree has already discarded.
+or numeric reference becomes its character). A text run whose source bytes hold a literal ``<`` or ``&`` -- a CDATA
+section in SVG or MathML, a stray ``<`` -- likewise re-emits escaped rather than copied, so text never comes back as
+markup whatever an edit leaves around it. Where every byte must survive an error-recovering or reordering parse, reach
+for the streaming rewriter, which sees the token stream the tree has already discarded.
