@@ -1614,8 +1614,9 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
     /* the usual shape settles at a glance: a star run after a space or a line start,
        around content that starts and ends with an ordinary character, opens (it cannot
        close) and its close closes, and with equal runs on both sides the rule of 3 never
-       applies */
-    if (delimiter == '*' && md_edge(data[marker->open_at + open_len]) == 0 && md_edge(data[close_at - 1]) == 0 &&
+       applies; a run that nothing was written after has no first character to read */
+    if (delimiter == '*' && marker->open_at + open_len < close_at && md_edge(data[marker->open_at + open_len]) == 0 &&
+        md_edge(data[close_at - 1]) == 0 &&
         (marker->open_at == 0 || md_edge(data[marker->open_at - 1]) == MD_EDGE_SPACE)) {
         return;
     }
@@ -2673,13 +2674,9 @@ static int md_attr_has_space_run(const Py_UCS4 *value, Py_ssize_t len) {
     return 0;
 }
 
-/* Alt text the prose writer would copy unchanged is written as one run. Empty alt text
-   leaves a reference open across the image, which the prose writer would close. A digit
-   only matters as the first character, where it may start a line-numbered list item. */
+/* Alt text the prose writer would copy unchanged is written as one run. A digit only
+   matters as the first character, where it may start a line-numbered list item. */
 static int md_alt_is_plain(const md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len) {
-    if (alt_len == 0) {
-        return 1;
-    }
     if (is_ascii_digit(alt[0]) || ctx->opt->transliterate || ctx->opt->wrap_width > 0 || ctx->amp_open ||
         ctx->line_number_start > 0) {
         return 0;
@@ -2699,6 +2696,9 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     }
     Py_ssize_t alt_len;
     const Py_UCS4 *alt = md_attr(ctx->tree, node, "alt", &alt_len);
+    if (opt->image_mode == TH_MD_IMAGE_ALT && (alt != NULL ? alt_len == 0 : *opt->default_image_alt == '\0')) {
+        return; /* no alt text to write, so nothing visible follows: a pending run must not open for it */
+    }
     if (opt->image_mode == TH_MD_IMAGE_ALT && alt != NULL) {
         /* with no brackets around it the alt text joins the prose, and a reader parses it as it does any text */
         if (md_alt_is_plain(ctx, alt, alt_len)) {
@@ -2966,7 +2966,9 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
             if (!marker->emitted || marker->node == NULL) {
                 continue;
             }
-            if (md_edge(ctx->out.data[marker->open_at + marker->open_len]) == MD_EDGE_SPACE) {
+            /* a <q> with an empty quote_open opens the run and writes nothing, so the run may still end the output */
+            if (marker->open_at + marker->open_len < ctx->out.len &&
+                md_edge(ctx->out.data[marker->open_at + marker->open_len]) == MD_EDGE_SPACE) {
                 sbuf_puts(&ctx->out, "<br>");
                 ctx->line_has_content = 1;
                 return;

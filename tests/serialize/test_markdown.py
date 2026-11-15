@@ -4165,7 +4165,7 @@ def test_text_after_html_block_stays_text(html: str, config: Markdown) -> None:
         pytest.param(
             "<p><b><img><br>x</b></p>",
             Markdown(images=Markdown.Images(mode="alt")),
-            "**\\\nx**",
+            "\\\n**x**",
             id="break-after-empty-image-in-emphasis",
         ),
         pytest.param("<p><i><br><br></i><br>q</p>", Markdown(), "<br><br>  \nq", id="spaces-after-two-tags"),
@@ -4834,6 +4834,51 @@ def test_alt_only_image_text_on_detached_inline_element() -> None:
 def test_alt_only_image_text_follows_escaping_mode() -> None:
     opts: Final = Markdown(images=Markdown.Images(mode="alt"), escaping=Markdown.Escaping(mode="none"))
     assert parse('<p><img alt="[a] &lt;b&gt;"></p>').to_markdown(opts) == "[a] <b>"
+
+
+@pytest.mark.parametrize(
+    ("html", "opts", "expected"),
+    [
+        pytest.param("<strong><img></strong>", Markdown(images=Markdown.Images(mode="alt")), "", id="image-no-alt"),
+        pytest.param(
+            "<strong><img><br>z</strong>",
+            Markdown(images=Markdown.Images(mode="alt")),
+            "  \n**z**",
+            id="image-no-alt-break",
+        ),
+        pytest.param(
+            "<strong><img></strong>",
+            Markdown(images=Markdown.Images(mode="alt", default_alt="pic")),
+            " **pic**",
+            id="image-default-alt",
+        ),
+        pytest.param(
+            "<em><q></q></em>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="")),
+            " <em></em>",
+            id="quote-no-marks",
+        ),
+        pytest.param(
+            "<em><q><br>z</q></em>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="")),
+            " *\\\nz*",
+            id="quote-no-marks-break",
+        ),
+    ],
+)
+def test_emphasis_run_with_nothing_written_after_it(html: str, opts: Markdown, expected: str) -> None:
+    lead = "lorem ipsum dolor " * 6
+    paragraph = parse(f"<p>{lead}{html}</p>").find("p")
+    assert paragraph is not None
+    assert paragraph.to_markdown(opts) == lead.rstrip() + expected
+
+
+def test_alt_image_with_empty_alt_opens_no_emphasis() -> None:
+    document = parse("<p>a <em><img alt=x></em> b</p>")
+    image = document.find("img")
+    assert image is not None
+    image.attrs["alt"] = ""
+    assert document.to_markdown(Markdown(images=Markdown.Images(mode="alt", default_alt="pic"))) == "a b"
 
 
 @pytest.mark.parametrize(
