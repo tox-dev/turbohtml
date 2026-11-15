@@ -127,6 +127,9 @@ struct th_node {
     /* set once an enabled selectedcontent is reachable below this node, never cleared: the adoption agency only
        lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
     uint8_t reaches_selectedcontent;
+    /* Tree builder state: set while the element is an entry of the list of active formatting elements. The list
+       outlives the stack of open elements, so membership is read here instead of searched. */
+    uint8_t afe_listed;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;

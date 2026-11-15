@@ -272,6 +272,16 @@ static uint32_t node_hash(const th_node *node, Py_ssize_t attr) {
     return th_fibonacci_hash(node->seq + (uint32_t)(attr + 1) * 0x85EBCA6BU);
 }
 
+/* The slot after `probe` in an item's probe sequence: the next one for the first TH_FAST_PROBE_LIMIT steps, then the
+   keyed stride of th_node_probe_step, so source nodes numbered into one run of home slots do not all walk it. */
+static size_t node_next(size_t probe, size_t walked, size_t mask, const th_node *node, Py_ssize_t attr, size_t salt) {
+    TH_WORK_STEP();
+    if (TH_UNLIKELY(walked >= TH_FAST_PROBE_LIMIT)) {
+        return (probe + th_node_probe_step((((uint64_t)(attr + 1) << 32) | node->seq) ^ salt)) & mask;
+    }
+    return (probe + 1) & mask;
+}
+
 static int match_set_grow(match_set *set) {
     size_t new_cap = set->cap == 0 ? 16 : set->cap * 2;
     match_slot *slots = PyMem_Calloc(new_cap, sizeof(match_slot));
@@ -281,8 +291,8 @@ static int match_set_grow(match_set *set) {
     for (size_t index = 0; index < set->cap; index++) {
         if (set->slots[index].used) {
             size_t probe = th_hash_slot(node_hash(set->slots[index].node, set->slots[index].attr), new_cap);
-            while (slots[probe].used) {
-                probe = (probe + 1) & (new_cap - 1);
+            for (size_t walked = 0; slots[probe].used; walked++) {
+                probe = node_next(probe, walked, new_cap - 1, set->slots[index].node, set->slots[index].attr, 0);
             }
             slots[probe] = set->slots[index];
         }
@@ -300,13 +310,13 @@ static int match_set_add(match_set *set, const th_node *node, Py_ssize_t attr) {
         }
     }
     size_t probe = th_hash_slot(node_hash(node, attr), set->cap);
-    while (set->slots[probe].used) {
+    for (size_t walked = 0; set->slots[probe].used; walked++) {
         /* A rule's match set is built from one duplicate-free pattern evaluation, so the
            same item is never re-added; the dedup guard is defensive. */
         if (set->slots[probe].node == node && set->slots[probe].attr == attr) { /* GCOVR_EXCL_BR_LINE */
             return 0;                                                           /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
-        probe = (probe + 1) & (set->cap - 1);
+        probe = node_next(probe, walked, set->cap - 1, node, attr, 0);
     }
     set->slots[probe].node = node;
     set->slots[probe].attr = attr;
@@ -320,11 +330,11 @@ static int match_set_has(const match_set *set, const th_node *node, Py_ssize_t a
         return 0;
     }
     size_t probe = th_hash_slot(node_hash(node, attr), set->cap);
-    while (set->slots[probe].used) {
+    for (size_t walked = 0; set->slots[probe].used; walked++) {
         if (set->slots[probe].node == node && set->slots[probe].attr == attr) {
             return 1;
         }
-        probe = (probe + 1) & (set->cap - 1);
+        probe = node_next(probe, walked, set->cap - 1, node, attr, 0);
     }
     return 0;
 }
@@ -2085,11 +2095,12 @@ static size_t dispatch_slot(const xslt_dispatch_entry *entries, size_t capacity,
                             const Py_UCS4 *mode, Py_ssize_t mode_len) {
     const size_t mode_hash = mode == NULL ? 0 : str_hash(mode, mode_len);
     size_t slot = th_hash_slot(node_hash(node, attr) ^ (uint32_t)mode_hash, capacity);
-    while (entries[slot].node != NULL &&
-           (entries[slot].node != node || entries[slot].attr != attr ||
-            (entries[slot].mode == NULL) != (mode == NULL) ||
-            (mode != NULL && !str_eq(entries[slot].mode, entries[slot].mode_len, mode, mode_len)))) {
-        slot = (slot + 1) & (capacity - 1);
+    for (size_t walked = 0;
+         entries[slot].node != NULL &&
+         (entries[slot].node != node || entries[slot].attr != attr || (entries[slot].mode == NULL) != (mode == NULL) ||
+          (mode != NULL && !str_eq(entries[slot].mode, entries[slot].mode_len, mode, mode_len)));
+         walked++) {
+        slot = node_next(slot, walked, capacity - 1, node, attr, mode_hash); /* one item's modes stride apart */
     }
     return slot;
 }

@@ -327,7 +327,7 @@ enum th_axis {
 
 typedef struct {
     PyObject_HEAD PyObject *handle;
-    th_node *root;    /* subtree bound for pre-order walks (unused for ancestors) */
+    th_node *root;    /* subtree bound for pre-order walks, preceding_skip's origin (unused for ancestors) */
     th_node *current; /* next node to yield, or NULL when exhausted */
     int mode;
 } WalkerObject;
@@ -620,10 +620,13 @@ static inline int node_order(th_node *left, th_node *right) {
     return node_order_at(left, left_depth, right, right_depth);
 }
 
-/* Walk back in document order from current, skipping origin's ancestors so the
-   preceding axis stays disjoint from the ancestors axis. */
-static inline th_node *preceding_skip(th_node *current, th_node *origin) {
-    while (current != NULL && is_ancestor(current, origin)) {
+/* Walk back in document order from current past origin's ancestors, which keeps the preceding axis disjoint from the
+   ancestors axis. A backward walk meets those ancestors nearest first, so the one due next is always the parent of the
+   last one passed; *origin climbs with the walk, which keeps each test one compare however deep the origin sits. */
+static inline th_node *preceding_skip(th_node *current, th_node **origin) {
+    while (current != NULL && current == (*origin)->parent) {
+        TH_WORK_STEP();
+        *origin = current;
         current = previous_element(current);
     }
     return current;
