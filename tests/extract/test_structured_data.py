@@ -1354,6 +1354,33 @@ def _crowded_itemref_markup(elements: int) -> str:
     return f"<p itemscope itemref=x><div id=x>{''.join(nodes)}"
 
 
+def test_microdata_long_itemprop_keeps_each_name_once() -> None:
+    names: Final = [f"n{index}" for index in range(1_500)]
+    document: Final = parse(f'<div itemscope><span itemprop="{" ".join(names + names[::-1])}">v</span></div>')
+    (item,) = document.microdata()
+    assert list(item.properties.items()) == [(name, ["v"]) for name in names]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            lambda count: f'<div itemscope><span itemprop="{_names(count)}">v</span></div>', id="own-attribute"
+        ),
+        pytest.param(
+            lambda count: f'<p id=shared itemprop="{_names(count)}">v</p>{"<div itemscope itemref=shared></div>" * 10}',
+            id="shared-by-items",
+        ),
+    ],
+)
+def test_microdata_long_itemprop_stays_linear(work_steps: WorkSteps, markup: Callable[[int], str]) -> None:
+    work_steps.assert_linear(lambda count: partial(parse(markup(count)).microdata), (1_500, 6_000))
+
+
+def _names(count: int) -> str:
+    return " ".join(f"n{index}" for index in range(count))
+
+
 @pytest.mark.parametrize("reference", [pytest.param("", id="local"), pytest.param("itemref=hidden", id="referenced")])
 @pytest.mark.parametrize(
     "attribute", [pytest.param("itemprop", id="valueless"), pytest.param('itemprop=""', id="empty")]

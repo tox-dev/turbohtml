@@ -19,8 +19,8 @@ alongside the XPath sources rather than a parallel path evaluator.
 The XSLT-only functions ride the same seam. ``current()``, ``key()``, ``generate-id()``, ``format-number()``, and
 ``system-property()`` are not XPath core functions, so they are dispatched through the XPath engine's extension hook:
 the evaluator, on an unknown function name, calls back into the XSLT layer, which resolves them against the current
-node, the key tables, and the decimal-format rules. The engine never learns about XSLT; XSLT never re-implements
-function dispatch.
+node, the context item (an attribute or namespace node included), the key tables, and the decimal-format rules. The
+engine never learns about XSLT; XSLT never re-implements function dispatch.
 
 ************************
  Patterns by membership

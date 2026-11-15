@@ -36,6 +36,9 @@ typedef struct {
     int changed;     /* a transform fired this pass: jm_fold walks again so cascades finish */
     int with_depth;  /* enclosing with bodies: their object may own an `undefined` property */
     int32_t deepest; /* the largest depth reached under the if, logical or statement list being folded */
+    int32_t pass;    /* the running pass, counted from 1: the stamp node_hoists leaves in hoists */
+    int32_t *hoists; /* hoists[node] == pass: node_hoists found a hoisted declaration under node in this pass */
+    int32_t hoists_cap;
 } F;
 
 static int ident_is(const jm_node *node, const char *word) {
@@ -218,15 +221,45 @@ static int is_nullish(F *folder, int32_t idx) {
 }
 
 static int chain_hoists(F *folder, int32_t first);
+static int scan_hoists(F *folder, int32_t idx);
 
 /* Whether the statement subtree at idx declares a `var` or a function that hoists out
    of a dropped branch. Descends through control flow but never into nested function
    scopes (their declarations do not hoist here). Over-approximating is safe; this
-   never under-reports, so a dropped branch can never silently lose a hoisted name. */
+   never under-reports, so a dropped branch can never silently lose a hoisted name.
+
+   A kept branch makes every statement around it ask about a subtree that already holds the declaration, so a
+   found declaration is remembered until the pass ends and the scan stops at the first remembered node. Only
+   positive answers are remembered: a fold may still move a declaration into a subtree that said no. */
 static int node_hoists(F *folder, int32_t idx) {
     if (idx < 0) {
         return 0;
     }
+    TH_WORK_STEP();
+    if (idx < folder->hoists_cap && folder->hoists[idx] == folder->pass) {
+        return 1;
+    }
+    if (!scan_hoists(folder, idx)) {
+        return 0;
+    }
+    if (idx >= folder->hoists_cap) {
+        int32_t cap = folder->prog->node_cap;
+        int32_t *grown = jm_realloc(folder->hoists, (size_t)cap * sizeof(int32_t));
+        if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            folder->prog->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return 1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memset(grown + folder->hoists_cap, 0, (size_t)(cap - folder->hoists_cap) * sizeof(int32_t));
+        folder->hoists = grown;
+        folder->hoists_cap = cap;
+    }
+    folder->hoists[idx] = folder->pass;
+    return 1;
+}
+
+/* The scan behind node_hoists. It recurses through node_hoists, so every statement on the way down to the
+   declaration is remembered too. */
+static int scan_hoists(F *folder, int32_t idx) {
     jm_node *node = &folder->prog->nodes[idx];
     switch (node->kind) {
     case JN_VAR:
@@ -1231,6 +1264,9 @@ static int splice_abrupt_else(F *folder, int32_t idx) {
     nodes[idx].c = -1;
     nodes[alt].next = nodes[idx].next;
     nodes[idx].next = alt;
+    if (idx < folder->hoists_cap) {
+        folder->hoists[idx] = 0; /* the declaration node_hoists remembered for the if may have left with alt */
+    }
     folder->changed = 1;
     return 1;
 }
@@ -1903,6 +1939,7 @@ int jm_fold(jm_program *prog) {
     for (int pass = 0; pass < 12; pass++) {
         /* GCOVR_EXCL_BR_STOP */
         folder.changed = 0;
+        folder.pass = pass + 1;
         int32_t first = walk_list(&folder, prog->nodes[prog->root].a, 0);
         prog->nodes[prog->root].a = first;
         if (!folder.changed) {
@@ -1910,5 +1947,6 @@ int jm_fold(jm_program *prog) {
         }
         any = 1;
     }
+    jm_free(folder.hoists);
     return any;
 }
