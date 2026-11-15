@@ -30,6 +30,10 @@
 
 #define STRUCTURED_DATA_MAX_ITEM_DEPTH ((Py_ssize_t)TH_DEPTH_LIMIT(400))
 
+/* The longest @vocab or @prefix IRI, in code points, that declares a mapping. Every term in scope gets its own copy of
+   the mapping, so the limit caps how far one short term grows. The RDFa 1.1 initial context's longest IRI is 48. */
+#define RDFA_MAX_MAPPING_LENGTH 256
+
 /* The HTML script type that flags a JSON-LD block, matched case-insensitively after trimming. */
 static const char JSON_LD_TYPE[] = "application/ld+json";
 
@@ -1036,7 +1040,8 @@ static PyObject *rdfa_declared_iri(PyObject *prefixes, PyObject *prefix) {
 }
 
 /* RDFa @property/@typeof permit terms, CURIEs, and absolute IRIs, but not SafeCURIEs; malformed terms are ignored.
-   Bare terms join @vocab or the initial context; unknown terms and undeclared prefixes are kept verbatim. */
+   Bare terms join @vocab or the initial context; unknown terms and undeclared prefixes are kept verbatim, as is a CURIE
+   that a relative prefix IRI, once resolved, would lengthen by more than RDFA_MAX_MAPPING_LENGTH. */
 static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *prefixes) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(token);
     Py_ssize_t colon = PyUnicode_FindChar(token, (Py_UCS4)':', 0, length, 1);
@@ -1141,6 +1146,24 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
         Py_DECREF(result); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */
     }
+    if (result != NULL && base != NULL) { /* GCOVR_EXCL_BR_LINE: a NULL result is an allocation failure */
+        /* A relative prefix IRI resolves with each reference, so its length is known only here. The reference's own
+           percent-encoded non-ASCII characters are the term's growth, not the mapping's, so they are not counted. */
+        Py_ssize_t encoding_growth = 0;
+        for (Py_ssize_t index = colon + 1; index < length; index++) {
+            Py_UCS4 code = PyUnicode_READ_CHAR(token, index);
+            if (code >= 0x10000) {
+                encoding_growth += 11;
+            } else if (code >= 0x800) {
+                encoding_growth += 8;
+            } else if (code >= 0x80) {
+                encoding_growth += 5;
+            }
+        }
+        if (PyUnicode_GET_LENGTH(result) - length - encoding_growth > RDFA_MAX_MAPPING_LENGTH) {
+            Py_SETREF(result, Py_NewRef(token));
+        }
+    }
     return result;
 }
 
@@ -1207,9 +1230,9 @@ static PyObject *rdfa_resource_iri(PyObject *value, rdfa_ctx ctx) {
 
 /* Merge the whitespace-separated `prefix: iri` pairs of a @prefix attribute into `prefixes`. A `prefix:` token names a
    prefix (the trailing colon is dropped) and the next token is its IRI; a token that is neither is skipped, and a
-   trailing `prefix:` with no IRI is dropped (RDFa 1.1 processing). Each merged pair appends the prefix and the mapping
-   it replaces (None when it had none) to the `undo` list, for restore_prefixes. -1 only on the excluded
-   allocation-failure path. */
+   trailing `prefix:` with no IRI is dropped (RDFa 1.1 processing), as is one whose IRI is longer than
+   RDFA_MAX_MAPPING_LENGTH, as written or as resolved. Each merged pair appends the prefix and the mapping it replaces
+   (None when it had none) to the `undo` list, for restore_prefixes. -1 only on the excluded allocation-failure path. */
 static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize_t len, PyObject *base,
                               PyObject *undo) {
     PyObject *pending = NULL;
@@ -1247,6 +1270,11 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
             }
             continue;
         }
+        if (cursor - start > RDFA_MAX_MAPPING_LENGTH) {
+            Py_DECREF(pending);
+            pending = NULL;
+            continue;
+        }
         PyObject *iri = ucs4_to_str(&value[start], cursor - start);
         if (iri == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(pending); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1261,6 +1289,13 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
                     Py_DECREF(iri);                          /* GCOVR_EXCL_LINE */
                     Py_DECREF(resolved);                     /* GCOVR_EXCL_LINE */
                     return -1;                               /* GCOVR_EXCL_LINE */
+                }
+                if (PyUnicode_GET_LENGTH(resolved) > RDFA_MAX_MAPPING_LENGTH) {
+                    Py_DECREF(resolved);
+                    Py_DECREF(iri);
+                    Py_DECREF(pending);
+                    pending = NULL;
+                    continue;
                 }
                 if (resolved == iri) {
                     Py_SETREF(resolved, Py_NewRef(Py_None));
@@ -1310,8 +1345,9 @@ static int restore_prefixes(PyObject *prefixes, PyObject *undo) {
 }
 
 /* The child's in-scope @vocab: a new str for a non-empty @vocab, NULL (the vocabulary cleared) for an empty or
-   valueless one, or the parent's borrowed value when the child declares none. *owned records whether *out is a new
-   reference the caller must release. -1 only on the excluded allocation-failure path. */
+   valueless one and for one longer than RDFA_MAX_MAPPING_LENGTH as written or as resolved, or the parent's borrowed
+   value when the child declares none. *owned records whether *out is a new reference the caller must release. -1 only
+   on the excluded allocation-failure path. */
 static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, PyObject *base, PyObject **out,
                                int *owned) {
     Py_ssize_t index = th_node_attr_find(tree, child, "vocab", 5);
@@ -1321,7 +1357,7 @@ static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, 
         return 0;
     }
     const th_node_attr *attr = &child->attrs[index];
-    if (attr->value == NULL) {
+    if (attr->value == NULL || attr->value_len > RDFA_MAX_MAPPING_LENGTH) {
         *out = NULL;
         *owned = 0;
         return 0;
@@ -1334,6 +1370,12 @@ static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, 
         if (resolve_in_place(base, &value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             Py_DECREF(value);                     /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;                            /* GCOVR_EXCL_LINE */
+        }
+        if (PyUnicode_GET_LENGTH(value) > RDFA_MAX_MAPPING_LENGTH) {
+            Py_DECREF(value);
+            *out = NULL;
+            *owned = 0;
+            return 0;
         }
     }
     *out = value;
