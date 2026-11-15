@@ -1736,7 +1736,8 @@ PyDoc_STRVAR(rows_doc, "rows()\n--\n\n"
                        "Rows are padded to a rectangular width; a nested table's rows belong to that\n"
                        "table, not this one, and a row inside a cell is that cell's content. Cell text\n"
                        "is the cell's text content with surrounding whitespace stripped. Raises\n"
-                       "TypeError on a non-table element.");
+                       "TypeError on a non-table element, and ValueError when the spans and the padding\n"
+                       "add more than 4,000,000 cells to the grid.");
 
 TH_NODE_API(static, PyObject *, element_rows, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
@@ -1753,7 +1754,8 @@ PyDoc_STRVAR(records_doc, "records()\n--\n\n"
                           "header, typically the thead row) over each later row, with rowspan and colspan\n"
                           "resolved as in rows(). A table with no rows or only a header yields an empty\n"
                           "list; a duplicated header keeps the rightmost column's value. Pass the result\n"
-                          "to pandas.DataFrame for a frame. Raises TypeError on a non-table element.");
+                          "to pandas.DataFrame for a frame. Raises TypeError on a non-table element, and\n"
+                          "ValueError when the spans and the padding add more than 4,000,000 cells to the grid.");
 
 TH_NODE_API(static, PyObject *, element_records, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {

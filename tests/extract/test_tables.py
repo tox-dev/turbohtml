@@ -43,6 +43,8 @@ _ROWS_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<table><tr><td>  hello  </td></tr></table>", [["hello"]], id="cell-text-stripped"),
     pytest.param("<table><tr><td>a<b>b</b>c</td></tr></table>", [["abc"]], id="nested-markup-flattened"),
     pytest.param("<table><tr><td>a</td><td></td></tr></table>", [["a", ""]], id="empty-cell-is-empty-string"),
+    pytest.param("<table><tr><template><td>x</template></table>", [[]], id="cell-under-template-is-no-cell"),
+    pytest.param("<table> <tr><td>a</td></tr> </table>", [["a"]], id="text-between-rows-is-no-cell"),
     pytest.param("<table><tr><td>   </td><td>b</td></tr></table>", [["", "b"]], id="whitespace-cell-is-empty-string"),
     pytest.param(
         "<table><tr><td colspan=2>A</td><td>B</td></tr><tr><td>1</td><td>2</td><td>3</td></tr></table>",
@@ -394,6 +396,41 @@ def test_rows_on_a_non_table_raises_type_error(non_table_div: Element) -> None:
 def test_records_on_a_non_table_raises_type_error(non_table_div: Element) -> None:
     with pytest.raises(TypeError, match="records can only be called on a table element"):
         non_table_div.records()
+
+
+def test_padding_up_to_the_spare_slot_limit_is_kept(rows: Callable[[str], list[list[str]]]) -> None:
+    # 2,000 cells pay for their own slots; padding 2,000 empty rows to that width adds exactly the 4,000,000 allowed.
+    grid: Final = rows(f"<table><tr>{'<td>x' * 2000}{'<tr>' * 2000}</table>")
+    assert grid == [["x"] * 2000, *[[""] * 2000] * 2000]
+
+
+_SPARE_SLOT_LIMIT_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(f"<table><tr>{'<td>x' * 2000}{'<tr>' * 2001}</table>", id="padding"),
+    pytest.param(f"<table><tr>{'<td colspan=1000>x' * 5}{'<tr>' * 1000}</table>", id="colspan-padding"),
+    pytest.param(f"<table><tr>{'<td colspan=1000 rowspan=0>x' * 5}{'<tr>' * 1000}</table>", id="spans"),
+    pytest.param(f"<table><tr>{'<td>x' * 2000}<td rowspan=0>y{'<tr>' * 2000}</table>", id="far-right-rowspan"),
+]
+_SPARE_SLOT_LIMIT_MESSAGE: Final[str] = "table spans and row padding add more than 4000000 cells to the grid"
+
+
+@pytest.mark.parametrize("html", _SPARE_SLOT_LIMIT_CASES)
+@pytest.mark.parametrize("read", [pytest.param(Element.rows, id="rows"), pytest.param(Element.records, id="records")])
+def test_table_beyond_the_spare_slot_limit_raises(html: str, read: Callable[[Element], object]) -> None:
+    with pytest.raises(ValueError, match=_SPARE_SLOT_LIMIT_MESSAGE):
+        read(parse(html).select("table")[0])
+
+
+@pytest.mark.parametrize("html", _SPARE_SLOT_LIMIT_CASES)
+def test_document_beyond_the_spare_slot_limit_raises(html: str) -> None:
+    with pytest.raises(ValueError, match=_SPARE_SLOT_LIMIT_MESSAGE):
+        parse(html).tables()
+
+
+def test_tables_share_one_spare_slot_limit() -> None:
+    table: Final = f"<table><tr>{'<td colspan=1000 rowspan=0>x' * 3}{'<tr>' * 999}</table>"
+    assert [(len(grid), len(grid[0])) for grid in parse(table).tables()] == [(1000, 3000)]
+    with pytest.raises(ValueError, match=_SPARE_SLOT_LIMIT_MESSAGE):
+        parse(table * 2).tables()
 
 
 @pytest.mark.parametrize(
