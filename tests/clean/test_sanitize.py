@@ -2255,6 +2255,8 @@ def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # r
         pytest.param("\n//videos.test/x", True, id="leading-newline-protocol-relative-allowed-host"),
         pytest.param("ht\ntps://videos.test/x", True, id="newline-in-scheme-allowed-host"),
         pytest.param("https://videos.test/://attacker.test/x", True, id="allowed-host-foreign-decoy"),
+        pytest.param(" ", False, id="whitespace-only"),
+        pytest.param("\t\n", False, id="controls-only"),
     ],
 )
 def test_media_host_allowlist_reads_authority_where_browser_does(src: str, *, kept: bool) -> None:
