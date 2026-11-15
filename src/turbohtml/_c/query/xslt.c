@@ -16,6 +16,7 @@
    needing to touch the core function library. */
 
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/node_map.h"
 #include "core/resource.h"
 #include "core/vec.h"
@@ -380,6 +381,10 @@ typedef struct {
     strmap_slot *slots;
     size_t cap;
     size_t count;
+    /* A str_hash map takes the inline paths while count < fast, one below half of cap. fast is 0 while the map is
+       empty and once it moved to th_name_hash, so the one comparison the inline paths already made against the load
+       limit also sends those maps out of line, and a map on str_hash pays nothing for the keyed mode. */
+    size_t fast;
 } strmap;
 
 static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
@@ -391,46 +396,69 @@ static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
     return value;
 }
 
+/* The keyed slot hash of the name index and of keyed strmaps. Its keys come from the stylesheet, so the slot is never
+   str_hash: under str_hash a stylesheet could choose names that share one probe run. Out of line, so SipHash's body
+   stays out of the str_hash walks that callers inline. */
+static TH_NOINLINE size_t str_slot_hash(const Py_UCS4 *str, Py_ssize_t len) {
+    return th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4));
+}
+
 static int str_eq(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
     return left_len == right_len && memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
 }
 
-static int strmap_grow(strmap *map) {
-    size_t new_cap = map->cap == 0 ? 16 : map->cap * 2;
+static inline void strmap_reseat(strmap_slot *slots, size_t mask, const strmap_slot *entry, int keyed) {
+    size_t probe = (keyed ? str_slot_hash(entry->str, entry->str_len) : str_hash(entry->str, entry->str_len)) & mask;
+    while (slots[probe].used) {
+        TH_WORK_STEP();
+        probe = (probe + 1) & mask;
+    }
+    slots[probe] = *entry;
+}
+
+/* Move the entries into new_cap slots under th_name_hash when keyed, else str_hash. The walk starts at an empty slot,
+   so a run that wraps past the end of the array is re-seated in its own order: no entry of a doubled map lands further
+   from its home than it sat before, and the bound strmap_bucket keeps on how far an entry sits holds on. */
+static inline int strmap_move(strmap *map, size_t new_cap, int keyed) {
     strmap_slot *slots = PyMem_Calloc(new_cap, sizeof(strmap_slot));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;       /* GCOVR_EXCL_LINE */
     }
-    for (size_t index = 0; index < map->cap; index++) {
+    size_t start = 0;
+    while (map->slots[start].used) {
+        start++;
+    }
+    for (size_t index = start; index < map->cap; index++) {
         if (map->slots[index].used) {
-            size_t probe = str_hash(map->slots[index].str, map->slots[index].str_len) & (new_cap - 1);
-            while (slots[probe].used) {
-                probe = (probe + 1) & (new_cap - 1);
-            }
-            slots[probe] = map->slots[index];
+            strmap_reseat(slots, new_cap - 1, &map->slots[index], keyed);
         }
+    }
+    for (size_t index = 0; index < start; index++) { /* every slot before start is filled */
+        strmap_reseat(slots, new_cap - 1, &map->slots[index], keyed);
     }
     PyMem_Free(map->slots);
     map->slots = slots;
     map->cap = new_cap;
+    map->fast = keyed ? 0 : new_cap / 2 - 1;
     return 0;
 }
 
-/* Return the node-vector for a key string, creating the slot (copying str) if absent.
-   NULL on allocation failure. */
-static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
-    if ((map->count + 1) * 2 >= map->cap) {
-        if (strmap_grow(map) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            return NULL;            /* GCOVR_EXCL_LINE */
-        }
-    }
-    size_t probe = str_hash(str, str_len) & (map->cap - 1);
-    while (map->slots[probe].used) {
-        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
-            return &map->slots[probe].nodes;
-        }
+/* Out of line, so SipHash's rounds stay out of the str_hash paths. */
+static TH_NOINLINE int strmap_move_keyed(strmap *map, size_t new_cap) {
+    return strmap_move(map, new_cap, 1);
+}
+
+/* The slot of str in a map on th_name_hash: its entry, or the empty slot that ends its run. */
+static size_t strmap_keyed_slot(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    size_t probe = str_slot_hash(str, str_len) & (map->cap - 1);
+    while (map->slots[probe].used && !str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
+        TH_WORK_STEP();
         probe = (probe + 1) & (map->cap - 1);
     }
+    return probe;
+}
+
+static TH_NOINLINE nodevec *strmap_seat(strmap *map, size_t probe, const Py_UCS4 *str, Py_ssize_t str_len) {
     Py_UCS4 *owned = ucs4_dup(str, str_len);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return NULL;     /* GCOVR_EXCL_LINE */
@@ -442,18 +470,112 @@ static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_le
     return &map->slots[probe].nodes;
 }
 
-static const nodevec *strmap_lookup(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+/* The string's node-vector in a map that is empty or on th_name_hash, or NULL when absent. */
+static TH_NOINLINE const nodevec *strmap_lookup_slow(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
     if (map->cap == 0) {
         return NULL;
     }
-    size_t probe = str_hash(str, str_len) & (map->cap - 1);
-    while (map->slots[probe].used) {
-        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
-            return &map->slots[probe].nodes;
-        }
-        probe = (probe + 1) & (map->cap - 1);
+    size_t probe = strmap_keyed_slot(map, str, str_len);
+    return map->slots[probe].used ? &map->slots[probe].nodes : NULL;
+}
+
+/* strmap_lookup for a miss whose str_hash walk went past TH_FAST_PROBE_LIMIT: move the map to th_name_hash and look
+   again. Out of line, so strmap_lookup stays small enough to inline into its callers. */
+static TH_NOINLINE const nodevec *strmap_lookup_rekey(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (strmap_move_keyed(map, map->cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return NULL;                            /* GCOVR_EXCL_LINE */
     }
-    return NULL;
+    return strmap_lookup_slow(map, str, str_len);
+}
+
+/* The string's node-vector, or NULL when absent. A hit walks no further than its entry sits from its home, but a miss
+   walks to the end of the run its home falls in, and the document can line up homes into one long run without any
+   entry sitting far, so a miss that walked past TH_FAST_PROBE_LIMIT slots moves the map to th_name_hash (core/hash.h)
+   for the rest of its life. A failed move leaves the map whole on str_hash, where the walk just found no entry. The
+   home is kept only once the walk leaves it, so a lookup that ends there pays nothing for the bound. */
+static inline const nodevec *strmap_lookup(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->fast == 0) {
+        return strmap_lookup_slow(map, str, str_len);
+    }
+    size_t probe = str_hash(str, str_len) & (map->cap - 1);
+    if (!map->slots[probe].used) {
+        return NULL;
+    }
+    const size_t home = probe;
+    while (!str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
+        TH_WORK_STEP();
+        probe = (probe + 1) & (map->cap - 1);
+        if (!map->slots[probe].used) {
+            return ((probe - home) & (map->cap - 1)) > TH_FAST_PROBE_LIMIT ? strmap_lookup_rekey(map, str, str_len)
+                                                                           : NULL;
+        }
+    }
+    return &map->slots[probe].nodes;
+}
+
+/* strmap_bucket for a str the str_hash walk missed after more than TH_FAST_PROBE_LIMIT slots: move the map to
+   th_name_hash for good and seat str there. */
+static TH_NOINLINE nodevec *strmap_bucket_rekey(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (strmap_move_keyed(map, map->cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return NULL;                            /* GCOVR_EXCL_LINE */
+    }
+    return strmap_seat(map, strmap_keyed_slot(map, str, str_len), str, str_len);
+}
+
+/* The str_hash walk of strmap_bucket from probe, its home: str's node-vector, or str seated at the empty slot that ends
+   the run, unless the walk to it went past TH_FAST_PROBE_LIMIT. The home is kept only once the walk leaves it, so a
+   call that ends there, as most do, pays nothing for the bound. */
+static inline nodevec *strmap_bucket_walk(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len, size_t probe) {
+    if (!map->slots[probe].used) {
+        return strmap_seat(map, probe, str, str_len);
+    }
+    const size_t home = probe;
+    while (!str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
+        TH_WORK_STEP();
+        probe = (probe + 1) & (map->cap - 1);
+        if (!map->slots[probe].used) {
+            return ((probe - home) & (map->cap - 1)) > TH_FAST_PROBE_LIMIT ? strmap_bucket_rekey(map, str, str_len)
+                                                                           : strmap_seat(map, probe, str, str_len);
+        }
+    }
+    return &map->slots[probe].nodes;
+}
+
+/* strmap_bucket for a map that is empty, at its load limit, or on th_name_hash. Out of line, so the str_hash walk keeps
+   its registers. */
+static TH_NOINLINE nodevec *strmap_bucket_slow(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->cap == 0) { /* most maps hold a few values, so the first one skips the move and the walk */
+        map->slots = PyMem_Calloc(16, sizeof(strmap_slot));
+        if (map->slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return NULL;          /* GCOVR_EXCL_LINE */
+        }
+        map->cap = 16;
+        map->fast = 16 / 2 - 1;
+        return strmap_seat(map, str_hash(str, str_len) & 15, str, str_len);
+    }
+    if (map->fast != 0) {
+        if (strmap_move(map, map->cap * 2, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return NULL;                             /* GCOVR_EXCL_LINE */
+        }
+        /* the grown map holds fewer than fast entries, so this is strmap_bucket's str_hash step */
+        return strmap_bucket_walk(map, str, str_len, str_hash(str, str_len) & (map->cap - 1));
+    } else if ((map->count + 1) * 2 >= map->cap) {
+        if (strmap_move_keyed(map, map->cap * 2) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return NULL;                                /* GCOVR_EXCL_LINE */
+        }
+    }
+    size_t probe = strmap_keyed_slot(map, str, str_len);
+    return map->slots[probe].used ? &map->slots[probe].nodes : strmap_seat(map, probe, str, str_len);
+}
+
+/* Return the node-vector for a key string, creating the slot (copying str) if absent. On str_hash no entry is seated
+   past TH_FAST_PROBE_LIMIT slots from its home, which bounds every walk that ends at an entry.
+   NULL on allocation failure. */
+static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->count >= map->fast) {
+        return strmap_bucket_slow(map, str, str_len);
+    }
+    return strmap_bucket_walk(map, str, str_len, str_hash(str, str_len) & (map->cap - 1));
 }
 
 static void strmap_free(strmap *map) {
@@ -467,6 +589,7 @@ static void strmap_free(strmap *map) {
     map->slots = NULL;
     map->cap = 0;
     map->count = 0;
+    map->fast = 0;
 }
 
 typedef struct {
@@ -478,21 +601,76 @@ typedef struct {
 typedef struct {
     xslt_name_entry *entries;
     size_t capacity;
+    size_t budget;  /* walk steps the str_hash fill may still take, NAME_INDEX_WALKS per name */
+    int keyed;      /* 1 once a fill on str_hash spent its budget or left a run past TH_FAST_PROBE_LIMIT */
+    int walked_far; /* the current str_hash fill spent its budget */
 } xslt_name_index;
 
-static size_t name_index_probe(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
+/* An ordinary fill seats most names at or next to their homes, well inside this many steps per name; names a
+   stylesheet stacked on one home spend it within a few dozen of them. */
+#define NAME_INDEX_WALKS 4
+
+/* The slot of name under str_hash: its entry, or the empty slot that ends its run. Out of line, so name_index_find
+   inlines into its callers with only the keyed test. */
+static TH_NOINLINE size_t name_index_slot(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
     size_t slot = str_hash(name, length) & (index->capacity - 1);
     while (index->entries[slot].first != 0 &&
            !str_eq(index->entries[slot].name, index->entries[slot].length, name, length)) {
+        TH_WORK_STEP();
         slot = (slot + 1) & (index->capacity - 1);
     }
     return slot;
 }
 
-/* Lookups share this out-of-line copy of the probe so their callers stay small; name_index_add probes directly, which
-   leaves the compiler free to inline it into the loops that add every declaration. */
-TH_NOINLINE static size_t name_index_slot(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
-    return name_index_probe(index, name, length);
+/* name_index_find for an index on str_slot_hash. Out of line, so the str_hash lookup keeps its registers. */
+static TH_NOINLINE Py_ssize_t name_index_find_keyed(const xslt_name_index *index, const Py_UCS4 *name,
+                                                    Py_ssize_t length) {
+    size_t slot = str_slot_hash(name, length) & (index->capacity - 1);
+    while (index->entries[slot].first != 0 &&
+           !str_eq(index->entries[slot].name, index->entries[slot].length, name, length)) {
+        TH_WORK_STEP();
+        slot = (slot + 1) & (index->capacity - 1);
+    }
+    return index->entries[slot].first;
+}
+
+/* After a fill on str_hash: 1 when it spent its walk budget or left a run past TH_FAST_PROBE_LIMIT, after moving the
+   index to str_slot_hash empty, so the caller fills it again. The stylesheet picks its names, and a use-attribute-sets
+   name that misses walks the run its home falls in. The index is read-only once filled, so this is the only point it
+   can move. A run that long covers a whole aligned block of 32 slots (capacity is at least 32), so only a block whose
+   every 8th slot is filled has its run measured. */
+static int name_index_rekey(xslt_name_index *index) {
+    if (index->keyed) {
+        return 0;
+    }
+    size_t mask = index->capacity - 1;
+    for (size_t block = 0; block < index->capacity && !index->walked_far; block += 32) {
+        size_t sample = block;
+        while (sample < block + 32 && index->entries[sample].first != 0) {
+            sample += 8;
+        }
+        if (sample < block + 32) {
+            continue;
+        }
+        size_t length = 1;
+        for (size_t probe = (block - 1) & mask; length <= TH_FAST_PROBE_LIMIT && index->entries[probe].first != 0;
+             probe = (probe - 1) & mask) {
+            length++;
+        }
+        for (size_t probe = (block + 1) & mask; length <= TH_FAST_PROBE_LIMIT && index->entries[probe].first != 0;
+             probe = (probe + 1) & mask) {
+            length++;
+        }
+        index->walked_far = length > TH_FAST_PROBE_LIMIT;
+    }
+    if (!index->walked_far) {
+        return 0;
+    }
+    index->keyed = 1;
+    index->walked_far = 0;
+    index->budget = SIZE_MAX;
+    memset(index->entries, 0, index->capacity * sizeof(*index->entries));
+    return 1;
 }
 
 static int name_index_reserve(xslt_name_index *index, Py_ssize_t count) {
@@ -505,19 +683,36 @@ static int name_index_reserve(xslt_name_index *index, Py_ssize_t count) {
         return -1; /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
+    index->budget = (size_t)count * NAME_INDEX_WALKS;
     index->entries = PyMem_Calloc(1, bytes);
     return index->entries == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: alloc */
 }
 
-static Py_ssize_t name_index_add(xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length, Py_ssize_t position) {
-    const size_t slot = name_index_probe(index, name, length);
+/* Seat name, returning the position its slot held before, or set walked_far and seat nothing once the str_hash fill
+   spends its walk budget, which bounds the fill whatever homes the stylesheet's names share. */
+static inline Py_ssize_t name_index_add(xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length,
+                                        Py_ssize_t position) {
+    size_t slot = (index->keyed ? str_slot_hash(name, length) : str_hash(name, length)) & (index->capacity - 1);
+    while (index->entries[slot].first != 0 &&
+           !str_eq(index->entries[slot].name, index->entries[slot].length, name, length)) {
+        TH_WORK_STEP();
+        if (--index->budget == 0) {
+            index->walked_far = 1;
+            return 0;
+        }
+        slot = (slot + 1) & (index->capacity - 1);
+    }
     const Py_ssize_t previous = index->entries[slot].first;
     index->entries[slot] = (xslt_name_entry){name, length, position + 1};
     return previous;
 }
 
+/* The str_hash walk runs on a keyed index too: an index holds each name once, so finding it anywhere is the answer, and
+   runs under str_slot_hash are short wherever the walk starts. Only a miss there asks for the keyed walk, which keeps
+   the check off the hits a transform makes. */
 static Py_ssize_t name_index_find(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
-    return index->entries[name_index_slot(index, name, length)].first;
+    const Py_ssize_t first = index->entries[name_index_slot(index, name, length)].first;
+    return first == 0 && TH_UNLIKELY(index->keyed) ? name_index_find_keyed(index, name, length) : first;
 }
 
 /* ---- stylesheet model ----------------------------------------------------- */
@@ -849,10 +1044,12 @@ TH_NOINLINE static int build_attrset_index(engine *eng) {
     if (eng->attrset_previous == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;                       /* GCOVR_EXCL_LINE */
     }
-    for (Py_ssize_t index = 0; index < eng->nattrsets; index++) {
-        eng->attrset_previous[index] =
-            name_index_add(&eng->attrset_index, eng->attrsets[index].name, eng->attrsets[index].name_len, index);
-    }
+    do {
+        for (Py_ssize_t index = 0; index < eng->nattrsets && !eng->attrset_index.walked_far; index++) {
+            eng->attrset_previous[index] =
+                name_index_add(&eng->attrset_index, eng->attrsets[index].name, eng->attrsets[index].name_len, index);
+        }
+    } while (name_index_rekey(&eng->attrset_index));
     return 0;
 }
 
@@ -863,15 +1060,20 @@ static int build_name_indexes(engine *eng) {
         return -1; /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
+    /* a fill stops once it spends its walk budget, so a str_hash fill is linear; a rekey refills keyed */
     if (eng->named_index.capacity != 0) {
-        for (Py_ssize_t index = eng->nnamed - 1; index >= 0; index--) {
-            name_index_add(&eng->named_index, eng->named[index].name, eng->named[index].name_len, index);
-        }
+        do {
+            for (Py_ssize_t index = eng->nnamed - 1; index >= 0 && !eng->named_index.walked_far; index--) {
+                name_index_add(&eng->named_index, eng->named[index].name, eng->named[index].name_len, index);
+            }
+        } while (name_index_rekey(&eng->named_index));
     }
     if (eng->key_index.capacity != 0) {
-        for (Py_ssize_t index = eng->nkeys - 1; index >= 0; index--) {
-            name_index_add(&eng->key_index, eng->keys[index].name, eng->keys[index].name_len, index);
-        }
+        do {
+            for (Py_ssize_t index = eng->nkeys - 1; index >= 0 && !eng->key_index.walked_far; index--) {
+                name_index_add(&eng->key_index, eng->keys[index].name, eng->keys[index].name_len, index);
+            }
+        } while (name_index_rekey(&eng->key_index));
     }
     return eng->attrset_index.capacity != 0 ? build_attrset_index(eng) : 0;
 }
@@ -1263,7 +1465,7 @@ static int build_key(engine *eng, xslt_key *key);
 
 static int copy_result_value(const xp_result *src, xp_result *dst);
 
-static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out);
+static int key_union(engine *eng, xslt_key *key, const xp_nodeset *members, xp_nodeset *out);
 
 /* format-number: apply a DecimalFormat picture to a number (default decimal-format
    only: '.' decimal separator, ',' grouping, '#' optional digit, '0' required digit,
@@ -1604,7 +1806,7 @@ static int nodeslot_order_cmp(const void *first, const void *second) {
    that share a value name one bucket, and a multi-valued use files one node under several values, so a bucket is
    walked once and a node taken once; appending a bucket per member instead builds members x bucket entries. Each
    bucket is in match order, which is document order, so the taken nodes are sorted by their match index. */
-static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out) {
+static int key_union(engine *eng, xslt_key *key, const xp_nodeset *members, xp_nodeset *out) {
     strmap walked = {0};
     match_set taken = {0};
     nodevec ordered = {0};
@@ -3470,9 +3672,10 @@ static xslt_number_name number_local_name(const engine *eng, const th_node *node
 
 static int number_has_namespaces(engine *eng) {
     if (eng->number_namespaces < 0) {
-        eng->default_namespace_atom = th_attr_lookup(eng->src_tree, "xmlns", 5);
-        eng->number_namespaces = eng->default_namespace_atom != UINT32_MAX;
         uint32_t count = th_tree_attr_generation(eng->src_tree);
+        /* xmlns is no static attribute name, so a tree without dynamic names declares no default namespace */
+        eng->default_namespace_atom = count == 0 ? UINT32_MAX : th_attr_lookup(eng->src_tree, "xmlns", 5);
+        eng->number_namespaces = eng->default_namespace_atom != UINT32_MAX;
         for (uint32_t index = 0; !eng->number_namespaces && index < count; index++) {
             Py_ssize_t length;
             const char *name = th_attr_name(eng->src_tree, TH_ATTR__DYNAMIC_BASE + index, &length);

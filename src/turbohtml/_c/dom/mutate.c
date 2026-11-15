@@ -180,13 +180,18 @@ th_node *th_tree_make_pi(th_tree *tree, const Py_UCS4 *target, Py_ssize_t target
 }
 
 /* Intern a UTF-8 attribute name to its atom (static table, else the tree's
-   dynamic table), the construction-side counterpart of intern_attr. */
-static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t len) {
+   dynamic table), the construction-side counterpart of intern_attr. Forced into node_attr_store, which the XML
+   builder calls for every attribute; th_attr_intern_utf8 leaves the other callers to the inliner. */
+static TH_TREE_INLINE uint32_t th_attr_intern_utf8_inline(th_tree *tree, const char *bytes, Py_ssize_t len) {
     uint32_t atom = th_attr_atom(bytes, (size_t)len);
     if (atom != TH_ATTR_UNKNOWN) {
         return atom;
     }
     return intern_attr_dynamic(tree, bytes, len);
+}
+
+static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    return th_attr_intern_utf8_inline(tree, bytes, len);
 }
 
 static int is_xml_namespace_decl(const char *name, Py_ssize_t len) {
@@ -476,7 +481,7 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, cons
 static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     tree->attr_version++;
     mark_start_dirty(tree, node);
-    uint32_t atom = th_attr_intern_utf8(tree, name, name_len);
+    uint32_t atom = th_attr_intern_utf8_inline(tree, name, name_len);
     tree->id_version += atom == TH_ATTR_ID;
     return atom;
 }
@@ -613,7 +618,7 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
     if (node->type != TH_NODE_ELEMENT) {
         return -1;
     }
-    uint32_t atom = th_attr_lookup(tree, name, name_len);
+    uint32_t atom = th_attr_lookup_inline(tree, name, name_len);
     if (atom != UINT32_MAX) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
             TH_WORK_STEP();

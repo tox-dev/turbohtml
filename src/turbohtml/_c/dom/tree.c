@@ -15,6 +15,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
+#include "core/hash.h"   /* th_name_hash keyed hash for the dynamic attribute-name table */
 #include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
 #include "core/work_steps.h"
 
@@ -105,17 +106,65 @@ static uint16_t tok_atom(const th_token *tok) {
     return tok->atom;
 }
 
-static uint32_t fnv1a(const char *bytes, Py_ssize_t len) {
-    uint32_t hash = 2166136261u;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        hash ^= (unsigned char)bytes[index];
-        hash *= 16777619u;
+/* 1 when the run of filled slots through slot is longer than TH_FAST_RUN_LIMIT. A
+   lookup walks at most the run its home falls in, so bounding every run bounds hits
+   and misses alike. Every run was within the limit before this seat, so the walks back
+   and ahead each cover at most the limit: neither is a counted work step. */
+static int attr_run_long(const th_tree *tree, uint32_t slot) {
+    uint32_t mask = tree->attr_slot_mask;
+    uint32_t length = 1;
+    for (uint32_t probe = (slot - 1) & mask; tree->attr_slots[probe] != 0; probe = (probe - 1) & mask) {
+        length++;
     }
-    return hash;
+    for (uint32_t probe = (slot + 1) & mask; tree->attr_slots[probe] != 0; probe = (probe + 1) & mask) {
+        length++;
+    }
+    return length > TH_FAST_RUN_LIMIT;
+}
+
+/* Replace the slots with cap of them and seat every record under its stored hash,
+   which is th_name_hash when keyed, else FNV-1a. Doubling cannot lengthen the longest
+   run: the records of a run in the new slots have their homes inside it, so they
+   already formed a run at least as long in the old ones. A failure flags the parse
+   as arena_alloc does. */
+static int attr_slots_rebuild(th_tree *tree, uint32_t cap, int keyed) {
+    uint32_t *slots = PyMem_Calloc(cap, sizeof(uint32_t));
+    if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    uint32_t mask = cap - 1;
+    for (uint32_t index = 0; index < tree->attr_rec_count; index++) {
+        uint32_t probe = tree->attr_recs[index].hash & mask;
+        while (slots[probe] != 0) {
+            TH_WORK_STEP();
+            probe = (probe + 1) & mask;
+        }
+        slots[probe] = index + 1;
+    }
+    PyMem_Free(tree->attr_slots);
+    tree->attr_slots = slots;
+    tree->attr_fast = keyed ? NULL : slots;
+    tree->attr_slot_mask = mask;
+    return 0;
+}
+
+/* Move the table to th_name_hash for the rest of the tree's life: FNV-1a is fixed,
+   so a document can pick names that share one run of slots, and once a run grows
+   past TH_FAST_RUN_LIMIT every record is rehashed under a key the document cannot
+   see and seated again. */
+static TH_NOINLINE int attr_table_rekey(th_tree *tree) {
+    for (uint32_t index = 0; index < tree->attr_rec_count; index++) {
+        th_attr_record *rec = &tree->attr_recs[index];
+        rec->hash = th_name_hash(rec->name, (Py_ssize_t)rec->name_len);
+    }
+    return attr_slots_rebuild(tree, tree->attr_slot_mask + 1, 1);
 }
 
 /* Ensure the dynamic table can take one more record: grow the record array, and
-   build or grow the hash slots past a 3/4 load factor (rehashing the records). A
+   build or grow the hash slots past half load (rehashing the records): every insert
+   past TH_FAST_RUN_LIMIT records measures the run it joined, and runs stay short at
+   half load where they grow long at 3/4. A
    failure flags the parse as arena_alloc does, so the builder drops the tree instead
    of keeping an attribute with no atom. */
 static int attr_table_reserve(th_tree *tree) {
@@ -136,52 +185,16 @@ static int attr_table_reserve(th_tree *tree) {
         tree->attr_recs = recs;
         tree->attr_rec_cap = (uint32_t)cap;
     }
-    if (tree->attr_slots == NULL || tree->attr_rec_count + 1 > (tree->attr_slot_mask + 1) * 3 / 4) {
-        uint32_t new_cap = tree->attr_slots == NULL ? 16 : (tree->attr_slot_mask + 1) * 2;
-        uint32_t *slots = PyMem_Calloc(new_cap, sizeof(uint32_t));
-        if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        uint32_t mask = new_cap - 1;
-        for (uint32_t index = 0; index < tree->attr_rec_count; index++) {
-            uint32_t probe = tree->attr_recs[index].hash & mask;
-            while (slots[probe] != 0) {
-                probe = (probe + 1) & mask;
-            }
-            slots[probe] = index + 1;
-        }
-        PyMem_Free(tree->attr_slots);
-        tree->attr_slots = slots;
-        tree->attr_slot_mask = mask;
+    if (tree->attr_slots == NULL || tree->attr_rec_count + 1 > (tree->attr_slot_mask + 1) / 2) {
+        int keyed = tree->attr_slots != NULL && tree->attr_fast == NULL;
+        return attr_slots_rebuild(tree, tree->attr_slots == NULL ? 16 : (tree->attr_slot_mask + 1) * 2, keyed);
     }
     return 0;
 }
 
-/* The record index + 1 for an interned name, or 0 when it is not in the table.
-   The name comparison is by bytes, so a hash collision is not a special case. */
-static uint32_t dynamic_slot(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
-    if (tree->attr_slots == NULL) {
-        return 0;
-    }
-    uint32_t mask = tree->attr_slot_mask;
-    for (uint32_t probe = hash & mask; tree->attr_slots[probe] != 0; probe = (probe + 1) & mask) {
-        const th_attr_record *rec = &tree->attr_recs[tree->attr_slots[probe] - 1];
-        if (rec->name_len == (uint32_t)len && memcmp(rec->name, bytes, (size_t)len) == 0) {
-            return tree->attr_slots[probe];
-        }
-    }
-    return 0;
-}
-
-/* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom
-   (prototype in dom/tree_internal.h; the construction API in mutate.c reuses it). */
-uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
-    uint32_t hash = fnv1a(bytes, len);
-    uint32_t found = dynamic_slot(tree, bytes, len, hash);
-    if (found != 0) {
-        return TH_ATTR__DYNAMIC_BASE + (found - 1);
-    }
+/* Add a name the table does not hold, hashed to hash under the table's current hash.
+   Out of line, since a tree adds each name once and looks it up for every element. */
+TH_NOINLINE uint32_t intern_attr_insert(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
     if (attr_table_reserve(tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return TH_ATTR_UNKNOWN;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -196,10 +209,27 @@ uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
     uint32_t mask = tree->attr_slot_mask;
     uint32_t probe = hash & mask;
     while (tree->attr_slots[probe] != 0) {
+        TH_WORK_STEP();
         probe = (probe + 1) & mask;
     }
     tree->attr_slots[probe] = index + 1;
+    if (tree->attr_fast != NULL && tree->attr_rec_count > TH_FAST_RUN_LIMIT && attr_run_long(tree, probe)) {
+        if (attr_table_rekey(tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return TH_ATTR_UNKNOWN;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
     return TH_ATTR__DYNAMIC_BASE + index;
+}
+
+/* intern_attr_dynamic for a table that is not built yet, which starts on FNV-1a, or
+   one on th_name_hash. Out of line, so the FNV-1a lookup keeps its registers. */
+TH_NOINLINE uint32_t intern_attr_slow(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    if (tree->attr_slots == NULL) {
+        return intern_attr_insert(tree, bytes, len, th_fnv1a_bytes(bytes, len));
+    }
+    uint32_t hash = th_name_hash(bytes, len);
+    uint32_t found = dynamic_slot(tree, bytes, len, hash);
+    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : intern_attr_insert(tree, bytes, len, hash);
 }
 
 /* UTF-8 encode a non-ASCII attribute name into the arena (NUL-terminated). Only
@@ -279,19 +309,20 @@ const char *th_attr_name(th_tree *tree, uint32_t atom, Py_ssize_t *out_len) {
     return rec->name;
 }
 
+/* th_attr_lookup's dynamic step for a table on th_name_hash
+   (prototype in dom/tree_internal.h). Out of line, so th_attr_lookup_inline keeps only
+   the FNV-1a step. */
+TH_NOINLINE uint32_t th_attr_lookup_slow(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    uint32_t found = dynamic_slot(tree, bytes, len, th_name_hash(bytes, len));
+    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
+}
+
 /* Resolve a query attribute name (UTF-8 bytes) to the atom an element would carry
    for it, without interning: a static atom, a dynamic atom already seen in this
-   tree, or UINT32_MAX when no element in the tree has that name. */
-uint32_t th_attr_lookup(th_tree *tree, const char *bytes, Py_ssize_t len) {
-    if (len == 0) {
-        return UINT32_MAX;
-    }
-    uint32_t atom = th_attr_atom(bytes, (size_t)len);
-    if (atom != TH_ATTR_UNKNOWN) {
-        return atom;
-    }
-    uint32_t found = dynamic_slot(tree, bytes, len, fnv1a(bytes, len));
-    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
+   tree, or UINT32_MAX when no element in the tree has that name. Out of line, so
+   callers that resolve a name once per query keep their registers. */
+TH_NOINLINE uint32_t th_attr_lookup(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    return th_attr_lookup_inline(tree, bytes, len);
 }
 
 uint32_t th_tree_attr_generation(const th_tree *tree) {
@@ -1079,9 +1110,12 @@ static int merge_name_present(const th_attr_names *names, const th_node *node, u
 }
 
 /* Merge a start tag's attributes onto an existing element, keeping only the
-   ones whose name is not already present (the <html>/<body> re-open rule). */
+   ones whose name is not already present (the <html>/<body> re-open rule).
+   The fragment root is skipped: the standard discards that html element along
+   with anything merged onto it, while parse_fragment() hands it back as the
+   caller's context element, whose attributes the markup must not choose. */
 static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
-    if (token->attr_count == 0) {
+    if (token->attr_count == 0 || node == tree->fragment_root) {
         return;
     }
     th_attr_names *names = NULL;
