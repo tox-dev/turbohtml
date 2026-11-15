@@ -538,6 +538,11 @@ uint64_t th_tree_id_version(const th_tree *tree);
 int th_tree_slot_cache_valid(const th_tree *tree);
 void th_tree_set_slot_cache(th_tree *tree, int valid);
 
+/* How many times a node has left its parent, in any tree of the process. Every other link only gives a parentless
+   node a parent, which keeps each node's ancestors its ancestors, so while the count stands a node's root at some
+   point is still one of its inclusive ancestors. */
+uint64_t th_tree_unlinks(void);
+
 /* The WHATWG parse errors collected during the parse, in document order, and
    their count via *out_count. The array (and its static code strings) lives as
    long as the tree; it is empty for a programmatically built or well-formed tree. */

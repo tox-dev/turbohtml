@@ -365,6 +365,30 @@ def test_relaxng_resources_symlink_escape(tmp_path: Path) -> None:
         RelaxNG(f'<externalRef {_NS} href="link.rng"/>', base_url=str(root / "main.rng"), include_root=root)
 
 
+@pytest.mark.parametrize(
+    ("reference", "href"),
+    [
+        pytest.param("externalRef", "link.rng", id="external-link-inside-root"),
+        pytest.param("externalRef", "../elsewhere/link.rng", id="external-link-outside-root"),
+        pytest.param("include", "link.rng", id="include-link-inside-root"),
+    ],
+)
+def test_relaxng_resources_escape_names_href_not_symlink_target(tmp_path: Path, reference: str, href: str) -> None:
+    root: Final = tmp_path / "root"
+    root.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "target.rng").write_text(_ELEMENT)
+    (root / href).symlink_to(tmp_path / "target.rng")
+    source: Final = {
+        "externalRef": f'<externalRef {_NS} href="{href}"/>',
+        "include": f'<grammar {_NS}><include href="{href}"/></grammar>',
+    }[reference]
+    with pytest.raises(ValueError, match="RELAX NG path escapes include_root") as rejection:
+        RelaxNG(source, base_url=str(root / "main.rng"), include_root=root)
+    assert str(rejection.value).endswith("link.rng")
+    assert "target.rng" not in str(rejection.value)
+
+
 def test_relaxng_resources_without_root_follow_symlinks(tmp_path: Path) -> None:
     (tmp_path / "x").write_text(_ELEMENT)
     (tmp_path / "link.rng").symlink_to(tmp_path / "x")
