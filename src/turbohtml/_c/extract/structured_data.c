@@ -1212,7 +1212,7 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
                      root,
                      base,
                      {NULL, 0, 0},
-                     {0},
+                     {{NULL, 0, 0}, {NULL, 0, 0}, {NULL, 0, 0}, {NULL, 0, 0}, 0},
                      {NULL, 0, 0},
                      NULL,
                      NULL,
