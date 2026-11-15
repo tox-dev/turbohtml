@@ -521,14 +521,31 @@ void th_stream_free(th_stream *stream);
    tokenizer's content model and CDATA handling exactly as a document parse with scripting on does. */
 typedef struct th_shadow th_shadow;
 
-/* Build the tree for the first `prefix` code points of sm's input, a prefix that ends where a tag starts, by
-   replaying them through a tokenizer of its own; the tokens after it come from sm through th_shadow_step. sm's input
-   must be complete and stay in place while the shadow lives. Returns NULL on allocation failure. */
-th_shadow *th_shadow_new(th_tokenizer *sm, Py_ssize_t prefix);
+/* An empty tree that follows sm's input from its start. sm's input must be complete and stay in place while the
+   shadow lives. Returns NULL on allocation failure. */
+th_shadow *th_shadow_new(th_tokenizer *sm);
+
+/* Feed the tree the input from where it stopped up to `offset`, where a tag starts, through a tokenizer of its own;
+   the tokens after it come from sm through th_shadow_step. refs are as for th_shadow_compact. Returns 0, or -1 on
+   allocation failure. */
+int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride);
 
 /* Run the token sm just produced through tree construction, then set sm up for the next one. A TH_CHARREF counts as
    its decoded text. Returns 0, or -1 on allocation failure. */
 int th_shadow_step(th_shadow *shadow, th_token *token);
+
+/* Once the tree has grown well past what tree construction can still reach, replace it by a copy of that part, so
+   the shadow holds memory for the open elements and active formatting elements, not for the document. Each of the
+   `count` element pointers at refs, `stride` bytes apart, moves to its copy, or to a stand-in that has left the
+   stack. Element pointers held anywhere else are invalid afterwards. Returns 0, or -1 on allocation failure. */
+int th_shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, size_t stride);
+
+/* Whether the insertion mode reads the start tags that follow as HTML does outside templates and framesets, with
+   the tokenizer in its data state: a consumer can then go on alone until it meets a tag it cannot read. */
+int th_shadow_parkable(const th_shadow *shadow);
+
+/* Stop following sm after the tag `token`; th_shadow_catch_up resumes from its end. */
+void th_shadow_park(th_shadow *shadow, const th_token *token);
 
 /* The stack of open elements, outermost first; *count receives its length. */
 th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count);

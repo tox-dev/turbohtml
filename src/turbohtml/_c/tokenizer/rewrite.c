@@ -326,6 +326,8 @@ typedef struct {
     Py_ssize_t followed;   /* index of the nearest entry from here down that follows one, or -1 */
     Py_ssize_t line;       /* where the start tag began, which pairs the entry with the th_shadow element */
     Py_ssize_t col;
+    uint16_t foreign_open;    /* SVG/MathML entries from here down */
+    uint16_t points_open;     /* integration point entries from here down */
     Py_ssize_t content_start; /* output offset where the element's content begins */
     Py_ssize_t end_at;        /* set when popped early: output offset the element ended at, or -1 (not in the output) */
 } rw_open;
@@ -359,6 +361,7 @@ typedef struct {
     int error;              /* a Python exception is set; abort the drive */
     int cdata;              /* the tokenizer opens a CDATA section at "<![CDATA[" (rw_sync_cdata) */
     th_shadow *shadow;      /* tree construction run alongside once the spine alone cannot follow it, or NULL */
+    th_shadow *parked;      /* that tree construction while the spine follows the input alone again, or NULL */
     Py_ssize_t *attr_index; /* position + 1 per slot, 0 when free; NULL until a by-name call needs it */
     size_t attr_index_cap;  /* power-of-two slot count, at least twice the attribute slots */
     uint64_t attr_seed;     /* salt so chosen attribute names cannot flood one slot */
@@ -1652,12 +1655,19 @@ static Py_ssize_t rw_entry_at(const rw_ctx *ctx, Py_ssize_t line, Py_ssize_t col
    before the tag, and each element on the spine it still has open is paired with its own by where the start tag
    began. The spine keeps the elements the tree builder closed without an end tag, or never opened, which stay
    unpaired. Returns 0, or -1 with MemoryError set. */
+/* The element pointers of the spine, for th_shadow_compact to move. */
+static th_node **rw_refs(const rw_ctx *ctx) {
+    return ctx->stack != NULL ? &ctx->stack[0].shadow : NULL;
+}
+
 static int rw_follow_tree(rw_ctx *ctx, const th_token *token) {
-    ctx->shadow = th_shadow_new(ctx->sm, token->src_off);
-    if (ctx->shadow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    ctx->shadow = ctx->parked != NULL ? ctx->parked : th_shadow_new(ctx->sm);
+    ctx->parked = NULL;
+    if (ctx->shadow == NULL || /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_shadow_catch_up(ctx->shadow, token->src_off, rw_refs(ctx), ctx->depth, sizeof(rw_open)) < 0) {
+        ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t count;
     th_node *const *open = th_shadow_open(ctx->shadow, &count);
@@ -1677,18 +1687,24 @@ static int rw_follow_tree(rw_ctx *ctx, const th_token *token) {
     return 0;
 }
 
-/* Run a token through the th_shadow; on failure the drive stops with MemoryError set. */
-static TH_NOINLINE void rw_shadow_step(rw_ctx *ctx, th_token *token) {
-    if (th_shadow_step(ctx->shadow, token) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        ctx->error = 1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyErr_NoMemory();                         /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-}
-
 static th_node *rw_shadow_current(const rw_ctx *ctx) {
     Py_ssize_t count;
     th_node *const *open = th_shadow_open(ctx->shadow, &count);
     return count > 0 ? open[count - 1] : NULL;
+}
+
+/* Run a token through the th_shadow and return the element that was current before it; on failure the drive stops
+   with MemoryError set. The spine's element pointers stay valid; any other is stale once this returns. */
+static TH_NOINLINE th_node *rw_shadow_step(rw_ctx *ctx, th_token *token) {
+    th_node *before = NULL;
+    /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+    if (th_shadow_compact(ctx->shadow, rw_refs(ctx), ctx->depth, sizeof(rw_open)) < 0 ||
+        (before = rw_shadow_current(ctx), th_shadow_step(ctx->shadow, token) < 0)) {
+        /* GCOVR_EXCL_BR_STOP */
+        ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return before;
 }
 
 /* Where the spine closes down to after the tree builder ran a tag: the outermost of the innermost run of followed
@@ -1720,8 +1736,7 @@ static TH_NOINLINE uint8_t rw_foreign_start(rw_ctx *ctx, th_token *token, uint16
             return TH_NS_HTML;                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    const th_node *before = rw_shadow_current(ctx);
-    rw_shadow_step(ctx, token);
+    const th_node *before = rw_shadow_step(ctx, token);
     *closed = rw_pop_to(ctx, rw_left_from(ctx));
     /* An element the tag opened is the current node now. A tag whose insertion mode opens an element of its own first
        (a <col> its <colgroup>) leaves that one, and a void or self-closing tag none. A tag the tree builder ignores
@@ -1739,14 +1754,36 @@ static TH_NOINLINE uint8_t rw_foreign_start(rw_ctx *ctx, th_token *token, uint16
     return now->ns;
 }
 
-/* The bookkeeping of a start tag rw_foreign_start read: its integration point, and the nearest followed entry. */
+/* The bookkeeping of a start tag rw_foreign_start read: its integration point, the nearest followed entry, and the
+   SVG/MathML and integration point entries from it down. A start tag outside foreign content leaves the counts at 0:
+   without a th_shadow running the spine has no HTML entry above a foreign one, as such a tag starts one first. */
 static TH_NOINLINE void rw_track_start(const rw_ctx *ctx, rw_open *open) {
     open->integration = open->ns != TH_NS_HTML ? rw_integration(open->ns, open->node) : 0;
-    if (open->shadow != NULL) {
-        open->followed = ctx->depth;
-    } else {
-        open->followed = ctx->depth > 0 ? ctx->stack[ctx->depth - 1].followed : -1;
+    const rw_open *below = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
+    open->followed = open->shadow != NULL ? ctx->depth : below != NULL ? below->followed : -1;
+    open->foreign_open = (uint16_t)((below != NULL ? below->foreign_open : 0) + (open->ns != TH_NS_HTML));
+    open->points_open = (uint16_t)((below != NULL ? below->points_open : 0) + (open->integration != 0));
+}
+
+/* Hand the input back to the spine after a tag, when it reads what follows as the tree builder would until a tag it
+   cannot read starts the th_shadow again: outside templates and framesets, with no SVG/MathML element open or inside
+   one the tree builder has current, and no integration point open. The tree waits with what tree construction still
+   reaches, and catches up from here when it starts again. */
+static TH_NOINLINE void rw_park(rw_ctx *ctx, const th_token *token) {
+    if (ctx->depth > 0) {
+        const rw_open *top = &ctx->stack[ctx->depth - 1];
+        if (top->points_open > 0 || (top->foreign_open > 0 && top->shadow != rw_shadow_current(ctx))) {
+            return;
+        }
     }
+    if (!th_shadow_parkable(ctx->shadow)) {
+        return;
+    }
+    th_shadow_park(ctx->shadow, token);
+    ctx->parked = ctx->shadow;
+    ctx->shadow = NULL;
+    ctx->cdata = rw_spine_foreign(ctx);
+    th_tok_set_cdata(ctx->sm, ctx->cdata);
 }
 
 /* Let go of the elements a start tag closed once its handlers ran: a handler that removed the tag, or took the last
@@ -2202,7 +2239,8 @@ static void rw_ctx_clear(rw_ctx *ctx) {
         Py_XDECREF(ctx->stack[index].after_html);
         rw_free_node(ctx->stack[index].node);
     }
-    th_shadow_free(ctx->shadow);  /* its text spans the tokenizer's input, freed below */
+    th_shadow_free(ctx->shadow); /* its text spans the tokenizer's input, freed below */
+    th_shadow_free(ctx->parked);
     Py_XDECREF(ctx->append_text); /* still set only when a handler failed */
     PyMem_Free(ctx->stack);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
@@ -2326,9 +2364,15 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         switch (token->kind) {
         case TH_START_TAG:
             rw_handle_element(&ctx, token);
+            if (ctx.shadow != NULL) {
+                rw_park(&ctx, token);
+            }
             break;
         case TH_END_TAG:
             rw_handle_end(&ctx, token);
+            if (ctx.shadow != NULL) {
+                rw_park(&ctx, token);
+            }
             break;
         case TH_TEXT:
         case TH_CHARREF:

@@ -5422,25 +5422,31 @@ void th_stream_free(th_stream *stream) {
     PyMem_Free(stream);
 }
 
-/* A document tree built alongside another consumer's tokenizer: tree construction runs on each token that consumer
-   pulls and steers its tokenizer as it would its own, so the consumer reads the input exactly as a parse does. */
+/* A document tree built alongside another consumer's tokenizer: tree construction runs on the tokens that consumer
+   pulls and steers its tokenizer as it would its own, so the consumer reads the input exactly as a parse does. While
+   the consumer reads on without it, the tree waits at `synced`, and th_shadow_catch_up feeds it the input it missed. */
 struct th_shadow {
     th_tree *tree;
     th_insert dc;
+    th_tokenizer *sm;
+    Py_ssize_t synced; /* input offset the tree has read up to, at line:col */
+    Py_ssize_t line;
+    Py_ssize_t col;
+    arena_block *counted; /* the newest arena block already in allocated */
+    Py_ssize_t allocated; /* arena bytes the tree holds */
+    Py_ssize_t budget;    /* allocated past which th_shadow_compact copies the tree */
+    th_node gone;         /* stands in for an element the tree let go of: it has left the stack */
 };
 
-th_shadow *th_shadow_new(th_tokenizer *sm, Py_ssize_t prefix) {
-    th_shadow *shadow = PyMem_Calloc(1, sizeof(th_shadow));
-    if (shadow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+/* Arena growth a shadow tree may reach before its first copy, and on top of three times what the last copy kept. */
+#define SHADOW_SLACK ((Py_ssize_t)256 * 1024)
+/* Set on an element of the tree being copied once it has its copy, which prev_sibling then points at. */
+#define SHADOW_COPIED 0x80
+
+static th_tree *shadow_tree(th_tokenizer *sm) {
     th_tree *tree = tree_new_document(1, 0); /* the start tag positions pair the elements with the consumer's */
-    th_tokenizer *replay = th_tok_new();
-    if (tree == NULL || replay == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        th_tree_free(tree);               /* GCOVR_EXCL_LINE: allocation-failure path */
-        th_tok_free(replay);              /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyMem_Free(shadow);               /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (tree == NULL) {                      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;                         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* the settings of a document parse that runs scripts, as a browser does */
     tree->scripting = 1;
@@ -5449,29 +5455,204 @@ th_shadow *th_shadow_new(th_tokenizer *sm, Py_ssize_t prefix) {
     tree->data = th_tok_input_data(sm, &tree->kind);
     tree->can_span = 1;
     tree->has_nul = 1;
-    /* the prefix ends where a tag starts, so the replay stops in the data state the consumer is in */
-    th_tok_borrow_input(replay, tree->kind, tree->data, prefix);
-    th_tok_close(replay);
-    TH_WORK_STEPS_ADD(prefix);
-    th_run_state run_state;
-    run_state_init(&run_state, M_INITIAL);
-    run_drain(tree, replay, &run_state);
-    th_tok_free(replay);
-    tree->closing_end_tag = NULL;
-    shadow->tree = tree;
-    shadow->dc = (th_insert){
-        .sm = sm,
-        .mode = run_state.mode,
-        .original_mode = run_state.original_mode,
-        .foster_return = run_state.foster_return,
-        .foster_pending = run_state.foster_pending,
-        .table_origin = M_IN_TABLE,
-    };
-    if (tree->failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        th_shadow_free(shadow); /* GCOVR_EXCL_LINE: allocation-failure path */
+    return tree;
+}
+
+static void shadow_count_arena(th_shadow *shadow) {
+    for (arena_block *block = shadow->tree->arena; block != shadow->counted; block = block->next) {
+        shadow->allocated += block->cap;
+    }
+    shadow->counted = shadow->tree->arena;
+}
+
+th_shadow *th_shadow_new(th_tokenizer *sm) {
+    th_shadow *shadow = PyMem_Calloc(1, sizeof(th_shadow));
+    if (shadow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    shadow->tree = shadow_tree(sm);
+    if (shadow->tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(shadow);     /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    shadow->sm = sm;
+    shadow->dc = (th_insert){
+        .sm = sm,
+        .mode = M_INITIAL,
+        .original_mode = M_IN_BODY,
+        .foster_return = M_IN_TABLE,
+        .table_origin = M_IN_TABLE,
+    };
+    shadow->line = 1;
+    shadow->gone.left_stack = 1;
+    shadow_count_arena(shadow);
+    shadow->budget = shadow->allocated + SHADOW_SLACK;
     return shadow;
+}
+
+static void shadow_take(th_shadow *shadow, th_token *token) {
+    th_tree *tree = shadow->tree;
+    drain_token(tree, &shadow->dc, token);
+    tree->closing_end_tag = NULL;
+    tree->errors.len = 0; /* nobody reads the shadow's parse errors, and keeping them would grow with the document */
+}
+
+/* Copy one node of src into dest, under parent when it has one. A template's content goes with it: a content
+   fragment as its child, the shadow root of a declarative one parentless, as the tree builder makes them. */
+static th_node *shadow_copy(th_tree *dest, th_tree *src, th_node *node, th_node *parent) {
+    th_node *copy = th_tree_copy_node_shallow(dest, src, node);
+    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    copy->html_integration = node->html_integration;
+    copy->afe_listed = node->afe_listed;
+    copy->left_stack = node->left_stack;
+    if (node->type == TH_NODE_ELEMENT) {
+        node_pos(copy)[0] = node_pos(node)[0];
+        node_pos(copy)[1] = node_pos(node)[1];
+    }
+    node->left_stack |= SHADOW_COPIED;
+    node->prev_sibling = copy;
+    if (parent != NULL) {
+        node_append(parent, copy);
+    }
+    if (node->ns == TH_NS_HTML && node->atom == TH_TAG_TEMPLATE) { /* any other node is TH_TAG_UNKNOWN */
+        th_node *content = node->first_child;
+        int attached = content->parent == node;
+        th_node *inner = shadow_copy(dest, src, content, attached ? copy : NULL);
+        if (inner == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (!attached) {
+            copy->first_child = inner;
+            copy->last_child = inner;
+        }
+    }
+    return copy;
+}
+
+/* The copy of node, made with its ancestors when it has none yet. */
+static th_node *shadow_copy_rooted(th_tree *dest, th_tree *src, th_node *node) {
+    if (node->left_stack & SHADOW_COPIED) {
+        return node->prev_sibling;
+    }
+    th_node *parent = NULL;
+    if (node->parent != NULL) {
+        parent = shadow_copy_rooted(dest, src, node->parent);
+        if (parent == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return shadow_copy(dest, src, node, parent);
+}
+
+static th_node *shadow_copy_detached(th_tree *dest, th_tree *src, th_node *node) {
+    if (node->left_stack & SHADOW_COPIED) {
+        return node->prev_sibling;
+    }
+    return shadow_copy(dest, src, node, NULL);
+}
+
+/* Replace the tree by a copy of what tree construction can still reach: the open elements with their ancestors, the
+   active formatting elements, the head and form element pointers and the template insertion modes. Everything
+   else (closed elements, text, comments) can no longer change how a later token is read. Each of the `count` node
+   pointers at refs, `stride` bytes apart, is moved to its element's copy, or to a stand-in that has left the stack. */
+static int shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, size_t stride) {
+    th_tree *src = shadow->tree;
+    th_tree *dest = shadow_tree(shadow->sm);
+    if (dest == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    src->document->left_stack |= SHADOW_COPIED;
+    src->document->prev_sibling = dest->document;
+    for (Py_ssize_t index = 0; index < src->open_len; index++) {
+        TH_WORK_STEP();
+        th_node *copy = shadow_copy_rooted(dest, src, src->open[index]);
+        if (copy == NULL || !stack_push(dest, copy)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            th_tree_free(dest);                        /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    for (Py_ssize_t index = 0; index < src->afe_len; index++) {
+        TH_WORK_STEP();
+        th_node *entry = src->afe[index];
+        th_node *copy = entry == NULL ? NULL : shadow_copy_detached(dest, src, entry);
+        if (dest->afe_len == dest->afe_cap && !afe_grow(dest)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            th_tree_free(dest);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                                           /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        afe_keys(dest)[dest->afe_len] = 0; /* hashed again once the hash set needs it */
+        dest->afe[dest->afe_len++] = copy;
+    }
+    dest->head = src->head == NULL ? NULL : shadow_copy_detached(dest, src, src->head);
+    dest->form = src->form == NULL ? NULL : shadow_copy_detached(dest, src, src->form);
+    for (Py_ssize_t index = 0; index < src->tmpl_len; index++) {
+        tmpl_push(dest, src->tmpl[index]);
+    }
+    dest->stack_version = src->stack_version;
+    dest->scope_version = src->stack_version - 1;
+    dest->open_p_count = src->open_p_count;
+    dest->refused_frameset_count = src->refused_frameset_count;
+    dest->afe_stack_hint = -1;
+    dest->frameset_ok = src->frameset_ok;
+    dest->drop_newline = src->drop_newline;
+    dest->foster = src->foster;
+    dest->quirks = src->quirks;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        th_node **ref = (th_node **)((char *)refs + (size_t)index * stride);
+        if (*ref != NULL) {
+            *ref = (*ref)->left_stack & SHADOW_COPIED ? (*ref)->prev_sibling : &shadow->gone;
+        }
+    }
+    if (dest->failed) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tree_free(dest); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_tree_free(src);
+    shadow->tree = dest;
+    shadow->counted = NULL;
+    shadow->allocated = 0;
+    shadow_count_arena(shadow);
+    shadow->budget = 3 * shadow->allocated + SHADOW_SLACK;
+    return 0;
+}
+
+int th_shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, size_t stride) {
+    if (shadow->tree->arena != shadow->counted) {
+        shadow_count_arena(shadow);
+    }
+    return shadow->allocated > shadow->budget ? shadow_compact(shadow, refs, count, stride) : 0;
+}
+
+int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride) {
+    th_tree *tree = shadow->tree;
+    th_tokenizer *replay = th_tok_new();
+    if (replay == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* the tree stopped after a tag and the consumer is at one, so the replay starts and ends in the data state */
+    th_tok_borrow_input(replay, tree->kind, tree->data, offset);
+    th_tok_seek(replay, shadow->synced, shadow->line, shadow->col);
+    th_tok_close(replay);
+    TH_WORK_STEPS_ADD(offset - shadow->synced);
+    shadow->dc.sm = replay;
+    th_token *token;
+    int failed = 0;
+    while (th_tok_set_cdata(replay, shadow->tree->open_len > 0 && current_node(shadow->tree)->ns != TH_NS_HTML),
+           th_tok_next(replay, &token) == TH_STEP_TOKEN) {
+        shadow_take(shadow, token);
+        /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+        if (shadow->tree->failed || th_shadow_compact(shadow, refs, count, stride) < 0) {
+            failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+    }
+    failed |= th_tok_failed(replay); /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    th_tok_free(replay);
+    shadow->dc.sm = shadow->sm;
+    shadow->synced = offset;
+    return failed ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
 }
 
 int th_shadow_step(th_shadow *shadow, th_token *token) {
@@ -5480,12 +5661,44 @@ int th_shadow_step(th_shadow *shadow, th_token *token) {
     if (kind == TH_CHARREF) {
         token->kind = TH_TEXT; /* the decoded reference, as a parse reads it inside its text run */
     }
-    drain_token(tree, &shadow->dc, token);
+    shadow_take(shadow, token);
     token->kind = kind;
-    tree->closing_end_tag = NULL;
     /* the tag the shadow started at put <html> on the stack, and nothing takes it off */
-    th_tok_set_cdata(shadow->dc.sm, current_node(tree)->ns != TH_NS_HTML);
-    return tree->failed || th_error_sink_failed(&tree->errors) ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation */
+    th_tok_set_cdata(shadow->sm, current_node(tree)->ns != TH_NS_HTML);
+    return tree->failed ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+}
+
+int th_shadow_parkable(const th_shadow *shadow) {
+    switch (shadow->dc.mode) {
+    case M_TEXT:
+    case M_TEXT_REFUSED:
+    case M_IN_FRAMESET:
+    case M_AFTER_FRAMESET:
+    case M_AFTER_AFTER_FRAMESET:
+        return 0;
+    default:
+        /* a <plaintext> never gets here: it leaves the mode alone, and what kept the tree from parking before it */
+        return shadow->tree->tmpl_len == 0;
+    }
+}
+
+void th_shadow_park(th_shadow *shadow, const th_token *token) {
+    int kind;
+    const void *data = th_tok_input_data(shadow->sm, &kind);
+    Py_ssize_t line = token->line;
+    Py_ssize_t col = token->col;
+    Py_ssize_t end = token->src_off + token->src_span;
+    for (Py_ssize_t index = token->src_off; index < end; index++) {
+        if (PyUnicode_READ(kind, data, index) == '\n') {
+            line++;
+            col = 0;
+        } else {
+            col++;
+        }
+    }
+    shadow->synced = end;
+    shadow->line = line;
+    shadow->col = col;
 }
 
 th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count) {

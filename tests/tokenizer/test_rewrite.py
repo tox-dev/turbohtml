@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from turbohtml.rewrite import Element, rewrite
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
@@ -1820,20 +1822,18 @@ def test_rewrite_calls_handlers_on_the_elements_a_parse_builds(wpt_html_tree_cor
 def _misread(source: str) -> list[str]:
     mark = "\ue000"
     marked = rewrite(source, elements=[("*", lambda element: element.before(mark))])
-    starts = {at - before for before, at in enumerate(at for at, char in enumerate(marked) if char == mark)}
+    starts = [at - before for before, at in enumerate(at for at, char in enumerate(marked) if char == mark)]
+    seen = set(starts)
     problems = []
     for element in _parsed_elements(parse(source, source_locations=True, scripting=True)):
         if (location := element.source_location) is None:
             continue
-        if location.start_tag.start_offset not in starts:
+        if location.start_tag.start_offset not in seen:
             problems.append(f"no handler call for <{element.tag}> at {location.start_tag.start_offset}")
         if element.namespace is Namespace.HTML and element.tag in _RAW_TEXT:
             end = len(source) if location.end_tag is None else location.end_tag.start_offset
-            problems.extend(
-                f"handler call at {at} inside the text of <{element.tag}>"
-                for at in sorted(starts)
-                if location.start_tag.end_offset <= at < end
-            )
+            if (inside := bisect_left(starts, location.start_tag.end_offset)) < bisect_left(starts, end):
+                problems.append(f"handler call at {starts[inside]} inside the text of <{element.tag}>")
     return problems
 
 
@@ -1871,6 +1871,9 @@ _BREAKOUT_RUN: Final[str] = "<svg><g><p></b><i></g>"
         pytest.param("<div><template shadowrootmode=open><svg><p><style><i>", id="shadow-root"),
         pytest.param("<svg><desc><table><col><style><i></style>", id="column-group-implied"),
         pytest.param("<template></template>&amp;<frameset><title><b></title>", id="reference-ends-the-head"),
+        pytest.param("<template>&amp;<col><textarea><i></textarea></template>", id="reference-in-template"),
+        pytest.param("<svg><p\nid=a></p>\n<b>\n<svg><g\n/><p>x</b><style><i></style>", id="resumed-after-lines"),
+        pytest.param("<svg><p><plaintext></p><style><i>", id="plaintext"),
         pytest.param("<div><div>\n<div><div>\n<svg><p><style><i></style>", id="multi-line"),
         pytest.param("<frameset><img><noframes><i></noframes>", id="ignored-void"),
         pytest.param(_BREAKOUT_RUN * 3, id="repeated-breakout"),
@@ -1903,6 +1906,47 @@ def test_rewrite_follows_the_tree_builder_in_linear_time(work_steps: WorkSteps) 
         lambda count: partial(rewrite, _BREAKOUT_RUN * count, elements=[("*", lambda _: None)]),
         (500, 2000),
     )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("", id="parked-between-blocks"),
+        pytest.param("<template>", id="inside-template"),
+        pytest.param("<svg><foreignObject>", id="inside-integration-point"),
+        pytest.param("<math><mi><b>", id="inside-text-integration-point"),
+        pytest.param("<form><div><template shadowrootmode=open>", id="inside-form-and-shadow-root"),
+        pytest.param(f"<html title={'x' * 300_000}><template>", id="before-the-head"),
+    ],
+)
+def test_rewrite_follows_the_tree_builder_through_a_long_document(prefix: str) -> None:
+    mixed = (
+        "<b>a<i>b</b>c</i><table><tr><td>x<td><svg><desc><p>y</desc></svg></table><p><a href=#>z<a>w</a>"
+        "<style><i></style><svg><g><path/></g><title><b></title></svg><template><col><textarea><i></textarea></template>\n"
+    )
+    assert _misread(prefix + mixed * 3000) == []
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("<template>", id="inside-template"),
+        pytest.param("<svg><foreignObject>", id="inside-integration-point"),
+        pytest.param("<b><svg><p>", id="after-breakout"),
+    ],
+)
+def test_rewrite_following_the_tree_builder_keeps_memory_to_the_open_elements(
+    prefix: str, peak_bytes: PeakBytes
+) -> None:
+    script = (
+        "import sys, tracemalloc\n"
+        "from turbohtml.rewrite import rewrite\n"
+        "source = sys.argv[1] + '<div><p>x <b>y</b></p></div>' * 40000\n"
+        "tracemalloc.start()\n"
+        "rewrite(source)\n"
+        "print(tracemalloc.get_traced_memory()[1])\n"
+    )
+    assert peak_bytes(script, (prefix,)) - peak_bytes(script, ("",)) < 2 * 1024 * 1024
 
 
 def test_rewrite_removed_attribute_is_gone_for_the_rest_of_the_handler() -> None:

@@ -592,6 +592,15 @@ void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssiz
     self->input_borrowed = 1;
 }
 
+void th_tok_seek(th_tokenizer *self, Py_ssize_t pos, Py_ssize_t line, Py_ssize_t col) {
+    self->pos = pos;
+    self->line = line;
+    self->col = col;
+    self->mark_pos = pos;
+    self->mark_line = line;
+    self->mark_col = col;
+}
+
 int th_tok_failed(const th_tokenizer *self) {
     return self->oom;
 }

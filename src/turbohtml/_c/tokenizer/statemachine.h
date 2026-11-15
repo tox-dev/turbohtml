@@ -275,6 +275,9 @@ void th_tok_feed(th_tokenizer *self, int kind, const void *data, Py_ssize_t leng
    the machine; streaming feed() copies. */
 void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssize_t length);
 
+/* Start reading the input at code point `pos`, which sits at line:col, in the data state. */
+void th_tok_seek(th_tokenizer *self, Py_ssize_t pos, Py_ssize_t line, Py_ssize_t col);
+
 /* The storage backing slice tokens: sets *kind, returns the base pointer. */
 const void *th_tok_input_data(const th_tokenizer *self, int *kind);
 
