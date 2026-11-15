@@ -3553,6 +3553,26 @@ def test_transform_number_multiple_levels() -> None:
     assert result == "[1][1.1][1.2][2]"
 
 
+def test_transform_number_multiple_numbers_every_level_past_chain_limit() -> None:
+    depth = 135
+    source = f"{'<e>' * (depth - 1)}<leaf/>{'</e>' * (depth - 1)}"
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//leaf"/></xsl:template>'
+        '<xsl:template match="leaf"><xsl:number level="multiple" count="*" format="1."/></xsl:template>'
+    )
+    assert _run(source, body) == "1." * depth
+
+
+def test_transform_number_multiple_attribute_past_chain_limit() -> None:
+    depth = 135
+    source = f'{"<e>" * (depth - 1)}<leaf a="1"/>{"</e>" * (depth - 1)}'
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//leaf/@a"/></xsl:template>'
+        '<xsl:template match="@a"><xsl:number level="multiple" count="*|@*" format="1."/></xsl:template>'
+    )
+    assert _run(source, body) == "1." * (depth + 1)
+
+
 def test_transform_number_level_any() -> None:
     body = (
         '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
