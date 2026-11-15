@@ -1,2 +1,2 @@
-Long ``<meta>`` charset declarations are now read in full, so whitespace-padded labels resolve and values that name no
-encoding are ignored, as in browsers.
+Long ``<meta>`` charset values are read in full, so padded labels resolve, and a ``charset`` that names no encoding no
+longer hides a ``content`` declaration, as in browsers.

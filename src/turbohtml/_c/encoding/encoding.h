@@ -567,10 +567,9 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
                    (is_attr_space(buf[pos + 5]) || buf[pos + 5] == '/')) {
             pos += 5;
             int got_pragma = 0;
-            int need_pragma = -1; /* -1 unset, 0 from a charset attr, 1 from a content attr */
             /* looked up as each attribute is read, since the next attribute overwrites value */
-            const th_encoding_entry *charset = NULL;
-            int labeled = 0; /* the charset attribute supplied a non-empty label, whether or not it resolved */
+            const th_encoding_entry *charset_entry = NULL;
+            const th_encoding_entry *content_entry = NULL;
             /* the spec builds an attribute list and skips an attribute whose name is already in it, so the first
                occurrence of each name wins and a repeated charset or http-equiv cannot override it */
             int seen_http_equiv = 0;
@@ -583,21 +582,21 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
                 } else if (strcmp(name, "content") == 0 && !seen_content) {
                     seen_content = 1;
                     Py_ssize_t label_len = 0;
-                    const char *label = labeled ? NULL : prescan_charset_in_content(value, &label_len);
+                    const char *label = prescan_charset_in_content(value, &label_len);
                     if (label != NULL) {
-                        charset = th_encoding_lookup(label, label_len);
-                        need_pragma = 1;
+                        content_entry = th_encoding_lookup(label, label_len);
                     }
                 } else if (strcmp(name, "charset") == 0 && !seen_charset) {
                     seen_charset = 1;
-                    charset = th_encoding_lookup(value, (Py_ssize_t)strlen(value));
-                    labeled = value[0] != '\0';
-                    need_pragma = 0;
+                    charset_entry = th_encoding_lookup(value, (Py_ssize_t)strlen(value));
                 }
             }
-            /* charset is only set together with need_pragma, so a resolved label needs no further test of it */
-            if (charset != NULL && (need_pragma == 0 || got_pragma)) {
-                return th_encoding_declared(charset);
+            /* a charset that names no encoding does not end the meta: the tree-construction rule then tries content */
+            if (charset_entry != NULL) {
+                return th_encoding_declared(charset_entry);
+            }
+            if (got_pragma && content_entry != NULL) {
+                return th_encoding_declared(content_entry);
             }
         } else if (pos + 2 <= len && (is_ascii_alpha(buf[pos + 1]) ||
                                       (buf[pos + 1] == '/' && pos + 2 < len && is_ascii_alpha(buf[pos + 2])))) {

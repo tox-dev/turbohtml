@@ -892,24 +892,7 @@ static const char *meta_value_ascii(th_tree *tree, const th_buf *value) {
     return out;
 }
 
-/* Record a <meta> element's encoding declaration, if it carries one: a charset attribute,
-   or an http-equiv="content-type" whose content still needs its charset= token extracted.
-   Every other <meta> declares no encoding and is skipped. Kept in document order because an
-   unresolvable label falls through to the next declaration rather than ending the search. */
-static void record_meta_label(th_tree *tree, const th_token *token) {
-    const th_attr *declaration = token_attr(token, "charset", 7);
-    int from_content = 0;
-    if (declaration == NULL || !declaration->has_value) {
-        const th_attr *pragma = token_attr(token, "http-equiv", 10);
-        if (pragma == NULL || !pragma->has_value || !buf_iequals_ascii(&pragma->value, "content-type", 12)) {
-            return;
-        }
-        declaration = token_attr(token, "content", 7);
-        if (declaration == NULL || !declaration->has_value) {
-            return;
-        }
-        from_content = 1;
-    }
+static void append_meta_label(th_tree *tree, const th_buf *value, int from_content) {
     if (tree->meta_label_count == tree->meta_label_cap) {
         Py_ssize_t cap = tree->meta_label_cap == 0 ? TH_INITIAL_CAPACITY(4) : tree->meta_label_cap * 2;
         th_meta_label *grown = PyMem_Realloc(tree->meta_labels, (size_t)cap * sizeof(*grown));
@@ -920,13 +903,32 @@ static void record_meta_label(th_tree *tree, const th_token *token) {
         tree->meta_labels = grown;
         tree->meta_label_cap = cap;
     }
-    const char *text = meta_value_ascii(tree, &declaration->value);
+    const char *text = meta_value_ascii(tree, value);
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     tree->meta_labels[tree->meta_label_count].text = text;
     tree->meta_labels[tree->meta_label_count].from_content = from_content;
     tree->meta_label_count++;
+}
+
+/* Record a <meta> element's encoding declarations in the order the tree-construction rule tries them: its charset
+   value, then -- for an http-equiv="content-type" element -- its content value, whose charset= token still needs
+   extracting. A value that names no encoding falls through to the next declaration rather than ending the search,
+   so every declaration is kept, in document order. Other <meta> elements declare nothing. */
+static void record_meta_label(th_tree *tree, const th_token *token) {
+    const th_attr *charset = token_attr(token, "charset", 7);
+    if (charset != NULL && charset->has_value) {
+        append_meta_label(tree, &charset->value, 0);
+    }
+    const th_attr *pragma = token_attr(token, "http-equiv", 10);
+    if (pragma == NULL || !pragma->has_value || !buf_iequals_ascii(&pragma->value, "content-type", 12)) {
+        return;
+    }
+    const th_attr *content = token_attr(token, "content", 7);
+    if (content != NULL && content->has_value) {
+        append_meta_label(tree, &content->value, 1);
+    }
 }
 
 static th_node *insert_element(th_tree *tree, const th_token *token) {
