@@ -2691,3 +2691,22 @@ def test_closest_under_long_value_in_linear_time(work_steps: WorkSteps) -> None:
         return partial(parse(f'<section class="{"w " * size}">{"<div>" * size}').select("div")[-1].closest, ".hit *")
 
     work_steps.assert_linear(deepest, (250, 1000))
+
+
+def test_select_long_values_nested_past_probe_run_limit() -> None:
+    document: Final = _long_values_nested(300)
+    assert len(document.select(f'group[pad~="{"x" * 262}"] group')) == 299
+    assert document.select('group[pad~="zz"] group') == []
+
+
+def _long_values_nested(groups: int) -> Document:
+    # nested groups with long attribute values, each memoized under its sequence, and the sequences hash into the lowest
+    # eighth of the memo's home slots, so the entries form one probe run past the fast run limit; a group's ancestors
+    # are tested again under each descendant, so later lookups hit entries deep in that run
+    pad: Final = "x" * 262
+    parts: list[str] = []
+    sequence = 1
+    while sum(part.startswith("<group") for part in parts) < groups:
+        sequence += 1
+        parts.append(f'<group pad="{pad}">' if sequence * 0x61C88647 % 2**32 < 2**29 else "<!---->")
+    return parse_xml(f"<r>{''.join(parts)}{'</group>' * groups}</r>")
