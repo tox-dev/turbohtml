@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import math
+import os
 import random
 import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from bisect import bisect_left, bisect_right
 from collections import Counter
 from difflib import SequenceMatcher
 from functools import partial
 from operator import methodcaller
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -3562,6 +3567,70 @@ def _toggler(count: int) -> Callable[[Element], None]:
             element.set_attribute(f"a{index}", "v")
 
     return toggle
+
+
+_ATTR_ATOM_HEADER: Final[Path] = Path(__file__).parents[2] / "src" / "turbohtml" / "_c" / "data" / "attr_atom.h"
+_ATOM_NAME: Final[re.Pattern[str]] = re.compile(r"TH_ATTR\w*")
+# The child names attributes by atom: a preamble interns them in order, from the first dynamic atom on. Its slot
+# function is the rewrite index's, salted with the hash of its bytes, which PYTHONHASHSEED=0 makes a known constant.
+_CLUSTERED_CHILD: Final[str] = """
+import sys
+from turbohtml import _html
+from turbohtml.rewrite import rewrite
+
+MASK = (1 << 64) - 1
+SALT = hash(b"turbohtml:rewrite-attr") & MASK
+BASE = int(sys.argv[1])
+WINDOW = 8
+
+
+def slot(atom, cap):
+    h = (SALT ^ atom) & MASK
+    h = ((h ^ (h >> 30)) * 0xBF58476D1CE4E5B9) & MASK
+    h = ((h ^ (h >> 27)) * 0x94D049BB133111EB) & MASK
+    return ((h ^ (h >> 31)) & MASK) & (cap - 1)
+
+
+def clustered(size):
+    names = [f"zq{index:x}k" for index in range(4 * WINDOW * size)]
+    chosen = [index for index in range(len(names)) if slot(BASE + index, 2 * size) < size // WINDOW][:size]
+    preamble = "<i " + " ".join(f'{name}=""' for name in names) + "></i>"
+    tag = "<p " + " ".join(f'{names[index]}="v"' for index in chosen) + "></p>"
+    return preamble + tag
+
+
+def remove_all(element):
+    for name, _ in element.attrs:
+        element.remove_attribute(name)
+
+
+def steps(source):
+    before = _html._work_steps()
+    rewrite(source, elements=[("i", lambda element: None), ("p", remove_all)])
+    return _html._work_steps() - before
+
+
+for size in (256, 2048):
+    print(size, steps(clustered(size)))
+"""
+
+
+@pytest.mark.usefixtures("work_steps")
+def test_clustered_names_under_a_fixed_hash_seed_scan_in_linear_time() -> None:
+    enum = _ATTR_ATOM_HEADER.read_text().split("enum th_attr {", 1)[1].split("};", 1)[0]
+    base = _ATOM_NAME.findall(enum).index("TH_ATTR__DYNAMIC_BASE")
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", _CLUSTERED_CHILD, str(base)],
+        env={**os.environ, "PYTHONHASHSEED": "0"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    (small_size, small), (large_size, large) = (tuple(map(int, line.split())) for line in result.stdout.splitlines())
+    growth = math.log(large / small) / math.log(large_size / small_size)
+    assert growth <= 1.25, f"steps {small} -> {large} grow as n^{growth:.2f}"
 
 
 # 320 characters: past the length from which a class answer is kept while the element stays open

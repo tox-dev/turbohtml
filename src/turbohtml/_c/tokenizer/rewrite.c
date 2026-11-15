@@ -3163,14 +3163,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_tok_set_options(ctx.sm, 0, 1, 1);
-    /* Python's randomized bytes hash salts the index, so chosen names cannot be precomputed to share one slot */
-    PyObject *salt = PyBytes_FromStringAndSize("turbohtml:rewrite-attr", 22);
-    if (salt == NULL) {     /* GCOVR_EXCL_BR_LINE: bytes allocation cannot be forced from a test */
-        rw_ctx_clear(&ctx); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    ctx.attr_seed = (uint64_t)PyObject_Hash(salt);
-    Py_DECREF(salt);
+    ctx.attr_seed = state->rewrite_attr_salt;
     ctx.edit_line = -1;
     ctx.body_at = -1;
     Py_ssize_t length = PyUnicode_GET_LENGTH(source);
@@ -3259,8 +3252,28 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
     return result;
 }
 
+/* The attribute index salt comes from the OS, not from PyObject_Hash: under a fixed PYTHONHASHSEED that hash is a
+   constant, and the slots of every name would then be computable offline. */
+static int rw_attr_salt_draw(module_state *state) {
+    PyObject *os = PyImport_ImportModule("os");
+    if (os == NULL) { /* GCOVR_EXCL_BR_LINE: import of a loaded stdlib module cannot be forced from a test */
+        return -1;    /* GCOVR_EXCL_LINE: import failure */
+    }
+    PyObject *raw = PyObject_CallMethod(os, "urandom", "n", (Py_ssize_t)sizeof(state->rewrite_attr_salt));
+    Py_DECREF(os);
+    if (raw == NULL) { /* GCOVR_EXCL_BR_LINE: OS random source failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: OS random source failure */
+    }
+    memcpy(&state->rewrite_attr_salt, PyBytes_AS_STRING(raw), sizeof(state->rewrite_attr_salt));
+    Py_DECREF(raw);
+    return 0;
+}
+
 // NOLINTNEXTLINE(misc-use-internal-linkage): declared in tokenizer/binding.h, called from core/module.c
 int rewrite_register(PyObject *module, module_state *state) {
+    if (rw_attr_salt_draw(state) < 0) { /* GCOVR_EXCL_BR_LINE: OS random source failure cannot be forced from a test */
+        return -1;                      /* GCOVR_EXCL_LINE: OS random source failure */
+    }
     state->rewrite_handle_type = PyType_FromModuleAndSpec(module, &rw_handle_spec, NULL);
     if (state->rewrite_handle_type == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                            /* GCOVR_EXCL_LINE: allocation-failure path */
