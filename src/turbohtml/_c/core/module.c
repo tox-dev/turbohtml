@@ -6,7 +6,14 @@
    the free-threaded build. These sources use only public, version-portable
    APIs, so they build on CPython 3.11 through 3.15. */
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
+
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/vec.h"
 
 #include "tokenizer/binding.h"
@@ -305,6 +312,101 @@ static PyMethodDef html_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
+/* The key core/hash.h hashes every name under, so a document cannot precompute attribute names that
+   cluster in the tokenizer's or the tree's table. Python's randomized bytes hash supplies both halves,
+   as it does for the XML parser's salt (th_tree_parse_xml): it draws from the OS per process yet
+   collapses to a fixed value under PYTHONHASHSEED, so the C coverage and CodSpeed gates stay
+   reproducible while production stays unpredictable. The hash secret is process-wide, so every
+   interpreter that executes the module stores the same key. */
+uint64_t th_name_hash_key[2];
+
+static inline uint64_t sip_rotate(uint64_t word, int bits) {
+    return (word << bits) | (word >> (64 - bits));
+}
+
+static inline void sip_round(uint64_t state[4]) {
+    state[0] += state[1];
+    state[1] = sip_rotate(state[1], 13) ^ state[0];
+    state[0] = sip_rotate(state[0], 32);
+    state[2] += state[3];
+    state[3] = sip_rotate(state[3], 16) ^ state[2];
+    state[0] += state[3];
+    state[3] = sip_rotate(state[3], 21) ^ state[0];
+    state[2] += state[1];
+    state[1] = sip_rotate(state[1], 17) ^ state[2];
+    state[2] = sip_rotate(state[2], 32);
+}
+
+TH_NOINLINE uint32_t th_name_hash(const void *data, Py_ssize_t len) {
+    const unsigned char *bytes = data;
+    uint64_t state[4] = {
+        th_name_hash_key[0] ^ UINT64_C(0x736F6D6570736575),
+        th_name_hash_key[1] ^ UINT64_C(0x646F72616E646F6D),
+        th_name_hash_key[0] ^ UINT64_C(0x6C7967656E657261),
+        th_name_hash_key[1] ^ UINT64_C(0x7465646279746573),
+    };
+    Py_ssize_t whole = len - len % 8;
+    for (Py_ssize_t index = 0; index < whole; index += 8) {
+        uint64_t word;
+        memcpy(&word, bytes + index, sizeof(word));
+        state[3] ^= word;
+        sip_round(state);
+        state[0] ^= word;
+    }
+    uint64_t last = (uint64_t)len << 56; /* the final word carries the length above the leftover bytes */
+    for (Py_ssize_t index = whole; index < len; index++) {
+        last |= (uint64_t)bytes[index] << (8 * (index - whole));
+    }
+    state[3] ^= last;
+    sip_round(state);
+    state[0] ^= last;
+    state[2] ^= 0xFF;
+    sip_round(state);
+    sip_round(state);
+    sip_round(state);
+    return (uint32_t)(state[0] ^ state[1] ^ state[2] ^ state[3]);
+}
+
+static int name_hash_key_status;
+
+static void name_hash_key_compute(void) {
+    static const char *const salts[2] = {"turbohtml:name-hash:0", "turbohtml:name-hash:1"};
+    for (int index = 0; index < 2; index++) {
+        PyObject *salt = PyBytes_FromString(salts[index]);
+        if (salt == NULL) {            /* GCOVR_EXCL_BR_LINE: bytes allocation cannot be forced from a test */
+            name_hash_key_status = -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        th_name_hash_key[index] = (uint64_t)PyObject_Hash(salt);
+        Py_DECREF(salt);
+    }
+}
+
+#if defined(_WIN32)
+static INIT_ONCE name_hash_key_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK name_hash_key_compute_once(PINIT_ONCE once, PVOID parameter, PVOID *context) {
+    (void)once;
+    (void)parameter;
+    (void)context;
+    name_hash_key_compute();
+    return TRUE;
+}
+#else
+static pthread_once_t name_hash_key_once = PTHREAD_ONCE_INIT;
+#endif
+
+/* Every interpreter that executes the module runs this, possibly on another thread. The first computes the key, the
+   rest wait for it, and the once primitive publishes the words to all of them; nothing writes the key after. */
+static int name_hash_key_init(void) {
+#if defined(_WIN32)
+    InitOnceExecuteOnce(&name_hash_key_once, name_hash_key_compute_once, NULL, NULL);
+#else
+    pthread_once(&name_hash_key_once, name_hash_key_compute);
+#endif
+    return name_hash_key_status;
+}
+
 static int publish_native_names(PyObject *module) {
     static const char *const names[] = {
         "minify_css",
@@ -428,6 +530,9 @@ static int publish_native_names(PyObject *module) {
 
 static int html_exec(PyObject *module) {
     module_state *state = PyModule_GetState(module);
+    if (name_hash_key_init() < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     if (token_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
     }

@@ -706,6 +706,16 @@ def test_flattened_assignment_many_names() -> None:
     assert [node.text for node in host.flattened_children] == [str(index) for index in reversed(range(1000))]
 
 
+def test_flattened_children_follow_a_slot_assigned_into_a_nested_shadow_tree() -> None:
+    outer: Final = Element("div")
+    outer.set_inner_html('<p slot="x">X</p>')
+    outer_root: Final = outer.attach_shadow()
+    outer_root.set_inner_html('<section><slot name="x" slot="b"></slot></section>')
+    inner: Final = _element(outer_root.select_one("section"))
+    inner.attach_shadow().set_inner_html('<slot name="a"></slot><slot name="b"></slot>')
+    assert [node.serialize() for node in inner.flattened_children] == ['<p slot="x">X</p>']
+
+
 def test_shadow_flatten_keeps_sibling_fallback_order() -> None:
     shadow: Final = Element("div").attach_shadow("open")
     shadow.set_inner_html(f"<slot>{''.join(f'<slot>{index}</slot>' for index in range(100))}</slot>")

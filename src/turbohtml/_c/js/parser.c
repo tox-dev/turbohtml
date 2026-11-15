@@ -102,7 +102,7 @@ static int at(const P *parser, jm_tok kind) {
     return parser->lx.kind == kind;
 }
 
-static int kw(const P *parser, const char *word) {
+static JM_TOKEN_INLINE int kw(const P *parser, const char *word) {
     return parser->lx.kind == JT_IDENT && jm_text_eq(&parser->lx, word);
 }
 

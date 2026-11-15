@@ -2,6 +2,7 @@
    parsel and scrapy lean on, and the Python hook the parser conformance tests call. */
 
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "dom/tree.h"
@@ -195,7 +196,21 @@ typedef struct {
     Py_ssize_t position;
 } translate_entry;
 
-static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character);
+/* A run longer than TH_FAST_PROBE_LIMIT covers a whole aligned block of TRANSLATE_BLOCK slots, of which
+   translate_runs_long reads every TRANSLATE_SAMPLE-th; translate_index walks at most TRANSLATE_WALKS steps per
+   character on the multiplicative hash. */
+#define TRANSLATE_BLOCK 32
+#define TRANSLATE_SAMPLE 8
+#define TRANSLATE_WALKS 4
+
+static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character, int keyed);
+static int translate_index(translate_entry *entries, size_t capacity, const Py_UCS4 *from, Py_ssize_t flen);
+static inline Py_ssize_t translate_rest(const translate_entry *entries, size_t mask, int keyed, const Py_UCS4 *text,
+                                        Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to, Py_ssize_t tlen,
+                                        Py_UCS4 *buf, Py_ssize_t write_pos);
+static TH_NOINLINE Py_ssize_t translate_rest_keyed(const translate_entry *entries, size_t mask, const Py_UCS4 *text,
+                                                   Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to,
+                                                   Py_ssize_t tlen, Py_UCS4 *buf, Py_ssize_t write_pos);
 
 static int string_arg(struct th_tree *tree, const xp_result *value, const Py_UCS4 **text, Py_ssize_t *len,
                       Py_UCS4 **owned) {
@@ -210,8 +225,9 @@ static int string_arg(struct th_tree *tree, const xp_result *value, const Py_UCS
     return *owned == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
 }
 
-static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, Py_ssize_t flen, const Py_UCS4 *to,
-                     Py_ssize_t tlen, xp_result *out) {
+/* Out of line, so its scan loops keep their registers instead of sharing eval_function's. */
+static TH_NOINLINE int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, Py_ssize_t flen,
+                                 const Py_UCS4 *to, Py_ssize_t tlen, xp_result *out) {
     Py_UCS4 *buf = PyMem_Malloc((size_t)slen * sizeof(Py_UCS4));
     if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;     /* GCOVR_EXCL_LINE */
@@ -234,6 +250,7 @@ static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, 
     }
     translate_entry *entries = NULL;
     size_t capacity = 0;
+    int keyed = 0;
     size_t scan_budget = (size_t)flen * 2;
     Py_ssize_t write_pos = 0;
     Py_ssize_t index = 0;
@@ -266,12 +283,7 @@ static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, 
                     PyMem_Free(buf);   /* GCOVR_EXCL_LINE: allocation failure */
                     return -1;         /* GCOVR_EXCL_LINE: allocation failure */
                 }
-                for (Py_ssize_t position = 0; position < flen; position++) {
-                    const size_t slot = translate_slot(entries, capacity - 1, from[position]);
-                    if (entries[slot].position == 0) {
-                        entries[slot] = (translate_entry){from[position], position + 1};
-                    }
-                }
+                keyed = translate_index(entries, capacity, from, flen);
                 break;
             }
         }
@@ -282,25 +294,125 @@ static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, 
             buf[write_pos++] = replacement;
         }
     }
-    for (; index < slen; index++) {
-        const Py_ssize_t position = entries[translate_slot(entries, capacity - 1, text[index])].position;
-        if (position == 0) {
-            buf[write_pos++] = text[index];
-        } else if (position <= tlen) {
-            buf[write_pos++] = to[position - 1];
-        }
+    if (TH_UNLIKELY(keyed)) {
+        write_pos = translate_rest_keyed(entries, capacity - 1, text, index, slen, to, tlen, buf, write_pos);
+    } else {
+        write_pos = translate_rest(entries, capacity - 1, 0, text, index, slen, to, tlen, buf, write_pos);
     }
     PyMem_Free(entries);
     result_string(out, buf, write_pos);
     return 0;
 }
 
-static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character) {
-    size_t slot = ((size_t)character * 2654435761u) & mask;
-    while (entries[slot].position != 0 && entries[slot].character != character) {
-        slot = (slot + 1) & mask;
+/* The multiplicative hash keeps only the low bits of the product, which code points that agree in their low bits
+   share, so a translate() map can be given characters that all land on one home. Past TH_FAST_PROBE_LIMIT the table
+   moves to th_key_mix, which a document cannot steer (core/hash.h). */
+static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character, int keyed) {
+    const size_t home = (keyed ? (size_t)th_key_mix(character) : (size_t)character * 2654435761u) & mask;
+    const translate_entry *entry = &entries[home];
+    TH_WORK_STEP();
+    /* the walk steps a pointer, wrapping at the last slot, so each lookup keeps the slot's address alone rather than an
+       index and the address computed from it */
+    while (entry->position != 0 && entry->character != character) {
+        TH_WORK_STEP();
+        entry = entry == &entries[mask] ? entries : entry + 1;
     }
-    return slot;
+    return (size_t)(entry - entries);
+}
+
+/* 1 when a run of filled slots is longer than TH_FAST_PROBE_LIMIT. Such a run covers a whole aligned block of
+   TRANSLATE_BLOCK slots, and so the slot that starts it, so the walk reads every TRANSLATE_SAMPLE-th slot and measures
+   the run through the start of a block only when all its samples are filled, which they rarely are at half load. Each
+   measure stops past the limit and the samples are a fraction of the slots, so none is a counted work step. */
+static TH_NOINLINE int translate_runs_long(const translate_entry *entries, size_t capacity) {
+    size_t mask = capacity - 1;
+    for (size_t block = 0; block < capacity; block += TRANSLATE_BLOCK) {
+        size_t sample = block;
+        while (sample < block + TRANSLATE_BLOCK && entries[sample].position != 0) {
+            sample += TRANSLATE_SAMPLE;
+        }
+        if (sample < block + TRANSLATE_BLOCK) {
+            continue;
+        }
+        size_t length = 1;
+        for (size_t probe = (block - 1) & mask; length <= TH_FAST_PROBE_LIMIT && entries[probe].position != 0;
+             probe = (probe - 1) & mask) {
+            length++;
+        }
+        for (size_t probe = (block + 1) & mask; length <= TH_FAST_PROBE_LIMIT && entries[probe].position != 0;
+             probe = (probe + 1) & mask) {
+            length++;
+        }
+        if (length > TH_FAST_PROBE_LIMIT) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Out of line, so th_key_mix stays out of the multiplicative fill. */
+static TH_NOINLINE void translate_index_keyed(translate_entry *entries, size_t capacity, const Py_UCS4 *from,
+                                              Py_ssize_t flen) {
+    memset(entries, 0, capacity * sizeof(*entries));
+    for (Py_ssize_t position = 0; position < flen; position++) {
+        const size_t slot = translate_slot(entries, capacity - 1, from[position], 1);
+        if (entries[slot].position == 0) {
+            entries[slot] = (translate_entry){from[position], position + 1};
+        }
+    }
+}
+
+/* Fill the zeroed table with the first position of each from character, and return 1 when it ended on th_key_mix. The
+   multiplicative hash lets a map put its characters on one home, which makes the fill quadratic, or line them up into
+   one long run, which every lookup that misses walks to its end. So the fill starts over on th_key_mix (core/hash.h)
+   once its walks pass TRANSLATE_WALKS steps per character, or when it leaves a run longer than TH_FAST_PROBE_LIMIT. A
+   fill that seats each character at or next to its home, as ordinary maps do, takes no step of either. */
+static int translate_index(translate_entry *entries, size_t capacity, const Py_UCS4 *from, Py_ssize_t flen) {
+    size_t mask = capacity - 1;
+    size_t budget = (size_t)flen * TRANSLATE_WALKS;
+    for (Py_ssize_t position = 0; position < flen; position++) {
+        size_t slot = ((size_t)from[position] * 2654435761u) & mask;
+        TH_WORK_STEP();
+        while (entries[slot].position != 0 && entries[slot].character != from[position]) {
+            TH_WORK_STEP();
+            if (--budget == 0) {
+                translate_index_keyed(entries, capacity, from, flen);
+                return 1;
+            }
+            slot = (slot + 1) & mask;
+        }
+        if (entries[slot].position == 0) {
+            entries[slot] = (translate_entry){from[position], position + 1};
+        }
+    }
+    if (flen > TH_FAST_PROBE_LIMIT && translate_runs_long(entries, capacity)) {
+        translate_index_keyed(entries, capacity, from, flen);
+        return 1;
+    }
+    return 0;
+}
+
+/* Translate text[index, slen) through the table into buf from write_pos, returning the new write position. keyed is a
+   constant at each call, so each copy of the loop computes one hash. */
+static inline Py_ssize_t translate_rest(const translate_entry *entries, size_t mask, int keyed, const Py_UCS4 *text,
+                                        Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to, Py_ssize_t tlen,
+                                        Py_UCS4 *buf, Py_ssize_t write_pos) {
+    for (; index < slen; index++) {
+        const Py_ssize_t position = entries[translate_slot(entries, mask, text[index], keyed)].position;
+        if (position == 0) {
+            buf[write_pos++] = text[index];
+        } else if (position <= tlen) {
+            buf[write_pos++] = to[position - 1];
+        }
+    }
+    return write_pos;
+}
+
+/* translate_rest on th_key_mix. Out of line, so the multiplicative copy keeps translate small. */
+static TH_NOINLINE Py_ssize_t translate_rest_keyed(const translate_entry *entries, size_t mask, const Py_UCS4 *text,
+                                                   Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to,
+                                                   Py_ssize_t tlen, Py_UCS4 *buf, Py_ssize_t write_pos) {
+    return translate_rest(entries, mask, 1, text, index, slen, to, tlen, buf, write_pos);
 }
 
 static int substring(struct th_tree *tree, xp_result *args, int argc, xp_result *out) {
@@ -455,7 +567,13 @@ typedef struct {
     Py_ssize_t len;
 } xp_id_token;
 
-static uint64_t id_token_hash(const Py_UCS4 *value, Py_ssize_t len) {
+/* FNV-1a over the code points, the hash the token set starts on. The document picks the tokens, and FNV-1a lets it
+   pick ones that share a home, so a set that walks past TH_FAST_PROBE_LIMIT slots is built again under th_name_hash
+   (core/hash.h). */
+static uint64_t id_token_hash(const Py_UCS4 *value, Py_ssize_t len, int keyed) {
+    if (keyed) {
+        return th_name_hash(value, len * (Py_ssize_t)sizeof(Py_UCS4));
+    }
     uint64_t hash = 14695981039346656037u;
     for (Py_ssize_t index = 0; index < len; index++) {
         hash ^= value[index];
@@ -464,7 +582,75 @@ static uint64_t id_token_hash(const Py_UCS4 *value, Py_ssize_t len) {
     return hash;
 }
 
-static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_token **slots, size_t *mask) {
+/* 1 when the TH_FAST_PROBE_LIMIT slots before probe are all filled. Out of line, so the loops that inline the test
+   below keep their registers. The walk stops at the limit, so it is no counted work step. */
+static TH_NOINLINE int id_token_run_full(const xp_id_token *slots, size_t mask, size_t probe) {
+    for (size_t back = 1; back <= TH_FAST_PROBE_LIMIT; back++) {
+        if (slots[(probe - back) & mask].value == NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* 1 when the TH_FAST_PROBE_LIMIT + 1 slots before probe are all filled, which a walk that ended at probe more than
+   TH_FAST_PROBE_LIMIT slots from its home must have crossed. Testing the farthest slot first settles most calls with
+   one load, and the fill's walk needs no home kept across its comparisons. */
+static inline int id_token_run_behind(const xp_id_token *slots, size_t mask, size_t probe) {
+    if (slots[(probe - TH_FAST_PROBE_LIMIT - 1) & mask].value == NULL) {
+        return 0;
+    }
+    return id_token_run_full(slots, mask, probe);
+}
+
+/* Seat the whitespace-separated tokens of list in the zeroed slots. On FNV-1a it stops with 1 once a token would sit
+   behind a run of more than TH_FAST_PROBE_LIMIT filled slots; a token walks only through the run behind its seat, and a
+   repeated one no further than its first copy sat, so every walk of the fill stays within the limit. */
+static inline int id_token_set_fill(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_token *slots, size_t mask,
+                                    int keyed) {
+    Py_ssize_t index = 0;
+    while (index < list_len) {
+        while (index < list_len && xp_is_space(list[index])) {
+            index++;
+        }
+        if (index == list_len) {
+            break;
+        }
+        /* start < list_len here, so the token holds at least one character */
+        Py_ssize_t start = index;
+        uint64_t hash = 14695981039346656037u;
+        while (index < list_len && !xp_is_space(list[index])) {
+            hash ^= list[index++];
+            hash *= 1099511628211u;
+        }
+        Py_ssize_t len = index - start;
+        if (keyed) {
+            hash = id_token_hash(list + start, len, 1);
+        }
+        size_t probe = hash & mask;
+        while (slots[probe].value != NULL && (slots[probe].len != len || memcmp(slots[probe].value, list + start,
+                                                                                (size_t)len * sizeof(Py_UCS4)) != 0)) {
+            TH_WORK_STEP();
+            probe = (probe + 1) & mask;
+        }
+        if (slots[probe].value == NULL) {
+            if (!keyed && id_token_run_behind(slots, mask, probe)) {
+                return 1;
+            }
+            slots[probe] = (xp_id_token){list + start, len};
+        }
+    }
+    return 0;
+}
+
+/* Clear the slots and seat the tokens again under th_name_hash. Out of line, so the FNV-1a fill and lookups keep their
+   registers. */
+static TH_NOINLINE void id_token_set_rekey(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_token *slots, size_t mask) {
+    memset(slots, 0, (mask + 1) * sizeof(xp_id_token));
+    id_token_set_fill(list, list_len, slots, mask, 1);
+}
+
+static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_token **slots, size_t *mask, int *keyed) {
     Py_ssize_t count = 0;
     Py_ssize_t index = 0;
     while (index < list_len) {
@@ -477,6 +663,7 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
         }
         count += index > start;
     }
+    *keyed = 0;
     if (count == 0) {
         *slots = NULL;
         *mask = 0;
@@ -493,45 +680,61 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     *mask = cap - 1;
-    index = 0;
-    while (index < list_len) {
-        while (index < list_len && xp_is_space(list[index])) {
-            index++;
-        }
-        if (index == list_len) {
-            break;
-        }
-        /* start < list_len here, so the token holds at least one character */
-        Py_ssize_t start = index;
-        uint64_t hash = 14695981039346656037u;
-        while (index < list_len && !xp_is_space(list[index])) {
-            hash ^= list[index++];
-            hash *= 1099511628211u;
-        }
-        Py_ssize_t len = index - start;
-        size_t probe = hash & *mask;
-        while ((*slots)[probe].value != NULL &&
-               ((*slots)[probe].len != len ||
-                memcmp((*slots)[probe].value, list + start, (size_t)len * sizeof(Py_UCS4)) != 0)) {
-            probe = (probe + 1) & *mask;
-        }
-        if ((*slots)[probe].value == NULL) {
-            (*slots)[probe] = (xp_id_token){list + start, len};
-        }
+    if (id_token_set_fill(list, list_len, *slots, *mask, 0)) {
+        *keyed = 1;
+        id_token_set_rekey(list, list_len, *slots, *mask);
     }
     return 0;
 }
 
-static int id_token_set_contains(const xp_id_token *slots, size_t mask, const Py_UCS4 *value, Py_ssize_t len) {
-    if (slots == NULL || len == 0) {
+/* 1 when value is in the set, 0 when not, and 2 when a miss on FNV-1a walked past TH_FAST_PROBE_LIMIT slots: a hit
+   walks no further than its token did in the fill, but a miss walks to the end of the run its home falls in, and the
+   document can line up homes into one long run without any token walking far. */
+static inline int id_token_set_contains(const xp_id_token *slots, size_t mask, int keyed, const Py_UCS4 *value,
+                                        Py_ssize_t len) {
+    if (len == 0) {
         return 0;
     }
-    for (size_t probe = id_token_hash(value, len) & mask; slots[probe].value != NULL; probe = (probe + 1) & mask) {
+    size_t hash = id_token_hash(value, len, keyed);
+    size_t probe = hash & mask;
+    if (slots[probe].value == NULL) {
+        return 0;
+    }
+    do {
+        TH_WORK_STEP();
         if (slots[probe].len == len && memcmp(slots[probe].value, value, (size_t)len * sizeof(Py_UCS4)) == 0) {
             return 1;
         }
+        probe = (probe + 1) & mask;
+    } while (slots[probe].value != NULL);
+    return !keyed && ((probe - hash) & mask) > TH_FAST_PROBE_LIMIT ? 2 : 0;
+}
+
+/* Collect the elements from node on whose id is in the set. On FNV-1a it stops at the element whose lookup walked past
+   TH_FAST_PROBE_LIMIT slots and returns it, unmatched, for the caller to scan again from under th_name_hash. */
+static inline struct th_node *id_token_scan(const xp_id_token *slots, size_t mask, int keyed, struct th_node *node,
+                                            xp_nodeset *found, int *rc) {
+    for (; node != NULL; node = document_next(node)) {
+        if (node->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            if (node->attrs[index].name_atom != TH_ATTR_ID) {
+                continue;
+            }
+            int hit = id_token_set_contains(slots, mask, keyed, node->attrs[index].value, node->attrs[index].value_len);
+            if (!keyed && hit == 2) {
+                return node;
+            }
+            if (hit) {
+                if (ns_push(found, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    *rc = -1;                       /* GCOVR_EXCL_LINE */
+                } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+                break;
+            }
+        }
     }
-    return 0;
+    return NULL;
 }
 
 /* How far a function that gathers the string-value of each member has read its node-set. */
@@ -680,8 +883,9 @@ static TH_NOINLINE int charge_repeated(xp_gather *seen, xp_ctx *ctx, const xp_no
 
 /* id(object): the elements whose id attribute is one of the whitespace-separated
    tokens in the argument's string-value (a node-set argument contributes the
-   string-value of each member). */
-static int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
+   string-value of each member). Out of line, so its lookup loop keeps its registers instead of sharing
+   eval_function's. */
+static TH_NOINLINE int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     memset(out, 0, sizeof(*out));
     out->kind = XP_NODESET;
     Py_UCS4 *list = NULL;
@@ -741,24 +945,21 @@ static int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     }
     xp_id_token *ids;
     size_t id_mask;
-    if (id_token_set_build(list, list_len, &ids, &id_mask) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        PyMem_Free(list);                                         /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;                                                /* GCOVR_EXCL_LINE */
+    int keyed;
+    if (id_token_set_build(list, list_len, &ids, &id_mask, &keyed) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(list);                                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                                                        /* GCOVR_EXCL_LINE */
     }
     int rc = 0;
-    for (struct th_node *node = tree_root(ctx->tree, ctx->node); node != NULL; node = document_next(node)) {
-        if (node->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            if (node->attrs[index].name_atom == TH_ATTR_ID &&
-                id_token_set_contains(ids, id_mask, node->attrs[index].value, node->attrs[index].value_len)) {
-                if (ns_push(&out->nodes, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    rc = -1;                              /* GCOVR_EXCL_LINE */
-                } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
-                break;
+    if (ids != NULL) {
+        struct th_node *node = tree_root(ctx->tree, ctx->node);
+        if (!keyed) {
+            node = id_token_scan(ids, id_mask, 0, node, &out->nodes, &rc);
+            if (node != NULL) {
+                id_token_set_rekey(list, list_len, ids, id_mask);
             }
         }
+        id_token_scan(ids, id_mask, 1, node, &out->nodes, &rc);
     }
     PyMem_Free(ids);
     PyMem_Free(list);
