@@ -181,6 +181,62 @@ def test_many_trailing_breaks_keep_visible_text() -> None:
 
 
 @pytest.mark.parametrize(
+    ("markup", "options"),
+    [
+        pytest.param(lambda n: f"<p>a{'<br>' * n}x", Markdown(), id="before-text"),
+        pytest.param(lambda n: f"<br>{'<br>' * n}x", Markdown(), id="opening-a-run"),
+        pytest.param(lambda n: f"<p>a{'<br> ' * n}", Markdown(), id="trailing-with-spaces"),
+        pytest.param(lambda n: f"<p>a{'<u><br></u>' * n}", Markdown(), id="trailing-in-wrappers"),
+        pytest.param(lambda n: f"<p>a{'<a href=u><br></a>' * n}", Markdown(), id="trailing-in-links"),
+        pytest.param(
+            lambda n: f"<p>a{'<a href=u><br></a>' * n}", Markdown(strip=["a"]), id="trailing-in-stripped-links"
+        ),
+        pytest.param(
+            lambda n: f"<a href=u>a{'<br><h2><br></h2>' * n}x</a>", Markdown(), id="around-headings-in-link-text"
+        ),
+    ],
+)
+def test_run_of_breaks_is_linear(markup: Callable[[int], str], options: Markdown, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(parse(markup(n)).to_markdown, options), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<p>a<br><br><br>x", "a  \n\\\n\\\nx", id="before-text"),
+        pytest.param("<br><br><br>x", "\\\n\\\n\\\nx", id="opening-a-run"),
+        pytest.param("<p>a<br> <br> <br> ", "a", id="trailing-with-spaces"),
+        pytest.param("<p>a<u><br></u><u><br></u><u><br></u>", "a", id="trailing-in-wrappers"),
+        pytest.param(
+            "<p>a<a href=u><br></a><a href=u><br></a><a href=u><br></a>", "a[](u)[](u)[](u)", id="trailing-in-links"
+        ),
+        pytest.param(
+            "<a href=u>a<br><h2><br></h2><br><h2><br></h2><br><h2><br></h2>x</a>",
+            "[a  \n\\\n\\\nx](u)",
+            id="around-headings",
+        ),
+    ],
+)
+def test_run_of_breaks_renders(source: str, expected: str) -> None:
+    assert parse(source).to_markdown() == expected
+
+
+def test_break_in_stripped_link_is_not_decided_as_link_text() -> None:
+    source: Final = "<div>a<br><a href=u><br><p>c</p></a></div>"
+    # a stripped link writes no link text, so the paragraph inside it ends the run of breaks as it does without the link
+    assert parse(source).to_markdown(Markdown(strip=["a"])) == "a\n\nc"
+    assert parse("<div>a<br><br><p>c</p></div>").to_markdown() == "a\n\nc"
+
+
+def test_break_holding_content_is_not_decided_by_that_content() -> None:
+    document: Final = parse("<p>a<br><br>x")
+    text: Final = document.select("p")[0].children[-1]
+    document.select("br")[1].append(text)
+    # the first break sees the text inside the second, which has nothing after it
+    assert document.to_markdown() == "a"
+
+
+@pytest.mark.parametrize(
     "separator",
     [
         pytest.param("\n", id="lf"),
@@ -2017,6 +2073,9 @@ def test_link_inside_link_text_is_written_as_its_content(html: str, config: Mark
         ),
         pytest.param("<a href=u>x<em>y.</em></a>z", Markdown(), "[x*y.*](u)z", id="ending-the-link"),
         pytest.param("<p><em>x.</em><a href=v>z</a></p>", Markdown(), "*x.*[z](v)", id="before-a-link"),
+        pytest.param(
+            "<p><em>x.</em><a href=v>z</a></p>", Markdown(strip=["a"]), "<em>x.</em>z", id="before-a-stripped-link"
+        ),
         pytest.param(
             '<p><em>x.</em><a href="#i">z</a></p>',
             Markdown(links=Markdown.Links(skip_internal=True)),

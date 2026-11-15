@@ -342,11 +342,13 @@ typedef struct {
     int raw_emphasis;           /* HTML tags keep nested delimiters and breaks from changing on reparse */
     int repeated_emphasis_breaks;
     th_node *break_parent;
-    th_node *trailing_br_next; /* next adjacent break after a trailing break */
-    uint8_t escape_mask;       /* the MD_ASCII classes the options escape */
-    uint8_t run_stop;          /* the MD_ASCII classes that end a bulk-copied run */
-    Py_ssize_t break_start;    /* where the last hard break was written in out... */
-    Py_ssize_t break_end;      /* ...and where it ended, -1 when there is none */
+    th_node *br_from;       /* the node md_br_trailing last answered for... */
+    th_node *br_link;       /* ...the link it was in... */
+    int br_trailing;        /* ...and the answer, which a scan from there has for every node it steps over */
+    uint8_t escape_mask;    /* the MD_ASCII classes the options escape */
+    uint8_t run_stop;       /* the MD_ASCII classes that end a bulk-copied run */
+    Py_ssize_t break_start; /* where the last hard break was written in out... */
+    Py_ssize_t break_end;   /* ...and where it ended, -1 when there is none */
 } md_ctx;
 
 static int md_is_emphasis_node(const th_node *node) {
@@ -2670,7 +2672,7 @@ static int md_code_writes_text(md_ctx *ctx, th_node *node) {
    link is a placeholder too, which the callers decide from md_ctx.link. */
 static int md_is_link(md_ctx *ctx, th_node *node) {
     if (node->ns != TH_NS_HTML || node->atom != TH_TAG_A || ctx->opt->ignore_links ||
-        th_node_attr_find(ctx->tree, node, "href", 4) < 0) {
+        md_tag_filtered(ctx->opt, TH_TAG_A) || th_node_attr_find(ctx->tree, node, "href", 4) < 0) {
         return 0;
     }
     Py_ssize_t href_len;
@@ -2688,23 +2690,25 @@ static int md_is_link(md_ctx *ctx, th_node *node) {
    a fragment, a shadow root and a detached inline element have no block above their
    content, and an XML document has none at all, its elements carrying no HTML atom.
    There the climb runs past the parentless root, where the output ends and the run
-   with it. */
-static int md_br_trailing(md_ctx *ctx, th_node *node) {
-    if (ctx->trailing_br_next == node) {
-        ctx->trailing_br_next = node->next_sibling;
-        return 1;
-    }
-    /* link text flattens its blocks onto its line (md_render_inline_tag), so inside a
-       link a block ends nothing; link holds the link the scan is in */
-    th_node *link = ctx->inline_only > 0 ? ctx->link : NULL;
+   with it.
+
+   The scan starts after node, in link (NULL outside link text). Given a target, it also
+   stops, with -1, when it starts at target or steps over it in target_link: from there
+   on it is the scan that starts after target, so the two end alike. */
+static inline int md_br_scan(md_ctx *ctx, th_node *node, th_node *link, th_node *target, th_node *target_link,
+                             Py_ssize_t *steps) {
     th_node *cursor = node;
     th_node *next = node->next_sibling;
     for (;;) {
+        TH_WORK_STEP();
+        (*steps)++;
+        if (cursor == target && link == target_link && next == cursor->next_sibling) {
+            return -1; /* at target or stepped over it, not into it */
+        }
         while (next == NULL) {
             cursor = cursor->parent;
             if (cursor == NULL ||
                 (link == NULL && is_md_block(cursor->ns == TH_NS_HTML ? cursor->atom : TH_TAG_UNKNOWN))) {
-                ctx->trailing_br_next = node->next_sibling;
                 return 1;
             }
             if (cursor == link) {
@@ -2727,7 +2731,6 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
         } else if (cursor->type == TH_NODE_ELEMENT && !is_md_skipped(cursor)) {
             uint16_t atom = cursor->ns == TH_NS_HTML ? cursor->atom : TH_TAG_UNKNOWN;
             if (link == NULL && is_md_block(atom)) {
-                ctx->trailing_br_next = node->next_sibling;
                 return 1;
             }
             if (ctx->opt->converters != NULL || atom == TH_TAG_IMG || atom == TH_TAG_Q) {
@@ -2745,8 +2748,39 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
     }
 }
 
+/* md_br_scan with a memo, so that a run of breaks costs its length and not the square of
+   it. The scan for one break steps over the breaks after it on the way to whatever
+   decides them all, so going over the last scan again from where it started meets a
+   later break of the run at once and hands it the same answer, however the run is laid
+   out and whichever of its breaks are asked about. Only a node the last scan never
+   stepped over is scanned for afresh. A scan that stays short is cheaper than its
+   replay, so the memo is kept only after a scan walks past MD_BR_MEMO_STEPS nodes. */
+#define MD_BR_MEMO_STEPS 8
+
+static int md_br_trailing(md_ctx *ctx, th_node *node) {
+    /* link text flattens its blocks onto its line (md_render_inline_tag), so inside a
+       link a block ends nothing; link holds the link the scan is in */
+    th_node *link = ctx->inline_only > 0 ? ctx->link : NULL;
+    Py_ssize_t steps = 0;
+    if (ctx->opt->converters != NULL) {
+        /* a converter can edit the tree, so no node is kept across one; with converters
+           a scan ends at the next element anyway */
+        return md_br_scan(ctx, node, link, NULL, NULL, &steps);
+    }
+    if (ctx->br_from != NULL && md_br_scan(ctx, ctx->br_from, ctx->br_link, node, link, &steps) < 0) {
+        ctx->br_from = node;
+        ctx->br_link = link;
+        return ctx->br_trailing;
+    }
+    steps = 0;
+    ctx->br_trailing = md_br_scan(ctx, node, link, NULL, NULL, &steps);
+    ctx->br_from = steps > MD_BR_MEMO_STEPS ? node : NULL;
+    ctx->br_link = link;
+    return ctx->br_trailing;
+}
+
 /* Whether the nearest block around a node is a heading; a tree with no block above the
-   node (see md_br_trailing) has none. */
+   node (see md_br_scan) has none. */
 static int md_in_heading_element(th_node *node) {
     th_node *block = node->parent;
     while (block != NULL && !is_md_block(block->ns == TH_NS_HTML ? block->atom : TH_TAG_UNKNOWN)) {
