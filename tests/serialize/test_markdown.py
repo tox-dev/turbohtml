@@ -53,6 +53,65 @@ def test_deep_emphasis_before_block_has_linear_output(depth: int) -> None:
     assert len(result) <= len(source) * 4
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<b>" * 504 + "<p>x" * 2000, id="paragraphs"),
+        pytest.param(f"{'<b>' * 504}<ul>{'<li>x' * 2000}", id="list-items"),
+        pytest.param(f"{'<b>' * 504}<table>{'<tr><td>x' * 2000}", id="pipe-cells"),
+        pytest.param(f"{'<b>' * 504}<table><tr><td colspan=2>y{'<tr><td>x' * 2000}", id="raw-table-cells"),
+        pytest.param("<b><i><s>" * 168 + "<p>x" * 2000, id="mixed-kinds"),
+    ],
+)
+def test_deep_emphasis_around_many_blocks_has_linear_output(source: str) -> None:
+    result: Final = md(source)
+    assert result.count("x") == 2000
+    assert len(result) <= len(source) * 10
+
+
+def test_deep_emphasis_reopens_nested_runs_while_funded() -> None:
+    blocks: Final = md("<b>" * 16 + "<p>x" * 5).split("\n\n")
+    # each element pays for its own tags once; the 256 characters a document starts with reopen fifteen more runs and
+    # each x a seventeenth of one, while the outermost run reopens for free
+    assert [block.count("<strong>") for block in blocks] == [16, 16, 2, 1, 1]
+    assert blocks[-1] == "<strong>x</strong>"
+
+
+def test_deep_emphasis_reopens_in_full_where_text_funds_it() -> None:
+    words: Final = "word " * 60
+    blocks: Final = md("<b>" * 16 + f"<p>{words}" * 8).split("\n\n")
+    assert blocks == ["<strong>" * 16 + words.strip() + "</strong>" * 16] * 8
+
+
+def test_deep_emphasis_keeps_one_run_of_each_kind_when_unfunded() -> None:
+    blocks: Final = md("<b><i>" * 16 + "<p>x" * 12).split("\n\n")
+    assert (blocks[0], blocks[-1]) == (f"{'<strong><em>' * 16}x{'</em></strong>' * 16}", "<strong><em>x</em></strong>")
+
+
+def test_unfunded_emphasis_reopens_once_the_nesting_is_shallow_again() -> None:
+    blocks: Final = md(f"{'<b>' * 8}<i>{'<p>x</p>' * 40}</i><p>z</p>").split("\n\n")
+    assert (blocks[-2], blocks[-1]) == ("<strong><em>x</em></strong>", f"{'<strong>' * 8}z{'</strong>' * 8}")
+
+
+@pytest.mark.parametrize(
+    ("depth", "wrapped"),
+    [
+        pytest.param(2, f"{'<strong><em><strong>' * 2}x{'</strong></em></strong>' * 2}", id="shallow"),
+        pytest.param(3, "<strong><em>x</em></strong>", id="deep"),
+    ],
+)
+def test_raw_table_cell_takes_one_run_of_a_kind_under_deep_emphasis(depth: int, wrapped: str) -> None:
+    result: Final = md(f"{'<b><i><b>' * depth}<table><tr><td colspan=2>x</table>")
+    assert result == f'<table><tbody><tr><td colspan="2">{wrapped}</td></tr></tbody></table>'
+
+
+def test_emphasis_closing_in_a_converted_element_keeps_deep_nesting_unfunded() -> None:
+    source: Final = f"{'<b>' * 504}{'<p><span><b>x</b></span>' * 2000}"
+    result: Final = parse(source).to_markdown(Markdown(converters={"span": lambda _element, content: content}))
+    assert result.count("x") == 2000
+    assert len(result) <= len(source) * 10
+
+
 def test_pending_emphasis_after_deep_block_keeps_text() -> None:
     source: Final = f"{'<i>y' * 8}<i><div>x</div>{'</i>' * 9}"
     assert "x" in md(source)

@@ -2162,12 +2162,70 @@ PyObject *th_url_remove_file_dot_segments(PyObject *path) {
     return remove_dot_segments(path, 1);
 }
 
+/* Where the authority th_url_split reads from work[lo,hi) ends: past the scheme, the slashes after it, and the run up
+   to the next '/', '\', '?' or '#'; the start of the URL when it has no scheme. These are the special-scheme rules, the
+   ones the http and https URLs clean keeps are split by. The authority is read from its end (the userinfo stops at the
+   last '@', the site is the last labels of the host) and the URL parser keeps '<', '>' and '"' in the userinfo and '"'
+   in the host, so a cut inside it can leave a different host than the one the parser reads. The caller's range holds a
+   delimiter above 0x20, which stops the control run and the slash run before hi. */
+static Py_ssize_t scrub_authority_end(const Py_UCS4 *work, Py_ssize_t lo, Py_ssize_t hi) {
+    while (work[lo] <= 0x20) {
+        lo++; /* a control a CDATA wrapper hid from the edge strip, which th_url_split strips before the scheme */
+    }
+    Py_ssize_t colon = th_url_scheme_colon(work, lo, hi);
+    if (colon < 0) {
+        return lo;
+    }
+    Py_ssize_t index = colon + 1;
+    while (url_slash(work[index], 1)) {
+        index++;
+    }
+    while (index < hi && !url_slash(work[index], 1) && work[index] != '?' && work[index] != '#') {
+        index++;
+    }
+    return index;
+}
+
+/* Whether cutting work[cut,end), the rest of the authority from a markup delimiter on, leaves the host the URL parser
+   reads alone. An '@' in it turns what is kept into userinfo, so the host is elsewhere and the cut would rename it.
+   Without one the host runs through the cut text, and a '<' or '>' there is a forbidden host code point: the URL parser
+   rejects the URL and no browser reads another host from it. That leaves a '"', which a host may hold: the cut is then
+   the tail of the host's last label, which resolves nowhere, unless a '.' follows that makes what is kept a subdomain,
+   whether spelled out, percent-encoded, or a non-ASCII code point IDNA maps to one. */
+static int scrub_cut_keeps_host(const Py_UCS4 *work, Py_ssize_t cut, Py_ssize_t end) {
+    int rejected = 0;
+    int extends = 0;
+    for (Py_ssize_t index = cut; index < end; index++) {
+        Py_UCS4 ch = work[index];
+        if (ch == '@') {
+            return 0;
+        }
+        rejected |= ch == '<' || ch == '>';
+        extends |= ch == '.' || ch == '%' || ch >= 0x80;
+    }
+    return rejected || !extends;
+}
+
+/* The cut for the markup delimiter at work[index]. An authority the cut would rename is kept whole, so the cut moves
+   to the first delimiter after it. Out of line, so the truncation loop in turbohtml_url_scrub keeps its shape. */
+static TH_NOINLINE Py_ssize_t scrub_cut(const Py_UCS4 *work, Py_ssize_t lo, Py_ssize_t hi, Py_ssize_t index) {
+    Py_ssize_t authority = scrub_authority_end(work, lo, hi);
+    if (index >= authority || scrub_cut_keeps_host(work, index, authority)) {
+        return index;
+    }
+    Py_ssize_t next = authority;
+    while (next < hi && work[next] != '<' && work[next] != '>' && work[next] != '"') {
+        next++;
+    }
+    return next;
+}
+
 /* _url_scrub(url): undo the HTML transport damage a scraped URL carries before it is split. It strips the leading and
    trailing C0-control and space bytes the WHATWG basic parser removes (spec 4.4 steps 1-2), drops every whitespace
    character str.split() would so a URL broken across lines rejoins, unwraps a <![CDATA[...]]> wrapper, truncates at the
-   first '<', '>', or '"' a stray markup delimiter left, undoes a leftover &amp; escape, and drops a trailing '&' left
-   dangling after a '/'. Replaces the Python scrub's strip/split/join, regex split, and replace chain, run once per URL.
- */
+   first '<', '>', or '"' a stray markup delimiter left (one inside the authority only when the cut cannot rename the
+   host), undoes a leftover &amp; escape, and drops a trailing '&' left dangling after a '/'. Replaces the Python
+   scrub's strip/split/join, regex split, and replace chain, run once per URL. */
 PyObject *turbohtml_url_scrub(PyObject *Py_UNUSED(module), PyObject *arg) {
     if (!PyUnicode_Check(arg)) {
         PyErr_SetString(PyExc_TypeError, "_url_scrub() argument must be str");
@@ -2215,7 +2273,7 @@ PyObject *turbohtml_url_scrub(PyObject *Py_UNUSED(module), PyObject *arg) {
     for (Py_ssize_t index = lo; index < hi; index++) { /* truncate at the first markup delimiter, the regex split */
         Py_UCS4 ch = work[index];
         if (ch == '<' || ch == '>' || ch == '"') {
-            hi = index;
+            hi = scrub_cut(work, lo, hi, index);
             break;
         }
     }

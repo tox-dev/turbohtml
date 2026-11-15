@@ -305,6 +305,12 @@ def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> R
             id="remote-href",
         ),
         pytest.param(
+            {"main.rng": f'<externalRef {_NS} href="/%5Crelay/export/lib.rng"/>'},
+            ValueError,
+            "RELAX NG href must not resolve to a UNC path",
+            id="encoded-unc-href",
+        ),
+        pytest.param(
             {"main.rng": f'<externalRef {_NS} href="sub"/>', "sub/x": _ELEMENT},
             ValueError,
             "RELAX NG target is not a regular file",

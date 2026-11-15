@@ -9,6 +9,9 @@ or RELAX NG schema. A schema compiles once in the C core; each :meth:`~XMLSchema
 there and returns a :class:`ValidationResult` -- a ``valid`` flag plus a tuple of :class:`ValidationError` records, one
 per violation, each locating the offending node. The Python layer only shapes the input and wraps the C result.
 
+Passing a node that is neither a document nor an element, such as a text node, raises :class:`TypeError` from
+:meth:`~XMLSchema.validate`, :meth:`~XMLSchema.is_valid` and :meth:`~XMLSchema.assert_valid`.
+
 Schema compilation and instance validation raise :class:`RecursionError` before processing a tree nested 400 levels or
 deeper. This limit keeps the remaining recursive grammar walks within small worker-thread stacks; the validator does not
 return partial results. In a RELAX NG grammar the limit counts the levels of a ``define`` at each ``ref`` to it, up to
