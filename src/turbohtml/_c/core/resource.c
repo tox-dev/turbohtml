@@ -151,7 +151,7 @@ PyObject *th_resource_resolve(PyObject *path) {
     return PyObject_CallMethod(path, "resolve", NULL);
 }
 
-int th_resource_check_root(th_resource_policy *policy, PyObject *path) {
+int th_resource_check_root(th_resource_policy *policy, PyObject *path, PyObject *unresolved) {
     if (policy->root == NULL) {
         return 0;
     }
@@ -165,7 +165,9 @@ int th_resource_check_root(th_resource_policy *policy, PyObject *path) {
         return -1;     /* GCOVR_EXCL_LINE */
     }
     if (!allowed) {
-        PyErr_Format(PyExc_ValueError, "%s path escapes %s: %S", policy->what, policy->root_name, path);
+        /* path has followed every symlink the reference crosses, so naming it would reveal where a link outside the
+           root points */
+        PyErr_Format(PyExc_ValueError, "%s path escapes %s: %S", policy->what, policy->root_name, unresolved);
         return -1;
     }
     return 0;
