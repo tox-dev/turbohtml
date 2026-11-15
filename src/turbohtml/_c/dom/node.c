@@ -654,6 +654,7 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.xlink.last = NULL;
     self->cursor.xlink.scope = NULL;
     self->cursor.xml_ns = (th_xml_ns_spend){0, 0, TH_XML_NS_BASE};
+    self->cursor.clone_budget = TH_CLONE_ALLOWANCE;
     self->indent = indent;
     self->indent_len = indent_len;
     self->mutation_version = ((HandleObject *)handle)->mutation_version;
@@ -2640,7 +2641,7 @@ static Py_NO_INLINE PyObject *canonicalize_failed(void) {
 }
 
 static PyObject *node_canonicalize_from_spec(PyObject *self, PyObject *spec) {
-    th_c14n_opts opts = {0, 0, 0, NULL, 0};
+    th_c14n_opts opts = {0, 0, 0, NULL, 0, NULL};
     const char **inclusive_utf8;
     /* parse_canonical_spec fails only on the excluded allocation/encode paths */
     if (parse_canonical_spec(spec, &opts, &inclusive_utf8) < 0) { /* GCOVR_EXCL_BR_LINE */

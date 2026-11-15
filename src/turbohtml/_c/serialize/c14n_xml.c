@@ -734,6 +734,9 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
         qsort(namespaces, (size_t)ns_count, sizeof(c14n_xml_ns), c14n_xml_ns_cmp);
     }
     for (Py_ssize_t index = 0; index < ns_count; index++) {
+        if (!ser_clone_attr_pays(opts->clone_budget, node, namespaces[index].prefix_len + namespaces[index].uri_len)) {
+            continue;
+        }
         sbuf_puts(out, " xmlns");
         if (namespaces[index].prefix_len > 0) {
             sbuf_putc(out, ':');
@@ -826,6 +829,10 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
         qsort(attrs, (size_t)count, sizeof(c14n_xml_attr), c14n_xml_attr_cmp);
     }
     for (Py_ssize_t index = 0; index < count; index++) {
+        if (!ser_clone_attr_pays(opts->clone_budget, node, attrs[index].name_len + attrs[index].value_len)) {
+            continue;
+        }
+        TH_WORK_STEPS_ADD(attrs[index].name_len + attrs[index].value_len);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
@@ -871,6 +878,7 @@ static C14N_NOINLINE th_node *c14n_xml_step(sbuf *out, th_tree *tree, th_node *n
             out->failed = 1;                                       /* GCOVR_EXCL_LINE: allocation failure */
             return NULL;                                           /* GCOVR_EXCL_LINE: allocation failure */
         }
+        ser_clone_fund(opts->clone_budget, node->text_len);
         c14n_put_text(out, node->text, node->text_len);
         break;
     case TH_NODE_COMMENT:

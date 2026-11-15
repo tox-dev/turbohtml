@@ -1577,6 +1577,7 @@ static th_node *node_clone(th_tree *tree, th_node *src) {
         /* the slots are the clone's own, the values they point at are not */
         node->attr_values_shared = 1;
         src->attr_values_shared = 1;
+        tree->has_clones = 1;
     }
     node->attr_count = src->attr_count;
     if (tree->track_positions) {

@@ -365,6 +365,10 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
         }
     }
     for (Py_ssize_t index = 0; index < count; index++) {
+        if (!ser_clone_attr_pays(opts->clone_budget, node, attrs[index].name_len + attrs[index].value_len)) {
+            continue;
+        }
+        TH_WORK_STEPS_ADD(attrs[index].name_len + attrs[index].value_len);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
@@ -423,6 +427,7 @@ static th_node *c14n_step(sbuf *out, th_tree *tree, th_node *node, const th_node
             out->failed = 1;                                       /* GCOVR_EXCL_LINE: allocation failure */
             return NULL;                                           /* GCOVR_EXCL_LINE: allocation failure */
         }
+        ser_clone_fund(opts->clone_budget, node->text_len);
         c14n_put_text(out, node->text, node->text_len);
         break;
     case TH_NODE_COMMENT:
@@ -501,15 +506,18 @@ static void c14n_document(sbuf *out, th_tree *tree, th_node *doc, const th_c14n_
 }
 
 Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
+    Py_ssize_t clone_budget = TH_CLONE_ALLOWANCE;
+    th_c14n_opts budgeted = *opts;
+    budgeted.clone_budget = ser_clone_budget(tree, &clone_budget);
     if (tree->has_xml_ns) {
-        return th_node_canonicalize_xml(tree, node, opts, out_len);
+        return th_node_canonicalize_xml(tree, node, &budgeted, out_len);
     }
     sbuf out = {NULL, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
-        c14n_document(&out, tree, node, opts);
+        c14n_document(&out, tree, node, &budgeted);
     } else {
-        c14n_subtree(&out, tree, node, opts);
+        c14n_subtree(&out, tree, node, &budgeted);
     }
     return sbuf_finish(&out, out_len);
 }

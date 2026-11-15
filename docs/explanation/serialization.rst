@@ -44,6 +44,12 @@ The minified doctype keeps its public and system identifiers, since they choose 
 that would *not* round-trip (deleting whitespace between block elements, or omitting a tag whose reparse changes
 nesting) are exactly the ones turbohtml declines to make.
 
+An unclosed formatting element is reopened in every block after it, and each copy carries the attributes of its one
+start tag. The writers draw those copied attributes on a budget that the start tags and the text written around them
+fund: ``html``, ``serialize()``, ``to_source()``, ``canonicalize()``, the :class:`~turbohtml.Minify` layout and the
+Markdown writer all share it. A copy the budget does not cover drops the attributes it cannot pay for, so the output
+stays linear in the size of the input.
+
 ***************************
  HTML vs XML serialization
 ***************************

@@ -5059,7 +5059,7 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.marker_cap = MD_INLINE_MARKERS;
     ctx.break_end = -1;
     /* a few short targets repeat in clones before any rendered text funds the budget */
-    ctx.clone_budget = 256;
+    ctx.clone_budget = TH_CLONE_ALLOWANCE;
     /* Let a few deep runs reopen in full before source text has to fund them. */
     ctx.tags_left = 256;
     ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);
