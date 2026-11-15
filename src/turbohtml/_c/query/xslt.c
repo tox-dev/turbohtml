@@ -6240,9 +6240,34 @@ static int ns_decl_is_self_prefix(const th_node *lre, const char *name, Py_ssize
     return 1;
 }
 
+static int is_xsl_attr(const engine *eng, const th_node *node, Py_ssize_t index);
+
+/* An excluded declaration still reaches the output when the literal result element's name or an attribute name uses
+   its prefix, because exclude-result-prefixes only drops superfluous declarations. An unprefixed element name uses the
+   default namespace; attribute names never do. */
+static int lre_uses_decl(const engine *eng, const th_node *lre, const char *name, Py_ssize_t name_len, int prefixed) {
+    if (!prefixed) {
+        return !name_is_prefixed(lre->text, lre->text_len);
+    }
+    if (ns_decl_is_self_prefix(lre, name, name_len)) {
+        return 1;
+    }
+    Py_ssize_t prefix_len = name_len - 6;
+    for (Py_ssize_t index = 0; index < lre->attr_count; index++) {
+        Py_ssize_t attr_len = 0;
+        const char *attr_name = th_attr_name(eng->sheet_tree, lre->attrs[index].name_atom, &attr_len);
+        if (attr_len > prefix_len && attr_name[prefix_len] == ':' &&
+            memcmp(attr_name, name + 6, (size_t)prefix_len) == 0 && !is_xsl_attr(eng, lre, index)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int cache_ns_decl(engine *eng, th_node *lre, th_node *anc, const th_node_attr *attr, const char *name,
                          Py_ssize_t name_len, int prefixed) {
-    if (prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8)) {
+    if ((prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8)) &&
+        !lre_uses_decl(eng, lre, name, name_len, prefixed)) {
         return 0;
     }
     int overridden = 0;
