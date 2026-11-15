@@ -1175,9 +1175,7 @@ _HEX_ESCAPE_END: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{b:@1\\1\r\n\nx}", "a{b:@1\\1\r\n x}", "a{b:@1\\1\r\n x}", id="crlf-closes-hex-escape"),
     pytest.param("a{b:@1\\78/**/f}", "a{b:@1\\78  f}", "a{b:@1\\78  f}", id="comment-after-at-keyword-hex-escape"),
     pytest.param(".\\31{b:f(a, b)}", ".\\31{b:f(a,b)}", ".\\31{b:f(a,b)}", id="escaped-selector-function-comma"),
-    pytest.param(
-        "a{b:\\1}/**/+c{d:e}", "a{b:\\1 }+c{d:e}", "a{b:\\1 };+c{d:e}", id="comment-before-leading-combinator"
-    ),
+    pytest.param("a{b:\\1}/**/+c{d:e}", "a{b:\\1 }+c{d:e}", "a{b:\\1 }", id="comment-before-leading-combinator"),
     pytest.param("{b:c((\\\\00004a", "", "{b:c((\\\\00004a))}", id="escaped-backslash-before-six-hex-digits"),
     pytest.param("{a+ 1{\\}", "", "{a+1{}}", id="nested-plus-before-number"),
 ]
@@ -2275,6 +2273,31 @@ def test_minify_css_custom_property_block_is_a_fixed_point(source: str, expected
 )
 def test_minify_css_inline_custom_property_block(source: str, expected: str) -> None:
     assert minify_css_inline(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("margin:0{}top:0", "margin:0{}", id="block-in-value"),
+        pytest.param("color:red{a:b}position:fixed;width:1px", "color:red{a:b};width:1px", id="filled-block-in-value"),
+        pytest.param("a{b:c}d:e;f:g", "a{b:c};f:g", id="declaration-after-rule"),
+        pytest.param("a{x:1}b{y:2};c:d", "a{x:1};c:d", id="rule-after-rule"),
+        pytest.param("a{}--x:{}b;c:d", "a{};c:d", id="custom-property-after-rule"),
+        pytest.param("a{}@x{}b:c;d:e", "a{};d:e", id="at-rule-after-rule"),
+        pytest.param('color:{"a\n}position:fixed;top:0', "top:0", id="declaration-after-bad-block"),
+        pytest.param("margin:0}top:0;width:1px", "width:1px", id="stray-brace-in-value"),
+        pytest.param("color:red;}width:1px;height:1px", "color:red;height:1px", id="stray-brace-opens-item"),
+        pytest.param("--x:{a}b}c;color:red", "color:red", id="stray-brace-in-custom-property"),
+        pytest.param("@x a}b;c:d", "@x a;c:d", id="stray-brace-after-at-statement"),
+        pytest.param("--x:{a}b;color:red", "--x:{a}b;color:red", id="custom-property-keeps-block"),
+        pytest.param("@x{}position:fixed", "@x{};position:fixed", id="at-rule-ends-at-block"),
+        pytest.param("a{b{c:d}e:f}g:h;i:j", "a{b{c:d};e:f};i:j", id="nested-level-keeps-rules"),
+    ],
+)
+def test_minify_css_inline_reads_an_item_to_its_semicolon(source: str, expected: str) -> None:
+    # a style="" value sits in no block and holds no nested rule, so neither a {} block nor a `}` ends an item there
+    first: Final = minify_css_inline(source)
+    assert (first, minify_css_inline(first)) == (expected, expected)
 
 
 # a stylesheet ending in a statement at-rule keeps its `;`, so another sheet appended to it starts a new rule instead of

@@ -21,11 +21,14 @@ from turbohtml.clean import (
     DEFAULT_CSS_PROPERTIES,
     DEFAULT_SCHEMES,
     DEFAULT_TAGS,
+    CSSMinify,
+    Minify,
     OnDisallowed,
     Policy,
     Removed,
     Sanitizer,
     Transform,
+    minify,
     sanitize,
     sanitize_node,
     sanitize_report,
@@ -865,6 +868,14 @@ def _style_policy(
 def test_style_scrubbing_keeps_the_declarations(style: str, expected: str) -> None:
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
     assert expected in out
+
+
+def test_style_block_tail_stays_dead_when_minified() -> None:
+    # the scrubber keeps `color:navy{}top:0` as one color declaration, which no browser applies; the CSS minifier reads
+    # the value the same way, so minifying what the scrubber kept sets no top declaration free
+    kept: Final = sanitize('<p style="color:navy{}top:0;width:1px">x</p>', _style_policy())
+    assert kept == '<p style="color:navy{}top:0; width:1px">x</p>'
+    assert minify(kept, Minify(minify_css=CSSMinify())) == "<p style=color:navy{};width:1px>x"
 
 
 def test_style_escaped_double_quote_opens_no_string() -> None:

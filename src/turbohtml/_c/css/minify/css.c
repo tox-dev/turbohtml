@@ -117,7 +117,7 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
     }
     css_buf pool = {NULL, 0, 0, &oom};
     css_buf out = {NULL, 0, 0, &oom};
-    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0};
+    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0, inline_mode};
     /* readers index the pool from its start, so the parsers run only on complete tokens and an allocated pool */
     if (!oom && cbuf_reserve(&pool, CSS_POOL_RESERVE(length)) && /* GCOVR_EXCL_BR_LINE: OOM only */
         cbuf_reserve(&out, length)) {                            /* GCOVR_EXCL_BR_LINE: OOM only */
