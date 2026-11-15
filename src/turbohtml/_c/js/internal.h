@@ -341,6 +341,9 @@ typedef struct {
                          the binding's own declarator index runs before it initializes */
     int32_t ref_stmt; /* the innermost expression, return or throw statement around ref_node, or -1;
                          with ref_scope it tells whether the one read sits directly in a given statement */
+    /* the nearest function-scope binding of the same name this one shadows, or -1: the binding a `var` redeclaring
+       a catch parameter declares */
+    int32_t shadowed_var;
     /* Written by the analysis walk and read only for a function declaration it walked whose one read it saw, so
        jm_sym_new leaves them unset. */
     int32_t ref_depth; /* how deep, in analysis walk calls from the program root, ref_node sits */
@@ -362,6 +365,8 @@ typedef struct {
     int32_t grown;        /* levels this pass's inlines added below nodes the scope holds */
     int32_t first_stmt;   /* a function scope's first body statement: nothing executes before it,
                              so a var literal declared there dominates every read (-1 elsewhere) */
+    int32_t args_reads;   /* a function scope's free `arguments` reads, each one a read and a write of
+                             every parameter */
 } jm_scope;
 
 /* A parsed program: the node arena, the symbol and scope tables, the root node, and
