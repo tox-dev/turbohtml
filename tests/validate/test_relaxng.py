@@ -186,6 +186,16 @@ def test_data_param_pattern_too_complex_raises() -> None:
         RelaxNG(schema)
 
 
+def test_data_param_patterns_share_the_state_budget() -> None:
+    data = "".join(
+        f'<element name="{name}"><data type="string"><param name="pattern">a{{{count}}}</param></data></element>'
+        for name, count in (("s", 1500000), ("t", 600000))
+    )
+    schema = grammar(f'<start><element name="r">{data}</element></start>', attrs=f'datatypeLibrary="{_DT}"')
+    with pytest.raises(ValueError, match=r"^schema patterns need more than 2000000 NFA states between them; lower"):
+        RelaxNG(schema)
+
+
 def test_list_pattern() -> None:
     schema = grammar(
         '<start><element name="nums"><list><oneOrMore><data type="int"/></oneOrMore></list></element></start>',
@@ -1982,10 +1992,23 @@ def _crossed_places(start: str, combine: str, count: int) -> str:
 
 
 @pytest.mark.parametrize("start", _CROSSED_STARTS)
-@pytest.mark.parametrize("combine", ["group", "oneOrMore"])
-def test_rng_crossed_places_past_the_work_limit_raise(start: str, combine: str) -> None:
+def test_rng_crossed_places_past_the_work_limit_raise(start: str) -> None:
     with pytest.raises(ValueError, match="too ambiguous"):
-        RelaxNG(_crossed_places(start, combine, 11)).validate(parse_xml("<r><v/><v/><v/></r>"))
+        RelaxNG(_crossed_places(start, "group", 11)).validate(parse_xml("<r><v/><v/><v/></r>"))
+
+
+@pytest.mark.parametrize(
+    ("start", "valid"),
+    [
+        pytest.param('<ref name="d0"/>', True, id="alone"),
+        pytest.param(
+            '<interleave><ref name="d0"/><element name="a"><empty/></element></interleave>', False, id="interleaved"
+        ),
+    ],
+)
+def test_rng_crossed_repeats_stay_under_the_work_limit(start: str, *, valid: bool) -> None:
+    # each repeat absorbs the rounds its places restart, so the residual stays small
+    assert RelaxNG(_crossed_places(start, "oneOrMore", 24)).validate(parse_xml("<r><v/><v/><v/></r>")).valid is valid
 
 
 @pytest.mark.parametrize(
@@ -3689,6 +3712,221 @@ def test_rng_adopted_derivatives_decide_like_the_walk(
     verdicts: Final = [
         schema.is_valid(parse_xml(f"<doc{attributes}>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)
     ]
+    assert verdicts == [expected, expected]
+
+
+_OPTIONAL_LEAF: Final[str] = f"<optional>{_LEAF}</optional>"
+_Z: Final[str] = '<optional><element name="z"><empty/></element></optional>'
+
+
+def _round(count: int, item: str = _OPTIONAL_LEAF, first: int = 0) -> str:
+    return f"<interleave>{''.join(item.format(index) for index in range(first, first + count))}</interleave>"
+
+
+def _repeated_round(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore>{_round(count)}</oneOrMore>"), _leaves("reverse", count)
+
+
+def _repeated_round_in_order(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore>{_round(count)}</oneOrMore>"), _leaves("schema", count)
+
+
+def _optional_repeated_round(count: int) -> tuple[str, str]:
+    return wrap(f"<zeroOrMore>{_round(count)}</zeroOrMore>"), _leaves("alternating", count)
+
+
+def _round_of_empty_choices(count: int) -> tuple[str, str]:
+    round_: Final = _round(count, f"<choice>{_LEAF}<empty/></choice>")
+    return wrap(f"<oneOrMore>{round_}</oneOrMore>"), _leaves("outside-in", count)
+
+
+def _nested_repeated_rounds(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore><zeroOrMore>{_round(count)}</zeroOrMore></oneOrMore>"), _leaves("reverse", count)
+
+
+def _round_in_group(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore><group>{_round(count)}{_Z}</group></oneOrMore>"), _leaves("reverse", count)
+
+
+def _round_after_optional(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore><group>{_Z}{_round(count)}</group></oneOrMore>"), _leaves("reverse", count)
+
+
+def _optional_round(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore><optional>{_round(count)}</optional></oneOrMore>"), _leaves("reverse", count)
+
+
+def _rounds_in_choice_repeated(count: int) -> tuple[str, str]:
+    rounds: Final = "".join(_round(count // 4, first=first) for first in range(0, count, count // 4))
+    return wrap(f"<oneOrMore><choice>{rounds}</choice></oneOrMore>"), _leaves("reverse", count)
+
+
+def _round_in_nested_groups(count: int) -> tuple[str, str]:
+    body: Final = f"{f'<group>{_Z}' * 30}{_round(count)}{'</group>' * 30}"
+    return wrap(f"<oneOrMore>{body}</oneOrMore>"), _leaves("reverse", count)
+
+
+def _referenced_round(count: int) -> tuple[str, str]:
+    start: Final = '<start><element name="doc"><oneOrMore><ref name="round"/></oneOrMore></element></start>'
+    return grammar(f'{start}<define name="round">{_round(count)}</define>'), _leaves("reverse", count)
+
+
+def _round_after_element(count: int) -> tuple[str, str]:
+    body: Final = f'<element name="s"><empty/></element><zeroOrMore>{_round(count)}</zeroOrMore>'
+    return wrap(body), _leaves("reverse", count).replace("<doc>", "<doc><s/>")
+
+
+def _mixed_round(count: int) -> tuple[str, str]:
+    children: Final = "".join(f"<w{index}/>t" for index in _arrival("reverse", count))
+    return wrap(f"<oneOrMore><mixed>{_round(count)}</mixed></oneOrMore>"), f"<doc>{children}</doc>"
+
+
+def _attribute_round(count: int) -> tuple[str, str]:
+    attributes: Final = " ".join(f'a{index}="x"' for index in _arrival("reverse", count))
+    return wrap(f"<oneOrMore>{_round(count, _OPTIONAL_ATTRIBUTE)}</oneOrMore>"), f"<doc {attributes}/>"
+
+
+def _referenced_halves(count: int) -> tuple[str, str]:
+    # the warm-up starts routing before <i> closes its start tag, so the references stay in its content model
+    halves: Final = (
+        f'<define name="first">{_round(count // 2)}</define>'
+        f'<define name="second">{_round(count // 2, first=count // 2)}</define>'
+    )
+    item: Final = (
+        '<element name="i"><oneOrMore><group><ref name="first"/><ref name="second"/></group></oneOrMore></element>'
+    )
+    children: Final = "".join(f"<w{index}/>" for index in _arrival("reverse", count))
+    return (
+        grammar(f'<start><element name="doc">{_WARM}{item}</element></start>{halves}'),
+        f"<doc>{_WARM_CHILDREN}<i>{children}</i></doc>",
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_repeated_round, id="one-or-more"),
+        pytest.param(_repeated_round_in_order, id="one-or-more-in-order"),
+        pytest.param(_optional_repeated_round, id="zero-or-more"),
+        pytest.param(_round_of_empty_choices, id="choice-with-empty"),
+        pytest.param(_nested_repeated_rounds, id="nested-repeats"),
+        pytest.param(_round_in_group, id="round-in-group"),
+        pytest.param(_round_after_optional, id="round-after-optional"),
+        pytest.param(_optional_round, id="optional-round"),
+        pytest.param(_rounds_in_choice_repeated, id="rounds-in-choice"),
+        pytest.param(_round_in_nested_groups, id="round-in-nested-groups"),
+        pytest.param(_referenced_round, id="referenced-round"),
+        pytest.param(_round_after_element, id="round-after-element"),
+        pytest.param(_mixed_round, id="mixed"),
+        pytest.param(_attribute_round, id="attributes"),
+        pytest.param(_referenced_halves, id="referenced-halves"),
+    ],
+)
+def test_rng_repeated_optional_round_scales_linearly(
+    build: Callable[[int], tuple[str, str]], work_steps: WorkSteps
+) -> None:
+    # each child could continue the round or start a new one, and the residual kept one branch per place the round
+    # could have started
+    def validate(count: int) -> Callable[[], object]:
+        source, xml = build(count)
+        schema = RelaxNG(source)
+        document = parse_xml(xml)
+        assert schema.validate(document).valid
+        return partial(schema.validate, document)
+
+    work_steps.assert_linear(validate, (200, 800))
+
+
+_X_PAIR: Final[str] = (
+    '<optional><group><element name="x{0}"><empty/></element>'
+    '<optional><element name="y{0}"><empty/></element></optional></group></optional>'
+)
+_X_REQUIRED: Final[str] = '<element name="r"><empty/></element>'
+_X_ROUND: Final[str] = f"<interleave>{_repeat(_X_OPTIONAL, 20)}</interleave>"
+_X_ROUND_WITH_REQUIRED: Final[str] = f"<interleave>{_repeat(_X_OPTIONAL, 20)}{_X_REQUIRED}</interleave>"
+_X_SHORT_ROUND: Final[str] = f"<interleave>{_repeat(_X_OPTIONAL, 2)}{_X_REQUIRED}</interleave>"
+_X_PAIRS: Final[str] = f"<oneOrMore><interleave>{_repeat(_X_PAIR, 20)}</interleave></oneOrMore>"
+_X_HALVES: Final[str] = (
+    f"<oneOrMore><choice><interleave>{_repeat(_X_OPTIONAL, 10)}</interleave>"
+    f"<interleave>{''.join(_X_OPTIONAL.format(index) for index in range(10, 20))}</interleave></choice></oneOrMore>"
+)
+_X_MIXED_GROUP: Final[str] = f"<oneOrMore><mixed>{_repeat(_X_OPTIONAL, 20)}</mixed></oneOrMore>"
+# the lead's remainder is no round of the repeat, and telling so walks the whole wide round
+_LEAD_THEN_ROUNDS: Final[str] = (
+    '<group><optional><group><element name="t"><empty/></element><interleave><optional><element name="u"><empty/>'
+    '</element></optional><optional><element name="v"><empty/></element></optional></interleave></group></optional>'
+    f"<zeroOrMore><interleave>{_repeat(_X_OPTIONAL, 600)}</interleave></zeroOrMore></group>"
+)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "before", "after", "expected"),
+    [
+        pytest.param(f"<oneOrMore>{_X_ROUND}</oneOrMore>", _xs(4, 2), _xs(9, 1, 1, 4), True, id="round"),
+        pytest.param(f"<oneOrMore>{_X_ROUND}</oneOrMore>", _xs(4, 2), _xs(9, 20), False, id="round-unknown"),
+        pytest.param(
+            f"<oneOrMore>{_X_ROUND_WITH_REQUIRED}</oneOrMore>",
+            "",
+            f"{_xs(*range(9))}<r/>",
+            True,
+            id="required-in-order",
+        ),
+        pytest.param(f"<oneOrMore>{_X_SHORT_ROUND}</oneOrMore>", "", "<r/><x0/><r/>", True, id="required-last"),
+        pytest.param(
+            f"<oneOrMore>{_X_SHORT_ROUND}</oneOrMore>", "", "<x0/><x0/><r/>", False, id="required-last-missing"
+        ),
+        pytest.param(
+            f"<oneOrMore><oneOrMore>{_X_ROUND}</oneOrMore></oneOrMore>", _xs(3), _xs(3, 8, 3), True, id="nested"
+        ),
+        pytest.param(
+            f"<oneOrMore><oneOrMore>{_X_ROUND}</oneOrMore></oneOrMore>", _xs(3), _xs(8, 21), False, id="nested-unknown"
+        ),
+        pytest.param(_X_PAIRS, _xs(3), "<x2/><y3/><x3/>", True, id="pairs"),
+        pytest.param(_X_PAIRS, _xs(3), "<x2/><y3/><y2/><y3/>", False, id="pairs-twice"),
+        pytest.param(_X_PAIRS, _xs(3), "<y2/>", False, id="pairs-early"),
+        pytest.param(
+            f"<oneOrMore>{_X_ROUND_WITH_REQUIRED}</oneOrMore>",
+            f"{_xs(1)}<r/>",
+            f"{_xs(2)}<r/>{_xs(2, 3)}<r/>",
+            True,
+            id="required",
+        ),
+        pytest.param(
+            f"<oneOrMore>{_X_ROUND_WITH_REQUIRED}</oneOrMore>", f"{_xs(1)}<r/>", _xs(1), False, id="required-missing"
+        ),
+        pytest.param(
+            f"<oneOrMore><group>{_X_ROUND}{_X_REQUIRED}</group></oneOrMore>",
+            f"{_xs(2)}<r/>",
+            f"{_xs(5, 1)}<r/>",
+            True,
+            id="required-after",
+        ),
+        pytest.param(
+            f"<oneOrMore><group>{_X_ROUND}{_X_REQUIRED}</group></oneOrMore>",
+            f"{_xs(2)}<r/>",
+            _xs(5, 1),
+            False,
+            id="required-after-missing",
+        ),
+        pytest.param(
+            f"<oneOrMore><interleave>{_repeat(f'<zeroOrMore>{_X}</zeroOrMore>', 20)}</interleave></oneOrMore>",
+            _xs(6),
+            _xs(6, 6, 0),
+            True,
+            id="repeated-operands",
+        ),
+        pytest.param(_X_HALVES, _xs(3), _xs(15, 2, 12), True, id="halves"),
+        pytest.param(_X_HALVES, _xs(3), _xs(20), False, id="halves-unknown"),
+        pytest.param(_X_MIXED_GROUP, _xs(7), "t<x9/>t<x1/>", True, id="mixed-group"),
+        pytest.param(_X_MIXED_GROUP, _xs(7), "t<x1/><x9/>", True, id="mixed-group-restart"),
+        pytest.param(_LEAD_THEN_ROUNDS, "", "<t/><u/><x3/><x2/>", True, id="lead"),
+        pytest.param(_LEAD_THEN_ROUNDS, "", "<t/><x3/><u/>", False, id="lead-late"),
+    ],
+)
+def test_rng_restarted_rounds_decide_like_the_walk(pattern: str, before: str, after: str, *, expected: bool) -> None:
+    # once routing starts, a repeat whose round so far is nullable and part of a round absorbs that round
+    schema: Final = RelaxNG(wrap(f"<interleave>{pattern}{_WARM}</interleave>"))
+    verdicts: Final = [schema.is_valid(parse_xml(f"<doc>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)]
     assert verdicts == [expected, expected]
 
 

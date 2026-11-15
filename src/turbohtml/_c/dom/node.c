@@ -279,17 +279,16 @@ static int element_walk_matches(th_node *node, ElementWalkerObject *walker) {
     return 0;
 }
 
-static int element_walk_inside(th_node *node, th_node *root) {
-    for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
-        if (parent == root) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static th_node *element_walk_next(th_node *current, th_node *root, ElementWalkerObject *walker) {
+/* Next match after current, or NULL when the walk is done. An edit can move current out of root; testing that up
+   front climbs current's ancestors on every step, so the climb instead ends at a parentless node, and stepping onto
+   root from outside drops the bound and sets *entered. */
+static inline th_node *element_walk_next(th_node *current, th_node *root, ElementWalkerObject *walker, int *entered) {
     for (th_node *node = current->first_child; node != NULL; node = preorder_next(node, current)) {
+        TH_WORK_STEP();
+        if (node == root) {
+            root = NULL;
+            *entered = 1;
+        }
         if (element_walk_matches(node, walker)) {
             return node;
         }
@@ -298,13 +297,19 @@ static th_node *element_walk_next(th_node *current, th_node *root, ElementWalker
         return NULL;
     }
     th_node *branch = current;
-    while (branch != root && branch->next_sibling == NULL) {
+    while (branch != NULL && branch != root && branch->next_sibling == NULL) {
+        TH_WORK_STEP();
         branch = branch->parent;
     }
-    if (branch == root) {
+    if (branch == NULL || branch == root) {
         return NULL;
     }
     for (th_node *node = branch->next_sibling; node != NULL; node = preorder_next(node, root)) {
+        TH_WORK_STEP();
+        if (node == root) {
+            root = NULL;
+            *entered = 1;
+        }
         if (element_walk_matches(node, walker)) {
             return node;
         }
@@ -351,7 +356,6 @@ static void element_walker_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     ElementWalkerObject *walker = (ElementWalkerObject *)self;
     Py_XDECREF(walker->pending);
-    Py_XDECREF(walker->pending_handle);
     Py_XDECREF(walker->tags);
     Py_XDECREF(walker->scope);
     Py_XDECREF(walker->owner);
@@ -381,14 +385,12 @@ static PyObject *element_walker_next(PyObject *self) {
         Py_BEGIN_CRITICAL_SECTION(handle);
 #endif
         th_node *root = owner->node;
-        th_node *first =
-            walker->include_self && element_walk_matches(root, walker) ? root : element_walk_next(root, root, walker);
+        int entered = 0; /* stays 0: a walk that starts at its own root never steps onto it */
+        th_node *first = walker->include_self && element_walk_matches(root, walker)
+                             ? root
+                             : element_walk_next(root, root, walker, &entered);
         if (first != NULL) {
             walker->pending = node_wrap(state_of(self), handle, first);
-            if (walker->pending != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                walker->pending_handle = Py_NewRef(handle);
-                walker->pending_version = ((HandleObject *)handle)->mutation_version;
-            }
         }
 #ifdef Py_GIL_DISABLED
         node_guard_end(&guard);
@@ -405,7 +407,7 @@ static PyObject *element_walker_next(PyObject *self) {
     PyObject *result = walker->pending;
     walker->pending = NULL;
     NodeObject *current = (NodeObject *)result;
-    int inside;
+    int entered = 0;
     int failed = 0;
     PyObject *next_scope = NULL;
 #ifdef Py_GIL_DISABLED
@@ -417,39 +419,26 @@ static PyObject *element_walker_next(PyObject *self) {
     Py_BEGIN_CRITICAL_SECTION(handle);
 #endif
     NodeObject *scope = (NodeObject *)walker->scope;
-    th_node *root = scope->node;
-    inside = walker->pending_handle == handle && walker->pending_version == ((HandleObject *)handle)->mutation_version;
+    /* a scope that another tree owns bounds nothing here */
 #ifdef Py_GIL_DISABLED
-    inside = inside || (guard.first == handle && element_walk_inside(current->node, root));
+    th_node *root = guard.first == handle ? scope->node : NULL;
 #else
-    inside = inside || (scope->handle == handle && element_walk_inside(current->node, root));
+    th_node *root = scope->handle == handle ? scope->node : NULL;
 #endif
-    if (!inside) {
-        root = current->node;
-        while (root->parent != NULL) {
-            root = root->parent;
-        }
-    }
-    if (!inside) {
-        next_scope = root == current->node ? Py_NewRef(result) : node_wrap(state_of(self), handle, root);
+    th_node *following = element_walk_next(current->node, root, walker, &entered);
+    if (entered) {
+        /* the walk came onto its scope from outside, so the whole tree bounds it from here on */
+        next_scope = node_wrap(state_of(self), handle, node_root(current->node));
         if (next_scope == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             failed = 1;           /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (!failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        th_node *following = element_walk_next(current->node, root, walker);
         if (following != NULL) {
             walker->pending = node_wrap(state_of(self), handle, following);
             if (walker->pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 failed = 1;                /* GCOVR_EXCL_LINE */
             } /* GCOVR_EXCL_LINE: allocation-failure path */
-            else {
-                Py_SETREF(walker->pending_handle, Py_NewRef(handle));
-                walker->pending_version = ((HandleObject *)handle)->mutation_version;
-            }
-        } else {
-            Py_DECREF(walker->pending_handle);
-            walker->pending_handle = NULL;
         }
     } /* GCOVR_EXCL_LINE: allocation-failure path */
 #ifdef Py_GIL_DISABLED

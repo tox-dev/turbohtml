@@ -525,12 +525,13 @@ static int lang_tag_matches(const Py_UCS4 *tag, Py_ssize_t tag_len, const Py_UCS
    attributes": xml:lang in the XML namespace wins, and only a foreign element carries
    one (the HTML parser leaves xml:lang on an HTML element in no namespace); then lang,
    which counts on an HTML or SVG element. */
-static const th_node_attr *node_lang_attr(struct th_tree *tree, struct th_node *node, uint32_t xml_lang_atom) {
+const th_node_attr *xp_node_lang_attr(struct th_tree *tree, struct th_node *node, uint32_t xml_lang_atom) {
     int xml = th_tree_is_xml(tree);
     const th_node_attr *lang_attr = NULL;
     th_node_attr *attrs;
     Py_ssize_t attr_count = th_node_attributes(node, &attrs);
     for (Py_ssize_t index = 0; index < attr_count; index++) {
+        TH_WORK_STEP();
         if (attrs[index].name_atom == xml_lang_atom && (xml || node->ns != TH_NS_HTML)) {
             return &attrs[index];
         }
@@ -541,6 +542,10 @@ static const th_node_attr *node_lang_attr(struct th_tree *tree, struct th_node *
     return lang_attr;
 }
 
+/* Nodes and attributes lang() reads before it climbs through the memo: ordinary markup declares its language within
+   them and never pays for a hash probe. */
+#define XP_LANG_CLIMB 64
+
 /* lang(): true when the language the nearest self-or-ancestor element declares
    names a language the wanted code is a prefix of. */
 static int node_lang(xp_ctx *ctx, xp_result *arg) {
@@ -550,14 +555,22 @@ static int node_lang(xp_ctx *ctx, xp_result *arg) {
         return -1;      /* GCOVR_EXCL_LINE */
     }
     uint32_t xml_lang_atom = th_attr_lookup(ctx->tree, "xml:lang", 8);
-    int result = 0;
+    const th_node_attr *lang_attr = NULL;
+    Py_ssize_t budget = XP_LANG_CLIMB;
     for (struct th_node *node = ctx->node; node != NULL; node = node->parent) {
-        const th_node_attr *lang_attr = node_lang_attr(ctx->tree, node, xml_lang_atom);
+        TH_WORK_STEP();
+        th_node_attr *attrs;
+        budget -= 1 + th_node_attributes(node, &attrs);
+        if (budget < 0) {
+            lang_attr = xp_lang_memoized(ctx, node, xml_lang_atom);
+            break;
+        }
+        lang_attr = xp_node_lang_attr(ctx->tree, node, xml_lang_atom);
         if (lang_attr != NULL) {
-            result = lang_tag_matches(lang_attr->value, lang_attr->value_len, want, want_len);
             break;
         }
     }
+    int result = lang_attr != NULL && lang_tag_matches(lang_attr->value, lang_attr->value_len, want, want_len);
     PyMem_Free(want);
     return result;
 }

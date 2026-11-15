@@ -1,0 +1,2 @@
+RELAX NG validation of a repeated ``interleave`` of optional children now takes time linear in the number of children,
+and some such schemas no longer raise as too ambiguous.

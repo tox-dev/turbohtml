@@ -729,9 +729,26 @@ static int mini_reparses_quirks(th_tree *tree, th_node *root) {
     return 1;
 }
 
+/* Whether an HTML doctype can spell the identifier. The tokenizer ends the doctype
+   at a `>` inside a literal and has no escape for it, and a literal holding both
+   quotes has no delimiter left. parse() stores neither, but parse_xml stores the
+   first: a SystemLiteral takes any character except its own quote. */
+static int mini_doctype_id_fits(const Py_UCS4 *id, Py_ssize_t len) {
+    int has_double = 0;
+    int has_single = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (id[index] == '>') {
+            return 0;
+        }
+        has_double |= id[index] == '"';
+        has_single |= id[index] == '\'';
+    }
+    return !(has_double && has_single);
+}
+
 /* Write one quoted doctype identifier, leaving it unclosed when abrupt: a `>`
-   inside the literal ends the doctype and forces quirks mode. A parsed identifier
-   never holds the quote that delimited it, so the other quote fits one holding `"`. */
+   inside the literal ends the doctype and forces quirks mode. An identifier that
+   fits never holds both quotes, so the other quote fits one holding `"`. */
 static void mini_emit_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len, int abrupt) {
     Py_UCS4 quote = '"';
     for (Py_ssize_t index = 0; index < len; index++) {
@@ -752,9 +769,13 @@ static void mini_emit_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len, i
    dropping a quirky one reparses the page in no-quirks mode, where a <table> closes
    the open <p> the quirks parse nested it in. A doctype whose malformed source
    forced quirks mode gets the same effect from the shortest malformed spelling:
-   its last identifier left unclosed, or a stray character after the name. */
+   its last identifier left unclosed, or a stray character after the name. An
+   identifier HTML cannot spell would end early and leave its tail to reparse as
+   markup, so its doctype keeps only the name, and the stray character when the
+   page reparses in quirks mode. */
 static void mini_emit_doctype(sbuf *out, th_tree *tree, th_node *node) {
-    int force = th_tree_quirks(tree) && !th_doctype_is_quirky(node);
+    int quirky = th_doctype_is_quirky(node);
+    int force = th_tree_quirks(tree) && !quirky;
     sbuf_puts(out, "<!DOCTYPE ");
     sbuf_put_ucs4(out, node->text, doctype_name_len(node));
     const Py_UCS4 *public_id;
@@ -763,6 +784,10 @@ static void mini_emit_doctype(sbuf *out, th_tree *tree, th_node *node) {
     Py_ssize_t system_len;
     if (!th_node_doctype_ids(node, &public_id, &public_len, &system_id, &system_len)) {
         sbuf_puts(out, force ? " x>" : ">");
+        return;
+    }
+    if (!mini_doctype_id_fits(public_id, public_len) || !mini_doctype_id_fits(system_id, system_len)) {
+        sbuf_puts(out, force || quirky ? " x>" : ">");
         return;
     }
     int has_system = (node->tag_flags & TH_DOCTYPE_HAS_SYSTEM) != 0;
