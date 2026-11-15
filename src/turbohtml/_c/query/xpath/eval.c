@@ -472,7 +472,7 @@ static uint32_t ns_intern(struct xp_ns_index *index, const char *bytes, Py_ssize
     size_t slot = hash & mask;
     while (index->buckets[slot] != 0) {
         const ns_string *known = &index->strings[index->buckets[slot] - 1];
-        if (known->hash == hash && known->len == len && memcmp(known->bytes, bytes, (size_t)len) == 0) {
+        if (known->len == len && memcmp(known->bytes, bytes, (size_t)len) == 0) {
             return index->buckets[slot];
         }
         slot = (slot + 1) & mask;
@@ -668,9 +668,10 @@ static int ns_enter(struct xp_ns_index *index, struct th_tree *tree, struct th_n
     uint32_t ns = NS_NONE;
     if (colon == NULL) {
         ns = ns_default_id(index);
-    } else if (ns_prefixed_id(index, tree, qname, colon - qname, &ns) <
-               0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;  /* GCOVR_EXCL_LINE */
+    } else {
+        if (ns_prefixed_id(index, tree, qname, colon - qname, &ns) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                                    /* GCOVR_EXCL_LINE */
+        }
     }
     uint32_t local_id = ns_intern(index, local, local_len);
     if (local_id == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -690,8 +691,9 @@ static int ns_enter(struct xp_ns_index *index, struct th_tree *tree, struct th_n
         if (attr_colon != NULL) {
             attr_local = attr_colon + 1;
             attr_local_len = name_len - (attr_local - name);
-            if (ns_prefixed_id(index, tree, name, attr_colon - name, &pair.ns) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                                            /* GCOVR_EXCL_LINE */
+            int status = ns_prefixed_id(index, tree, name, attr_colon - name, &pair.ns);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;    /* GCOVR_EXCL_LINE */
             }
         }
         pair.local = ns_intern(index, attr_local, attr_local_len);
@@ -759,7 +761,7 @@ static TH_NOINLINE int ns_ensure(struct xp_ns_index *index, struct th_node *node
     if (ns_fill(index, index->tree, top) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;                              /* GCOVR_EXCL_LINE */
     }
-    return node->seq < index->slot_capacity ? 0 : -1; /* GCOVR_EXCL_LINE: a walk reaches every node below its top */
+    return 0;
 }
 
 static XP_STEP_INLINE int ns_element_matches(const step_match *match, struct th_node *node) {
@@ -775,15 +777,18 @@ static XP_STEP_INLINE int ns_element_matches(const step_match *match, struct th_
 
 static int ns_attribute_matches(const step_match *match, struct th_node *node, Py_ssize_t attr) {
     struct xp_ns_index *index = match->ns_index;
-    if (node->seq >= index->slot_capacity || index->slots[node->seq].local == NS_UNSET) {
+    th_node_attr *attrs;
+    Py_ssize_t count = th_node_attributes(node, &attrs);
+    if (node->seq >= index->slot_capacity || index->slots[node->seq].local == NS_UNSET ||
+        index->slots[node->seq].attr_count != (uint32_t)count) {
+        if (node->seq < index->slot_capacity) {
+            index->slots[node->seq].local = NS_UNSET;
+        }
         if (ns_ensure(index, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;                    /* GCOVR_EXCL_LINE */
         }
     }
     const ns_slot *slot = &index->slots[node->seq];
-    if ((size_t)attr >= slot->attr_count) {
-        return 0;
-    }
     const ns_pair *pair = &index->pairs[slot->attrs + (size_t)attr];
     return pair->local == match->want_local_id && pair->ns == match->want_ns_id;
 }
@@ -964,7 +969,7 @@ static XP_STEP_INLINE int apply_step(xp_nodeset *out, struct th_node *ctx, enum 
                       (step->test == NT_NAME && eligible && attrs[index].name_atom == match->attr_atom);
             if (step->test == NT_NAME && match->name_test != NULL) {
                 hit = match->name_test(match->name_test_ctx, ctx, index, match->qualified, match->qualified_len);
-                if (hit < 0) { /* GCOVR_EXCL_BR_LINE: prefix resolution ran before the walk; only OOM remains */
+                if (hit < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                     return -1; /* GCOVR_EXCL_LINE */
                 }
             }
@@ -2670,7 +2675,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
     match->qualified_len = step->str_len;
     match->name_test = ctx->name_test;
     match->name_test_ctx = ctx->name_test_ctx;
-    match->strict_no_ns = ctx->strict_no_ns && step->prefix_len == 0; /* GCOVR_EXCL_BR_LINE: prefixes use callback */
+    match->strict_no_ns = ctx->strict_no_ns;
     if (step->test != NT_NAME) {
         return 0;
     }
@@ -4772,7 +4777,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
         NULL,
         name_test,
         name_test_ctx,
-        name_test == NULL && th_tree_is_xml(tree),
+        name_test == NULL,
         &root,
         NULL,
 #ifdef TH_OPERATION_LIMIT

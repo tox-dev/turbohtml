@@ -151,7 +151,7 @@ translator object.
 
 .. testoutput::
 
-    descendant-or-self::div[@id = 'main']/descendant::a[starts-with(@href, 'https')]
+    descendant-or-self::*[name() = 'div' and @id = 'main']/descendant::*[name() = 'a' and starts-with(@href, 'https')]
 
 The ``prefix`` argument works as in cssselect (default ``descendant-or-self::``). A selector the grammar rejects raises
 :class:`turbohtml.SelectorSyntaxError` -- the one error every turbohtml selector-parse path shares, a

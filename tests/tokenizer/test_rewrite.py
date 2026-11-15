@@ -3648,3 +3648,79 @@ def test_long_selector_chain_raises_recursion_error_on_a_small_stack() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
     )
     assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr
+
+
+def test_stray_end_tags_under_open_elements_scan_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(rewrite, "<x-open>" * count + "</x-stray>" * count, elements=[("p", _mark)]),
+        (500, 4000),
+    )
+
+
+def test_stray_end_tags_under_open_foreign_elements_scan_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(rewrite, f"<svg>{'<x-open>' * count}{'</x-stray>' * count}", elements=[("p", _mark)]),
+        (500, 4000),
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<x-a></x-b></x-a>", '<x-a k=""></x-b></x-a>', id="stray-before-the-match"),
+        pytest.param("<x-a></x-a></x-a>", '<x-a k=""></x-a></x-a>', id="stray-after-the-element-closed"),
+        pytest.param("<x-a><x-b></x-a></x-b>", '<x-a k=""><x-b></x-a></x-b>', id="stray-after-elements-popped"),
+        pytest.param("<svg><x-a></x-b></x-a></svg>", '<svg><x-a k=""></x-b></x-a></svg>', id="stray-in-svg"),
+        pytest.param("<svg><x-a><x-b></x-a></x-b></svg>", '<svg><x-a k=""><x-b></x-a></x-b></svg>', id="popped-in-svg"),
+        pytest.param("<x-a><span></x-a>x</span>", '<x-a k=""><span></x-a>x</span>', id="unclosed-formatting"),
+    ],
+)
+def test_end_tag_with_no_open_element_is_kept_as_written(source: str, expected: str) -> None:
+    assert rewrite(source, elements=[("x-a", _mark)]) == expected
+
+
+_CUSTOM_NAMES: Final[tuple[str, ...]] = tuple(f"x-{index}" for index in range(1000))
+
+
+def test_many_open_custom_elements_closed_by_the_outermost_end_tag() -> None:
+    opened = "".join(f"<{name}>" for name in _CUSTOM_NAMES)
+    source = f"{opened}</x-0>"
+    assert rewrite(source, elements=[("p", _mark)]) == source
+
+
+def test_many_open_custom_elements_closed_one_by_one() -> None:
+    opened = "".join(f"<{name}>" for name in _CUSTOM_NAMES)
+    closed = "".join(f"</{name}>" for name in reversed(_CUSTOM_NAMES))
+    source = f"{opened}{closed}</x-0>"
+    assert rewrite(source, elements=[("p", _mark)]) == source
+
+
+def test_stray_end_tag_with_a_long_custom_name_is_kept() -> None:
+    name = f"x-{'a' * 500}"
+    assert rewrite(f"<x-a></{name}></x-a>", elements=[("x-a", _mark)]) == f'<x-a k=""></{name}></x-a>'
+
+
+def test_stray_end_tags_after_open_elements_are_matched_once_counted() -> None:
+    # the stray scans walk the spine until their walks outweigh it, then the counts are built from the open elements
+    strays = "</q>" * 100
+    source = f"<x-a><b>{strays}<x-c></x-c></b></x-a>"
+    assert rewrite(source, elements=[("x-a", _mark)]) == f'<x-a k=""><b>{strays}<x-c></x-c></b></x-a>'
+
+
+def test_stray_end_tags_under_foreign_elements_are_matched_once_counted() -> None:
+    strays = "</q>" * 100
+    source = f"<svg><x-a><g>{strays}<x-c></x-c></g></x-a></svg>"
+    assert rewrite(source, elements=[("x-a", _mark)]) == f'<svg><x-a k=""><g>{strays}<x-c></x-c></g></x-a></svg>'
+
+
+def test_custom_names_opened_after_the_counts_are_built_grow_the_table() -> None:
+    names = [f"x-{index}" for index in range(20)]
+    opened = "".join(f"<{name}>" for name in names)
+    closed = "".join(f"</{name}>" for name in reversed(names))
+    source = f"<b>{'</q>' * 100}{opened}{closed}</x-none>"
+    assert rewrite(source, elements=[("p", _mark)]) == source
+
+
+def test_end_tag_after_the_spine_empties_with_the_counts_built() -> None:
+    source = f"<b>{'</q>' * 100}</b></x-after>"
+    assert rewrite(source, elements=[("p", _mark)]) == source
