@@ -57,8 +57,10 @@ turbohtml parses HTML, not arbitrary namespaced XML, so the namespace axis it ca
 carries: HTML elements are in no namespace, SVG and MathML carry their default namespace, and an ``xlink:`` attribute
 binds the xlink prefix on the element that uses it. That is exactly the infoset the :class:`~turbohtml.Html`
 ``xml=True`` serialization emits, so canonicalizing a tree and canonicalizing a reparse of its XML serialization agree.
-A document built on prefixes turbohtml's HTML model does not represent -- an arbitrary ``xmlns:foo`` binding -- is
-outside this scope; parse it as XML and sign it with a full XML toolchain instead.
+An ``xmlns:foo`` binding on an HTML element is rendered where a name in the subtree uses ``foo``, as it is for a parsed
+XML tree; a binding nothing in the subtree uses is dropped unless ``inclusive_ns_prefixes`` lists its prefix, and a
+relative namespace URI in a rendered binding raises :class:`ValueError`. An ``xmlns`` attribute does not change an HTML
+element's namespace.
 
 ***********************
  Conformance validated

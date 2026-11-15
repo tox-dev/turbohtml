@@ -147,8 +147,9 @@ struct th_tree {
     int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
     int xml;                /* parsed under XML rules: tag and attribute names are case-sensitive */
     int has_xml_ns;
+    int has_prefix_decl; /* an attribute name xmlns:P was ever interned; canonicalization renders such declarations */
     int can_span;        /* input is borrowed and outlives the tree: text nodes may be
-                            zero-copy spans into it instead of materialized copies */
+                             zero-copy spans into it instead of materialized copies */
     int track_positions; /* record each element's source line/col in trailing node slots */
     int track_locations; /* record each element's granular source spans (implies track_positions) */
     int kind;            /* borrowed input storage */

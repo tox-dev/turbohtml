@@ -287,6 +287,494 @@ def test_stored_namespace_prefix_declaration_is_dropped() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "selector", "options", "expected"),
+    [
+        pytest.param(
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            "p",
+            Canonical(),
+            b'<p xmlns:p="urn:p"><p:x></p:x></p>',
+            id="root-inclusive",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            "p",
+            Canonical(exclusive=True),
+            b'<p><p:x xmlns:p="urn:p"></p:x></p>',
+            id="root-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:a></p:a></r>',
+            "r",
+            Canonical(),
+            b'<r xmlns:p="urn:p"><p:a></p:a></r>',
+            id="descendant-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><p:b></p:b></a></r>',
+            "a",
+            Canonical(),
+            b'<a xmlns:p="urn:p"><p:b></p:b></a>',
+            id="ancestor-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><p:b></p:b></a></r>',
+            "a",
+            Canonical(exclusive=True),
+            b'<a><p:b xmlns:p="urn:p"></p:b></a>',
+            id="ancestor-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            "r",
+            Canonical(),
+            b'<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            id="redeclared-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            "r",
+            Canonical(exclusive=True),
+            b'<r><a><p:b xmlns:p="urn:new"></p:b></a></r>',
+            id="redeclared-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a xmlns:p="urn:p"><p:b></p:b></a></r>',
+            "r",
+            Canonical(),
+            b'<r xmlns:p="urn:p"><a><p:b></p:b></a></r>',
+            id="same-uri-redeclared-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:a><p:b></p:b></p:a></r>',
+            "r",
+            Canonical(exclusive=True),
+            b'<r><p:a xmlns:p="urn:p"><p:b></p:b></p:a></r>',
+            id="nested-use-renders-once-exclusive",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p" p:a="v"></p>',
+            "p",
+            Canonical(),
+            b'<p xmlns:p="urn:p" p:a="v"></p>',
+            id="attribute-inclusive",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p" p:a="v"></p>',
+            "p",
+            Canonical(exclusive=True),
+            b'<p xmlns:p="urn:p" p:a="v"></p>',
+            id="attribute-exclusive",
+        ),
+        pytest.param(
+            '<svg xmlns:p="urn:p"><p:x></p:x></svg>',
+            "svg",
+            Canonical(),
+            b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:p="urn:p"><p:x></p:x></svg>',
+            id="beside-default-inclusive",
+        ),
+        pytest.param(
+            '<svg xmlns:p="urn:p"><p:x></p:x></svg>',
+            "svg",
+            Canonical(exclusive=True),
+            b'<svg xmlns="http://www.w3.org/2000/svg"><p:x xmlns:p="urn:p"></p:x></svg>',
+            id="beside-default-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(),
+            b"<a><b></b></a>",
+            id="unused-ancestor-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(exclusive=True),
+            b"<a><b></b></a>",
+            id="unused-ancestor-exclusive",
+        ),
+        pytest.param(
+            '<r><a xmlns:p="urn:p"></a><c><p:d></p:d></c></r>',
+            "r",
+            Canonical(),
+            b'<r><a xmlns:p="urn:p"></a><c><p:d></p:d></c></r>',
+            id="sibling-declaration-inclusive",
+        ),
+        pytest.param(
+            '<r><a xmlns:p="urn:p"></a><c><p:d></p:d></c></r>',
+            "r",
+            Canonical(exclusive=True),
+            b"<r><a></a><c><p:d></p:d></c></r>",
+            id="sibling-declaration-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("p",)),
+            b'<a xmlns:p="urn:p"><b></b></a>',
+            id="forced-ancestor-exclusive",
+        ),
+        pytest.param(
+            '<r><a xmlns:p="urn:p"><b></b></a></r>',
+            "r",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("p",)),
+            b'<r><a xmlns:p="urn:p"><b></b></a></r>',
+            id="forced-descendant-exclusive",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            "p",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("p",)),
+            b'<p xmlns:p="urn:p"><p:x></p:x></p>',
+            id="forced-used-root-exclusive",
+        ),
+        pytest.param(
+            '<svg xmlns:z="urn:z" xmlns:a="urn:a" xlink:href="v"><a:x></a:x><z:y></z:y></svg>',
+            "svg",
+            Canonical(),
+            (
+                b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:a="urn:a" xmlns:xlink="http://www.w3.org/1999/xlink"'
+                b' xmlns:z="urn:z" xlink:href="v"><a:x></a:x><z:y></z:y></svg>'
+            ),
+            id="sorted-around-xlink",
+        ),
+    ],
+)
+def test_html_c14n_renders_prefixed_declaration_where_used(
+    source: str, selector: str, options: Canonical, expected: bytes
+) -> None:
+    assert _one(source, selector).canonicalize(options) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "options", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:p="urn:p"><a>text<p:b></p:b></a></r>',
+            "a",
+            Canonical(),
+            b'<a xmlns:p="urn:p">text<p:b></p:b></a>',
+            id="text-in-subtree-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a>text<p:b></p:b></a></r>',
+            "a",
+            Canonical(exclusive=True),
+            b'<a>text<p:b xmlns:p="urn:p"></p:b></a>',
+            id="text-in-subtree-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p" class="x"><a><p:b></p:b></a></r>',
+            "a",
+            Canonical(),
+            b'<a xmlns:p="urn:p"><p:b></p:b></a>',
+            id="plain-attribute-on-ancestor",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            "a",
+            Canonical(),
+            b'<a xmlns:p="urn:new"><p:b></p:b></a>',
+            id="redeclared-above-apex-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            "a",
+            Canonical(exclusive=True),
+            b'<a><p:b xmlns:p="urn:new"></p:b></a>',
+            id="redeclared-above-apex-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><c><p:b></p:b></c></a></r>',
+            "c",
+            Canonical(),
+            b'<c xmlns:p="urn:new"><p:b></p:b></c>',
+            id="nearest-redeclaration-above-apex-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><c><p:b></p:b></c></a></r>',
+            "c",
+            Canonical(exclusive=True),
+            b'<c><p:b xmlns:p="urn:new"></p:b></c>',
+            id="nearest-redeclaration-above-apex-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:a p:b="v"></p:a></r>',
+            "r",
+            Canonical(exclusive=True),
+            b'<r><p:a xmlns:p="urn:p" p:b="v"></p:a></r>',
+            id="tag-and-attribute-use-one-prefix-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:a plain="v"></p:a></r>',
+            "r",
+            Canonical(exclusive=True),
+            b'<r><p:a xmlns:p="urn:p" plain="v"></p:a></r>',
+            id="plain-attribute-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><p:a><x xmlns:p="urn:new"><p:b></p:b></x></p:a></r>',
+            "r",
+            Canonical(exclusive=True),
+            b'<r><p:a xmlns:p="urn:old"><x><p:b xmlns:p="urn:new"></p:b></x></p:a></r>',
+            id="nested-redeclared-use-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:a"><a xmlns:p="urn:bb"><p:b></p:b></a></r>',
+            "r",
+            Canonical(),
+            b'<r xmlns:p="urn:a"><a xmlns:p="urn:bb"><p:b></p:b></a></r>',
+            id="redeclared-with-longer-uri-inclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("pq",)),
+            b"<a><b></b></a>",
+            id="inclusive-list-entry-extends-prefix",
+        ),
+        pytest.param(
+            '<r xmlns:abc="urn:a" xmlns:hello="urn:h" xmlns:xml="urn:x" xmlns:xmlns="urn:m" xmlns:xlink="urn:custom"'
+            ' abc:x="1" hello:y="2" xlink:href="v"></r>',
+            "r",
+            Canonical(),
+            (
+                b'<r xmlns:abc="urn:a" xmlns:hello="urn:h" xmlns:xlink="http://www.w3.org/1999/xlink"'
+                b' abc:x="1" hello:y="2" xlink:href="v"></r>'
+            ),
+            id="reserved-and-short-or-long-prefixes",
+        ),
+        pytest.param('<p xmlns:p=""></p>', "p", Canonical(), b"<p></p>", id="empty-declaration-value"),
+    ],
+)
+def test_html_c14n_prefixed_declaration_edge_shapes(
+    source: str, selector: str, options: Canonical, expected: bytes
+) -> None:
+    assert _one(source, selector).canonicalize(options) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "options", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><!--c--><p:b></p:b></a></r>',
+            "a",
+            Canonical(with_comments=True),
+            b'<a xmlns:p="urn:p"><!--c--><p:b></p:b></a>',
+            id="comment-kept-in-subtree",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><!--c--><p:b></p:b></a></r>',
+            "a",
+            Canonical(),
+            b'<a xmlns:p="urn:p"><p:b></p:b></a>',
+            id="comment-dropped-in-subtree",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><svg xlink:href="v"><g></g></svg><p:c></p:c></r>',
+            "r",
+            Canonical(),
+            (
+                b'<r xmlns:p="urn:p"><svg xmlns="http://www.w3.org/2000/svg"'
+                b' xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="v"><g></g></svg><p:c></p:c></r>'
+            ),
+            id="xlink-binding-closes-inside-tree",
+        ),
+        pytest.param(
+            '<svg xlink:href="v" xmlns:p="urn:p"><g><p:x></p:x></g></svg>',
+            "g",
+            Canonical(),
+            (
+                b'<g xmlns="http://www.w3.org/2000/svg" xmlns:p="urn:p" xmlns:xlink="http://www.w3.org/1999/xlink">'
+                b"<p:x></p:x></g>"
+            ),
+            id="xlink-binding-inherited-from-ancestor",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><template><p:x></p:x></template></r>',
+            "r",
+            Canonical(),
+            b'<r xmlns:p="urn:p"><template><p:x></p:x></template></r>',
+            id="template-content-container",
+        ),
+        pytest.param(
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:p="urn:p"><p:x></p:x></svg>',
+            "svg",
+            Canonical(),
+            b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:p="urn:p"><p:x></p:x></svg>',
+            id="default-declaration-beside-prefixed",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("a", "p")),
+            b'<a xmlns:p="urn:p"><b></b></a>',
+            id="inclusive-list-matches-a-later-entry",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("p", "extra")),
+            b'<a xmlns:p="urn:p"><b></b></a>',
+            id="inclusive-list-matches-an-earlier-entry",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><b></b></a></r>',
+            "a",
+            Canonical(exclusive=True, inclusive_ns_prefixes=("q",)),
+            b"<a><b></b></a>",
+            id="inclusive-list-without-the-prefix",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p"></p>',
+            "p",
+            Canonical(),
+            b"<p></p>",
+            id="unused-declaration-on-root",
+        ),
+    ],
+)
+def test_html_c14n_prefixed_tree_walk_shapes(source: str, selector: str, options: Canonical, expected: bytes) -> None:
+    assert _one(source, selector).canonicalize(options) == expected
+
+
+def test_html_c14n_prefixed_element_keeps_processing_instructions() -> None:
+    node = Element("p", {"xmlns:p": "urn:p"}, children=[ProcessingInstruction("pi", "d"), Element("p:x")])
+    assert node.canonicalize() == b'<p xmlns:p="urn:p"><?pi d?><p:x></p:x></p>'
+
+
+def test_html_c14n_prefixed_doctype_apex_is_empty() -> None:
+    doc = parse('<!doctype html><p xmlns:p="urn:p"></p>')
+    assert doc.children[0].canonicalize() == b""
+
+
+def test_html_c14n_prefixed_document_drops_comments_by_default() -> None:
+    assert parse('<!--lead--><p xmlns:p="urn:p"><p:x></p:x></p>').canonicalize() == (
+        b'<html><head></head><body><p xmlns:p="urn:p"><p:x></p:x></p></body></html>'
+    )
+
+
+def test_html_c14n_prefixed_document_brackets_root_with_comments_and_processing_instructions() -> None:
+    doc = parse('<!--lead--><p xmlns:p="urn:p"><p:x></p:x></p>')
+    root = doc.select_one("html")
+    assert root is not None
+    root.insert_before(ProcessingInstruction("pi", "lead"))
+    root.insert_after(ProcessingInstruction("pi", "tail"))
+    assert doc.canonicalize(Canonical(with_comments=True)) == (
+        b'<!--lead-->\n<?pi lead?>\n<html><head></head><body><p xmlns:p="urn:p"><p:x></p:x></p></body></html>\n'
+        b"<?pi tail?>"
+    )
+
+
+def test_html_c14n_prefixed_document_keeps_trailing_comment_after_root() -> None:
+    doc = parse('<!doctype html><html xmlns:p="urn:p"><p:x></p:x></html><!--after-->')
+    assert doc.canonicalize(Canonical(with_comments=True)).endswith(b"</html>\n<!--after-->")
+
+
+@pytest.mark.parametrize(
+    ("html_source", "xml_source", "selector", "options"),
+    [
+        pytest.param(
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            "p",
+            Canonical(),
+            id="root-inclusive",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            '<p xmlns:p="urn:p"><p:x></p:x></p>',
+            "p",
+            Canonical(exclusive=True),
+            id="root-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><p:b></p:b></a></r>',
+            '<r xmlns:p="urn:p"><a><p:b></p:b></a></r>',
+            "a",
+            Canonical(exclusive=True),
+            id="ancestor-exclusive",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            '<r xmlns:p="urn:old"><a xmlns:p="urn:new"><p:b></p:b></a></r>',
+            "r",
+            Canonical(exclusive=True),
+            id="redeclared-exclusive",
+        ),
+        pytest.param(
+            '<p xmlns:p="urn:p" p:a="v"></p>',
+            '<p xmlns:p="urn:p" p:a="v"></p>',
+            "p",
+            Canonical(),
+            id="attribute-inclusive",
+        ),
+        pytest.param(
+            '<svg xmlns:p="urn:p"><p:x></p:x></svg>',
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:p="urn:p"><p:x></p:x></svg>',
+            "svg",
+            Canonical(),
+            id="beside-default-inclusive",
+        ),
+    ],
+)
+def test_html_c14n_reparses_to_the_xml_canonical_form(
+    html_source: str, xml_source: str, selector: str, options: Canonical
+) -> None:
+    output = _one(html_source, selector).canonicalize(options)
+    xml_node = parse_xml(xml_source).select_one(selector)
+    assert xml_node is not None
+    assert output == xml_node.canonicalize(options)
+    assert parse_xml(output.decode()).canonicalize(options) == output
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "options"),
+    [
+        pytest.param('<p xmlns:p="relative"><p:x></p:x></p>', "p", Canonical(), id="declared-inclusive"),
+        pytest.param('<p xmlns:p="relative"><p:x></p:x></p>', "p", Canonical(exclusive=True), id="declared-exclusive"),
+        pytest.param('<r xmlns:p="relative"><a><p:b></p:b></a></r>', "a", Canonical(), id="inherited-inclusive"),
+        pytest.param(
+            '<r xmlns:p="relative"><a><p:b></p:b></a></r>', "a", Canonical(exclusive=True), id="inherited-exclusive"
+        ),
+    ],
+)
+def test_html_c14n_rejects_used_relative_namespace(source: str, selector: str, options: Canonical) -> None:
+    with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
+        _one(source, selector).canonicalize(options)
+
+
+def test_html_c14n_drops_unused_relative_namespace() -> None:
+    assert _one('<p xmlns:p="relative"><x></x></p>', "p").canonicalize() == b"<p><x></x></p>"
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [pytest.param("é", id="two-bytes"), pytest.param("中", id="three-bytes"), pytest.param("𐐀", id="four-bytes")],
+)
+@pytest.mark.parametrize(
+    "options", [pytest.param(Canonical(), id="inclusive"), pytest.param(Canonical(exclusive=True), id="exclusive")]
+)
+def test_html_c14n_declares_non_ascii_prefix(prefix: str, options: Canonical) -> None:
+    node = Element(f"{prefix}:x", {f"xmlns:{prefix}": "urn:x"})
+    assert node.canonicalize(options) == f'<{prefix}:x xmlns:{prefix}="urn:x"></{prefix}:x>'.encode()
+
+
+def test_html_c14n_prefixed_declaration_steps_grow_linearly(work_steps: WorkSteps) -> None:
+    options: Final = Canonical(exclusive=True)
+    work_steps.assert_linear(
+        lambda count: partial(_one(_prefixed_siblings(count), "r").canonicalize, options), (500, 2000)
+    )
+
+
+def _prefixed_siblings(count: int) -> str:
+    declarations = " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
+    children = "".join(f"<p{index}:a></p{index}:a>" for index in range(count))
+    return f"<r {declarations}>{children}</r>"
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param('<r xmlns:p="urn:p" p:a="v"/>', b'<r xmlns:p="urn:p" p:a="v"></r>', id="used-attribute"),
