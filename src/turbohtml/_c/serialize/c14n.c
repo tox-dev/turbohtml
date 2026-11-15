@@ -17,6 +17,7 @@
 #include "serialize/internal.h"
 #include "serialize/c14n_base.h"
 
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
 
@@ -155,13 +156,14 @@ typedef struct {
     Py_ssize_t local_len;
     const Py_UCS4 *value;
     Py_ssize_t value_len;
+    Py_ssize_t position; /* order gathered: the element's own attributes, then the nearest ancestor's first */
 } c14n_attr;
 
 /* Resolve a stored attribute name/value to its c14n sort key: an xml:/xlink: prefix
    maps to its namespace URI and strips to the local name, everything else is in no
    namespace and keys on the whole name. */
 static c14n_attr c14n_make_ref(const char *name, Py_ssize_t name_len, const Py_UCS4 *value, Py_ssize_t value_len) {
-    c14n_attr ref = {name, name_len, "", 0, name, name_len, value, value_len};
+    c14n_attr ref = {name, name_len, "", 0, name, name_len, value, value_len, 0};
     if (name_len > 4 && memcmp(name, "xml:", 4) == 0) {
         ref.ns = C14N_XML;
         ref.ns_len = (Py_ssize_t)sizeof(C14N_XML) - 1;
@@ -204,15 +206,46 @@ static int c14n_name_is_nsdecl(const char *name, Py_ssize_t len) {
     return (len == 5 && memcmp(name, "xmlns", 5) == 0) || (len > 6 && memcmp(name, "xmlns:", 6) == 0);
 }
 
-/* Whether a queued attribute with this qualified name is already collected, so an
-   inherited xml: attribute never shadows the apex's own or a nearer ancestor's. */
-static int c14n_already_has(const c14n_attr *attrs, Py_ssize_t count, const char *name, Py_ssize_t name_len) {
+/* By qualified name and then by the order gathered, so the attribute that wins a
+   name leads the ones it shadows. */
+static int c14n_attr_name_cmp(const void *left, const void *right) {
+    const c14n_attr *first = left;
+    const c14n_attr *second = right;
+    TH_WORK_STEP();
+    Py_ssize_t common = first->name_len < second->name_len ? first->name_len : second->name_len;
+    int order = memcmp(first->name, second->name, (size_t)common);
+    if (order == 0) {
+        order = (first->name_len > second->name_len) - (first->name_len < second->name_len);
+    }
+    return order != 0 ? order : (first->position > second->position) - (first->position < second->position);
+}
+
+static int c14n_attr_position_cmp(const void *left, const void *right) {
+    const c14n_attr *first = left;
+    const c14n_attr *second = right;
+    return (first->position > second->position) - (first->position < second->position);
+}
+
+/* Drop each inherited xml: attribute that the apex or a nearer ancestor already
+   supplies, so it never shadows theirs. attrs holds the apex's own attributes,
+   which all stay, and then every inheritable one, nearest ancestor first. Looking
+   each one up among those gathered before it costs the square of their number, so
+   they are sorted by name instead and only the first of a name is kept. */
+static Py_ssize_t c14n_drop_shadowed(c14n_attr *attrs, Py_ssize_t own, Py_ssize_t count) {
     for (Py_ssize_t index = 0; index < count; index++) {
-        if (attrs[index].name_len == name_len && memcmp(attrs[index].name, name, (size_t)name_len) == 0) {
-            return 1;
+        attrs[index].position = index;
+    }
+    qsort(attrs, (size_t)count, sizeof(*attrs), c14n_attr_name_cmp);
+    Py_ssize_t kept = 1;
+    for (Py_ssize_t index = 1; index < count; index++) {
+        if (attrs[index].position < own || attrs[index].name_len != attrs[index - 1].name_len ||
+            memcmp(attrs[index].name, attrs[index - 1].name, (size_t)attrs[index].name_len) != 0) {
+            attrs[kept++] = attrs[index];
         }
     }
-    return 0;
+    /* back in the order gathered: attributes that tie in the canonical order keep the place they had */
+    qsort(attrs, (size_t)kept, sizeof(*attrs), c14n_attr_position_cmp);
+    return kept;
 }
 
 #define C14N_STACK_ATTRS 32
@@ -283,6 +316,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
         attrs[count++] = c14n_make_ref(name, name_len, node->attrs[index].value, node->attrs[index].value_len);
     }
     if (node == apex && !opts->exclusive) {
+        Py_ssize_t own = count;
         for (const th_node *anc = node->parent; anc != NULL; anc = anc->parent) {
             if (anc->type != TH_NODE_ELEMENT) {
                 continue;
@@ -297,11 +331,11 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
                 if (opts->version == 1 && !c14n_1_1_inherits_xml_attribute(name, name_len)) {
                     continue;
                 }
-                if (!c14n_already_has(attrs, count, name, name_len)) {
-                    attrs[count++] =
-                        c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
-                }
+                attrs[count++] = c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
             }
+        }
+        if (count > own) {
+            count = c14n_drop_shadowed(attrs, own, count);
         }
     }
     Py_UCS4 *fixed_base = NULL;

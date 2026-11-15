@@ -914,6 +914,34 @@ def test_xml_c14n_apex_uses_nearest_xml_attribute() -> None:
     assert document.children[0].children[0].children[0].canonicalize() == (b'<p:b xmlns:p="urn:p" xml:lang="fr"></p:b>')
 
 
+def test_xml_c14n_apex_keeps_document_order_of_tied_attributes() -> None:
+    apex = cast("Element", parse_xml('<r xmlns:p="urn:p" xml:lang="en"><p:a/></r>').children[0].children[0])
+    apex.attrs["zz:a"] = "1"
+    apex.attrs["x1:a"] = "2"
+    assert apex.canonicalize() == b'<p:a xmlns:p="urn:p" zz:a="1" x1:a="2" xml:lang="en"></p:a>'
+
+
+def test_xml_c14n_apex_takes_the_nearest_of_many_inherited_xml_attributes() -> None:
+    count: Final = 2048
+    far: Final = " ".join(f'xml:n{index}="far"' for index in range(count))
+    near: Final = " ".join(f'xml:n{index}="near"' for index in range(0, count, 2))
+    own: Final = " ".join(f'xml:n{index}="own"' for index in range(0, count, 4))
+    source: Final = f'<r xmlns:p="urn:p" {far} n="r"><a {near}><p:b {own} n="b"/></a></r>'
+    values: Final = {f"n{index}": ("own", "far", "near", "far")[index % 4] for index in range(count)}
+    expected: Final = " ".join(f'xml:{name}="{values[name]}"' for name in sorted(values))
+    assert parse_xml(source).children[0].children[0].children[0].canonicalize() == (
+        f'<p:b xmlns:p="urn:p" n="b" {expected}></p:b>'.encode()
+    )
+
+
+def test_xml_c14n_apex_inherits_many_xml_attributes_in_linear_time(work_steps: WorkSteps) -> None:
+    def apex(count: int) -> Callable[[], bytes]:
+        inherited: Final = " ".join(f'xml:a{index}=""' for index in range(count))
+        return parse_xml(f'<r xmlns:p="urn:p" {inherited}><p:a/></r>').children[0].children[0].canonicalize
+
+    work_steps.assert_linear(apex, (500, 2000))
+
+
 def test_xml_c14n_1_1_inherits_simple_xml_attributes() -> None:
     document = parse_xml('<r xmlns:p="urn:p" a="1" xml:lang="en" xml:mode="x"><p:a xml:space="preserve"/></r>')
     assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
@@ -1385,6 +1413,25 @@ def test_1_1_keeps_only_named_inherited_attributes() -> None:
 def test_apex_does_not_reinherit_its_own_xml_attribute() -> None:
     node = _one("<div xml:lang=en><p xml:lang=fr>x</p></div>", "p")
     assert node.canonicalize().count(b"xml:lang") == 1
+
+
+def test_apex_takes_the_nearest_of_many_inherited_xml_attributes() -> None:
+    count: Final = 2048
+    far: Final = " ".join(f"xml:n{index}=far" for index in range(count))
+    near: Final = " ".join(f"xml:n{index}=near" for index in range(0, count, 2))
+    own: Final = " ".join(f"xml:n{index}=own" for index in range(0, count, 4))
+    node = _one(f"<div {far} n=div><section {near}><p {own} n=p>x</p></section></div>", "p")
+    values: Final = {f"n{index}": ("own", "far", "near", "far")[index % 4] for index in range(count)}
+    expected: Final = " ".join(f'xml:{name}="{values[name]}"' for name in sorted(values))
+    assert node.canonicalize() == f'<p n="p" {expected}>x</p>'.encode()
+
+
+def test_apex_inherits_many_xml_attributes_in_linear_time(work_steps: WorkSteps) -> None:
+    def apex(count: int) -> Callable[[], bytes]:
+        inherited: Final = " ".join(f"xml:a{index}" for index in range(count))
+        return _one(f"<div {inherited}><p>x</p></div>", "p").canonicalize
+
+    work_steps.assert_linear(apex, (500, 2000))
 
 
 def test_explicit_none_options_uses_defaults() -> None:
