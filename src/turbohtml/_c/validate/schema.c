@@ -45,6 +45,7 @@
 #endif
 
 static const char XSD_NS[] = "http://www.w3.org/2001/XMLSchema";
+static const char XSI_NS[] = "http://www.w3.org/2001/XMLSchema-instance";
 static const char XSD_DT_NS[] = "http://www.w3.org/2001/XMLSchema-datatypes";
 static const char RNG_NS[] = "http://relaxng.org/ns/structure/1.0";
 
