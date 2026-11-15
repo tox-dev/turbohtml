@@ -7,6 +7,7 @@
 #include "core/ascii.h"
 #include "core/common.h"
 #include "core/node_map.h"
+#include "core/srcset.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "url/url.h"
@@ -448,7 +449,8 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     return s->allow_relative && authority_allowed(value, start, len) ? hidden_scheme_allowed(s, value, len) : 0;
 }
 
-/* Check each srcset URL using the browser's comma boundary: an internal comma belongs to the URL. */
+/* Check the URL of each candidate the browser keeps (core/srcset.h): an internal comma belongs to the URL, and a
+   candidate with an invalid descriptor is not loaded, so its scheme is not checked. */
 static int srcset_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t pos = 0;
     while (pos < len) {
@@ -466,18 +468,16 @@ static int srcset_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
         while (value[end - 1] == ',') {
             end--;
         }
+        int valid = end < pos || srcset_descriptors_valid(value, len, &pos);
+        if (!valid) {
+            continue;
+        }
         int ok = scheme_allowed(s, value + start, end - start);
         if (ok < 0) {  /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
             return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (!ok) {
             return 0;
-        }
-        if (end < pos) {
-            continue;
-        }
-        while (pos < len && value[pos] != ',') {
-            pos++; /* skip the candidate's descriptor */
         }
     }
     return 1;

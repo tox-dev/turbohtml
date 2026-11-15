@@ -1044,6 +1044,49 @@ def test_minify_css_inline_url_escaped_whitespace_kept() -> None:
     assert minify_css_inline(source) == source
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(r"a{b:f(c\, url(x))}", r"a{b:f(c\, url(x))}", id="function-escaped-comma"),
+        pytest.param(r"a{b:f(c\( url(x))}", r"a{b:f(c\( url(x))}", id="function-escaped-paren"),
+        pytest.param(r"a{b:f(1c\,/**/d)}", r"a{b:f(1c\, d)}", id="function-escaped-comma-then-comment"),
+        pytest.param(r"a{b:f(c\,+0)}", r"a{b:f(c\, 0)}", id="function-escaped-comma-then-short-number"),
+        pytest.param(r"a{b:calc(c\  + 1px)}", r"a{b:calc(c\  + 1px)}", id="calc-escaped-space-then-operator"),
+        pytest.param(r"a{b:calc(\31  + 1px)}", r"a{b:calc(\31  + 1px)}", id="calc-hex-escape-space-then-operator"),
+        pytest.param(
+            r"a{b:calc(1em +  + 2px) \31 x}", r"a{b:calc(1em + + 2px)\31x}", id="calc-operator-after-operator"
+        ),
+        pytest.param(r"a{b:f(c\\, d)}", r"a{b:f(c\\,d)}", id="function-comma-after-escaped-backslash"),
+        pytest.param(r"a{b:@c\, url(x)}", r"a{b:@c\, url(x)}", id="value-at-keyword-escaped-comma"),
+        pytest.param(r"a{--b:1c\,/**/url(x)}", r"a{--b:1c\,/**/url(x)}", id="custom-property-escaped-comma"),
+        pytest.param(r"a{filter:@c\, d}", r"a{filter:@c\, d}", id="filter-at-keyword-escaped-comma"),
+        pytest.param(r"a{filter:drop-shadow(1c\, d)}", r"a{filter:drop-shadow(1c\, d)}", id="filter-escaped-comma"),
+        pytest.param(r"a\> b{c:d}", r"a\> b{c:d}", id="selector-escaped-combinator"),
+        pytest.param(r"a\( url(x){c:d}", r"a\( url(x){c:d}", id="selector-escaped-paren"),
+        pytest.param(r"[a\= b]{c:d}", r"[a\= b]{c:d}", id="attribute-selector-escaped-matcher"),
+        pytest.param(r"#a\,/**/b{c:d}", r"#a\,/**/b{c:d}", id="selector-escaped-comma-then-comment"),
+        pytest.param(r"a\\> b{c:d}", r"a\\>b{c:d}", id="selector-combinator-after-escaped-backslash"),
+        pytest.param(r"@media a\, url(x){b{c:d}}", r"@media a\, url(x){b{c:d}}", id="prelude-escaped-comma-then-url"),
+        pytest.param(r"@media a\, (b){c{d:e}}", r"@media a\, (b){c{d:e}}", id="prelude-escaped-comma-then-paren"),
+        pytest.param(r"@media a\: b{c{d:e}}", r"@media a\: b{c{d:e}}", id="prelude-escaped-colon"),
+        pytest.param(r"@media a\,+0{c{d:e}}", r"@media a\, 0{c{d:e}}", id="prelude-escaped-comma-then-short-number"),
+        pytest.param(r"@media a\) and (b){c{d:e}}", r"@media a\) and (b){c{d:e}}", id="prelude-escaped-close-paren"),
+    ],
+)
+def test_minify_css_escaped_delimiter_ends_a_name(source: str, expected: str) -> None:
+    # an escaped delimiter is a name's last code point, not the delimiter: the space or comment after it still keeps
+    # the next token out of the name (`c\, url(x)` glued is the function `c\,url(`)
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
+def test_minify_css_inline_escaped_delimiter_keeps_url_token() -> None:
+    # glued to `a\,`, `url(` would name a function `a\,url(`, whose `/*` opens a comment that swallows the next string's
+    # opening quote and leaves the rest of that string as declarations
+    source: Final = r'b:f(a\, url(x/*));c:"*/));d:e;y:"'
+    assert minify_css_inline(source) == source
+
+
 _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\7b x}", "a{e:\\{x}", id="leading-brace"),
     pytest.param("a{e:\\fec0}", "a{e:\ufec0}", id="non-bom-final-byte"),
@@ -2381,6 +2424,51 @@ def test_minify_css_at_prelude_string(source: str, expected: str) -> None:
 
 @pytest.mark.parametrize(("source", "expected"), _AT_PRELUDE_STRING)
 def test_minify_css_at_prelude_string_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+# encoding sniffing reads `@charset "` only from a stylesheet's first bytes (CSS Syntax 3 §3.2), and browsers drop a
+# @charset anywhere else, so a rule not opening with those exact bytes must not start the output with them
+_UNSNIFFED_CHARSET: Final[list[pytest.ParameterSet]] = [
+    pytest.param('  @charset "utf-8";a{b:c}', "a{b:c}", id="leading-space"),
+    pytest.param('\n@charset "utf-8";a{b:c}', "a{b:c}", id="leading-newline"),
+    pytest.param('/**/@charset "utf-8";a{b:c}', "a{b:c}", id="leading-comment"),
+    pytest.param('@CHARSET "utf-8";a{b:c}', "a{b:c}", id="upper-case-name"),
+    pytest.param('@charset\t"utf-8";a{b:c}', "a{b:c}", id="tab-before-string"),
+    pytest.param('@charset  "utf-8";a{b:c}', "a{b:c}", id="two-spaces-before-string"),
+    pytest.param('@charset"utf-8";a{b:c}', "a{b:c}", id="no-space-before-string"),
+    pytest.param('@charset"utf-8"', "", id="no-space-before-string-at-end"),
+    pytest.param('\n@charset "utf-8"', "", id="leading-newline-without-semicolon"),
+    pytest.param("  @charset 'x';a{b:c}", "@charset 'x';a{b:c}", id="single-quote-keeps-its-quote"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _UNSNIFFED_CHARSET)
+def test_minify_css_unsniffed_charset(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _UNSNIFFED_CHARSET)
+def test_minify_css_unsniffed_charset_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+# a @charset after other output keeps its place, as browsers ignore it there and it cannot start the output
+_CHARSET_AFTER_CONTENT: Final[list[pytest.ParameterSet]] = [
+    pytest.param('a{}@charset "utf-8";b{c:d}', 'a{}@charset "utf-8";b{c:d}', id="after-empty-rule"),
+    pytest.param('@charset "utf-8";@charset "x";a{b:c}', '@charset "utf-8";@charset "x";a{b:c}', id="second-charset"),
+    pytest.param('a{@charset "utf-8";b:c}', 'a{@charset "utf-8";b:c}', id="nested"),
+    pytest.param('@media x{@charset "utf-8";a{b:c}}', '@media x{@charset "utf-8";a{b:c}}', id="in-media"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _CHARSET_AFTER_CONTENT)
+def test_minify_css_charset_after_content(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _CHARSET_AFTER_CONTENT)
+def test_minify_css_charset_after_content_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
 
 

@@ -237,9 +237,10 @@ typedef struct th_tree th_tree;
 /* One character-encoding declaration a <meta> element carried, recorded in document
    order while the tree is built. text is the charset attribute's value, or -- when
    from_content is set -- the whole http-equiv="content-type" content value, whose
-   charset= token still has to be extracted. Both are the raw declaration: resolving a
-   label to an encoding is dom/document.c's job, because only the first label that
-   resolves decides, exactly as the prescan's fall-through does. */
+   charset= token still has to be extracted. A <meta> that carries both records its
+   charset value first. Both are the raw declaration: resolving a label to an encoding
+   is dom/document.c's job, because only the first label that resolves decides, exactly
+   as the prescan's fall-through does. */
 typedef struct {
     const char *text;
     int from_content;
@@ -622,6 +623,23 @@ th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count);
 
 /* Free the shadow and its tree; NULL is a no-op. */
 void th_shadow_free(th_shadow *shadow);
+
+/* Tree construction over markup handed to it piece by piece through a tokenizer of its own, as a parse of the
+   markup's concatenation reads it: the streaming rewriter feeds it what it writes, to learn how a browser reads the
+   output so far. Compacts and frees as th_shadow_compact and th_shadow_free. Returns NULL on allocation failure. */
+th_shadow *th_shadow_mirror_new(void);
+
+/* Read the next length code points; the tokens they complete are built at once, a token they leave open waits for
+   the next feed. With count >= 0 the tree may be compacted on the way, moving refs as th_shadow_compact does; with
+   count < 0 every element pointer stays valid. Returns 0, or -1 on allocation failure. */
+int th_shadow_mirror_feed(th_shadow *mirror, const Py_UCS4 *data, Py_ssize_t length, th_node **refs, Py_ssize_t count,
+                          size_t stride);
+
+/* The content model the mirror reads its next code point in (see th_tok_content_model). */
+enum th_initial_state th_shadow_mirror_model(const th_shadow *mirror, const th_buf **end_tag);
+
+/* Whether the current node is an SVG/MathML element, where "<![CDATA[" opens a section. */
+int th_shadow_foreign(const th_shadow *shadow);
 
 /* Serialize the tree in the html5lib tree-construction "#document" format (one
    "| " indented line per node) into a freshly PyMem-allocated UCS4 buffer;

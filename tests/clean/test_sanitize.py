@@ -1676,6 +1676,17 @@ def test_every_url_attribute_is_scheme_checked(attr: str) -> None:
         pytest.param("javascript:alert(1) 1x", False, id="first-candidate-script"),
         pytest.param("a.jpg 1x, javascript:alert(1) 2x", False, id="later-candidate-script"),
         pytest.param("https://ok/a.jpg 1x, vbscript:msgbox(1) 2x", False, id="later-candidate-vbscript"),
+        pytest.param("a.jpg (x,y) 1x, b.jpg 2x", True, id="parenthesised-descriptor"),
+        pytest.param("hero.jpg (w,h),vbscript:msgbox(2) 1x", False, id="script-after-parenthesised-descriptor"),
+        pytest.param("hero.jpg x),vbscript:msgbox(2) 1x", False, id="script-after-stray-close-paren"),
+        pytest.param("hero.jpg (w,vbscript:msgbox 1x", True, id="unclosed-parens-are-one-descriptor"),
+        pytest.param("hero.jpg 1w 2w, vbscript:msgbox(3) 1x", False, id="script-after-invalid-candidate"),
+        pytest.param("vbscript:msgbox(3) 1w 2w", True, id="invalid-candidate-script-not-loaded"),
+        pytest.param("hero.jpg 2h, vbscript:msgbox(3) 1x", False, id="script-after-height-without-width"),
+        pytest.param("hero.jpg 1x 2x, https://ok/a.jpg 1x", True, id="allowed-after-invalid-candidate"),
+        pytest.param("vbscript:msgbox(3) 0w", True, id="zero-width-script-not-loaded"),
+        pytest.param("vbscript:msgbox(3) 0x", False, id="zero-density-script-loaded"),
+        pytest.param("hero.jpg 2x 1x , vbscript:msgbox(3) 1x", False, id="script-after-two-densities"),
     ],
 )
 def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
