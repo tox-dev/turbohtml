@@ -148,7 +148,7 @@ int xp_visit_frame_nodes(const xp_live_frame *frame, int (*visitor)(void *, stru
 #endif
 
 /* Growth stays out of line so ordinary result appends can inline. */
-static TH_NOINLINE int ns_grow(xp_nodeset *ns) {
+TH_NOINLINE int ns_grow(xp_nodeset *ns) {
     size_t cap;
     size_t bytes;
     int grew = th_grow_cap((size_t)ns->cap + 1, (size_t)ns->cap, 8, sizeof(xp_item), &cap, &bytes);
@@ -161,16 +161,6 @@ static TH_NOINLINE int ns_grow(xp_nodeset *ns) {
     }
     ns->items = grown;
     ns->cap = (Py_ssize_t)cap;
-    return 0;
-}
-
-static inline int ns_append(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
-    if (ns->len == ns->cap) {
-        if (ns_grow(ns) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;         /* GCOVR_EXCL_LINE */
-        }
-    }
-    ns->items[ns->len++] = (xp_item){node, attr};
     return 0;
 }
 
@@ -2676,7 +2666,7 @@ static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
 
 /* xp_eval_at and xp_eval_condition_at: one top-level evaluation, with exists set when the caller only converts the
    value to a boolean. */
-static int eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, struct th_node *known_root,
+static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                    Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
                    xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature, int exists) {
     xp_caches *caches = NULL;
@@ -2685,8 +2675,8 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, struct th_node 
 #endif
     xp_root root = {known_root, 0, known_root != NULL};
     xp_ctx ctx = {
-        tree,          context, -1,      pos,  size, feature, vars, namespaces, extension,
-        extension_ctx, 0,       &caches, NULL, NULL, NULL,    NULL, 0,          &root,
+        tree,        context->node, context->attr, pos,  size, feature, vars, namespaces, extension, extension_ctx,
+        0,           &caches,       NULL,          NULL, NULL, NULL,    0,    &root,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -2698,14 +2688,14 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, struct th_node 
     return rc;
 }
 
-int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, struct th_node *known_root,
+int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
                xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature) {
     return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, out, feature,
                    0);
 }
 
-int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, struct th_node *context,
+int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
                          struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                          xp_result *out, const char **feature) {
@@ -2754,7 +2744,8 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature) {
-    return xp_eval_at(prog, tree, context, NULL, 1, 1, vars, namespaces, extension, extension_ctx, out, feature);
+    return xp_eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, extension, extension_ctx, out,
+                      feature);
 }
 
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,

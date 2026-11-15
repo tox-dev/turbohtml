@@ -1674,7 +1674,7 @@ static PyObject *xpath_extension_context(PyObject *element) {
 
 /* xp_extension_fn: resolve `name` against the (None, name) extension keys and run
    the callable over the marshaled context and arguments. */
-static int xpath_call_extension(void *vctx, th_node *context_node, const Py_UCS4 *name, Py_ssize_t name_len,
+static int xpath_call_extension(void *vctx, xp_item item, const Py_UCS4 *name, Py_ssize_t name_len,
                                 const xp_result *args, int argc, xp_result *out) {
     xpath_ext_ctx *ec = vctx;
     typedef struct {
@@ -1687,7 +1687,7 @@ static int xpath_call_extension(void *vctx, th_node *context_node, const Py_UCS4
         return -1;                     /* GCOVR_EXCL_LINE */
     }
     int status = -1;
-    PyObject *element = xpath_owned_node(ec, context_node);
+    PyObject *element = xpath_owned_node(ec, item.node);
     PyObject *func = NULL;
     PyObject *call_args = NULL;
     if (element == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */

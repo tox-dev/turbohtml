@@ -710,6 +710,11 @@ typedef struct {
     Py_ssize_t base;    /* code points of copies granted before any other output funds them */
 } th_xml_ns_spend;
 
+/* The attribute characters parser clones may write before other output funds more. The tree builder reopens an
+   unclosed formatting element in every block after it, attributes and all, so every writer of a clone starts from this
+   allowance. */
+#define TH_CLONE_ALLOWANCE 256
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -747,13 +752,15 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
-   indentation depth, the xlink walk and the inherited namespace declarations charged
-   so far. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}}. */
+   indentation depth, the xlink walk, the inherited namespace declarations charged
+   so far and the clone credit the earlier chunks left. Start it at
+   {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0}. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
     th_xml_ns_spend xml_ns;
+    Py_ssize_t clone_credit; /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from

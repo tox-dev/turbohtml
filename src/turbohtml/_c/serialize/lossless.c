@@ -191,7 +191,7 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
 }
 
 Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     sbuf_presize_for_root(&out, tree, node);
     th_node *cursor = node;
     while (cursor != NULL) {
