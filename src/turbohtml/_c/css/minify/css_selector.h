@@ -263,13 +263,14 @@ static int css_name_is_custom(const css_char *name) {
     return name[0] == '-' && name[1] == '-';
 }
 
-/* Whether the value tokens [start, end) call var() or env(). Such a value is valid at parse time whatever else it
-   holds (CSS Variables 1 §3), so a browser keeps its declaration and decides at computed-value time. */
+/* Whether the value tokens [start, end) call a substitution function: var(), env(), attr() or if(). Like var() (CSS
+   Variables 1 §3), each one leaves the value unchecked until substitution, so a browser keeps the declaration. */
 CSS_NOINLINE static int css_value_substitutes(const token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
     for (Py_ssize_t index = start; index + 1 < end; index++) {
         const css_token *token = &vec->items[index];
         if (token->kind == CSS_IDENT && vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
-            (css_run_ieq(token->text, token->text_len, "var") || css_run_ieq(token->text, token->text_len, "env"))) {
+            (css_run_ieq(token->text, token->text_len, "var") || css_run_ieq(token->text, token->text_len, "env") ||
+             css_run_ieq(token->text, token->text_len, "attr") || css_run_ieq(token->text, token->text_len, "if"))) {
             return 1;
         }
     }
@@ -278,8 +279,8 @@ CSS_NOINLINE static int css_value_substitutes(const token_vec *vec, Py_ssize_t s
 
 /* Build a declaration from a segment [start, end). Returns 1 if a declaration was produced. A string cut short or a
    bad url drops the declaration. A `\` before a newline is a delimiter: a custom property's value and a value that
-   calls var() or env() keep it, written as it stands with its newline, and any other declaration is dropped as a
-   browser drops it. */
+   calls a substitution function keep it, written as it stands with its newline, and any other declaration is dropped
+   as a browser drops it. */
 static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, comp_vec *scratch,
                                 css_decl *decl, int preserve_name) {
     int backslash = 0;

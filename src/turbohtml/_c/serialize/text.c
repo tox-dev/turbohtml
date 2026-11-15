@@ -714,9 +714,10 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
     if (is_list) {
         /* a list nested directly in a list (a sibling of the <li>s) belongs to
            the preceding item; the parser makes this shape and skipping it would
-           drop every nested item's text */
+           drop every nested item's text. Before the first item there is no marker
+           to indent under. */
         int saved_levels = ctx->indent_levels;
-        Py_ssize_t base = text_indent(ctx, frame->list.sub_indent, 2);
+        Py_ssize_t base = frame->list.item_seen ? text_indent(ctx, frame->list.sub_indent, 2) : ctx->prefix.len;
         int saved_tight = ctx->tight;
         ctx->tight = 1;
         text_frame *nested = text_enter_list(ctx, child, text_open_annotations(ctx, child));

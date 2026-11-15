@@ -291,6 +291,21 @@ def test_element_tree_position_restarts_when_far_or_reversed() -> None:
     assert [tree[4].text, tree[0].text, tree[-2].text, tree[1].text] == ["4", "0", "4", "1"]
 
 
+@pytest.mark.parametrize(
+    ("reads", "expected"),
+    [
+        pytest.param((4, 3), ("4", "3"), id="nearer-than-the-last-read"),
+        pytest.param((4, 0), ("4", "0"), id="farther-than-the-last-read"),
+        pytest.param((4, -2), ("4", "4"), id="other-direction"),
+    ],
+)
+def test_element_tree_position_steps_from_the_last_read_only_when_nearer(
+    reads: tuple[int, ...], expected: tuple[str, ...]
+) -> None:
+    tree: Final = _numbered_items(6)
+    assert tuple(tree[index].text for index in reads) == expected
+
+
 @pytest.mark.parametrize("index", [pytest.param(0, id="first"), pytest.param(-1, id="last")])
 def test_element_tree_subscript_of_a_childless_element_raises(index: int) -> None:
     with pytest.raises(IndexError):
@@ -311,13 +326,17 @@ def test_element_tree_index_of_a_child_before_the_last_read_position() -> None:
     assert tree.index(before) == 3
 
 
-def test_element_tree_position_of_a_child_unwrapped_out_of_its_parent() -> None:
+@pytest.mark.parametrize(
+    ("index", "tag"),
+    [pytest.param(0, "i", id="first"), pytest.param(1, "s", id="second")],
+)
+def test_element_tree_position_of_a_child_unwrapped_out_of_its_parent(index: int, tag: str) -> None:
     root: Final = etree.fromstring("<div><a href='http://c.org'><i>1</i><s>2</s></a><u>3</u></div>")
     anchor: Final = root[0]
-    assert anchor[0].tag == "i"
+    assert anchor[index].tag == tag
     linkify_node(root.node, Linkify(callbacks=[lambda _link: None], process_existing=True))
     with pytest.raises(IndexError):
-        anchor[0]
+        anchor[index]
 
 
 def test_element_tree_index_after_an_edit_drops_the_read_position() -> None:

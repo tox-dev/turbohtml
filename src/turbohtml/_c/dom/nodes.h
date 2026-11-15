@@ -134,6 +134,9 @@ typedef struct {
     uint32_t css_sheet_attr_gen;
     int css_sheets_ready;
     void *css_computed;
+    void *slot_cache;       /* the slot tables of the shadow roots read through it (dom/shadow.c), or NULL */
+    uint32_t slot_scans;    /* long slot scans since the slot cache was last dropped */
+    int32_t slot_scan_wait; /* plain slot scans left before the next counted one or cache read */
     uint64_t mutation_version;
 } HandleObject;
 
@@ -876,6 +879,15 @@ void handle_clear_css_cache(HandleObject *handle);
 /* Drop a handle's cached selector index and id map after a structural mutation. Lives in
    element.c beside the mutation bindings; query/methods.c calls it from prune/remove/strip. */
 void handle_drop_index(PyObject *handle_obj);
+/* Free a handle's slot cache, which must exist. Defined in shadow.c, where the private slot table types live. */
+void handle_free_slots(HandleObject *handle);
+
+/* Drop a handle's slot cache, if it has one. Inline, so a handle without one pays one test. */
+static inline void handle_drop_slots(HandleObject *handle) {
+    if (handle->slot_cache != NULL) {
+        handle_free_slots(handle);
+    }
+}
 void path_positions_free(void *positions);
 
 /* Encode an attribute-name str into a freshly allocated (PyMem_Free) UTF-8 buffer for a
