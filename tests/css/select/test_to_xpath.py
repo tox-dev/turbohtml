@@ -275,6 +275,18 @@ def test_middle_compound_with_conditions_selects_like_select(selector: str) -> N
     assert [node.tag for node in result if isinstance(node, Element)] == expected
 
 
+@pytest.mark.parametrize("selector", [":is(ol > * > a)", ":is(ol > li.item > a)", ":is(ol > li > a.x)"])
+def test_left_chain_inside_a_pseudo_class_selects_like_select(selector: str) -> None:
+    # the left chain of a nested selector writes its middle compound's conditions only when it has any, so the
+    # universal middle compound covers the case where it writes none
+    page = parse('<ol><li class="item"><a class="x">1</a></li><li><a>2</a></li></ol>')
+    expected = [node.tag for node in page.select(selector)]
+    assert expected
+    result = page.xpath(css_to_xpath(selector))
+    assert isinstance(result, list)
+    assert [node.tag for node in result if isinstance(node, Element)] == expected
+
+
 def test_syntax_error_is_the_one_unified_selector_error() -> None:
     assert SelectorSyntaxError is turbohtml.SelectorSyntaxError is query.SelectorSyntaxError
     assert issubclass(SelectorSyntaxError, ValueError)
