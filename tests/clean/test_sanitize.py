@@ -631,6 +631,54 @@ def test_set_attributes_preserves_foreign_attribute_case() -> None:
     assert sanitize("<svg></svg>", policy) == '<svg viewBox="0 0 10 10"></svg>'
 
 
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('REL="x" title="t"', 'title="t" rel="noopener"', id="variant-without-exact-dropped"),
+        pytest.param('rel="a" REL="b"', 'rel="noopener" REL="b"', id="variant-after-exact-kept"),
+        pytest.param('REL="b" rel="a"', 'rel="noopener"', id="variant-before-exact-dropped"),
+        pytest.param('REL="b" rel="a" Rel="c"', 'rel="noopener" Rel="c"', id="variants-around-exact"),
+        pytest.param('data-id="1" REL="x"', 'data-id="1" rel="noopener"', id="non-letter-names-kept"),
+    ],
+)
+def test_set_attributes_drops_case_variants_ahead_of_the_exact_name(attributes: str, expected: str) -> None:
+    # an XML element keeps its names' case, so REL is a variant of the forced rel; only the variants written before
+    # the exact rel are dropped, as a scan for each forced name drops them
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset({"data-id", "rel", "REL", "Rel", "title"})},
+        set_attributes={"a": {"rel": "noopener"}},
+    )
+    root = parse_xml(f"<r><a {attributes}/></r>").root
+    assert root is not None
+    assert sanitize_node(root, policy).html == f"<r><a {expected}></a></r>"
+
+
+def test_set_attributes_forcing_many_names_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(sanitize, "<a>t</a>", _forcing_policy(count)), (2000, 8000))
+
+
+def _forcing_policy(count: int) -> Policy:
+    return Policy(tags=frozenset({"a"}), set_attributes={"a": {f"data-{index}": "1" for index in range(count)}})
+
+
+def test_set_attributes_over_many_case_variants_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_variants_under_forced_names, (2000, 8000))
+
+
+def _variants_under_forced_names(count: int) -> Callable[[], object]:
+    names = [f"DATA-{index}" for index in range(count)]
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset(names)},
+        set_attributes={"a": {f"data-{index}": "1" for index in range(count)}},
+    )
+    attributes = " ".join(f'{name}="1"' for name in names)
+    root = parse_xml(f"<r><a {attributes}/></r>").root
+    assert root is not None
+    return partial(sanitize_node, root, policy)
+
+
 def test_set_attributes_pass_through_media_host_check() -> None:
     policy = Policy(
         tags=frozenset({"p", "video"}),
