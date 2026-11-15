@@ -1397,6 +1397,98 @@ def test_style_element_at_parsed_integration_point_is_kept() -> None:
     assert sanitize_node(svg, policy).html == html
 
 
+_STYLE_IN_SELECT: Final[str] = "<style></select><br></style>"
+_STYLE_IN_SELECT_TAGS: Final[frozenset[str]] = frozenset({
+    "select",
+    "option",
+    "div",
+    "marquee",
+    "button",
+    "svg",
+    "desc",
+    "style",
+})
+_STYLE_IN_SELECT_POLICY: Final[Policy] = Policy(tags=_STYLE_IN_SELECT_TAGS)
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        pytest.param("{}", id="child"),
+        pytest.param("<option>{}</option>", id="option"),
+        pytest.param("<div>{}</div>", id="flow"),
+        pytest.param("<marquee>{}</marquee>", id="scoping"),
+        pytest.param("<button>{}</button>", id="button"),
+        pytest.param("<svg><desc>{}</desc></svg>", id="integration-point"),
+    ],
+)
+def test_style_element_inside_select_is_not_kept(wrapper: str) -> None:
+    # a parser with the "in select" insertion mode ignores the <style> start tag there, at any depth, and reads the
+    # body as markup, so the element falls back to the unsafe-tag baseline and its body comes out as escaped text
+    html = f"<select>{wrapper.format(_STYLE_IN_SELECT)}</select>"
+    expected = f"<select>{wrapper.format('&lt;style&gt;&lt;/select&gt;&lt;br&gt;&lt;/style&gt;')}</select>"
+    assert sanitize(html, _STYLE_IN_SELECT_POLICY) == expected
+    assert sanitize_node(parse_fragment(html), _STYLE_IN_SELECT_POLICY).inner_html == expected
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param(OnDisallowed.STRIP, "<select>&lt;/select&gt;&lt;br&gt;</select>", id="strip"),
+        pytest.param(OnDisallowed.REMOVE, "<select></select>", id="remove"),
+    ],
+)
+def test_style_element_inside_select_follows_on_disallowed_tag(mode: OnDisallowed, expected: str) -> None:
+    policy = Policy(tags=_STYLE_IN_SELECT_TAGS, on_disallowed_tag=mode)
+    assert sanitize(f"<select>{_STYLE_IN_SELECT}</select>", policy) == expected
+
+
+def test_style_element_inside_select_is_reported() -> None:
+    _, removed = sanitize_report("<select><style>p{color:red}</style></select>", Policy(tags=_STYLE_IN_SELECT_TAGS))
+    assert removed == [Removed("style", None)]
+
+
+def test_style_element_inside_select_root_is_not_kept() -> None:
+    # the select a subtree call starts at stays around the result, so it counts although the policy never judged it
+    select = E.select(E.option(E.style("</select><br>")))
+    policy = Policy(tags=frozenset({"option", "style"}), on_disallowed_tag=OnDisallowed.REMOVE)
+    assert sanitize_node(select, policy).inner_html == "<option></option>"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<select><option>a</option></select><style>p{color:red;}</style>", id="sibling"),
+        pytest.param("<div><select><div><b>a</b></div></select><style>p{color:red;}</style></div>", id="nested"),
+    ],
+)
+def test_style_element_after_select_is_kept(html: str) -> None:
+    # only the select's own content is read in that mode: its end tag leaves it, so a later <style> is raw text again
+    policy = Policy(tags=_STYLE_IN_SELECT_TAGS | {"b"})
+    assert (sanitize(html, policy), sanitize_node(parse_fragment(html), policy).inner_html) == (html, html)
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        pytest.param(
+            Policy(tags=frozenset({"option", "style"}), on_disallowed_tag=OnDisallowed.ESCAPE),
+            "&lt;select&gt;<option><style>p{color:red;}</style></option>&lt;/select&gt;",
+            id="escape",
+        ),
+        pytest.param(
+            Policy(tags=frozenset({"option", "style"}), on_disallowed_tag=OnDisallowed.STRIP),
+            "<option><style>p{color:red;}</style></option>",
+            id="strip",
+        ),
+    ],
+)
+def test_style_element_inside_dropped_select_is_kept(policy: Policy, expected: str) -> None:
+    # a select the policy escapes or strips is not an element of the output, so nothing puts a parser in that mode
+    html = "<select><option><style>p{color:red}</style></option></select>"
+    assert (sanitize(html, policy), sanitize_node(parse_fragment(html), policy).inner_html) == (expected, expected)
+
+
 @pytest.mark.parametrize(
     ("url", "kept"),
     [
@@ -1863,19 +1955,72 @@ def test_comment_inside_textarea_root_is_dropped() -> None:
     [
         pytest.param("<svg><!--c--><circle></circle></svg>", id="svg"),
         pytest.param("<math><!--c--><mi>x</mi></math>", id="math"),
-        pytest.param("<svg><textarea><!--c--></textarea></svg>", id="textarea-in-svg"),
     ],
 )
 def test_comment_leading_a_foreign_element_under_a_removed_div_is_kept(html: str) -> None:
     # a built tree takes the balancing walk, where the removed inner div is a barrier that settles the b and the
-    # foreign element below it; a foreign textarea is not RCDATA on reparse, so its comment stays
+    # foreign element below it
     policy = Policy(
-        tags=frozenset({"b", "svg", "math", "circle", "mi", "textarea"}),
+        tags=frozenset({"b", "svg", "math", "circle", "mi"}),
         on_disallowed_tag=OnDisallowed.STRIP,
         strip_comments=False,
     )
     root = E.div(E.div(E.b(*parse_fragment(html).children)))
     assert sanitize_node(root, policy).inner_html == f"<b>{html}</b>"
+
+
+_FOREIGN_TEXTAREA: Final[str] = "<svg><textarea>t<!--</textarea><br>--></textarea><!--s--></svg>"
+
+
+def test_comment_inside_foreign_textarea_inside_select_is_dropped() -> None:
+    # the "in select" insertion mode ignores the <svg> start tag and leaves the select at <textarea>, so the SVG
+    # element the parser built here is an HTML textarea to a parser that predates customizable select
+    policy = Policy(tags=frozenset({"select", "svg", "textarea"}), strip_comments=False)
+    assert sanitize(f"<select>{_FOREIGN_TEXTAREA}</select>", policy) == (
+        "<select><svg><textarea>t</textarea><!--s--></svg></select>"
+    )
+
+
+def test_comment_inside_foreign_textarea_root_is_dropped() -> None:
+    # serialized on its own, the SVG element named textarea is an HTML one to whatever parses the result
+    root = parse_fragment(_FOREIGN_TEXTAREA).select_one("textarea")
+    assert root is not None
+    assert sanitize_node(root, Policy(strip_comments=False)).html == "<textarea>t</textarea>"
+
+
+_FOREIGN_SELECT_STYLE: Final[str] = (
+    "<svg><select><foreignObject><style>p{color:red}</style></foreignObject></select></svg>"
+)
+_FOREIGN_SELECT_STYLE_POLICY: Final[Policy] = Policy(tags=frozenset({"svg", "select", "foreignObject", "style"}))
+
+
+@pytest.mark.parametrize(
+    ("root", "expected"),
+    [
+        pytest.param(
+            "svg",
+            "<select><foreignObject>&lt;style&gt;p{color:red}&lt;/style&gt;</foreignObject></select>",
+            id="svg",
+        ),
+        pytest.param(
+            "select",
+            "<foreignObject>&lt;style&gt;p{color:red}&lt;/style&gt;</foreignObject>",
+            id="select",
+        ),
+    ],
+)
+def test_style_element_inside_foreign_select_root_is_not_kept(root: str, expected: str) -> None:
+    # a subtree serialized out of its SVG context reads a select below it as an HTML one, so the style under it is
+    # escaped whichever element of the subtree the call starts at
+    node = parse_fragment(_FOREIGN_SELECT_STYLE).select_one(root)
+    assert node is not None
+    assert sanitize_node(node, _FOREIGN_SELECT_STYLE_POLICY).inner_html == expected
+
+
+def test_style_element_inside_foreign_select_is_not_kept() -> None:
+    assert sanitize(_FOREIGN_SELECT_STYLE, _FOREIGN_SELECT_STYLE_POLICY) == (
+        "<svg><select><foreignObject>&lt;style&gt;p{color:red}&lt;/style&gt;</foreignObject></select></svg>"
+    )
 
 
 def test_policy_basic_is_the_default_allowlist() -> None:
@@ -3183,6 +3328,12 @@ def test_sanitize_xml_style_element_inside_reparsed_container_is_not_kept(tag: s
     xml = f"<div><{tag}><STYLE>p{{color:red}}</STYLE></{tag}></div>"
     expected = f"<div><{tag}>&lt;STYLE&gt;p{{color:red}}&lt;/STYLE&gt;</{tag}></div>"
     assert sanitize(parse_xml(xml), _xml_case_policy(tag, "STYLE")) == expected
+
+
+def test_sanitize_xml_style_element_inside_select_is_not_kept() -> None:
+    xml = "<div><SELECT><STYLE>p{color:red}</STYLE></SELECT></div>"
+    expected = "<div><SELECT>&lt;STYLE&gt;p{color:red}&lt;/STYLE&gt;</SELECT></div>"
+    assert sanitize(parse_xml(xml), _xml_case_policy("SELECT", "STYLE")) == expected
 
 
 @pytest.mark.parametrize(
