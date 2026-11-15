@@ -6693,10 +6693,18 @@ def test_number_deep_chain_answers_each_source() -> None:
         pytest.param(
             "//para",
             'count="para[math:max(current()/@at)]"',
+            ",,,1,,1,",
+            ",,,1,,1,",
+            "0,1,0,3,0,4,",
+            id="count-extension-function",
+        ),
+        pytest.param(
+            "//para",
+            'count="/descendant::para[math:max(current()/@at)]"',
             ",,,,,,",
             ",,,,,,",
             "0,1,0,1,1,1,",
-            id="count-extension-function",
+            id="count-extension-function-among-descendants",
         ),
         pytest.param(
             "//para",

@@ -44,6 +44,12 @@ smallest thread stacks. Each parenthesized group, unary minus and operator in an
 one level, and a function call, a location path and a predicate count one more each. Chains of ``and``, ``or`` and ``|``
 count once however long they are.
 
+A step from many context nodes along the ``following``, ``preceding``, ``ancestor``, ``descendant`` or sibling axes
+walks the stretch the context nodes share once. A predicate that compares ``position()`` or ``last()`` with a fixed
+value, such as ``[1]``, ``[last()]`` or ``[position() > 2 and position() < last()]``, is worked out from that walk. Any
+other position test, such as ``[position() mod 2 = 0]`` or ``[position() = @n]``, reads the axis of each context node on
+its own and raises :class:`ValueError` once one step has read more than 10,000,000 nodes that way.
+
 Two functions read the HTML document the way HTML means it, where ``lxml``'s legacy HTML parser returns nothing:
 ``lang()`` honors the HTML ``lang`` attribute (``lxml`` only consults ``xml:lang``), and ``namespace-uri()`` reports the
 real SVG and MathML namespace for foreign content (``lxml`` leaves it empty). HTML elements report no namespace in both,

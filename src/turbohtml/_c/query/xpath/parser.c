@@ -637,9 +637,27 @@ static int func_name_in(const xn *node, const char *const *names) {
     return 0;
 }
 
-/* The functions that return a number; a predicate that calls one is positional. */
-static const char *const NUMERIC_FUNCS[] = {"last",  "position", "count", "sum",    "string-length",
-                                            "floor", "ceiling",  "round", "number", NULL};
+static const char *const NON_NUMBER_FUNCS[] = {"not",
+                                               "boolean",
+                                               "true",
+                                               "false",
+                                               "starts-with",
+                                               "contains",
+                                               "lang",
+                                               "re:test",
+                                               "matches",
+                                               "string",
+                                               "concat",
+                                               "substring",
+                                               "substring-before",
+                                               "substring-after",
+                                               "normalize-space",
+                                               "translate",
+                                               "name",
+                                               "local-name",
+                                               "namespace-uri",
+                                               "id",
+                                               NULL};
 static const char *const POSITION_FUNCS[] = {"position", "last", NULL};
 
 /* Whether an expression calls position() or last() anywhere within it. A long operator chain parses iteratively
@@ -668,22 +686,125 @@ static int references_position(const xp_program *prog, int32_t index) {
     return found;
 }
 
-/* A predicate is positional (so its result depends on the axis it runs over) when it
-   yields a number -- a bare [n], an arithmetic expression, or a numeric function --
-   or when it mentions position()/last(). Such a predicate makes the //X collapse
-   unsafe, because //p[1] is the first p child of each parent, not descendant::p[1]. */
+/* A predicate is positional (so its result depends on the axis it runs over) when it may yield a number, or when it
+   mentions position()/last(). Only a boolean, a string, a node-set or a call to one of NON_NUMBER_FUNCS is known not to
+   yield a number; a variable or an extension function may, so it counts as positional. Such a predicate makes the //X
+   collapse unsafe, because //p[1] is the first p child of each parent, not descendant::p[1]. */
 static int predicate_is_positional(const xp_program *prog, int32_t index) {
     const xn *node = &prog->nodes[index];
-    if (node->kind == XN_NUM || (node->kind >= XN_ADD && node->kind <= XN_NEG)) {
-        return 1;
-    }
-    if (node->kind == XN_FUNC && func_name_in(node, NUMERIC_FUNCS)) {
+    switch (node->kind) {
+    case XN_OR:
+    case XN_AND:
+    case XN_EQ:
+    case XN_NE:
+    case XN_LT:
+    case XN_LE:
+    case XN_GT:
+    case XN_GE:
+    case XN_UNION:
+    case XN_PATH:
+    case XN_LIT:
+        break;
+    case XN_FUNC:
+        if (!func_name_in(node, NON_NUMBER_FUNCS)) {
+            return 1;
+        }
+        break;
+    default:
         return 1;
     }
     return references_position(prog, index);
 }
 
-static int step_has_positional_predicate(const xp_program *prog, int32_t step_index) {
+static const char *const FIXED_FUNCS_0[] = {"last", "true", "false", NULL};
+static const char *const FIXED_FUNCS_1[] = {"not",    "boolean",       "number",          "floor", "ceiling", "round",
+                                            "string", "string-length", "normalize-space", "count", "sum",     NULL};
+static const char *const FIXED_FUNCS_N[] = {"concat",           "contains",        "starts-with", "substring",
+                                            "substring-before", "substring-after", "translate",   NULL};
+
+/* Whether an expression reads neither the context node nor its position: literals and variables under operators and
+   under functions that read only their arguments. last() counts, since the evaluator gives each context's stretch
+   its own size. */
+static int fixed_expression(const xp_program *prog, int32_t index, int depth) {
+    const xn *node = &prog->nodes[index];
+    if (depth > XP_OFFSET_DEPTH) {
+        return 0;
+    }
+    switch (node->kind) {
+    case XN_NUM:
+    case XN_LIT:
+    case XN_VAR:
+        return 1;
+    case XN_NEG:
+        return fixed_expression(prog, node->first, depth + 1);
+    case XN_FUNC: {
+        int argc = 0;
+        for (int32_t arg = node->first; arg >= 0; arg = prog->nodes[arg].next, argc++) {
+            if (!fixed_expression(prog, arg, depth + 1)) {
+                return 0;
+            }
+        }
+        if (argc == 0) {
+            return func_name_in(node, FIXED_FUNCS_0);
+        }
+        return (argc == 1 && func_name_in(node, FIXED_FUNCS_1)) || func_name_in(node, FIXED_FUNCS_N);
+    }
+    default:
+        return node->kind <= XN_MOD && fixed_expression(prog, node->first, depth + 1) &&
+               fixed_expression(prog, node->second, depth + 1);
+    }
+}
+
+/* Whether an expression is position() under + - * div and unary minus, with a fixed operand beside each operation
+   and never as a divisor: its value then only rises or only falls with the position. Marks the chain. */
+static int position_chain(xp_program *prog, int32_t index, int depth) {
+    xn *node = &prog->nodes[index];
+    int chain = 0;
+    if (depth > XP_OFFSET_DEPTH) {
+        return 0;
+    }
+    if (node->kind == XN_FUNC) {
+        chain = node->first < 0 && func_name_is(node, "position");
+    } else if (node->kind == XN_NEG) {
+        chain = position_chain(prog, node->first, depth + 1);
+    } else if (node->kind >= XN_ADD && node->kind <= XN_DIV) {
+        chain = (position_chain(prog, node->first, depth + 1) && fixed_expression(prog, node->second, depth + 1)) ||
+                (node->kind != XN_DIV && fixed_expression(prog, node->first, depth + 1) &&
+                 position_chain(prog, node->second, depth + 1));
+    }
+    node->positional = (uint8_t)chain;
+    return chain;
+}
+
+/* Whether a positional predicate can be worked out from the size of a context's stretch alone (view_positions in
+   eval.c): a fixed expression, whose number names a position, or and, or, not() and boolean() over comparisons of a
+   position chain with a fixed expression. Marks the parts that read the position. */
+static int offset_formula(xp_program *prog, int32_t index, int depth) {
+    xn *node = &prog->nodes[index];
+    int formula = 0;
+    if (depth > XP_OFFSET_DEPTH) {
+        return 0;
+    }
+    if (fixed_expression(prog, index, depth)) {
+        return 1;
+    }
+    if (node->kind == XN_OR || node->kind == XN_AND) {
+        formula = offset_formula(prog, node->first, depth + 1) && offset_formula(prog, node->second, depth + 1);
+    } else if (node->kind == XN_FUNC) {
+        formula = node->first >= 0 && prog->nodes[node->first].next < 0 &&
+                  (func_name_is(node, "not") || func_name_is(node, "boolean")) &&
+                  offset_formula(prog, node->first, depth + 1);
+    } else if (node->kind <= XN_GE) { /* past and/or, the comparisons */
+        formula = (position_chain(prog, node->first, depth + 1) && fixed_expression(prog, node->second, depth + 1)) ||
+                  (fixed_expression(prog, node->first, depth + 1) && position_chain(prog, node->second, depth + 1));
+    }
+    node->positional = (uint8_t)formula;
+    return formula;
+}
+
+/* Whether a step has a predicate that selects by position, which an extension function or a variable may also do by
+   yielding a number. */
+int xp_step_reads_position(const xp_program *prog, int32_t step_index) {
     for (int32_t pred = prog->nodes[step_index].first; pred >= 0; pred = prog->nodes[pred].next) {
         if (predicate_is_positional(prog, prog->nodes[pred].first)) {
             return 1;
@@ -692,20 +813,29 @@ static int step_has_positional_predicate(const xp_program *prog, int32_t step_in
     return 0;
 }
 
-/* step_has_positional_predicate, also answering yes for a predicate an extension function computes, since one can
-   return a number, which then selects by position. */
-int xp_step_reads_position(const xp_program *prog, int32_t step_index) {
-    for (int32_t pred = prog->nodes[step_index].first; pred >= 0; pred = prog->nodes[pred].next) {
-        const xn *expr = &prog->nodes[prog->nodes[pred].first];
-        int extension = 0;
-        for (Py_ssize_t index = 0; expr->kind == XN_FUNC && index < expr->str_len && !extension; index++) {
-            extension = expr->str[index] == ':';
+/* Set once, after the descendant collapse has moved predicates between steps, for the evaluator to read. A step reads
+   offsets when its positional predicates are offset formulas and sit together, between the ones that test the node
+   only: those then filter the shared walks before or after the positions are worked out. */
+static void mark_positional_steps(xp_program *prog) {
+    for (int32_t index = 0; index < prog->count; index++) {
+        if (prog->nodes[index].kind != XN_STEP) {
+            continue;
         }
-        if (extension || predicate_is_positional(prog, prog->nodes[pred].first)) {
-            return 1;
+        int phase = 0; /* 0 ahead of the positional predicates, 1 among them, 2 past them */
+        int offsets = 1;
+        for (int32_t pred = prog->nodes[index].first; pred >= 0; pred = prog->nodes[pred].next) {
+            int positional = predicate_is_positional(prog, prog->nodes[pred].first);
+            prog->nodes[pred].positional = (uint8_t)positional;
+            if (positional) {
+                offsets = offsets && phase < 2 && offset_formula(prog, prog->nodes[pred].first, 0);
+                phase = 1;
+            } else if (phase == 1) {
+                phase = 2;
+            }
         }
+        prog->nodes[index].positional = (uint8_t)(phase > 0);
+        prog->nodes[index].offsets = (uint8_t)(phase > 0 && offsets);
     }
-    return 0;
 }
 
 /* Collapse `descendant-or-self::node()/child::X` (the `//X` abbreviation) into a
@@ -725,7 +855,7 @@ static void optimize_descendant_steps(xp_program *prog) {
                 continue;
             }
             xn *follow = &prog->nodes[step->next];
-            if (follow->axis != AX_CHILD || step_has_positional_predicate(prog, step->next)) {
+            if (follow->axis != AX_CHILD || xp_step_reads_position(prog, step->next)) {
                 continue;
             }
             step->axis = AX_DESCENDANT;
@@ -808,6 +938,7 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
         return NULL;
     }
     optimize_descendant_steps(prog);
+    mark_positional_steps(prog);
     static const char *const PYTHON_FUNCS[] = {"re:test",    "matches",    "re:replace",   "replace",
 #if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
                                                "lower-case", "upper-case", "set:distinct",
