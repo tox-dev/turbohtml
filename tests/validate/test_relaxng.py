@@ -3621,7 +3621,7 @@ def _open_walk_unreachable() -> bool:
     _open_walk_unreachable(),
     reason="this build's stack never reaches the start-tag walk on the smallest thread stack (optimized build)",
 )
-def test_rng_start_tag_open_fires_on_the_smallest_thread_stack() -> None:
+def test_rng_open_walk_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
     # the sweep is the parent-side probe: where it completes without RecursionError the test is skipped, and where it
     # runs, the sweep must raise RecursionError somewhere and never crash
     sweep: Final = _open_walk_sweep()
@@ -3687,7 +3687,7 @@ def _repeat_check_unreachable() -> bool:
     _repeat_check_unreachable(),
     reason="this platform never reaches the repeat check with the json sweep; the C coverage gate runs elsewhere",
 )
-def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
+def test_rng_repeat_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
     # the sweep is the parent-side probe above: where it completes without RecursionError the test is skipped, and
     # where it runs, the repeat check must fire somewhere in the sweep and the sweep must never crash
     sweep: Final = _repeat_check_sweep()
