@@ -1862,6 +1862,21 @@ def test_unused_declarators_preserve_call_order(case: int, count: int) -> None:
             "function f(b){var a;return a}",
             id="local-named-arguments",
         ),
+        pytest.param(
+            "function f(a,b){a=2;b=3;return[arguments,arguments,arguments]}",
+            "function f(b,a){return b=2,a=3,[arguments,arguments,arguments]}",
+            id="store-then-repeated-reads",
+        ),
+        pytest.param(
+            "function f(a){a=2;return()=>[()=>arguments,arguments]}",
+            "function f(a){return a=2,()=>[()=>arguments,arguments]}",
+            id="repeated-arrow-reads",
+        ),
+        pytest.param(
+            "function f(a){a=2;return function(b){b=3;return[arguments,arguments]}(arguments)}",
+            "function f(a){return a=2,function(b){return b=3,[arguments,arguments]}(arguments)}",
+            id="repeated-reads-per-function",
+        ),
         pytest.param("arguments;function f(a){a=2}", "arguments;function f(a){}", id="top-level-arguments"),
         pytest.param(
             "function f(a){var b=1;return arguments}", "function f(a){return arguments}", id="local-var-still-dropped"
