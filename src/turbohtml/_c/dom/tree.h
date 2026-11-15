@@ -146,6 +146,10 @@ struct th_node {
     /* Valid while attr_values_shared: the seq of the element whose values the sharing started from, the same for
        every element sharing them, so the selector memo hashes a shared value alike from each (th_node_values_seq). */
     uint32_t values_seq;
+    /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
+       Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
+       selectedcontent mirror reuses the option's text). */
+    uint8_t text_exclusive;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -405,6 +409,11 @@ void th_node_attrs_clear(th_tree *tree, th_node *node);
 /* Replace a node's character data with a copy of len code points. Returns 0, or -1
    with MemoryError set on allocation failure. */
 int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len);
+
+/* Remove the [from, to) code-point run from a node's character data, storing none of the text
+   that stays once the node has a buffer of its own. Returns 0, or -1 with MemoryError set on
+   allocation failure. */
+int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to);
 
 /* Structural-edit primitives. remove detaches a node from its parent; append and
    insert_before link it (ref==NULL appends); contains reports whether ancestor is
