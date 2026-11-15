@@ -184,7 +184,7 @@ static Py_UCS4 *mini_style_attr_css(sbuf *out, const Py_UCS4 *value, Py_ssize_t 
         PyMem_Free(result); /* the declarations minified to nothing: the caller renders an empty value */
         return NULL;
     }
-    sbuf decoded = {NULL, 0, 0, 0};
+    sbuf decoded = {NULL, 0, 0, 0, 0};
     sbuf_put_utf8(&decoded, (const char *)result, css_len);
     PyMem_Free(result);
     Py_UCS4 *minified = sbuf_finish(&decoded, out_len);
@@ -204,11 +204,16 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);
     int charset_kind = opts->inject_meta ? ser_meta_charset_kind(tree, node) : 0;
+    Py_ssize_t clone_start = ser_clone_start(out, node);
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
-        sbuf_putc(out, ' ');
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, name_len + attr->value_len)) {
+            break;
+        }
+        TH_WORK_STEPS_ADD(name_len + attr->value_len);
+        sbuf_putc(out, ' ');
         sbuf_put_utf8(out, name, name_len);
         if (ser_put_charset_value(out, opts, charset_kind, name, name_len)) {
             continue;
@@ -241,6 +246,7 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
         }
         PyMem_Free(minified);
     }
+    ser_clone_settle(out, clone_start);
     ser_attr_order_free(order, stack_order);
     sbuf_putc(out, '>');
 }
@@ -386,6 +392,14 @@ static int mini_end_closes_child(const th_node *parent) {
     }
 }
 
+/* An li or dd ending an li, dd or dt parent keeps its end tag: the parent's end tag may be
+   omitted too, and the next item's start tag stops at the open child, the first special
+   element other than address, div and p (WHATWG 13.2.6.4.7), and nests inside it. */
+static int mini_end_closes_item(const th_node *parent) {
+    uint16_t atom = parent->type == TH_NODE_ELEMENT ? parent->atom : TH_TAG_UNKNOWN;
+    return atom != TH_TAG_LI && atom != TH_TAG_DD && atom != TH_TAG_DT && mini_end_closes_child(parent);
+}
+
 /* Whether a following sibling begins with ASCII whitespace (used by the head/
    body/caption "not followed by whitespace" omission tests). */
 static int mini_starts_with_ws(th_tree *tree, th_node *node) {
@@ -418,30 +432,59 @@ static int mini_in_scope(const th_node *node, uint16_t atom) {
     return 0;
 }
 
+/* Whether the parent's end tag pops an rt, rp, optgroup or option left open as its last child.
+   An html parent's end tag does, since none of the four is special. A foreign parent's end
+   tag stops at its integration point and is ignored under an html child. An rt, rp or option
+   parent's end tag closes a same-named child instead (rp > rp), and may be omitted before a
+   start tag that pops only the current option. An optgroup parent's end tag ignores any child
+   but an option. */
+static int mini_end_passes_child(const th_node *node) {
+    const th_node *parent = node->parent;
+    if (parent->type != TH_NODE_ELEMENT) {
+        return 1;
+    }
+    if (parent->ns != TH_NS_HTML) {
+        return 0;
+    }
+    switch (parent->atom) {
+    case TH_TAG_RT:
+    case TH_TAG_RP:
+    case TH_TAG_OPTION:
+        return 0;
+    case TH_TAG_OPTGROUP:
+        return node->atom == TH_TAG_OPTION;
+    default:
+        return 1;
+    }
+}
+
 /* The WHATWG optional-tag rule for node's end tag, evaluated against next (the next
    content sibling, stripped comments already skipped). This is the cheap test; the
    formatting-reconstruction guard is applied separately so its rightmost-path walk
    only runs for an element the rule already deems omittable, not every element.
-   "No more content in the parent" is next == NULL; for the special p, li and dd it
-   also needs a parent whose end tag closes them on reparse (mini_end_closes_child). */
+   "No more content in the parent" is next == NULL; for the special p it also needs a
+   parent whose end tag closes it on reparse (mini_end_closes_child), for li and dd
+   one that is not itself an item (mini_end_closes_item), and for rt, rp, optgroup and
+   option one whose end tag gets past them to its own element (mini_end_passes_child). */
 static int mini_end_tag_rule(th_tree *tree, th_node *node, th_node *next, int quirks) {
     int last = next == NULL;
     uint16_t na =
         (next != NULL && next->type == TH_NODE_ELEMENT && next->ns == TH_NS_HTML) ? next->atom : TH_TAG_UNKNOWN;
     switch (node->atom) {
     case TH_TAG_LI:
-        return na == TH_TAG_LI || (last && mini_end_closes_child(node->parent));
+        return na == TH_TAG_LI || (last && mini_end_closes_item(node->parent));
     case TH_TAG_DT:
         return na == TH_TAG_DT || na == TH_TAG_DD;
     case TH_TAG_DD:
-        return na == TH_TAG_DD || na == TH_TAG_DT || (last && mini_end_closes_child(node->parent));
+        return na == TH_TAG_DD || na == TH_TAG_DT || (last && mini_end_closes_item(node->parent));
     case TH_TAG_RT:
     case TH_TAG_RP:
-        return ((na == TH_TAG_RT || na == TH_TAG_RP) && mini_in_scope(node, TH_TAG_RUBY)) || last;
+        return ((na == TH_TAG_RT || na == TH_TAG_RP) && mini_in_scope(node, TH_TAG_RUBY)) ||
+               (last && mini_end_passes_child(node));
     case TH_TAG_OPTGROUP:
-        return (na == TH_TAG_OPTGROUP && mini_in_scope(node, TH_TAG_SELECT)) || last;
+        return (na == TH_TAG_OPTGROUP && mini_in_scope(node, TH_TAG_SELECT)) || (last && mini_end_passes_child(node));
     case TH_TAG_OPTION:
-        return na == TH_TAG_OPTION || na == TH_TAG_OPTGROUP || last;
+        return na == TH_TAG_OPTION || na == TH_TAG_OPTGROUP || (last && mini_end_passes_child(node));
     case TH_TAG_THEAD:
         return na == TH_TAG_TBODY || na == TH_TAG_TFOOT;
     case TH_TAG_TBODY:
@@ -873,7 +916,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
 
 Py_UCS4 *th_node_minify(th_tree *tree, th_node *node, const th_minify_opts *minify, const th_serialize_opts *opts,
                         Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     sbuf_presize_for_root(&out, tree, node);
     if (!opts->inner || node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT ||
         node->type == TH_NODE_CONTENT) {

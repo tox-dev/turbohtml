@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Final, assert_type, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Comment, Document, Element, parse, parse_fragment, parse_xml
+from turbohtml import Comment, Document, DocumentFragment, Element, parse, parse_fragment, parse_xml
 from turbohtml.build import E
 from turbohtml.clean import (
     DEFAULT_ATTRIBUTES,
@@ -302,6 +302,22 @@ def test_escape_cloned_formatting_element_reproduces_source(html: str) -> None:
 
 def test_escape_document_skeleton_synthesized_at_eof_is_silent() -> None:
     assert not sanitize_node(parse(""), Policy.strict()).serialize()
+
+
+def test_sanitized_document_answers_whole_document_readers() -> None:
+    # structured_data snapshots the document from the node the tree records as its document, which the sanitized copy
+    # left unset
+    policy = Policy(
+        tags=frozenset({"html", "head", "body", "p", "b", "i"}),
+        attributes={"*": frozenset({"itemscope", "itemref", "itemprop", "id"})},
+    )
+    document = sanitize_node(
+        parse('<p itemscope itemref="amount"><b itemprop="label">Gadget</b></p><i id="amount" itemprop="total">9</i>'),
+        policy,
+    )
+    assert isinstance(document, Document)
+    assert document.microdata()[0].properties == {"label": ["Gadget"], "total": ["9"]}
+    assert document.structured_data().microdata == document.microdata()
 
 
 @pytest.mark.parametrize(
@@ -1397,6 +1413,98 @@ def test_style_element_at_parsed_integration_point_is_kept() -> None:
     assert sanitize_node(svg, policy).html == html
 
 
+_STYLE_IN_SELECT: Final[str] = "<style></select><br></style>"
+_STYLE_IN_SELECT_TAGS: Final[frozenset[str]] = frozenset({
+    "select",
+    "option",
+    "div",
+    "marquee",
+    "button",
+    "svg",
+    "desc",
+    "style",
+})
+_STYLE_IN_SELECT_POLICY: Final[Policy] = Policy(tags=_STYLE_IN_SELECT_TAGS)
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        pytest.param("{}", id="child"),
+        pytest.param("<option>{}</option>", id="option"),
+        pytest.param("<div>{}</div>", id="flow"),
+        pytest.param("<marquee>{}</marquee>", id="scoping"),
+        pytest.param("<button>{}</button>", id="button"),
+        pytest.param("<svg><desc>{}</desc></svg>", id="integration-point"),
+    ],
+)
+def test_style_element_inside_select_is_not_kept(wrapper: str) -> None:
+    # a parser with the "in select" insertion mode ignores the <style> start tag there, at any depth, and reads the
+    # body as markup, so the element falls back to the unsafe-tag baseline and its body comes out as escaped text
+    html = f"<select>{wrapper.format(_STYLE_IN_SELECT)}</select>"
+    expected = f"<select>{wrapper.format('&lt;style&gt;&lt;/select&gt;&lt;br&gt;&lt;/style&gt;')}</select>"
+    assert sanitize(html, _STYLE_IN_SELECT_POLICY) == expected
+    assert sanitize_node(parse_fragment(html), _STYLE_IN_SELECT_POLICY).inner_html == expected
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param(OnDisallowed.STRIP, "<select>&lt;/select&gt;&lt;br&gt;</select>", id="strip"),
+        pytest.param(OnDisallowed.REMOVE, "<select></select>", id="remove"),
+    ],
+)
+def test_style_element_inside_select_follows_on_disallowed_tag(mode: OnDisallowed, expected: str) -> None:
+    policy = Policy(tags=_STYLE_IN_SELECT_TAGS, on_disallowed_tag=mode)
+    assert sanitize(f"<select>{_STYLE_IN_SELECT}</select>", policy) == expected
+
+
+def test_style_element_inside_select_is_reported() -> None:
+    _, removed = sanitize_report("<select><style>p{color:red}</style></select>", Policy(tags=_STYLE_IN_SELECT_TAGS))
+    assert removed == [Removed("style", None)]
+
+
+def test_style_element_inside_select_root_is_not_kept() -> None:
+    # the select a subtree call starts at stays around the result, so it counts although the policy never judged it
+    select = E.select(E.option(E.style("</select><br>")))
+    policy = Policy(tags=frozenset({"option", "style"}), on_disallowed_tag=OnDisallowed.REMOVE)
+    assert sanitize_node(select, policy).inner_html == "<option></option>"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<select><option>a</option></select><style>p{color:red;}</style>", id="sibling"),
+        pytest.param("<div><select><div><b>a</b></div></select><style>p{color:red;}</style></div>", id="nested"),
+    ],
+)
+def test_style_element_after_select_is_kept(html: str) -> None:
+    # only the select's own content is read in that mode: its end tag leaves it, so a later <style> is raw text again
+    policy = Policy(tags=_STYLE_IN_SELECT_TAGS | {"b"})
+    assert (sanitize(html, policy), sanitize_node(parse_fragment(html), policy).inner_html) == (html, html)
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        pytest.param(
+            Policy(tags=frozenset({"option", "style"}), on_disallowed_tag=OnDisallowed.ESCAPE),
+            "&lt;select&gt;<option><style>p{color:red;}</style></option>&lt;/select&gt;",
+            id="escape",
+        ),
+        pytest.param(
+            Policy(tags=frozenset({"option", "style"}), on_disallowed_tag=OnDisallowed.STRIP),
+            "<option><style>p{color:red;}</style></option>",
+            id="strip",
+        ),
+    ],
+)
+def test_style_element_inside_dropped_select_is_kept(policy: Policy, expected: str) -> None:
+    # a select the policy escapes or strips is not an element of the output, so nothing puts a parser in that mode
+    html = "<select><option><style>p{color:red}</style></option></select>"
+    assert (sanitize(html, policy), sanitize_node(parse_fragment(html), policy).inner_html) == (expected, expected)
+
+
 @pytest.mark.parametrize(
     ("url", "kept"),
     [
@@ -1863,19 +1971,72 @@ def test_comment_inside_textarea_root_is_dropped() -> None:
     [
         pytest.param("<svg><!--c--><circle></circle></svg>", id="svg"),
         pytest.param("<math><!--c--><mi>x</mi></math>", id="math"),
-        pytest.param("<svg><textarea><!--c--></textarea></svg>", id="textarea-in-svg"),
     ],
 )
 def test_comment_leading_a_foreign_element_under_a_removed_div_is_kept(html: str) -> None:
     # a built tree takes the balancing walk, where the removed inner div is a barrier that settles the b and the
-    # foreign element below it; a foreign textarea is not RCDATA on reparse, so its comment stays
+    # foreign element below it
     policy = Policy(
-        tags=frozenset({"b", "svg", "math", "circle", "mi", "textarea"}),
+        tags=frozenset({"b", "svg", "math", "circle", "mi"}),
         on_disallowed_tag=OnDisallowed.STRIP,
         strip_comments=False,
     )
     root = E.div(E.div(E.b(*parse_fragment(html).children)))
     assert sanitize_node(root, policy).inner_html == f"<b>{html}</b>"
+
+
+_FOREIGN_TEXTAREA: Final[str] = "<svg><textarea>t<!--</textarea><br>--></textarea><!--s--></svg>"
+
+
+def test_comment_inside_foreign_textarea_inside_select_is_dropped() -> None:
+    # the "in select" insertion mode ignores the <svg> start tag and leaves the select at <textarea>, so the SVG
+    # element the parser built here is an HTML textarea to a parser that predates customizable select
+    policy = Policy(tags=frozenset({"select", "svg", "textarea"}), strip_comments=False)
+    assert sanitize(f"<select>{_FOREIGN_TEXTAREA}</select>", policy) == (
+        "<select><svg><textarea>t</textarea><!--s--></svg></select>"
+    )
+
+
+def test_comment_inside_foreign_textarea_root_is_dropped() -> None:
+    # serialized on its own, the SVG element named textarea is an HTML one to whatever parses the result
+    root = parse_fragment(_FOREIGN_TEXTAREA).select_one("textarea")
+    assert root is not None
+    assert sanitize_node(root, Policy(strip_comments=False)).html == "<textarea>t</textarea>"
+
+
+_FOREIGN_SELECT_STYLE: Final[str] = (
+    "<svg><select><foreignObject><style>p{color:red}</style></foreignObject></select></svg>"
+)
+_FOREIGN_SELECT_STYLE_POLICY: Final[Policy] = Policy(tags=frozenset({"svg", "select", "foreignObject", "style"}))
+
+
+@pytest.mark.parametrize(
+    ("root", "expected"),
+    [
+        pytest.param(
+            "svg",
+            "<select><foreignObject>&lt;style&gt;p{color:red}&lt;/style&gt;</foreignObject></select>",
+            id="svg",
+        ),
+        pytest.param(
+            "select",
+            "<foreignObject>&lt;style&gt;p{color:red}&lt;/style&gt;</foreignObject>",
+            id="select",
+        ),
+    ],
+)
+def test_style_element_inside_foreign_select_root_is_not_kept(root: str, expected: str) -> None:
+    # a subtree serialized out of its SVG context reads a select below it as an HTML one, so the style under it is
+    # escaped whichever element of the subtree the call starts at
+    node = parse_fragment(_FOREIGN_SELECT_STYLE).select_one(root)
+    assert node is not None
+    assert sanitize_node(node, _FOREIGN_SELECT_STYLE_POLICY).inner_html == expected
+
+
+def test_style_element_inside_foreign_select_is_not_kept() -> None:
+    assert sanitize(_FOREIGN_SELECT_STYLE, _FOREIGN_SELECT_STYLE_POLICY) == (
+        "<svg><select><foreignObject>&lt;style&gt;p{color:red}&lt;/style&gt;</foreignObject></select></svg>"
+    )
 
 
 def test_policy_basic_is_the_default_allowlist() -> None:
@@ -2233,6 +2394,65 @@ def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # r
     # whitespace-obfuscated host never masquerades as the listed one, and an IPv6 literal is always rejected
     out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com", "youtube.com."})))
     assert ("src=" in out) is kept
+
+
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param(" //attacker.test/://videos.test/x", False, id="leading-space-protocol-relative"),
+        pytest.param("\x01//attacker.test/://videos.test/x", False, id="leading-control-protocol-relative"),
+        pytest.param("/\t/attacker.test/://videos.test/x", False, id="tab-between-slashes"),
+        pytest.param("\\\t\\attacker.test/://videos.test/x", False, id="tab-between-backslashes"),
+        pytest.param("https:\t//attacker.test/://videos.test/x", False, id="tab-after-scheme"),
+        pytest.param("https:/\t/attacker.test/x://videos.test/x", False, id="tab-between-scheme-slashes"),
+        pytest.param("http:attacker.test/://videos.test/x", False, id="special-scheme-no-slashes"),
+        pytest.param("https://attacker.test/://videos.test/x", False, id="decoy-in-path"),
+        pytest.param("https://attacker.test?u=https://videos.test/x", False, id="decoy-in-query"),
+        pytest.param("//attacker.test#https://videos.test/x", False, id="decoy-in-fragment"),
+        pytest.param("/x://videos.test/x", False, id="rooted-relative-decoy"),
+        pytest.param("x/y://videos.test/x", False, id="relative-path-decoy"),
+        pytest.param("1https://videos.test/x", False, id="digit-led-relative-decoy"),
+        pytest.param(" https://videos.test/x", True, id="leading-space-allowed-host"),
+        pytest.param("\n//videos.test/x", True, id="leading-newline-protocol-relative-allowed-host"),
+        pytest.param("ht\ntps://videos.test/x", True, id="newline-in-scheme-allowed-host"),
+        pytest.param("https://videos.test/://attacker.test/x", True, id="allowed-host-foreign-decoy"),
+        pytest.param(" ", False, id="whitespace-only"),
+        pytest.param("\t\n", False, id="controls-only"),
+    ],
+)
+def test_media_host_allowlist_reads_authority_where_browser_does(src: str, *, kept: bool) -> None:
+    # a browser opens the authority only after the scheme or at the start, so a later "://" is path, query, or fragment
+    assert ("src=" in sanitize(f'<video src="{src}">', _media_policy(frozenset({"videos.test"})))) is kept
+
+
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param("foo://videos.test/x", True, id="non-special-allowed-host"),
+        pytest.param("foo://attacker.test\\@videos.test/x", True, id="non-special-backslash-userinfo-allowed-host"),
+        pytest.param("foo://videos.test\\@attacker.test/x", False, id="non-special-backslash-userinfo-decoy"),
+        pytest.param("foo://videos.test\\x", False, id="non-special-backslash-in-host"),
+        pytest.param("foo:\\\\videos.test/x", False, id="non-special-backslashes-open-no-authority"),
+        pytest.param("f\too://videos.test\\@attacker.test/x", False, id="non-special-tab-in-scheme"),
+        pytest.param("https://videos.test\\@attacker.test/x", True, id="special-backslash-ends-authority"),
+        pytest.param("ht\ntps://videos.test\\@attacker.test/x", True, id="special-newline-in-scheme"),
+        pytest.param(
+            "custom+scheme://videos.test\\@attacker.test/x", False, id="non-special-long-scheme-userinfo-decoy"
+        ),
+        pytest.param("\\\\videos.test/x", True, id="relative-backslash-allowed-host"),
+        pytest.param("\\\\attacker.test/x", False, id="relative-backslash-decoy"),
+    ],
+)
+def test_media_host_allowlist_backslash_follows_scheme(src: str, *, kept: bool) -> None:
+    # a browser reads '\' as '/' only under a special scheme (a value without one is relative to a special base);
+    # under any other scheme it is part of the host
+    policy = Policy(
+        tags=frozenset({"video"}),
+        attributes={"*": frozenset({"src"})},
+        url_schemes=frozenset({"http", "https", "foo", "custom+scheme"}),
+        media_hosts=frozenset({"videos.test"}),
+    )
+    assert ("src=" in sanitize(f'<video src="{src}">', policy)) is kept
 
 
 def test_media_host_ipv6_literal_rejected_even_when_listed() -> None:
@@ -3185,6 +3405,12 @@ def test_sanitize_xml_style_element_inside_reparsed_container_is_not_kept(tag: s
     assert sanitize(parse_xml(xml), _xml_case_policy(tag, "STYLE")) == expected
 
 
+def test_sanitize_xml_style_element_inside_select_is_not_kept() -> None:
+    xml = "<div><SELECT><STYLE>p{color:red}</STYLE></SELECT></div>"
+    expected = "<div><SELECT>&lt;STYLE&gt;p{color:red}&lt;/STYLE&gt;</SELECT></div>"
+    assert sanitize(parse_xml(xml), _xml_case_policy("SELECT", "STYLE")) == expected
+
+
 @pytest.mark.parametrize(
     "tag",
     [pytest.param("SECTIONSECTIONSEC", id="longer-than-any-known-tag"), pytest.param("SCRIPTÉ", id="non-ascii")],
@@ -3330,6 +3556,24 @@ def test_the_node_form_gets_a_fragment_context_the_markup_could_not_touch() -> N
     # not have put its attributes on the context element parse_fragment returns
     root = parse_fragment("<html hidden title=x>Nice <b>post</b>!")
     assert sanitize_node(root).html == "<div>Nice <b>post</b>!</div>"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(sanitize_node, id="sanitize_node"),
+        pytest.param(lambda node, policy: sanitize_report_node(node, policy)[0], id="sanitize_report_node"),
+    ],
+)
+def test_the_node_forms_return_a_shadow_root_as_a_plain_fragment(entry: Callable[[Node, Policy], Node]) -> None:
+    # the sanitized copy has no host in its own tree, so it comes back as the fragment a shadow root is without one
+    host = parse('<div><template shadowrootmode="open"><b onclick="x()">1</b><i>2</i></template></div>').find("div")
+    assert host is not None
+    assert host.shadow_root is not None
+    clean = entry(host.shadow_root, Policy.relaxed())
+    assert type(clean) is DocumentFragment
+    clean.append(clean.children[0])
+    assert clean.html == "<i>2</i><b>1</b>"
 
 
 @pytest.mark.parametrize(

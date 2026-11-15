@@ -42,7 +42,7 @@ static void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize
 }
 
 /* The WHATWG-conformant escaping the reserialized parts fall back to. */
-static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL};
+static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL};
 
 /* Emit a text node: its verbatim source span while it is still the zero-copy slice
    the parse left (character references and raw ampersands preserved), or the WHATWG
@@ -191,7 +191,7 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
 }
 
 Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     sbuf_presize_for_root(&out, tree, node);
     th_node *cursor = node;
     while (cursor != NULL) {

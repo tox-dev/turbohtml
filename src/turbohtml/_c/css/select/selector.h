@@ -100,6 +100,8 @@ typedef struct {
     uint16_t left_atom;
     int quirks;         /* the tree was parsed in quirks mode: class/ID match case-insensitively */
     int has_relational; /* the selector contains a :has() somewhere: a match may want the subtree memo */
+    int reads_legend;   /* a :disabled, :enabled, :read-only or :read-write somewhere: a match wants the legend memo */
+    int reads_dir;      /* a :dir() somewhere: a walk over many nodes wants one context for its dir=auto answers */
     th_tree *tree;      /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
 } sel_compiled;
 
@@ -173,12 +175,16 @@ typedef struct {
     th_node_map index[2][2];
 } sel_position_memo;
 
-/* Single-element matching has no query walk to reuse, so memo pointers can be NULL. The
+/* Single-element matching has no query walk to reuse, so the other memo pointers can be NULL. The
    sibling memo assumes one scope element for its whole life: a driver that rebinds scope
-   per candidate passes it only for a selector without :scope. The legend memo holds which
-   legends are their fieldset's first, the :disabled exemption every control below one asks
-   about; that is a fact of the tree alone, so it can share a table with the other two and
-   outlive a scope, for as long as the tree is not mutated. */
+   per candidate passes it only for a selector without :scope. The legend memo is set by every
+   driver, and by a single test only for a selector that reads a :disabled-family pseudo-class
+   (sel_compiled.reads_legend). It holds the :disabled answers that are facts of the tree alone
+   (which legends are their fieldset's first, and whether a fieldset above a node disables it), so
+   it can share a table with the other two and outlive a scope, for as long as the tree is not
+   mutated. It also holds the first strong direction of the nodes a :dir() walk entered, the same
+   kind of fact; when a context has no legend memo, the first such walk points legend_memo at a
+   per-thread table. */
 typedef struct {
     th_tree *tree;
     th_node *scope;

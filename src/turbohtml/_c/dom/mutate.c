@@ -477,12 +477,15 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, cons
     return node_attr_find_indexed(tree, node, name, name_len, atom);
 }
 
-/* Shared by both writers. Branch-free, so inlining it adds no coverage arc. */
+/* Shared by both writers. */
 static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     tree->attr_version++;
     mark_start_dirty(tree, node);
     uint32_t atom = th_attr_intern_utf8_inline(tree, name, name_len);
     tree->id_version += atom == TH_ATTR_ID;
+    if (tree->slot_cache_valid) {
+        tree->slot_cache_valid = (atom != TH_ATTR_SLOT) & ((atom != TH_ATTR_NAME) | (node->atom != TH_TAG_SLOT));
+    }
     return atom;
 }
 
@@ -652,12 +655,26 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     th_mo_attr_changed(tree, node, node->attrs[index].name_atom, node->attrs[index].value, node->attrs[index].value_len,
                        1);
     tree->id_version += node->attrs[index].name_atom == TH_ATTR_ID;
+    if (tree->slot_cache_valid) {
+        const uint32_t atom = node->attrs[index].name_atom;
+        tree->slot_cache_valid = (atom != TH_ATTR_SLOT) & ((atom != TH_ATTR_NAME) | (node->atom != TH_TAG_SLOT));
+    }
     for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
         TH_WORK_STEP();
         node->attrs[shift] = node->attrs[shift + 1];
     }
     node->attr_count--;
     return 1;
+}
+
+uint64_t th_unlinks;
+
+uint64_t th_tree_unlinks(void) {
+#if defined(_MSC_VER)
+    return *(volatile uint64_t *)&th_unlinks; /* an aligned 64-bit load is atomic on x64 and arm64 */
+#else
+    return __atomic_load_n(&th_unlinks, __ATOMIC_RELAXED);
+#endif
 }
 
 void th_node_remove(th_node *child) {
@@ -1207,11 +1224,12 @@ static uint32_t fold_attr_atom(th_tree *tree, uint32_t atom) {
    spelled name, so an HTML element moving in drops the atom that made it raw text (a <script> would otherwise
    serialize "a<b" unescaped). An HTML tree stores and matches HTML element and attribute names in ASCII lowercase, and
    an XML tree's elements all carry the HTML namespace, so an XML element moving in is folded, keeping the first of two
-   attributes that fold to one name, as the HTML tokenizer does. Returns 0, or -1 on allocation failure. */
+   attributes that fold to one name, as the HTML tokenizer does. Either way a parser clone keeps its implied flag, so
+   the serializers still budget the attributes it repeats. Returns 0, or -1 on allocation failure. */
 static int convert_element_kind(th_tree *dest, th_node *node) {
     if (dest->xml) {
         node->atom = TH_TAG_UNKNOWN;
-        node->tag_flags = th_tag_flags(TH_TAG_UNKNOWN);
+        node->tag_flags = (uint8_t)(th_tag_flags(TH_TAG_UNKNOWN) | (node->tag_flags & TH_ELEM_IMPLIED));
         return 0;
     }
     char ascii[64];
@@ -1227,7 +1245,7 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
         }
     }
     node->atom = is_ascii ? th_tag_lookup(ascii, node->text_len) : TH_TAG_UNKNOWN;
-    node->tag_flags = th_tag_flags(node->atom);
+    node->tag_flags = (uint8_t)(th_tag_flags(node->atom) | (node->tag_flags & TH_ELEM_IMPLIED));
     Py_ssize_t kept = 0;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         uint32_t atom = fold_attr_atom(dest, node->attrs[index].name_atom);
@@ -1247,47 +1265,56 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
     return 0;
 }
 
+/* Within one source identity an address names one value: the source keeps each attribute value in its arena until the
+   handle is freed, and two live values never start at one address (the parser stores an empty value as NULL, and
+   every other value gets its own allocation). The address and the identity are therefore enough to find a copy. */
 struct th_copied_value {
+    uint64_t source;     /* the memo's source identity when the copy was made */
     const Py_UCS4 *from; /* an attribute value in the source arena */
     Py_UCS4 *to;         /* its copy in the destination arena */
-    Py_ssize_t len;      /* the length copied; an empty value can sit at the address where the next value starts */
 };
 
-static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, const Py_UCS4 *from) {
-    size_t slot = (size_t)(((uint64_t)(uintptr_t)from * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (memo->capacity - 1);
-    while (memo->entries[slot].from != NULL && memo->entries[slot].from != from) {
+static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, uint64_t source, const Py_UCS4 *from) {
+    uint64_t key = (uint64_t)(uintptr_t)from ^ (source * UINT64_C(0xC2B2AE3D27D4EB4F));
+    size_t slot = (size_t)(((key * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (memo->capacity - 1));
+    struct th_copied_value *entry = &memo->entries[slot];
+    while (entry->from != NULL && !(entry->source == source && entry->from == from)) {
         slot = (slot + 1) & (memo->capacity - 1);
+        entry = &memo->entries[slot];
     }
-    return &memo->entries[slot];
+    return entry;
 }
 
-static Py_UCS4 *copied_value_find(const th_copy_memo *memo, const Py_UCS4 *from, Py_ssize_t len) {
+static Py_UCS4 *copied_value_find(const th_copy_memo *memo, const Py_UCS4 *from) {
     if (memo->capacity == 0) {
         return NULL;
     }
-    const struct th_copied_value *entry = copied_value_slot(memo, from);
-    return entry->len == len ? entry->to : NULL; /* a free entry has no copy either */
+    const struct th_copied_value *entry = copied_value_slot(memo, memo->source, from);
+    return entry->from == NULL ? NULL : entry->to;
 }
 
 /* Remember that the value at from was copied to to; find has just missed it. Sharing only saves memory, so a memo
    that cannot grow just stops recording. */
-static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4 *to, Py_ssize_t len) {
+static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4 *to) {
     if (memo->count >= memo->capacity / 2) {
         /* the live table bounds its capacity far below SIZE_MAX, and PyMem_Calloc refuses a byte size that wraps */
         size_t capacity = memo->capacity ? memo->capacity * 2 : 16;
-        th_copy_memo grown = {PyMem_Calloc(capacity, sizeof(*memo->entries)), capacity, memo->count};
+        th_copy_memo grown = *memo;
+        grown.entries = PyMem_Calloc(capacity, sizeof(*memo->entries));
+        grown.capacity = capacity;
         if (grown.entries == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;                  /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         for (size_t slot = 0; slot < memo->capacity; slot++) {
-            if (memo->entries[slot].from != NULL) {
-                *copied_value_slot(&grown, memo->entries[slot].from) = memo->entries[slot];
+            const struct th_copied_value *entry = &memo->entries[slot];
+            if (entry->from != NULL) {
+                *copied_value_slot(&grown, entry->source, entry->from) = *entry;
             }
         }
         PyMem_Free(memo->entries);
         *memo = grown;
     }
-    *copied_value_slot(memo, from) = (struct th_copied_value){from, to, len};
+    *copied_value_slot(memo, memo->source, from) = (struct th_copied_value){memo->source, from, to};
     memo->count++;
 }
 
@@ -1295,15 +1322,15 @@ static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4
    builder lets every reconstruction of an unclosed formatting element point at the attribute values of its start tag
    (node_clone), so a buffer per value of every copied element costs value length x clones for an input of value
    length + clones. The copies keep shared what their sources share: in the same tree the copy points at the source's
-   value as a clone does, in another tree each value of an element that shares its values is copied once per
-   memo. A value is never written in place, so sharing is as safe in the copy as in the source. */
+   value as a clone does, in another tree each value of an element that shares its values is copied once per memo
+   and source. A value is never written in place, so sharing is as safe in the copy as in the source. */
 static Py_UCS4 *copy_attr_value(th_tree *dest, const th_tree *src, const th_node *src_node, const th_node_attr *from,
                                 th_copy_memo *memo) {
     if (dest == src) {
         return from->value;
     }
     int shareable = src_node->attr_values_shared;
-    Py_UCS4 *value = shareable ? copied_value_find(memo, from->value, from->value_len) : NULL;
+    Py_UCS4 *value = shareable ? copied_value_find(memo, from->value) : NULL;
     if (value == NULL) {
         value = arena_alloc(dest, (from->value_len ? from->value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
         if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1311,7 +1338,7 @@ static Py_UCS4 *copy_attr_value(th_tree *dest, const th_tree *src, const th_node
         }
         memcpy(value, from->value, (size_t)from->value_len * sizeof(Py_UCS4));
         if (shareable) {
-            copied_value_record(memo, from->value, value, from->value_len);
+            copied_value_record(memo, from->value, value);
         }
     }
     return value;
@@ -1448,7 +1475,16 @@ th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_nod
     if (dest->xml) {
         dest->has_xml_ns |= src->has_xml_ns;
     }
-    return copy_node_at(dest, src, src_node, 0, memo);
+    /* a shadow root is never a light child, so only the root of a copy can carry the flag without a table entry */
+    if (!th_node_is_shadow_root(src_node)) {
+        return copy_node_at(dest, src, src_node, 0, memo);
+    }
+    th_node *copy = copy_node_at(dest, src, src_node, 0, memo);
+    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    copy->tag_flags = 0;
+    return copy;
 }
 
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
@@ -1526,13 +1562,6 @@ th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_no
             return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    return copy;
-}
-
-th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
-    th_copy_memo memo = {0};
-    th_node *copy = th_tree_adopt_copy_sharing(dest, src, src_node, &memo);
-    th_copy_memo_free(&memo);
     return copy;
 }
 

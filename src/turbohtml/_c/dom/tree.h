@@ -134,6 +134,9 @@ struct th_node {
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
     uint8_t attr_values_shared;
+    /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
+       exact-sized; nothing reads it once the tree is built. */
+    uint8_t text_capacity_shift;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -428,15 +431,18 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator);
 const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize_t count, th_node *child,
                                 th_node *run_first, th_node *run_last);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
-/* The shared attribute values (th_node.attr_values_shared) a run of deep copies from one tree into another has copied
-   so far, keyed by their address in the source arena, so that a value the source elements share is copied once and
-   shared by the copies. th_tree_copy_node and th_tree_adopt_copy keep one per call. A caller that copies sibling
-   subtrees one by one zero-initializes one, hands it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing
-   call of the run, all between the same two trees, and releases it with th_copy_memo_free. */
+/* The shared attribute values (th_node.attr_values_shared) a deep copy into one tree has copied so far, keyed by the
+   source tree's identity and the value's address in its arena, so that a value the source elements share is copied
+   once and shared by the copies. th_tree_copy_node keeps one per call. A caller that copies sibling subtrees one by
+   one zero-initializes one and passes it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing call, and
+   releases it with th_copy_memo_free. A memo that outlives a call (the destination handle's) sets source before each
+   copy to an identity no other source has had: a freed source's addresses can come back in a later tree, and only the
+   identity tells them apart. */
 typedef struct {
     struct th_copied_value *entries; /* open addressing; a NULL source address marks a free entry */
     size_t capacity;
     size_t count;
+    uint64_t source; /* the identity of the tree the copies are made from */
 } th_copy_memo;
 th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 static inline void th_copy_memo_free(th_copy_memo *memo) {
@@ -444,9 +450,8 @@ static inline void th_copy_memo_free(th_copy_memo *memo) {
 }
 int th_tree_has_shadows(const th_tree *tree);
 th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root);
-/* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
-   also take dest's naming rules, see convert_element_kind. */
-th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);
+/* A deep copy for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements also
+   take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 /* How many nodes the tree's arena has ever held, linked or not: an upper bound on what adopting all of it copies. */
 uint32_t th_tree_node_count(const th_tree *tree);
@@ -456,8 +461,9 @@ th_tree *th_tree_copy_document(th_tree *src);
    XML flag and quirks mode, for rebuilding a pickled document or fragment. NULL on allocation failure. */
 th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks);
 /* Make document, a parentless node of tree, the root th_tree_document returns, or leave the tree without one when it
-   is NULL: rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that tree
-   when the fragment turns out to be a template's contents. */
+   is NULL: a Document copied into an empty tree is recorded this way (the parsers and th_tree_copy_document set it
+   themselves), rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that
+   tree when the fragment turns out to be a template's contents. */
 void th_tree_set_document(th_tree *tree, th_node *document);
 
 /* Whether two subtrees are structurally equal: same node type, and for an element the
@@ -531,6 +537,15 @@ th_node *th_tree_document(th_tree *tree);
 uint32_t th_tree_attr_generation(const th_tree *tree);
 uint64_t th_tree_attr_version(const th_tree *tree);
 uint64_t th_tree_id_version(const th_tree *tree);
+/* Whether the handle's slot cache still matches the slot attributes: set when the cache starts, cleared by an attribute
+   edit that changes slot assignment (see th_tree.slot_cache_valid). */
+int th_tree_slot_cache_valid(const th_tree *tree);
+void th_tree_set_slot_cache(th_tree *tree, int valid);
+
+/* How many times a node has left its parent, in any tree of the process. Every other link only gives a parentless
+   node a parent, which keeps each node's ancestors its ancestors, so while the count stands a node's root at some
+   point is still one of its inclusive ancestors. */
+uint64_t th_tree_unlinks(void);
 
 /* The WHATWG parse errors collected during the parse, in document order, and
    their count via *out_count. The array (and its static code strings) lives as
@@ -655,7 +670,8 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 /* Serialize only node's children as well-formed XML/XHTML: empty elements self-close,
    values follow the XML escaping rules, foreign subtrees declare their namespace, and
    comments and character data are neutralized so the result always reparses. PyMem-
-   allocated; *out_len receives the length. NULL on failure. */
+   allocated; *out_len receives the length. NULL on failure, with ValueError set when the
+   namespace declarations the children inherit outgrow their allowance. */
 Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
 /* Where a serialization of an XML tree stands with the xlink prefix, so a start tag reads the binding it inherits off
@@ -665,6 +681,39 @@ typedef struct {
     const th_node *last;  /* the element whose start tag was written last */
     const th_node *scope; /* the outermost of last and its ancestors that carries xmlns:xlink, NULL when none does */
 } th_xml_xlink_walk;
+/* th_node_inner_xml with only the namespace declarations the children hold themselves: none is
+   copied from above node, so the output stays proportional to the subtree, and a name bound
+   above node is unbound in it. NULL on allocation failure alone. */
+Py_UCS4 *th_node_inner_xml_local(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+
+/* th_node_inner_xml under the smaller base one construct of a feed gets (TH_XML_NS_FEED_BASE): a feed keeps the
+   inner XML of every entry, so a base granted afresh to each must be one the entry's own markup pays for. */
+Py_UCS4 *th_node_inner_xml_construct(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+
+/* Copying an ancestor's namespace declaration onto each element that uses it keeps every element readable on its own,
+   but one long name above many short elements multiplies the output instead of adding to it. So the rest of the
+   output funds the copies: TH_XML_NS_PER_CHAR code points of declaration for each code point written otherwise, over a
+   base that lets a short fragment carry long names. The Atom declaration on an <a/> costs 9 to 1 and an OOXML
+   relationships one on an <r:id/> 11 to 1, so documents in the wild stay well inside the ratio. A feed grants the
+   base once per text construct, and thousands of entries would multiply a large one, so its base only has to cover
+   the declarations a construct's first element may need before any other output has funded them: 1,024 code points
+   hold about twenty namespace declarations of ordinary length. */
+#define TH_XML_NS_BASE 65536
+#define TH_XML_NS_FEED_BASE 1024
+#define TH_XML_NS_PER_CHAR 32
+
+/* What one XML serialization of a node's children has copied onto them from the namespace declarations above, the
+   account serialize/xml_text.h weighs against the rest of the output. Start it at {0, 0, base}. */
+typedef struct {
+    Py_ssize_t copied;  /* code points of inherited declarations written so far */
+    Py_ssize_t flushed; /* code points handed off in the earlier chunks of a streamed serialization */
+    Py_ssize_t base;    /* code points of copies granted before any other output funds them */
+} th_xml_ns_spend;
+
+/* The attribute characters parser clones may write before other output funds more. The tree builder reopens an
+   unclosed formatting element in every block after it, attributes and all, so every writer of a clone starts from this
+   allowance. */
+#define TH_CLONE_ALLOWANCE 256
 
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
@@ -679,16 +728,18 @@ typedef struct {
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
     const th_node *xml_boundary;
-    int markdown;             /* a th_markdown_html context, or 0 outside Markdown */
-    int *charset_missing;     /* non-NULL when charset is a placeholder no label names: a writer sets *charset_missing
-                                 instead of writing it, and the caller refuses the output */
-    Py_ssize_t *clone_budget; /* Markdown: the attribute characters parser clones may still write, or NULL */
-    th_xml_xlink_walk *xml_xlink; /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
+    int markdown;                  /* a th_markdown_html context, or 0 outside Markdown */
+    int *charset_missing;          /* non-NULL when charset is a placeholder no label names: a writer sets
+                                    *charset_missing instead of writing it, and the caller refuses the output */
+    Py_ssize_t *clone_budget;      /* Markdown: the attribute characters parser clones may still write, or NULL */
+    th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
+    th_xml_ns_spend *xml_ns_spend; /* set by the serializer when xml_boundary has every child carry its own copy */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the
    per-level whitespace unit for pretty output; NULL emits the compact form. PyMem-
-   allocated; *out_len receives the length. NULL on failure. */
+   allocated; *out_len receives the length. NULL on failure, with ValueError set when
+   opts->inner has the children inherit namespace declarations beyond their allowance. */
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts *opts, const Py_UCS4 *indent,
                            Py_ssize_t indent_len, Py_ssize_t *out_len);
 
@@ -701,11 +752,15 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
-   indentation depth and the xlink walk. Start it at {root, 0, {NULL, NULL}}. */
+   indentation depth, the xlink walk, the inherited namespace declarations charged
+   so far and the clone credit the earlier chunks left. Start it at
+   {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0}. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
+    th_xml_ns_spend xml_ns;
+    Py_ssize_t clone_credit; /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from
@@ -917,7 +972,8 @@ typedef struct {
 } th_article_meta;
 
 /* Fill meta by harvesting the article metadata fields from root (the document the
-   content body belongs to). Pure C; the caller holds the per-tree critical section. */
+   content body belongs to). Pure C; the caller holds the per-tree critical section. On an
+   allocation failure some fields stay absent, so the caller checks th_tree_failed before using meta. */
 void th_article_metadata(th_tree *tree, th_node *root, th_article_meta *meta);
 
 /* Free every buffer th_article_metadata allocated into meta. */

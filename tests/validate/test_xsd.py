@@ -776,6 +776,51 @@ def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
     assert results == [True, False, False]
 
 
+def test_xsd_child_declares_its_own_namespace() -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} targetNamespace="urn:a" xmlns="urn:a" elementFormDefault="qualified">'
+        '<xs:element name="root"><xs:complexType><xs:sequence>'
+        '<xs:element name="c" type="xs:string"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+    )
+    assert schema.validate(parse_xml('<root xmlns="urn:a"><c xmlns="urn:a">x</c></root>')).valid
+    assert not schema.validate(parse_xml('<root xmlns="urn:a"><c xmlns="">x</c></root>')).valid
+
+
+def test_xsd_element_below_the_root_sees_declarations_above_it() -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} targetNamespace="urn:x" xmlns="urn:x"><xs:element name="b" type="xs:string"/></xs:schema>'
+    )
+    element: Final = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
+    assert schema.validate(element).valid
+
+
+def test_xsd_prefix_skips_a_same_length_neighbor() -> None:
+    # the type's prefix "tn" must find its own declaration past "ts", which is as long and binds another namespace
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} xmlns:ts="urn:s" xmlns:tn="urn:t" targetNamespace="urn:t" elementFormDefault="qualified">'
+        '<xs:complexType name="T"><xs:sequence><xs:element name="c" type="xs:string"/></xs:sequence></xs:complexType>'
+        '<xs:element name="root" type="tn:T"/></xs:schema>'
+    )
+    assert schema.validate(parse_xml('<tn:root xmlns:tn="urn:t"><tn:c>x</tn:c></tn:root>')).valid
+    assert not schema.validate(parse_xml('<tn:root xmlns:tn="urn:t"><c>x</c></tn:root>')).valid
+
+
+def test_xsd_many_attributes_and_children_scale_linearly(work_steps: WorkSteps) -> None:
+    # each child's name resolves against the namespace declarations of the element holding it, which must cost the same
+    # whatever that element's attribute count
+    def build(count: int) -> Callable[[], ValidationResult]:
+        attributes = "".join(f'<xs:attribute name="a{index}" type="xs:string"/>' for index in range(count))
+        schema: Final = XMLSchema(
+            f'<xs:schema {_XS}><xs:element name="root"><xs:complexType><xs:sequence>'
+            '<xs:element name="c" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>'
+            f"</xs:sequence>{attributes}</xs:complexType></xs:element></xs:schema>"
+        )
+        attrs = "".join(f' a{index}="x"' for index in range(count))
+        return partial(schema.validate, parse_xml(f"<root{attrs}>{'<c>x</c>' * count}</root>"))
+
+    work_steps.assert_linear(build, (250, 1000))
+
+
 def test_nested_repeats_of_an_empty_group_scale_linearly(work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], XMLSchema]:
         return partial(XMLSchema, restricted(f'<xs:pattern value="((){{{count}}}a){{{count}}}"/>'))
@@ -976,6 +1021,77 @@ def test_repeated_particle_peak_memory_is_linear(model: str, peak_bytes: PeakByt
     assert peak_bytes(script, (_repeated_schema(model), document)) < 64 * len(document)
 
 
+_A_ELEMENT: Final[str] = '<xs:element name="a"/>'
+_AMBIGUOUS_REPEATS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        f'<xs:sequence maxOccurs="unbounded">{_A_ELEMENT}<xs:element name="a" minOccurs="0"/></xs:sequence>',
+        id="element-then-optional-element",
+    ),
+    pytest.param(
+        f'<xs:choice maxOccurs="unbounded">{_A_ELEMENT}<xs:sequence>{_A_ELEMENT * 2}</xs:sequence></xs:choice>',
+        id="element-or-pair",
+    ),
+    pytest.param(
+        f'<xs:choice maxOccurs="unbounded">{_A_ELEMENT}<xs:sequence>{_A_ELEMENT * 50}</xs:sequence></xs:choice>',
+        id="element-or-run-of-fifty",
+    ),
+]
+
+
+@pytest.mark.parametrize("model", _AMBIGUOUS_REPEATS)
+def test_ambiguous_repeated_particle_scales_linearly(model: str, work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema: Final = XMLSchema(_repeated_schema(model))
+        return partial(schema.validate, parse_xml(f"<r>{'<a/>' * count}</r>"))
+
+    work_steps.assert_linear(build, (300, 1200))
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(1, False, id="one-is-too-few"),
+        pytest.param(2, True, id="two-by-the-run"),
+        pytest.param(3, True, id="three-by-the-run-after-an-empty-prefix"),
+    ],
+)
+def test_optional_prefix_before_repeated_run(count: int, *, valid: bool) -> None:
+    run = '<xs:element name="a" minOccurs="2" maxOccurs="unbounded"/>'
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:sequence minOccurs="0" maxOccurs="1">{run}</xs:sequence>{run}'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(1, False, id="one-is-too-few"),
+        pytest.param(2, False, id="two-is-too-few"),
+        pytest.param(3, True, id="three-is-enough"),
+    ],
+)
+def test_run_of_at_least_three(count: int, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:sequence minOccurs="3" maxOccurs="unbounded"><xs:element name="a"/></xs:sequence>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+def test_nullable_pair_repeated_three_times_rejects_odd_count() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:sequence minOccurs="3" maxOccurs="unbounded">'
+        f'<xs:sequence minOccurs="0">{_A_ELEMENT * 2}</xs:sequence>'
+        "</xs:sequence></xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert not check(schema, "<r><a/><a/><a/></r>").valid
+
+
 def test_all_any_order_and_missing() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'
@@ -1020,10 +1136,11 @@ _ALL_MEMBERS: Final[str] = (
             "<b/><zz/><b/>",
             [
                 "element 'zz' is not allowed here",
+                "element 'b' is not allowed here",
                 "required element 'long' is missing",
                 "required element 'a' is missing",
             ],
-            id="repeated-child-counts-its-member-once",
+            id="repeated-child-is-not-allowed",
         ),
         pytest.param(
             '<t:long/><a xmlns="urn:u"/><a/><long/>',
@@ -1048,6 +1165,276 @@ def test_all_without_members_allows_no_child() -> None:
     )
     assert check(schema, "<r/>").valid
     assert [error.message for error in check(schema, "<r><x/></r>").errors] == ["element 'x' is not allowed here"]
+
+
+_ALL_CONTENT_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/><xs:element name="c" minOccurs="0"/>'
+_ALL_CONTENT_SCHEMAS: Final[tuple[tuple[str, str], ...]] = (
+    (
+        "direct",
+        (
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all>'
+            "</xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+    (
+        "named-group",
+        (
+            f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+        ),
+    ),
+    (
+        "extension",
+        (
+            f'<xs:schema {_XS}><xs:complexType name="base"/><xs:element name="r"><xs:complexType>'
+            '<xs:complexContent><xs:extension base="base">'
+            f"<xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:extension></xs:complexContent>"
+            "</xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+    (
+        "restriction",
+        (
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:complexContent>'
+            f'<xs:restriction base="xs:anyType"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:restriction>'
+            "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+        ),
+    ),
+)
+
+
+@pytest.mark.parametrize("schema", [pytest.param(text, id=form) for form, text in _ALL_CONTENT_SCHEMAS])
+@pytest.mark.parametrize(
+    ("children", "messages"),
+    [
+        pytest.param("<a/><b/>", [], id="declaration-order"),
+        pytest.param("<b/><a/>", [], id="reverse-order"),
+        pytest.param("<c/><b/><a/>", [], id="optional-member-first"),
+        pytest.param("<b/>", ["required element 'a' is missing"], id="required-missing"),
+        pytest.param("<a/><b/><zz/>", ["element 'zz' is not allowed here"], id="undeclared"),
+    ],
+)
+def test_all_content_matches_members_in_any_order(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, f"<r>{children}</r>").errors] == messages
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        pytest.param('<xs:sequence><xs:group ref="g"/></xs:sequence>', id="group-ref-in-sequence"),
+        pytest.param('<xs:choice><xs:group ref="g"/></xs:choice>', id="group-ref-in-choice"),
+        pytest.param(f"<xs:sequence><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:sequence>", id="all-in-sequence"),
+        pytest.param(
+            '<xs:simpleContent><xs:extension base="xs:string"><xs:group ref="g"/></xs:extension></xs:simpleContent>',
+            id="group-ref-in-simple-content",
+        ),
+    ],
+)
+def test_all_outside_complex_type_content_raises(model: str) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_ALL_CONTENT_MEMBERS}</xs:all></xs:group>'
+        f'<xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
+    )
+    with pytest.raises(ValueError, match="an xs:all group may only be the content model of a complex type"):
+        XMLSchema(schema)
+
+
+def test_all_base_empty_extension_counts_each_member_once() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:all>'
+        '<xs:element name="a" minOccurs="0" maxOccurs="2"/><xs:element name="b"/></xs:all></xs:complexType>'
+        '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+        "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<r><a/><b/></r>").valid
+    assert not check(schema, "<r><a/><a/><b/></r>").valid
+
+
+def test_optional_all_group_reference_when_members_are_present() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g" minOccurs="0"/></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert [error.message for error in check(schema, "<r><b/></r>").errors] == ["required element 'a' is missing"]
+    assert check(schema, "<r><b/><a/></r>").valid
+
+
+def test_all_group_beside_sequence_content() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'
+        '<xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:element name="all"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element>'
+        '<xs:element name="seq"><xs:complexType><xs:group ref="s"/></xs:complexType></xs:element>'
+        '<xs:element name="direct"><xs:complexType><xs:sequence><xs:element name="d"/></xs:sequence>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<all><b/><a/></all>").valid
+    assert check(schema, "<seq><c/></seq>").valid
+    assert not check(schema, "<seq><b/></seq>").valid
+    assert check(schema, "<direct><d/></direct>").valid
+
+
+def _type_schema(content: str) -> str:
+    return f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{content}</xs:complexType></xs:element></xs:schema>'
+
+
+_AB: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
+_A_REPEATED: Final[str] = "element 'a' is not allowed here"
+_NAMED_GROUP: Final[str] = (
+    f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+    '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+)
+_EXTENDED_ALL: Final[str] = (
+    f'<xs:schema {_XS}><xs:complexType name="base"><xs:attribute name="x"/></xs:complexType>'
+    '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base">'
+    f"<xs:all>{_AB}</xs:all></xs:extension></xs:complexContent></xs:complexType></xs:element></xs:schema>"
+)
+
+_REPEATED_CHILD: Final[list[pytest.ParameterSet]] = [
+    pytest.param(_type_schema(f"<xs:all>{_AB}</xs:all>"), "<r><a/><a/><b/></r>", [_A_REPEATED], id="repeated-child"),
+    pytest.param(
+        _type_schema(f"<xs:all>{_AB}</xs:all>"),
+        "<r><a/><b/><a/></r>",
+        [_A_REPEATED],
+        id="repeated-after-other-children",
+    ),
+    pytest.param(
+        _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>'),
+        "<r><b/><a/><a/></r>",
+        [_A_REPEATED],
+        id="optional-child-repeated",
+    ),
+    pytest.param(
+        _type_schema(f"<xs:all>{_AB}</xs:all>"),
+        "<r><a/><b/><a/><a/></r>",
+        [_A_REPEATED, _A_REPEATED],
+        id="every-repeat-reported",
+    ),
+    pytest.param(
+        _type_schema(f"<xs:all>{_AB}</xs:all>"),
+        "<r><a/><a/></r>",
+        [_A_REPEATED, "required element 'b' is missing"],
+        id="repeat-does-not-stand-in-for-missing-member",
+    ),
+    pytest.param(
+        _type_schema('<xs:all><xs:element name="a" maxOccurs="0"/><xs:element name="b"/></xs:all>'),
+        "<r><a/><b/></r>",
+        [_A_REPEATED],
+        id="member-with-max-occurs-zero",
+    ),
+    pytest.param(_NAMED_GROUP, "<r><a/><a/><b/></r>", [_A_REPEATED], id="named-group-repeated-child"),
+    pytest.param(
+        _NAMED_GROUP.replace('<xs:element name="a"/>', '<xs:element name="a" maxOccurs="2"/>'),
+        "<r><a/><a/><b/></r>",
+        [_A_REPEATED],
+        id="named-group-member-max-occurs",
+    ),
+    pytest.param(_EXTENDED_ALL, "<r><a/><a/><b/></r>", [_A_REPEATED], id="complex-content-extension"),
+]
+
+
+@pytest.mark.parametrize(("schema", "children", "messages"), _REPEATED_CHILD)
+def test_all_repeated_child_is_not_allowed(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, children).errors] == messages
+
+
+def test_all_each_member_once_is_valid() -> None:
+    schema = _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>')
+    assert check(schema, "<r><b/><a/></r>").valid
+    assert check(schema, "<r><b/></r>").valid
+
+
+_OPTIONAL_ALL: Final[str] = f'<xs:all minOccurs="0">{_AB}</xs:all>'
+_OPTIONAL_GROUP_REF: Final[str] = (
+    f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+    '<xs:element name="r"><xs:complexType><xs:group ref="g" minOccurs="0"/></xs:complexType></xs:element></xs:schema>'
+)
+_OPTIONAL_EXTENDED_ALL: Final[str] = (
+    f'<xs:schema {_XS}><xs:complexType name="base">{_OPTIONAL_ALL}</xs:complexType>'
+    '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+    "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "children", "messages"),
+    [
+        pytest.param(_type_schema(_OPTIONAL_ALL), "<r/>", [], id="direct-empty"),
+        pytest.param(_type_schema(_OPTIONAL_ALL), "<r><b/><a/></r>", [], id="direct-all-present"),
+        pytest.param(
+            _type_schema(_OPTIONAL_ALL),
+            "<r><a/></r>",
+            ["required element 'b' is missing"],
+            id="direct-partial-still-requires-members",
+        ),
+        pytest.param(_OPTIONAL_GROUP_REF, "<r/>", [], id="group-ref-empty"),
+        pytest.param(_OPTIONAL_EXTENDED_ALL, "<r/>", [], id="extension-of-optional-all-empty"),
+        pytest.param(
+            _type_schema(
+                f'<xs:complexContent><xs:restriction base="xs:anyType">{_OPTIONAL_ALL}</xs:restriction>'
+                "</xs:complexContent>"
+            ),
+            "<r/>",
+            [],
+            id="restriction-empty",
+        ),
+    ],
+)
+def test_optional_all_accepts_empty_content(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, children).errors] == messages
+
+
+_ALL_GROUP_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
+_ALL_GROUP_DEF: Final[str] = f'<xs:group name="g"><xs:all>{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+            '<xs:group ref="g" maxOccurs="2"/></xs:complexType></xs:element></xs:schema>',
+            id="group-ref-twice",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+            '<xs:group ref="g" maxOccurs="unbounded"/></xs:complexType></xs:element></xs:schema>',
+            id="group-ref-unbounded",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>'
+            f'<xs:all maxOccurs="2">{_ALL_GROUP_MEMBERS}</xs:all></xs:complexType></xs:element></xs:schema>',
+            id="direct-all-twice",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="h"><xs:all maxOccurs="2">{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="h"/></xs:complexType></xs:element></xs:schema>',
+            id="group-definition-all-twice",
+        ),
+    ],
+)
+def test_all_group_occurring_more_than_once_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all group may occur only once"):
+        XMLSchema(schema)
+
+
+def test_all_group_occurring_once_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+        '<xs:group ref="g" minOccurs="0" maxOccurs="1"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r><a/><b/></r>").valid
+    assert check(schema, "<r/>").valid
+
+
+def test_repeated_sequence_group_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="s" maxOccurs="2"/></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert check(schema, "<r><c/><c/></r>").valid
 
 
 @pytest.mark.parametrize(
@@ -1082,7 +1469,8 @@ def test_all_children_naming_the_last_member_scale_linearly(work_steps: WorkStep
         return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{last * count}</r>"))
 
     work_steps.assert_linear(build, _LINEAR_SIZES)
-    assert build(_LINEAR_SIZES[1])().valid
+    # every child after the first repeats its member
+    assert len(build(_LINEAR_SIZES[1])().errors) == 1_000
 
 
 def _all_schema(members: str) -> XMLSchema:
@@ -1099,6 +1487,15 @@ def _optional_members(count: int) -> str:
 def test_all_children_naming_no_member_scale_linearly(work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], ValidationResult]:
         return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<zz/>' * count}</r>"))
+
+    work_steps.assert_linear(build, _LINEAR_SIZES)
+    # validate() lists at most 1,000 of the errors
+    assert len(build(_LINEAR_SIZES[1])().errors) == 1_000
+
+
+def test_all_repeated_children_scale_linearly(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<item0/>' * count}</r>"))
 
     work_steps.assert_linear(build, _LINEAR_SIZES)
     # validate() lists at most 1,000 of the errors
@@ -1192,6 +1589,153 @@ def test_simple_content_extension_and_mixed() -> None:
     assert check(schema, '<r u="x">42</r>').valid
     assert not check(schema, '<r u="x">notint</r>').valid
     assert not check(schema, '<r u="x"><child/></r>').valid
+
+
+_PERCENT: Final[str] = (
+    '<xs:simpleType name="percent"><xs:restriction base="xs:integer">'
+    '<xs:minInclusive value="0"/><xs:maxInclusive value="100"/></xs:restriction></xs:simpleType>'
+)
+_PERCENT_WITH_UNIT: Final[str] = (
+    '<xs:complexType name="measure"><xs:simpleContent>'
+    '<xs:extension base="percent"><xs:attribute name="unit" type="xs:string"/></xs:extension>'
+    "</xs:simpleContent></xs:complexType>"
+)
+_SPACED_CODE: Final[str] = (
+    '<xs:simpleType name="code"><xs:restriction base="xs:string">'
+    '<xs:whiteSpace value="collapse"/><xs:enumeration value="a b"/></xs:restriction></xs:simpleType>'
+)
+_CURRENCY: Final[str] = (
+    '<xs:simpleType name="currency"><xs:restriction base="xs:string">'
+    '<xs:enumeration value="EUR"/><xs:enumeration value="USD"/></xs:restriction></xs:simpleType>'
+)
+_TENTH: Final[str] = '<xs:maxInclusive value="10"/>'
+_LOWER: Final[str] = '<xs:pattern value="[a-z]+"/>'
+_FROM_FIVE: Final[str] = (
+    '<xs:simpleType><xs:restriction base="percent"><xs:minInclusive value="5"/></xs:restriction></xs:simpleType>'
+)
+_MONEY: Final[str] = (
+    '<xs:complexType name="money"><xs:simpleContent><xs:extension base="currency">'
+    '<xs:attribute name="cents" type="xs:int"/></xs:extension></xs:simpleContent></xs:complexType>'
+)
+_FROM_U: Final[str] = (
+    '<xs:simpleType><xs:restriction base="currency"><xs:pattern value="U.*"/></xs:restriction></xs:simpleType>'
+)
+_THREE_LETTERS: Final[str] = '<xs:pattern value="[A-Z]{3}"/>'
+
+
+@pytest.mark.parametrize(
+    ("types", "derivation", "value", "valid"),
+    [
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "50", True, id="extends-simple-type-in-range"),
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "-5000", False, id="extends-simple-type-below"),
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "abc", False, id="extends-simple-type-lexical"),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "10", True, id="own-facet-met"
+        ),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "50", False, id="own-facet-broken"
+        ),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "-1", False, id="base-facet-broken"
+        ),
+        pytest.param("", f'<xs:restriction base="xs:int">{_TENTH}</xs:restriction>', "50", False, id="builtin-base"),
+        pytest.param("", '<xs:extension base="xs:int"/>', " 50 ", True, id="builtin-base-whitespace"),
+        pytest.param(
+            "", f'<xs:restriction base="xs:string">{_LOWER}</xs:restriction>', "bob", True, id="own-pattern-met"
+        ),
+        pytest.param(
+            "", f'<xs:restriction base="xs:string">{_LOWER}</xs:restriction>', "BOB!", False, id="own-pattern-broken"
+        ),
+        pytest.param(_CURRENCY, '<xs:extension base="currency"/>', "USD", True, id="extends-enumeration-member"),
+        pytest.param(_CURRENCY, '<xs:extension base="currency"/>', "XXX", False, id="extends-enumeration-other"),
+        pytest.param(_SPACED_CODE, '<xs:extension base="code"/>', " a  b ", True, id="base-whitespace-met"),
+        pytest.param(_SPACED_CODE, '<xs:extension base="code"/>', "a c", False, id="base-whitespace-broken"),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            '<xs:extension base="measure"/>',
+            "100",
+            True,
+            id="extends-complex-type-in-range",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            '<xs:extension base="measure"/>',
+            "101",
+            False,
+            id="extends-complex-type-above",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_TENTH}</xs:restriction>',
+            "50",
+            False,
+            id="restricts-complex-type-own-facet",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_TENTH}</xs:restriction>',
+            "-1",
+            False,
+            id="restricts-complex-type-base-facet",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "7",
+            True,
+            id="inline-type-beside-base-met",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "4",
+            False,
+            id="inline-type-beside-base-broken",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "11",
+            False,
+            id="facet-after-inline-type-broken",
+        ),
+        pytest.param(
+            _CURRENCY + _MONEY,
+            f'<xs:restriction base="money">{_FROM_U}{_THREE_LETTERS}</xs:restriction>',
+            "USD",
+            True,
+            id="inline-type-beside-base-lists-met",
+        ),
+        pytest.param(
+            _CURRENCY + _MONEY,
+            f'<xs:restriction base="money">{_FROM_U}{_THREE_LETTERS}</xs:restriction>',
+            "EUR",
+            False,
+            id="inline-type-pattern-broken",
+        ),
+        pytest.param(
+            _CURRENCY + _MONEY,
+            f'<xs:restriction base="money">{_FROM_U}{_THREE_LETTERS}</xs:restriction>',
+            "UAH",
+            False,
+            id="base-enumeration-beside-inline-type-broken",
+        ),
+    ],
+)
+def test_simple_content_keeps_the_facets_of_its_base(types: str, derivation: str, value: str, *, valid: bool) -> None:
+    # the text of a simple-content element was checked against the built-in type at the root of its base alone, so
+    # giving a restricted value an attribute dropped every facet on it
+    schema = (
+        f'<xs:schema {_XS}>{types}<xs:element name="r"><xs:complexType>'
+        f"<xs:simpleContent>{derivation}</xs:simpleContent></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{value}</r>").valid is valid
+
+
+def test_simple_content_base_type_named_by_an_element() -> None:
+    schema = f'<xs:schema {_XS}>{_PERCENT}{_PERCENT_WITH_UNIT}<xs:element name="r" type="measure"/></xs:schema>'
+    assert check(schema, '<r unit="%">50</r>').valid
+    assert not check(schema, '<r unit="%">500</r>').valid
 
 
 def test_mixed_content() -> None:
@@ -2297,6 +2841,125 @@ def test_compiled_facet_cyclic_inheritance(facet_schema: Callable[[str], XMLSche
 
 
 @pytest.mark.parametrize(
+    ("base", "facet", "restated", "value"),
+    [
+        pytest.param("xs:string", '<xs:length value="4"/>', '<xs:length value="2"/>', "ab", id="length"),
+        pytest.param("xs:string", '<xs:minLength value="3"/>', '<xs:minLength value="1"/>', "ab", id="min-length"),
+        pytest.param("xs:string", '<xs:maxLength value="1"/>', '<xs:maxLength value="2"/>', "ab", id="max-length"),
+        pytest.param("xs:int", '<xs:minInclusive value="8"/>', '<xs:minInclusive value="7"/>', "7", id="min-inclusive"),
+        pytest.param("xs:int", '<xs:maxInclusive value="6"/>', '<xs:maxInclusive value="7"/>', "7", id="max-inclusive"),
+        pytest.param("xs:int", '<xs:minExclusive value="7"/>', '<xs:minExclusive value="6"/>', "7", id="min-exclusive"),
+        pytest.param("xs:int", '<xs:maxExclusive value="7"/>', '<xs:maxExclusive value="8"/>', "7", id="max-exclusive"),
+        pytest.param(
+            "xs:date",
+            '<xs:minInclusive value="2024-05-02"/>',
+            '<xs:minInclusive value="2024-05-01"/>',
+            "2024-05-01",
+            id="date-bound",
+        ),
+        pytest.param(
+            "xs:decimal", '<xs:totalDigits value="1"/>', '<xs:totalDigits value="2"/>', "3.5", id="total-digits"
+        ),
+        pytest.param(
+            "xs:decimal",
+            '<xs:fractionDigits value="0"/>',
+            '<xs:fractionDigits value="1"/>',
+            "3.5",
+            id="fraction-digits",
+        ),
+    ],
+)
+def test_compiled_facet_scalar_inheritance(
+    facet_schema: Callable[[str], XMLSchema], base: str, facet: str, restated: str, value: str
+) -> None:
+    # a derived type keeps each facet its base states until it states that facet itself
+    schema: Final = facet_schema(
+        f'<xs:simpleType name="root"><xs:restriction base="{base}">{facet}</xs:restriction></xs:simpleType>'
+        '<xs:simpleType name="middle"><xs:restriction base="root"/></xs:simpleType>'
+        '<xs:simpleType name="kept"><xs:restriction base="middle"/></xs:simpleType>'
+        f'<xs:simpleType name="restated"><xs:restriction base="middle">{restated}</xs:restriction></xs:simpleType>'
+        '<xs:element name="kept" type="kept"/><xs:element name="restated" type="restated"/>'
+    )
+    assert [schema.validate(parse_xml(f"<{name}>{value}</{name}>")).valid for name in ("kept", "restated")] == [
+        False,
+        True,
+    ]
+
+
+def test_compiled_facets_of_every_chain_level_apply(facet_schema: Callable[[str], XMLSchema]) -> None:
+    schema: Final = facet_schema(f'{_enumerated_chain(24)}<xs:element name="value" type="t23"/>')
+    assert [
+        [error.message for error in schema.validate(parse_xml(f"<value>{value}</value>")).errors]
+        for value in ("v0", "v23", "v24", "w0")
+    ] == [
+        [],
+        [],
+        ["value is not one of the enumerated values"],
+        ["value is not one of the enumerated values"] + ["value does not match the required pattern"] * 24,
+    ]
+
+
+def _enumerated_chain(count: int) -> str:
+    # type t{n} restricts t{n - 1}, each adding one enumeration and one pattern
+    return "".join(
+        f'<xs:simpleType name="t{index}"><xs:restriction base="{f"t{index - 1}" if index else "xs:token"}">'
+        f'<xs:enumeration value="v{index}"/><xs:pattern value="v[0-9]+"/></xs:restriction></xs:simpleType>'
+        for index in range(count)
+    )
+
+
+@pytest.mark.parametrize(
+    "derived",
+    [
+        pytest.param('<xs:simpleType name="d{index}"><xs:restriction base="base"/></xs:simpleType>', id="restriction"),
+        pytest.param(
+            '<xs:complexType name="d{index}"><xs:simpleContent><xs:extension base="base"/></xs:simpleContent>'
+            "</xs:complexType>",
+            id="simple-content-extension",
+        ),
+        pytest.param(
+            '<xs:complexType name="d{index}"><xs:simpleContent><xs:restriction base="content">'
+            '<xs:simpleType><xs:restriction base="base"/></xs:simpleType></xs:restriction></xs:simpleContent>'
+            "</xs:complexType>",
+            id="inline-type-beside-base",
+        ),
+    ],
+)
+def test_types_derived_from_one_base_compile_in_linear_steps(work_steps: WorkSteps, derived: str) -> None:
+    # every derived type used to hold a copy of the base's facets
+    def text(count: int) -> str:
+        enumerations = "".join(f'<xs:enumeration value="code{index}"/>' for index in range(count))
+        return (
+            f'<xs:schema {_XS}><xs:simpleType name="base"><xs:restriction base="xs:token">{enumerations}'
+            "</xs:restriction></xs:simpleType>"
+            '<xs:complexType name="content"><xs:simpleContent><xs:extension base="base"/></xs:simpleContent>'
+            f"</xs:complexType>{''.join(derived.format(index=index) for index in range(count))}"
+            f'<xs:element name="last" type="d{count - 1}"/></xs:schema>'
+        )
+
+    work_steps.assert_linear(lambda count: partial(XMLSchema, text(count)), (150, 600))
+    schema: Final = XMLSchema(text(150))
+    assert [schema.validate(parse_xml(f"<last>{value}</last>")).valid for value in (" code149 ", "code150")] == [
+        True,
+        False,
+    ]
+
+
+def test_long_derivation_chain_validates_in_linear_steps(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema = XMLSchema(
+            f"<xs:schema {_XS}>{_enumerated_chain(count)}"
+            f'<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="value" type="t{count - 1}" '
+            'maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+        )
+        values = "".join(f"<value>v{count - 1 - index % 2}</value>" for index in range(count))
+        return partial(schema.validate, parse_xml(f"<r>{values}</r>"))
+
+    work_steps.assert_linear(build, (150, 600))
+    assert build(150)().valid
+
+
+@pytest.mark.parametrize(
     "derivation",
     [
         pytest.param('<xs:list itemType="xs:int"/>', id="list"),
@@ -3154,6 +3817,7 @@ _ANNOTATED_GROUP: Final[str] = (
             id="simple-content-base-is-a-complex-type",
         ),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">text</r>', True, id="simple-content-base-is-a-simple-type"),
+        pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">toolong</r>', False, id="simple-content-base-keeps-its-facet"),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x"><child/></r>', False, id="simple-content-rejects-a-child"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r/>", True, id="named-type-empty-complex-content"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r><x/></r>", False, id="named-type-empty-complex-content-child"),

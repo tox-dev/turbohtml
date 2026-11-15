@@ -21,14 +21,6 @@
 
 #include <string.h>
 
-#if defined(_MSC_VER)
-#define TH_FORCEINLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-#define TH_FORCEINLINE inline __attribute__((always_inline))
-#else
-#define TH_FORCEINLINE inline
-#endif
-
 /* The knobs of turbohtml.extract.UrlCleaning, plus the two vocabularies the shim holds as configuration. `allow` is a
    lowercased name set or None, `deny` a lowercased name set; `language` is an ISO 639-1 code or None. */
 typedef struct {
@@ -122,17 +114,6 @@ static int str_has_prefix(PyObject *text, const char *literal) {
 
 static int str_holds(PyObject *text, Py_UCS4 needle) {
     return PyUnicode_FindChar(text, needle, 0, PyUnicode_GET_LENGTH(text), 1) >= 0;
-}
-
-static int web_host_holds(PyObject *text, unsigned char needle) {
-    if (PyUnicode_KIND(text) == PyUnicode_1BYTE_KIND) {
-        return memchr(PyUnicode_1BYTE_DATA(text), needle, (size_t)PyUnicode_GET_LENGTH(text)) != NULL;
-    }
-    return str_holds(text, needle);
-}
-
-static TH_FORCEINLINE int is_web_host(PyObject *host, PyObject *netloc) {
-    return PyUnicode_GET_LENGTH(host) > 0 && (web_host_holds(host, '.') || web_host_holds(netloc, ':'));
 }
 
 static PyObject *port_suffix(const th_url_parts *parts) {
@@ -240,7 +221,7 @@ static PyObject *normalize_netloc(const th_url_parts *parts, int web_only, int c
         return NULL;      /* GCOVR_EXCL_LINE */
     }
     /* Port normalization can erase the colon that admitted a dotless host. */
-    if (web_only && !web_host_holds(host, '.') && !web_host_holds(netloc, ':')) {
+    if (web_only && !str_holds(host, '.') && !str_holds(netloc, ':')) {
         Py_SETREF(netloc, Py_NewRef(Py_None));
     }
     Py_DECREF(host);
@@ -688,14 +669,14 @@ PyObject *turbohtml_url_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
     return result;
 }
 
-/* Whether the scrubbed, split URL is a fetchable web address: an http/https scheme and a host that is either dotted
-   or carries a port, the shape gate clean_url applies before the language filter and normalization. */
+/* Whether the scrubbed, split URL can be a fetchable web address: an http/https scheme and a non-empty host. The
+   dotted-or-ported rule waits for normalize_netloc, because the spelled host can gain its dots only once canonical. */
 static int is_web_url(const th_url_parts *parts, PyObject *host) {
     PyObject *scheme = parts->part[TH_URL_SCHEME];
     if (!str_equals(scheme, "http") && !str_equals(scheme, "https")) {
         return 0;
     }
-    return is_web_host(host, parts->part[TH_URL_NETLOC]);
+    return PyUnicode_GET_LENGTH(host) > 0;
 }
 
 /* clean_url's pipeline over one str: scrub, split, the web gate, the language gate, then normalization. Returns the

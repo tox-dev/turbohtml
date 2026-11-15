@@ -2378,44 +2378,139 @@ static int path_id_unique(const path_id_map *map, const Py_UCS4 *value, Py_ssize
     return map->slots[slot].count == 1;
 }
 
+/* The per-tree position cache of css_path and xpath_path: every element of a resolved child list mapped to its 1-based
+   position among the siblings of its type, shifted up one bit, the low bit set when the type occurs there more than
+   once, so the step needs the position. */
+typedef struct {
+    th_node_map map;
+    uint64_t seed; /* salts the type hash so chosen tag names cannot flood one bucket */
+} path_position_map;
+
+/* One element type of the child list being resolved. */
+typedef struct {
+    const th_node *first; /* the first child of the type; NULL marks a free slot */
+    Py_ssize_t count;     /* children of the type so far */
+} path_type_slot;
+
 void path_positions_free(void *positions) {
-    th_node_map *const map = positions;
-    if (map != NULL) {
-        PyMem_Free(map->entries);
-        PyMem_Free(map);
+    path_position_map *const cache = positions;
+    if (cache != NULL) {
+        PyMem_Free(cache->map.entries);
+        PyMem_Free(cache);
     }
 }
 
-static int path_step_index(HandleObject *handle, th_node *node, int *needs_index) {
-    th_node_map *map = handle->path_positions;
-    if (map == NULL) {
-        map = PyMem_Calloc(1, sizeof(*map));
-        if (map == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;     /* GCOVR_EXCL_LINE: allocation failure */
-        }
-        handle->path_positions = map;
-    }
-    Py_ssize_t value = th_node_map_find(map, node);
-    if (value == 0) {
-        th_node *previous = node->prev_sibling;
-        while (previous != NULL && (previous->type != TH_NODE_ELEMENT || !sel_same_type(node, previous))) {
-            previous = previous->prev_sibling;
-        }
-        value = previous == NULL ? 1 : th_node_map_find(map, previous) + 1;
-        if (previous != NULL && value == 1) {
-            value = 2;
-            for (th_node *sibling = previous->prev_sibling; sibling != NULL; sibling = sibling->prev_sibling) {
-                if (sibling->type == TH_NODE_ELEMENT && sel_same_type(node, sibling)) {
-                    value++;
-                }
-            }
-        }
-        if (th_node_map_insert(map, node, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                  /* GCOVR_EXCL_LINE: allocation failure */
+/* The slot of node's type, or the free slot it would take, hashed over what sel_same_type compares. */
+static path_type_slot *path_type_find(path_type_slot *slots, size_t capacity, uint64_t seed, const th_node *node) {
+    uint64_t hash = (seed ^ UINT64_C(14695981039346656037) ^ node->ns) * UINT64_C(1099511628211);
+    hash = (hash ^ node->atom) * UINT64_C(1099511628211);
+    if (node->atom == TH_TAG_UNKNOWN) {
+        for (Py_ssize_t index = 0; index < node->text_len; index++) {
+            hash = (hash ^ node->text[index]) * UINT64_C(1099511628211);
         }
     }
-    *needs_index = value > 1 || !sel_no_sibling(node, 1, 1);
-    return (int)value;
+    size_t slot = th_hash_slot(th_fibonacci_hash((uint32_t)(hash >> 32)), capacity);
+    while (slots[slot].first != NULL && !sel_same_type(slots[slot].first, node)) {
+        slot = (slot + 1) & (capacity - 1);
+    }
+    return &slots[slot];
+}
+
+/* Resolve every element child of parent in one pass. Resolving one element at a time walks back to the previous
+   sibling of its type and forward to the next, the whole list for the only element of a type, so a path per element
+   is quadratic in a list that holds such an element, and any order but document order recounts ordinary lists. */
+static int path_positions_fill(path_position_map *cache, const th_node *parent) {
+    size_t elements = 0;
+    for (const th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
+        elements += child->type == TH_NODE_ELEMENT;
+    }
+    size_t capacity;
+    size_t bytes;
+    /* GCOVR_EXCL_BR_START: allocation-size overflow */
+    if (!th_grow_cap(elements * 2, 0, 16, sizeof(path_type_slot), &capacity, &bytes)) {
+        return -1; /* GCOVR_EXCL_LINE: allocation-size overflow */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    path_type_slot local[16] = {{0}}; /* most lists are short */
+    path_type_slot *slots = capacity <= 16 ? local : PyMem_Calloc(1, bytes);
+    /* GCOVR_EXCL_START: allocation failure */
+    if (slots == NULL || th_node_map_reserve(&cache->map, cache->map.count + elements) < 0) {
+        if (slots != local) {
+            PyMem_Free(slots);
+        }
+        return -1;
+    }
+    /* GCOVR_EXCL_STOP */
+    /* a run of one type, the usual list, reuses the slot of the element before */
+    path_type_slot *slot = NULL;
+    for (const th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (slot == NULL || !sel_same_type(slot->first, child)) {
+            slot = path_type_find(slots, capacity, cache->seed, child);
+        }
+        if (slot->first == NULL) {
+            slot->first = child;
+        } else if (slot->count == 1) {
+            cache->map.entries[th_node_map_slot(&cache->map, slot->first)].value |= 1;
+        }
+        slot->count++;
+        /* the first path after a mutation entered its own steps; the map is reserved, so the insert cannot fail */
+        if (th_node_map_find(&cache->map, child) == 0) {
+            (void)th_node_map_insert(&cache->map, child, (slot->count << 1) | (slot->count > 1));
+        }
+    }
+    if (slots != local) {
+        PyMem_Free(slots);
+    }
+    return 0;
+}
+
+/* The 1-based position of node among the siblings of its type, setting *needs_index when there is more than one of
+   them. alone is set for the first path after a mutation, which counts its own steps by walking the siblings, so one
+   path on a fresh tree does not pay to resolve every list it passes through; any later step resolves its list. */
+static int path_step_index(HandleObject *handle, th_node *node, int alone, int *needs_index) {
+    if (node->parent == NULL) {
+        *needs_index = 0;
+        return 1;
+    }
+    path_position_map *cache = handle->path_positions;
+    if (cache == NULL) {
+        /* Python's randomized bytes hash is the salt, as it is for the XML parser's duplicate-attribute table. */
+        PyObject *salt = PyBytes_FromStringAndSize("turbohtml:path-type", 19);
+        if (salt == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        cache = PyMem_Calloc(1, sizeof(*cache));
+        if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(salt); /* GCOVR_EXCL_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        cache->seed = (uint64_t)PyObject_Hash(salt);
+        Py_DECREF(salt);
+        handle->path_positions = cache;
+    }
+    Py_ssize_t value = th_node_map_find(&cache->map, node);
+    if (value == 0 && alone) {
+        Py_ssize_t position = 1;
+        for (const th_node *sibling = node->prev_sibling; sibling != NULL; sibling = sibling->prev_sibling) {
+            TH_WORK_STEP();
+            position += sibling->type == TH_NODE_ELEMENT && sel_same_type(node, sibling);
+        }
+        value = (position << 1) | (position > 1 || !sel_no_sibling(node, 1, 1));
+        if (th_node_map_insert(&cache->map, node, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                          /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    } else if (value == 0) {
+        if (path_positions_fill(cache, node->parent) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                      /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        value = th_node_map_find(&cache->map, node);
+    }
+    *needs_index = (int)(value & 1);
+    return (int)(value >> 1);
 }
 
 /* Snapshot the element ancestor chain, node first up to the topmost element
@@ -2478,6 +2573,7 @@ TH_NODE_API(static, PyObject *, element_css_path, (PyObject * self, PyObject *ig
         error = 1;                                                 /* GCOVR_EXCL_LINE: alloc-failure */
     } else { /* GCOVR_EXCL_LINE: brace of the alloc-failure branch */
         const path_id_map *id_map = attached ? handle_obj->path_ids : NULL;
+        const int alone = handle_obj->path_positions == NULL;
         Py_ssize_t top = count - 1;
         int anchored = 0;
         for (Py_ssize_t index = 0; index < count; index++) {
@@ -2517,7 +2613,7 @@ TH_NODE_API(static, PyObject *, element_css_path, (PyObject * self, PyObject *ig
                     path_put_ucs4(&buf, element->text, element->text_len);
                 }
                 int needs_index;
-                int sibling_index = path_step_index(handle_obj, element, &needs_index);
+                int sibling_index = path_step_index(handle_obj, element, alone, &needs_index);
                 if (sibling_index < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                     error = 1;           /* GCOVR_EXCL_LINE: allocation failure */
                     break;               /* GCOVR_EXCL_LINE: allocation failure */
@@ -2559,12 +2655,14 @@ TH_NODE_API(static, PyObject *, element_xpath_path, (PyObject * self, PyObject *
     if (count < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
     } else {         /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+        HandleObject *handle = (HandleObject *)((NodeObject *)self)->handle;
+        const int alone = handle->path_positions == NULL;
         for (Py_ssize_t index = count - 1; index >= 0; index--) {
             th_node *element = chain[index];
             path_puts(&buf, "/");
             path_put_ucs4(&buf, element->text, element->text_len);
             int needs_index;
-            int sibling_index = path_step_index((HandleObject *)((NodeObject *)self)->handle, element, &needs_index);
+            int sibling_index = path_step_index(handle, element, alone, &needs_index);
             if (sibling_index < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 error = 1;           /* GCOVR_EXCL_LINE: allocation failure */
                 break;               /* GCOVR_EXCL_LINE: allocation failure */
@@ -3015,25 +3113,10 @@ static int relocate_subtree(PyObject *dest_handle, PyObject *source_handle, th_n
     return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 1);
 }
 
-/* The attribute values one call has copied while importing a run of nodes (th_copy_memo), so that siblings moved in
-   together keep sharing a value their source elements share. The memo holds addresses in the source arena, so the run
-   owns a reference to the handle of the tree it was filled from, which keeps that arena alive; a node from another
-   tree starts the memo afresh. */
-typedef struct {
-    th_copy_memo memo;
-    PyObject *source;
-} import_run;
-
-static void import_run_free(import_run *run) {
-    th_copy_memo_free(&run->memo);
-    Py_XDECREF(run->source);
-}
-
 /* Taking the source lock can suspend the destination's critical section, so callers
-   must recheck destination tree state after importing. run is the caller's import_run, or NULL for a single import. */
-static th_node *import_node(PyObject *dest_handle, NodeObject *child, import_run *run) {
-    th_tree *dest_tree = ((HandleObject *)dest_handle)->tree;
-    PyObject *previous_source = NULL;
+   must recheck destination tree state after importing. */
+static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
+    HandleObject *dest = (HandleObject *)dest_handle;
 #ifdef Py_GIL_DISABLED
     node_guard guard;
     node_guard_begin_with_handle(&guard, dest_handle, child);
@@ -3043,17 +3126,9 @@ static th_node *import_node(PyObject *dest_handle, NodeObject *child, import_run
 #endif
     th_node *copy;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
-    if (run == NULL) {
-        copy = th_tree_adopt_copy(dest_tree, tree_of((PyObject *)child), child->node);
-    } else {
-        if (run->source != source_handle) {
-            th_copy_memo_free(&run->memo);
-            run->memo = (th_copy_memo){0};
-            previous_source = run->source; /* released below, outside the critical section */
-            run->source = Py_NewRef(source_handle);
-        }
-        copy = th_tree_adopt_copy_sharing(dest_tree, tree_of((PyObject *)child), child->node, &run->memo);
-    }
+    /* a handle's hash_salt is unique to it for the process, so copies made from one source never match another's */
+    dest->copies.source = ((HandleObject *)source_handle)->hash_salt;
+    copy = th_tree_adopt_copy_sharing(dest->tree, tree_of((PyObject *)child), child->node, &dest->copies);
     if (copy != NULL && /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         relocate_subtree(dest_handle, source_handle, child->node, copy) == 0) {
         handle_drop_index(source_handle);
@@ -3066,7 +3141,6 @@ static th_node *import_node(PyObject *dest_handle, NodeObject *child, import_run
 #else
     Py_DECREF(source_handle);
 #endif
-    Py_XDECREF(previous_source);
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -3142,7 +3216,7 @@ static th_node *adopt_into(PyObject *handle, th_node *dest_parent, PyObject *wra
     NodeObject *child = (NodeObject *)wrapper_obj;
     th_tree *dest_tree = ((HandleObject *)handle)->tree;
     if (!node_owned_by(child, handle)) {
-        return import_node(handle, child, NULL);
+        return import_node(handle, child);
     }
     if (th_node_contains(dest_tree, child->node, dest_parent)) {
         PyErr_SetString(PyExc_ValueError, "cannot insert a node into its own subtree");
@@ -3165,7 +3239,7 @@ th_node *adopt_child(NodeObject *anchor, th_node *dest_parent, PyObject *child_o
     return adopt_into(anchor->handle, dest_parent, child_obj);
 }
 
-static int import_foreign_node_in_run(PyObject *dest_handle, PyObject **slot, import_run *run) {
+int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
     module_state *state = state_of(dest_handle);
     PyObject *node = *slot;
     if (!PyObject_TypeCheck(node, (PyTypeObject *)state->node_type) ||
@@ -3179,14 +3253,10 @@ static int import_foreign_node_in_run(PyObject *dest_handle, PyObject **slot, im
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_SETREF(*slot, local);
-    } else if (import_node(dest_handle, (NodeObject *)node, run) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-        return -1;                                                          /* GCOVR_EXCL_LINE: OOM path */
+    } else if (import_node(dest_handle, (NodeObject *)node) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        return -1;                                                     /* GCOVR_EXCL_LINE: OOM path */
     }
     return 1;
-}
-
-int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
-    return import_foreign_node_in_run(dest_handle, slot, NULL);
 }
 
 /* import_foreign_node for every item of list, replacing an imported fragment by its local copy. Returns how many it
@@ -3194,15 +3264,13 @@ int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
    which PyPy's C-API layer does not expose. */
 static Py_ssize_t import_foreign_list(PyObject *dest_handle, PyObject *list) {
     Py_ssize_t imported = 0;
-    import_run run = {{0}, NULL}; /* one for the whole list, so values the moved siblings share are copied once */
     for (Py_ssize_t index = 0; index < PyList_GET_SIZE(list); index++) {
         PyObject *item = PyList_GET_ITEM(list, index);
         PyObject *slot = Py_NewRef(item);
-        int status = import_foreign_node_in_run(dest_handle, &slot, &run);
-        if (status < 0) {          /* GCOVR_EXCL_BR_LINE: OOM only */
-            Py_DECREF(slot);       /* GCOVR_EXCL_LINE */
-            import_run_free(&run); /* GCOVR_EXCL_LINE */
-            return -1;             /* GCOVR_EXCL_LINE */
+        int status = import_foreign_node(dest_handle, &slot);
+        if (status < 0) {    /* GCOVR_EXCL_BR_LINE: OOM only */
+            Py_DECREF(slot); /* GCOVR_EXCL_LINE */
+            return -1;       /* GCOVR_EXCL_LINE */
         }
         if (slot != item) {
             PyList_SetItem(list, index, slot);
@@ -3211,7 +3279,6 @@ static Py_ssize_t import_foreign_list(PyObject *dest_handle, PyObject *list) {
         }
         imported += status;
     }
-    import_run_free(&run);
     return imported;
 }
 
@@ -3346,8 +3413,8 @@ static int append_one(PyObject *self, th_node *parent, PyObject *item) {
     int fresh = 0;
     while (!node_owned_by(child, handle)) {
         uint64_t version = ((HandleObject *)handle)->mutation_version;
-        if (import_node(handle, child, NULL) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-            return -1;                                  /* GCOVR_EXCL_LINE: OOM path */
+        if (import_node(handle, child) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+            return -1;                            /* GCOVR_EXCL_LINE: OOM path */
         }
         /* the import bumps the version once; a further bump means another thread edited this tree while the import
            gave its lock up, and that edit can have linked the copy */
@@ -3694,6 +3761,8 @@ TH_NODE_API(static, PyObject *, element_normalize, (PyObject * self, PyObject *i
     int status;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     status = th_node_normalize(tree_of(self), ((NodeObject *)self)->node);
+    /* merging and emptying Text nodes changes slottables without any index drop */
+    handle_drop_slots((HandleObject *)((NodeObject *)self)->handle);
     Py_END_CRITICAL_SECTION();
     if (status < 0) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */

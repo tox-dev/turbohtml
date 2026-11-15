@@ -195,6 +195,9 @@ static int attr_table_reserve(th_tree *tree) {
 /* Add a name the table does not hold, hashed to hash under the table's current hash.
    Out of line, since a tree adds each name once and looks it up for every element. */
 TH_NOINLINE uint32_t intern_attr_insert(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
+    if (len > 6 && memcmp(bytes, "xmlns:", 6) == 0) {
+        tree->has_prefix_decl = 1;
+    }
     if (attr_table_reserve(tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return TH_ATTR_UNKNOWN;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -335,6 +338,14 @@ uint64_t th_tree_attr_version(const th_tree *tree) {
 
 uint64_t th_tree_id_version(const th_tree *tree) {
     return tree->id_version;
+}
+
+int th_tree_slot_cache_valid(const th_tree *tree) {
+    return tree->slot_cache_valid;
+}
+
+void th_tree_set_slot_cache(th_tree *tree, int valid) {
+    tree->slot_cache_valid = valid;
 }
 
 int th_tree_quirks(const th_tree *tree) {
@@ -848,13 +859,14 @@ static th_node *build_element(th_tree *tree, const th_token *token) {
 
 /* The start tag's attribute with this lowercased ASCII name (tokenizer names are
    already lowercased), or NULL. Used for the boolean shadowroot* attributes, to
-   read shadowrootmode's value, and to read a <meta> encoding declaration. A wider-kind
-   name of the same length holds interleaved zero bytes for its ASCII runs, so the byte
-   compare against an all-ASCII literal can never spuriously match. */
+   read shadowrootmode's value, and to read a <meta> encoding declaration. A wider name
+   stores its code units in more than one byte, so its bytes can equal the literal's
+   without the name being it; only a one-byte name is compared. */
 static const th_attr *token_attr(const th_token *token, const char *name, Py_ssize_t name_len) {
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         const th_attr *attr = &token->attrs[index];
-        if (attr->name.len == name_len && memcmp(attr->name.data, name, (size_t)name_len) == 0) {
+        if (attr->name.len == name_len && attr->name.kind == PyUnicode_1BYTE_KIND &&
+            memcmp(attr->name.data, name, (size_t)name_len) == 0) {
             return attr;
         }
     }
@@ -1411,7 +1423,10 @@ static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len) {
         if (prev_text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;              /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        size_t capacity = tree->merged_text_node == prev ? tree->merged_text_capacity : 0;
+        /* The capacity lives on the node, not in one slot for the tree: text can alternate between two open text
+           nodes (in a table, whitespace stays inside while other text is foster-parented before it), and a node that
+           forgot its capacity would copy its whole payload into a fresh arena buffer on every append. */
+        size_t capacity = prev->text_capacity_shift ? (size_t)1 << prev->text_capacity_shift : 0;
         if ((size_t)len > SIZE_MAX - (size_t)prev->text_len) { /* GCOVR_EXCL_BR_LINE: allocation-size overflow */
             tree->failed = 1;                                  /* GCOVR_EXCL_LINE: allocation-size overflow */
             return;                                            /* GCOVR_EXCL_LINE: allocation-size overflow */
@@ -1429,13 +1444,16 @@ static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len) {
             if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 return;           /* GCOVR_EXCL_LINE: allocation-failure path */
             }
+            TH_WORK_STEPS_ADD(prev->text_len);
             memcpy(merged, prev_text, (size_t)prev->text_len * sizeof(Py_UCS4));
             prev->text = merged;
+            prev->text_capacity_shift = 0;
+            for (size_t slots = capacity; slots > 1; slots >>= 1) { /* th_grow_cap doubles, so a power of two */
+                prev->text_capacity_shift++;
+            }
         }
         memcpy(prev->text + prev->text_len, text, (size_t)len * sizeof(Py_UCS4));
         prev->text_len += len;
-        tree->merged_text_node = prev;
-        tree->merged_text_capacity = capacity;
         return;
     }
     th_node *node = node_new(tree, TH_NODE_TEXT);

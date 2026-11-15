@@ -218,6 +218,136 @@ static inline Py_ssize_t sbuf_find_special(const Py_UCS4 *text, Py_ssize_t index
 }
 #endif
 
+/* The c14n text scan: it stops at & < > and CR, which take a reference, and at a character XML 1.0 cannot hold,
+   which the writer drops. A run of C14N_WIDE_RUN code points or more is tested a block at a time, so the
+   invalid-character test costs nothing per code point there; a shorter run takes the scalar c14n_find_stop, which
+   costs less than setting the block test up. */
+#define C14N_WIDE_RUN 16
+
+#if defined(SBUF_VECTOR_FIND)
+
+/* A surrogate or U+FFFE/U+FFFF lane, tested on the 32-bit lanes because the saturating pack folds them together with
+   every other code point at or above 0x8000. */
+static inline __m128i c14n_wide_invalid(__m128i lanes) {
+    __m128i surrogate =
+        _mm_and_si128(_mm_cmpgt_epi32(lanes, _mm_set1_epi32(0xD7FF)), _mm_cmplt_epi32(lanes, _mm_set1_epi32(0xE000)));
+    return _mm_or_si128(surrogate, _mm_cmpeq_epi32(_mm_or_si128(lanes, _mm_set1_epi32(1)), _mm_set1_epi32(0xFFFF)));
+}
+
+/* The packed 16-bit lanes and mask layout of sbuf_block_special_bits. Tab and newline are flagged with the other
+   controls, which keeps the test to three compares, and c14n_first_stop_lane passes over them. The wide test runs
+   only when a lane reaches the surrogate range, which the OR of both halves bounds from above. */
+static inline unsigned c14n_block_candidate_bits(const Py_UCS4 *block) {
+    __m128i low = _mm_loadu_si128((const __m128i *)block);
+    __m128i high = _mm_loadu_si128((const __m128i *)(block + 4));
+    __m128i lanes = _mm_packs_epi32(low, high);
+    __m128i hits = _mm_cmplt_epi16(lanes, _mm_set1_epi16(0x20));
+    hits = _mm_or_si128(hits, _mm_cmpeq_epi16(lanes, _mm_set1_epi16('&')));
+    /* < and > differ only in bit 1 */
+    hits = _mm_or_si128(hits, _mm_cmpeq_epi16(_mm_or_si128(lanes, _mm_set1_epi16(2)), _mm_set1_epi16('>')));
+    if (_mm_movemask_epi8(_mm_cmpgt_epi32(_mm_or_si128(low, high), _mm_set1_epi32(0xD7FF))) != 0) {
+        hits = _mm_or_si128(hits, _mm_packs_epi32(c14n_wide_invalid(low), c14n_wide_invalid(high)));
+    }
+    return (unsigned)_mm_movemask_epi8(hits);
+}
+
+/* The first lane flagged in bits that is a stop, or -1, passing over tab and newline. */
+static inline int c14n_first_stop_lane(const Py_UCS4 *block, unsigned bits) {
+    while (bits != 0) {
+        int lane = sbuf_ctz(bits) / 2;
+        if (block[lane] != '\t' && block[lane] != '\n') {
+            return lane;
+        }
+        bits &= ~(3u << (2 * lane));
+    }
+    return -1;
+}
+
+/* The first stop at or after index, or len, for a run of at least eight code points; past the last full block one
+   block laid over the final eight, with the lanes before index masked off, covers the rest. Kept out of line: inlined
+   into a writer loop that calls the allocator, the vector constants are rebuilt and spilled on every run. */
+TH_NOINLINE static Py_ssize_t c14n_find_text_stop_wide(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
+    while (index + SBUF_SCAN_STEP <= len) {
+        unsigned bits = c14n_block_candidate_bits(&text[index]);
+        if (bits != 0) {
+            int lane = c14n_first_stop_lane(&text[index], bits);
+            if (lane >= 0) {
+                return index + lane;
+            }
+        }
+        index += SBUF_SCAN_STEP;
+    }
+    if (index == len) {
+        return len;
+    }
+    Py_ssize_t base = len - SBUF_SCAN_STEP;
+    unsigned bits = c14n_block_candidate_bits(&text[base]) & 0xFFFFu << (2 * (index - base));
+    int lane = c14n_first_stop_lane(&text[base], bits);
+    return lane >= 0 ? base + lane : len;
+}
+
+#elif !defined(TH_FORCE_SCALAR) && (defined(__aarch64__) || defined(_M_ARM64))
+
+static inline int c14n_block_has_stop(const Py_UCS4 *text) {
+    uint32x4_t lanes = vld1q_u32((const uint32_t *)text);
+    uint32x4_t literal = vorrq_u32(vceqq_u32(lanes, vdupq_n_u32('\t')), vceqq_u32(lanes, vdupq_n_u32('\n')));
+    uint32x4_t hits = vbicq_u32(vcltq_u32(lanes, vdupq_n_u32(0x20)), literal);
+    hits = vorrq_u32(hits, vceqq_u32(lanes, vdupq_n_u32('&')));
+    hits = vorrq_u32(hits, vorrq_u32(vceqq_u32(lanes, vdupq_n_u32('<')), vceqq_u32(lanes, vdupq_n_u32('>'))));
+    hits = vorrq_u32(hits, vcltq_u32(vsubq_u32(lanes, vdupq_n_u32(0xD800)), vdupq_n_u32(0x800)));
+    hits = vorrq_u32(hits, vceqq_u32(vorrq_u32(lanes, vdupq_n_u32(1)), vdupq_n_u32(0xFFFF)));
+    return vmaxvq_u32(hits) != 0;
+}
+
+/* NEON skips the blocks without a stop and leaves the block holding one to the scalar scan. */
+static inline Py_ssize_t c14n_find_text_stop_wide(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
+    while (index + SBUF_SCAN_STEP <= len && !c14n_block_has_stop(&text[index])) {
+        index += SBUF_SCAN_STEP;
+    }
+    return c14n_find_stop(text, index, len, C14N_TEXT_STOPS);
+}
+
+#else
+
+static inline Py_ssize_t c14n_find_text_stop_wide(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
+    return c14n_find_stop(text, index, len, C14N_TEXT_STOPS);
+}
+
+#endif
+
+/* Whether a code point lies between `?` and the surrogates, where c14n text has nothing to escape or drop. The
+   subtraction folds both bounds into one unsigned compare. */
+static inline int c14n_text_plain(Py_UCS4 character) {
+    return character - 0x3F < 0xD800 - 0x3F;
+}
+
+/* The first c14n text stop at or after index, or len. A short run tests four plain code points per bounds check and
+   gives the rest (spaces, digits and punctuation, and code points from the surrogates up) the exact test. */
+static inline Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
+    if (len - index >= C14N_WIDE_RUN) {
+        return c14n_find_text_stop_wide(text, index, len);
+    }
+    while (index + 4 <= len) {
+        if (c14n_text_plain(text[index])) {
+            if (!c14n_text_plain(text[index + 1])) {
+                index += 1;
+            } else if (!c14n_text_plain(text[index + 2])) {
+                index += 2;
+            } else if (!c14n_text_plain(text[index + 3])) {
+                index += 3;
+            } else {
+                index += 4;
+                continue;
+            }
+        }
+        if (c14n_stop(text[index], C14N_TEXT_STOPS)) {
+            return index;
+        }
+        index++;
+    }
+    return c14n_find_stop(text, index, len, C14N_TEXT_STOPS);
+}
+
 /* Emit the replacement for a flagged character. */
 static inline void sbuf_put_special(sbuf *out, Py_UCS4 character, int formatter) {
     const char *name = formatter == TH_FMT_NAMED ? th_entity_name(character) : NULL;
@@ -378,6 +508,14 @@ static inline void sbuf_put_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
     sbuf_put_ucs4_tail(out, text, start, len);
 }
 
+/* Dropped characters leave a `?` and a `>` adjacent in the output, so the `>` is looked for past them. */
+static inline int xml_pi_gt_follows(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t index) {
+    while (index < len && xml_char_invalid(text[index])) {
+        index++;
+    }
+    return index < len && text[index] == '>';
+}
+
 /* A `?>` in the data would end the instruction, and XML forbids C0 controls. */
 static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t start = 0;
@@ -385,7 +523,7 @@ static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize
         if (xml_char_invalid(text[index])) {
             sbuf_put_ucs4(out, text + start, index - start);
             start = index + 1;
-        } else if (index + 1 < len && text[index] == '?' && text[index + 1] == '>') {
+        } else if (text[index] == '?' && xml_pi_gt_follows(text, len, index + 1)) {
             sbuf_put_ucs4(out, text + start, index + 1 - start);
             sbuf_putc(out, ' ');
             start = index + 1;
@@ -394,16 +532,25 @@ static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize
     sbuf_put_ucs4_tail(out, text, start, len);
 }
 
-/* `]]>` cannot appear inside a CDATA section, so the section closes after `]]` and a new one starts at `>`. */
+/* `]]>` cannot appear inside a CDATA section, so the section closes after `]]` and a new one starts at `>`. The
+   scan skips the characters XML forbids, since dropping one can bring a `]]` and a `>` together. */
 static inline void sbuf_put_xml_cdata(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     sbuf_puts(out, "<![CDATA[");
     Py_ssize_t start = 0;
-    for (Py_ssize_t index = 0; index + 2 < len; index++) {
-        if (text[index] == ']' && text[index + 1] == ']' && text[index + 2] == '>') {
-            sbuf_put_ucs4(out, text + start, index + 2 - start);
-            sbuf_puts(out, "]]><![CDATA[");
-            start = index + 2;
+    int closing_brackets = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 character = text[index];
+        if (xml_char_invalid(character)) {
+            sbuf_put_ucs4(out, text + start, index - start);
+            start = index + 1;
+            continue;
         }
+        if (character == '>' && closing_brackets >= 2) {
+            sbuf_put_ucs4(out, text + start, index - start);
+            sbuf_puts(out, "]]><![CDATA[");
+            start = index;
+        }
+        closing_brackets = character == ']' ? closing_brackets + 1 : 0;
     }
     sbuf_put_ucs4_tail(out, text, start, len);
     sbuf_puts(out, "]]>");
@@ -811,7 +958,14 @@ static inline int ser_xml_ns_used(th_tree *tree, const th_node *root, const char
     return 0;
 }
 
-static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted) {
+/* Copy the ancestors' namespace declarations node's subtree uses onto node. When every child of the boundary gets
+   its own copy, spend is the account those copies are charged to; past its allowance the serialization fails with
+   ValueError, since output without the declarations would reparse into other namespaces. */
+static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted,
+                                              th_xml_ns_spend *spend) {
+    if (out->failed) { /* nothing more is written, so there is no use working out what to copy */
+        return;
+    }
     for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
         if (ancestor->type != TH_NODE_ELEMENT) {
             continue;
@@ -825,11 +979,24 @@ static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th
                 !ser_xml_ns_used(tree, node, name, name_len)) {
                 continue;
             }
+            Py_ssize_t start = out->len;
+            if (spend != NULL && !xml_ns_copy_funded(spend->copied, spend->flushed + start,
+                                                     name_len + attr->value_len + 4, spend->base)) {
+                PyErr_Format(PyExc_ValueError,
+                             "the namespace declarations the children inherit exceed the allowance of %zd characters "
+                             "plus %d per character of other output; serialize the element itself to write them once",
+                             spend->base, TH_XML_NS_PER_CHAR);
+                out->failed = 1;
+                return;
+            }
             sbuf_putc(out, ' ');
             sbuf_put_utf8(out, name, name_len);
             sbuf_puts(out, "=\"");
             sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
             sbuf_putc(out, '"');
+            if (spend != NULL) {
+                spend->copied += out->len - start; /* what was written: escaping can lengthen the value */
+            }
         }
     }
 }
@@ -891,7 +1058,7 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
             ser_xml_xlink_inherited(tree, node, walk);
         }
         if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
-            ser_xml_inherited_ns_decls(out, tree, node, emitted);
+            ser_xml_inherited_ns_decls(out, tree, node, emitted, opts->xml_ns_spend);
         }
         return emitted;
     }
@@ -917,7 +1084,7 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
         sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
     }
     if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
-        ser_xml_inherited_ns_decls(out, tree, node, emitted);
+        ser_xml_inherited_ns_decls(out, tree, node, emitted, opts->xml_ns_spend);
     }
     return emitted;
 }
@@ -981,6 +1148,27 @@ static inline int commonmark_attr_name_valid(const char *name, Py_ssize_t name_l
     return 1;
 }
 
+/* The tree builder reopens an unclosed formatting element in every block after it, attributes and all. The output a
+   writer has produced funds the attributes of those clones, so a value spelled once cannot multiply the output. This is
+   where a clone's attributes start in out, or -1 for an element the source wrote, which pays for itself. */
+static inline Py_ssize_t ser_clone_start(const sbuf *out, const th_node *node) {
+    return node->tag_flags & TH_ELEM_IMPLIED ? out->len : -1;
+}
+
+/* Whether the clone whose attributes began at start fits one more of cost characters: the allowance and the output
+   fund it, less the clone attributes already written, which count once as output and once as spent. A clone stops at
+   the first attribute that does not fit, so no later one lands next to an attribute it was written after. */
+static inline int ser_clone_attr_fits(const sbuf *out, Py_ssize_t start, Py_ssize_t cost) {
+    return cost <= TH_CLONE_ALLOWANCE + out->clone_credit + out->len - 2 * (out->len - start);
+}
+
+/* Charge the attributes the clone wrote since start; a no-op for an element the source wrote. */
+static inline void ser_clone_settle(sbuf *out, Py_ssize_t start) {
+    if (start >= 0) {
+        out->clone_credit -= 2 * (out->len - start);
+    }
+}
+
 /* Write an element's start tag up to but not including its closing delimiter,
    "<tag attrs...": attributes in source order, or in name order when opts asks;
    values double-quoted and escaped under the formatter (or the XML rules when
@@ -997,6 +1185,8 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);
     int charset_kind = opts->inject_meta && !opts->xml ? ser_meta_charset_kind(tree, node) : 0;
+    /* Markdown's raw HTML spends the budget its prose funds instead */
+    Py_ssize_t clone_start = opts->clone_budget == NULL ? ser_clone_start(out, node) : -1;
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
@@ -1019,6 +1209,8 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
             } else {
                 *opts->clone_budget -= cost;
             }
+        } else if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, name_len + attr->value_len)) {
+            break;
         }
         TH_WORK_STEPS_ADD(name_len + attr->value_len);
         sbuf_putc(out, ' ');
@@ -1044,6 +1236,7 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         }
         sbuf_putc(out, '"');
     }
+    ser_clone_settle(out, clone_start);
     ser_attr_order_free(order, stack_order);
 }
 

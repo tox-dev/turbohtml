@@ -134,7 +134,13 @@ typedef struct {
     uint32_t css_sheet_attr_gen;
     int css_sheets_ready;
     void *css_computed;
+    void *slot_cache;       /* the slot tables of the shadow roots read through it (dom/shadow.c), or NULL */
+    uint32_t slot_scans;    /* long slot scans since the slot cache was last dropped */
+    int32_t slot_scan_wait; /* plain slot scans left before the next counted one or cache read */
     uint64_t mutation_version;
+    /* The attribute values imported nodes copied into this tree, kept for the handle's life so that a later import
+       from the same source shares a value an earlier one copied (see import_node). */
+    th_copy_memo copies;
 } HandleObject;
 
 static inline size_t hash_override_slot(const th_node *node, size_t mask) {
@@ -440,7 +446,11 @@ static inline PyObject *str_from_accessor(Py_UCS4 *(*accessor)(th_tree *, th_nod
                                           th_node *node) {
     Py_ssize_t len;
     Py_UCS4 *buf = accessor(tree, node, &len);
-    if (buf == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (buf == NULL) {
+        /* inner_xml leaves its ValueError set; a bare NULL with no exception is the unforceable allocation failure */
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the no-exception NULL is an unforceable allocation failure */
+            return NULL;
+        }
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *result = ucs4_to_str(buf, len);
@@ -872,6 +882,15 @@ void handle_clear_css_cache(HandleObject *handle);
 /* Drop a handle's cached selector index and id map after a structural mutation. Lives in
    element.c beside the mutation bindings; query/methods.c calls it from prune/remove/strip. */
 void handle_drop_index(PyObject *handle_obj);
+/* Free a handle's slot cache, which must exist. Defined in shadow.c, where the private slot table types live. */
+void handle_free_slots(HandleObject *handle);
+
+/* Drop a handle's slot cache, if it has one. Inline, so a handle without one pays one test. */
+static inline void handle_drop_slots(HandleObject *handle) {
+    if (handle->slot_cache != NULL) {
+        handle_free_slots(handle);
+    }
+}
 void path_positions_free(void *positions);
 
 /* Encode an attribute-name str into a freshly allocated (PyMem_Free) UTF-8 buffer for a
@@ -907,6 +926,7 @@ PyObject *node_xpath_one(PyObject *self, PyObject *args, PyObject *kwds);
 PyObject *node_css_matches(PyObject *self, PyObject *arg);
 PyObject *node_css_closest(PyObject *self, PyObject *arg);
 int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found);
+int node_css_closest_each(PyObject *module, PyObject *nodes, PyObject *selector, PyObject *out);
 PyObject *node_prune(PyObject *self, PyObject *arg);
 PyObject *node_remove(PyObject *self, PyObject *arg);
 PyObject *node_strip_tags(PyObject *self, PyObject *arg);

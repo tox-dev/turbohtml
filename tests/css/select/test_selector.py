@@ -804,6 +804,25 @@ def _deep_xml(depth: int) -> Document:
     return parse_xml(f"{'<group>' * depth}<item/>{'</group>' * depth}")
 
 
+# each element's attribute value sits next to it in the tree's arena, so the value's length sets how far apart the
+# elements lie in memory; a memo hashed by address put every element of a chain this far apart in one probe run
+def _deep_xml_spaced(depth: int) -> Document:
+    start: Final = f'<group pad="{"x" * 262}">'
+    return parse_xml(f"{start * depth}<item/>{'</group>' * depth}")
+
+
+# every node takes the next creation sequence, so comments steer which sequences the nested elements get; these are
+# the ones whose product with the node maps' Fibonacci multiplier lands in its lowest eighth, which gives the
+# elements' memo entries home slots in one run of the table at every size
+def _deep_xml_sequence_clustered(depth: int) -> Document:
+    parts: Final[list[str]] = []
+    sequence = 0
+    while len(parts) - parts.count("<!---->") < depth:
+        sequence += 1
+        parts.append("<group>" if sequence * 0x61C88647 % 2**32 < 2**29 else "<!---->")
+    return parse_xml(f"{''.join(parts)}<item/>{'</group>' * depth}")
+
+
 def _deep_appended(depth: int) -> Element:
     root: Final = Element("root")
     innermost = root
@@ -845,6 +864,8 @@ _NESTED_DEPTH: Final[int] = 4_000
     "build",
     [
         pytest.param(_deep_xml, id="parse-xml"),
+        pytest.param(_deep_xml_spaced, id="parse-xml-spaced-in-memory"),
+        pytest.param(_deep_xml_sequence_clustered, id="parse-xml-clustered-in-sequence"),
         pytest.param(_deep_appended, id="mutation-api"),
         pytest.param(_deep_xml_in_parsed_html, id="appended-to-parsed-html"),
         pytest.param(_deep_xml_imported_into_parsed_html, id="imported-into-parsed-html"),
@@ -1712,6 +1733,88 @@ def test_dir_auto_skips_neutral_then_resolves() -> None:
 
 
 @pytest.mark.parametrize(
+    ("selector", "ids"),
+    [
+        pytest.param(":dir(rtl)", ["a", "c", "d", "e", "outer"], id="rtl"),
+        pytest.param("[id]:dir(ltr)", ["b"], id="ltr"),
+        pytest.param("[id]:has(> :dir(ltr))", ["outer"], id="inside-has"),
+        pytest.param(":dir(rtl) > :dir(ltr)", ["b"], id="across-a-combinator"),
+    ],
+)
+def test_dir_auto_answers_once_per_element(selector: str, ids: list[str]) -> None:
+    # every candidate below a dir=auto element resolves through it, and a query reads that element's text once;
+    # the bdi elements between them keep their own answers
+    html = "<div id=outer dir=auto>א<p id=a></p><bdi id=b>x</bdi><p id=c></p><bdi id=d>א</bdi><p id=e></p></div>"
+    assert _ids(html, selector) == ids
+
+
+def test_dir_auto_is_read_again_by_the_next_query() -> None:
+    document = parse("<div dir=auto><i>א</i><p id=a></p></div>")
+    before = [element.attrs.get("id") for element in document.select("p:dir(rtl)")]
+    document.remove("i")
+    assert (before, document.select("p:dir(rtl)")) == (["a"], [])
+
+
+def test_matches_dir_auto_answers_once_per_element() -> None:
+    # one matches() call tests every child inside :has(): the paragraphs share the div's answer, the bdi keeps its
+    # own, and the next call reads the text again
+    outer = parse("<div dir=auto>א<p></p><bdi>x</bdi><p></p></div>").select("div")[0]
+    before = (outer.matches(":has(> p:dir(rtl) + bdi:dir(ltr) + p:dir(rtl))"), outer.matches(":has(> bdi:dir(rtl))"))
+    text = outer.children[0]
+    assert isinstance(text, Text)
+    text.data = "x"
+    assert (before, outer.matches(":has(> p:dir(ltr) ~ p:dir(ltr))")) == ((True, False), True)
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<div id=o dir=auto>א<bdi>x<p><span></span></p></bdi></div>", id="through-bdi"),
+        # the span resolves through the inner element first, so the outer walk meets its answer already known
+        pytest.param("<div id=o dir=auto>1<p dir=auto>2<span></span></p>א</div>", id="known-without-strong"),
+    ],
+)
+def test_closest_dir_resolves_each_auto_ancestor(html: str) -> None:
+    closest = parse(html).select("span")[0].closest(":dir(rtl)")
+    assert closest is not None
+    assert closest.attrs.get("id") == "o"
+
+
+def test_closest_dir_reads_disabled_in_the_same_walk() -> None:
+    span = parse("<fieldset disabled><div id=o dir=auto>א<input><span></span></div></fieldset>").select("span")[0]
+    closest = span.closest(":dir(rtl):has(> input:disabled)")
+    assert closest is not None
+    assert closest.attrs.get("id") == "o"
+
+
+def test_closest_dir_takes_a_known_strong_answer_for_the_outer_element() -> None:
+    span = parse("<div dir=auto>1<p dir=auto>א<span></span></p>x</div>").select("span")[0]
+    assert span.closest("div:dir(ltr)") is None
+
+
+def test_dir_auto_reads_past_empty_nodes() -> None:
+    document = parse("<div id=o dir=auto>x<p>א</p></div><p id=e dir=auto></p>")
+    text = document.select("div")[0].children[0]
+    assert isinstance(text, Text)
+    text.data = ""
+    assert [element.attrs.get("id") for element in document.select("[id]:dir(rtl)")] == ["o"]
+
+
+def test_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(parse(f"<section dir=auto>{'<i>1</i>' * n}").select, ":dir(rtl)"), (500, 2000)
+    )
+
+
+@pytest.mark.parametrize("innermost", [pytest.param("", id="no-strong"), pytest.param("ש", id="strong-innermost")])
+def test_nested_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps, innermost: str) -> None:
+    opening: Final = '<b dir="auto">2'
+    work_steps.assert_linear(
+        lambda n: partial(parse_xml(f"<r>{opening * n}{innermost}{'</b>' * n}</r>").select, ":dir(ltr)"), (500, 2000)
+    )
+
+
+@pytest.mark.parametrize(
     ("html", "direction"),
     [
         # the input-value special case is HTML-only, so a foreign (non-HTML) element with
@@ -1868,6 +1971,94 @@ def test_disabled_fieldset_late_legend_scales_linearly(work_steps: WorkSteps) ->
 
     assert len(build(3)()) == 3
     work_steps.assert_linear(build, (500, 2000))
+
+
+# A single matches() or closest() call has no query memo, so the first-legend answers must last for that one call:
+# every test of a late legend's controls would otherwise walk the fieldset's children again.
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(
+            lambda page: partial(page.select("#o")[0].matches, ":has(input:disabled)"),
+            id="matches-has",
+        ),
+        pytest.param(
+            lambda page: partial(page.select("#o input")[-1].matches, ":disabled ~ input"),
+            id="matches-sibling",
+        ),
+        pytest.param(
+            lambda page: partial(page.select("#o input")[0].closest, ":has(input:disabled)"),
+            id="closest-has",
+        ),
+    ],
+)
+def test_disabled_fieldset_late_legend_single_call_scales_linearly(
+    query: Callable[[Document], Callable[[], object]], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda width: query(_late_legend(width)), (500, 2000))
+
+
+def _late_legend(width: int) -> Document:
+    markup = f"{'<div></div>' * width}<legend>{'<input>' * width}</legend>"
+    return parse(f"<div id=o><fieldset disabled>{markup}</fieldset></div>")
+
+
+def test_disabled_fieldset_single_call_answers_match_the_legend_rule() -> None:
+    page = parse("<fieldset disabled><input id=c><legend><input disabled id=a><input id=b></legend></fieldset>")
+    before_legend, disabled_in_legend, exempt_in_legend = page.select("input")
+    assert (
+        before_legend.matches(":disabled"),
+        disabled_in_legend.matches(":disabled"),
+        exempt_in_legend.matches(":enabled"),
+    ) == (True, True, True)
+    assert exempt_in_legend.matches(":disabled ~ input")
+    legend = exempt_in_legend.closest(":has(input:disabled)")
+    assert legend is not None
+    assert legend.tag == "legend"
+
+
+# Level i is a legend (L) or a div (D) that holds input in{i} and the next level. A control is enabled only when every
+# level above it is a legend, since the first legend is the one exempt child of its fieldset.
+@pytest.mark.parametrize(
+    ("kinds", "enabled"),
+    [
+        pytest.param("L" * 40, list(range(40)), id="legends-only"),
+        pytest.param(f"{'L' * 35}D{'L' * 4}", list(range(35)), id="div-below-memo-climb"),
+        pytest.param(f"D{'L' * 39}", [], id="div-outermost"),
+    ],
+)
+def test_disabled_fieldset_levels_enable_only_below_legends(kinds: str, enabled: list[int]) -> None:
+    document = parse(_fieldset_levels(kinds))
+    expected = [f"in{index}" for index in enabled]
+    assert [e.attrs.get("id") for e in document.select("input:enabled")] == expected
+    assert [e.attrs.get("id") for e in document.select("input") if e.matches(":enabled")] == expected
+
+
+def _fieldset_levels(kinds: str) -> str:
+    markup = ""
+    for index in reversed(range(len(kinds))):
+        wrap = "legend" if kinds[index] == "L" else "div"
+        markup = f"<fieldset disabled><{wrap}><input id=in{index}>{markup}</{wrap}></fieldset>"
+    return markup
+
+
+# Every control at the bottom of a chain of legend-held fieldsets climbs past all of them. Without a memo of the climb
+# each control costs the chain's depth, so depth times controls is quadratic in the nesting.
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda page: page.select("input:enabled"), id="select"),
+        pytest.param(lambda page: page.select("fieldset")[0].matches(":has(input:disabled)"), id="matches-has"),
+    ],
+)
+def test_disabled_fieldset_legend_chain_scales_linearly(
+    query: Callable[[Document], object], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda depth: partial(query, _legend_chain(depth)), (50, 150))
+
+
+def _legend_chain(depth: int) -> Document:
+    return parse("<fieldset disabled><legend>" * depth + "<input>" * depth + "</legend></fieldset>" * depth)
 
 
 def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:

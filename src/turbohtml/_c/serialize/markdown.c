@@ -136,8 +136,10 @@ typedef struct {
     char delimiter; /* what follows an ordered item's number */
     int ordered;
     int loose;
-    int item_seen; /* an item has opened, so content between items continues it */
-    int in_run;    /* content between items is in the middle of an inline run */
+    int item_seen;          /* an item has opened, so content between items continues it */
+    int in_run;             /* content between items is in the middle of an inline run */
+    th_node *checked_item;  /* the first item md_enter_list decided against the text before the list */
+    Py_ssize_t checked_len; /* the output length at that decision */
 } md_list_state;
 
 /* How a frame walks its node's children. */
@@ -328,6 +330,7 @@ typedef struct {
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
     char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
+    Py_ssize_t list_over;       /* output length where a reader is out of that list; behind list_end until then */
     int g_bold;                 /* google_doc: a CSS font-weight bold is in force from an ancestor */
     int g_italic;               /* google_doc: a CSS font-style italic is in force from an ancestor */
     int failed;                 /* a reference buffer allocation failed */
@@ -3636,9 +3639,24 @@ static int md_list_raw_safe(th_tree *tree, th_node *list) {
     }
 }
 
+/* Whether a list item cannot interrupt the paragraph on the line before it: it starts with a blank marker line, or it
+   is numbered other than 1 (CommonMark 5.2). */
+static TH_NOINLINE int md_item_cannot_interrupt(md_ctx *ctx, th_node *item, int ordered, Py_ssize_t number) {
+    return md_leads_with_inline(ctx, item, NULL, 1) <= 0 ||
+           (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
+}
+
 /* Open one list item: its marker on a fresh line, then its children laid out as
    blocks indented under the marker. */
 static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
+    /* what a list holds before its first item is laid out as a block of its own, which that item then follows the way
+       the list follows a paragraph */
+    /* md_enter_list already decided this item, and nothing has been written since */
+    if (!state->item_seen && ctx->line_has_content &&
+        !(child == state->checked_item && ctx->out.len == state->checked_len) &&
+        md_item_cannot_interrupt(ctx, child, state->ordered, state->number)) {
+        ctx->interrupt_blank = 1;
+    }
     md_block_line(ctx, state->loose);
     Py_ssize_t lead = 0;
     if (ctx->opt->google_doc) {
@@ -3678,6 +3696,7 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     /* the item's content starts its own line: `- 1. x` would nest an ordered list */
     ctx->line_has_content = 0;
     ctx->item_marker = 1;
+    ctx->list_over = ctx->out.len; /* a marker ends the list that closed before it */
     state->sub_indent = width;
     state->item_seen = 1;
     state->in_run = 0;
@@ -3738,9 +3757,12 @@ static void md_list_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
             /* a list nested directly in a list (a sibling of the <li>s, not wrapped
                in one) belongs to the preceding item as a sublist; the parser makes
                this shape, and dropping it would lose every nested item. The nested
-               list re-applies the wrap guard per item, so none is needed here. */
+               list re-applies the wrap guard per item, so none is needed here.
+               Before the first item no marker exists to indent under. */
             state->in_run = 0;
-            md_push_indent(ctx, state->sub_indent, 1);
+            if (state->item_seen) {
+                md_push_indent(ctx, state->sub_indent, 1);
+            }
             md_render_block(ctx, child);
             return;
         }
@@ -3810,21 +3832,15 @@ static int md_list_ordered(md_ctx *ctx, th_node *node) {
     return ordered;
 }
 
-/* Whether a list cannot interrupt the paragraph on the line before it: its first item
-   starts with a blank marker line, or it is ordered and starts at a number other than 1
-   (CommonMark 5.2). The marker would then read as paragraph text, or a lone `-` as a
-   setext underline (4.3). Only an item that is the list's first element child is
-   looked at; anything before it renders as a block of its own. */
-static TH_NOINLINE int md_list_cannot_interrupt(md_ctx *ctx, th_node *list, int ordered, Py_ssize_t number) {
+/* The item that decides whether a list can interrupt the paragraph on the line before it: only
+   the list's first element child, and only when it is an item. Anything before it renders as a
+   block of its own. */
+static TH_NOINLINE th_node *md_list_first_item(th_node *list) {
     th_node *item = list->first_child;
     while (item != NULL && item->type != TH_NODE_ELEMENT) {
         item = item->next_sibling;
     }
-    if (item == NULL || item->ns != TH_NS_HTML || item->atom != TH_TAG_LI) {
-        return 0;
-    }
-    return md_leads_with_inline(ctx, item, NULL, 1) <= 0 ||
-           (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
+    return item != NULL && item->ns == TH_NS_HTML && item->atom == TH_TAG_LI ? item : NULL;
 }
 
 static void md_enter_list(md_ctx *ctx, th_node *node) {
@@ -3848,17 +3864,19 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
         md_emit_raw_html(ctx, node);
         return;
     }
-    if (ctx->line_has_content && md_list_cannot_interrupt(ctx, node, ordered, number)) {
+    th_node *checked_item = ctx->line_has_content ? md_list_first_item(node) : NULL;
+    if (checked_item != NULL && md_item_cannot_interrupt(ctx, checked_item, ordered, number)) {
         ctx->interrupt_blank = 1;
     }
     Py_ssize_t bullets_len = (Py_ssize_t)strlen(ctx->opt->bullets);
     md_list_state state = {
         .number = number,
-        .sub_indent = 2, /* how far a bare nested list indents: the last marker's width */
         .bullet = ctx->opt->bullets[ctx->list_depth % bullets_len],
         .delimiter = '.',
         .ordered = ordered,
         .loose = loose,
+        .checked_item = checked_item,
+        .checked_len = ctx->out.len,
     };
     /* CommonMark keeps items with the same bullet or ordered delimiter in one list,
        blank line or not, so a list that follows one of its own kind with nothing in
@@ -3963,8 +3981,8 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_break_end = ctx->break_end;
     table->saved_space = ctx->space_pending;
     table->saved_drop = ctx->drop_space;
-    ctx->out = (sbuf){NULL, 0, 0, 0};
-    ctx->prefix = (sbuf){NULL, 0, 0, 0};
+    ctx->out = (sbuf){NULL, 0, 0, 0, 0};
+    ctx->prefix = (sbuf){NULL, 0, 0, 0, 0};
     Py_ssize_t outer = ctx->marker_count;
     ctx->marker_base = outer;
     ctx->pending = NULL;
@@ -4466,6 +4484,66 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
     PyMem_Free(text);
 }
 
+/* Whether a reader can still be inside the list that closed last, whatever was laid out since. An item marker written
+   after it ends it, and so do a blank line and then a line of something else: with nothing after the blank line the
+   list is still open, and without the blank line that line can read as the last item's lazy continuation
+   (CommonMark 5.1). Where the list ends is kept, so the blocks after it do not each scan up to there. */
+static int md_list_lingers(md_ctx *ctx) {
+    if (ctx->list_end_marker == 0 || ctx->list_over > ctx->list_end) {
+        return 0;
+    }
+    Py_ssize_t index = ctx->list_end;
+    /* an emphasis run the list sat in closes on the last item's own line */
+    while (index < ctx->out.len && ctx->out.data[index] != '\n') {
+        index++;
+    }
+    /* the line under it is blank when it holds a trimmed line prefix alone */
+    for (index++; index < ctx->out.len && ctx->out.data[index] != '\n'; index++) {
+        if (ctx->out.data[index] != ' ' && ctx->out.data[index] != '>') {
+            return 1;
+        }
+    }
+    for (; index < ctx->out.len; index++) {
+        Py_UCS4 ch = ctx->out.data[index];
+        if (ch != '\n' && ch != ' ' && ch != '>') {
+            ctx->list_over = index + 1;
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether a reader takes four-space lines as code where this block stands; a fence is read as code anywhere. Under a
+   list a reader still holds open, the indent continues the last item as a paragraph (CommonMark 5.2), as it does under
+   an item nested too deep for the prefix to indent. An indented code block cannot start with a blank line either (4.4),
+   and behind a list marker that line leaves the item empty, which cannot interrupt a paragraph (5.2). */
+static int md_code_can_indent(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t end) {
+    if (ctx->indent_levels > TH_MAX_INDENT_LEVELS || md_list_lingers(ctx)) {
+        return 0;
+    }
+    Py_ssize_t index = 0;
+    while (index < end && text[index] != '\n' && is_space(text[index])) {
+        index++;
+    }
+    return index < end && text[index] != '\n';
+}
+
+/* Whether the line just opened holds its prefix alone under a blank line or at the head of the output, going by the
+   text written rather than the layout state: a quote that follows another in a tight item opens its own line, yet
+   continues the quote on the line above it. */
+static int md_under_blank_line(md_ctx *ctx) {
+    int lines = 0;
+    for (Py_ssize_t index = ctx->out.len; index > 0 && lines < 2; index--) {
+        Py_UCS4 last = ctx->out.data[index - 1];
+        if (last == '\n') {
+            lines++;
+        } else if (last != ' ' && last != '>') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t text_len, const Py_UCS4 *lang,
                                   Py_ssize_t lang_len) {
     const md_opts *opt = ctx->opt;
@@ -4474,7 +4552,18 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
     if (end > 0 && text[end - 1] == '\n') {
         end--;
     }
+    /* the text is written unescaped, so it takes the four-space style only where a reader takes that as code */
+    int indented = opt->code_mark_open == NULL && opt->code_block_style == TH_MD_CODE_INDENTED &&
+                   md_code_can_indent(ctx, text, end);
+    if (indented && ctx->line_has_content) {
+        /* an indented code block cannot interrupt a paragraph (CommonMark 4.4): it would be its continuation text */
+        ctx->interrupt_blank = 1;
+    }
     md_block_line(ctx, 1);
+    /* a block that opens a list item is fenced too: its marker line may itself continue a paragraph above it */
+    if (indented && !md_under_blank_line(ctx)) {
+        indented = 0;
+    }
     if (opt->code_mark_open != NULL) {
         /* html2text's [code]...[/code] markers in place of a fence */
         md_puts8(&ctx->out, opt->code_mark_open);
@@ -4484,7 +4573,7 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
         md_newline(ctx);
         md_puts8(&ctx->out, opt->code_mark_close);
         ctx->line_has_content = 1;
-    } else if (opt->code_block_style == TH_MD_CODE_INDENTED) {
+    } else if (indented) {
         /* indent every line by four spaces instead of fencing it */
         Py_ssize_t base = ctx->prefix.len;
         sbuf_puts(&ctx->prefix, "    ");
@@ -4970,7 +5059,7 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.marker_cap = MD_INLINE_MARKERS;
     ctx.break_end = -1;
     /* a few short targets repeat in clones before any rendered text funds the budget */
-    ctx.clone_budget = 256;
+    ctx.clone_budget = TH_CLONE_ALLOWANCE;
     /* Let a few deep runs reopen in full before source text has to fund them. */
     ctx.tags_left = 256;
     ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);

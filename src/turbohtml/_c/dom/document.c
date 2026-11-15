@@ -936,8 +936,10 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
-    if (target_len >= 3 && PyUnicode_READ_CHAR(target, target_len - 1) == ':' && url_web_special_base(target) &&
-        url_same_scheme(base, target)) {
+    /* A colon before the last character is a port, path, query or fragment colon, not the scheme's. */
+    if (target_len >= 3 && PyUnicode_READ_CHAR(target, target_len - 1) == ':' &&
+        PyUnicode_FindChar(target, ':', 0, target_len, 1) == target_len - 1 && url_web_special_base(target) &&
+        url_same_scheme_at(base, target, target_len - 1)) {
         PyObject *empty = PyUnicode_New(0, 127);
         if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1438,7 +1440,8 @@ PyDoc_STRVAR(structured_data_doc,
              "    and Dublin Core are left verbatim. None (the default) returns every value verbatim.\n"
              ":raises ValueError: if base_url is not a valid absolute URL.\n"
              ":raises RecursionError: if Microdata or RDFa records nest more than 400 levels, or if\n"
-             "    Microdata itemref links form a nested-item cycle.");
+             "    Microdata itemref links form a nested-item cycle, repeat shared items more than\n"
+             "    10,000 times or repeat shared property values more than 100,000 times.");
 
 PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
                           "Parse every <script type=\"application/ld+json\"> block in the document with the\n"
@@ -1467,7 +1470,8 @@ PyDoc_STRVAR(microdata_doc,
              "    None (the default) returns every value verbatim.\n"
              ":raises ValueError: if base_url is not a valid absolute URL.\n"
              ":raises RecursionError: if records nest more than 400 levels, or if itemref links form\n"
-             "    a nested-item cycle.");
+             "    a nested-item cycle, repeat shared items more than 10,000 times or repeat shared\n"
+             "    property values more than 100,000 times.");
 
 PyDoc_STRVAR(rdfa_doc, "rdfa(base_url=None)\n--\n\n"
                        "Extract RDFa as a list of RdfaItem, one per top-level typeof resource. Each item has\n"
@@ -1588,6 +1592,8 @@ static void handle_dealloc(PyObject *self) {
     PyMem_Free(handle->binding_overflow);
     path_id_map_free(handle->path_ids);
     path_positions_free(handle->path_positions);
+    th_copy_memo_free(&handle->copies);
+    handle_drop_slots(handle);
     th_tree_free(handle->tree);
     Py_XDECREF(handle->source);
     Py_XDECREF(handle->encoding);

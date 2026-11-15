@@ -1112,6 +1112,17 @@ _LOOSE_NAV_HTML: Final[str] = (
             "1. \n   1. x",
             id="nested-list-in-a-non-item-wrapper-stays-nested",
         ),
+        pytest.param("<ol><ul><li>a</li></ul></ol>", "- a", id="list-before-any-item-is-not-indented"),
+        pytest.param(
+            "<ul><ul><li>a</li></ul><li>b</li><ul><ol><li>c</li></ol></ul></ul>",
+            "- a\n- b\n  1. c",
+            id="list-indents-under-the-item-before-it-only",
+        ),
+        pytest.param(
+            "<p>x</p><ol><ul><pre>&lt;i&gt;\n\ny</pre></ul></ol>",
+            "x\n\n```\n<i>\n\ny\n```",
+            id="fence-in-lists-without-items-opens-its-own-block",
+        ),
         pytest.param(
             "<ul><li>a</li></ul><p><span><br></span></p><ul><li>b</li></ul>",
             "- a\n\n\n\n* b",
@@ -1180,6 +1191,15 @@ _LOOSE_NAV_HTML: Final[str] = (
         pytest.param(
             "<ul><li>x<ul><li><i></i></li></ul></li></ul>", "- x\n\n  -", id="item-of-empty-inline-after-text"
         ),
+        pytest.param(
+            '<ul><li>x<ol start="2">k<li>y</li></ol></li></ul>',
+            "- x\n\n  k\n\n  2. y",
+            id="ordered-from-two-after-text-in-the-list",
+        ),
+        pytest.param(
+            "<ul><li>x<ul>k<li></li></ul></li></ul>", "- x\n\n  k\n\n  -", id="empty-item-after-text-in-the-list"
+        ),
+        pytest.param("<ul><li>x<ul>k<li>y</li></ul></li></ul>", "- x\n  k\n  - y", id="item-after-text-in-the-list"),
         pytest.param(
             "<ul><li><blockquote>q</blockquote><p>y</p><p>z</p></li></ul>",
             "- \n  > q\n\n  y\n\n  z",
@@ -1261,6 +1281,15 @@ def test_trailing_break_before_nested_list_keeps_items(html: str) -> None:
 def _render(markdown: str) -> str:
 
     return MarkdownIt("gfm-like", {"linkify": False}).render(markdown)
+
+
+@pytest.mark.parametrize("depth", [4, 5, 7, 9])
+def test_code_in_lists_without_items_stays_code(depth: int) -> None:
+    # no marker accounts for an indent here: four columns of it and a reader takes the fence for paragraph text
+    html: Final = f"<p>x</p>{'<ul>' * depth}<pre>&lt;em&gt;y&lt;/em&gt;\n\nz</pre>{'</ul>' * depth}"
+    rendered: Final = parse_fragment(MarkdownIt("commonmark").render(parse_fragment(html).to_markdown()))
+    assert rendered.select("em") == []
+    assert [code.text for code in rendered.select("pre > code")] == ["<em>y</em>\n\nz\n"]
 
 
 def test_loose_list_nested_heading_and_link_stay_structural() -> None:
@@ -3779,6 +3808,160 @@ def test_inline_markers(html: str, opts: Markdown, expected: str) -> None:
 )
 def test_code_blocks(html: str, opts: Markdown, expected: str) -> None:
     assert _configured_markdown(html, opts) == expected
+
+
+_INDENTED: Final[Markdown] = Markdown(code=Markdown.Code(block_style="indented"))
+_INDENTED_SINGLE: Final[Markdown] = Markdown(
+    code=Markdown.Code(block_style="indented"), document=Markdown.Document(block_spacing="single")
+)
+
+
+@pytest.mark.parametrize(
+    ("html", "opts", "expected"),
+    [
+        # an indented code block cannot interrupt a paragraph, so a blank line goes before it whatever the layout
+        pytest.param("<ul><li>a<pre>&lt;b&gt;</pre></li></ul>", _INDENTED, "- a\n\n      <b>", id="tight-item"),
+        pytest.param(
+            "<ul><li><input type=checkbox><pre>&lt;b&gt;</pre></li></ul>",
+            _INDENTED,
+            "- [ ]\n\n      <b>",
+            id="task-item",
+        ),
+        pytest.param("text<pre>&lt;b&gt;</pre>", _INDENTED_SINGLE, "text\n\n    <b>", id="single-spacing"),
+        pytest.param("<blockquote>a<pre>&lt;b&gt;</pre></blockquote>", _INDENTED, "> a\n>\n>     <b>", id="quote"),
+        pytest.param("<blockquote><pre>&lt;b&gt;</pre></blockquote>", _INDENTED, ">     <b>", id="quote-start"),
+        # a block that opens a list item is fenced: its marker line may itself continue a paragraph above it
+        pytest.param("<ul><li><pre>&lt;b&gt;</pre></li></ul>", _INDENTED, "- \n  ```\n  <b>\n  ```", id="item-start"),
+        pytest.param(
+            '<ul><li><div style="white-space: pre">&lt;b&gt;</div></li></ul>',
+            _INDENTED,
+            "- ```\n  <b>\n  ```",
+            id="item-marker-line",
+        ),
+        # a quote that follows another in a tight item continues it, so its first block is not under a blank line
+        pytest.param(
+            "<ul><li><blockquote>a</blockquote><blockquote><pre>&lt;b&gt;</pre></blockquote></li></ul>",
+            _INDENTED,
+            "- \n  > a\n  > ```\n  > <b>\n  > ```",
+            id="quote-under-quote",
+        ),
+        # under a list a reader still holds open the indent continues its last item, so the block is fenced
+        pytest.param(
+            "<ul><li>a</li><li>b</li></ul><pre>&lt;b&gt;</pre>", _INDENTED, "- a\n- b\n\n```\n<b>\n```", id="after-list"
+        ),
+        pytest.param(
+            "<ul><li>a</li><li>b</li></ul><pre>&lt;b&gt;</pre>",
+            _INDENTED_SINGLE,
+            "- a\n- b\n```\n<b>\n```",
+            id="after-list-single-spacing",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li></ul><pre>&lt;b&gt;</pre></li></ul>",
+            _INDENTED,
+            "- a\n  - b\n  ```\n  <b>\n  ```",
+            id="after-nested-list",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li></ul><blockquote><pre>&lt;b&gt;</pre></blockquote></li></ul>",
+            _INDENTED,
+            "- a\n  - b\n  > ```\n  > <b>\n  > ```",
+            id="after-nested-list-in-quote",
+        ),
+        pytest.param(
+            "<b><ul><li>a</li></ul></b><pre>&lt;b&gt;</pre>",
+            _INDENTED,
+            "- **a**\n\n```\n<b>\n```",
+            id="after-list-in-emphasis",
+        ),
+        pytest.param(
+            "<ul><li>a</li></ul>b<pre>&lt;b&gt;</pre>",
+            _INDENTED_SINGLE,
+            "- a\nb\n```\n<b>\n```",
+            id="after-list-lazy-text",
+        ),
+        # a blank line and then other content, or the marker of a later item, end the list
+        pytest.param(
+            "<ul><li>a</li></ul><p>b</p><pre>&lt;b&gt;</pre><pre>&lt;c&gt;</pre>",
+            _INDENTED,
+            "- a\n\nb\n\n    <b>\n\n    <c>",
+            id="after-list-and-paragraph",
+        ),
+        pytest.param(
+            "<ul><li>q<blockquote><ul><li>a</li></ul><p>b</p><pre>&lt;b&gt;</pre></blockquote></li></ul>",
+            _INDENTED,
+            "- q\n  > - a\n  >\n  > b\n  >\n  >     <b>",
+            id="after-quoted-list-and-paragraph",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li></ul></li><li>c<pre>&lt;b&gt;</pre></li></ul>",
+            _INDENTED,
+            "- a\n  - b\n- c\n\n      <b>",
+            id="after-nested-list-in-next-item",
+        ),
+        pytest.param(
+            "<ul><li>a<ul>k<li><pre>&lt;b&gt;</pre></li></ul></li></ul>",
+            _INDENTED,
+            "- a\n\n  k\n\n  - \n    ```\n    <b>\n    ```",
+            id="item-start-after-text-in-the-list",
+        ),
+        # an indented code block cannot start with a blank line, which behind a list marker leaves the item empty
+        pytest.param(
+            '<ol><li><div style="white-space: pre">\n&lt;b&gt;</div></li></ol>',
+            _INDENTED,
+            "1. ```\n   \n   <b>\n   ```",
+            id="blank-first-line",
+        ),
+        pytest.param("<pre> \n&lt;b&gt;</pre>", _INDENTED, "```\n \n<b>\n```", id="space-first-line"),
+        pytest.param("<pre> </pre>", _INDENTED, "```\n \n```", id="space-only"),
+        pytest.param("<pre></pre>", _INDENTED, "```\n```", id="empty"),
+        # past the indent cap the prefix no longer puts the lines inside the item
+        pytest.param(
+            f"{'<ul><li>' * 10}<pre>&lt;b&gt;</pre>{'</li></ul>' * 10}",
+            _INDENTED,
+            "".join(f"{'  ' * min(depth, 8)}- \n" for depth in range(10))
+            + f"{' ' * 16}```\n{' ' * 16}<b>\n{' ' * 16}```",
+            id="past-indent-cap",
+        ),
+    ],
+)
+def test_indented_code_block_position(html: str, opts: Markdown, expected: str) -> None:
+    assert _configured_markdown(html, opts) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "opts"),
+    [
+        pytest.param("<ul><li>a<pre>{}</pre></li></ul>", _INDENTED, id="tight-item"),
+        pytest.param("text<pre>{}</pre>", _INDENTED_SINGLE, id="single-spacing"),
+        pytest.param("<ul><li>a</li><li>b</li></ul><pre>{}</pre>", _INDENTED, id="after-list"),
+        pytest.param(f"{'<ul><li>' * 10}<pre>{{}}</pre>{'</li></ul>' * 10}", _INDENTED, id="past-indent-cap"),
+        pytest.param(
+            "<ul><li><blockquote>a</blockquote><blockquote><pre>{}</pre></blockquote></li></ul>",
+            _INDENTED,
+            id="quote-under-quote",
+        ),
+        pytest.param(
+            '<p>a</p><ol><li><div style="white-space: pre">\n{}</div></li></ol>',
+            _INDENTED_SINGLE,
+            id="blank-first-line",
+        ),
+        pytest.param(
+            "<ul><li>a<ul>k<li><pre>{}</pre></li></ul></li></ul>", _INDENTED, id="item-start-after-text-in-the-list"
+        ),
+        pytest.param(
+            "<ul><li><blockquote>b</blockquote><blockquote><ul><li><pre>{}</pre></li></ul></blockquote></li></ul>",
+            _INDENTED,
+            id="item-start-under-quote",
+        ),
+    ],
+)
+def test_indented_code_block_reads_as_code(html: str, opts: Markdown) -> None:
+    # the text of the block spells a tag, and a reader that takes it as code shows it instead of running it
+    output: Final = _configured_markdown(html.format("&lt;script&gt;x&lt;/script&gt;"), opts)
+    rendered: Final = parse_fragment(MarkdownIt("commonmark").render(output))
+    code: Final = rendered.find("code")
+    assert code is not None
+    assert (rendered.find("script"), code.text.strip()) == (None, "<script>x</script>")
 
 
 @pytest.mark.parametrize(

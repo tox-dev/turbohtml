@@ -4,6 +4,7 @@ from typing import Final, cast
 
 import pytest
 
+from turbohtml import CData
 from turbohtml.etree import Element, fragment_fromstring, fromstring, tostring
 
 
@@ -38,3 +39,9 @@ def test_element_tree_rejects_non_string_encoding() -> None:
 def test_element_tree_own_text_excludes_descendant_text() -> None:
     tree: Final = fromstring("<div><p>child</p></div>")
     assert (tree.text, tree[0].text) == (None, "child")
+
+
+def test_element_tree_xml_serialization_drops_characters_xml_cannot_hold_in_cdata() -> None:
+    tree: Final = fromstring("<p>x</p>")
+    tree.node.append(CData("a\x01b\ud800c"))
+    assert tostring(tree) == b"<p>x<![CDATA[abc]]></p>"

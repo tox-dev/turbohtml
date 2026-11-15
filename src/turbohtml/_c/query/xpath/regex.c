@@ -100,6 +100,13 @@ typedef struct {
    global replace of (\w+)\W+\1 over prose spends, the heaviest common pattern measured. */
 #define XR_BUDGET_BASE 10000000
 #define XR_BUDGET_PER_CHAR 100
+/* The Pike VM's work grows with the states alive at each position and the capture slots they carry, not only with the
+   positions, so the budget charges those too. */
+#define XR_STATES_PER_STEP 8
+#define XR_SLOTS_PER_STEP 64
+/* The literal prefix xr_skip compares at each candidate start: a longer one seldom filters better, and comparing all of
+   it is quadratic on a text that keeps matching most of it, work no budget sees. */
+#define XR_MAX_PREFIX 32
 
 struct xr_program {
     Py_UCS4 *pattern;
@@ -114,7 +121,7 @@ struct xr_program {
     int32_t slots;     /* capture slots, 2 per group plus the whole match */
     int32_t registers; /* loop-start positions only the backtracker reads */
     int32_t prefilter; /* the first consuming instruction when every match starts with it */
-    int32_t prefix;    /* how many literal characters every match starts with */
+    int32_t prefix;    /* how many literal characters every match starts with, up to XR_MAX_PREFIX */
     uint8_t anchored;
     uint8_t backrefs;
     uint8_t first_filter;
@@ -1518,7 +1525,7 @@ static xr_program *xr_assemble(xr_parser *parser, int32_t root, int flags) {
     }
     program->anchored = (uint8_t)(program->code[pc].op == XRI_ASSERT && program->code[pc].arg == XRA_START);
     program->prefilter = program->code[pc].op <= XRI_CLASS ? pc : -1;
-    while (program->code[pc + program->prefix].op == XRI_CHAR) {
+    while (program->prefix < XR_MAX_PREFIX && program->code[pc + program->prefix].op == XRI_CHAR) {
         program->prefix++;
     }
     return program;
@@ -1664,8 +1671,8 @@ static void xr_add(xr_program *program, xr_list *list, int32_t pc, const Py_UCS4
     }
 }
 
-static int xr_pike(xr_program *program, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t start, int must_advance,
-                   Py_ssize_t *spans) {
+static int xr_pike(xr_program *program, xr_cache *cache, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t start,
+                   int must_advance, Py_ssize_t *spans) {
     if (program->prefilter < 0 && program->first_filter == 0 && (program->frames != NULL || len - start >= 64)) {
         if (xr_first_chars(program) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;                     /* GCOVR_EXCL_LINE */
@@ -1696,6 +1703,20 @@ static int xr_pike(xr_program *program, const Py_UCS4 *text, Py_ssize_t len, Py_
                  (text[pos] >= 128 || (program->first_ascii[text[pos] >> 5] & ((uint32_t)1 << (text[pos] & 31)))))) {
                 xr_add(program, current, 0, text, len, pos, width);
             }
+        }
+        /* The size caps bound the work of one position, the evaluation's budget its sum over the text and over the
+           searches of a global replace. */
+        size_t spent = 1 + (size_t)current->len / XR_STATES_PER_STEP;
+        if (width > 0) {
+            spent += (size_t)(current->active_len + 1) * (size_t)width / XR_SLOTS_PER_STEP;
+        }
+        cache->budget -= (Py_ssize_t)spent;
+        if (cache->budget < 0) {
+            PyErr_Format(PyExc_ValueError,
+                         "regular expression needs more than %zd matching steps (10000000 plus 100 per character "
+                         "searched in this XPath evaluation); simplify the pattern or search a shorter string",
+                         cache->allowance);
+            return -1;
         }
         if (current->len == 0) {
             if (matched || program->anchored) {
@@ -1771,9 +1792,11 @@ static int xr_reserve(xr_program *program, Py_ssize_t depth) {
     return 0;
 }
 
-/* re compares a case-insensitive back-reference by lowercase, without the fold sets. */
-static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4 *text, Py_ssize_t len,
-                      Py_ssize_t *pos) {
+/* re compares a case-insensitive back-reference by lowercase, without the fold sets. Each character compared draws a
+   step from the budget: the group can span half the text, so charging the instruction alone would let one step cost
+   that much. */
+static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t *pos,
+                      Py_ssize_t *budget) {
     Py_ssize_t slot = 2 * (Py_ssize_t)inst->arg;
     Py_ssize_t from = caps[slot];
     if (from < 0) {
@@ -1787,9 +1810,11 @@ static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4
         Py_UCS4 captured = text[from + index];
         Py_UCS4 ch = text[*pos + index];
         if (inst->op == XRI_BACKREF_FOLD ? xr_lower(captured) != xr_lower(ch) : captured != ch) {
+            *budget -= index;
             return 0;
         }
     }
+    *budget -= size;
     *pos += size;
     return 1;
 }
@@ -1835,7 +1860,7 @@ static int xr_backtrack_at(xr_program *program, xr_cache *cache, const Py_UCS4 *
             break;
         case XRI_BACKREF:
         case XRI_BACKREF_FOLD:
-            ok = xr_backref(inst, caps, text, len, &pos);
+            ok = xr_backref(inst, caps, text, len, &pos, &cache->budget);
             break;
         case XRI_MATCH:
             if (!(must_advance && pos == start)) {
@@ -1873,7 +1898,7 @@ static int xr_backtrack_at(xr_program *program, xr_cache *cache, const Py_UCS4 *
 static int xr_search(xr_program *program, xr_cache *cache, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t start,
                      int must_advance, Py_ssize_t *spans) {
     if (!program->backrefs) {
-        return xr_pike(program, text, len, start, must_advance, spans);
+        return xr_pike(program, cache, text, len, start, must_advance, spans);
     }
     if (xr_prepare(program, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1909,6 +1934,38 @@ void xr_cache_clear(xr_cache *cache) {
     }
 }
 
+/* What a program holds beyond its pattern's length: the instructions, the frames and state lists its first search
+   sizes from them, the trail, and the capture slots once a replace has run it. */
+static size_t xr_program_bytes(const xr_program *program) {
+    size_t count = (size_t)program->code_count;
+    size_t bytes = count * (sizeof(xr_inst) + sizeof(xr_frame) + 6 * sizeof(int32_t)) +
+                   (size_t)program->trail_cap * sizeof(xr_frame);
+    if (program->cells != NULL) {
+        bytes += (2 * count + 1) * (size_t)program->slots * sizeof(Py_ssize_t);
+    }
+    return bytes;
+}
+
+/* The size caps are per program, so with no bound of their own the slots could hold XR_CACHE_SLOTS times what one
+   program may. Four programs at every cap fit, so an expression alternating among that many of the largest patterns
+   compiles each once. */
+#define XR_CACHE_BYTES                                                                                                 \
+    (4 * ((size_t)XR_MAX_CODE * (sizeof(xr_inst) + sizeof(xr_frame) + 6 * sizeof(int32_t)) + 2 * XR_MAX_BYTES))
+
+/* Keep the program in use compiled in its slot when it fits beside the others, and free it when not. Only the program
+   in use grows, so the rest are counted as it stops being used. Keeping the ones already in rather than making room
+   means an expression cycling through more large patterns than fit compiles only the extra ones again. */
+static void xr_cache_release(xr_cache *cache) {
+    xr_program *program = cache->recent;
+    size_t bytes = xr_program_bytes(program);
+    if (bytes <= XR_CACHE_BYTES - cache->rest) {
+        cache->rest += bytes;
+        return;
+    }
+    cache->programs[xr_hash(program->pattern, program->pattern_len) & (XR_CACHE_SLOTS - 1)] = NULL;
+    xr_program_free(program);
+}
+
 /* The compiled program for pattern, from the evaluation's cache when it holds one, and the budget topped up for a
    search over text_len characters. */
 static xr_program *xr_cache_get(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t len, int flags, Py_ssize_t text_len,
@@ -1929,17 +1986,26 @@ static xr_program *xr_cache_get(xr_cache *cache, const Py_UCS4 *pattern, Py_ssiz
     program = *slot;
     if (program != NULL && program->flags == flags && program->pattern_len == len &&
         memcmp(program->pattern, pattern, (size_t)len * sizeof(Py_UCS4)) == 0) {
-        cache->recent = program;
-        return program;
-    }
-    program = xr_compile(pattern, len, flags, error);
-    if (program != NULL) {
+        cache->rest -= xr_program_bytes(program);
+    } else {
+        program = xr_compile(pattern, len, flags, error);
+        if (program == NULL) {
+            return NULL;
+        }
         if (*slot != NULL) {
+            if (*slot == cache->recent) {
+                cache->recent = NULL;
+            } else {
+                cache->rest -= xr_program_bytes(*slot);
+            }
             xr_program_free(*slot);
         }
         *slot = program;
-        cache->recent = program;
     }
+    if (cache->recent != NULL) {
+        xr_cache_release(cache);
+    }
+    cache->recent = program;
     return program;
 }
 

@@ -1606,10 +1606,8 @@ TH_NODE_API(static, int, apply_existing,
     int status = 0;
     Py_BEGIN_CRITICAL_SECTION(handle);
     (void)turbohtml_node_borrow(module, target, &tree, &anchor);
-    if (result->vetoed || replace_text) {
-        /* both unlink elements: drop the element index and bump mutation_version so a live walk re-checks its node */
-        handle_drop_index(handle);
-    }
+    /* unwrapping the anchor or replacing its text edits the child lists the element index and the path caches read */
+    handle_drop_index(handle);
     if (result->vetoed) {
         unwrap_anchor(tree, anchor);
     } else {
@@ -1618,6 +1616,8 @@ TH_NODE_API(static, int, apply_existing,
             status = replace_anchor_text(tree, anchor, result->text);
         }
     }
+    /* the unwrap relinks the anchor's children and clears its attributes, both out of the slot cache's sight */
+    handle_drop_slots((HandleObject *)handle);
     Py_END_CRITICAL_SECTION();
     return status;
 }
@@ -1763,7 +1763,7 @@ TH_NODE_API(static, int, apply_text,
         if (status == 0 && node->parent != NULL) { /* GCOVR_EXCL_BR_LINE: fragment child allocation */
             th_node *parent = node->parent;
             th_tree_note_deepened(tree);
-            handle_drop_index(handle); /* the new anchors belong in the element index */
+            handle_drop_index(handle); /* the new anchors enter a child list the element index and path caches read */
             /* no iterator can point into the fragment this call built, so its children move without the steps */
             while (fragment->first_child != NULL) {
                 th_node *child = fragment->first_child;
@@ -1771,6 +1771,7 @@ TH_NODE_API(static, int, apply_text,
                 th_node_insert_before(parent, child, node);
             }
             th_node_remove_silent(tree, node);
+            handle_drop_slots((HandleObject *)handle);
         }
     }
     Py_END_CRITICAL_SECTION();

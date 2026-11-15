@@ -34,8 +34,9 @@ node's children.
 attributes, where a filter is a string, regex, callable, or list; a ``text`` predicate applies the same grammar to each
 element's collected text. A regex or callable ``text`` predicate runs Python mid-walk, which suspends the per-tree lock,
 so the C side snapshots the candidate elements and their text under the lock first and runs the predicate over that
-snapshot. A concurrent mutation cannot tear the walk. A callable filter must not modify the tree during the search; the
-result is unspecified if it does.
+snapshot. A concurrent mutation cannot tear the walk. A regex or callable attribute or ``class_`` filter runs Python
+mid-walk as well and may edit the tree: the search then carries on from the element it had reached, over the tree as the
+edit left it, and ends there when the edit removed that element.
 
 :meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` run a native CSS matcher covering type, id, class,
 attribute, the four combinators, the structural pseudo-classes (including ``:nth-child(An+B of S)``, which indexes only
@@ -74,8 +75,10 @@ XSD-dialect regex, and the typed error-code taxonomy), each with a per-case reas
 
 The regex functions take :mod:`re` pattern syntax but match in time linear in the input, so an untrusted expression or
 stylesheet cannot hang the process with a pattern such as ``(a+)+$``. They pick the match and groups :mod:`re` would.
-Back-references need backtracking, so a pattern with one draws on a step budget shared by the whole evaluation and
-raises :class:`ValueError` once it runs out; :doc:`/how-to/xpath` lists the limits.
+Matching draws on a step budget shared by the whole evaluation and raises :class:`ValueError` once it runs out. Only a
+pattern that keeps close to a thousand states alive at once, a ``replace`` that scans the same text again after every
+match, or a back-reference, which needs backtracking, spends it faster than the text searched refills it;
+:doc:`/how-to/xpath` lists the limits.
 
 A prefix-to-URI mapping passed as ``namespaces`` resolves during evaluation rather than in the compiled program, so one
 cached program serves every mapping. A prefixed name test matches the foreign-content namespace the tree builder tagged

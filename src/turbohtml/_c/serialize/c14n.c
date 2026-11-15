@@ -17,6 +17,7 @@
 #include "serialize/internal.h"
 #include "serialize/c14n_base.h"
 
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
 
@@ -35,14 +36,13 @@ static int c14n_1_1_inherits_xml_attribute(const char *name, Py_ssize_t len) {
 
 /* Append c14n text: only & < > and a carriage return take a reference (as &amp;
    &lt; &gt; &#xD;); tab and newline stay literal, unlike an attribute value. Each
-   clean run is bulk-copied and only the specials between are rewritten. */
+   clean run is bulk-copied and only the specials between are rewritten. A character
+   XML cannot hold stops the run and reaches no branch, so it is dropped. */
 static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && text[index] != '&' && text[index] != '<' && text[index] != '>' && text[index] != 0x0D) {
-            index++;
-        }
+        index = c14n_find_text_stop(text, index, len);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
@@ -54,8 +54,8 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&lt;");
             } else if (character == '>') {
                 sbuf_puts(out, "&gt;");
-            } else {
-                sbuf_puts(out, "&#xD;"); /* the only remaining flagged character is U+000D */
+            } else if (character == 0x0D) {
+                sbuf_puts(out, "&#xD;");
             }
             index++;
         }
@@ -64,15 +64,13 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
 
 /* Append a c14n attribute value: & < " take references, and the three whitespace
    controls tab/newline/carriage-return become &#x9; &#xA; &#xD; so a reparse cannot
-   normalize them away; `>` and `'` stay literal. */
+   normalize them away; `>` and `'` stay literal. A character XML cannot hold stops
+   the run and reaches no branch, so it is dropped. */
 static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && text[index] != '&' && text[index] != '<' && text[index] != '"' && text[index] != 0x09 &&
-               text[index] != 0x0A && text[index] != 0x0D) {
-            index++;
-        }
+        index = c14n_find_stop(text, index, len, C14N_ATTR_STOPS);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
@@ -88,8 +86,8 @@ static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&#x9;");
             } else if (character == 0x0A) {
                 sbuf_puts(out, "&#xA;");
-            } else {
-                sbuf_puts(out, "&#xD;"); /* the only remaining flagged character is U+000D */
+            } else if (character == 0x0D) {
+                sbuf_puts(out, "&#xD;");
             }
             index++;
         }
@@ -155,13 +153,14 @@ typedef struct {
     Py_ssize_t local_len;
     const Py_UCS4 *value;
     Py_ssize_t value_len;
+    Py_ssize_t position; /* order gathered: the element's own attributes, then the nearest ancestor's first */
 } c14n_attr;
 
 /* Resolve a stored attribute name/value to its c14n sort key: an xml:/xlink: prefix
    maps to its namespace URI and strips to the local name, everything else is in no
    namespace and keys on the whole name. */
 static c14n_attr c14n_make_ref(const char *name, Py_ssize_t name_len, const Py_UCS4 *value, Py_ssize_t value_len) {
-    c14n_attr ref = {name, name_len, "", 0, name, name_len, value, value_len};
+    c14n_attr ref = {name, name_len, "", 0, name, name_len, value, value_len, 0};
     if (name_len > 4 && memcmp(name, "xml:", 4) == 0) {
         ref.ns = C14N_XML;
         ref.ns_len = (Py_ssize_t)sizeof(C14N_XML) - 1;
@@ -204,15 +203,38 @@ static int c14n_name_is_nsdecl(const char *name, Py_ssize_t len) {
     return (len == 5 && memcmp(name, "xmlns", 5) == 0) || (len > 6 && memcmp(name, "xmlns:", 6) == 0);
 }
 
-/* Whether a queued attribute with this qualified name is already collected, so an
-   inherited xml: attribute never shadows the apex's own or a nearer ancestor's. */
-static int c14n_already_has(const c14n_attr *attrs, Py_ssize_t count, const char *name, Py_ssize_t name_len) {
+/* By qualified name and then by the order gathered, so the attribute that wins a
+   name leads the ones it shadows. */
+static int c14n_attr_name_cmp(const void *left, const void *right) {
+    const c14n_attr *first = left;
+    const c14n_attr *second = right;
+    TH_WORK_STEP();
+    Py_ssize_t common = first->name_len < second->name_len ? first->name_len : second->name_len;
+    int order = memcmp(first->name, second->name, (size_t)common);
+    if (order == 0) {
+        order = (first->name_len > second->name_len) - (first->name_len < second->name_len);
+    }
+    return order != 0 ? order : (first->position > second->position) - (first->position < second->position);
+}
+
+/* Drop each inherited xml: attribute that the apex or a nearer ancestor already
+   supplies, so it never shadows theirs. attrs holds the apex's own attributes,
+   which all stay, and then every inheritable one, nearest ancestor first. Looking
+   each one up among those gathered before it costs the square of their number, so
+   they are sorted by name instead and only the first of a name is kept. */
+static Py_ssize_t c14n_drop_shadowed(c14n_attr *attrs, Py_ssize_t own, Py_ssize_t count) {
     for (Py_ssize_t index = 0; index < count; index++) {
-        if (attrs[index].name_len == name_len && memcmp(attrs[index].name, name, (size_t)name_len) == 0) {
-            return 1;
+        attrs[index].position = index;
+    }
+    qsort(attrs, (size_t)count, sizeof(*attrs), c14n_attr_name_cmp);
+    Py_ssize_t kept = 1;
+    for (Py_ssize_t index = 1; index < count; index++) {
+        if (attrs[index].position < own || attrs[index].name_len != attrs[index - 1].name_len ||
+            memcmp(attrs[index].name, attrs[index - 1].name, (size_t)attrs[index].name_len) != 0) {
+            attrs[kept++] = attrs[index];
         }
     }
-    return 0;
+    return kept;
 }
 
 #define C14N_STACK_ATTRS 32
@@ -283,6 +305,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
         attrs[count++] = c14n_make_ref(name, name_len, node->attrs[index].value, node->attrs[index].value_len);
     }
     if (node == apex && !opts->exclusive) {
+        Py_ssize_t own = count;
         for (const th_node *anc = node->parent; anc != NULL; anc = anc->parent) {
             if (anc->type != TH_NODE_ELEMENT) {
                 continue;
@@ -297,11 +320,11 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
                 if (opts->version == 1 && !c14n_1_1_inherits_xml_attribute(name, name_len)) {
                     continue;
                 }
-                if (!c14n_already_has(attrs, count, name, name_len)) {
-                    attrs[count++] =
-                        c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
-                }
+                attrs[count++] = c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
             }
+        }
+        if (count > own) {
+            count = c14n_drop_shadowed(attrs, own, count);
         }
     }
     Py_UCS4 *fixed_base = NULL;
@@ -338,13 +361,20 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
             attrs[prev + 1] = key;
         }
     }
+    Py_ssize_t clone_start = ser_clone_start(out, node);
     for (Py_ssize_t index = 0; index < count; index++) {
+        Py_ssize_t cost = attrs[index].name_len + attrs[index].value_len;
+        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, cost)) {
+            break;
+        }
+        TH_WORK_STEPS_ADD(cost);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
         c14n_put_attr(out, attrs[index].value, attrs[index].value_len);
         sbuf_putc(out, '"');
     }
+    ser_clone_settle(out, clone_start);
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
@@ -474,11 +504,16 @@ static void c14n_document(sbuf *out, th_tree *tree, th_node *doc, const th_c14n_
     }
 }
 
+#include "serialize/c14n_scoped.h"
+
 Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
     if (tree->has_xml_ns) {
         return th_node_canonicalize_xml(tree, node, opts, out_len);
     }
-    sbuf out = {NULL, 0, 0, 0};
+    if (tree->has_prefix_decl) {
+        return c14n_scoped_canonicalize(tree, node, opts, out_len);
+    }
+    sbuf out = {NULL, 0, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
         c14n_document(&out, tree, node, opts);

@@ -164,6 +164,12 @@ static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
     return NULL;
 }
 
+/* The xs:all a group ref resolves to, or NULL when its model group is not an xs:all. */
+static th_node *xsd_group_all(th_schema *schema, th_node *group_ref) {
+    th_node *model = xsd_group_model(schema, group_ref);
+    return model != NULL && is_schema_el(schema, model, XSD_NS, "all") ? model : NULL;
+}
+
 static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
     if (vec->count == vec->cap) {
         Py_ssize_t next = vec->cap ? vec->cap * 2 : TH_INITIAL_CAPACITY(8);
@@ -206,14 +212,14 @@ static void xsd_collect_edecls(th_schema *schema, th_node *particle, edecl_vec *
 
 /* ---- content-model position-set matcher ---- */
 
-/* The child positions a particle can stop at. Only the window [lo, hi) counts: it runs from the lowest set position to
-   one past the highest and the bytes outside it are never read, so making, clearing and combining sets costs the width
-   of the window, which for a deterministic model is a position or two, and not the element's child count. */
+/* The child positions a particle can stop at. items lists each position once and member flags it, so making, clearing
+   and combining a set costs the positions it holds and not the element's child count. */
 typedef struct {
-    char *pos;
-    Py_ssize_t size; /* nchildren + 1 */
-    Py_ssize_t lo, hi;
-    struct posset_spare *block; /* the allocation holding pos, handed back by posset_free */
+    char *member;
+    Py_ssize_t *items;
+    Py_ssize_t count;
+    Py_ssize_t size;            /* nchildren + 1 */
+    struct posset_spare *block; /* the allocation holding items and member, handed back by posset_free */
 } posset;
 
 /* The bytes of a position set no matcher holds any more, kept for the next one to take. */
@@ -222,65 +228,71 @@ typedef struct posset_spare {
 } posset_spare;
 
 static int posset_empty(const posset *set) {
-    return set->lo == set->hi;
+    return set->count == 0;
 }
 
-/* Add one position, zeroing the bytes the window grows over; returns whether the set gained it. */
+/* Returns whether the set gained the position. */
 static int posset_add(posset *set, Py_ssize_t index) {
-    if (posset_empty(set)) {
-        set->lo = index;
-        set->hi = index + 1;
-    } else if (index < set->lo) {
-        memset(set->pos + index, 0, (size_t)(set->lo - index));
-        set->lo = index;
-    } else if (index >= set->hi) {
-        memset(set->pos + set->hi, 0, (size_t)(index + 1 - set->hi));
-        set->hi = index + 1;
-    } else if (set->pos[index]) {
+    if (set->member[index]) {
         return 0;
     }
-    set->pos[index] = 1;
+    set->member[index] = 1;
+    set->items[set->count++] = index;
     return 1;
 }
 
 /* Returns whether `into` gained a position. */
 static int posset_or(posset *into, const posset *from) {
     int gained = 0;
-    for (Py_ssize_t index = from->lo; index < from->hi; index++) {
-        if (from->pos[index]) {
-            gained |= posset_add(into, index);
-        }
+    for (Py_ssize_t index = 0; index < from->count; index++) {
+        gained |= posset_add(into, from->items[index]);
     }
     return gained;
 }
 
+static void posset_clear(posset *set) {
+    for (Py_ssize_t index = 0; index < set->count; index++) {
+        set->member[set->items[index]] = 0;
+    }
+    set->count = 0;
+}
+
 static void posset_copy(posset *into, const posset *from) {
-    memcpy(into->pos + from->lo, from->pos + from->lo, (size_t)(from->hi - from->lo));
-    into->lo = from->lo;
-    into->hi = from->hi;
+    posset_clear(into);
+    posset_or(into, from);
 }
 
 /* An empty set. The matcher takes its working sets here and hands them back with posset_free, so matching one element
    holds a few sets per level of its model however often a particle repeats; the arena, which releases nothing until
    validation ends, would otherwise keep one per repetition. An element with another child count starts a new list. */
+static posset posset_new(th_schema *schema, Py_ssize_t size) {
+    size_t items_bytes = (size_t)size * sizeof(Py_ssize_t);
+    posset_spare *spare = arena_alloc(&schema->mem, sizeof(posset_spare) + items_bytes + (size_t)size);
+    if (spare == NULL) {                            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return (posset){NULL, NULL, 0, size, NULL}; /* GCOVR_EXCL_LINE */
+    }
+    memset((char *)(spare + 1) + items_bytes, 0, (size_t)size);
+    Py_ssize_t *items = (Py_ssize_t *)(spare + 1);
+    return (posset){(char *)(items + size), items, 0, size, spare};
+}
+
 static posset posset_alloc(th_schema *schema, Py_ssize_t size) {
     if (schema->posset_size != size) {
         schema->posset_spares = NULL;
         schema->posset_size = size;
     }
     posset_spare *spare = schema->posset_spares;
-    if (spare != NULL) {
-        schema->posset_spares = spare->next;
-    } else {
-        spare = arena_alloc(&schema->mem, sizeof(posset_spare) + (size_t)size);
-        if (spare == NULL) {                         /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return (posset){NULL, size, 0, 0, NULL}; /* GCOVR_EXCL_LINE */
-        }
+    if (spare == NULL) {
+        return posset_new(schema, size);
     }
-    return (posset){(char *)(spare + 1), size, 0, 0, spare};
+    schema->posset_spares = spare->next;
+    Py_ssize_t *items = (Py_ssize_t *)(spare + 1);
+    return (posset){(char *)(items + size), items, 0, size, spare};
 }
 
-static void posset_free(th_schema *schema, const posset *set) {
+/* Clears the set, so the block the next matcher takes starts with no position flagged. */
+static void posset_free(th_schema *schema, posset *set) {
+    posset_clear(set);
     set->block->next = schema->posset_spares;
     schema->posset_spares = set->block;
 }
@@ -288,24 +300,21 @@ static void posset_free(th_schema *schema, const posset *set) {
 static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                            posset *out);
 
-/* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
-static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
-                             posset *out) {
-    out->lo = out->hi = 0;
-    int min = xsd_occurs_min(schema->tree, particle);
-    int max = xsd_occurs_max(schema->tree, particle);
-    if (min == 0) {
-        posset_or(out, in);
-    }
+/* A bounded particle takes every repetition from the positions the one before reached, and stops after maxOccurs. */
+static void xsd_match_bounded(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
+                              int min, int max, posset *out) {
     posset seen = posset_alloc(schema, in->size);
     posset cur = posset_alloc(schema, in->size);
     posset next = posset_alloc(schema, in->size);
-    if (seen.pos == NULL || cur.pos == NULL || next.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                                    /* GCOVR_EXCL_LINE */
+    if (!seen.member || !cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                        /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
     posset_copy(&seen, in);
-    for (int count = 1; max < 0 || count <= max; count++) {
+    if (min == 0) {
+        posset_or(out, in);
+    }
+    for (int count = 1; count <= max; count++) {
         xsd_match_once(schema, inst, particle, children, &cur, &next);
         if (posset_empty(&next)) {
             break;
@@ -325,18 +334,78 @@ static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle
     posset_free(schema, &seen);
 }
 
+/* An unbounded particle reaches its minOccurs-th set of positions, then closes it under one more repetition. The
+   closure steps only from the positions each round adds, so a position is stepped from once however many repetitions
+   reach it. */
+static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *particle, th_node **children,
+                                const posset *in, int min, posset *out) {
+    posset seen = posset_alloc(schema, in->size);
+    posset cur = posset_alloc(schema, in->size);
+    posset next = posset_alloc(schema, in->size);
+    if (!seen.member || !cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                        /* GCOVR_EXCL_LINE */
+    }
+    posset_copy(&cur, in);
+    posset_copy(&seen, in);
+    int reached = 1;
+    for (int count = 1; reached && count <= min; count++) {
+        xsd_match_once(schema, inst, particle, children, &cur, &next);
+        reached = !posset_empty(&next);
+        if (count < min) {
+            /* a repetition adding no position ends the count, so a settled set is not repeated minOccurs times */
+            reached = reached && posset_or(&seen, &next);
+        }
+        posset spare = cur;
+        cur = next;
+        next = spare;
+    }
+    if (reached) {
+        posset_copy(out, &cur);
+        while (!posset_empty(&cur)) {
+            xsd_match_once(schema, inst, particle, children, &cur, &next);
+            posset_clear(&cur);
+            for (Py_ssize_t index = 0; index < next.count; index++) {
+                if (posset_add(out, next.items[index])) {
+                    posset_add(&cur, next.items[index]);
+                }
+            }
+        }
+    }
+    posset_free(schema, &next);
+    posset_free(schema, &cur);
+    posset_free(schema, &seen);
+}
+
+/* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
+static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
+                             posset *out, int in_all) {
+    posset_clear(out);
+    int min = xsd_occurs_min(schema->tree, particle);
+    int max = xsd_occurs_max(schema->tree, particle);
+    if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
+        min = min != 0;
+        max = max != 0;
+    }
+    if (max < 0) {
+        xsd_match_unbounded(schema, inst, particle, children, in, min, out);
+    } else {
+        xsd_match_bounded(schema, inst, particle, children, in, min, max, out);
+    }
+}
+
 static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                            posset *out) {
-    out->lo = out->hi = 0;
+    posset_clear(out);
     if (is_schema_el(schema, particle, XSD_NS, "element")) {
         edecl want;
         xsd_element_name(schema, particle, &want);
-        for (Py_ssize_t pos = in->lo; pos < in->hi && pos + 1 < in->size; pos++) {
+        for (Py_ssize_t index = 0; index < in->count; index++) {
             TH_WORK_STEP();
-            if (!in->pos[pos]) {
+            Py_ssize_t pos = in->items[index];
+            if (pos + 1 >= in->size) {
                 continue;
             }
-            qname name = node_qname(inst, children[pos], children[pos]->text, children[pos]->text_len, 0);
+            qname name = element_qname_scoped(schema, inst, children[pos]);
             if (qname_eq(&name, &want)) {
                 posset_add(out, pos + 1);
             }
@@ -352,8 +421,8 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     }
     if (is_schema_el(schema, particle, XSD_NS, "choice")) {
         posset branch = posset_alloc(schema, in->size);
-        if (branch.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;               /* GCOVR_EXCL_LINE */
+        if (branch.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;                  /* GCOVR_EXCL_LINE */
         }
         for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
             /* wildcards are not matched: xs:any stays the branch that consumes nothing, without a descent */
@@ -365,7 +434,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
                 continue;
             }
-            xsd_match_occurs(schema, inst, child, children, in, &branch);
+            xsd_match_occurs(schema, inst, child, children, in, &branch, 0);
             posset_or(out, &branch);
         }
         posset_free(schema, &branch);
@@ -374,15 +443,16 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     /* sequence: thread the position set through each child particle in order */
     posset cur = posset_alloc(schema, in->size);
     posset next = posset_alloc(schema, in->size);
-    if (cur.pos == NULL || next.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                /* GCOVR_EXCL_LINE */
+    if (cur.member == NULL || next.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                      /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
+    const int in_all = is_schema_el(schema, particle, XSD_NS, "all");
     for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
         if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
             continue;
         }
-        xsd_match_occurs(schema, inst, child, children, &cur, &next);
+        xsd_match_occurs(schema, inst, child, children, &cur, &next, in_all);
         posset spare = cur;
         cur = next;
         next = spare;
@@ -471,7 +541,7 @@ static TH_NOINLINE int xsd_record_all(th_schema *schema, th_node *all) {
     }
     count = 0;
     for (th_node *particle = all->first_child; particle != NULL; particle = particle->next_sibling) {
-        if (!is_schema_el(schema, particle, XSD_NS, "element")) {
+        if (!is_schema_el(schema, particle, XSD_NS, "element") || xsd_occurs_max(schema->tree, particle) == 0) {
             continue;
         }
         xall_member *member = &group->members[count];
@@ -537,36 +607,64 @@ static const xall_member *xsd_all_find(const xall_entry *group, const qname *nam
     return group->by_name[low];
 }
 
-/* Validate an `all` group: each child element matches a distinct particle by name,
-   with its per-particle occurs honored and order ignored. */
+/* One child of the instance that names a member of an xs:all group, with the child's position among the children. */
+typedef struct {
+    const xall_member *member;
+    Py_ssize_t child;
+} xall_hit;
+
+static int xsd_hit_order(const void *left, const void *right) {
+    const xall_hit *left_hit = left;
+    const xall_hit *right_hit = right;
+    const int by_member = (left_hit->member > right_hit->member) - (left_hit->member < right_hit->member);
+    return by_member != 0 ? by_member : (left_hit->child > right_hit->child) - (left_hit->child < right_hit->child);
+}
+
+static int xsd_hit_member_order(const void *left, const void *right) {
+    const xall_member *left_member = ((const xall_hit *)left)->member;
+    const xall_member *right_member = ((const xall_hit *)right)->member;
+    return (left_member > right_member) - (left_member < right_member);
+}
+
+/* Validate an `all` group: each child element matches the member it names and order is ignored. Each member occurs at
+   most once (XML Schema Part 1 limits an xs:all particle to maxOccurs 0 or 1), so a second child naming it is reported
+   and not validated. */
 static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_ssize_t nchildren) {
     th_schema *schema = ctx->schema;
     th_tree *inst = ctx->tree;
     const xall_entry *group = xsd_cached_all(schema, all);
-    /* the member each child matched, sorted below to tell which required members no child did */
-    const xall_member **seen = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
-    if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;         /* GCOVR_EXCL_LINE */
+    /* the member each child is validated against, NULL for a child that names none or repeats a member */
+    const xall_member **matched = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
+    xall_hit *hits = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_hit));
+    if (matched == NULL || hits == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                            /* GCOVR_EXCL_LINE */
     }
-    size_t seen_count = 0;
+    size_t hit_count = 0;
     for (Py_ssize_t index = 0; index < nchildren; index++) {
         TH_WORK_STEP();
-        qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
-        const xall_member *matched = xsd_all_find(group, &name);
-        if (matched == NULL) {
+        qname name = element_qname_scoped(schema, inst, children[index]);
+        matched[index] = xsd_all_find(group, &name);
+        if (matched[index] != NULL) {
+            hits[hit_count++] = (xall_hit){matched[index], index};
+        }
+    }
+    qsort(hits, hit_count, sizeof(xall_hit), xsd_hit_order);
+    Py_ssize_t present = 0;
+    for (size_t index = 0; index < hit_count; index++) {
+        if (index > 0 && hits[index].member == hits[index - 1].member) {
+            matched[hits[index].child] = NULL;
+        } else {
+            present += hits[index].member->required;
+        }
+    }
+    for (Py_ssize_t index = 0; index < nchildren; index++) {
+        TH_WORK_STEP();
+        if (matched[index] == NULL) {
             char buffer[256];
             report(ctx, children[index], "structure", "element '%s' is not allowed here",
                    name_utf8(children[index]->text, children[index]->text_len, buffer, sizeof(buffer)));
         } else {
-            seen[seen_count++] = matched;
-            xsd_validate_element(ctx, children[index], matched->want.decl);
-        }
-    }
-    qsort(seen, seen_count, sizeof(xall_member *), xsd_member_order);
-    Py_ssize_t present = 0;
-    for (size_t index = 0; index < seen_count; index++) {
-        if (index == 0 || seen[index] != seen[index - 1]) {
-            present += seen[index]->required;
+            xsd_validate_element(ctx, children[index], matched[index]->want.decl);
         }
     }
     if (present == group->required_count) {
@@ -575,7 +673,8 @@ static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_s
     for (Py_ssize_t index = 0; index < group->required_count; index++) {
         TH_WORK_STEP();
         const xall_member *member = group->required[index];
-        if (bsearch(&member, seen, seen_count, sizeof(xall_member *), xsd_member_order) != NULL) {
+        const xall_hit probe = {member, 0};
+        if (bsearch(&probe, hits, hit_count, sizeof(xall_hit), xsd_hit_member_order) != NULL) {
             continue;
         }
         char buffer[256];
@@ -586,76 +685,104 @@ static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_s
 
 /* ---- simple types ---- */
 
-/* Resolve a simpleType node (or a builtin base) into a facet set. Returns the base
-   built-in datatype id, gathering restriction facets and following the base chain. */
-static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *facets, int depth);
+/* How many named bases a simple type's facets are gathered through, counted from that type. It also ends a circular
+   chain; past it the base reads as a plain string. */
+#define XSD_MAX_BASE_DEPTH 40
 
-static int xsd_base_id(th_schema *schema, th_node *owner, const Py_UCS4 *base, Py_ssize_t base_len, facetset *facets,
-                       int depth) {
-    const Py_UCS4 *local, *prefix, *uri;
-    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(schema->tree, owner, prefix, prefix_len, &uri, &uri_len);
-    if (is_xsd_uri(uri, uri_len)) {
-        int builtin = dt_lookup(local, local_len);
-        return builtin == DT_UNKNOWN ? DT_STRING : builtin;
-    }
-    th_node *named = named_find(&schema->simple_types, local, local_len);
-    if (named != NULL && depth < 40) {
-        return xsd_gather_facets(schema, named, facets, depth + 1);
-    }
-    return DT_STRING;
+static int xsd_builtin_id(const Py_UCS4 *local, Py_ssize_t local_len) {
+    const int builtin = dt_lookup(local, local_len);
+    return builtin == DT_UNKNOWN ? DT_STRING : builtin;
 }
 
-static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *facets, int depth) {
+/* One simpleType or simpleContent. Each holds only what its own derivation states and links to the types it derives
+   from, so a type with many facets is stored once however many types derive from it. */
+typedef struct xfacet_entry {
+    th_node *node;
+    facetset *own; /* the derivation's own facets; NULL for a list or union, which reads as its base */
+    /* the named type the base attribute resolves to, and the inline simpleType a derivation without a base, or a
+       simpleContent restriction beside its base, narrows; xsd_link_facets resolves both to entries */
+    th_node *base_node, *inner_node;
+    struct xfacet_entry *base, *inner;
+    int base_id;  /* what a base attribute gives when no named type is followed; -1 without a base attribute */
+    int keeps_ws; /* an extension keeps the whiteSpace rule of its named base */
+    /* the built-in type, whiteSpace rule and scalar facets the chain folds to, and the enumerations and patterns of
+       the one derivation that states them, shared with it */
+    facetset facets;
+    facet_levels levels; /* enumerations or patterns stated on several derivations, in the order they were folded */
+} xfacet_entry;
+
+static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content) {
     th_tree *tree = schema->tree;
-    th_node *restriction = first_schema_child(schema, simpletype, XSD_NS, "restriction");
-    if (restriction == NULL) { /* list / union fall back to a permissive string base */
-        return facets->base_id;
+    th_node *extension = content ? first_schema_child(schema, entry->node, XSD_NS, "extension") : NULL;
+    th_node *derivation =
+        extension != NULL ? extension : first_schema_child(schema, entry->node, XSD_NS, "restriction");
+    if (derivation == NULL) {
+        return 0;
     }
+    entry->own = arena_alloc(&schema->mem, sizeof(facetset));
+    if (entry->own == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;            /* GCOVR_EXCL_LINE */
+    }
+    facetset_init(entry->own, DT_STRING);
+    entry->own->ws = -1; /* not stated */
     Py_ssize_t base_len = 0;
-    const Py_UCS4 *base = xsd_attr(tree, restriction, "base", &base_len);
-    int base_id = facets->base_id;
+    const Py_UCS4 *base = xsd_attr(tree, derivation, "base", &base_len);
     if (base != NULL) {
-        base_id = xsd_base_id(schema, restriction, base, base_len, facets, depth);
-    } else {
-        th_node *inner = first_schema_child(schema, restriction, XSD_NS, "simpleType");
-        if (inner != NULL) {
-            base_id = xsd_gather_facets(schema, inner, facets, depth + 1);
+        const Py_UCS4 *local, *prefix, *uri;
+        Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
+        split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
+        resolve_ns(tree, derivation, prefix, prefix_len, &uri, &uri_len);
+        if (is_xsd_uri(uri, uri_len)) {
+            entry->base_id = xsd_builtin_id(local, local_len);
+        } else {
+            entry->base_id = DT_STRING;
+            entry->keeps_ws = extension != NULL;
+            entry->base_node = named_find(&schema->simple_types, local, local_len);
+            if (entry->base_node == NULL && content) {
+                th_node *complex = named_find(&schema->complex_types, local, local_len);
+                entry->base_node =
+                    complex != NULL ? first_schema_child(schema, complex, XSD_NS, "simpleContent") : NULL;
+            }
         }
     }
-    if (base_id < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;     /* GCOVR_EXCL_LINE */
+    if (base == NULL || content) {
+        entry->inner_node = first_schema_child(schema, derivation, XSD_NS, "simpleType");
     }
-    facets->base_id = base_id;
-    facets->ws = dt_default_ws(base_id);
-    for (th_node *facet = restriction->first_child; facet != NULL; facet = facet->next_sibling) {
+    for (th_node *facet = derivation->first_child; facet != NULL; facet = facet->next_sibling) {
+        TH_WORK_STEP();
         if (facet->type != TH_NODE_ELEMENT) {
             continue;
         }
-        qname name = node_qname(tree, facet, facet->text, facet->text_len, 0);
+        qname name = node_qname(tree, facet, facet->text, facet->text_len);
         if (name.uri == NULL || !u_eq_ascii(name.uri, name.uri_len, XSD_NS)) {
             continue;
         }
         Py_ssize_t value_len = 0;
         const Py_UCS4 *value = xsd_attr(tree, facet, "value", &value_len);
         if (value != NULL) {
-            const int status = facet_add(&schema->mem, facets, name.local, name.local_len, value, value_len);
+            const int status = facet_add(&schema->mem, entry->own, name.local, name.local_len, value, value_len);
             if (status < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
                 return -1;    /* GCOVR_EXCL_LINE */
             }
         }
     }
-    return base_id;
+    return 0;
 }
 
-typedef struct xfacet_entry {
-    th_node *node;
-    facetset facets;
-} xfacet_entry;
-
 static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
-static int xsd_record_facets(th_schema *schema, th_node *node);
+static int xsd_check_all_slot(th_schema *schema, th_node *node);
+static int xsd_record_facets(th_schema *schema, th_node *node, int content);
+
+/* XSD 1.0 All Group Limited: an xs:all particle, written or reached through a group ref, occurs once, because its
+   members are matched once. */
+static int xsd_check_all_occurs(th_schema *schema, th_node *particle) {
+    th_node *model = is_schema_el(schema, particle, XSD_NS, "group") ? xsd_group_model(schema, particle) : particle;
+    if (model == NULL || !is_schema_el(schema, model, XSD_NS, "all") || xsd_occurs_max(schema->tree, particle) == 1) {
+        return 0;
+    }
+    PyErr_SetString(PyExc_ValueError, "an xs:all group may occur only once: its maxOccurs must be 1");
+    return -1;
+}
 
 /* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
 static int xsd_cache_facets(th_schema *schema, th_node *node) {
@@ -664,11 +791,15 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
         if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
             return -1;
         }
-        if (u_eq_ascii(name->local, name->local_len, "simpleType")) {
-            if (xsd_record_facets(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return -1;                             /* GCOVR_EXCL_LINE */
+        const int content = u_eq_ascii(name->local, name->local_len, "simpleContent");
+        if (content || u_eq_ascii(name->local, name->local_len, "simpleType")) {
+            if (xsd_record_facets(schema, node, content) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;                                      /* GCOVR_EXCL_LINE */
             }
         } else if (u_eq_ascii(name->local, name->local_len, "all")) {
+            if (xsd_check_all_slot(schema, node) < 0 || xsd_check_all_occurs(schema, node) < 0) {
+                return -1;
+            }
             if (xsd_record_all(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
                 return -1;                          /* GCOVR_EXCL_LINE */
             }
@@ -686,6 +817,35 @@ static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, c
 static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex);
 static TH_NOINLINE int xsd_is_builtin_type(const Py_UCS4 *local, Py_ssize_t local_len);
 static int xsd_require_base(th_schema *schema, th_node *node);
+
+/* The content model of a complexType, or of the complexContent extension or restriction that holds one. */
+static int xsd_is_content_slot(th_schema *schema, th_node *node) {
+    if (is_schema_el(schema, node, XSD_NS, "complexType")) {
+        return 1;
+    }
+    return (is_schema_el(schema, node, XSD_NS, "extension") || is_schema_el(schema, node, XSD_NS, "restriction")) &&
+           is_schema_el(schema, node->parent, XSD_NS, "complexContent");
+}
+
+/* An xs:all group is validated as an unordered set only as a content model, so XSD 1.0 allows it only there (All Group
+   Limited): as a complexType's content, or as a group definition's own model. */
+static int xsd_check_all_slot(th_schema *schema, th_node *node) {
+    th_node *parent = node->parent;
+    if (is_schema_el(schema, node, XSD_NS, "group")) {
+        if (xsd_group_all(schema, node) == NULL) {
+            return 0;
+        }
+        if (xsd_is_content_slot(schema, parent)) {
+            schema->named_all = 1;
+            return 0;
+        }
+    } else if (xsd_is_content_slot(schema, parent) || is_schema_el(schema, parent, XSD_NS, "group")) {
+        return 0;
+    }
+    PyErr_SetString(PyExc_ValueError,
+                    "an xs:all group may only be the content model of a complex type or a group definition");
+    return -1;
+}
 
 /* A dangling reference or an unenforced identity constraint would let validation accept documents the schema forbids,
    so both are compile errors, as in libxml2 (src-resolve), Xerces and xmlschema. */
@@ -708,7 +868,13 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
             return -1;
         }
     } else if (u_eq_ascii(local, local_len, "group")) {
-        return xsd_require_ref(schema, node, &schema->groups, "group");
+        if (xsd_require_ref(schema, node, &schema->groups, "group") < 0) {
+            return -1;
+        }
+        if (xsd_check_all_slot(schema, node) < 0) {
+            return -1;
+        }
+        return xsd_check_all_occurs(schema, node);
     } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
         return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
     } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
@@ -809,7 +975,7 @@ static int xsd_require_base(th_schema *schema, th_node *node) {
     return -1;
 }
 
-static int xsd_record_facets(th_schema *schema, th_node *node) {
+static int xsd_record_facets(th_schema *schema, th_node *node, int content) {
     if (schema->facet_count == schema->facet_cap) {
         size_t capacity, bytes;
         const int fits =
@@ -828,12 +994,8 @@ static int xsd_record_facets(th_schema *schema, th_node *node) {
         schema->facet_cap = capacity;
     }
     xfacet_entry *entry = &schema->facet_entries[schema->facet_count++];
-    entry->node = node;
-    facetset_init(&entry->facets, DT_STRING);
-    if (xsd_gather_facets(schema, node, &entry->facets, 0) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;                                                /* GCOVR_EXCL_LINE */
-    }
-    return 0;
+    *entry = (xfacet_entry){.node = node, .base_id = -1};
+    return xsd_gather_facets(schema, entry, content);
 }
 
 static int xsd_facet_order(const void *left, const void *right) {
@@ -842,7 +1004,8 @@ static int xsd_facet_order(const void *left, const void *right) {
     return (left_node > right_node) - (left_node < right_node);
 }
 
-static const facetset *xsd_cached_facets(const th_schema *schema, const th_node *node) {
+/* xsd_cache_facets records every simpleType and simpleContent of the schema, so the search always hits. */
+static xfacet_entry *xsd_facet_entry(const th_schema *schema, const th_node *node) {
     size_t low = 0, high = schema->facet_count;
     while (low < high) {
         const size_t middle = low + (high - low) / 2;
@@ -852,21 +1015,151 @@ static const facetset *xsd_cached_facets(const th_schema *schema, const th_node 
             high = middle;
         }
     }
-    return &schema->facet_entries[low].facets;
+    return &schema->facet_entries[low];
+}
+
+typedef struct {
+    const facetset **items;
+    size_t count, cap;
+} xfacet_levels;
+
+static int xsd_push_level(arena *mem, xfacet_levels *levels, const facetset *level) {
+    if (levels->count == levels->cap) {
+        size_t capacity, bytes;
+        const int fits = th_grow_cap(levels->count + 1, levels->cap, 16, sizeof(*levels->items), &capacity, &bytes);
+        if (!fits) {   /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        const facetset **grown = arena_alloc(mem, bytes);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        if (levels->count > 0) {
+            memcpy(grown, levels->items, levels->count * sizeof(*grown));
+        }
+        levels->items = grown;
+        levels->cap = capacity;
+    }
+    levels->items[levels->count++] = level;
+    return 0;
+}
+
+typedef struct {
+    xfacet_levels enums, patterns;
+} xfacet_fold;
+
+/* Fold `entry`, `depth` hops from the type being linked, into `facets`: its named base first, then its inline type,
+   then its own facets. A later scalar facet replaces an earlier one, and every enumeration and pattern on the way
+   applies, so only a pointer to each derivation that states some is kept. Returns the built-in type reached. */
+static int xsd_fold_facets(arena *mem, const xfacet_entry *entry, facetset *facets, xfacet_fold *fold, int depth) {
+    TH_WORK_STEP();
+    const facetset *own = entry->own;
+    if (own == NULL) {
+        return facets->base_id;
+    }
+    int base_id = facets->base_id;
+    if (entry->base_id >= 0) {
+        base_id = entry->base != NULL && depth < XSD_MAX_BASE_DEPTH
+                      ? xsd_fold_facets(mem, entry->base, facets, fold, depth + 1)
+                      : entry->base_id;
+    }
+    if (entry->inner != NULL) {
+        base_id = xsd_fold_facets(mem, entry->inner, facets, fold, depth + 1);
+    }
+    if (base_id < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    facets->base_id = base_id;
+    if (!entry->keeps_ws) {
+        facets->ws = dt_default_ws(base_id);
+    }
+    if (facet_inherit(mem, facets, own) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                             /* GCOVR_EXCL_LINE */
+    }
+    if (own->enum_count > 0) {
+        if (xsd_push_level(mem, &fold->enums, own) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (own->pattern_count > 0) {
+        if (xsd_push_level(mem, &fold->patterns, own) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                                       /* GCOVR_EXCL_LINE */
+        }
+    }
+    return base_id;
+}
+
+static int xsd_keep_levels(arena *mem, const xfacet_levels *levels, const facetset *const **kept, Py_ssize_t *count) {
+    const facetset **copy = arena_alloc(mem, levels->count * sizeof(*copy));
+    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    memcpy(copy, levels->items, levels->count * sizeof(*copy));
+    *kept = copy;
+    *count = (Py_ssize_t)levels->count;
+    return 0;
+}
+
+/* Runs once the entries are sorted and stay put. Each type folds its own chain because the depth cutoff counts from
+   it, but a hop costs the fixed-size scalar facets and one pointer, not a copy of the base's facets. */
+static int xsd_link_facets(th_schema *schema) {
+    for (size_t index = 0; index < schema->facet_count; index++) {
+        xfacet_entry *entry = &schema->facet_entries[index];
+        if (entry->base_node != NULL) {
+            entry->base = xsd_facet_entry(schema, entry->base_node);
+        }
+        if (entry->inner_node != NULL) {
+            entry->inner = xsd_facet_entry(schema, entry->inner_node);
+        }
+    }
+    xfacet_fold fold = {{NULL, 0, 0}, {NULL, 0, 0}};
+    for (size_t index = 0; index < schema->facet_count; index++) {
+        xfacet_entry *entry = &schema->facet_entries[index];
+        facetset *facets = &entry->facets;
+        facetset_init(facets, DT_STRING);
+        fold.enums.count = fold.patterns.count = 0;
+        if (xsd_fold_facets(&schema->mem, entry, facets, &fold, 0) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;                                                    /* GCOVR_EXCL_LINE */
+        }
+        if (fold.enums.count == 1) {
+            facets->enums = fold.enums.items[0]->enums;
+            facets->enum_count = fold.enums.items[0]->enum_count;
+        } else if (fold.enums.count > 1) {
+            const int kept =
+                xsd_keep_levels(&schema->mem, &fold.enums, &entry->levels.enums, &entry->levels.enum_count);
+            if (kept < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;  /* GCOVR_EXCL_LINE */
+            }
+        }
+        if (fold.patterns.count == 1) {
+            facets->patterns = fold.patterns.items[0]->patterns;
+            facets->pattern_count = fold.patterns.items[0]->pattern_count;
+        } else if (fold.patterns.count > 1) {
+            const int kept =
+                xsd_keep_levels(&schema->mem, &fold.patterns, &entry->levels.patterns, &entry->levels.pattern_count);
+            if (kept < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;  /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return 0;
 }
 
 /* Validate a text value against a simple type (built-in id, or a named/inline
-   simpleType node). Reports on `node`. */
+   simpleType node, or the simpleContent node of a complexType). Reports on `node`. */
 static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
                                 Py_ssize_t len) {
     th_schema *schema = ctx->schema;
     facetset builtin;
     const facetset *facets;
+    static const facet_levels no_levels = {NULL, NULL, 0, 0};
+    const facet_levels *levels = &no_levels;
     if (simpletype != NULL) {
-        facets = xsd_cached_facets(schema, simpletype);
+        const xfacet_entry *entry = xsd_facet_entry(schema, simpletype);
+        facets = &entry->facets;
+        levels = &entry->levels;
     } else {
-        facetset_init(&builtin,
-                      builtin_id >= 0 ? builtin_id : DT_STRING); /* GCOVR_EXCL_BR_LINE: negative only on arena OOM */
+        facetset_init(&builtin, builtin_id);
         facets = &builtin;
     }
     Py_ssize_t norm_len = 0;
@@ -877,7 +1170,7 @@ static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_n
                DT_NAMES[facets->base_id].name);
         return;
     }
-    facet_check(ctx, node, facets, norm, norm_len);
+    facet_check(ctx, node, facets, levels, norm, norm_len);
 }
 
 /* ---- attributes ---- */
@@ -998,14 +1291,11 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
         Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
         split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
         resolve_ns(tree, effective, prefix, prefix_len, &uri, &uri_len);
-        if (!is_xsd_uri(uri, uri_len)) {
-            named = named_find(&schema->simple_types, local, local_len);
-        }
         int base_id = DT_STRING;
-        if (named == NULL) {
-            facetset probe;
-            facetset_init(&probe, DT_STRING);
-            base_id = xsd_base_id(schema, effective, type, type_len, &probe, 0);
+        if (is_xsd_uri(uri, uri_len)) {
+            base_id = xsd_builtin_id(local, local_len);
+        } else {
+            named = named_find(&schema->simple_types, local, local_len);
         }
         xsd_validate_simple(ctx, instance, base_id, named, value, value_len);
     } else if (inline_type != NULL) {
@@ -1214,7 +1504,6 @@ static int xsd_is_mixed(const th_schema *schema, th_node *ctype) {
 
 static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype) {
     th_schema *schema = ctx->schema;
-    th_tree *tree = schema->tree;
     th_tree *inst = ctx->tree;
     edecl_vec declared = {NULL, 0, 0};
     xsd_validate_attrs(ctx, instance, ctype, &declared);
@@ -1227,19 +1516,9 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
                 break;
             }
         }
-        th_node *extension = first_schema_child(schema, simple_content, XSD_NS, "extension");
-        th_node *derivation =
-            extension != NULL ? extension : first_schema_child(schema, simple_content, XSD_NS, "restriction");
         Py_ssize_t text_len = 0;
         const Py_UCS4 *text = element_text(ctx, instance, &text_len);
-        if (derivation != NULL) {
-            Py_ssize_t base_len = 0;
-            const Py_UCS4 *base = xsd_attr(tree, derivation, "base", &base_len);
-            facetset probe;
-            facetset_init(&probe, DT_STRING);
-            int base_id = base != NULL ? xsd_base_id(schema, derivation, base, base_len, &probe, 0) : DT_STRING;
-            xsd_validate_simple(ctx, instance, base_id, NULL, text, text_len);
-        }
+        xsd_validate_simple(ctx, instance, DT_STRING, simple_content, text, text_len);
         return;
     }
 
@@ -1281,8 +1560,17 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         }
     }
 
+    th_node *all = NULL;
     if (model != NULL && is_schema_el(schema, model, XSD_NS, "all")) {
-        xsd_validate_all(ctx, model, children, nchildren);
+        all = model;
+    } else if (model != NULL && schema->named_all && is_schema_el(schema, model, XSD_NS, "group")) {
+        all = xsd_group_all(schema, model);
+    }
+    if (all != NULL) {
+        /* an optional xs:all, direct or through a group ref, is satisfied by empty content */
+        if (nchildren > 0 || xsd_occurs_min(schema->tree, model) != 0) {
+            xsd_validate_all(ctx, all, children, nchildren);
+        }
         return;
     }
     if (model == NULL && base_model == NULL) {
@@ -1294,26 +1582,26 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
 
     posset start = posset_alloc(schema, nchildren + 1);
     posset end = posset_alloc(schema, nchildren + 1);
-    if (start.pos == NULL || end.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                 /* GCOVR_EXCL_LINE */
+    if (start.member == NULL || end.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                       /* GCOVR_EXCL_LINE */
     }
     posset_add(&start, 0);
     if (base_model != NULL) {
         posset after_base = posset_alloc(schema, nchildren + 1);
-        if (after_base.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;                   /* GCOVR_EXCL_LINE */
+        if (after_base.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;                      /* GCOVR_EXCL_LINE */
         }
-        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base);
+        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base, 0);
         if (model != NULL) {
-            xsd_match_occurs(schema, inst, model, children, &after_base, &end);
+            xsd_match_occurs(schema, inst, model, children, &after_base, &end, 0);
         } else {
             posset_copy(&end, &after_base);
         }
     } else {
-        xsd_match_occurs(schema, inst, model, children, &start, &end);
+        xsd_match_occurs(schema, inst, model, children, &start, &end, 0);
     }
 
-    if (end.hi != end.size) { /* hi is one past the furthest position reached */
+    if (!end.member[nchildren]) {
         report(ctx, instance, "structure", "content of element does not match its content model");
     }
 
@@ -1325,7 +1613,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         xsd_collect_edecls(schema, model, &decls);
     }
     for (Py_ssize_t index = 0; index < nchildren; index++) {
-        qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
+        qname name = element_qname_scoped(schema, inst, children[index]);
         for (Py_ssize_t decl = 0; decl < decls.count; decl++) {
             if (qname_eq(&name, &decls.items[decl])) {
                 xsd_validate_element(ctx, children[index], decls.items[decl].decl);
@@ -1337,10 +1625,18 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
 
 /* ---- element ---- */
 
+static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node *decl);
+
 static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) {
+    Py_ssize_t mark = ns_scope_enter(ctx->schema, ctx->tree, instance);
+    xsd_validate_element_scoped(ctx, instance, decl);
+    ns_scope_leave(ctx->schema, mark);
+}
+
+static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node *decl) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
-    qname name = node_qname(ctx->tree, instance, instance->text, instance->text_len, 0);
+    qname name = node_qname_scoped(schema, instance->text, instance->text_len, 0);
     Py_ssize_t mark = ctx->path.len;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
@@ -1363,7 +1659,6 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) 
             xsd_validate_complex(ctx, instance, complex);
         } else {
             th_node *simple = is_xsd_ns ? NULL : named_find(&schema->simple_types, local, local_len);
-            int base_id = simple == NULL ? xsd_base_id(schema, decl, type, type_len, &(facetset){0}, 0) : DT_STRING;
             for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
                 if (child->type == TH_NODE_ELEMENT) {
                     report(ctx, child, "structure", "simple-typed element must not contain child elements");
@@ -1372,7 +1667,8 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) 
             }
             Py_ssize_t text_len = 0;
             const Py_UCS4 *text = element_text(ctx, instance, &text_len);
-            xsd_validate_simple(ctx, instance, is_xsd_ns ? base_id : DT_STRING, simple, text, text_len);
+            xsd_validate_simple(ctx, instance, is_xsd_ns ? xsd_builtin_id(local, local_len) : DT_STRING, simple, text,
+                                text_len);
         }
     } else if (inline_complex != NULL) {
         xsd_validate_complex(ctx, instance, inline_complex);
@@ -1456,6 +1752,10 @@ static int xsd_compile(th_schema *schema) {
     }
     if (schema->facet_count > 1) {
         qsort(schema->facet_entries, schema->facet_count, sizeof(xfacet_entry), xsd_facet_order);
+    }
+    if (xsd_link_facets(schema) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        PyErr_NoMemory();              /* GCOVR_EXCL_LINE */
+        return 0;                      /* GCOVR_EXCL_LINE */
     }
     if (schema->all_count > 1) {
         qsort(schema->all_entries, schema->all_count, sizeof(xall_entry), xsd_all_order);
@@ -1726,7 +2026,8 @@ static int xsd_check_expansion(th_schema *schema) {
 
 static void xsd_validate_root(valctx *ctx, th_node *root) {
     th_schema *schema = ctx->schema;
-    qname name = node_qname(ctx->tree, root, root->text, root->text_len, 0);
+    ns_scope_enter_ancestors(schema, ctx->tree, root);
+    qname name = element_qname_scoped(schema, ctx->tree, root);
     th_node *decl = named_find(&schema->elements, name.local, name.local_len);
     if (decl == NULL) {
         report(ctx, root, "structure", "no global element declaration for the document root");

@@ -114,6 +114,14 @@ def test_external_only_keeps_other_sites() -> None:
         pytest.param("https://a.test.com/", "https://b.test.com/x", id="sibling-subdomains-share-etld1"),
         pytest.param("https://spam.example.co.uk/", "https://example.co.uk/x", id="multi-suffix-same-site"),
         pytest.param("https://sub.tv.com/", "https://other.tv.com/x", id="tld-like-label-is-not-a-suffix"),
+        pytest.param("https://www.maple-trade.org./", "https://blog.maple-trade.org./x", id="trailing-dot-subdomains"),
+        pytest.param("https://www.maple-trade.org./", "https://maple-trade.org./x", id="trailing-dot-apex"),
+        pytest.param(
+            "https://spam.maple-trade.com.au./", "https://maple-trade.com.au./x", id="trailing-dot-multi-suffix"
+        ),
+        pytest.param(
+            "https://www.maple-trade.org../", "https://blog.maple-trade.org../x", id="repeated-trailing-dots-subdomains"
+        ),
     ],
 )
 def test_external_boundary_drops_the_href(base: str, href: str) -> None:
@@ -130,6 +138,19 @@ def test_external_boundary_drops_the_href(base: str, href: str) -> None:
         pytest.param("https://foo.github.io/", "https://bar.github.io/x", id="private-suffix-github-io"),
         pytest.param("https://www.ck/", "https://other.ck/x", id="wildcard-and-exception-suffix"),
         pytest.param("http://192.0.2.1/", "http://198.51.100.2/x", id="ip-hosts-compare-whole"),
+        pytest.param("https://harbor.com.au./", "https://other.com.au./x", id="trailing-dot-distinct-registrants"),
+        pytest.param("https://foo.pages.dev./", "https://bar.pages.dev./x", id="trailing-dot-private-suffix"),
+        pytest.param(
+            "https://www.city.kawasaki.jp./", "https://other.kawasaki.jp./x", id="trailing-dot-wildcard-exception"
+        ),
+        pytest.param(
+            "https://www.maple-trade.org./", "https://maple-trade.org.attacker.net./x", id="trailing-dot-suffix-attack"
+        ),
+        pytest.param("https://www.maple-trade.org/", "https://www.maple-trade.org./x", id="trailing-dot-only-on-link"),
+        pytest.param(
+            "https://harbor.com.au../", "https://other.com.au../x", id="repeated-trailing-dots-distinct-registrants"
+        ),
+        pytest.param("https://a..com.au/", "https://b..com.au/x", id="empty-label-left-of-the-suffix"),
     ],
 )
 def test_external_boundary_keeps_the_href(base: str, href: str) -> None:
@@ -154,10 +175,31 @@ def test_external_only_canonicalizes_ipv4_hosts_before_comparing() -> None:
     assert extract_links(html, "http://127.0.0.1/", external_only=True) == {"http://8.8.8.8/c"}
 
 
+def test_external_only_reports_hosts_whose_dots_only_show_once_canonical() -> None:
+    # a browser opens these as mirror.test and 192.168.1.1; the spelled host holding no dot must not hide the link
+    html: Final = (
+        '<a href="http://mirror%2Etest/a">1</a><a href="http://mirror\u3002test/b">2</a>'
+        '<a href="http://3232235777/c">3</a><a href="http://intranet/d">4</a>'
+    )
+    assert extract_links(html, "http://example.com/", external_only=True) == {
+        "http://mirror.test/a",
+        "http://mirror.test/b",
+        "http://192.168.1.1/c",
+    }
+
+
 def test_external_only_attributes_backslash_authority_to_the_real_host() -> None:
     # a browser resolves evil.example\@good.example to evil.example, so the link leaves the base's site and is kept
     html: Final = '<a href="http://evil.example\\@good.example/">x</a>'
     assert extract_links(html, "http://good.example/", external_only=True) == {"http://evil.example/@good.example/"}
+
+
+def test_external_only_follows_a_same_scheme_base_href_ending_in_colon() -> None:
+    # an empty port makes the base name other.test, so a browser sends the page's relative links there
+    html: Final = '<base href="https://other.test:"><a href="/login">x</a><a href="reset">y</a>'
+    expected: Final = {"https://other.test/login", "https://other.test/reset"}
+    assert extract_links(html, "https://good.example/news/today") == expected
+    assert extract_links(html, "https://good.example/news/today", external_only=True) == expected
 
 
 def test_external_only_requires_a_base() -> None:
@@ -308,7 +350,7 @@ def test_meta_refresh_with_valueless_content_has_no_link() -> None:
             'a{background:url("a)b.png");mask:url(real.png)}', ["a)b.png", "real.png"], id="url-with-parenthesis"
         ),
         pytest.param(
-            'a{background:url("a\\"b.png");mask:url(real.png)}', ['a\\"b.png', "real.png"], id="url-with-escaped-quote"
+            'a{background:url("a\\"b.png");mask:url(real.png)}', ['a"b.png', "real.png"], id="url-with-escaped-quote"
         ),
     ],
 )
@@ -319,9 +361,120 @@ def test_style_element_css_parsing(css: str, expected: list[str]) -> None:
 @pytest.mark.parametrize(
     ("css", "expected"),
     [
+        pytest.param(
+            'url("http://one.example\\40 two.example/")', ["http://one.example@two.example/"], id="hex-then-space"
+        ),
+        pytest.param("url('\\68ttp://a.example/')", ["http://a.example/"], id="hex-then-non-hex"),
+        pytest.param('url("\\00006a1.png")', ["j1.png"], id="hex-takes-six-digits"),
+        pytest.param('url("a\\2E\tpng")', ["a.png"], id="hex-upper-case-then-tab"),
+        pytest.param('url("a\\0 b\\d800 c\\110000 d")', ["a\ufffdb\ufffdc\ufffdd"], id="hex-outside-unicode"),
+        pytest.param('url("a\\41")', ["aA"], id="hex-ends-the-string"),
+        pytest.param("url(a\\41", ["aA"], id="hex-ends-the-input"),
+        pytest.param("url(a\\", ["a�"], id="bare-backslash-ends-the-input"),
+        pytest.param("url(a  ", ["a"], id="bare-whitespace-ends-the-input"),
+        pytest.param('url("a\\1f600 .png")', ["a\U0001f600.png"], id="hex-above-the-surrogates"),
+        pytest.param('url("\\\\remote.test/x.png")', ["\\remote.test/x.png"], id="escaped-backslash"),
+        pytest.param('url("a\\\nb.png")', ["ab.png"], id="line-continuation"),
+        pytest.param('url("\\\n")', [], id="only-a-line-continuation"),
+        pytest.param('url("a.png\\', ["a.png"], id="backslash-ends-the-input"),
+        pytest.param('@import "a\\2e css"', ["a.css"], id="import-string"),
+        pytest.param('@\\69mport "x.css"', ["x.css"], id="escaped-import-keyword"),
+        pytest.param('@\\49MPORT "x.css"', ["x.css"], id="escaped-import-keyword-upper-case"),
+        pytest.param("@\\69mport url(a.css)", ["a.css"], id="escaped-import-keyword-then-url"),
+        pytest.param("url(a\\)b.png) url(real.png)", ["a)b.png", "real.png"], id="bare-escaped-parenthesis"),
+        pytest.param("url(a\\ b.png)", ["a b.png"], id="bare-escaped-space"),
+        pytest.param("url(a\\41 ) url(real.png)", ["aA", "real.png"], id="bare-hex-then-space"),
+        pytest.param("\\75 rl(a.png)", ["a.png"], id="function-name-as-hex-escape"),
+        pytest.param("u\\rl(a.png)", ["a.png"], id="function-name-with-escaped-letter"),
+        pytest.param("UR\\4c(a.png)", ["a.png"], id="function-name-ends-on-escape"),
+    ],
+)
+def test_css_url_escapes_are_decoded(css: str, expected: list[str]) -> None:
+    # the URL a browser fetches is the decoded one: "one.example\40 two.example" names the host two.example
+    assert _urls(f"<style>{css}</style>") == expected
+
+
+@pytest.mark.parametrize(
+    "css",
+    [
+        pytest.param("url(a b.png)", id="whitespace-inside"),
+        pytest.param('url(a"b.png)', id="double-quote-inside"),
+        pytest.param("url(a'b.png)", id="single-quote-inside"),
+        pytest.param("url(a(b.png)", id="parenthesis-inside"),
+        pytest.param("url(a\x01b.png)", id="non-printable-inside"),
+        pytest.param("url(a\x7fb.png)", id="delete-inside"),
+        pytest.param("url(a\\\nb.png)", id="backslash-before-newline"),
+        pytest.param("url(a b \\) c.png)", id="escaped-parenthesis-in-the-remnant"),
+        pytest.param("\\url(a b @import 'c.css' url('d.png')", id="escaped-name-with-strings-in-the-remnant"),
+    ],
+)
+def test_css_bad_url_token_is_no_link_and_ends_at_its_parenthesis(css: str) -> None:
+    # CSS discards a malformed unquoted url() up to the next ")", so nothing inside it is a link a browser follows
+    assert _urls(f"<style>a{{x:{css};y:url(real.png)}}</style>") == ["real.png"]
+
+
+@pytest.mark.parametrize(
+    "css",
+    [
+        pytest.param("url(a b", id="whitespace-then-end-of-input"),
+        pytest.param("#url(a.png)", id="hash-token"),
+        pytest.param("@url(a.png)", id="at-keyword"),
+        pytest.param("a\\.url(a.png)", id="escape-in-a-longer-name"),
+        pytest.param("\\+\\75rl(a.png)", id="escapes-in-a-longer-name"),
+        pytest.param("\\\nurl", id="backslash-before-newline-outside-a-string"),
+        pytest.param("ur\\6c", id="escaped-name-without-parenthesis"),
+        pytest.param("\\", id="backslash-ends-the-input-outside-a-string"),
+        pytest.param("\\75rl", id="escaped-name-ends-the-input"),
+        pytest.param("\\61rl(a.png)", id="escaped-name-of-another-function"),
+        pytest.param("\\75xl(a.png)", id="escaped-name-with-another-second-letter"),
+        pytest.param("ur\\6d(a.png)", id="escaped-name-with-another-last-letter"),
+        pytest.param("#\\75rl(a.png)", id="escaped-name-after-hash"),
+        pytest.param("@\\75rl(a.png)", id="escaped-name-after-at"),
+        pytest.param("\\75rl;", id="escaped-name-before-another-token"),
+        pytest.param("\\75rl\\78(a.png)", id="escaped-name-longer-than-url"),
+        pytest.param('\\69mport "a.css"', id="escaped-import-without-at-sign"),
+        pytest.param(' \\69mport "a.css"', id="escaped-import-after-space"),
+        pytest.param('@\\61mport "a.css"', id="escaped-import-with-other-first-letter"),
+        pytest.param('@\\69mpor "a.css"', id="escaped-import-shorter"),
+        pytest.param('\\40import "a.css"', id="escaped-at-sign-is-no-at-keyword"),
+    ],
+)
+def test_css_text_that_is_no_url_token_holds_no_link(css: str) -> None:
+    assert _urls(f"<style>{css}</style>") == []
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        pytest.param("font-family:url(a b url('\\29 ;visibility:hidden;y:'))", id="string-in-a-bad-url-remnant"),
+        pytest.param("font-family:\\url(a b @import '\\29 ;visibility:hidden;y:')", id="import-in-a-bad-url-remnant"),
+        pytest.param('font-family:#url(a"c);visibility:hidden;y:")', id="hash-token"),
+        pytest.param('font-family:@url(a"c);visibility:hidden;y:")', id="at-keyword"),
+        pytest.param("font-family:a\\.url(url(b c);visibility:hidden;y:))", id="url-ending-an-escaped-name"),
+        pytest.param("font-family:a\\.url((/../b);visibility:hidden;y:)", id="block-after-an-escaped-name"),
+    ],
+)
+def test_resolve_links_leaves_css_alone_where_css_reads_no_url_token(style: str) -> None:
+    # rewriting text the scanner takes for a URL where CSS reads something else moves where that construct ends, which
+    # turns the declarations the page hid inside it into live ones
+    root = parse_fragment("<p></p>")
+    paragraph = root.find("p")
+    assert paragraph is not None
+    paragraph.attrs["style"] = style
+    root.resolve_links(_RESOLVE_BASE)
+    assert paragraph.attrs["style"] == style
+
+
+@pytest.mark.parametrize(
+    ("css", "expected"),
+    [
         pytest.param('a{content:"url(hidden)\\\r\ncontinued";background:url(real)}', ["real"], id="escaped-crlf"),
         pytest.param('a{content:"url(hidden)\\\rcontinued";background:url(real)}', ["real"], id="escaped-cr"),
         pytest.param('a{content:"url(hidden)\\\r', [], id="trailing-escaped-cr"),
+        pytest.param('a{background:url("a\\41\r\nb")}', ["aAb"], id="hex-escape-ended-by-crlf"),
+        pytest.param('a{background:url("a\\41\rb")}', ["aAb"], id="hex-escape-ended-by-cr"),
+        pytest.param("a{background:url(a\\41\r", ["aA"], id="hex-escape-ended-by-trailing-cr"),
+        pytest.param('a{background:url("a\\\fb")}', ["ab"], id="escaped-form-feed"),
         pytest.param('a{content:"bad\rbackground:url(real)}', ["real"], id="bad-string-cr"),
         pytest.param('a{content:"bad\fbackground:url(real)}', ["real"], id="bad-string-form-feed"),
     ],
@@ -608,6 +761,46 @@ def test_css_url_in_style_element_is_resolved() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    [
+        pytest.param('url("p\\\t")', 'url("https://example.com/dir/p")', id="escaped-tab"),
+        pytest.param(
+            'url("\\\\remote.test/x.png")',
+            'url("https://example.com/dir/\\\\remote.test/x.png")',
+            id="escaped-backslash",
+        ),
+        pytest.param("url('a\\'b.png')", "url('https://example.com/dir/a\\'b.png')", id="escaped-quote"),
+        pytest.param("url(a\\)b.png)", "url(https://example.com/dir/a\\)b.png)", id="bare-escaped-parenthesis"),
+        pytest.param("url(\\61 /b\\ c.png)", "url(https://example.com/dir/a/b\\20 c.png)", id="bare-escaped-space"),
+        pytest.param(
+            'url("https://other.test/\\61")', 'url("https://other.test/\\61")', id="absolute-stays-as-written"
+        ),
+        pytest.param('url("\\\n")', 'url("\\\n")', id="only-a-line-continuation"),
+    ],
+)
+def test_css_url_is_resolved_from_its_decoded_form(style: str, expected: str) -> None:
+    root = parse_fragment("<p></p>")
+    paragraph = root.find("p")
+    assert paragraph is not None
+    paragraph.attrs["style"] = f'cursor:{style},auto;font-family:"),auto;visibility:hidden;y:"'
+    root.resolve_links(_RESOLVE_BASE)
+    # the text after the URL stays inside the string it was in: no escape is left to swallow the closing quote
+    assert paragraph.attrs["style"] == f'cursor:{expected},auto;font-family:"),auto;visibility:hidden;y:"'
+
+
+def test_escaped_import_keyword_is_resolved() -> None:
+    assert (
+        _resolved('<style>@\\69mport "a.css";</style>') == '<style>@\\69mport "https://example.com/dir/a.css";</style>'
+    )
+
+
+def test_resolved_css_url_cannot_close_its_style_element() -> None:
+    # "<\/style" is how a stylesheet spells the text "</style"; decoded and written back bare it would end the element
+    html: Final = '<style>a{background:url("x<\\/style>y")}</style>'
+    assert _resolved(html) == '<style>a{background:url("https://example.com/dir/x<\\/style>y")}</style>'
+
+
 def test_css_comments_and_strings_are_not_resolved() -> None:
     html: Final = "<style>/* url(hidden.png) */a{content:'url(fake.png)';background:url(real.png)}</style>"
     assert _resolved(html) == (
@@ -835,6 +1028,34 @@ def test_returning_none_leaves_the_link_unchanged() -> None:
 
 def test_returning_the_same_string_is_not_a_mutation() -> None:
     assert _rewritten('<a href="a">x</a>', lambda url: url) == '<a href="a">x</a>'
+
+
+_CSS_HOSTILE: Final[str] = "a\"b'c(d)e f\\g\nh\x01i\x7fj</style>"
+
+
+@pytest.mark.parametrize(
+    ("css", "expected"),
+    [
+        pytest.param('url("x.png")', 'url("a\\"b\'c(d)e f\\\\g\\a h\\1 i\\7f j<\\/style>")', id="double-quoted"),
+        pytest.param("url('x.png')", "url('a\"b\\'c(d)e f\\\\g\\a h\\1 i\\7f j<\\/style>')", id="single-quoted"),
+        pytest.param("url(x.png)", "url(a\\\"b\\'c\\(d\\)e\\20 f\\\\g\\a h\\1 i\\7f j<\\/style>)", id="bare"),
+        pytest.param("@import 'x.png'", "@import 'a\"b\\'c(d)e f\\\\g\\a h\\1 i\\7f j<\\/style>'", id="import"),
+    ],
+)
+def test_a_css_replacement_is_written_as_css_spells_it(css: str, expected: str) -> None:
+    style = Element("style")
+    style.append(Text(f"a{{background:{css}}} b{{content:'after'}}"))
+    style.rewrite_links(lambda _url: _CSS_HOSTILE)
+    # the replacement stays one URL, and the text after it stays what it was
+    assert style.text == f"a{{background:{expected}}} b{{content:'after'}}"
+    assert [link.url for link in style.links()] == [_CSS_HOSTILE]
+
+
+def test_an_attribute_replacement_is_written_verbatim() -> None:
+    root = parse_fragment('<a href="x">t</a>')
+    root.rewrite_links(lambda _url: _CSS_HOSTILE)
+    (link,) = root.links()
+    assert link.element.attrs["href"] == _CSS_HOSTILE
 
 
 def test_only_some_candidates_change() -> None:

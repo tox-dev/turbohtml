@@ -1088,34 +1088,49 @@ void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parse
 /* Whether any compound in the list carries a :has(), recursing through the nested
    lists of :is()/:where()/:not()/:has() so a :has() buried inside them still counts.
    The result drives whether a query allocates the :has() subtree memo at all. */
-static int sel_alts_have_has(const sel_complex *alts, int count);
+typedef int (*sel_pseudo_test)(int pseudo);
 
-static int sel_compound_has_has(const sel_compound *compound) {
+static int sel_alts_have_pseudo(const sel_complex *alts, int count, sel_pseudo_test wanted);
+
+static int sel_compound_has_pseudo(const sel_compound *compound, sel_pseudo_test wanted) {
     for (int index = 0; index < compound->count; index++) {
         const sel_simple *simple = &compound->simples[index];
         if (simple->kind != ':') {
             continue;
         }
-        if (simple->pseudo == PSEUDO_HAS) {
+        if (wanted(simple->pseudo)) {
             return 1;
         }
-        if (simple->sub != NULL && sel_alts_have_has(simple->sub, simple->sub_count)) {
+        if (simple->sub != NULL && sel_alts_have_pseudo(simple->sub, simple->sub_count, wanted)) {
             return 1;
         }
     }
     return 0;
 }
 
-static int sel_alts_have_has(const sel_complex *alts, int count) {
+static int sel_alts_have_pseudo(const sel_complex *alts, int count, sel_pseudo_test wanted) {
     for (int index = 0; index < count; index++) {
         const sel_complex *complex = &alts[index];
         for (int compound = 0; compound < complex->count; compound++) {
-            if (sel_compound_has_has(&complex->compounds[compound])) {
+            if (sel_compound_has_pseudo(&complex->compounds[compound], wanted)) {
                 return 1;
             }
         }
     }
     return 0;
+}
+
+static int sel_is_has_pseudo(int pseudo) {
+    return pseudo == PSEUDO_HAS;
+}
+
+static int sel_is_dir_pseudo(int pseudo) {
+    return pseudo == PSEUDO_DIR;
+}
+
+static int sel_is_legend_pseudo(int pseudo) {
+    return pseudo == PSEUDO_DISABLED || pseudo == PSEUDO_ENABLED || pseudo == PSEUDO_READ_ONLY ||
+           pseudo == PSEUDO_READ_WRITE;
 }
 
 /* Compile a selector string against the tree it will run on. Returns NULL with a
@@ -1139,7 +1154,9 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
         PyMem_Free(compiled);
         return NULL;
     }
-    compiled->has_relational = sel_alts_have_has(compiled->alts, compiled->count);
+    compiled->has_relational = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_has_pseudo);
+    compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
+    compiled->reads_dir = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_dir_pseudo);
     return compiled;
 }
 
@@ -1611,9 +1628,10 @@ static int sel_is_disableable(th_node *node) {
     }
 }
 
-/* Keys the first-legend answers in a memo that also holds :has() and sibling answers,
+/* Keys the first-legend and fieldset-climb answers in a memo that also holds :has() and sibling answers,
    which key by their own selector objects. */
 static const char SEL_FIRST_LEGEND_KEY = 0;
+static const char SEL_FIELDSET_CLIMB_KEY = 0;
 
 /* Whether child, the child of a fieldset that a control is or sits under, is that
    fieldset's first legend, whose contents a disabled fieldset does not disable (HTML "the
@@ -1632,7 +1650,7 @@ static int sel_is_first_legend(th_node *child, sel_memo *memo) {
         return 0;
     }
     int first = 1;
-    if (memo != NULL && sel_memo_get(memo, &SEL_FIRST_LEGEND_KEY, child, &first)) {
+    if (sel_memo_get(memo, &SEL_FIRST_LEGEND_KEY, child, &first)) {
         return first;
     }
     for (th_node *earlier = child->prev_sibling; earlier != NULL; earlier = earlier->prev_sibling) {
@@ -1642,10 +1660,40 @@ static int sel_is_first_legend(th_node *child, sel_memo *memo) {
             break;
         }
     }
-    if (memo != NULL) {
-        sel_memo_put(memo, &SEL_FIRST_LEGEND_KEY, child, first);
-    }
+    sel_memo_put(memo, &SEL_FIRST_LEGEND_KEY, child, first);
     return first;
+}
+
+/* Whether a disabled fieldset above node disables it: one whose first legend does not hold
+   the child the climb came through. Past SEL_POSITION_MEMO_MIN_RUN levels the answer is
+   memoized for every node the climb passed, so the controls under one deep run of fieldsets
+   stop at the first memoized ancestor instead of each climbing to the root. */
+static int sel_fieldset_disables(th_node *node, sel_memo *memo) {
+    int disabled = 0;
+    int climbed = 0;
+    th_node *child = node;
+    for (th_node *ancestor = node->parent; ancestor != NULL; child = ancestor, ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        climbed++;
+        /* a fieldset-atom ancestor is necessarily HTML; the type guard skips the
+           document node that ends the chain */
+        if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == TH_TAG_FIELDSET &&
+            sel_has_attr(ancestor, TH_ATTR_DISABLED) && !sel_is_first_legend(child, memo)) {
+            disabled = 1;
+            break;
+        }
+        if (climbed >= SEL_POSITION_MEMO_MIN_RUN && sel_memo_get(memo, &SEL_FIELDSET_CLIMB_KEY, ancestor, &disabled)) {
+            break;
+        }
+    }
+    if (climbed > SEL_POSITION_MEMO_MIN_RUN) {
+        th_node *passed = node;
+        for (int index = 0; index < climbed; index++) {
+            sel_memo_put(memo, &SEL_FIELDSET_CLIMB_KEY, passed, disabled);
+            passed = passed->parent;
+        }
+    }
+    return disabled;
 }
 
 /* Whether node is actually disabled: its own disabled attribute, an option whose
@@ -1666,18 +1714,7 @@ static int sel_is_disabled(th_node *node, sel_memo *memo) {
     if (node->atom == TH_TAG_OPTGROUP || node->atom == TH_TAG_FIELDSET) {
         return 0; /* an optgroup/fieldset is disabled only by its own attribute */
     }
-    /* child trails ancestor up the chain, so each disabled fieldset is handed the child
-       node sits under and never has to look for it among its children */
-    th_node *child = node;
-    for (th_node *ancestor = node->parent; ancestor != NULL; child = ancestor, ancestor = ancestor->parent) {
-        /* a fieldset-atom ancestor is necessarily HTML; the type guard skips the
-           document node that ends the chain */
-        if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == TH_TAG_FIELDSET &&
-            sel_has_attr(ancestor, TH_ATTR_DISABLED) && !sel_is_first_legend(child, memo)) {
-            return 1;
-        }
-    }
-    return 0;
+    return sel_fieldset_disables(node, memo);
 }
 
 /* :checked: a checked checkbox/radio input or a selected option. */
@@ -1946,43 +1983,134 @@ static int sel_strong_dir(Py_UCS4 ch) {
     return 0;
 }
 
-/* The direction of the first strong-directional character in a span: 2 rtl, else the
-   1 ltr default when none is strong. */
+/* The direction of the first strong-directional character in a span: 1 ltr, 2 rtl, 0
+   when none is strong. */
 static int sel_first_strong_dir(const Py_UCS4 *text, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
+        TH_WORK_STEP();
         int strong = sel_strong_dir(text[index]);
         if (strong != 0) {
             return strong;
         }
     }
-    return 1;
+    return 0;
 }
+
+/* Key a node's first strong direction in a sel_memo; no selector object shares either
+   address. A memo bit holds two answers, so ltr and "none strong" add the none key, and
+   write it before the rtl key every read starts from: a table that stops growing
+   between the two writes then reads as unknown, never as ltr. */
+static const char sel_dir_rtl_key = 0;
+static const char sel_dir_none_key = 0;
+
+/* The first strong direction remembered for node: 1 ltr, 2 rtl, 0 none, -1 unknown. */
+static int sel_dir_memo_get(const sel_memo *memo, const th_node *node) {
+    int rtl = 0;
+    if (!sel_memo_get(memo, &sel_dir_rtl_key, node, &rtl)) {
+        return -1;
+    }
+    if (rtl) {
+        return 2;
+    }
+    int none = 0;
+    sel_memo_get(memo, &sel_dir_none_key, node, &none);
+    return none ? 0 : 1;
+}
+
+static void sel_dir_memo_put(sel_memo *memo, const th_node *node, int dir) {
+    if (dir != 2) {
+        sel_memo_put(memo, &sel_dir_none_key, node, dir == 0);
+    }
+    sel_memo_put(memo, &sel_dir_rtl_key, node, dir == 2);
+}
+
+/* The first strong direction of root's descendant text in document order (the text
+   th_node_text collects): 1 ltr, 2 rtl, 0 none. The walk records the answer of every
+   node with children it enters: the strong character answers for each open ancestor up
+   to root, and a node left without one holds none. A later walk from an ancestor skips
+   a subtree known to hold none and stops at one known to hold a strong character, so no
+   node is entered twice and the walks of one table stay linear in the tree, nested
+   dir=auto elements included. */
+static int sel_subtree_dir(th_tree *tree, th_node *root, sel_memo *memo) {
+    th_node *node = root->first_child;
+    if (node == NULL) {
+        return 0;
+    }
+    for (;;) {
+        TH_WORK_STEP();
+        int dir = 0;
+        if (node->type == TH_NODE_TEXT) {
+            if (node->text_len > 0) {
+                const Py_UCS4 *text = th_node_realize_text(tree, node);
+                if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                    return 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                dir = sel_first_strong_dir(text, node->text_len);
+            }
+        } else if (node->first_child != NULL) {
+            dir = sel_dir_memo_get(memo, node);
+            if (dir < 0) {
+                node = node->first_child;
+                continue;
+            }
+        }
+        if (dir != 0) {
+            for (th_node *open = node->parent; open != root; open = open->parent) {
+                sel_dir_memo_put(memo, open, dir);
+            }
+            sel_dir_memo_put(memo, root, dir);
+            return dir;
+        }
+        while (node->next_sibling == NULL) {
+            node = node->parent;
+            sel_dir_memo_put(memo, node, 0);
+            if (node == root) {
+                return 0;
+            }
+        }
+        node = node->next_sibling;
+    }
+}
+
+/* The legend table of a context built without one: a single test (selector_matches,
+   rewrite rules) of a selector without a :disabled-family pseudo-class, or a driver that
+   needs no table of its own. Only this per-thread table outlives such a context, so the
+   matcher binds it on the first dir=auto read rather than every caller setting up and
+   freeing one; binding empties what the previous context left. */
+static _Thread_local sel_memo sel_single_test_memo;
 
 /* The direction a dir=auto element resolves to (HTML "the directionality of an
    element"): an input element resolves from its value attribute, every other element
-   from its text content. */
-static int sel_auto_dir(th_tree *tree, th_node *node) {
+   from its text content, ltr when none of it is strong. Every descendant without a dir of
+   its own resolves through the same element, and a nested dir=auto element reads part of
+   the same text, so the answers come from sel_subtree_dir over the legend table. */
+static int sel_auto_dir(th_node *node, const sel_ctx *ctx) {
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT) {
         const th_node_attr *value = sel_find_attr(node, TH_ATTR_VALUE);
         if (value == NULL || value->value == NULL) {
             return 1; /* an empty control value resolves to the ltr default */
         }
-        return sel_first_strong_dir(value->value, value->value_len);
+        return sel_first_strong_dir(value->value, value->value_len) == 2 ? 2 : 1;
     }
-    Py_ssize_t len = 0;
-    Py_UCS4 *text = th_node_text(tree, node, &len);
-    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    sel_memo *memo = ctx->legend_memo;
+    if (memo == NULL) {
+        memo = &sel_single_test_memo;
+        sel_memo_free(memo);
+        /* every context is a writable local of its driver or of the matcher copying it */
+        ((sel_ctx *)ctx)->legend_memo = memo;
     }
-    int dir = sel_first_strong_dir(text, len);
-    PyMem_Free(text);
-    return dir;
+    int dir = sel_dir_memo_get(memo, node);
+    if (dir < 0) {
+        dir = sel_subtree_dir(ctx->tree, node, memo);
+    }
+    return dir == 2 ? 2 : 1;
 }
 
 /* The element's resolved direction: 1 ltr, 2 rtl. The nearest dir attribute wins
    (auto and a dir-less bdi resolve from the content's first strong character);
-   with none, the document default is ltr (HTML "the dir attribute"). */
-static int sel_direction(th_tree *tree, th_node *node) {
+   with none, the document default is ltr (HTML "the dir attribute"). Kept out of line so
+   sel_match_simple, which every selector runs, does not carry the :dir() walk. */
+static TH_NOINLINE int sel_direction(th_node *node, const sel_ctx *ctx) {
     /* a telephone input's directionality is its own dir, never inherited, and is ltr
        unless dir explicitly overrides it (HTML "the directionality", issue #374) */
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT && sel_input_type_is(node, "tel")) {
@@ -1995,7 +2123,7 @@ static int sel_direction(th_tree *tree, th_node *node) {
                 return 2;
             }
             if (sel_kw(attr->value, attr->value_len, "auto")) {
-                return sel_auto_dir(tree, node);
+                return sel_auto_dir(node, ctx);
             }
         }
         return 1;
@@ -2010,11 +2138,11 @@ static int sel_direction(th_tree *tree, th_node *node) {
                 return 2;
             }
             if (sel_kw(attr->value, attr->value_len, "auto")) {
-                return sel_auto_dir(tree, ancestor);
+                return sel_auto_dir(ancestor, ctx);
             }
             /* an invalid dir value is ignored; keep walking up the ancestor chain */
         } else if (ancestor->ns == TH_NS_HTML && ancestor->atom == TH_TAG_BDI) {
-            return sel_auto_dir(tree, ancestor); /* a dir-less bdi defaults to auto */
+            return sel_auto_dir(ancestor, ctx); /* a dir-less bdi defaults to auto */
         }
     }
     return 1;
@@ -2100,7 +2228,7 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_LANG:
         return sel_matches_lang(ctx->tree, node, simple);
     case PSEUDO_DIR:
-        return sel_direction(ctx->tree, node) == simple->nth_a;
+        return sel_direction(node, ctx) == simple->nth_a;
     /* :link/:any-link: an a or area carrying an href (HTML "the :link/:any-link") */
     case PSEUDO_ANY_LINK:
         return (node->atom == TH_TAG_A || node->atom == TH_TAG_AREA) && sel_has_attr(node, TH_ATTR_HREF);
@@ -2416,10 +2544,32 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
     return 0;
 }
 
-/* Hash the (key, node) pair to a slot. The key feeds the hash because a node collects one entry
-   per key it is probed with; hashing the node alone would put all of them in one probe run. */
+/* Hash the (key, node) pair to a slot. The node part is its creation sequence, as in the node maps,
+   not its address: some spacings of the nodes in memory put every home slot of an address hash in
+   one probe run, so the cost of a query hung on where the allocator placed the tree. The key rotates
+   the node's slot because a node collects one entry per key it is probed with; hashing the node
+   alone would put all of them in one probe run. */
 static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
-    return (size_t)((((uintptr_t)node >> 4) + ((uintptr_t)key >> 4)) * 0x9E3779B97F4A7C15u >> 32) & mask;
+    return (th_hash_slot(th_fibonacci_hash(node->seq), mask + 1) +
+            (size_t)(((uintptr_t)key >> 4) * 0x9E3779B97F4A7C15u >> 32)) &
+           mask;
+}
+
+/* The rest of a probe that walked TH_FAST_RUN_LIMIT taken slots one by one. A document picks
+   which sequences its deep elements get, so it can give them home slots in one run; from here
+   the walk takes the keyed stride the node maps take, which the document cannot predict, and an
+   odd stride reaches every slot. Out of line so the inlined lookup keeps the cost of a plain
+   linear probe. */
+static TH_NOINLINE size_t sel_memo_walk(const sel_memo *memo, const void *key, const th_node *node, size_t idx) {
+    const size_t step = th_node_probe_step(node->seq);
+    for (;;) {
+        TH_WORK_STEP();
+        const sel_memo_slot *slot = &memo->slots[idx];
+        if ((slot->key == key && slot->node == node) || slot->key == NULL) {
+            return idx;
+        }
+        idx = (idx + step) & memo->mask;
+    }
 }
 
 /* Linear-probe from the pair's home slot to the slot holding the (key, node) pair or, if
@@ -2427,7 +2577,7 @@ static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
    always exists). Shared by get and insert so one probe loop carries both. */
 static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node *node) {
     size_t idx = sel_memo_hash(key, node, memo->mask);
-    for (;;) {
+    for (size_t walked = 0; walked < (size_t)TH_FAST_RUN_LIMIT; walked++) {
         TH_WORK_STEP();
         const sel_memo_slot *slot = &memo->slots[idx];
         /* Key first: one argument spans many nodes, so the existing tests reach every probe edge. */
@@ -2439,6 +2589,7 @@ static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node
         }
         idx = (idx + 1) & memo->mask;
     }
+    return sel_memo_walk(memo, key, node, idx);
 }
 
 /* Look up (key, node); on a hit store the cached result in *out and return 1. */
@@ -2802,8 +2953,21 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 }
 
 /* scope is the element :scope matches: the node the query was rooted at. A single
-   test builds a throwaway context with no :has() memo (nothing to amortize over). */
+   test builds a throwaway context with no :has() memo (nothing to amortize over). A
+   selector that reads a :disabled-family pseudo-class gets a legend memo, since one :has()
+   or sibling walk tests many controls under one fieldset. */
+static TH_NOINLINE int sel_matches_with_legend(th_node *node, const sel_compiled *compiled, th_node *scope) {
+    sel_memo legend_memo = {0};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, &legend_memo, NULL};
+    const int matched = sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
+    sel_memo_free(&legend_memo);
+    return matched;
+}
+
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
+    if (compiled->reads_legend) {
+        return sel_matches_with_legend(node, compiled, scope);
+    }
     sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }

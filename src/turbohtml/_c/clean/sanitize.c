@@ -626,44 +626,52 @@ static int is_media_host_tag(uint16_t atom) {
     }
 }
 
-/* The bytes that end a URL authority (https://url.spec.whatwg.org/#authority-state), with '\' for every scheme. A
-   real host never contains '\', so ending there narrows the host the allowlist sees and closes the
-   `evil.example\@good.example` userinfo trick a browser resolves to evil.example. */
-static int ends_authority(Py_UCS4 ch) {
+/* A backslash reads as a slash only under a special scheme. A value without a scheme is relative to a special base, so
+   it reads as one there too. */
+static int backslash_slash(const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon) {
+    return colon < 0 || th_url_scheme_special(value, scheme, colon);
+}
+
+/* The bytes that end a URL authority (https://url.spec.whatwg.org/#authority-state). A real host never contains '\', so
+   ending there narrows the host the allowlist sees and closes the `evil.example\@good.example` userinfo trick a browser
+   resolves to evil.example. */
+static int ends_authority(Py_UCS4 ch, const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon) {
     switch (ch) {
     case '/':
     case '?':
     case '#':
-    case '\\':
         return 1;
+    case '\\':
+        return backslash_slash(value, scheme, colon);
     default:
         return 0;
     }
 }
 
-static int authority_slash(Py_UCS4 ch);
+static int authority_slash(Py_UCS4 ch, const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon);
 
-/* Locate the authority host of a URL value: the host after "scheme://" or a protocol-relative "//". The authority is
-   bounded here without preprocessing the value (the WHATWG tab/newline stripping a browser applies is intentionally not
-   done, so an obfuscated host never masquerades as an allowlisted one), then th_url_authority -- the same decomposition
-   url_split runs -- splits off any "userinfo@" and ":port" and reports the host span and its literal kind. Sets
-   *start,*end to the host span and *kind to the host literal, returns 0, or returns -1 when the URL carries no
-   authority (a relative or opaque src, which has no host to match). */
+/* Locate the authority host of a URL value. A browser opens an authority only right after the scheme (the one
+   scheme_allowed judged), or at the start when there is none, past the leading C0 controls and spaces it strips. A
+   "://" further on is path, query, or fragment and never supplies the host. Tabs and newlines stay in place, so one
+   between the delimiters opens no authority and one inside the host never matches an allowlisted host. Sets
+   *start,*end to the host span and *kind to its literal, returns 0, or returns -1 when there is no authority. */
 static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end, int *kind) {
-    Py_ssize_t authority = -1;
-    if (len >= 2 && authority_slash(value[0]) && authority_slash(value[1])) {
-        authority = 2; /* protocol-relative //host/path */
+    Py_ssize_t authority = 0;
+    while (authority < len && value[authority] <= 0x20) {
+        authority++;
     }
-    for (Py_ssize_t index = 0; authority < 0 && index + 2 < len; index++) {
-        if (value[index] == ':' && authority_slash(value[index + 1]) && authority_slash(value[index + 2])) {
-            authority = index + 3; /* scheme://host */
-        }
+    Py_ssize_t scheme = authority;
+    Py_ssize_t colon = th_url_scheme_colon(value, scheme, len);
+    if (colon >= 0) {
+        authority = colon + 1;
     }
-    if (authority < 0) {
+    if (authority + 1 >= len || !authority_slash(value[authority], value, scheme, colon) ||
+        !authority_slash(value[authority + 1], value, scheme, colon)) {
         return -1;
     }
+    authority += 2; /* scheme://host or protocol-relative //host/path */
     Py_ssize_t authority_end = authority;
-    while (authority_end < len && !ends_authority(value[authority_end])) {
+    while (authority_end < len && !ends_authority(value[authority_end], value, scheme, colon)) {
         authority_end++; /* the authority runs to the path, query, or fragment */
     }
     th_authority parts;
@@ -674,9 +682,9 @@ static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start
     return 0;
 }
 
-/* '\' opens an authority like '/' does, for every scheme, as ends_authority treats it. */
-static int authority_slash(Py_UCS4 ch) {
-    return ch == '/' || ch == '\\';
+/* '\' opens an authority like '/' does, but only where backslash_slash says so. */
+static int authority_slash(Py_UCS4 ch, const Py_UCS4 *value, Py_ssize_t scheme, Py_ssize_t colon) {
+    return ch == '/' || (ch == '\\' && backslash_slash(value, scheme, colon));
 }
 
 /* Keep an embedded-media `src` only when its URL host is on the allowlist, compared case-insensitively against the
@@ -2858,21 +2866,27 @@ static int apply_transform(sanitizer *s, th_node *element, PyObject **tag) {
 }
 
 /* A reparse reads a textarea's content as RCDATA up to the first `</textarea`, and an svg or math as foreign content,
-   so a <style> body or a comment below one is markup there. The parser never builds those shapes; a transform_tags
-   rename, an XML tree or a built tree does. A bit also stays set below an element the balancer escapes, which
-   over-approximates. */
+   so a <style> body or a comment below one is markup there. A parser without customizable select support reads a
+   select's content in its "in select" mode, which ignores a <style> start tag at any depth and tokenizes the body as
+   markup. That mode also ignores an svg or math start tag, so a textarea counts in every namespace, and a select does
+   too: a subtree serialized out of its foreign context reads a select below it as an HTML one. A bit also stays set
+   below an element the balancer escapes, which over-approximates. */
 enum {
     REPARSE_RCDATA = 1 << 0,
     REPARSE_FOREIGN = 1 << 1,
+    REPARSE_SELECT = 1 << 2,
 };
 
-static inline uint8_t reparse_below(uint16_t atom) {
+/* The REPARSE_* bit a kept element a reparse reads as `atom` sets for its descendants. */
+static inline uint8_t reparse_below(uint16_t atom, int is_html) {
     switch (atom) {
     case TH_TAG_TEXTAREA:
         return REPARSE_RCDATA;
     case TH_TAG_SVG:
     case TH_TAG_MATH:
-        return REPARSE_FOREIGN;
+        return is_html ? REPARSE_FOREIGN : 0;
+    case TH_TAG_SELECT:
+        return REPARSE_SELECT;
     default:
         return 0;
     }
@@ -2880,7 +2894,7 @@ static inline uint8_t reparse_below(uint16_t atom) {
 
 /* reparse_below for a walk's root, kept without being judged: an element, or the document of a parsed str. */
 static uint8_t reparse_below_root(const th_node *root) {
-    return root->type == TH_NODE_ELEMENT && root->ns == TH_NS_HTML ? reparse_below(reparsed_atom(root)) : 0;
+    return root->type == TH_NODE_ELEMENT ? reparse_below(reparsed_atom(root), root->ns == TH_NS_HTML) : 0;
 }
 
 /* The REPARSE_* bits of a walk position, read off the frame stack only for a <style> or a kept comment, so the walk
@@ -2953,7 +2967,8 @@ static TH_WALK_INLINE int sanitize_element(sanitizer *s, th_node *element, int p
        the unsafe-tag block: a policy that allowlists it keeps it with its body scrubbed
        against css_properties (like a `style` attribute), rather than dropping its CSS.
        The exemption ends where a reparse would not read the body as raw text (inside a
-       textarea, or an HTML svg or math), so the scrubbed CSS would be live markup. */
+       textarea, an HTML svg or math, or for a parser without customizable select a
+       select), so the scrubbed CSS would be live markup. */
     uint16_t atom = reparsed_atom(element);
     int style_element = atom == TH_TAG_STYLE && is_html;
     int allowed = ((is_unsafe_tag(atom) && !style_element) || is_unsafe_svg_animation(element))
@@ -3340,12 +3355,12 @@ static TH_NOINLINE uint8_t reparse_context(const th_node *root, const void *stac
             balanced ? ((const balanced_frame *)stack)[index].element : ((const sanitize_frame *)stack)[index].element;
         int action = balanced ? ((const balanced_frame *)stack)[index].action
                               : (int)((const sanitize_frame *)stack)[index].action;
-        if (action == SANITIZE_KEEP_CHILDREN && element->ns == TH_NS_HTML) {
-            bits |= reparse_below(reparsed_atom(element));
+        if (action == SANITIZE_KEEP_CHILDREN) {
+            bits |= reparse_below(reparsed_atom(element), element->ns == TH_NS_HTML);
         }
     }
-    if (kept != NULL && kept->ns == TH_NS_HTML) {
-        bits |= reparse_below(reparsed_atom(kept));
+    if (kept != NULL) {
+        bits |= reparse_below(reparsed_atom(kept), kept->ns == TH_NS_HTML);
     }
     return bits;
 }

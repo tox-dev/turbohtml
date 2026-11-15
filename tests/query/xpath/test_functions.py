@@ -21,7 +21,7 @@ from turbohtml import Document, Element, Text, XPath, parse, parse_xml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
-    from types import SimpleNamespace
+    from types import ModuleType, SimpleNamespace
 
     from pytest_mock import MockerFixture
     from work_steps import WorkSteps
@@ -1572,6 +1572,20 @@ def test_regex_nesting_needs_no_c_stack(shape: str, expected: str) -> None:
             id="shared-budget",
         ),
         pytest.param(
+            "x" * 24_000,
+            "re:test(/r, '^(x+)\\1y')",
+            r"regular expression back-references need more than 12400000 backtracking steps \(10000000 plus 100 per "
+            r"character searched in this XPath evaluation\); simplify the pattern or drop the back-reference$",
+            id="long-group",
+        ),
+        pytest.param(
+            "x" * 24_000,
+            "re:test(/r, '^(x+)\\1y', 'i')",
+            r"regular expression back-references need more than 12400000 backtracking steps \(10000000 plus 100 per "
+            r"character searched in this XPath evaluation\); simplify the pattern or drop the back-reference$",
+            id="long-group-ignore-case",
+        ),
+        pytest.param(
             "a" * 700_000,
             "re:test(/r, '(x)?a*\\1')",
             r"regular expression back-references need more than 655360 saved backtracking positions \(10 MiB\); "
@@ -1947,6 +1961,124 @@ def test_regex_oversized_pattern_raises_value_error(mocker: MockerFixture, patte
     _forbid_python_re(mocker)
     with pytest.raises(ValueError, match=expected):
         _REGEX_TEST(parse_xml("<r/>"), text="ab", pattern=pattern, flags="")
+
+
+@pytest.mark.parametrize(
+    ("expression", "text", "pattern", "allowance"),
+    [
+        pytest.param(_REGEX_TEST, "a" * 4000, "(?:(?:a?){540}){540}c", 10_400_000, id="states"),
+        pytest.param(_REGEX_TEST, "a" * 40_000, f"{'a' * 20_000}b", 14_000_000, id="literal-prefix"),
+        pytest.param(_FN_REPLACE, "x" * 90_000, f"(?:x|y)*z{'(){0}' * 20_000}", 19_000_000, id="capture-slots"),
+        pytest.param(_FN_REPLACE, "x" * 90_000, f"(?:y|z){'(){0}' * 20_000}", 19_000_000, id="idle-capture-slots"),
+        pytest.param(_FN_REPLACE, "a" * 7000, "a(?:a|x)*c|a", 10_700_000, id="replace-rescans"),
+    ],
+)
+def test_regex_matching_is_bounded(
+    mocker: MockerFixture, expression: XPath, text: str, pattern: str, allowance: int
+) -> None:
+    expected: Final = re.compile(
+        re.escape(
+            f"regular expression needs more than {allowance} matching steps (10000000 plus 100 per character searched"
+            " in this XPath evaluation); simplify the pattern or search a shorter string"
+        )
+    )
+    _forbid_python_re(mocker)
+    with pytest.raises(ValueError, match=expected):
+        expression(parse_xml("<r/>"), text=text, pattern=pattern, flags="", replacement="")
+
+
+# 260 words, some starting with each letter: every letter of the text tries them all
+_REGEX_WORD_LIST: Final[tuple[str, ...]] = tuple(
+    f"{letter}{digit}" for digit in range(10) for letter in ascii_lowercase
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "pattern", "expected"),
+    [
+        pytest.param("a" * 90_000, "(?:(?:a?){5}){5}b", False, id="small-program"),
+        pytest.param("a" * 18_000, "(?:(?:a?){20}){20}b", False, id="hundreds-of-states"),
+        pytest.param(f"{'lorem ipsum ' * 18_000}z9", "|".join(_REGEX_WORD_LIST), True, id="word-list"),
+        pytest.param(f"{'ab' * 50_000}{'a' * 40}c", f"{'a' * 40}c", True, id="long-literal"),
+        pytest.param(f"{'ab' * 50_000}{'a' * 40}d", f"{'a' * 40}c", False, id="long-literal-miss"),
+        pytest.param("a" * 39, "a" * 40, False, id="long-literal-short-text"),
+    ],
+)
+def test_regex_matching_within_the_budget(mocker: MockerFixture, text: str, pattern: str, *, expected: bool) -> None:
+    _forbid_python_re(mocker)
+    assert _REGEX_TEST(parse_xml("<r/>"), text=text, pattern=pattern, flags="") is expected
+
+
+def test_regex_matching_budget_is_shared_by_the_evaluation(mocker: MockerFixture) -> None:
+    expression: Final = "count(//p[replace(., 'a(?:a|x)*c|a', '') != ''])"
+    paragraph: Final = f"<p>{'a' * 4000}</p>"
+    expected: Final = re.compile(re.escape("regular expression needs more than 10800000 matching steps"))
+    _forbid_python_re(mocker)
+    assert parse_xml(f"<r>{paragraph}</r>").xpath(expression) == 0
+    with pytest.raises(ValueError, match=expected):
+        parse_xml(f"<r>{paragraph * 2}</r>").xpath(expression)
+
+
+_NEAR_CAP: Final[str] = "(?:(?:a?){500}){640}"  # 640,000 of the 655,360 instructions one program may have
+_MANY_GROUPS: Final[str] = "(a?)" * 260  # about 8 MiB of capture slots once a replace runs it
+_TAILS: Final[str] = string.ascii_letters  # each ends a pattern in a cache slot of its own
+
+
+@pytest.mark.parametrize(
+    ("expression", "text", "expected", "limit"),
+    [
+        pytest.param(
+            f"""string({" and ".join(f"matches('a', '{_NEAR_CAP}{tail}?')" for tail in _TAILS[:16])})""",
+            "",
+            "true",
+            400,
+            id="instructions",
+        ),
+        pytest.param(
+            f"""string({" and ".join(f"matches('a', '{_NEAR_CAP}{tail}?')" for tail in _TAILS[:12] * 2)})""",
+            "",
+            "true",
+            400,
+            id="instructions-compiled-again",
+        ),
+        pytest.param(
+            f"""concat({", ".join(f"replace('a', '{_MANY_GROUPS}{tail}?', '$1')" for tail in _TAILS[:48])})""",
+            "",
+            "a" * 48,
+            320,
+            id="capture-slots",
+        ),
+        pytest.param(
+            f"""concat({", ".join(f"matches('a', '{_MANY_GROUPS}{tail}?')" for tail in _TAILS[:48])}, """
+            f"""{", ".join(f"replace('a', '{_MANY_GROUPS}{tail}?', '$1')" for tail in _TAILS[:48])})""",
+            "",
+            f"{'true' * 48}{'a' * 48}",
+            320,
+            id="capture-slots-on-reuse",
+        ),
+        pytest.param(
+            f"""string({" and ".join(f"matches($text, '(?P<b>b?)a*(?P=b){tail}?')" for tail in _TAILS[:48])})""",
+            "a" * 500_000,
+            "true",
+            320,
+            id="saved-positions",
+        ),
+    ],
+)
+def test_regex_cache_bounds_what_its_programs_hold_together(
+    mocker: MockerFixture, expression: str, text: str, expected: str, limit: int
+) -> None:
+    # each pattern keeps to the per-program caps and lands in a slot of its own, so without a bound on the cache a
+    # case keeps all its programs until the evaluation ends, well past the four programs at every cap the bound allows
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy has no tracemalloc
+    _forbid_python_re(mocker)
+    tracing.start()
+    try:
+        assert parse_xml("<r/>").xpath(expression, text=text) == expected
+        peak: Final = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < limit << 20
 
 
 def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFixture) -> None:

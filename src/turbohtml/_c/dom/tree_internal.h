@@ -15,6 +15,9 @@
 
 #include <stddef.h>
 #include <string.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 /* One aligned slot, so a short input opens several blocks and walks the doubling path. */
@@ -114,8 +117,6 @@ struct th_tree {
     Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
-    th_node *merged_text_node;
-    size_t merged_text_capacity;
     Py_ssize_t afe_stack_hint;
     uint64_t *afe_hashes;
     size_t afe_hash_count, afe_hash_capacity;
@@ -146,8 +147,9 @@ struct th_tree {
     int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
     int xml;                /* parsed under XML rules: tag and attribute names are case-sensitive */
     int has_xml_ns;
+    int has_prefix_decl; /* an attribute name xmlns:P was ever interned; canonicalization renders such declarations */
     int can_span;        /* input is borrowed and outlives the tree: text nodes may be
-                            zero-copy spans into it instead of materialized copies */
+                             zero-copy spans into it instead of materialized copies */
     int track_positions; /* record each element's source line/col in trailing node slots */
     int track_locations; /* record each element's granular source spans (implies track_positions) */
     int kind;            /* borrowed input storage */
@@ -166,6 +168,9 @@ struct th_tree {
     uint32_t *attr_slots; /* slot -> record index + 1; 0 marks an empty slot */
     uint64_t attr_version;
     uint64_t id_version;
+    /* set while the handle keeps a slot cache, cleared by a write or removal of slot=, or of name= on a <slot>: the
+       attribute edits that change slot assignment */
+    int slot_cache_valid;
     uint32_t attr_slot_mask;
     /* attr_slots while the name table is on FNV-1a; NULL while it is not built and once it has moved to
        th_name_hash for good, so the one test the lookup made for an unbuilt table also sends a keyed one
@@ -405,12 +410,21 @@ static inline void node_append(th_node *parent, th_node *child) {
     node_append_inline(parent, child);
 }
 
+/* th_tree_unlinks. Process-wide and atomic, since the unlink sites hold no tree, and trees of other threads and
+   interpreters unlink concurrently. */
+extern uint64_t th_unlinks;
+
 /* Detach a node from its current parent (the adoption agency re-parents). */
 static inline void node_remove(th_node *child) {
     th_node *parent = child->parent;
     if (parent == NULL) {
         return;
     }
+#if defined(_MSC_VER)
+    _InterlockedIncrement64((volatile __int64 *)&th_unlinks);
+#else
+    __atomic_fetch_add(&th_unlinks, 1, __ATOMIC_RELAXED);
+#endif
     if (child->prev_sibling != NULL) {
         child->prev_sibling->next_sibling = child->next_sibling;
     } else {

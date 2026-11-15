@@ -653,6 +653,8 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.depth = 0;
     self->cursor.xlink.last = NULL;
     self->cursor.xlink.scope = NULL;
+    self->cursor.xml_ns = (th_xml_ns_spend){0, 0, TH_XML_NS_BASE};
+    self->cursor.clone_credit = 0;
     self->indent = indent;
     self->indent_len = indent_len;
     self->mutation_version = ((HandleObject *)handle)->mutation_version;
@@ -702,7 +704,13 @@ static PyObject *serialize_iter_next(PyObject *self) {
                                             "the iterator before editing the tree");
         return NULL;
     }
-    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (data == NULL) {
+        /* inherited namespace declarations past their allowance leave ValueError set; a bare NULL with no exception
+           is the unforceable allocation failure */
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the no-exception NULL is an unforceable allocation failure */
+            iter->cursor.node = NULL; /* the failed chunk is lost, so later calls stop rather than resume past it */
+            return NULL;
+        }
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (out_len == 0) {
@@ -1709,6 +1717,7 @@ TH_NODE_API(static, PyObject *, node_article, (PyObject * self, PyObject *ignore
     /* GCOVR_EXCL_BR_START: failed or a NULL text_data only when out of memory */
     if (!failed && (winner == NULL || text_data != NULL)) {
         th_article_metadata(tree, th_tree_document(tree), &meta);
+        failed = th_tree_failed(tree);
     }
     Py_END_CRITICAL_SECTION();
     if (failed || (winner != NULL && text_data == NULL)) {
@@ -2065,7 +2074,10 @@ PyDoc_STRVAR(serialize_doc, "serialize(options=None, *, inner=False)\n--\n\n"
                             ":param options: an Html configuration object (formatter, layout, attribute\n"
                             "    ordering, and meta-charset handling), or None for the defaults.\n"
                             ":returns: the serialized markup.\n"
-                            ":raises TypeError: if options is not an Html configuration object.");
+                            ":raises TypeError: if options is not an Html configuration object.\n"
+                            ":raises ValueError: if inner XML output of a parse_xml tree would copy more\n"
+                            "    inherited namespace declarations onto the children than the rest of the\n"
+                            "    output funds.");
 
 PyDoc_STRVAR(serialize_iter_doc, "serialize_iter(options=None, *, inner=False)\n--\n\n"
                                  "Serialize this node and its subtree lazily, yielding the markup in bounded\n"
@@ -2081,7 +2093,10 @@ PyDoc_STRVAR(serialize_iter_doc, "serialize_iter(options=None, *, inner=False)\n
                                  "    Minify layout is rejected: minification needs the whole tree at once.\n"
                                  ":returns: an iterator of str chunks whose concatenation is the markup.\n"
                                  ":raises TypeError: if options is not an Html configuration object.\n"
-                                 ":raises ValueError: if options selects a Minify layout, which cannot stream.\n"
+                                 ":raises ValueError: if options selects a Minify layout, which cannot stream;\n"
+                                 "    from the iterator, if inner XML output of a parse_xml tree would copy more\n"
+                                 "    inherited namespace declarations onto the children than the rest of the\n"
+                                 "    output funds. The iterator is finished after that.\n"
                                  ":raises RuntimeError: from the iterator, after such an edit.");
 
 PyDoc_STRVAR(encode_doc,
@@ -2092,6 +2107,9 @@ PyDoc_STRVAR(encode_doc,
              ":param options: an Html configuration object, or None for the defaults.\n"
              ":returns: the serialized markup encoded as bytes.\n"
              ":raises TypeError: if options is not an Html configuration object.\n"
+             ":raises ValueError: if inner XML output of a parse_xml tree would copy more\n"
+             "    inherited namespace declarations onto the children than the rest of the\n"
+             "    output funds.\n"
              ":raises LookupError: if encoding names a codec Python does not know.\n"
              ":raises ValueError: if meta_charset would declare the codec and no WHATWG encoding label names it,\n"
              "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16.\n"
@@ -2103,7 +2121,7 @@ PyDoc_STRVAR(find_doc,
              "find(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, **filters)\n--\n\n"
              "Find the first Element along axis matching the tag filter and every attribute\n"
              "filter. A filter is a str, bool, compiled regex, callable, or a list of those. A callable filter\n"
-             "must not modify the tree during the search; the result is unspecified if it does.\n\n"
+             "may edit the tree during the search; the search then carries on from the element it had reached.\n\n"
              ":param tag: filter on the tag name.\n"
              ":param axis: which nodes to walk relative to this one.\n"
              ":param attrs: a mapping of attribute name to filter.\n"
@@ -2119,8 +2137,8 @@ PyDoc_STRVAR(find_all_doc,
              "find_all(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, limit=None, "
              "**filters)\n--\n\n"
              "Find every Element along axis matching the tag filter and every attribute\n"
-             "filter, with the same filter forms as find(). A callable filter must not modify the tree during\n"
-             "the search; the result is unspecified if it does.\n\n"
+             "filter, with the same filter forms as find(). A callable filter may edit the tree during the\n"
+             "search; the search then carries on from the element it had reached.\n\n"
              ":param tag: filter on the tag name.\n"
              ":param axis: which nodes to walk relative to this one.\n"
              ":param attrs: a mapping of attribute name to filter.\n"
@@ -2346,8 +2364,19 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
             charset = label;
         }
     }
-    th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml, inner, NULL,
-                              0, charset_missing, NULL,         NULL};
+    th_serialize_opts opts = {0,
+                              sort_attributes,
+                              meta_charset,
+                              charset,
+                              (Py_ssize_t)strlen(charset),
+                              xml,
+                              inner,
+                              NULL,
+                              0,
+                              charset_missing,
+                              NULL,
+                              NULL,
+                              NULL};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2370,7 +2399,12 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
         data = th_node_serialize(tree_of(self), ((NodeObject *)self)->node, &opts, indent, indent_len, &out_len);
     }
     Py_END_CRITICAL_SECTION();
-    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (data == NULL) {
+        /* inherited namespace declarations past their allowance leave ValueError set; a bare NULL with no exception
+           is the unforceable allocation failure */
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the no-exception NULL is an unforceable allocation failure */
+            return NULL;
+        }
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (unlabelled) {
@@ -2682,7 +2716,8 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                                           int sort_attributes, int meta_charset, int xml, int inner) {
     module_state *state = state_of(self);
     th_serialize_opts opts = {
-        0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL, NULL};
+        0,   sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL, NULL,
+        NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

@@ -235,14 +235,11 @@ static void resolve_ns(th_tree *tree, th_node *node, const Py_UCS4 *prefix, Py_s
     *uri_len = 0;
 }
 
-static qname node_qname(th_tree *tree, th_node *element, const Py_UCS4 *name, Py_ssize_t name_len, int is_attr) {
+static qname node_qname(th_tree *tree, th_node *element, const Py_UCS4 *name, Py_ssize_t name_len) {
     const Py_UCS4 *local, *prefix;
     Py_ssize_t local_len = 0, prefix_len = 0;
     split_prefix(name, name_len, &local, &local_len, &prefix, &prefix_len);
     qname out = {local, local_len, NULL, 0};
-    if (prefix_len == 0 && is_attr) {
-        return out;
-    }
     resolve_ns(tree, element, prefix, prefix_len, &out.uri, &out.uri_len);
     return out;
 }
@@ -526,9 +523,37 @@ typedef struct def_entry {
     def_part *extra, *last;
     pattern *built;  /* memoized pattern, NULL until first resolved */
     int scan_height; /* compile-time scan: -1 unvisited, -2 expanding, else the levels nested above its elements */
+    int scan_attrs;  /* compile-time scan: an attribute pattern sits in the define, refs followed, elements not */
     nameset names;   /* compile-time 7.4 check: what a ref to this define matches, final once names_state is 2 */
     int names_state; /* compile-time 7.4 check: 0 unvisited, 1 on the DFS stack, 2 done */
 } def_entry;
+
+/* compile-time 7.3 check: the attribute patterns a pattern holds. Up to RNG_ATTRS_FEW stay as their nodes and are
+   compared pair by pair; past that they move into `set`, which merges by the 7.4 name-set rules. */
+#define RNG_ATTRS_FEW 4
+typedef struct rng_attrs {
+    nameset set;
+    th_node *few[RNG_ATTRS_FEW];
+    int count;
+} rng_attrs;
+
+/* compile-time 7.3 check, one per define in a side table: the attributes a ref to the define holds, whether one is an
+   anyName or nsName attribute outside oneOrMore or zeroOrMore, and whether the record is built. Kept out of def_entry
+   so a grammar that never refs a define from an element pays nothing for it. */
+typedef struct def_attrs {
+    rng_attrs attrs;
+    int bad;
+    int built;
+} def_attrs;
+
+/* An attribute pattern's name class, built once for the 7.3 check and taken over by rng_build. `set` holds the class
+   as a name set once the check needs one; it lives in names_mem, so only the compile reads it. */
+typedef struct rng_attr_class {
+    th_node *node;
+    struct nameclass *nc;
+    nameset set;
+    int has_set;
+} rng_attr_class;
 
 typedef struct {
     def_entry *items;
@@ -536,6 +561,33 @@ typedef struct {
     Py_ssize_t len, cap;
     size_t slot_cap;
 } def_vec;
+
+/* The xmlns declarations of the elements open on one validation walk, keyed by the prefix as the attribute spells it
+   (empty for the default namespace). Each element binds its own on entry and unbinds them on exit, so a name resolves
+   with one probe instead of a walk over every ancestor's attributes. */
+typedef struct {
+    const char *prefix;
+    Py_ssize_t prefix_len;
+    const Py_UCS4 *uri;
+    Py_ssize_t uri_len;
+    int bound;
+} nsbinding;
+
+typedef struct {
+    Py_ssize_t binding;
+    const Py_UCS4 *uri;
+    Py_ssize_t uri_len;
+    int bound;
+} nsundo;
+
+typedef struct {
+    nsbinding *bindings;
+    Py_ssize_t count, cap;
+    Py_ssize_t *slots; /* binding index + 1, 0 for an empty slot; twice the binding capacity */
+    size_t slot_cap;
+    nsundo *undo;
+    Py_ssize_t undo_count, undo_cap;
+} nsscope;
 
 typedef struct th_schema {
     int kind; /* 0 = XSD, 1 = RELAX NG */
@@ -552,7 +604,13 @@ typedef struct th_schema {
     pattern *start;
     pattern *p_empty, *p_notallowed, *p_text;
     int rng_references; /* the annotation pruning walk met an include or externalRef with href */
+    int rng_attributes; /* the annotation pruning walk met an attribute pattern, so the 7.3 check has work */
     def_vec defines;
+    /* compile-time 7.3 check: one record per define, NULL until a scope refs a define */
+    def_attrs *def_attrs_table;
+    /* the 7.3 check's attribute name classes by node, open addressed in `mem` so a later rng_build reuses them */
+    rng_attr_class **rng_attr_classes;
+    size_t rng_attr_classes_cap, rng_attr_classes_len;
     arena names_mem;       /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
     Py_ssize_t rng_work;   /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
     Py_ssize_t rng_nodes;  /* compile-time 7.4 check: treap nodes allocated against RNG_INTERLEAVE_NODE_LIMIT */
@@ -562,16 +620,20 @@ typedef struct th_schema {
     size_t rng_checked_cap, rng_checked_len;
     nspair rng_disjoint[8]; /* compile-time 7.4 check: the last disjoint pairs, round robin */
     size_t rng_disjoint_len, rng_disjoint_next;
-    struct patintern *intern;   /* per-validation pattern hash-consing table; NULL while compiling */
-    struct patmemo *memo;       /* the memo in use: event_memo, or token_memo inside a <list>; NULL while compiling */
-    struct patmemo *event_memo; /* per-validation derivative memo of the event in progress */
-    struct patmemo *token_memo; /* the memo the tokens of a <list> take turns in, one event each */
-    size_t pattern_count;       /* patterns the compiled schema holds, which sizes the free steps */
-    Py_ssize_t memo_free;       /* free steps an event starts with: MEMO_FREE_STEPS, or more for a larger schema */
+    struct patintern *intern;    /* per-validation pattern hash-consing table; NULL while compiling */
+    struct rng_routing *routing; /* per-validation operand index of the container joins; NULL until events grow large */
+    int route_count;             /* container joins built, compiled and then lazily built ones */
+    struct patmemo *memo;        /* the memo in use: event_memo, or token_memo inside a <list>; NULL while compiling */
+    struct patmemo *event_memo;  /* per-validation derivative memo of the event in progress */
+    struct patmemo *token_memo;  /* the memo the tokens of a <list> take turns in, one event each */
+    size_t pattern_count;        /* patterns the compiled schema holds, which sizes the free steps */
+    Py_ssize_t memo_free;        /* free steps an event starts with: MEMO_FREE_STEPS, or more for a larger schema */
     Py_ssize_t memo_budget; /* counts the current event's free steps down; the step that takes it below zero engages the
                                memo */
     Py_ssize_t choice_limit; /* leaves a choice built during validation may hold: 0 until a wide merge computes it, -1
                                 once a merge ran past it */
+    Py_ssize_t event_work;   /* merge steps and memoized derivatives of the event in progress, against the limit
+                                rng_event_spend() takes from the choice limit */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
@@ -592,13 +654,16 @@ typedef struct th_schema {
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
+    /* the xmlns declarations in scope on the instance walk of one validate() call */
+    nsscope ns;
+    int named_all; /* a content model reaches an xs:all through a group ref, so validation resolves group refs */
 } th_schema;
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every
    element node of the schema tree before any classification runs, and is_schema_el only ever
    asks about schema element nodes, so the search always hits. */
 static qname schema_direct_qname(const struct th_schema *schema, th_node *node) {
-    return node_qname(schema->tree, node, node->text, node->text_len, 0);
+    return node_qname(schema->tree, node, node->text, node->text_len);
 }
 
 static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
@@ -833,6 +898,204 @@ static Py_ssize_t named_find_index(const named_vec *vec, const Py_UCS4 *name, Py
     return -1;
 }
 
+static uint64_t ns_hash_bytes(const char *bytes, Py_ssize_t len) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hash ^= (unsigned char)bytes[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static int ns_grow(th_schema *schema) {
+    nsscope *scope = &schema->ns;
+    Py_ssize_t cap = scope->cap ? scope->cap * 2 : 8;
+    size_t slot_cap = (size_t)cap * 2;
+    nsbinding *items = arena_alloc(&schema->mem, (size_t)cap * sizeof(nsbinding));
+    Py_ssize_t *slots = arena_alloc(&schema->mem, slot_cap * sizeof(Py_ssize_t));
+    if (items == NULL || slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                        /* GCOVR_EXCL_LINE */
+    }
+    if (scope->count > 0) {
+        memcpy(items, scope->bindings, (size_t)scope->count * sizeof(nsbinding));
+    }
+    memset(slots, 0, slot_cap * sizeof(Py_ssize_t));
+    for (Py_ssize_t index = 0; index < scope->count; index++) {
+        size_t slot = (size_t)ns_hash_bytes(items[index].prefix, items[index].prefix_len) & (slot_cap - 1);
+        while (slots[slot] != 0) {
+            slot = (slot + 1) & (slot_cap - 1);
+        }
+        slots[slot] = index + 1;
+    }
+    scope->bindings = items;
+    scope->cap = cap;
+    scope->slots = slots;
+    scope->slot_cap = slot_cap;
+    return 0;
+}
+
+static Py_ssize_t ns_find_bytes(const nsscope *scope, const char *prefix, Py_ssize_t len) {
+    if (scope->slots == NULL) {
+        return -1;
+    }
+    size_t mask = scope->slot_cap - 1;
+    for (size_t slot = (size_t)ns_hash_bytes(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
+        const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
+        if (binding->prefix_len == len && (len == 0 || memcmp(binding->prefix, prefix, (size_t)len) == 0)) {
+            return scope->slots[slot] - 1;
+        }
+    }
+    return -1;
+}
+
+static int ns_units_match(const Py_UCS4 *units, const char *bytes, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (units[index] != (Py_UCS4)(unsigned char)bytes[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static Py_ssize_t ns_find_units(const nsscope *scope, const Py_UCS4 *prefix, Py_ssize_t len) {
+    if (scope->slots == NULL) {
+        return -1;
+    }
+    size_t mask = scope->slot_cap - 1;
+    for (size_t slot = (size_t)named_hash(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
+        const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
+        if (binding->prefix_len == len && ns_units_match(prefix, binding->prefix, len)) {
+            return scope->slots[slot] - 1;
+        }
+    }
+    return -1;
+}
+
+static Py_ssize_t ns_add(th_schema *schema, const char *prefix, Py_ssize_t len) {
+    nsscope *scope = &schema->ns;
+    if (scope->count == scope->cap && ns_grow(schema) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                                           /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t index = scope->count++;
+    scope->bindings[index] = (nsbinding){prefix, len, NULL, 0, 0};
+    size_t mask = scope->slot_cap - 1;
+    size_t slot = (size_t)ns_hash_bytes(prefix, len) & mask;
+    while (scope->slots[slot] != 0) {
+        slot = (slot + 1) & mask;
+    }
+    scope->slots[slot] = index + 1;
+    return index;
+}
+
+static void ns_undo_push(th_schema *schema, Py_ssize_t index) {
+    nsscope *scope = &schema->ns;
+    if (scope->undo_count == scope->undo_cap) {
+        Py_ssize_t cap = scope->undo_cap ? scope->undo_cap * 2 : 16;
+        nsundo *items = arena_alloc(&schema->mem, (size_t)cap * sizeof(nsundo));
+        if (items == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;          /* GCOVR_EXCL_LINE */
+        }
+        if (scope->undo_count > 0) {
+            memcpy(items, scope->undo, (size_t)scope->undo_count * sizeof(nsundo));
+        }
+        scope->undo = items;
+        scope->undo_cap = cap;
+    }
+    const nsbinding *binding = &scope->bindings[index];
+    scope->undo[scope->undo_count++] = (nsundo){index, binding->uri, binding->uri_len, binding->bound};
+}
+
+/* Binds the declarations of `element` for the walk below it and returns the mark to unbind them to. The declarations
+   are applied last-to-first, so the first one in document order is the one that stays bound. */
+static Py_ssize_t ns_scope_enter(th_schema *schema, th_tree *tree, th_node *element) {
+    nsscope *scope = &schema->ns;
+    Py_ssize_t mark = scope->undo_count;
+    for (Py_ssize_t position = element->attr_count - 1; position >= 0; position--) {
+        Py_ssize_t alen = 0;
+        const char *abytes = th_attr_name(tree, element->attrs[position].name_atom, &alen);
+        if (!is_xmlns_decl(abytes, alen) || alen == 6) {
+            continue;
+        }
+        const char *prefix = alen == 5 ? NULL : abytes + 6;
+        Py_ssize_t prefix_len = alen == 5 ? 0 : alen - 6;
+        Py_ssize_t index = ns_find_bytes(scope, prefix, prefix_len);
+        if (index < 0) {
+            index = ns_add(schema, prefix, prefix_len);
+            if (index < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                continue;    /* GCOVR_EXCL_LINE */
+            }
+        }
+        ns_undo_push(schema, index);
+        nsbinding *binding = &scope->bindings[index];
+        binding->uri = element->attrs[position].value;
+        binding->uri_len = element->attrs[position].value_len;
+        binding->bound = 1;
+    }
+    return mark;
+}
+
+/* A walk that starts below the document root still resolves names against the declarations above its root. */
+static void ns_scope_enter_ancestors(th_schema *schema, th_tree *tree, th_node *root) {
+    Py_ssize_t depth = 0;
+    for (th_node *walk = root->parent; walk != NULL; walk = walk->parent) {
+        depth += walk->type == TH_NODE_ELEMENT;
+    }
+    th_node **chain = arena_alloc(&schema->mem, (size_t)depth * sizeof(th_node *));
+    if (chain == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;          /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t at = depth;
+    for (th_node *walk = root->parent; walk != NULL; walk = walk->parent) {
+        if (walk->type == TH_NODE_ELEMENT) {
+            chain[--at] = walk;
+        }
+    }
+    for (Py_ssize_t index = 0; index < depth; index++) {
+        ns_scope_enter(schema, tree, chain[index]);
+    }
+}
+
+static void ns_scope_leave(th_schema *schema, Py_ssize_t mark) {
+    nsscope *scope = &schema->ns;
+    while (scope->undo_count > mark) {
+        const nsundo *undo = &scope->undo[--scope->undo_count];
+        nsbinding *binding = &scope->bindings[undo->binding];
+        binding->uri = undo->uri;
+        binding->uri_len = undo->uri_len;
+        binding->bound = undo->bound;
+    }
+}
+
+/* Resolves a name against the declarations in scope, so the caller has entered the element that owns the name. */
+static qname node_qname_scoped(th_schema *schema, const Py_UCS4 *name, Py_ssize_t name_len, int is_attr) {
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(name, name_len, &local, &local_len, &prefix, &prefix_len);
+    qname out = {local, local_len, NULL, 0};
+    if (prefix_len == 0 && is_attr) {
+        return out;
+    }
+    if (prefix_len == 3 && u_eq_ascii(prefix, 3, "xml")) {
+        out.uri = xml_namespace_uri();
+        out.uri_len = sizeof("http://www.w3.org/XML/1998/namespace") - 1;
+        return out;
+    }
+    Py_ssize_t index = ns_find_units(&schema->ns, prefix, prefix_len);
+    if (index >= 0 && schema->ns.bindings[index].bound) {
+        out.uri = schema->ns.bindings[index].uri;
+        out.uri_len = schema->ns.bindings[index].uri_len;
+    }
+    return out;
+}
+
+/* Resolves a child's name before the child is entered, so the child's own declarations apply to its name as well. */
+static qname element_qname_scoped(th_schema *schema, th_tree *tree, th_node *element) {
+    Py_ssize_t mark = ns_scope_enter(schema, tree, element);
+    qname name = node_qname_scoped(schema, element->text, element->text_len, 0);
+    ns_scope_leave(schema, mark);
+    return name;
+}
+
 /* Concatenate an element's direct character-data children into an arena buffer. */
 static const Py_UCS4 *element_text(valctx *ctx, th_node *element, Py_ssize_t *out_len) {
     Py_ssize_t total = 0;
@@ -1006,6 +1269,7 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     /* Validation buffers and lazy RELAX NG definitions must not outlive this call or mutate a shared schema. */
     th_schema local = *schema;
     local.mem = (arena){0};
+    local.ns = (nsscope){0};
     local.regex_scratch = NULL;
     local.ws_buffer = NULL;
     local.ws_cap = 0;

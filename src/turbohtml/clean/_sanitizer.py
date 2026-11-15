@@ -246,7 +246,8 @@ class Sanitizer:
 
         So pass the ``body`` of a document to clean what it holds, or a ``Document`` to have the policy judge the
         ``html`` element itself (a ``bleach``-style allowlist then needs ``html``, ``head`` and ``body`` listed). The
-        copy lives in its own tree and inherits the source's XML flag; the source is left untouched.
+        copy lives in its own tree and inherits the source's XML flag; the source is left untouched. A shadow root has
+        no host there, so it comes back as a plain ``DocumentFragment`` holding its sanitized children.
 
         :param node: the element or document whose subtree to sanitize.
         :returns: a new node of the same kind holding the sanitized subtree.
@@ -316,8 +317,8 @@ class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public
         remain.
 
         A ``<style>`` inside a ``<textarea>`` or an HTML-namespace ``<svg>`` or ``<math>`` is not kept, because a
-        reparse does not read its body as raw text there.
-
+        reparse does not read its body as raw text there. Nor is one inside a kept ``<select>``: a parser without
+        customizable ``<select>`` support ignores its start tag there and reads the stylesheet as markup.
     :param attribute_prefixes: allow any attribute whose name starts with one of these prefixes (e.g. ``"data-"`` for
         every ``data-*``), on top of the exact-name and ``"*"`` matches in ``attributes``.
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;

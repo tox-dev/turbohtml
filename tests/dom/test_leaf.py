@@ -149,6 +149,27 @@ def test_xml_processing_instruction_data_cannot_end_it_early(render: Callable[[N
     assert parse_xml(render(root)).select("i") == []
 
 
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        # XML output drops a character XML cannot hold, which must not bring a `?` and a `>` together
+        pytest.param("a?\x01><i>y</i>", "<?t a? ><i>y</i>?>", id="across-control"),
+        pytest.param("a?\x01\ufffe><i>y</i>", "<?t a? ><i>y</i>?>", id="across-two-dropped"),
+        pytest.param("a?\x01?><i>y</i>", "<?t a?? ><i>y</i>?>", id="question-run"),
+        pytest.param("a?\x01b>c?", "<?t a?b>c??>", id="apart-unchanged"),
+        pytest.param("a?\x01", "<?t a??>", id="question-then-dropped-at-end"),
+    ],
+)
+def test_xml_processing_instruction_data_cannot_end_it_early_across_a_dropped_character(
+    data: str, expected: str
+) -> None:
+    root = parse_xml("<r/>").select_one("r")
+    assert root is not None
+    root.append(ProcessingInstruction("t", data))
+    assert (root.serialize(Html(xml=True)), root.canonicalize().decode()) == (f"<r>{expected}</r>",) * 2
+    assert parse_xml(root.serialize(Html(xml=True))).select("i") == []
+
+
 def test_empty_nodes() -> None:
     assert not Text("").data  # empty data round-trips as the empty string
     assert not Text("").html

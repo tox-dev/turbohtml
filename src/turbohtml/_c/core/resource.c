@@ -151,7 +151,7 @@ PyObject *th_resource_resolve(PyObject *path) {
     return PyObject_CallMethod(path, "resolve", NULL);
 }
 
-int th_resource_check_root(th_resource_policy *policy, PyObject *path) {
+int th_resource_check_root(th_resource_policy *policy, PyObject *path, PyObject *unresolved) {
     if (policy->root == NULL) {
         return 0;
     }
@@ -165,7 +165,9 @@ int th_resource_check_root(th_resource_policy *policy, PyObject *path) {
         return -1;     /* GCOVR_EXCL_LINE */
     }
     if (!allowed) {
-        PyErr_Format(PyExc_ValueError, "%s path escapes %s: %S", policy->what, policy->root_name, path);
+        /* path has followed every symlink the reference crosses, so naming it would reveal where a link outside the
+           root points */
+        PyErr_Format(PyExc_ValueError, "%s path escapes %s: %S", policy->what, policy->root_name, unresolved);
         return -1;
     }
     return 0;
@@ -410,7 +412,7 @@ static int resource_descriptor_is_regular(int descriptor) {
 #endif
 }
 
-static PyObject *resource_read_descriptor(const th_resource_policy *policy, int descriptor, PyObject *path) {
+static PyObject *resource_read_descriptor(th_resource_policy *policy, int descriptor, PyObject *path) {
     /* a FIFO or a device such as /dev/zero has no end of file, so reading one hangs or exhausts memory */
     if (!resource_descriptor_is_regular(descriptor)) {
         resource_descriptor_close(descriptor);
@@ -459,7 +461,15 @@ static PyObject *resource_read_descriptor(const th_resource_policy *policy, int 
             break;
         }
         length += (size_t)count;
+        if (length > TH_RESOURCE_MAX_BYTES - policy->bytes) {
+            PyMem_Free(data);
+            resource_descriptor_close(descriptor);
+            PyErr_Format(PyExc_ValueError, "%s references exceed the limit of %zu MiB: %S", policy->what,
+                         TH_RESOURCE_MAX_BYTES >> 20, path);
+            return NULL;
+        }
     }
+    policy->bytes += length;
     resource_descriptor_close(descriptor);
     PyObject *text = PyUnicode_DecodeUTF8(data, (Py_ssize_t)length, "strict");
     PyMem_Free(data);
@@ -467,6 +477,12 @@ static PyObject *resource_read_descriptor(const th_resource_policy *policy, int 
 }
 
 PyObject *th_resource_read_text(th_resource_policy *policy, PyObject *path) {
+    if (policy->files == TH_RESOURCE_MAX_FILES) {
+        PyErr_Format(PyExc_ValueError, "%s references exceed the limit of %d files: %S", policy->what,
+                     TH_RESOURCE_MAX_FILES, path);
+        return NULL;
+    }
+    policy->files++;
     int descriptor = policy->root == NULL ? resource_open_path(path) : resource_open_file(policy, path);
     if (descriptor < 0) {
         return NULL;

@@ -307,7 +307,7 @@ def test_omit_end_tags(source: str, expected: str) -> None:
         ),
         pytest.param(
             "<ruby><svg><foreignObject><rt></rt><rp>x</rp></foreignObject></svg></ruby>",
-            "<ruby><svg><foreignObject><rt></rt><rp>x</foreignObject></svg></ruby>",
+            "<ruby><svg><foreignObject><rt></rt><rp>x</rp></foreignObject></svg></ruby>",
             id="rt-across-integration-point",
         ),
         pytest.param(
@@ -359,6 +359,104 @@ def test_omit_keeps_end_tag_last_in_phrasing_parent(parent: str, child: str) -> 
 )
 def test_omit_last_child_end_tag_by_parent(source: str, expected: str) -> None:
     assert frag(source, strip_comments=False) == expected
+
+
+_INTEGRATION_POINTS: Final[list[tuple[str, str]]] = [
+    ("svg", "foreignObject"),
+    ("svg", "desc"),
+    ("svg", "title"),
+    ("math", "mi"),
+    ("math", "mo"),
+    ("math", "mn"),
+    ("math", "ms"),
+    ("math", "mtext"),
+    ("math", "annotation-xml encoding=text/html"),
+]
+
+
+@pytest.mark.parametrize("child", ["rt", "rp", "optgroup", "option"])
+@pytest.mark.parametrize(("root", "point"), _INTEGRATION_POINTS)
+def test_omit_keeps_end_tag_last_in_integration_point(root: str, point: str, child: str) -> None:
+    # `</foreignObject>` under an open html <option> matches no html element, stops at the special foreignObject and
+    # is ignored, so an omitted end tag would turn the foreign siblings after it into html elements inside the child
+    name: Final = point.partition(" ")[0]
+    source: Final = f"<{root}><{point}><{child}>a</{child}></{name}><textarea>b</textarea></{root}>c"
+    assert frag(source) == source
+    assert parse_fragment(frag(source), "div").html == parse_fragment(source, "div").html
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<rp><rp>a</rp></rp>b", "<rp><rp>a</rp></rp>b", id="rp-in-rp"),
+        pytest.param("<rt><rt>a</rt></rt>b", "<rt><rt>a</rt></rt>b", id="rt-in-rt"),
+        pytest.param(
+            "<optgroup><optgroup>a</optgroup></optgroup>b",
+            "<optgroup><optgroup>a</optgroup></optgroup>b",
+            id="optgroup-in-optgroup",
+        ),
+        pytest.param(
+            "<rt><optgroup><rt>a</rt></optgroup></rt>b",
+            "<rt><optgroup><rt>a</rt></optgroup></rt>b",
+            id="rt-in-optgroup-in-rt",
+        ),
+        pytest.param(
+            "<option><rt>a</rt></option><option>b</option>c",
+            "<option><rt>a</rt><option>b</option>c",
+            id="rt-in-option-before-option",
+        ),
+        pytest.param(
+            "<span><optgroup><option>a</option></optgroup></span>b",
+            "<span><optgroup><option>a</span>b",
+            id="option-in-optgroup-omitted",
+        ),
+        pytest.param("<span><rt>a</rt></span>b", "<span><rt>a</span>b", id="rt-in-span-omitted"),
+    ],
+)
+def test_omit_last_child_end_tag_in_rt_rp_optgroup_option(source: str, expected: str) -> None:
+    # an rt/rp/optgroup/option parent either loses its own end tag to a same-named child or, with its end tag omitted
+    # too, is not closed by the start tag that follows; an <option> ending its <optgroup> has neither problem, and
+    # any other html parent's end tag walks past the non-special child, so those end tags still drop
+    once: Final = frag(source)
+    assert once == expected
+    assert parse_fragment(once, "div").html == parse_fragment(source, "div").html
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "<span><li><dd>a</dd></li><li>b</li></span>c",
+            "<span><li><dd>a</dd><li>b</li></span>c",
+            id="dd-ends-li-before-li",
+        ),
+        pytest.param(
+            "<span><dd><li>a</li></dd><dd>b</dd></span>c",
+            "<span><dd><li>a</li><dd>b</dd></span>c",
+            id="li-ends-dd-before-dd",
+        ),
+        pytest.param(
+            "<span><dt><li>a</li></dt><dd>b</dd></span>c",
+            "<span><dt><li>a</li><dd>b</dd></span>c",
+            id="li-ends-dt-before-dd",
+        ),
+        pytest.param(
+            "<span><dd><li><dd>a</dd></li></dd></span>c",
+            "<span><dd><li><dd>a</dd></li></dd></span>c",
+            id="dd-in-li-in-dd",
+        ),
+        pytest.param(
+            "<svg><foreignObject><li><dd>a</dd></li><li>b</li></foreignObject><desc>c</desc></svg>",
+            "<svg><foreignObject><li><dd>a</dd><li>b</li></foreignObject><desc>c</desc></svg>",
+            id="dd-ends-li-in-integration-point",
+        ),
+        pytest.param("<ul><li><p>a</p></li><li>b</li></ul>", "<ul><li><p>a<li>b</ul>", id="p-ends-li-omitted"),
+    ],
+)
+def test_omit_keeps_item_end_tag_last_in_item(source: str, expected: str) -> None:
+    # an li/dd/dt parent's own end tag goes before the next item, whose start tag stops at the open li or dd
+    assert frag(source) == expected
+    assert parse_fragment(expected, "div").html == parse_fragment(source, "div").html
 
 
 def test_omit_keeps_p_end_inside_formatting() -> None:

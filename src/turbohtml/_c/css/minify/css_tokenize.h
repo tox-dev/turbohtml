@@ -197,8 +197,9 @@ typedef enum {
 
 /* A token points into the source buffer (zero-copy). For CSS_NUM, text is the numeric part and unit the dimension;
    for CSS_DELIM, delim is the single character. CSS_BAD is a string a newline cut short (a <bad-string-token>, CSS
-   Syntax 3 §4.3.5) or a url() holding one; its text keeps that newline, so printing it verbatim leaves it bad instead
-   of letting the string run on to the next quote. */
+   Syntax 3 §4.3.5), a url() holding one, or a `\` a newline follows (no escape, §4.3.8); its text keeps that newline,
+   so printing it verbatim leaves it bad instead of letting the string run on to the next quote or the `\` escape what
+   comes next. */
 typedef struct {
     const css_char *text;
     Py_ssize_t text_len;
@@ -450,12 +451,31 @@ CSS_NOINLINE static Py_ssize_t css_scan_escape(const css_char *source, Py_ssize_
     return scan;
 }
 
+/* The end of what the `\` at pos opens inside a quoted string (CSS Syntax 3 §4.3.5): a line continuation, a CRLF
+   counting as one newline (§3.3), or else an escape. A hex escape takes the whitespace after it, so a newline there
+   belongs to the escape and does not cut the string short. */
+static inline Py_ssize_t css_scan_quoted_escape(const css_char *source, Py_ssize_t pos, Py_ssize_t length) {
+    if (pos + 2 < length && source[pos + 1] == '\r' && source[pos + 2] == '\n') {
+        return pos + 3;
+    }
+    if (pos + 1 < length && !css_is_hex(source[pos + 1])) {
+        return pos + 2;
+    }
+    return css_scan_escape(source, pos, length);
+}
+
+/* Whether source[pos], a byte the caller has read, is a `\` before a newline. That pair is no escape (CSS Syntax 3
+   §4.3.8), so the `\` ends a name and is a delimiter, and a new token starts after the newline. */
+static inline int css_is_bad_escape(const css_char *source, Py_ssize_t pos, Py_ssize_t length) {
+    return source[pos] == '\\' && pos + 1 < length && css_quoted_stop[source[pos + 1]] == CSS_QUOTED_NEWLINE;
+}
+
 /* The end of the ident sequence at scan (CSS Syntax 3 §4.3.12): the plain run, then an escape or a non-ASCII byte,
-   repeated. An escape sets *escaped. */
+   repeated. An escape sets *escaped, and a `\` before a newline, which is none, ends the sequence. */
 static inline Py_ssize_t css_scan_ident(const css_char *source, Py_ssize_t scan, Py_ssize_t length, int *escaped) {
     for (;;) {
         scan += css_ident_plain_run(source + scan, length - scan);
-        if (scan >= length || !css_is_ident(source[scan])) {
+        if (scan >= length || !css_is_ident(source[scan]) || css_is_bad_escape(source, scan, length)) {
             return scan;
         }
         if (source[scan] == '\\') {
@@ -483,6 +503,18 @@ CSS_NOINLINE static Py_ssize_t css_scan_unit(const css_char *source, Py_ssize_t 
 CSS_NOINLINE static int css_holds_bad(const token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
     for (Py_ssize_t index = start; index < end; index++) {
         if (vec->items[index].kind == CSS_BAD) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether a token in [start, end) is a string cut short or a bad url, the CSS_BAD tokens that are not the `\` before a
+   newline. That `\` is a delimiter, which a custom property's value admits (CSS Variables 1 §2); a bad string or bad
+   url is admitted nowhere. Out of line as css_holds_bad is. */
+CSS_NOINLINE static int css_holds_cut(const token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (vec->items[index].kind == CSS_BAD && vec->items[index].text[0] != '\\') {
             return 1;
         }
     }
@@ -539,8 +571,8 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                     scan++;
                     continue;
                 }
-                if (stop == CSS_QUOTED_ESCAPE && scan + 1 < length) {
-                    scan += (source[scan + 1] == '\r' && scan + 2 < length && source[scan + 2] == '\n') ? 3 : 2;
+                if (stop == CSS_QUOTED_ESCAPE) {
+                    scan = css_scan_quoted_escape(source, scan, length);
                     continue;
                 }
                 if (stop == CSS_QUOTED_NEWLINE) {
@@ -558,14 +590,16 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             token.text_len = scan - pos;
             token_vec_push(vec, token);
             pos = scan;
-        } else if (character == '@' && pos + 1 < length && css_is_ident(source[pos + 1])) {
+        } else if (character == '@' && pos + 1 < length && css_is_ident(source[pos + 1]) &&
+                   !css_is_bad_escape(source, pos + 1, length)) {
             Py_ssize_t scan = css_scan_ident(source, pos + 1, length, &vec->escaped);
             token.kind = CSS_AT;
             token.text = &source[pos];
             token.text_len = scan - pos;
             token_vec_push(vec, token);
             pos = scan;
-        } else if (character == '#' && pos + 1 < length && css_is_ident(source[pos + 1])) {
+        } else if (character == '#' && pos + 1 < length && css_is_ident(source[pos + 1]) &&
+                   !css_is_bad_escape(source, pos + 1, length)) {
             Py_ssize_t scan = css_scan_ident(source, pos + 1, length, &vec->escaped);
             token.kind = CSS_HASH;
             token.text = &source[pos];
@@ -620,16 +654,38 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             token_vec_push(vec, token);
             pos = scan;
         } else if (css_is_ident(character)) {
+            if (css_is_bad_escape(source, pos, length)) {
+                /* the `\` is a delimiter no selector or typed value admits, so it is bad like a string cut short. The
+                   token takes the newline: printed without it, the `\` would escape the byte that follows */
+                token.kind = CSS_BAD;
+                vec->bad = 1;
+                token.text = &source[pos];
+                token.text_len = 2;
+                token_vec_push(vec, token);
+                pos += 2;
+                continue;
+            }
             Py_ssize_t scan = css_scan_ident(source, pos, length, &vec->escaped);
             int is_url = scan - pos == 3 && css_lower(source[pos]) == 'u' && css_lower(source[pos + 1]) == 'r' &&
                          css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(';
             if (is_url) {
                 /* scan to the closing ')', but skip over a quoted argument so a ')' inside a quoted data URI
-                   (e.g. an SVG transform="rotate(45)") does not terminate the token early */
+                   (e.g. an SVG transform="rotate(45)") does not terminate the token early. An unquoted url holding a
+                   quote is a bad url (CSS Syntax 3 §4.3.6): its quote opens no string, and it ends at the first ')' */
                 Py_ssize_t end = scan + 1;
                 token.kind = CSS_URL;
+                while (end < length && css_is_ws(source[end])) {
+                    end++;
+                }
+                int quoted = end < length && (source[end] == '"' || source[end] == '\'');
                 while (end < length && source[end] != ')') {
                     if (source[end] == '"' || source[end] == '\'') {
+                        if (!quoted) {
+                            token.kind = CSS_BAD;
+                            vec->bad = 1;
+                            end++;
+                            continue;
+                        }
                         css_char quote = source[end];
                         end++;
                         while (end < length) {
@@ -648,9 +704,8 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                             }
                             if (stop == CSS_QUOTED_ESCAPE && end + 1 < length) {
                                 vec->escapes = 1;
-                                end++;
                             }
-                            end++;
+                            end = stop == CSS_QUOTED_ESCAPE ? css_scan_quoted_escape(source, end, length) : end + 1;
                         }
                         if (end < length) {
                             end++;

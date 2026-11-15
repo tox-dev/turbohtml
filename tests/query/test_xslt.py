@@ -854,7 +854,7 @@ def test_transform_generate_id_distinguishes_attributes() -> None:
     assert len(set(ids)) == len(ids) == 4
 
 
-@pytest.mark.parametrize("select", ["generate-id()", "generate-id(current())"])
+@pytest.mark.parametrize("select", ["generate-id()", "generate-id(.)", "generate-id(current())"])
 def test_transform_generate_id_distinguishes_attributes_in_for_each(select: str) -> None:
     body = (
         '<xsl:template match="/"><xsl:value-of select="generate-id(doc)"/><xsl:text> </xsl:text>'
@@ -863,6 +863,204 @@ def test_transform_generate_id_distinguishes_attributes_in_for_each(select: str)
     )
     ids = _run('<doc lang="en" dir="ltr"/>', body).split()
     assert len(set(ids)) == len(ids) == 3
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        pytest.param("name()", "lang,dir,", id="name"),
+        pytest.param("local-name(.)", "lang,dir,", id="local-name"),
+        pytest.param("string()", "en,ltr,", id="string"),
+        pytest.param("string-length()", "2,3,", id="string-length"),
+        pytest.param("name(..)", "doc,doc,", id="parent"),
+        pytest.param("count(ancestor::*)", "1,1,", id="ancestor"),
+        pytest.param("count(child::node())", "0,0,", id="child-axis-empty"),
+        pytest.param("count(following-sibling::node())", "0,0,", id="following-sibling-empty"),
+        pytest.param("count(../@*)", "2,2,", id="owner-attributes"),
+        pytest.param("name(self::node())", "lang,dir,", id="self-node"),
+        pytest.param("name(current())", "lang,dir,", id="current"),
+        pytest.param("concat(name(), '=', .)", "lang=en,dir=ltr,", id="concat"),
+    ],
+)
+def test_transform_attribute_context_expression(expr: str, expected: str) -> None:
+    body = (
+        f'<xsl:template match="/"><xsl:for-each select="doc/@*"><xsl:value-of select="{expr}"/>,</xsl:for-each>'
+        "</xsl:template>"
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == expected
+
+
+def test_transform_attribute_context_reaches_sort_variables_and_tests() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="doc/@*"><xsl:sort select="name()"/>'
+        '<xsl:variable name="v" select="name()"/>'
+        "<xsl:if test=\"$v = 'dir'\">D</xsl:if>"
+        "<xsl:choose><xsl:when test=\"string() = 'en'\">E</xsl:when><xsl:otherwise>O</xsl:otherwise></xsl:choose>"
+        '<xsl:value-of select="$v"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == "DOdir,Elang,"
+
+
+def test_transform_apply_templates_attribute_context() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="doc/@*"/></xsl:template>'
+        '<xsl:template match="@*"><xsl:value-of select="name()"/>'
+        '<xsl:value-of select="generate-id(.) != generate-id(..)"/>,</xsl:template>'
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == "langtrue,dirtrue,"
+
+
+def test_transform_copy_in_attribute_context_copies_attributes() -> None:
+    body = '<xsl:template match="/"><e><xsl:for-each select="doc/@*"><xsl:copy/></xsl:for-each></e></xsl:template>'
+    assert _run('<doc lang="en" dir="ltr"/>', body, method="xml") == '<e lang="en" dir="ltr"/>'
+
+
+def test_transform_generate_id_predicate_uses_context_node() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="doc/q">'
+        '<xsl:value-of select="count(r[generate-id() = generate-id(current()/r)])"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<doc><q><r/></q></doc>", body) == "1,"
+
+
+def test_transform_generate_id_predicate_on_attributes() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="doc/@*">'
+        '<xsl:value-of select="count(../@*[generate-id() = generate-id(current())])"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == "1,1,"
+
+
+def test_transform_current_in_namespace_context() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="doc/namespace::xml">'
+        '<xsl:value-of select="name(current())"/></xsl:for-each></xsl:template>'
+    )
+    assert _run('<doc lang="en"/>', body) == "xml"
+
+
+def test_transform_key_matches_attribute_nodes() -> None:
+    body = (
+        '<xsl:key name="k" match="@*" use="."/>'
+        '<xsl:template match="/"><xsl:for-each select="key(\'k\', \'ltr\')"><xsl:value-of select="name()"/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == "dir"
+
+
+@pytest.mark.parametrize(
+    ("match", "expected"),
+    [
+        pytest.param("@*", "[0]", id="attributes"),
+        pytest.param("doc | @*", "[1]", id="element-and-attributes"),
+    ],
+)
+def test_transform_key_use_of_attribute_node_is_empty(match: str, expected: str) -> None:
+    body = (
+        f'<xsl:key name="k" match="{match}" use="@lang"/>'
+        "<xsl:template match=\"/\">[<xsl:value-of select=\"count(key('k', 'en'))\"/>]</xsl:template>"
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == expected
+
+
+@pytest.mark.parametrize(
+    ("match", "source", "expected"),
+    [
+        pytest.param("doc | @*", '<doc lang="en" dir="ltr"/>', "doc,lang,dir,", id="element-and-attributes"),
+        pytest.param("@* | doc", '<doc lang="en" dir="ltr"/>', "doc,lang,dir,", id="attributes-first"),
+        pytest.param("doc | @lang", '<doc lang="en" dir="ltr"/>', "doc,lang,", id="named-attribute"),
+        pytest.param("doc | p", "<doc><p/></doc>", "doc,p,", id="elements"),
+        pytest.param("@*/self::node() | p", '<doc dir="ltr"><p/></doc>', "dir,p,", id="attribute-self-step"),
+        pytest.param("id('a') | id('a')/q", '<doc><p id="a"><q/></p></doc>', "p,q,", id="id-calls"),
+    ],
+)
+def test_transform_key_union_pattern_matches_every_alternative(match: str, source: str, expected: str) -> None:
+    body = (
+        f'<xsl:key name="k" match="{match}" use="\'x\'"/>'
+        '<xsl:template match="/"><xsl:for-each select="key(\'k\', \'x\')"><xsl:value-of select="name()"/>,'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run(source, body) == expected
+
+
+def test_transform_key_union_keeps_attribute_items_in_document_order() -> None:
+    body = (
+        '<xsl:key name="k" match="@*" use="."/>'
+        '<xsl:template match="/"><xsl:for-each select="key(\'k\', doc/@*)"><xsl:value-of select="name()"/>,'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run('<doc lang="en" dir="ltr"/>', body) == "lang,dir,"
+
+
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [
+        pytest.param("<xsl:number/>", "1,1,", id="single-default"),
+        pytest.param('<xsl:number level="any"/>', "1,1,", id="any-default"),
+        pytest.param('<xsl:number level="single" count="doc"/>', "1,1,", id="single-counts-owner"),
+        pytest.param('<xsl:number level="any" count="doc | @*"/>', "2,2,", id="any-counts-owner-and-self"),
+        pytest.param('<xsl:number level="any" count="@*" from="doc"/>', "1,1,", id="any-from-owner"),
+        pytest.param('<xsl:number level="any" count="@*" from="@lang"/>', "1,1,", id="any-from-self"),
+        pytest.param(
+            '<xsl:number level="multiple" count="doc | @*"/>', "1.1,1.1,", id="multiple-counts-owner-and-self"
+        ),
+        pytest.param('<xsl:number level="multiple"/>', "1,1,", id="multiple-default"),
+        pytest.param('<xsl:number level="multiple" count="doc"/>', "1,1,", id="multiple-counts-owner"),
+        pytest.param('<xsl:number level="multiple" count="doc | @*" from="@lang"/>', ",1.1,", id="multiple-from-self"),
+        pytest.param('<xsl:number level="single" count="@*" from="@lang"/>', ",1,", id="single-from-self"),
+        pytest.param('<xsl:number level="single" count="p"/>', ",,", id="single-no-match"),
+        pytest.param('<xsl:number value="3"/>', "3,3,", id="value"),
+    ],
+)
+def test_transform_number_attribute_context(number: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:for-each select="doc/@*">{number},</xsl:for-each></xsl:template>'
+    assert _run('<doc lang="en" dir="ltr"/>', body) == expected
+
+
+@pytest.mark.parametrize(
+    ("match", "use", "wanted", "source", "expected"),
+    [
+        pytest.param(
+            "p | q | @*", "@lang", "'en'", '<doc><p dir="ltr" lang="en"/><q/></doc>', "p,", id="direct-attribute"
+        ),
+        pytest.param("p | @*", "text()", "'v'", "<doc><p>v</p></doc>", "p,", id="text-nodes"),
+        pytest.param("doc/namespace::* | doc", "'x'", "'x'", "<doc/>", "doc,xml,", id="namespace-nodes"),
+    ],
+)
+def test_transform_key_over_elements_and_attributes(
+    match: str, use: str, wanted: str, source: str, expected: str
+) -> None:
+    body = (
+        f'<xsl:key name="k" match="{match}" use="{use}"/>'
+        f'<xsl:template match="/"><xsl:for-each select="key(\'k\', {wanted})"><xsl:value-of select="name()"/>,'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run(source, body) == expected
+
+
+@pytest.mark.parametrize(
+    ("use", "expected"),
+    [
+        pytest.param("@lang", "p,", id="direct-attribute"),
+        pytest.param(".", "hidden,lang,", id="attribute-nodes"),
+    ],
+)
+def test_transform_key_over_attributes_without_value(use: str, expected: str) -> None:
+    body = (
+        f'<xsl:key name="k" match="p | @*" use="{use}"/>'
+        '<xsl:template match="/"><xsl:for-each select="key(\'k\', \'\')"><xsl:value-of select="name()"/>,'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert str(Transform(_sheet(body))(turbohtml.parse("<p hidden lang>x</p>"))) == expected
+
+
+def test_transform_key_over_attributes_use_error() -> None:
+    body = (
+        '<xsl:key name="k" match="@*" use="nope()"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', 'x'))\"/></xsl:template>"
+    )
+    with pytest.raises(ValueError, match="unknown function"):
+        _run('<doc a="1"/>', body)
 
 
 def test_transform_generate_id_empty_for_empty_node_set() -> None:
@@ -1194,6 +1392,16 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, mess
         _run(f"<r>{'<n>' * 600}x{'</n>' * 600}</r>", body)
 
 
+_KEY_LOOKUP: Final[str] = """<xsl:template match="/"><xsl:value-of select="count(key('k0', 'x'))"/></xsl:template>"""
+
+
+def _key_chain(links: int, *, match: str = "a") -> str:
+    chain = "".join(
+        f"""<xsl:key name="k{index}" match="{match}" use="key('k{index + 1}', .)"/>""" for index in range(links)
+    )
+    return f'{chain}<xsl:key name="k{links}" match="{match}" use="."/>'
+
+
 @pytest.mark.skipif(
     sys.version_info < (3, 14) and sys.platform != "linux",
     reason="before CPython 3.14 only Linux builds read the thread's real C stack bounds",
@@ -1211,6 +1419,8 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, mess
             '<xsl:value-of select="$v"/></xsl:template>',
             id="variable-body",
         ),
+        # past the 400-level cap: only Linux checks the C stack in enter_deep_level, so elsewhere the cap is what raises
+        pytest.param(f"{_key_chain(400 + 2, match='r')}{_KEY_LOOKUP}", id="key-chain"),
     ],
 )
 def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
@@ -1786,6 +1996,28 @@ def test_transform_key_use_evaluation_error() -> None:
     )
     with pytest.raises(ValueError, match="unbound"):
         _run("<r><n/></r>", body)
+
+
+def test_transform_key_use_builds_the_key_it_calls() -> None:
+    assert _run("<r><a>x</a><a>y</a></r>", _key_chain(3) + _KEY_LOOKUP) == "1"
+
+
+def test_transform_key_use_chain_is_depth_limited() -> None:
+    with pytest.raises(RecursionError, match="building an xsl:key exceeds the nesting limit of 400 levels"):
+        _run("<r><a>x</a></r>", _key_chain(400 + 2) + _KEY_LOOKUP)
+
+
+def test_transform_key_build_counts_toward_template_nesting() -> None:
+    # each recursion level counts twice toward the cap, which leaves the key builds below no room
+    recursion = (
+        f'<xsl:template match="/"><xsl:call-template name="rec"><xsl:with-param name="c" select="{400 // 2 - 2}"/>'
+        '</xsl:call-template></xsl:template><xsl:template name="rec"><xsl:param name="c"/><xsl:choose>'
+        '<xsl:when test="$c &gt; 0"><xsl:call-template name="rec"><xsl:with-param name="c" select="$c - 1"/>'
+        "</xsl:call-template></xsl:when>"
+        "<xsl:otherwise><xsl:value-of select=\"count(key('k0', 'x'))\"/></xsl:otherwise></xsl:choose></xsl:template>"
+    )
+    with pytest.raises(RecursionError, match="building an xsl:key exceeds the nesting limit of 400 levels"):
+        _run("<r><a>x</a></r>", _key_chain(2) + recursion)
 
 
 def test_transform_global_variable_evaluation_error() -> None:
@@ -3430,6 +3662,30 @@ def test_transform_import_root_rejects_symlink_escape(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    "link_parent",
+    [
+        pytest.param("styles", id="link inside root"),
+        pytest.param("elsewhere", id="link outside root"),
+    ],
+)
+def test_transform_import_root_escape_names_href_not_symlink_target(tmp_path: Path, link_parent: str) -> None:
+    root = tmp_path / "styles"
+    root.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    target = tmp_path / "target.xsl"
+    target.write_text('<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"/>', encoding="utf-8")
+    link = tmp_path / link_parent / "linked.xsl"
+    try:
+        link.symlink_to(target)
+    except OSError as error:  # pragma: no cover - Windows may deny symlink creation
+        pytest.skip(f"symlinks unavailable: {error}")
+    with pytest.raises(ValueError, match="path escapes import_root") as rejection:
+        Transform(_import_sheet(str(link)), base_url=str(root / "main.xsl"), import_root=root)
+    assert str(rejection.value).endswith("linked.xsl")
+    assert "target.xsl" not in str(rejection.value)
+
+
+@pytest.mark.parametrize(
     "replacement",
     [
         pytest.param(
@@ -3519,6 +3775,32 @@ def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
         turbohtml.parse_xml("<r/>")
     )
     assert _canon(result) == "ok"
+
+
+@pytest.mark.parametrize(
+    ("padding", "count", "match"),
+    [
+        pytest.param(0, 1025, "xsl:import references exceed the limit of 1024 files", id="files"),
+        pytest.param(1 << 20, 8, "xsl:import references exceed the limit of 8 MiB", id="bytes"),
+    ],
+)
+def test_transform_import_root_caps_repeated_imports(tmp_path: Path, padding: int, count: int, match: str) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:template match="/">ok</xsl:template></xsl:stylesheet>{" " * padding}',
+        encoding="utf-8",
+    )
+
+    def compile_imports(times: int) -> Transform:
+        imports: Final = '<xsl:import href="base.xsl"/>' * times
+        sheet = turbohtml.parse_xml(
+            f'<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">{imports}</xsl:stylesheet>'
+        )
+        return Transform(sheet, base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)
+
+    assert _canon(compile_imports(count - 1)(turbohtml.parse_xml("<r/>"))) == "ok"
+    with pytest.raises(ValueError, match=match):
+        compile_imports(count)
 
 
 _IMPORT_CONFINEMENT: Final[list[pytest.ParameterSet]] = [
@@ -4656,7 +4938,7 @@ def explicit_prefix_transform() -> Callable[[str, tuple[int, ...]], Transform]:
             '<root><p id="a"/><p id="b"/></root>',
             "root/p/@id",
             '<xsl:number level="any" count="p"/>',
-            "1|1|",
+            "1|2|",
             id="attribute-context",
         ),
         pytest.param(
@@ -6587,6 +6869,68 @@ _RENAMED_PREFIX_SHEET: Final[str] = (
     '<xsl:for-each select="root/*[last()]"><xsl:number from="root"/>'
     "</xsl:for-each></xsl:template></xsl:stylesheet>"
 )
+
+
+@pytest.mark.parametrize(
+    ("source", "body", "expected"),
+    [
+        pytest.param(
+            "<doc><xml:note/><sec><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para">'
+            '<xsl:number/>,<xsl:number count="/doc/xml:note"/>,<xsl:number/>'
+            "</xsl:for-each></xsl:template>",
+            "1,,1",
+            id="count",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para[2]">'
+            '<xsl:number level="multiple"/>,<xsl:number count="/doc/xml:note"/>,<xsl:number level="multiple"/>'
+            "</xsl:for-each></xsl:template>",
+            "2,,2",
+            id="multiple",
+        ),
+        pytest.param(
+            "<doc><p/><xml:note/><sec><p/><p/><p/></sec></doc>",
+            '<xsl:template match="/">'
+            '<xsl:for-each select="/doc/p"><xsl:number level="any"/></xsl:for-each>'
+            '<xsl:for-each select="/doc/sec/p[3]">'
+            '<xsl:number/><xsl:number level="any" count="/doc/xml:note"/><xsl:number level="any"/>'
+            "</xsl:for-each>"
+            '<xsl:for-each select="/doc/sec/p[1]"><xsl:number level="any"/></xsl:for-each>'
+            "</xsl:template>",
+            "13142",
+            id="any",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para">'
+            '<xsl:number/>,<xsl:number from="/doc/xml:note"/>'
+            "</xsl:for-each></xsl:template>",
+            "1,1",
+            id="from",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/></sec></doc>",
+            '<xsl:key name="k" match="/doc/xml:note" use="string(.)"/>'
+            '<xsl:template match="/"><xsl:for-each select="//para">'
+            "<xsl:number/>,<xsl:value-of select=\"count(key('k', ''))\"/>,<xsl:number/>"
+            "</xsl:for-each></xsl:template>",
+            "1,1,1",
+            id="key",
+        ),
+        pytest.param(
+            "<doc><xml:note/><sec><para/><para/></sec></doc>",
+            '<xsl:template match="/"><xsl:for-each select="//para[2]">'
+            '<xsl:number/>,<xsl:for-each select="../para[1]"><xsl:number count="/doc/xml:note"/></xsl:for-each>,'
+            "<xsl:number/></xsl:for-each></xsl:template>",
+            "2,,2",
+            id="other-node",
+        ),
+    ],
+)
+def test_transform_number_after_pattern_starts_name_index(source: str, body: str, expected: str) -> None:
+    assert _run(source, body) == expected
 
 
 @pytest.mark.parametrize(

@@ -714,9 +714,10 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
     if (is_list) {
         /* a list nested directly in a list (a sibling of the <li>s) belongs to
            the preceding item; the parser makes this shape and skipping it would
-           drop every nested item's text */
+           drop every nested item's text. Before the first item there is no marker
+           to indent under. */
         int saved_levels = ctx->indent_levels;
-        Py_ssize_t base = text_indent(ctx, frame->list.sub_indent, 2);
+        Py_ssize_t base = frame->list.item_seen ? text_indent(ctx, frame->list.sub_indent, 2) : ctx->prefix.len;
         int saved_tight = ctx->tight;
         ctx->tight = 1;
         text_frame *nested = text_enter_list(ctx, child, text_open_annotations(ctx, child));
@@ -864,8 +865,8 @@ static int text_enter_cell(text_ctx *ctx, text_table *table) {
     table->saved_column = ctx->column;
     table->saved_space = ctx->space_pending;
     table->saved_started = ctx->started;
-    ctx->out = (sbuf){NULL, 0, 0, 0};
-    ctx->prefix = (sbuf){NULL, 0, 0, 0};
+    ctx->out = (sbuf){NULL, 0, 0, 0, 0};
+    ctx->prefix = (sbuf){NULL, 0, 0, 0, 0};
     ctx->line_has_content = 1;
     ctx->column = 0;
     ctx->space_pending = 0;
@@ -963,7 +964,7 @@ static void text_collect_pre(text_ctx *ctx, th_node *root, sbuf *out) {
 }
 
 static void text_render_pre(text_ctx *ctx, th_node *node) {
-    sbuf collected = {NULL, 0, 0, 0};
+    sbuf collected = {NULL, 0, 0, 0, 0};
     text_collect_pre(ctx, node, &collected);
     if (collected.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */

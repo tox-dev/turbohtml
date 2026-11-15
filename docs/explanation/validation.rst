@@ -25,8 +25,9 @@ repetition needs no backtracking, and resolving each leaf to a built-in datatype
 restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, so ``targetNamespace`` and
 ``elementFormDefault="qualified"`` validate correctly. The compiler resolves each reference up front and raises
 :class:`ValueError` for a ``ref``, ``type``, or ``base`` that names no component, for a cycle through ``group``,
-``attributeGroup``, or complex-type derivation, and for an identity constraint the validator does not enforce. A schema
-with such a gap fails to compile, so it cannot accept a document it was written to reject.
+``attributeGroup``, or complex-type derivation, for an identity constraint the validator does not enforce, and for an
+``xs:all`` group outside a complex type's content model, and for an ``xs:all`` that occurs more than once. A schema with
+such a gap fails to compile, so it cannot accept a document it was written to reject.
 
 **RELAX NG** is a pattern algebra -- ``element``, ``attribute``, ``group``, ``choice``, ``interleave``, ``oneOrMore``,
 ``text``, ``data``, ``value``, ``list``, and ``ref`` -- and it is validated by James Clark's *derivative* algorithm
@@ -42,10 +43,15 @@ evaluated at most once per event. The residual still holds one alternative for e
 reached, and a content model that reaches one element through many places, or nested elements that each do, multiplies
 those places. Validation therefore caps a residual at a number of alternatives that grows with the schema: at least 24
 for each element of the schema, counting each ``define`` once, and never fewer than 256. A validation that would pass
-the cap raises :class:`ValueError` instead of spending time and memory that grow exponentially with the schema. The
-compiler enforces the specification's schema restrictions: it raises :class:`ValueError` for a ``<ref>`` with no name,
-for a reference cycle that never crosses an ``element``, and for an ``interleave`` whose branches compete for an element
-name or for text.
+the cap raises :class:`ValueError` instead of spending time and memory that grow exponentially with the schema. Places
+under the cap can still cost more work per event than the schema's size, so each start tag, attribute, text run, and
+list token may also spend at most eight work units for each alternative the cap allows, a unit being one step of merging
+residual choices or one shared pattern evaluated past the step allowance. An event that spends more raises the same
+:class:`ValueError`. The compiler enforces the specification's schema restrictions: it raises :class:`ValueError` for a
+``<ref>`` with no name, for a reference cycle that never crosses an ``element``, and for an ``interleave`` whose
+branches compete for an element name or for text. It also raises for a ``group`` or ``interleave`` whose attributes have
+overlapping names, and for an ``anyName`` or ``nsName`` attribute outside ``oneOrMore`` or ``zeroOrMore`` within its
+element.
 
 A RELAX NG schema can span files through ``include`` and ``externalRef``. The compiler resolves both as the
 specification's simplification steps describe: each ``href`` resolves against the element's base URI, the referenced

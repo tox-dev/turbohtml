@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from functools import partial
 from typing import TYPE_CHECKING, Final
@@ -11,6 +12,8 @@ from turbohtml import Document, Element, RdfaItem, StructuredData, Text, parse
 from turbohtml.extract import MicrodataItem, OpenGraph, microdata, opengraph
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from work_steps import WorkSteps
 
 
@@ -1351,6 +1354,33 @@ def _crowded_itemref_markup(elements: int) -> str:
     return f"<p itemscope itemref=x><div id=x>{''.join(nodes)}"
 
 
+def test_microdata_long_itemprop_keeps_each_name_once() -> None:
+    names: Final = [f"n{index}" for index in range(1_500)]
+    document: Final = parse(f'<div itemscope><span itemprop="{" ".join(names + names[::-1])}">v</span></div>')
+    (item,) = document.microdata()
+    assert list(item.properties.items()) == [(name, ["v"]) for name in names]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            lambda count: f'<div itemscope><span itemprop="{_names(count)}">v</span></div>', id="own-attribute"
+        ),
+        pytest.param(
+            lambda count: f'<p id=shared itemprop="{_names(count)}">v</p>{"<div itemscope itemref=shared></div>" * 10}',
+            id="shared-by-items",
+        ),
+    ],
+)
+def test_microdata_long_itemprop_stays_linear(work_steps: WorkSteps, markup: Callable[[int], str]) -> None:
+    work_steps.assert_linear(lambda count: partial(parse(markup(count)).microdata), (1_500, 6_000))
+
+
+def _names(count: int) -> str:
+    return " ".join(f"n{index}" for index in range(count))
+
+
 @pytest.mark.parametrize("reference", [pytest.param("", id="local"), pytest.param("itemref=hidden", id="referenced")])
 @pytest.mark.parametrize(
     "attribute", [pytest.param("itemprop", id="valueless"), pytest.param('itemprop=""', id="empty")]
@@ -1375,6 +1405,167 @@ def _item(markup: str) -> MicrodataItem:
     items = turbohtml.parse(markup).microdata()
     assert items
     return items[0]
+
+
+def _properties(**properties: list[str | MicrodataItem]) -> MicrodataItem:
+    return MicrodataItem(type=None, id=None, properties=properties)
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            '<div itemscope itemref="x x"></div><p id=x itemprop=a>1</p>',
+            [_properties(a=["1"])],
+            id="repeated-token",
+        ),
+        pytest.param(
+            '<div itemscope itemref="inner outer"></div>'
+            "<div id=outer><p itemprop=a>1</p><div id=inner><p itemprop=a>2</p></div><p itemprop=a>3</p></div>",
+            [_properties(a=["1", "2", "3"])],
+            id="named-inside-named",
+        ),
+        pytest.param(
+            "<div itemscope itemref=around></div><div id=around><p itemprop=a>1</p>"
+            "<div itemscope itemprop=child itemref=around><p itemprop=a>2</p></div><p itemprop=a>3</p></div>",
+            [_properties(a=["1", "3"], child=[_properties(a=["1", "2", "3"])])],
+            id="named-around-the-item",
+        ),
+        pytest.param(
+            '<div itemscope itemref="held deep"></div><div id=held><p itemprop=a>1</p>'
+            "<div itemscope itemprop=child><p id=deep itemprop=a>2</p></div><p itemprop=a>3</p></div>",
+            [_properties(a=["1", "2", "3"], child=[_properties(a=["2"])])],
+            id="named-inside-a-held-item",
+        ),
+        pytest.param(
+            "<div itemscope itemref=item></div><div id=item itemscope itemprop=child><p itemprop=a>1</p></div>",
+            [_properties(child=[_properties(a=["1"])])],
+            id="named-item",
+        ),
+        pytest.param(
+            "<div itemscope itemref=item></div><div id=item itemscope><p itemprop=a>1</p></div>",
+            [_properties(), _properties(a=["1"])],
+            id="named-item-that-is-no-property",
+        ),
+        pytest.param(
+            '<div itemscope itemref="inside outside"></div>'
+            "<template id=outside><p id=inside itemprop=a>1</p><p itemprop=a>2</p></template>",
+            [_properties(a=["1"])],
+            id="template-contents",
+        ),
+        pytest.param(
+            "<p id=x itemprop=a>1</p><div itemscope itemref=x><p itemprop=a>2</p></div>",
+            [_properties(a=["1", "2"])],
+            id="named-before-the-item",
+        ),
+        pytest.param(
+            "<div itemscope itemref=x><p id=x itemprop=a>1</p></div>",
+            [_properties(a=["1"])],
+            id="named-own-child",
+        ),
+    ],
+)
+@pytest.mark.parametrize("indexed", [pytest.param(False, id="walk"), pytest.param(True, id="index")])
+def test_microdata_item_takes_what_each_named_element_holds(
+    markup: str, expected: list[MicrodataItem], *, indexed: bool
+) -> None:
+    assert _microdata_records(markup, indexed=indexed) == expected
+
+
+def _microdata_records(markup: str, *, indexed: bool) -> list[MicrodataItem]:
+    if not indexed:
+        return parse(markup).microdata()
+    return parse(_INDEX_TRIGGER + markup).microdata()[1:]
+
+
+# An item whose walk finds dozens of properties out of tree order makes the call build the property index, which the
+# small cases above never reach. The trigger is the first record, so the cases compare what follows it.
+_INDEX_TRIGGER: Final[str] = (
+    f"<p id=trigger itemprop=t></p><div itemscope itemref=trigger>{'<i itemprop=t></i>' * 40}</div>"
+)
+
+
+def test_microdata_index_skips_valueless_id_and_itemprop() -> None:
+    markup: Final = "<p id itemprop>skip</p><p id=x itemprop=a>1</p><div itemscope itemref=x></div>"
+    assert [item.properties for item in _microdata_records(markup, indexed=True)] == [{"a": ["1"]}]
+
+
+# Every item names the same elements. Crawling them again for each item, and walking the tree between two properties
+# to order them, cost the shared subtree or its siblings once per item.
+@pytest.mark.parametrize(
+    ("markup", "count"),
+    [
+        pytest.param(lambda n: f"{'<p itemscope itemref=x>' * n}<div id=x>{'<p>' * (15 * n)}", 0, id="no-properties"),
+        pytest.param(
+            lambda n: f"{'<p itemscope itemref=x>' * n}<div id=x><p itemprop=q><p><p itemprop=q>{'<p>' * (15 * n)}",
+            2,
+            id="few-among-many",
+        ),
+        pytest.param(
+            lambda n: "".join([
+                '<p itemscope itemref="b a c">' * n,
+                *(f"<div id={name}>{'<p itemprop=q>' * 10}</div>" for name in "abc"),
+                "<p>" * (15 * n),
+            ]),
+            30,
+            id="out-of-order",
+        ),
+    ],
+)
+def test_microdata_items_sharing_elements_cost_them_once(
+    work_steps: WorkSteps, markup: Callable[[int], str], count: int
+) -> None:
+    assert {len(item.get_all("q")) for item in parse(markup(100)).microdata()} == {count}
+    work_steps.assert_linear(lambda n: partial(parse(markup(n)).microdata), (250, 1_000))
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            f"<p id=x itemprop=a>1</p><div><p><i itemscope itemref='x x missing x'>{'<p>y' * 3}",
+            [{"a": ["1"]}] * 4,
+            id="one-reopened-item",
+        ),
+        pytest.param(
+            "<p id=x itemprop=a>1</p><p id=y itemprop=b>2</p>"
+            f"<div><p><i itemscope itemref=x><b itemscope itemref=y>{'<p>z' * 2}",
+            [{"a": ["1"]}, {"b": ["2"]}] * 3,
+            id="two-reopened-items-in-turn",
+        ),
+        pytest.param(f"<div><p><i itemscope itemref='missing gone'>{'<p>y' * 2}", [{}] * 3, id="nothing-named"),
+        pytest.param(
+            "<div id=o><p id=x itemprop=a>1</p><p itemprop=b>2</p></div><i itemscope itemref='x o x'></i>",
+            [{"a": ["1"], "b": ["2"]}],
+            id="repeated-and-nested-targets",
+        ),
+    ],
+)
+@pytest.mark.parametrize("indexed", [pytest.param(False, id="walk"), pytest.param(True, id="index")])
+def test_microdata_resolves_a_shared_itemref_value_for_every_item(
+    markup: str, expected: list[dict[str, list[str]]], *, indexed: bool
+) -> None:
+    # the tree builder reopens the unclosed <i> and <b> in each paragraph, and every clone carries the one itemref value
+    assert [item.properties for item in _microdata_records(markup, indexed=indexed)] == expected
+
+
+def test_microdata_resolves_a_long_itemref_once_for_its_reopened_copies(work_steps: WorkSteps) -> None:
+    items: Final = parse(_long_itemref(5000)).microdata()
+    assert len(items) == 20001
+    assert not any(item.properties for item in items)
+    work_steps.assert_linear(lambda n: partial(parse(_long_itemref(n)).microdata), (1_000, 4_000))
+
+
+def _long_itemref(size: int) -> str:
+    tokens: Final = " ".join(f"a{index}" for index in range(size))
+    targets: Final = "".join(f"<p id=a{index}>" for index in range(size))
+    return f"{targets}<div><p><i itemscope itemref='{tokens} {'a0 ' * (4 * size)}'>{'<p>x' * (4 * size)}"
+
+
+def test_microdata_resolves_itemref_in_a_copied_document() -> None:
+    # a deep copy's tree has no parser document to look ids up in: they are those of the node microdata() is called on
+    document: Final = copy.deepcopy(parse("<div itemscope itemref=x></div><p id=x itemprop=a>1</p>"))
+    assert document.microdata() == [_properties(a=["1"])]
 
 
 def test_the_type_is_whitespace_split() -> None:
