@@ -1018,6 +1018,7 @@ int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, i
                 break;                  /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
+        alts[count].walks = 0;
         if (sel_complex_parse(parser, &alts[count], nested, relative) == 0) {
             count++;
         } else if (forgiving) {
@@ -1368,6 +1369,21 @@ static int sel_alts_nest_sibling_has(const sel_complex *alts, int count) {
     return 0;
 }
 
+/* Whether some compound of alts holds a selector list, the only way a selector can nest one. */
+static int sel_alts_have_list(const sel_complex *alts, int count) {
+    for (int alt = 0; alt < count; alt++) {
+        for (int index = 0; index < alts[alt].count; index++) {
+            const sel_compound *compound = &alts[alt].compounds[index];
+            for (int at = 0; at < compound->count; at++) {
+                if (compound->simples[at].kind == ':' && compound->simples[at].sub != NULL) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 /* Compile a selector string against the tree it will run on. Returns NULL with a
    SelectorSyntaxError set on a syntax error. */
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str) {
@@ -1393,12 +1409,14 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
     compiled->reads_dir = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_dir_pseudo);
     compiled->climbs = sel_alts_climb(compiled->alts, compiled->count, 0);
-    compiled->nests_has = sel_alts_nest_has(compiled->alts, compiled->count, 0);
-    sel_nesting nesting = {0};
-    sel_alts_nest(compiled->alts, compiled->count, 0, 0, &nesting);
-    if (nesting.routes != 0 && !sel_alts_nest_sibling_has(compiled->alts, compiled->count)) {
-        /* only the deep matcher keeps the answers of a list asked again */
-        compiled->climbs = SEL_CLIMBS_LISTS;
+    if (sel_alts_have_list(compiled->alts, compiled->count)) {
+        compiled->nests_has = sel_alts_nest_has(compiled->alts, compiled->count, 0);
+        sel_nesting nesting = {0};
+        sel_alts_nest(compiled->alts, compiled->count, 0, 0, &nesting);
+        if (nesting.routes != 0 && !sel_alts_nest_sibling_has(compiled->alts, compiled->count)) {
+            /* only the deep matcher keeps the answers of a list asked again */
+            compiled->climbs = SEL_CLIMBS_LISTS;
+        }
     }
     return compiled;
 }
@@ -3469,6 +3487,7 @@ static sel_deep_kept *sel_deep_kept_of(sel_deep_memo *memo) {
         if (memo->kept != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             memo->kept->lists.limit = memo->limit;
             memo->kept->scoped.limit = memo->limit;
+            memo->kept->subject_scope = memo->subject_scope;
         }
     }
     return memo->kept;

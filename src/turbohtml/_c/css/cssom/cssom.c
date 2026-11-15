@@ -1591,13 +1591,7 @@ static css_computed_cache *css_computed_new(uint64_t version) {
     cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->deep_memo.limit = CSS_DEEP_MEMO_LIMIT;
-    cache->deep_memo.kept = PyMem_Calloc(1, sizeof(sel_deep_kept));
-    if (cache->deep_memo.kept == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        PyMem_Free(cache->initial_text); /* GCOVR_EXCL_LINE: allocation failure */
-        PyMem_Free(cache);               /* GCOVR_EXCL_LINE: allocation failure */
-        return NULL;                     /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    cache->deep_memo.kept->subject_scope = 1; /* the cascade binds :scope to the element it styles */
+    cache->deep_memo.subject_scope = 1; /* the cascade binds :scope to the element it styles */
     return cache;
 }
 
@@ -2185,8 +2179,6 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
             rules += (size_t)sheets[sheet].rule_count;
         }
         cache->deep_memo.limit = th_css_deep_memo_limit(rules, th_tree_node_count(handle->tree));
-        cache->deep_memo.kept->lists.limit = cache->deep_memo.limit;
-        cache->deep_memo.kept->scoped.limit = cache->deep_memo.limit;
     }
     if (cache->path_len > 0 && cache->path[cache->path_len - 1]->node == element) {
         return css_copy_map(out, cache->path[cache->path_len - 1]->values);

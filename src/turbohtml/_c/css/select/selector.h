@@ -318,6 +318,7 @@ typedef struct {
     size_t bytes;       /* bytes of pages and page directories allocated */
     size_t limit;       /* the most bytes of pages and directories a caller sets */
     int failed;         /* past the limit or out of memory: the matcher walks directly */
+    int subject_scope;  /* the driver binds :scope to the element it tests, copied into kept when it is allocated */
     sel_deep_kept
         *kept; /* the tables past the ancestor memo, allocated by the first match that needs one, on the heap */
 } sel_deep_memo;
