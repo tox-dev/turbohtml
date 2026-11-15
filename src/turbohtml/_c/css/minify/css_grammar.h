@@ -561,14 +561,17 @@ static int css_url_keeps_function(const css_char *text, Py_ssize_t start, Py_ssi
 
 /* Whether an @import/@namespace url() token prints as its quoted body, setting [*body_start, *body_end) to the body
    with its whitespace trimmed: it does unless the url() keeps its function form. th_minify_css_bytes closed a url the
-   input left open, so the text ends in its `)`. */
+   input left open, so the text ends in its `)`. A trailing whitespace after an unescaped `\` is not trimmed (see
+   css_minify_url) and stays in the body, where it keeps the function form: without it the `\` would escape the quote
+   of the string wrapped around the body. */
 static int css_url_unwraps(const css_token *token, Py_ssize_t *body_start, Py_ssize_t *body_end) {
     *body_start = 4;
     *body_end = token->text_len - 1;
     while (*body_start < *body_end && css_is_ws(token->text[*body_start])) {
         (*body_start)++;
     }
-    while (*body_end > *body_start && css_is_ws(token->text[*body_end - 1])) {
+    while (*body_end > *body_start && css_is_ws(token->text[*body_end - 1]) &&
+           !css_escapes(token->text, *body_end - 1)) {
         (*body_end)--;
     }
     return !css_url_keeps_function(token->text, *body_start, *body_end);
