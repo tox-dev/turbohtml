@@ -2416,10 +2416,32 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
     return 0;
 }
 
-/* Hash the (key, node) pair to a slot. The key feeds the hash because a node collects one entry
-   per key it is probed with; hashing the node alone would put all of them in one probe run. */
+/* Hash the (key, node) pair to a slot. The node part is its creation sequence, as in the node maps,
+   not its address: some spacings of the nodes in memory put every home slot of an address hash in
+   one probe run, so the cost of a query hung on where the allocator placed the tree. The key rotates
+   the node's slot because a node collects one entry per key it is probed with; hashing the node
+   alone would put all of them in one probe run. */
 static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
-    return (size_t)((((uintptr_t)node >> 4) + ((uintptr_t)key >> 4)) * 0x9E3779B97F4A7C15u >> 32) & mask;
+    return (th_hash_slot(th_fibonacci_hash(node->seq), mask + 1) +
+            (size_t)(((uintptr_t)key >> 4) * 0x9E3779B97F4A7C15u >> 32)) &
+           mask;
+}
+
+/* The rest of a probe that walked TH_FAST_RUN_LIMIT taken slots one by one. A document picks
+   which sequences its deep elements get, so it can give them home slots in one run; from here
+   the walk takes the keyed stride the node maps take, which the document cannot predict, and an
+   odd stride reaches every slot. Out of line so the inlined lookup keeps the cost of a plain
+   linear probe. */
+static TH_NOINLINE size_t sel_memo_walk(const sel_memo *memo, const void *key, const th_node *node, size_t idx) {
+    const size_t step = th_node_probe_step(node->seq);
+    for (;;) {
+        TH_WORK_STEP();
+        const sel_memo_slot *slot = &memo->slots[idx];
+        if ((slot->key == key && slot->node == node) || slot->key == NULL) {
+            return idx;
+        }
+        idx = (idx + step) & memo->mask;
+    }
 }
 
 /* Linear-probe from the pair's home slot to the slot holding the (key, node) pair or, if
@@ -2427,7 +2449,7 @@ static size_t sel_memo_hash(const void *key, const th_node *node, size_t mask) {
    always exists). Shared by get and insert so one probe loop carries both. */
 static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node *node) {
     size_t idx = sel_memo_hash(key, node, memo->mask);
-    for (;;) {
+    for (size_t walked = 0; walked < (size_t)TH_FAST_RUN_LIMIT; walked++) {
         TH_WORK_STEP();
         const sel_memo_slot *slot = &memo->slots[idx];
         /* Key first: one argument spans many nodes, so the existing tests reach every probe edge. */
@@ -2439,6 +2461,7 @@ static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node
         }
         idx = (idx + 1) & memo->mask;
     }
+    return sel_memo_walk(memo, key, node, idx);
 }
 
 /* Look up (key, node); on a hit store the cached result in *out and return 1. */
