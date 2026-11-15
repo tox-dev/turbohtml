@@ -254,6 +254,8 @@ typedef struct {
     th_src_span start_tag;
     th_src_span end_tag;
     int has_end_tag;
+    /* the start tag ended in "/>", which closes a foreign element on the spot (an HTML element ignores it) */
+    int self_closing;
     /* set once the mutation API changes the element's attributes, so the lossless
        serializer (th_node_serialize_source) rewrites the start tag from the current
        attributes instead of re-emitting its now-stale source bytes. */

@@ -196,6 +196,22 @@ def test_data_param_patterns_share_the_state_budget() -> None:
         RelaxNG(schema)
 
 
+def test_data_param_class_of_many_ranges_matches_in_linear_steps(work_steps: WorkSteps) -> None:
+    def build(members: int) -> Callable[[], object]:
+        pattern: Final = f"[{'a-c' * members}]*"
+        schema: Final = RelaxNG(
+            grammar(
+                f'<start><element name="s"><data type="string"><param name="pattern">{pattern}</param></data>'
+                "</element></start>",
+                attrs=f'datatypeLibrary="{_DT}"',
+            )
+        )
+        document: Final = parse_xml(f"<s>{'b' * members}</s>")
+        return partial(schema.is_valid, document)
+
+    work_steps.assert_linear(build, (500, 2000))
+
+
 def test_list_pattern() -> None:
     schema = grammar(
         '<start><element name="nums"><list><oneOrMore><data type="int"/></oneOrMore></list></element></start>',

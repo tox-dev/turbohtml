@@ -144,6 +144,33 @@ static int rx_range_push(rparser *parser, rclass *cls, Py_UCS4 lo, Py_UCS4 hi) {
     return 0;
 }
 
+static int rx_range_order(const void *left, const void *right) {
+    const Py_UCS4 first = ((const rrange *)left)->lo, second = ((const rrange *)right)->lo;
+    return (first > second) - (first < second);
+}
+
+/* Sorted, disjoint ranges let rx_class_match bisect them; a class spelling many members would otherwise cost its
+   length for every character it is matched against. */
+static void rx_class_finish(rclass *cls) {
+    if (cls->range_count < 2) {
+        return;
+    }
+    qsort(cls->ranges, (size_t)cls->range_count, sizeof(rrange), rx_range_order);
+    Py_ssize_t kept = 0;
+    for (Py_ssize_t index = 1; index < cls->range_count; index++) {
+        rrange *last = &cls->ranges[kept];
+        const rrange *next = &cls->ranges[index];
+        if (next->lo <= last->hi + 1) {
+            if (next->hi > last->hi) {
+                last->hi = next->hi;
+            }
+        } else {
+            cls->ranges[++kept] = *next;
+        }
+    }
+    cls->range_count = kept + 1;
+}
+
 /* Map a class escape letter to its builtin flag, or 0 when it is not one. */
 static int rx_builtin_flag(Py_UCS4 letter) {
     switch (letter) {
@@ -376,6 +403,7 @@ static rnode *rx_parse_class(rparser *parser) {
         parser->fail_pos = start;
         return NULL;
     }
+    rx_class_finish(cls);
     parser->pos++;
     return node;
 }
@@ -441,6 +469,7 @@ static rnode *rx_parse_atom(rparser *parser) {
             if (rx_parse_property(parser, property->cls, letter) < 0) {
                 return NULL;
             }
+            rx_class_finish(property->cls);
             return property;
         }
         if (!rx_is_single_escape(letter)) {
@@ -756,13 +785,22 @@ static int rx_digit_match(Py_UCS4 codepoint) {
     return (TH_DIGIT_MIXED_BITS[kind - 2][(codepoint / 64) % 4] & (UINT64_C(1) << (codepoint % 64))) != 0;
 }
 
-static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
-    int inside = 0;
-    for (Py_ssize_t index = 0; index < cls->range_count; index++) {
-        if (codepoint >= cls->ranges[index].lo && codepoint <= cls->ranges[index].hi) {
-            inside = 1;
+static int rx_ranges_contain(const rclass *cls, Py_UCS4 codepoint) {
+    Py_ssize_t low = 0, high = cls->range_count;
+    while (low < high) {
+        TH_WORK_STEP();
+        const Py_ssize_t middle = low + (high - low) / 2;
+        if (cls->ranges[middle].hi < codepoint) {
+            low = middle + 1;
+        } else {
+            high = middle;
         }
     }
+    return low < cls->range_count && cls->ranges[low].lo <= codepoint;
+}
+
+static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
+    int inside = rx_ranges_contain(cls, codepoint);
     int is_d = (cls->builtins & (RX_BD | RX_ND)) != 0 && rx_digit_match(codepoint);
     int is_w = (cls->builtins & (RX_BW | RX_NW)) != 0 && rx_word_match(codepoint);
     int is_s = (cls->builtins & (RX_BS | RX_NS)) != 0 && is_xml_space(codepoint);
