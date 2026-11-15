@@ -2346,7 +2346,13 @@ def test_transform_key_use_builds_the_key_it_calls() -> None:
 
 
 def test_transform_key_use_chain_is_depth_limited() -> None:
-    with pytest.raises(RecursionError, match="building an xsl:key exceeds the nesting limit of 400 levels"):
+    # PyPy's recursion limit answers the key chain before the 400-level cap does
+    message: Final = (
+        "maximum recursion depth exceeded while applying an XSLT stylesheet"
+        if sys.implementation.name == "pypy"
+        else "building an xsl:key exceeds the nesting limit of 400 levels"
+    )
+    with pytest.raises(RecursionError, match=message):
         _run("<r><a>x</a></r>", _key_chain(400 + 2) + _KEY_LOOKUP)
 
 
