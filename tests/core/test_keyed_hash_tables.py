@@ -209,6 +209,15 @@ def test_xsl_key_duplicate_value_after_the_map_moved_to_the_keyed_hash() -> None
     assert _xsl_key(names + names[:1])() == str(len(names) + 1)
 
 
+def test_duplicate_slot_names_after_the_slot_index_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
+    slots: Final = "".join(f"<slot name={name}></slot>" for name in [*names, *names[:4]])
+    children: Final = "".join(f"<b slot={name}>{name}</b>" for name in names[:4])
+    document: Final = turbohtml.parse(f"<div><template shadowrootmode=open>{slots}</template>{children}</div>")
+
+    assert [node.text for node in document.select("div")[0].flattened_children] == names[:4]
+
+
 def _attribute_misses(
     build: Callable[[list[str]], Callable[[], object]],
 ) -> Callable[[list[str], list[str]], Callable[[], object]]:
