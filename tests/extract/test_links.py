@@ -168,6 +168,19 @@ def test_external_only_canonicalizes_ipv4_hosts_before_comparing() -> None:
     assert extract_links(html, "http://127.0.0.1/", external_only=True) == {"http://8.8.8.8/c"}
 
 
+def test_external_only_reports_hosts_whose_dots_only_show_once_canonical() -> None:
+    # a browser opens these as mirror.test and 192.168.1.1; the spelled host holding no dot must not hide the link
+    html: Final = (
+        '<a href="http://mirror%2Etest/a">1</a><a href="http://mirror\u3002test/b">2</a>'
+        '<a href="http://3232235777/c">3</a><a href="http://intranet/d">4</a>'
+    )
+    assert extract_links(html, "http://example.com/", external_only=True) == {
+        "http://mirror.test/a",
+        "http://mirror.test/b",
+        "http://192.168.1.1/c",
+    }
+
+
 def test_external_only_attributes_backslash_authority_to_the_real_host() -> None:
     # a browser resolves evil.example\@good.example to evil.example, so the link leaves the base's site and is kept
     html: Final = '<a href="http://evil.example\\@good.example/">x</a>'
