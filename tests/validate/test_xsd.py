@@ -1020,10 +1020,11 @@ _ALL_MEMBERS: Final[str] = (
             "<b/><zz/><b/>",
             [
                 "element 'zz' is not allowed here",
+                "element 'b' is not allowed here",
                 "required element 'long' is missing",
                 "required element 'a' is missing",
             ],
-            id="repeated-child-counts-its-member-once",
+            id="repeated-child-is-not-allowed",
         ),
         pytest.param(
             '<t:long/><a xmlns="urn:u"/><a/><long/>',
@@ -1048,6 +1049,77 @@ def test_all_without_members_allows_no_child() -> None:
     )
     assert check(schema, "<r/>").valid
     assert [error.message for error in check(schema, "<r><x/></r>").errors] == ["element 'x' is not allowed here"]
+
+
+def _type_schema(content: str) -> str:
+    return f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{content}</xs:complexType></xs:element></xs:schema>'
+
+
+_AB: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
+_A_REPEATED: Final[str] = "element 'a' is not allowed here"
+_NAMED_GROUP_MESSAGE: Final[str] = "content of element does not match its content model"
+_NAMED_GROUP: Final[str] = (
+    f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+    '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+)
+_EXTENDED_ALL: Final[str] = (
+    f'<xs:schema {_XS}><xs:complexType name="base"><xs:attribute name="x"/></xs:complexType>'
+    '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base">'
+    f"<xs:all>{_AB}</xs:all></xs:extension></xs:complexContent></xs:complexType></xs:element></xs:schema>"
+)
+
+_REPEATED_CHILD: Final[list[pytest.ParameterSet]] = [
+    pytest.param(_type_schema(f"<xs:all>{_AB}</xs:all>"), "<r><a/><a/><b/></r>", [_A_REPEATED], id="repeated-child"),
+    pytest.param(
+        _type_schema(f"<xs:all>{_AB}</xs:all>"),
+        "<r><a/><b/><a/></r>",
+        [_A_REPEATED],
+        id="repeated-after-other-children",
+    ),
+    pytest.param(
+        _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>'),
+        "<r><b/><a/><a/></r>",
+        [_A_REPEATED],
+        id="optional-child-repeated",
+    ),
+    pytest.param(
+        _type_schema(f"<xs:all>{_AB}</xs:all>"),
+        "<r><a/><b/><a/><a/></r>",
+        [_A_REPEATED, _A_REPEATED],
+        id="every-repeat-reported",
+    ),
+    pytest.param(
+        _type_schema(f"<xs:all>{_AB}</xs:all>"),
+        "<r><a/><a/></r>",
+        [_A_REPEATED, "required element 'b' is missing"],
+        id="repeat-does-not-stand-in-for-missing-member",
+    ),
+    pytest.param(
+        _type_schema('<xs:all><xs:element name="a" maxOccurs="0"/><xs:element name="b"/></xs:all>'),
+        "<r><a/><b/></r>",
+        [_A_REPEATED],
+        id="member-with-max-occurs-zero",
+    ),
+    pytest.param(_NAMED_GROUP, "<r><a/><a/><b/></r>", [_NAMED_GROUP_MESSAGE], id="named-group-repeated-child"),
+    pytest.param(
+        _NAMED_GROUP.replace('<xs:element name="a"/>', '<xs:element name="a" maxOccurs="2"/>'),
+        "<r><a/><a/><b/></r>",
+        [_NAMED_GROUP_MESSAGE],
+        id="named-group-member-max-occurs",
+    ),
+    pytest.param(_EXTENDED_ALL, "<r><a/><a/><b/></r>", [_A_REPEATED], id="complex-content-extension"),
+]
+
+
+@pytest.mark.parametrize(("schema", "children", "messages"), _REPEATED_CHILD)
+def test_all_repeated_child_is_not_allowed(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, children).errors] == messages
+
+
+def test_all_each_member_once_is_valid() -> None:
+    schema = _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>')
+    assert check(schema, "<r><b/><a/></r>").valid
+    assert check(schema, "<r><b/></r>").valid
 
 
 @pytest.mark.parametrize(
@@ -1082,7 +1154,8 @@ def test_all_children_naming_the_last_member_scale_linearly(work_steps: WorkStep
         return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{last * count}</r>"))
 
     work_steps.assert_linear(build, _LINEAR_SIZES)
-    assert build(_LINEAR_SIZES[1])().valid
+    # every child after the first repeats its member
+    assert len(build(_LINEAR_SIZES[1])().errors) == 1_000
 
 
 def _all_schema(members: str) -> XMLSchema:
@@ -1099,6 +1172,15 @@ def _optional_members(count: int) -> str:
 def test_all_children_naming_no_member_scale_linearly(work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], ValidationResult]:
         return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<zz/>' * count}</r>"))
+
+    work_steps.assert_linear(build, _LINEAR_SIZES)
+    # validate() lists at most 1,000 of the errors
+    assert len(build(_LINEAR_SIZES[1])().errors) == 1_000
+
+
+def test_all_repeated_children_scale_linearly(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<item0/>' * count}</r>"))
 
     work_steps.assert_linear(build, _LINEAR_SIZES)
     # validate() lists at most 1,000 of the errors
