@@ -4443,6 +4443,15 @@ static long sibling_count(engine *eng, xslt_number_siblings *siblings, const mat
     if (position != 0) {
         return position;
     }
+    long count = 1;
+    th_node *prev = node->prev_sibling;
+    for (int scanned = 0; prev != NULL && scanned < 64; prev = prev->prev_sibling, scanned++) {
+        TH_WORK_STEP();
+        count += number_counts(eng, count_set, have_count, prev);
+    }
+    if (prev == NULL) {
+        return count;
+    }
     return number_fill_siblings(eng, siblings, count_set, have_count, node);
 }
 
