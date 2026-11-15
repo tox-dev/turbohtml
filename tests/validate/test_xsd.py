@@ -1504,6 +1504,153 @@ def test_all_each_member_once_is_valid() -> None:
     assert check(schema, "<r><b/></r>").valid
 
 
+_ALL_BASE: Final[str] = f'<xs:complexType name="base"><xs:all>{_AB}</xs:all></xs:complexType>'
+_GROUP_ALL_BASE: Final[str] = (
+    f'<xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+    '<xs:complexType name="base"><xs:group ref="g"/></xs:complexType>'
+)
+
+
+def _extension_schema(base: str, derived: str) -> str:
+    return (
+        f'<xs:schema {_XS}>{base}<xs:element name="r"><xs:complexType><xs:complexContent>'
+        f'<xs:extension base="base">{derived}</xs:extension></xs:complexContent></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(_extension_schema(_ALL_BASE, ""), id="direct-base"),
+        pytest.param(_extension_schema(_GROUP_ALL_BASE, ""), id="group-base"),
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_BASE}<xs:complexType name="middle"><xs:complexContent>'
+            '<xs:extension base="base"/></xs:complexContent></xs:complexType>'
+            '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="middle"/>'
+            "</xs:complexContent></xs:complexType></xs:element></xs:schema>",
+            id="empty-middle-type",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("children", "messages"),
+    [
+        pytest.param("<a/><b/>", [], id="declaration-order"),
+        pytest.param("<b/><a/>", [], id="reverse-order"),
+        pytest.param("<b/>", ["required element 'a' is missing"], id="required-missing"),
+        pytest.param("<a/><b/><zz/>", ["element 'zz' is not allowed here"], id="undeclared"),
+    ],
+)
+def test_all_base_extended_without_particles_matches_members(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, f"<r>{children}</r>").errors] == messages
+
+
+@pytest.mark.parametrize(
+    ("occurs", "children", "messages"),
+    [
+        pytest.param(' minOccurs="0"', "", [], id="optional-empty"),
+        pytest.param(' minOccurs="0"', "<a/><b/>", [], id="optional-filled"),
+        pytest.param(
+            "",
+            "",
+            ["required element 'a' is missing", "required element 'b' is missing"],
+            id="required-empty",
+        ),
+        pytest.param("", "<b/><a/>", [], id="required-filled"),
+    ],
+)
+def test_all_base_group_reference_occurrence_applies(occurs: str, children: str, messages: list[str]) -> None:
+    base = (
+        f'<xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+        f'<xs:complexType name="base"><xs:group ref="g"{occurs}/></xs:complexType>'
+    )
+    assert [error.message for error in check(_extension_schema(base, ""), f"<r>{children}</r>").errors] == messages
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(_extension_schema(_ALL_BASE, f"<xs:all>{_AB}</xs:all>"), id="all-direct-base"),
+        pytest.param(_extension_schema(_GROUP_ALL_BASE, f"<xs:all>{_AB}</xs:all>"), id="all-group-base"),
+        pytest.param(
+            _extension_schema(_ALL_BASE, '<xs:sequence><xs:element name="c"/></xs:sequence>'),
+            id="sequence-direct-base",
+        ),
+        pytest.param(
+            _extension_schema(_GROUP_ALL_BASE, '<xs:choice><xs:element name="c"/></xs:choice>'),
+            id="choice-group-base",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_BASE}<xs:complexType name="middle"><xs:complexContent>'
+            '<xs:extension base="base"/></xs:complexContent></xs:complexType>'
+            '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="middle">'
+            '<xs:sequence><xs:element name="c"/></xs:sequence></xs:extension></xs:complexContent>'
+            "</xs:complexType></xs:element></xs:schema>",
+            id="particles-below-empty-middle-type",
+        ),
+    ],
+)
+def test_all_base_extended_with_particles_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all content model cannot be extended with particles"):
+        XMLSchema(schema)
+
+
+def test_extension_of_builtin_base_chain_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="a"><xs:complexContent><xs:extension base="xs:anyType"/>'
+        '</xs:complexContent></xs:complexType><xs:complexType name="b"><xs:complexContent>'
+        '<xs:extension base="a"/></xs:complexContent></xs:complexType>'
+        '<xs:element name="r" type="b"/></xs:schema>'
+    )
+    assert check(schema, "<r/>").valid
+
+
+def test_extension_of_restriction_chain_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="a"><xs:complexContent><xs:restriction base="xs:anyType"/>'
+        '</xs:complexContent></xs:complexType><xs:complexType name="b"><xs:complexContent>'
+        '<xs:extension base="a"/></xs:complexContent></xs:complexType>'
+        '<xs:element name="r" type="b"/></xs:schema>'
+    )
+    assert check(schema, "<r/>").valid
+
+
+def test_empty_extension_of_sequence_beside_all_base() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:all><xs:element name="a"/></xs:all></xs:complexType>'
+        '<xs:complexType name="seq"><xs:sequence><xs:element name="x"/></xs:sequence></xs:complexType>'
+        '<xs:complexType name="t"><xs:complexContent><xs:extension base="seq"/></xs:complexContent></xs:complexType>'
+        '<xs:element name="ext"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+        "</xs:complexContent></xs:complexType></xs:element>"
+        '<xs:element name="r" type="t"/></xs:schema>'
+    )
+    assert check(schema, "<r><x/></r>").valid
+    assert not check(schema, "<r/>").valid
+
+
+def test_empty_complex_content_beside_all_base() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:all><xs:element name="a"/></xs:all></xs:complexType>'
+        '<xs:element name="ext"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+        "</xs:complexContent></xs:complexType></xs:element>"
+        '<xs:element name="r"><xs:complexType><xs:complexContent/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r/>").valid
+
+
+def test_sequence_extension_chain_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="a"><xs:sequence><xs:element name="x"/></xs:sequence></xs:complexType>'
+        '<xs:complexType name="b"><xs:complexContent><xs:extension base="a"><xs:sequence>'
+        '<xs:element name="y"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType>'
+        '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="b"><xs:sequence>'
+        '<xs:element name="z"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert isinstance(XMLSchema(schema), XMLSchema)
+
+
 @pytest.mark.parametrize(
     ("positions", "line"),
     [

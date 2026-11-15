@@ -1,0 +1,2 @@
+A schema that extends an ``xs:all`` content model with particles now fails to compile, and an extension without
+particles validates the base's members in any order.

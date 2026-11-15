@@ -740,7 +740,11 @@ typedef struct th_schema {
     size_t all_count, all_cap;
     /* the xmlns declarations in scope on the instance walk of one validate() call */
     nsscope ns;
-    int named_all; /* a content model reaches an xs:all through a group ref, so validation resolves group refs */
+    int complex_extension; /* a complexContent extension exists, so the compile-time xs:all extension check has work to
+                              do */
+    int all_inherited; /* a complex type extends an xs:all content model without adding particles, so validation looks
+                          up an inherited model for the types that declare none */
+    int named_all;     /* a content model reaches an xs:all through a group ref, so validation resolves group refs */
 } th_schema;
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every

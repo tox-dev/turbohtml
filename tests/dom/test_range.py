@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Final, assert_type
 
 import pytest
@@ -11,16 +12,21 @@ from turbohtml import (
     Doctype,
     Document,
     Element,
+    MutationObserver,
     Node,
     ProcessingInstruction,
     Range,
     StaticRange,
     Text,
     parse,
+    parse_xml,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from types import ModuleType
+
+    from work_steps import WorkSteps
 
 
 def _doctype(doc: Document) -> Doctype:
@@ -564,6 +570,111 @@ _STALE_COMPARISONS: Final[tuple[pytest.ParameterSet, ...]] = (
 )
 
 
+def _wrap_last_match_first(text: Text) -> None:
+    for offset in range(len(text.data) - 2, -1, -2):  # the earlier offsets stay valid
+        hit = Range(text, offset)
+        hit.set_end(text, offset + 1)
+        hit.surround_contents(Element("mark"))
+
+
+def _wrap_first_match_first(text: Text) -> None:
+    rest: Node | None = text
+    while isinstance(rest, Text) and "x" in rest.data:
+        offset = rest.data.index("x")
+        hit = Range(rest, offset)
+        hit.set_end(rest, offset + 1)
+        mark = Element("mark")
+        hit.surround_contents(mark)
+        rest = mark.next_sibling  # the split left the unsearched text after the wrapper
+
+
+def _delete_every_match(text: Text) -> None:
+    for offset in range(len(text.data) - 2, 0, -2):
+        hit = Range(text, offset)
+        hit.set_end(text, offset + 1)
+        hit.delete_contents()
+
+
+def _insert_between_matches(text: Text) -> None:
+    for offset in range(len(text.data) - 2, 0, -2):
+        Range(text, offset).insert_node(Element("wbr"))
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(_wrap_last_match_first, id="surround-last-first"),
+        pytest.param(_wrap_first_match_first, id="surround-first-first"),
+        pytest.param(_delete_every_match, id="delete"),
+        pytest.param(_insert_between_matches, id="insert"),
+    ],
+)
+def test_repeated_edits_of_one_text_node_keep_no_copy_per_edit(edit: Callable[[Text], None]) -> None:
+    # PyPy has no tracemalloc; the arena that the peak measures is allocated through PyMem, which CPython traces
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    text = _data_node(parse(f"<p>{'xo' * 1500}</p>"))
+    tracing.start()
+    try:
+        edit(text)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < 4 * 1024 * 1024  # the copies of the remaining text take 10 to 19 MiB on the old code
+
+
+def _data_node(doc: Document) -> Text:
+    text = _found(doc, "p").children[0]
+    assert isinstance(text, Text)
+    return text
+
+
+@pytest.mark.parametrize(("edited", "untouched"), [("option", "selectedcontent"), ("selectedcontent", "option")])
+def test_edit_in_place_leaves_text_shared_with_a_parser_clone(edited: str, untouched: str) -> None:
+    doc = parse("<select><button><selectedcontent></selectedcontent></button><option>hello world</option></select>")
+    text = _found(doc, edited).children[0]
+    for expected in ("hllo world", "hlo world"):  # the second run closes up inside the node's own buffer
+        cut = Range(text, 1)
+        cut.set_end(text, 2)
+        cut.delete_contents()
+        assert _data(text) == expected
+        assert _data(_found(doc, untouched).children[0]) == "hello world"
+
+
+def test_split_halves_edit_independently() -> None:
+    text = Text("abcdefghij")
+    paragraph = Element("p", children=[text])
+    cut = Range(text, 4)
+    cut.set_end(text, 6)
+    cut.delete_contents()  # "abcdghij", now in a buffer of the node's own
+    Range(text, 4).insert_node(Element("br"))
+    tail = paragraph.children[2]
+    assert isinstance(tail, Text)
+    assert (_data(text), _data(tail)) == ("abcd", "ghij")
+    for node, expected in ((text, "ad"), (tail, "gj")):
+        cut = Range(node, 1)
+        cut.set_end(node, 3)
+        cut.delete_contents()
+        assert _data(node) == expected
+    assert (_data(text), _data(tail)) == ("ad", "gj")
+    Range(tail, 2).insert_node(Element("hr"))  # a split at the end leaves an empty tail
+    assert [_data(node) for node in paragraph.children if isinstance(node, Text)] == ["ad", "gj", ""]
+    tail.data = "rewritten"
+    assert (_data(text), _data(tail)) == ("ad", "rewritten")
+
+
+def test_edit_in_place_records_the_old_text() -> None:
+    text = Text("abcdef")
+    Element("p", children=[text])
+    observer = MutationObserver()
+    observer.observe(text, character_data=True, character_data_old_value=True)
+    for start in (2, 1):
+        cut = Range(text, start)
+        cut.set_end(text, start + 1)
+        cut.delete_contents()
+    assert [record.old_value for record in observer.take_records()] == ["abcdef", "abdef"]
+    assert text.data == "adef"
+
+
 def test_insert_node_at_stale_offset_past_children() -> None:
     div = _by_id(parse("<div id=a><p>a</p><i>b</i><u>c</u></div>"), "a")
     boundary = Range(div, 3)  # a valid end offset when the range is made
@@ -1012,3 +1123,94 @@ def test_range_partial_excludes_siblings(method: str) -> None:
     boundary.set_end(root.children[0].children[0], 3)
     result: Final = getattr(boundary, method)()
     assert result.html == '<section data-x="é水😀">abc</section>'
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(Range.clone_contents, id="clone"),
+        pytest.param(Range.extract_contents, id="extract"),
+        pytest.param(Range.delete_contents, id="delete"),
+    ],
+)
+def test_content_operation_over_siblings_is_linear(work_steps: WorkSteps, operation: Callable[[Range], object]) -> None:
+    work_steps.assert_linear(lambda depth: partial(operation, _sibling_range(depth)), (500, 2000))
+
+
+def _sibling_range(depth: int) -> Range:
+    doc = parse_xml(f"{'<w>' * depth}{'<s/>' * depth}<i>x</i><j>y</j>{'<s/>' * depth}{'</w>' * depth}")
+    boundary = Range(_found(doc, "i").children[0], 0)
+    boundary.set_end(_found(doc, "j").children[0], 1)
+    return boundary
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(Range.clone_contents, id="clone"),
+        pytest.param(Range.extract_contents, id="extract"),
+        pytest.param(Range.delete_contents, id="delete"),
+    ],
+)
+def test_content_operation_with_deep_paths_ignores_ancestors(
+    work_steps: WorkSteps, operation: Callable[[Range], object]
+) -> None:
+    work_steps.assert_within(
+        partial(operation, _deep_path_range(2000)), partial(operation, _deep_path_range(1)), factor=2
+    )
+
+
+def _deep_path_range(depth: int) -> Range:
+    path_down = f"{'<p>' * _PATH_LEVELS}<i>x</i>{'</p>' * _PATH_LEVELS}"
+    path_across = f"{'<q>' * _PATH_LEVELS}<j>y</j>{'</q>' * _PATH_LEVELS}"
+    doc = parse_xml(f"{'<w>' * depth}{'<s/>' * depth}{path_down}{path_across}{'</w>' * depth}")
+    boundary = Range(_found(doc, "i").children[0], 0)
+    boundary.set_end(_found(doc, "j").children[0], 1)
+    return boundary
+
+
+# Below the 400-level limit on boundary paths, so the content operations take their recursive path.
+_PATH_LEVELS: Final[int] = 380
+
+
+def test_surround_contents_over_siblings_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda depth: partial(_surround_range(depth).surround_contents, Element("w")), (500, 2000))
+
+
+def _surround_range(depth: int) -> Range:
+    inner = _found(parse_xml(f"{'<w>' * depth}<v>x{'<s/>' * depth}y</v>{'</w>' * depth}"), "v")
+    boundary = Range(inner.children[0], 0)
+    boundary.set_end(inner.children[-1], 1)
+    return boundary
+
+
+def test_common_ancestor_container_of_deep_boundaries_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_deep_boundaries, (500, 2000))
+
+
+def _deep_boundaries(depth: int) -> Callable[[], object]:
+    doc = parse_xml(f"<top>{'<k>' * depth}<lo>x</lo>{'</k>' * depth}{'<m>' * depth}<hi>y</hi>{'</m>' * depth}</top>")
+    boundary = Range(_found(doc, "lo").children[0], 0)
+    boundary.set_end(_found(doc, "hi").children[0], 1)
+    return partial(getattr, boundary, "common_ancestor_container")
+
+
+def test_clone_contents_over_siblings_keeps_boundary_text() -> None:
+    assert _sibling_range(3).clone_contents().text == "xy"
+
+
+def test_extract_contents_over_deep_paths_keeps_boundary_text() -> None:
+    assert _deep_path_range(3).extract_contents().text == "xy"
+
+
+def test_surround_contents_over_siblings_wraps_boundary_text() -> None:
+    wrapper = Element("w")
+    _surround_range(3).surround_contents(wrapper)
+    assert len(wrapper.children) == 5
+
+
+def test_common_ancestor_container_of_deep_boundaries_is_the_root() -> None:
+    doc = parse_xml(f"<top>{'<k>' * 3}<lo>x</lo>{'</k>' * 3}{'<m>' * 3}<hi>y</hi>{'</m>' * 3}</top>")
+    boundary = Range(_found(doc, "lo").children[0], 0)
+    boundary.set_end(_found(doc, "hi").children[0], 1)
+    assert boundary.common_ancestor_container == _found(doc, "top")
