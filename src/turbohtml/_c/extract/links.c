@@ -201,7 +201,11 @@ static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, l
             }
             Py_UCS4 decoded = 0;
             Py_ssize_t after = current == '\\' ? css_escape_end(value, len, pos, &decoded) : pos + 1;
-            /* a url token has no line continuation, so a backslash that escapes nothing is not an escape */
+            /* a url token has no line continuation, so a backslash that escapes nothing is not an escape, except the
+               one ending the input, which CSS Syntax 3 decodes to U+FFFD */
+            if (current == '\\' && pos + 1 == len) {
+                decoded = 0xFFFD;
+            }
             if (current == '"' || current == '\'' || current == '(' || current < 0x20 || current == 0x7F ||
                 decoded == CSS_NO_CODE_POINT) {
                 bad = 1;
@@ -249,6 +253,19 @@ static int css_import_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t afte
     return 0;
 }
 
+/* Whether the first `count` code points of an identifier, lowercased, spell the ASCII `word`. */
+static int decodes_to(const Py_UCS4 *spelled, Py_ssize_t count, const char *word) {
+    if (count != (Py_ssize_t)strlen(word)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (spelled[index] != (Py_UCS4)word[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* CSS text (a style attribute or <style> content): every url(...) target and every @import string. */
 static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
@@ -274,13 +291,14 @@ static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *
             continue;
         case '\\': {
             /* An escape is part of an identifier, which may have started before it. Spelled with escapes the name is
-               still the url function when it decodes to "url"; any other name that ends in url( is a function of its
-               own, whose argument is not a URL token. */
+               still the url function when it decodes to "url", and the at-keyword when an at-sign precedes it and it
+               decodes to "import"; any other name that ends in url( is a function of its own, whose argument is not a
+               URL token. */
             Py_ssize_t name = pos;
             while (name > 0 && is_ident(value[name - 1])) {
                 name--;
             }
-            Py_UCS4 spelled[3] = {0, 0, 0};
+            Py_UCS4 spelled[6] = {0, 0, 0, 0, 0, 0};
             Py_ssize_t count = 0;
             Py_ssize_t cursor = name;
             while (cursor < len) {
@@ -294,7 +312,7 @@ static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *
                 } else if (!is_ident(decoded)) {
                     break;
                 }
-                if (count < 3) {
+                if (count < 6) {
                     spelled[count] = lower_ascii(decoded);
                 }
                 count++;
@@ -306,9 +324,16 @@ static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *
                 continue;
             }
             pos = cursor;
+            if (name > 0 && value[name - 1] == '@' && decodes_to(spelled, count, "import")) {
+                Py_ssize_t resume = pos;
+                if (css_import_span(value, len, pos, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                                                  /* GCOVR_EXCL_LINE: alloc-failure */
+                }
+                pos = resume;
+                continue;
+            }
             int function = name == 0 || (value[name - 1] != '#' && value[name - 1] != '@');
-            if (function && count == 3 && spelled[0] == 'u' && spelled[1] == 'r' && spelled[2] == 'l' && pos < len &&
-                value[pos] == '(') {
+            if (function && decodes_to(spelled, count, "url") && pos < len && value[pos] == '(') {
                 Py_ssize_t resume = pos + 1;
                 if (css_url_span(value, len, pos + 1, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                     return -1;                                                   /* GCOVR_EXCL_LINE: alloc-failure */
@@ -493,6 +518,9 @@ static PyObject *span_url(const Py_UCS4 *value, const link_span *span) {
     for (Py_ssize_t pos = span->start; pos < span->end;) {
         Py_UCS4 decoded = value[pos];
         pos = decoded == '\\' ? css_escape_end(value, span->end, pos, &decoded) : pos + 1;
+        if (decoded == CSS_NO_CODE_POINT && span->css == CSS_BARE_URL) {
+            decoded = 0xFFFD;
+        }
         if (decoded != CSS_NO_CODE_POINT) {
             url[url_len++] = decoded;
         }

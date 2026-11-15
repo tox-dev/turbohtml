@@ -328,6 +328,7 @@ def test_style_element_css_parsing(css: str, expected: list[str]) -> None:
         pytest.param('url("a\\0 b\\d800 c\\110000 d")', ["a\ufffdb\ufffdc\ufffdd"], id="hex-outside-unicode"),
         pytest.param('url("a\\41")', ["aA"], id="hex-ends-the-string"),
         pytest.param("url(a\\41", ["aA"], id="hex-ends-the-input"),
+        pytest.param("url(a\\", ["a�"], id="bare-backslash-ends-the-input"),
         pytest.param("url(a  ", ["a"], id="bare-whitespace-ends-the-input"),
         pytest.param('url("a\\1f600 .png")', ["a\U0001f600.png"], id="hex-above-the-surrogates"),
         pytest.param('url("\\\\remote.test/x.png")', ["\\remote.test/x.png"], id="escaped-backslash"),
@@ -335,6 +336,9 @@ def test_style_element_css_parsing(css: str, expected: list[str]) -> None:
         pytest.param('url("\\\n")', [], id="only-a-line-continuation"),
         pytest.param('url("a.png\\', ["a.png"], id="backslash-ends-the-input"),
         pytest.param('@import "a\\2e css"', ["a.css"], id="import-string"),
+        pytest.param('@\\69mport "x.css"', ["x.css"], id="escaped-import-keyword"),
+        pytest.param('@\\49MPORT "x.css"', ["x.css"], id="escaped-import-keyword-upper-case"),
+        pytest.param("@\\69mport url(a.css)", ["a.css"], id="escaped-import-keyword-then-url"),
         pytest.param("url(a\\)b.png) url(real.png)", ["a)b.png", "real.png"], id="bare-escaped-parenthesis"),
         pytest.param("url(a\\ b.png)", ["a b.png"], id="bare-escaped-space"),
         pytest.param("url(a\\41 ) url(real.png)", ["aA", "real.png"], id="bare-hex-then-space"),
@@ -370,7 +374,6 @@ def test_css_bad_url_token_is_no_link_and_ends_at_its_parenthesis(css: str) -> N
 @pytest.mark.parametrize(
     "css",
     [
-        pytest.param("url(a\\", id="backslash-ends-the-input"),
         pytest.param("url(a b", id="whitespace-then-end-of-input"),
         pytest.param("#url(a.png)", id="hash-token"),
         pytest.param("@url(a.png)", id="at-keyword"),
@@ -387,6 +390,11 @@ def test_css_bad_url_token_is_no_link_and_ends_at_its_parenthesis(css: str) -> N
         pytest.param("@\\75rl(a.png)", id="escaped-name-after-at"),
         pytest.param("\\75rl;", id="escaped-name-before-another-token"),
         pytest.param("\\75rl\\78(a.png)", id="escaped-name-longer-than-url"),
+        pytest.param('\\69mport "a.css"', id="escaped-import-without-at-sign"),
+        pytest.param(' \\69mport "a.css"', id="escaped-import-after-space"),
+        pytest.param('@\\61mport "a.css"', id="escaped-import-with-other-first-letter"),
+        pytest.param('@\\69mpor "a.css"', id="escaped-import-shorter"),
+        pytest.param('\\40import "a.css"', id="escaped-at-sign-is-no-at-keyword"),
     ],
 )
 def test_css_text_that_is_no_url_token_holds_no_link(css: str) -> None:
@@ -737,6 +745,12 @@ def test_css_url_is_resolved_from_its_decoded_form(style: str, expected: str) ->
     root.resolve_links(_RESOLVE_BASE)
     # the text after the URL stays inside the string it was in: no escape is left to swallow the closing quote
     assert paragraph.attrs["style"] == f'cursor:{expected},auto;font-family:"),auto;visibility:hidden;y:"'
+
+
+def test_escaped_import_keyword_is_resolved() -> None:
+    assert (
+        _resolved('<style>@\\69mport "a.css";</style>') == '<style>@\\69mport "https://example.com/dir/a.css";</style>'
+    )
 
 
 def test_resolved_css_url_cannot_close_its_style_element() -> None:
