@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Final, assert_type, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Comment, Document, Element, parse, parse_fragment, parse_xml
+from turbohtml import Comment, Document, DocumentFragment, Element, parse, parse_fragment, parse_xml
 from turbohtml.build import E
 from turbohtml.clean import (
     DEFAULT_ATTRIBUTES,
@@ -744,6 +744,8 @@ def _style_policy(
         # declaration; the declarations a browser applies after it are scrubbed like any other
         pytest.param("color:red\\';position:fixed", 'style="color:red\\\'"', id="escaped-single-quote"),
         pytest.param("color:red\\;position:fixed", 'style="color:red\\;position:fixed"', id="escaped-semicolon"),
+        pytest.param("color:blue\\ ; width:1px", 'style="color:blue\\ ; width:1px"', id="escaped-trailing-space"),
+        pytest.param("color:blue\\\\ ; width:1px", 'style="color:blue\\\\; width:1px"', id="escaped-backslash-trimmed"),
         # a newline ends a string as a bad string, which invalidates its declaration and leaves the separators after it
         # live, so the declarations a browser applies there are scrubbed like any other
         pytest.param("color: red; font-family: 'x&#10;; position: fixed", 'style="color: red"', id="bad-string-lf"),
@@ -1290,6 +1292,27 @@ def test_style_element_unterminated_token_is_a_fixpoint(css: str, expected_body:
     policy = _style_element_policy(css_properties=frozenset({"color", "content"}))
     once = sanitize(f"<style>{css}</style>", policy)
     assert (once, sanitize(once, policy)) == (f"<style>{expected_body}</style>", once)
+
+
+@pytest.mark.parametrize(
+    ("css", "expected_body"),
+    [
+        pytest.param("h2{'\n{color:';width:1px;x:'}", "h2{'\n{color:';width:1px;x:';}}", id="bad-string-ends-prelude"),
+        pytest.param("p['x\n] \t{color:red}", "p['x\n] \t{color:red;}", id="bad-string-inside-prelude"),
+        pytest.param("p{div,\\ {}}", "p{div,\\ {}}", id="escaped-space-ends-prelude"),
+        pytest.param("p{a\\\n{color:red}}", "p{a\\\n{color:red;}}", id="lone-backslash-ends-prelude"),
+        pytest.param("\\ {color:red}", "\\ {color:red;}", id="escaped-space-is-prelude"),
+        pytest.param("h1{span\\\\ {color:red}}", "h1{span\\\\{color:red;}}", id="escaped-backslash-ends-prelude"),
+        pytest.param("p{color:blue\\ }", "p{color:blue\\ ;}", id="escaped-space-ends-declaration"),
+        pytest.param("p{color:green\\\\ }", "p{color:green\\\\;}", id="escaped-backslash-ends-declaration"),
+    ],
+)
+def test_style_element_trim_keeps_token_whitespace(css: str, expected_body: str) -> None:
+    # trimming a prelude or a declaration never removes a whitespace that is part of a token: the newline that ends a
+    # bad string keeps its quote from opening a string over the block, and a whitespace after a backslash keeps that
+    # backslash from escaping the `{` or `;` written next. Either would turn text judged inert into live declarations
+    once = sanitize(f"<style>{css}</style>", _style_element_policy())
+    assert (once, sanitize(once, _style_element_policy())) == (f"<style>{expected_body}</style>", once)
 
 
 def test_style_element_empty_property_set_drops_all_css() -> None:
@@ -3307,6 +3330,24 @@ def test_the_node_form_gets_a_fragment_context_the_markup_could_not_touch() -> N
     # not have put its attributes on the context element parse_fragment returns
     root = parse_fragment("<html hidden title=x>Nice <b>post</b>!")
     assert sanitize_node(root).html == "<div>Nice <b>post</b>!</div>"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(sanitize_node, id="sanitize_node"),
+        pytest.param(lambda node, policy: sanitize_report_node(node, policy)[0], id="sanitize_report_node"),
+    ],
+)
+def test_the_node_forms_return_a_shadow_root_as_a_plain_fragment(entry: Callable[[Node, Policy], Node]) -> None:
+    # the sanitized copy has no host in its own tree, so it comes back as the fragment a shadow root is without one
+    host = parse('<div><template shadowrootmode="open"><b onclick="x()">1</b><i>2</i></template></div>').find("div")
+    assert host is not None
+    assert host.shadow_root is not None
+    clean = entry(host.shadow_root, Policy.relaxed())
+    assert type(clean) is DocumentFragment
+    clean.append(clean.children[0])
+    assert clean.html == "<i>2</i><b>1</b>"
 
 
 @pytest.mark.parametrize(

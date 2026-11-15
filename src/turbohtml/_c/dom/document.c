@@ -1620,6 +1620,13 @@ PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObj
     self->bindings = self->inline_bindings;
     self->binding_capacity = sizeof(self->inline_bindings) / sizeof(*self->inline_bindings);
     self->binding_next = 1;
+    /* An odd multiplier maps distinct serials to distinct salts and spreads them into the low bits dict lookups use. */
+#ifdef Py_GIL_DISABLED
+    uint64_t serial = _Py_atomic_add_uint64(&state->handles_created, 1);
+#else
+    uint64_t serial = state->handles_created++;
+#endif
+    self->hash_salt = serial * UINT64_C(0x9E3779B97F4A7C15);
     self->source = Py_NewRef(source);
     self->encoding = Py_NewRef(encoding);
     self->encoding_certain = encoding_certain;
