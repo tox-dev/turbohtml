@@ -1448,7 +1448,16 @@ th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_nod
     if (dest->xml) {
         dest->has_xml_ns |= src->has_xml_ns;
     }
-    return copy_node_at(dest, src, src_node, 0, memo);
+    /* a shadow root is never a light child, so only the root of a copy can carry the flag without a table entry */
+    if (!th_node_is_shadow_root(src_node)) {
+        return copy_node_at(dest, src, src_node, 0, memo);
+    }
+    th_node *copy = copy_node_at(dest, src, src_node, 0, memo);
+    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    copy->tag_flags = 0;
+    return copy;
 }
 
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
