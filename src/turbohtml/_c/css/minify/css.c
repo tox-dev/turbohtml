@@ -63,12 +63,6 @@ static int css_spells_style_end(const css_char *text, Py_ssize_t len);
    harness and the CPython binding both call this; it touches no CPython runtime. */
 css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
                               Py_ssize_t *out_len) {
-    /* a decoder consumes a leading BOM as the encoding signature (Encoding Standard, decode), so it is no part of the
-       stylesheet; kept, it fuses with the first token and drops that rule */
-    if (length >= 3 && memcmp(view, "\xEF\xBB\xBF", 3) == 0) {
-        view += 3;
-        length -= 3;
-    }
     css_char *minified = css_minify_view(view, length, inline_mode, baseline, out_len);
     /* The HTML tokenizer reads the minified result, and a `</style` in it ends the element. The input is no
        substitute: it can spell the sequence where it closes no element, and minifying can join a sequence from
@@ -421,6 +415,12 @@ static PyObject *css_minify_entry(PyObject *args, int inline_mode) {
     const char *utf8 = PyUnicode_AsUTF8AndSize(source, &length);
     if (utf8 == NULL) {
         return NULL;
+    }
+    /* a standalone stylesheet's BOM is the encoding signature a decoder consumes; declaration lists and document text
+       were decoded already, so their U+FEFF is content */
+    if (!inline_mode && length >= 3 && memcmp(utf8, "\xEF\xBB\xBF", 3) == 0) {
+        utf8 += 3;
+        length -= 3;
     }
     Py_ssize_t out_len = 0;
     css_char *data = th_minify_css_bytes((const css_char *)utf8, length, inline_mode, baseline, &out_len);

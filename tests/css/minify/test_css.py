@@ -6111,10 +6111,29 @@ def test_minify_css_leading_bom_is_consumed(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 
-def test_minify_css_inline_leading_bom_is_consumed() -> None:
-    assert minify_css_inline("\ufeffcolor:red;width:1px") == "color:red;width:1px"
+_BOM_IN_DECODED_TEXT: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "<style>\ufeff@import url(x.css);a { color: red }</style><p>x</p>",
+        "<style></style><p>x",
+        id="style-at-rule-dropped",
+    ),
+    pytest.param(
+        "<style>\ufeffa { color: red }</style><p>x</p>",
+        "<style>\ufeffa{color:red}</style><p>x",
+        id="style-rule-keeps-bom",
+    ),
+    pytest.param(
+        '<p style="\ufeffcolor:red;width:1px">x</p>',
+        "<p style=\ufeffcolor:red;width:1px>x",
+        id="style-attribute",
+    ),
+]
 
 
-def test_minify_html_style_leading_bom_is_consumed() -> None:
-    source = "<style>\ufeff@import url(x.css);a { color: red }</style><p>x</p>"
-    assert minify(source, Minify(minify_css=CSSMinify())) == '<style>@import"x.css";a{color:red}</style><p>x'
+@pytest.mark.parametrize(("source", "expected"), _BOM_IN_DECODED_TEXT)
+def test_minify_html_leading_bom_in_decoded_text_is_content(source: str, expected: str) -> None:
+    assert minify(source, Minify(minify_css=CSSMinify())) == expected
+
+
+def test_minify_css_inline_leading_bom_is_content() -> None:
+    assert minify_css_inline("\ufeffcolor:red;width:1px") == "\ufeffcolor:red;width:1px"
