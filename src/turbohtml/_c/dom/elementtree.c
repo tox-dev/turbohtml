@@ -1659,20 +1659,11 @@ static PyObject *view_addnext(PyObject *self, PyObject *child) {
 }
 
 static PyObject *view_drop_tree(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    NodeObject *node = ((ElementView *)self)->node;
-    PyObject *tail = view_text(self, (void *)1);
-    if (tail == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    int status = view_detach(node, 0, 1);
-    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    if (status == 0) {
-        /* GCOVR_EXCL_BR_STOP */
-        status = view_set_text(self, tail, (void *)1);
-    }
-    Py_DECREF(tail);
-    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;  /* GCOVR_EXCL_LINE: allocation failure */
+    /* The tail stays in the parent: a copy on every drop would reread the text run after the element each time,
+       which costs quadratic time across repeated drops in one parent. */
+    TH_WORK_STEP();
+    if (view_detach(((ElementView *)self)->node, 0, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;                                          /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_RETURN_NONE;
 }

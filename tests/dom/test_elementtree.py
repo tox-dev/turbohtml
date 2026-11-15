@@ -67,7 +67,7 @@ def test_element_view_replace_keeps_both_tails(tree: ElementView) -> None:
 def test_element_view_drop_tree_keeps_tail_in_parent(tree: ElementView) -> None:
     child: Final = tree[0]
     child.drop_tree()
-    assert (child.tail, child.getparent(), tree.text_content()) == ("tail", None, "beforetaillastend")
+    assert (child.tail, child.getparent(), tree.text_content()) == (None, None, "beforetaillastend")
 
 
 def test_element_view_detached_tail_moves_with_element(tree: ElementView) -> None:
