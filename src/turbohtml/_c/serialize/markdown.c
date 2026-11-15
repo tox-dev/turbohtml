@@ -314,6 +314,7 @@ typedef struct {
     int pending_word;           /* code points in the word the owed space precedes, for greedy wrapping */
     int no_wrap;                /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
     int inline_only;            /* >0 inside link text: a block flattens to inline, never opens a line */
+    th_node *link;              /* the link whose text is being written, kept for a converter's content too */
     int in_cell;                /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
     int in_heading;             /* inside a heading: a <br> becomes a space, since a heading is one line of text */
     int drop_space;             /* swallow the next pending space (block/inline start) without emitting */
@@ -326,6 +327,7 @@ typedef struct {
     int list_depth;             /* nesting depth of the current list, for bullet cycling */
     int indent_levels;          /* list and quote nesting that indents the prefix, capped by TH_MAX_INDENT_LEVELS */
     Py_ssize_t clone_budget;    /* the attribute characters the parser's clones of an element may still write */
+    Py_ssize_t padding_left;    /* the spaces padded tables may still add */
     Py_ssize_t tags_left;       /* the tag characters runs reopened as raw HTML may still add */
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
@@ -1342,6 +1344,8 @@ static Py_UCS4 md_text_first(md_ctx *ctx, th_node *node, Py_UCS4 fallback) {
     return text == NULL ? fallback : text[0]; /* GCOVR_EXCL_BR_LINE: lazy text OOM */
 }
 
+static int md_is_link(md_ctx *ctx, th_node *node);
+
 /* How far md_char_after reads past a closing run, in nodes. The character that follows is
    nearly always in the next node or two: only elements that hold no text stretch the walk,
    and an inline SVG icon is the long case a real page has. */
@@ -1399,7 +1403,8 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
             if (md_is_emphasis(atom)) {
                 return '*';
             }
-            if (atom == TH_TAG_A && th_node_attr_find(ctx->tree, cursor, "href", 4) >= 0) {
+            /* inside link text only that link closes with a bracket: an `a` in it is a placeholder */
+            if (ctx->link != NULL ? cursor == ctx->link : md_is_link(ctx, cursor)) {
                 return ']';
             }
             if (atom == TH_TAG_Q && opt->quote_close[0] != '\0' && !md_tag_filtered(opt, atom)) {
@@ -1438,8 +1443,8 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
                 return md_quote_edge(opt->quote_open);
             }
         }
-        if (atom == TH_TAG_A && !opt->ignore_links && th_node_attr_find(ctx->tree, cursor, "href", 4) >= 0) {
-            return '['; /* link text opens with its bracket, empty or not */
+        if (ctx->link == NULL && md_is_link(ctx, cursor)) {
+            return '['; /* link text opens with its bracket, empty or not; inside link text an `a` is a placeholder */
         }
         if ((atom == TH_TAG_DEL || atom == TH_TAG_S || atom == TH_TAG_STRIKE) && !opt->keep_strikethrough) {
             continue; /* struck-through content is not written */
@@ -2180,7 +2185,9 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
     }
     Py_ssize_t title_len;
     const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
-    if (ignored || !md_clone_pays(ctx, node, href_len + title_len)) {
+    /* a link cannot hold a link (CommonMark 6.3): a reader takes the inner one alone and reads the outer
+       destination and title as text, where a `<` opens raw HTML, so inside link text an `a` is a placeholder too */
+    if (ignored || ctx->link != NULL || !md_clone_pays(ctx, node, href_len + title_len)) {
         md_push(ctx, node, MD_WALK_INLINE, opt->wrap_links ? MD_LEAVE_NONE : MD_LEAVE_NO_WRAP);
         return;
     }
@@ -2223,11 +2230,13 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
        `x [t](...)` */
     frame->marker = md_push_marker(ctx, "[");
     ctx->inline_only++;
+    ctx->link = node;
 }
 
 static void md_leave_link(md_ctx *ctx, md_frame *frame) {
     const md_opts *opt = ctx->opt;
     ctx->inline_only--;
+    ctx->link = NULL;
     if (frame->marker >= 0 && !ctx->markers[frame->marker].emitted) { /* GCOVR_EXCL_BR_LINE: -1 only on failure */
         md_before_visible(ctx); /* link text with nothing visible still gets its brackets */
     }
@@ -2657,8 +2666,8 @@ static int md_code_writes_text(md_ctx *ctx, th_node *node) {
 }
 
 /* Whether an element renders as a Markdown link, whose text cannot hold a block: the
-   cases md_enter_link leaves as a placeholder are not. Only elements reach here: the
-   link a break sits in, its element ancestors, and elements after the break. */
+   cases md_enter_link leaves as a placeholder are not. Inside link text every other
+   link is a placeholder too, which the callers decide from md_ctx.link. */
 static int md_is_link(md_ctx *ctx, th_node *node) {
     if (node->ns != TH_NS_HTML || node->atom != TH_TAG_A || ctx->opt->ignore_links ||
         th_node_attr_find(ctx->tree, node, "href", 4) < 0) {
@@ -2687,10 +2696,7 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
     }
     /* link text flattens its blocks onto its line (md_render_inline_tag), so inside a
        link a block ends nothing; link holds the link the scan is in */
-    th_node *link = NULL;
-    for (th_node *ancestor = node->parent; ctx->inline_only > 0 && link == NULL; ancestor = ancestor->parent) {
-        link = md_is_link(ctx, ancestor) ? ancestor : NULL;
-    }
+    th_node *link = ctx->inline_only > 0 ? ctx->link : NULL;
     th_node *cursor = node;
     th_node *next = node->next_sibling;
     for (;;) {
@@ -3105,6 +3111,9 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task, int for_l
 static int md_element_lead(md_ctx *ctx, th_node *node, uint16_t atom) {
     if (atom == TH_TAG_A && th_node_attr_find(ctx->tree, node, "href", 4) >= 0) {
         return MD_LEAD_INLINE; /* the brackets are written even around nothing */
+    }
+    if (atom == TH_TAG_Q && ctx->opt->quote_open[0] != '\0' && !md_tag_filtered(ctx->opt, atom)) {
+        return MD_LEAD_INLINE; /* the opening mark is written before whatever the quote holds, a block included */
     }
     if (md_is_code_span(atom)) {
         return md_code_writes_text(ctx, node) ? MD_LEAD_INLINE : MD_LEAD_NOTHING;
@@ -4182,7 +4191,8 @@ static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *co
 }
 
 /* Emit one padded grid row: each cell's text then spaces out to the column
-   width, wrapped in pipes. A NULL grid emits an all-spaces (empty header) row. */
+   width, wrapped in pipes. A NULL grid emits an all-spaces (empty header) row, and
+   NULL widths a row without padding. */
 static void md_emit_padded_row(md_ctx *ctx, sbuf *grid, Py_ssize_t row, Py_ssize_t columns, const Py_ssize_t *widths) {
     sbuf_putc(&ctx->out, '|');
     for (Py_ssize_t column = 0; column < columns; column++) {
@@ -4193,7 +4203,8 @@ static void md_emit_padded_row(md_ctx *ctx, sbuf *grid, Py_ssize_t row, Py_ssize
             sbuf_put_run(&ctx->out, cell->data, cell->len);
             len = cell->len;
         }
-        for (Py_ssize_t pad = len; pad < widths[column]; pad++) {
+        for (Py_ssize_t pad = len; widths != NULL && pad < widths[column]; pad++) {
+            TH_WORK_STEP();
             sbuf_putc(&ctx->out, ' ');
         }
         sbuf_puts(&ctx->out, " |");
@@ -4201,8 +4212,33 @@ static void md_emit_padded_row(md_ctx *ctx, sbuf *grid, Py_ssize_t row, Py_ssize
     ctx->line_has_content = 1;
 }
 
+/* Whether the cells fund aligning the table, spending the budget when they do. Every row is padded out to its
+   column's widest cell, so one wide cell over many short rows would multiply the output by the row count. Each
+   cell funds three spaces per character it holds and twelve for itself; the count stops once it passes the budget. */
+static int md_padding_funded(md_ctx *ctx, const md_table *table) {
+    Py_ssize_t columns = table->columns;
+    for (Py_ssize_t index = 0; index < table->count * columns; index++) {
+        TH_WORK_STEP();
+        ctx->padding_left += 3 * table->grid[index].len + 12;
+    }
+    Py_ssize_t padding = 0;
+    for (Py_ssize_t column = 0; !table->has_header && column < columns; column++) {
+        padding += table->widths[column]; /* the empty header row is all padding */
+    }
+    for (Py_ssize_t index = 0; index < table->count * columns && padding <= ctx->padding_left; index++) {
+        padding += table->widths[index % columns] - table->grid[index].len;
+    }
+    if (padding > ctx->padding_left) {
+        return 0;
+    }
+    ctx->padding_left -= padding;
+    return 1;
+}
+
 /* Lay out the rendered cells as an aligned pipe grid: each column as wide as its
-   widest cell (html2text's pad_tables). */
+   widest cell (html2text's pad_tables). A table the padding budget does not cover is
+   written whole as plain pipe rows, which GFM reads the same, so no table comes out
+   aligned in part. */
 static void md_emit_padded(md_ctx *ctx, md_table *table) {
     Py_ssize_t columns = table->columns;
     for (Py_ssize_t column = 0; column < columns; column++) {
@@ -4210,12 +4246,13 @@ static void md_emit_padded(md_ctx *ctx, md_table *table) {
             table->widths[column] = 3; /* the "---" separator needs at least three dashes */
         }
     }
-    md_emit_padded_row(ctx, table->has_header ? table->grid : NULL, 0, columns, table->widths);
+    const Py_ssize_t *widths = md_padding_funded(ctx, table) ? table->widths : NULL;
+    md_emit_padded_row(ctx, table->has_header ? table->grid : NULL, 0, columns, widths);
     md_newline(ctx);
     sbuf_putc(&ctx->out, '|');
     for (Py_ssize_t column = 0; column < columns; column++) {
         sbuf_putc(&ctx->out, ' ');
-        for (Py_ssize_t pad = 0; pad < table->widths[column]; pad++) {
+        for (Py_ssize_t pad = 0; pad < (widths != NULL ? widths[column] : 3); pad++) {
             sbuf_putc(&ctx->out, '-');
         }
         sbuf_puts(&ctx->out, " |");
@@ -4223,7 +4260,7 @@ static void md_emit_padded(md_ctx *ctx, md_table *table) {
     ctx->line_has_content = 1;
     for (Py_ssize_t row = table->has_header ? 1 : 0; row < table->count; row++) {
         md_newline(ctx);
-        md_emit_padded_row(ctx, table->grid, row, columns, table->widths);
+        md_emit_padded_row(ctx, table->grid, row, columns, widths);
     }
 }
 
@@ -4934,6 +4971,11 @@ static void md_leave(md_ctx *ctx) {
         break;
     }
     case MD_LEAVE_QUOTE:
+        if (ctx->block_ended && ctx->opt->quote_close[0] != '\0') {
+            /* after an inner block the mark opens the next one, since on that block's last line it would spoil
+               a closing fence; only then, because a space owed after inline content belongs outside the mark */
+            md_before_visible(ctx);
+        }
         md_puts8(&ctx->out, ctx->opt->quote_close);
         break;
     case MD_LEAVE_LINK:
@@ -5109,6 +5151,8 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.clone_budget = TH_CLONE_ALLOWANCE;
     /* Let a few deep runs reopen in full before source text has to fund them. */
     ctx.tags_left = 256;
+    /* The first tables may align on this allowance before any cells have funded padding. */
+    ctx.padding_left = 256;
     ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);
     /* mode="none" leaves prose as written apart from the asterisk and underscore
        choices, keeping only the cell pipe escape a pipe table cannot do without */
