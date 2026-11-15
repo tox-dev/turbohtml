@@ -158,7 +158,10 @@ typedef struct {
 
 /* Single-element matching has no query walk to reuse, so memo pointers can be NULL. The
    sibling memo assumes one scope element for its whole life: a driver that rebinds scope
-   per candidate passes it only for a selector without :scope. */
+   per candidate passes it only for a selector without :scope. The legend memo holds which
+   legends are their fieldset's first, the :disabled exemption every control below one asks
+   about; that is a fact of the tree alone, so it can share a table with the other two and
+   outlive a scope, for as long as the tree is not mutated. */
 typedef struct {
     th_tree *tree;
     th_node *scope;
@@ -167,6 +170,7 @@ typedef struct {
     sel_nth_memo *nth_memo;
     sel_default_memo *default_memo;
     sel_sibling_memo *sibling_memo;
+    sel_memo *legend_memo;
 } sel_ctx;
 
 typedef struct {

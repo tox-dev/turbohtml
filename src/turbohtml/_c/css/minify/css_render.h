@@ -617,6 +617,7 @@ CSS_NOINLINE static int css_border_has_other_style(const css_buf *pool, const co
                                          "double", "groove", "ridge",  "inset",  "outset"};
     static const char *const dynamic_funcs[] = {"var", "env", "attr"};
     for (Py_ssize_t index = 0; index < comps->len; index++) {
+        TH_WORK_STEP();
         if (index == dropped) {
             continue;
         }
@@ -638,6 +639,7 @@ static CSS_FORCEINLINE int css_border_has_other_width(const css_buf *pool, const
     static const char *const widths[] = {"thin", "medium", "thick"};
     static const char *const width_funcs[] = {"calc", "min", "max", "clamp", "var", "env", "attr"};
     for (Py_ssize_t index = 0; index < comps->len; index++) {
+        TH_WORK_STEP();
         if (index == dropped) {
             continue;
         }
@@ -681,6 +683,7 @@ static CSS_FORCEINLINE int css_border_has_other_color(const css_buf *pool, const
         return css_border_maybe_color(pool, &comps->items[1 - dropped]);
     }
     for (Py_ssize_t index = 0; index < comps->len; index++) {
+        TH_WORK_STEP();
         if (index != dropped && css_border_maybe_color(pool, &comps->items[index])) {
             return 1;
         }
@@ -762,6 +765,12 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
     }
     Py_ssize_t write = 0;
     int any_value = 0;
+    /* A rival scan walks the value, so each answer is computed once per value (-1 is not yet scanned) instead of once
+       per keyword. It holds for later keywords of the same kind: a kept keyword is the rival a later one finds, and a
+       keyword that finds no rival means no later keyword of its kind exists. */
+    int other_style = -1;
+    int other_width = -1;
+    int other_color = -1;
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         css_comp comp = comps->items[index];
         if (comp.kind == CK_SEP) {
@@ -772,11 +781,15 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
             if (comp.len == 4 && comps->len > 1 && drop != decoration_drop && drop != emphasis_drop &&
                 comp_ieq(pool, &comp, "none")) {
                 const css_comp *other = comps->len == 2 ? &comps->items[1 - index] : NULL;
-                if ((!other || other->kind == CK_FUNC ||
-                     (other->kind == CK_IDENT && other->len >= 4 && other->len <= 6)) &&
-                    css_border_has_other_style(pool, comps, index, drop == outline_drop)) {
-                    comps->items[write++] = comp;
-                    any_value = 1;
+                if (!other || other->kind == CK_FUNC ||
+                    (other->kind == CK_IDENT && other->len >= 4 && other->len <= 6)) {
+                    if (other_style < 0) {
+                        other_style = css_border_has_other_style(pool, comps, index, drop == outline_drop);
+                    }
+                    if (other_style) {
+                        comps->items[write++] = comp;
+                        any_value = 1;
+                    }
                 }
                 continue;
             }
@@ -785,17 +798,24 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
                 if (comp_ieq(pool, &comp, drop[which])) {
                     if (comp.len == 6 && comps->len > 1) {
                         const css_comp *other = comps->len == 2 ? &comps->items[1 - index] : NULL;
-                        if ((!other || other->kind == CK_NUM || other->kind == CK_DIM || other->kind == CK_FUNC ||
-                             (other->kind == CK_IDENT && other->len >= 4 && other->len <= 6 &&
-                              (css_lower(pool->data[other->off]) == 't' ||
-                               css_lower(pool->data[other->off]) == 'm'))) &&
-                            css_border_has_other_width(pool, comps, index)) {
-                            break;
+                        if (!other || other->kind == CK_NUM || other->kind == CK_DIM || other->kind == CK_FUNC ||
+                            (other->kind == CK_IDENT && other->len >= 4 && other->len <= 6 &&
+                             (css_lower(pool->data[other->off]) == 't' || css_lower(pool->data[other->off]) == 'm'))) {
+                            if (other_width < 0) {
+                                other_width = css_border_has_other_width(pool, comps, index);
+                            }
+                            if (other_width) {
+                                break;
+                            }
                         }
                     }
-                    if (comp.len == 12 && comps->len > 1 && drop != decoration_drop && drop != emphasis_drop &&
-                        css_border_has_other_color(pool, comps, index)) {
-                        break;
+                    if (comp.len == 12 && comps->len > 1 && drop != decoration_drop && drop != emphasis_drop) {
+                        if (other_color < 0) {
+                            other_color = css_border_has_other_color(pool, comps, index);
+                        }
+                        if (other_color) {
+                            break;
+                        }
                     }
                     dropped = 1;
                     break;

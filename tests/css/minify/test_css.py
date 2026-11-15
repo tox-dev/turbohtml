@@ -3390,6 +3390,37 @@ def test_minify_css_preserves_duplicate_border_colors(property_name: str, value:
 
 
 @pytest.mark.parametrize(
+    ("property_name", "value", "expected"),
+    [
+        pytest.param("border", "none blurb none none", "none blurb none none", id="style"),
+        pytest.param("outline", "none auto none", "none auto none", id="outline-style"),
+        pytest.param("border", "medium blurb medium medium", "medium blurb medium medium", id="width"),
+        pytest.param("column-rule", "currentcolor solid currentcolor", "currentcolor solid currentcolor", id="color"),
+        pytest.param("border", "none medium blurb medium none", "none medium blurb medium none", id="style-and-width"),
+        pytest.param("border", "none solid medium red", "none solid red", id="lone-width-after-kept-style"),
+    ],
+)
+def test_minify_css_weighs_repeated_border_defaults_alike(property_name: str, value: str, expected: str) -> None:
+    assert minify_css(f"a{{{property_name}:{value}}}") == f"a{{{property_name}:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("property_name", "filler", "default"),
+    [
+        pytest.param("border", "blurb", "none", id="style"),
+        pytest.param("outline", "tiny", "medium", id="width"),
+        pytest.param("column-rule", "dotted", "currentcolor", id="color"),
+    ],
+)
+def test_minify_css_repeated_border_defaults_scan_in_linear_time(
+    property_name: str, filler: str, default: str, work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(minify_css, f"a{{{property_name}:{' '.join([filler] * n + [default] * n)}}}"), (1000, 4000)
+    )
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         pytest.param("currentcolor", "none", id="color-only"),
