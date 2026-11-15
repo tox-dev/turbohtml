@@ -1339,6 +1339,18 @@ def test_loose_list_nested_heading_and_link_stay_structural() -> None:
             "4. b",
             id="selected-wrapper-item",
         ),
+        pytest.param(
+            "<ol><li><table><li>nested</table></ol>",
+            "li > li",
+            "- nested",
+            id="item-foster-parented-into-an-item",
+        ),
+        pytest.param(
+            "<ol><li><table><li>other</table><div><table><li>nested</table></div></ol>",
+            "div > li",
+            "- nested",
+            id="wrapped-item-below-an-item-holding-an-item",
+        ),
         pytest.param('<ol><li value="x">a</li></ol>', "li", "1. a", id="invalid-value"),
         pytest.param('<ol><li value="999999999999999999999999999999">a</li></ol>', "li", "1. a", id="overflow-value"),
         pytest.param(
@@ -2432,6 +2444,15 @@ def test_refused_link_leaves_no_raw_html(html: str, config: Markdown) -> None:
     assert rendered.select("script") == []
 
 
+def test_link_in_link_keeps_outer_destination_and_title() -> None:
+    html: Final = f'<a href="/a" title="{_SCRIPT}">x<table><tr><td><a href="/b">y</a></table></a>'
+    rendered: Final = parse(_render(md(html)))
+    assert [(link.attr("href"), link.attr("title")) for link in rendered.select("a")] == [
+        ("/a", "<script>x</script>"),
+    ]
+    assert rendered.select("script") == []
+
+
 def test_atx_closed_heading_keeps_trailing_hash() -> None:
     config: Final = Markdown(headings=Markdown.Headings(style="atx_closed"))
     assert parse("<h1>a #</h1>").to_markdown(config) == "# a # #"
@@ -2618,6 +2639,14 @@ def test_to_markdown_on_text_node() -> None:
     paragraph = parse("<p>just text</p>").find("p")
     assert paragraph is not None
     assert paragraph.children[0].to_markdown() == "just text"
+
+
+def test_main_content_item_nested_in_an_item() -> None:
+    # the extractor picks the <li> the parser foster-parented into the outer item, which no list numbers
+    page: Final = "<ol><li><table><li><p>Another sentence, with a comma, that scores well. "
+    content: Final = parse(page).main_content()
+    assert content is not None
+    assert content.to_markdown() == "- Another sentence, with a comma, that scores well."
 
 
 def test_to_markdown_on_xml_document() -> None:

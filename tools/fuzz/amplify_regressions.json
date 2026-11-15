@@ -1107,6 +1107,40 @@
     }
   },
   {
+    "name": "js-catch-var-redeclaration",
+    "source": "https://github.com/tox-dev/turbohtml/blob/8592a664a6a4efe3518ab0331a1a92c66a48379d/src/turbohtml/_c/js/mangle.c#L522-L534",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 16384,
+    "shape": {
+      "kind": "sandwich",
+      "head": "function f(){var z",
+      "left": ",v{n}=g()",
+      "middle": ";try{h()}catch(c){var c=1",
+      "right": ",c=2",
+      "tail": "}}",
+      "counter": true
+    }
+  },
+  {
+    "name": "js-arguments-reads",
+    "source": "https://github.com/tox-dev/turbohtml/blob/8592a664a6a4efe3518ab0331a1a92c66a48379d/src/turbohtml/_c/js/mangle.c#L570-L579",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 16384,
+    "shape": {
+      "kind": "sandwich",
+      "head": "function f(){var z",
+      "left": ",v{n}=g()",
+      "middle": ";return[",
+      "right": "arguments,",
+      "tail": "arguments]}",
+      "counter": true
+    }
+  },
+  {
     "name": "node-paths-only-of-type",
     "source": "https://github.com/tox-dev/turbohtml/issues/1722",
     "targets": [
