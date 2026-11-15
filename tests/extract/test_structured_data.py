@@ -770,6 +770,11 @@ def test_opengraph_malformed_base_href_falls_back_to_base_url() -> None:
     assert parse(html).opengraph(base_url="http://ex.com/d/") == {"image": "http://ex.com/d/a.png"}
 
 
+def test_opengraph_overlong_base_href_falls_back_to_base_url() -> None:
+    html = f'<base href="http://b.com/{"c" * (2048 + 1)}/"><meta property="og:image" content="a.png">'
+    assert parse(html).opengraph(base_url="http://ex.com/d/") == {"image": "http://ex.com/d/a.png"}
+
+
 def test_opengraph_base_url_none_is_verbatim() -> None:
     html = '<meta property="og:image" content="/a.png">'
     assert parse(html).opengraph(base_url=None) == {"image": "/a.png"}

@@ -1160,7 +1160,8 @@ static PyObject *refresh_fallback(PyObject *fallback) {
 }
 
 PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
-                           "Resolve this document's base URL from its first <base href>.\n\n"
+                           "Resolve this document's base URL from its first <base href>. A base that resolves to\n"
+                           "more than 2,048 characters is ignored.\n\n"
                            ":param fallback: the URL the <base href> is resolved against, and the result\n"
                            "    itself when the document has no <base href>.\n"
                            ":returns: the document's base URL.");
@@ -1277,7 +1278,8 @@ static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
 }
 
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none or the href fails URL parsing (HTML spec 2.4.3). The extraction methods share it. */
+   when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
+   TH_BASE_URL_MAX. The extraction methods share it. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
@@ -1312,7 +1314,7 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         PyErr_Clear();
         result = Py_NewRef(fallback);
     }
-    if (base_has_forbidden_scheme(result)) {
+    if (base_has_forbidden_scheme(result) || PyUnicode_GET_LENGTH(result) > TH_BASE_URL_MAX) {
         Py_SETREF(result, Py_NewRef(fallback));
     }
     Py_DECREF(input);
