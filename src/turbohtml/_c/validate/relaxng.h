@@ -1663,10 +1663,11 @@ static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets,
     if (!dt_check_lexical(datatype_id, norm, norm_len)) {
         return 0;
     }
-    if (facets->has_min_length && norm_len < facets->min_length) {
+    const Py_ssize_t units = dt_is_list(datatype_id) ? dt_list_count(norm, norm_len) : norm_len;
+    if (facets->has_min_length && units < facets->min_length) {
         return 0;
     }
-    if (facets->has_max_length && norm_len > facets->max_length) {
+    if (facets->has_max_length && units > facets->max_length) {
         return 0;
     }
     if ((facets->has_min_inclusive || facets->has_max_inclusive || facets->has_min_exclusive ||

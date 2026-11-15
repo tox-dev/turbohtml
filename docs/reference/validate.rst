@@ -66,15 +66,20 @@ form a loop, when one schema follows more than 1,024 references or reads more th
 :class:`OSError`.
 
 Compiling an XSD schema raises :class:`ValueError` for a reference that does not resolve -- an ``xs:element``,
-``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, or an extension or
-restriction ``base`` whose QName names no built-in or declared component -- and the message names the unresolved QName.
-The same error covers a reference cycle among ``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type
-derivations, and any such chain longer than 100 hops. It also covers ``xs:group`` refs that, with each referenced group
-put in place of its ref, nest the schema 400 levels or deeper, and a complex type whose ``xs:group``,
-``xs:attributeGroup``, and base-type references expand to more than 20,000 particles and attribute declarations. A
-schema that declares an ``xs:unique``, ``xs:key``, or ``xs:keyref`` identity constraint raises it too, because the
-validator does not enforce the constraint and would accept documents that break it. An ``xs:group`` particle without a
-``ref`` compiles and matches no content.
+``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, an extension or
+restriction ``base``, or an ``xs:list`` ``itemType`` or ``xs:union`` ``memberTypes`` name whose QName names no built-in
+or declared component -- and the message names the unresolved QName. The same error covers a reference cycle among
+``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type derivations, and any such chain longer than 100 hops. It
+also covers ``xs:group`` refs that, with each referenced group put in place of its ref, nest the schema 400 levels or
+deeper, and a complex type whose ``xs:group``, ``xs:attributeGroup``, and base-type references expand to more than
+20,000 particles and attribute declarations. A schema that declares an ``xs:unique``, ``xs:key``, or ``xs:keyref``
+identity constraint raises it too, because the validator does not enforce the constraint and would accept documents that
+break it. An ``xs:group`` particle without a ``ref`` compiles and matches no content. A value of an ``xs:list`` type is
+checked item by item against the item type, and the length facets of a restricted list count its items. A value of an
+``xs:union`` type is checked against each member type until one accepts it. The compiler also raises :class:`ValueError`
+for an ``xs:list`` without exactly one item type, an ``xs:union`` without a member type, a list or union that leads back
+to itself through its item or member types, one that nests such types more than 100 deep, and one that lets a value try
+more than 1,000 member types.
 
 .. autoclass:: XMLSchema
     :members:
