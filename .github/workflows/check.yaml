@@ -23,13 +23,14 @@ jobs:
       matrix:
         # The C-coverage gate runs where gcov/llvm-cov exist; on Windows the same
         # suite runs without it (MSVC has no gcov), gated natively in tox.toml.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04", "windows-2025"]' || '["ubuntu-24.04", "macos-15", "windows-2025"]') }}
+        os: ["ubuntu-24.04", "macos-15", "windows-2025"]
         py: ["3.15", "3.14", "3.13", "3.12", "3.11", "3.15t", "3.14t"]
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","label":"Linux","cov":"gcov"},{"os":"windows-2025","label":"Windows","cov":""}]' || '[{"os":"ubuntu-24.04","label":"Linux","cov":"gcov"},{"os":"macos-15","label":"macOS","cov":"xcrun llvm-cov gcov"},{"os":"windows-2025","label":"Windows","cov":""}]') }}
+        include:
+          - {os: "ubuntu-24.04", label: Linux, cov: "gcov"}
+          - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
+          - {os: "windows-2025", label: Windows, cov: ""}
         # macOS keeps 3.15, 3.15t and 3.11 on every event; the other interpreters run in the weekly full matrix.
-        # Temporarily, pull requests run only 3.14 Linux and 3.15t Windows; main still runs the full matrix after
-        # every merge.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","py":"3.15"},{"os":"ubuntu-24.04","py":"3.13"},{"os":"ubuntu-24.04","py":"3.12"},{"os":"ubuntu-24.04","py":"3.11"},{"os":"ubuntu-24.04","py":"3.15t"},{"os":"ubuntu-24.04","py":"3.14t"},{"os":"windows-2025","py":"3.15"},{"os":"windows-2025","py":"3.14"},{"os":"windows-2025","py":"3.13"},{"os":"windows-2025","py":"3.12"},{"os":"windows-2025","py":"3.11"},{"os":"windows-2025","py":"3.14t"}]' || github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
+        exclude: ${{ fromJSON(github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -59,6 +60,13 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           COV_GCOV: ${{ matrix.cov }}
+      - name: 🧾 Upload C coverage for oracle
+        if: ${{ always() && runner.os == 'macOS' && matrix.py == '3.11' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: c-coverage-macos
+          path: .tox/3.11/tmp/c_coverage.json
+          if-no-files-found: warn
       - name: 📊 Report failed selector branches
         if: ${{ failure() && runner.os == 'macOS' && contains(fromJSON('["3.11","3.12","3.13","3.14"]'), matrix.py) }}
         run: |
@@ -118,7 +126,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","arch":"x64"}]' || '[{"os":"ubuntu-24.04","arch":"x64"},{"os":"ubuntu-24.04-arm","arch":"arm64"}]') }}
+        include:
+          - {os: "ubuntu-24.04", arch: "x64"}
+          - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -177,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tox_env: ${{ fromJSON(github.event_name == 'pull_request' && '["type", "docs"]' || '["type", "docs", "pkg_meta", "atheris"]') }}
+        tox_env: ["type", "docs", "pkg_meta", "atheris"]
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -191,9 +201,8 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: 🧪 Run ${{ matrix.tox_env }}
-        run: uvx --with tox-uv tox run -e "$TOX_ENV"
+        run: uvx --with tox-uv tox run -e ${{ matrix.tox_env }}
         env:
-          TOX_ENV: ${{ matrix.tox_env }}
           UV_PYTHON_PREFERENCE: only-managed
   conformance:
     name: 🧪 conformance
@@ -243,7 +252,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","cc":"gcc","label":"gcc · Linux x64"}]' || '[{"os":"ubuntu-24.04","cc":"gcc","label":"gcc · Linux x64"},{"os":"ubuntu-24.04","cc":"clang","label":"clang · Linux x64"},{"os":"ubuntu-24.04-arm","cc":"gcc","label":"gcc · Linux arm64"},{"os":"macos-15","cc":"clang","label":"clang · macOS arm64"}]') }}
+        include:
+          - {os: "ubuntu-24.04", cc: "gcc", label: "gcc · Linux x64"}
+          - {os: "ubuntu-24.04", cc: "clang", label: "clang · Linux x64"}
+          - {os: "ubuntu-24.04-arm", cc: "gcc", label: "gcc · Linux arm64"}
+          - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -317,7 +330,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","arch":"x64"}]' || '[{"os":"ubuntu-24.04","arch":"x64"},{"os":"ubuntu-24.04-arm","arch":"arm64"}]') }}
+        include:
+          - {os: "ubuntu-24.04", arch: "x64"}
+          - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -415,11 +430,3 @@ jobs:
         uses: tox-dev/github-workflows/required-checks@6.8.0
         with:
           needs: ${{ toJSON(needs) }}
-          allow-skipped: |
-            ${{ github.event_name == 'pull_request' && 'hooks' || '' }}
-            ${{ github.event_name == 'pull_request' && 'release' || '' }}
-            ${{ github.event_name == 'pull_request' && 'pypy' || '' }}
-            ${{ github.event_name == 'pull_request' && 'scalar' || '' }}
-            ${{ github.event_name == 'pull_request' && 'preprocess-identity' || '' }}
-            ${{ github.event_name == 'pull_request' && 'warnings-msvc' || '' }}
-            ${{ github.event_name == 'pull_request' && 'tsan' || '' }}
