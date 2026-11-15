@@ -2401,6 +2401,7 @@ def test_minify_css_inline_string_cut_by_newline() -> None:
 # newline after any other escape, or after the whitespace that closed a hex escape, still does.
 _STRING_NEWLINE_IN_ESCAPE: Final[list[pytest.ParameterSet]] = [
     pytest.param('a{x:"\\a\n;color:red;y:"}', 'a{x:"\\a\n;color:red;y:"}', id="hex-escape"),
+    pytest.param("a{x:\"it's\\a\n;b\"}", "a{x:\"it's\\a\n;b\"}", id="hex-escape-other-quote-inside"),
     pytest.param("a{x:'\\a\n;color:red;y:'}", "a{x:'\\a\n;color:red;y:'}", id="hex-escape-single-quote"),
     pytest.param('a{x:"\\a\r\n;color:red;y:"}', 'a{x:"\\a\r\n;color:red;y:"}', id="hex-escape-crlf"),
     pytest.param('a{x:"\\a\r;color:red;y:"}', 'a{x:"\\a\r;color:red;y:"}', id="hex-escape-carriage-return"),
