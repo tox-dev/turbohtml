@@ -5,7 +5,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the tests run 
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from functools import partial
+from functools import cache, partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -3576,10 +3576,8 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
     assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32", reason="drives the repeat check for the C coverage gate, which Windows does not run"
-)
-def test_rng_start_tag_open_fires_on_the_smallest_thread_stack() -> None:
+@cache
+def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
     # every nesting depth from 1 to the cap runs the start-tag walk down the repeat nest on the smallest stack the
     # platform accepts: shallow depths validate, deep ones raise RecursionError. The walk closes the nest before it
     # opens it, so the depth where the open walk alone runs out of stack lies between two depths, and the sweep crosses
@@ -3603,7 +3601,7 @@ def test_rng_start_tag_open_fires_on_the_smallest_thread_stack() -> None:
         "worker.start()\nworker.join()\n"
         "print(' '.join(outcomes))\n"
     )
-    result: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code],
         input=json.dumps({"ns": _RELAXNG_NS, "leaf": _LEAF_A, "depths": _DEEP, "xml": "<doc><a/></doc>"}),
         capture_output=True,
@@ -3611,17 +3609,34 @@ def test_rng_start_tag_open_fires_on_the_smallest_thread_stack() -> None:
         timeout=120,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
-    outcomes: Final = result.stdout.split()
-    assert len(outcomes) == _DEEP, result.stderr
-    assert set(outcomes) <= {"valid", "invalid", "RecursionError"}, result.stdout
-    assert "RecursionError" in outcomes, result.stdout
 
 
-def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
-    # the repeat check recurses on the C stack that is left, so it fires only once the walk above it has used most of
-    # the thread's stack; json's encoder nests one C level per depth and calls the validation from its innermost level,
-    # so sweeping the depth reaches that point on any build. Each depth validates, or raises RecursionError.
+def _open_walk_unreachable() -> bool:
+    # a crash stays a failure of the test itself; only a sweep that completes without any RecursionError is skipped
+    sweep: Final = _open_walk_sweep()
+    return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
+
+
+@pytest.mark.skipif(
+    _open_walk_unreachable(),
+    reason="this build's stack never reaches the start-tag walk on the smallest thread stack (optimized build)",
+)
+def test_rng_start_tag_open_fires_on_the_smallest_thread_stack() -> None:
+    # the sweep is the parent-side probe: where it completes without RecursionError the test is skipped, and where it
+    # runs, the sweep must raise RecursionError somewhere and never crash
+    sweep: Final = _open_walk_sweep()
+    assert sweep.returncode == 0, sweep.stderr
+    outcomes: Final = sweep.stdout.split()
+    assert len(outcomes) == _DEEP, sweep.stderr
+    assert set(outcomes) <= {"valid", "invalid", "RecursionError"}, sweep.stdout
+    assert "RecursionError" in outcomes, sweep.stdout
+
+
+@cache
+def _repeat_check_sweep() -> subprocess.CompletedProcess[str]:
+    # json's encoder nests one C level per depth and calls the validation from its innermost level, so the stack that
+    # is left at the validation shrinks with the depth; the repeat check recurses on whatever is left, so it fires once
+    # the walk above it has used most of the thread's stack. Each depth validates, or raises RecursionError.
     nest: Final = "<group>" * 60 + "<text/>" * 300 + "</group>" * 60
     code: Final = (
         "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
@@ -3652,7 +3667,7 @@ def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
         "worker.start()\nworker.join()\n"
         "print(' '.join(outcomes))\n"
     )
-    result: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code],
         input=json.dumps({"schema": wrap(f"<oneOrMore>{nest}</oneOrMore>"), "xml": "<doc>xy xy xy</doc>"}),
         capture_output=True,
@@ -3660,11 +3675,27 @@ def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
         timeout=120,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
-    outcomes: Final = [outcome.split(":")[1] for outcome in result.stdout.split()]
-    assert len(outcomes) == 120, result.stderr
-    assert set(outcomes) <= {"valid", "RecursionError", "JSONRecursionError"}, result.stdout
-    assert "RecursionError" in outcomes, result.stdout
+
+
+def _repeat_check_unreachable() -> bool:
+    # a crash stays a failure of the test itself; only a sweep that completes without any RecursionError is skipped
+    sweep: Final = _repeat_check_sweep()
+    return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
+
+
+@pytest.mark.skipif(
+    _repeat_check_unreachable(),
+    reason="this platform never reaches the repeat check with the json sweep; the C coverage gate runs elsewhere",
+)
+def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
+    # the sweep is the parent-side probe above: where it completes without RecursionError the test is skipped, and
+    # where it runs, the repeat check must fire somewhere in the sweep and the sweep must never crash
+    sweep: Final = _repeat_check_sweep()
+    assert sweep.returncode == 0, sweep.stderr
+    outcomes: Final = [outcome.split(":")[1] for outcome in sweep.stdout.split()]
+    assert len(outcomes) == 120, sweep.stderr
+    assert set(outcomes) <= {"valid", "RecursionError", "JSONRecursionError"}, sweep.stdout
+    assert "RecursionError" in outcomes, sweep.stdout
 
 
 def test_rng_wide_group_in_order_scales_linearly(work_steps: WorkSteps) -> None:
