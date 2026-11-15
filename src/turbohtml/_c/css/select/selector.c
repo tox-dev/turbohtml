@@ -1946,8 +1946,8 @@ static int sel_strong_dir(Py_UCS4 ch) {
     return 0;
 }
 
-/* The direction of the first strong-directional character in a span: 2 rtl, else the
-   1 ltr default when none is strong. */
+/* The direction of the first strong-directional character in a span: 1 ltr, 2 rtl, 0
+   when none is strong. */
 static int sel_first_strong_dir(const Py_UCS4 *text, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         TH_WORK_STEP();
@@ -1956,11 +1956,84 @@ static int sel_first_strong_dir(const Py_UCS4 *text, Py_ssize_t len) {
             return strong;
         }
     }
-    return 1;
+    return 0;
 }
 
-/* Keys the dir=auto answers in a sel_memo; no selector object shares its address. */
-static const char sel_dir_memo_key = 0;
+/* Key a node's first strong direction in a sel_memo; no selector object shares either
+   address. A memo bit holds two answers, so ltr and "none strong" add the none key, and
+   write it before the rtl key every read starts from: a table that stops growing
+   between the two writes then reads as unknown, never as ltr. */
+static const char sel_dir_rtl_key = 0;
+static const char sel_dir_none_key = 0;
+
+/* The first strong direction remembered for node: 1 ltr, 2 rtl, 0 none, -1 unknown. */
+static int sel_dir_memo_get(const sel_memo *memo, const th_node *node) {
+    int rtl = 0;
+    if (!sel_memo_get(memo, &sel_dir_rtl_key, node, &rtl)) {
+        return -1;
+    }
+    if (rtl) {
+        return 2;
+    }
+    int none = 0;
+    sel_memo_get(memo, &sel_dir_none_key, node, &none);
+    return none ? 0 : 1;
+}
+
+static void sel_dir_memo_put(sel_memo *memo, const th_node *node, int dir) {
+    if (dir != 2) {
+        sel_memo_put(memo, &sel_dir_none_key, node, dir == 0);
+    }
+    sel_memo_put(memo, &sel_dir_rtl_key, node, dir == 2);
+}
+
+/* The first strong direction of root's descendant text in document order (the text
+   th_node_text collects): 1 ltr, 2 rtl, 0 none. The walk records the answer of every
+   node with children it enters: the strong character answers for each open ancestor up
+   to root, and a node left without one holds none. A later walk from an ancestor skips
+   a subtree known to hold none and stops at one known to hold a strong character, so no
+   node is entered twice and the walks of one table stay linear in the tree, nested
+   dir=auto elements included. */
+static int sel_subtree_dir(th_tree *tree, th_node *root, sel_memo *memo) {
+    th_node *node = root->first_child;
+    if (node == NULL) {
+        return 0;
+    }
+    for (;;) {
+        TH_WORK_STEP();
+        int dir = 0;
+        if (node->type == TH_NODE_TEXT) {
+            if (node->text_len > 0) {
+                const Py_UCS4 *text = th_node_realize_text(tree, node);
+                if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                    return 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                dir = sel_first_strong_dir(text, node->text_len);
+            }
+        } else if (node->first_child != NULL) {
+            dir = sel_dir_memo_get(memo, node);
+            if (dir < 0) {
+                node = node->first_child;
+                continue;
+            }
+        }
+        if (dir != 0) {
+            for (th_node *open = node->parent; open != root; open = open->parent) {
+                sel_dir_memo_put(memo, open, dir);
+            }
+            sel_dir_memo_put(memo, root, dir);
+            return dir;
+        }
+        while (node->next_sibling == NULL) {
+            node = node->parent;
+            sel_dir_memo_put(memo, node, 0);
+            if (node == root) {
+                return 0;
+            }
+        }
+        node = node->next_sibling;
+    }
+}
 
 /* The legend table of a single test (selector_matches, rewrite rules), which builds its
    context with no memo. Only this per-thread table outlives that context, so the matcher
@@ -1970,16 +2043,16 @@ static _Thread_local sel_memo sel_single_test_memo;
 
 /* The direction a dir=auto element resolves to (HTML "the directionality of an
    element"): an input element resolves from its value attribute, every other element
-   from its text content. Reading that content walks the element's whole subtree, and
-   every descendant without a dir of its own resolves through the same element, so a
-   query remembers the answer per element rather than re-walking it per candidate. */
+   from its text content, ltr when none of it is strong. Every descendant without a dir of
+   its own resolves through the same element, and a nested dir=auto element reads part of
+   the same text, so the answers come from sel_subtree_dir over the legend table. */
 static int sel_auto_dir(th_node *node, const sel_ctx *ctx) {
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT) {
         const th_node_attr *value = sel_find_attr(node, TH_ATTR_VALUE);
         if (value == NULL || value->value == NULL) {
             return 1; /* an empty control value resolves to the ltr default */
         }
-        return sel_first_strong_dir(value->value, value->value_len);
+        return sel_first_strong_dir(value->value, value->value_len) == 2 ? 2 : 1;
     }
     sel_memo *memo = ctx->legend_memo;
     if (memo == NULL) {
@@ -1988,19 +2061,11 @@ static int sel_auto_dir(th_node *node, const sel_ctx *ctx) {
         /* every context is a writable local of its driver or of the matcher copying it */
         ((sel_ctx *)ctx)->legend_memo = memo;
     }
-    int rtl = 0;
-    if (sel_memo_get(memo, &sel_dir_memo_key, node, &rtl)) {
-        return rtl ? 2 : 1;
+    int dir = sel_dir_memo_get(memo, node);
+    if (dir < 0) {
+        dir = sel_subtree_dir(ctx->tree, node, memo);
     }
-    Py_ssize_t len = 0;
-    Py_UCS4 *text = th_node_text(ctx->tree, node, &len);
-    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    int dir = sel_first_strong_dir(text, len);
-    PyMem_Free(text);
-    sel_memo_put(memo, &sel_dir_memo_key, node, dir == 2);
-    return dir;
+    return dir == 2 ? 2 : 1;
 }
 
 /* The element's resolved direction: 1 ltr, 2 rtl. The nearest dir attribute wins

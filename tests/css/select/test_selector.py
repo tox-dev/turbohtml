@@ -1745,16 +1745,44 @@ def test_matches_dir_auto_answers_once_per_element() -> None:
     assert (before, outer.matches(":has(> p:dir(ltr) ~ p:dir(ltr))")) == ((True, False), True)
 
 
-def test_closest_dir_resolves_each_auto_ancestor() -> None:
-    document = parse("<div id=outer dir=auto>א<bdi>x<p><span></span></p></bdi></div>")
-    closest = document.select("span")[0].closest(":dir(rtl)")
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<div id=o dir=auto>א<bdi>x<p><span></span></p></bdi></div>", id="through-bdi"),
+        # the span resolves through the inner element first, so the outer walk meets its answer already known
+        pytest.param("<div id=o dir=auto>1<p dir=auto>2<span></span></p>א</div>", id="known-without-strong"),
+    ],
+)
+def test_closest_dir_resolves_each_auto_ancestor(html: str) -> None:
+    closest = parse(html).select("span")[0].closest(":dir(rtl)")
     assert closest is not None
-    assert closest.attrs.get("id") == "outer"
+    assert closest.attrs.get("id") == "o"
+
+
+def test_closest_dir_takes_a_known_strong_answer_for_the_outer_element() -> None:
+    span = parse("<div dir=auto>1<p dir=auto>א<span></span></p>x</div>").select("span")[0]
+    assert span.closest("div:dir(ltr)") is None
+
+
+def test_dir_auto_reads_past_empty_nodes() -> None:
+    document = parse("<div id=o dir=auto>x<p>א</p></div><p id=e dir=auto></p>")
+    text = document.select("div")[0].children[0]
+    assert isinstance(text, Text)
+    text.data = ""
+    assert [element.attrs.get("id") for element in document.select("[id]:dir(rtl)")] == ["o"]
 
 
 def test_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda n: partial(parse(f"<section dir=auto>{'<i>1</i>' * n}").select, ":dir(rtl)"), (500, 2000)
+    )
+
+
+@pytest.mark.parametrize("innermost", [pytest.param("", id="no-strong"), pytest.param("ש", id="strong-innermost")])
+def test_nested_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps, innermost: str) -> None:
+    opening: Final = '<b dir="auto">2'
+    work_steps.assert_linear(
+        lambda n: partial(parse_xml(f"<r>{opening * n}{innermost}{'</b>' * n}</r>").select, ":dir(ltr)"), (500, 2000)
     )
 
 
