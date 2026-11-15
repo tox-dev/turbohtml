@@ -58,6 +58,16 @@ uint32_t th_name_hash(const void *data, Py_ssize_t len);
 #endif
 #endif
 
+#ifndef TH_ALWAYS_INLINE
+#if defined(_MSC_VER)
+#define TH_ALWAYS_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_ALWAYS_INLINE inline __attribute__((always_inline))
+#else
+#define TH_ALWAYS_INLINE inline
+#endif
+#endif
+
 #if defined(__GNUC__) || defined(__clang__)
 #define TH_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
 #else

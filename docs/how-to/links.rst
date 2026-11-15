@@ -26,7 +26,8 @@ them absolute against a base URL in place:
     a href https://example.com/dir/a/b.html
 
 For a one-off transform (rewriting a CDN host, signing URLs), pass a function to :meth:`~turbohtml.Node.rewrite_links`;
-returning ``None`` leaves a link untouched.
+returning ``None`` leaves a link untouched. When an unclosed formatting element such as ``<a>`` is reopened in later
+blocks, its copies share one URL: the function runs for the first copy, and the others take its result.
 
 A URL in CSS is reported as the browser reads it, with its escapes decoded: ``url("a\2e png")`` is the link ``a.png``. A
 replacement is written back escaped for the string or ``url()`` token it lands in, so a quote, a parenthesis or a
