@@ -87,6 +87,7 @@ typedef struct {
        name. Meaningful only for start/end tags. */
     uint16_t atom;
     uint8_t tag_flags;
+    uint64_t name_key; /* name packed by th_tag_key, 0 for one it does not pack; set with atom */
     th_buf text; /* TEXT run or COMMENT data */
     th_attr *attrs;
     th_attr_loc *attr_locs;

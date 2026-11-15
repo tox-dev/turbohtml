@@ -1120,13 +1120,16 @@ static void rawtext_fallback(th_tokenizer *self, enum state ret) {
 static void finish_tag(th_tokenizer *self) {
     self->state = ST_DATA;
     /* interned once here for every consumer: the tree builder, the Tokenizer following open elements, the rewriter */
-    th_buf *name = &self->tok.name;
+    const th_buf *name = &self->tok.name;
+    uint64_t key = 0;
+    uint16_t atom = TH_TAG_UNKNOWN; /* the table holds only ASCII names */
     if (name->kind == PyUnicode_1BYTE_KIND) {
-        self->tok.atom = th_tag_intern(name->data, name->len, name->cap, &self->tok.tag_flags);
-    } else {
-        self->tok.atom = TH_TAG_UNKNOWN; /* the table holds only ASCII names */
-        self->tok.tag_flags = 0;
+        key = th_tag_key(name->data, name->len, name->cap);
+        atom = key != 0 ? th_tag_key_atom(key) : th_tag_hash_atom(name->data, name->len);
     }
+    self->tok.name_key = key;
+    self->tok.atom = atom;
+    self->tok.tag_flags = th_tag_atom_flags[atom];
     if (self->capture_locations) {
         /* the cursor has just passed the closing '>', so it marks the tag's end span */
         self->tok.end_line = self->line;

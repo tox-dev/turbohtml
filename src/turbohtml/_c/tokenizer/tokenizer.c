@@ -22,8 +22,9 @@
 
 /* One open element on the spine tk_follow keeps. */
 typedef struct {
+    uint64_t key;       /* the name packed by th_tag_key, 0 for one it does not pack */
     Py_ssize_t name;    /* where the element's run of names begins */
-    uint16_t atom;      /* TH_TAG_UNKNOWN for a name outside the tag table, which names then holds */
+    uint16_t atom;      /* TH_TAG_UNKNOWN for a name outside the tag table, which key or else names then holds */
     uint8_t ns;         /* the namespace a browser gives the element */
     uint8_t html_point; /* an SVG/MathML integration point: the HTML rules process the start tags inside it */
     uint8_t category;   /* TH_TAG_SPECIAL and TH_TAG_SCOPING, which bound the HTML end tags inside it */
@@ -92,31 +93,111 @@ static int name_eq(const th_buf *name, const char *literal, size_t len) {
    (TK_MODEL, a TH_INIT_* value, 0 for none), whether it begins foreign content, whether a browser leaves no element
    open for it (a void element; <html> and <body> only add attributes to the elements a browser already has, a <head>,
    <frame> or <frameset> it honors never holds an element followed here, and <image> is read as <img>), and whether it
-   is a table part, which a browser ignores unless a table or template (TK_TABLE) is open. */
+   is a table part, which a browser ignores unless a table or template (TK_TABLE) is open. In foreign content the same
+   table says which start tags break out of it (TK_BREAKOUT; <font> only with color, face or size) and which SVG and
+   MathML elements are integration points (TK_SVG_POINT, TK_MATHML_TEXT). */
 enum {
     TK_MODEL = 7,
     TK_FOREIGN = 8,
     TK_CHILDLESS = 16,
     TK_TABLE_PART = 32,
     TK_TABLE = 64,
+    TK_BREAKOUT = 128,
+    TK_SVG_POINT = 256,
+    TK_MATHML_TEXT = 512,
 };
 
-static const uint8_t TK_START[TH_TAG_XMP + 1] = {
-    [TH_TAG_TITLE] = TH_INIT_RCDATA,       [TH_TAG_TEXTAREA] = TH_INIT_RCDATA,   [TH_TAG_STYLE] = TH_INIT_RAWTEXT,
-    [TH_TAG_XMP] = TH_INIT_RAWTEXT,        [TH_TAG_IFRAME] = TH_INIT_RAWTEXT,    [TH_TAG_NOEMBED] = TH_INIT_RAWTEXT,
-    [TH_TAG_NOFRAMES] = TH_INIT_RAWTEXT,   [TH_TAG_NOSCRIPT] = TH_INIT_RAWTEXT,  [TH_TAG_SCRIPT] = TH_INIT_SCRIPT_DATA,
-    [TH_TAG_PLAINTEXT] = TH_INIT_PLAINTEXT, [TH_TAG_SVG] = TK_FOREIGN,           [TH_TAG_MATH] = TK_FOREIGN,
-    [TH_TAG_AREA] = TK_CHILDLESS,          [TH_TAG_BASE] = TK_CHILDLESS,         [TH_TAG_BASEFONT] = TK_CHILDLESS,
-    [TH_TAG_BGSOUND] = TK_CHILDLESS,       [TH_TAG_BR] = TK_CHILDLESS,           [TH_TAG_COL] = TK_CHILDLESS,
-    [TH_TAG_EMBED] = TK_CHILDLESS,         [TH_TAG_HR] = TK_CHILDLESS,           [TH_TAG_IMG] = TK_CHILDLESS,
-    [TH_TAG_INPUT] = TK_CHILDLESS,         [TH_TAG_KEYGEN] = TK_CHILDLESS,       [TH_TAG_LINK] = TK_CHILDLESS,
-    [TH_TAG_META] = TK_CHILDLESS,          [TH_TAG_PARAM] = TK_CHILDLESS,        [TH_TAG_SOURCE] = TK_CHILDLESS,
-    [TH_TAG_TRACK] = TK_CHILDLESS,         [TH_TAG_WBR] = TK_CHILDLESS,          [TH_TAG_HTML] = TK_CHILDLESS,
-    [TH_TAG_BODY] = TK_CHILDLESS,          [TH_TAG_HEAD] = TK_CHILDLESS,         [TH_TAG_FRAME] = TK_CHILDLESS,
-    [TH_TAG_FRAMESET] = TK_CHILDLESS,      [TH_TAG_IMAGE] = TK_CHILDLESS,        [TH_TAG_CAPTION] = TK_TABLE_PART,
-    [TH_TAG_COLGROUP] = TK_TABLE_PART,     [TH_TAG_TBODY] = TK_TABLE_PART,       [TH_TAG_THEAD] = TK_TABLE_PART,
-    [TH_TAG_TFOOT] = TK_TABLE_PART,        [TH_TAG_TR] = TK_TABLE_PART,          [TH_TAG_TD] = TK_TABLE_PART,
-    [TH_TAG_TH] = TK_TABLE_PART,           [TH_TAG_TABLE] = TK_TABLE,            [TH_TAG_TEMPLATE] = TK_TABLE,
+#define TK_CHILDLESS_BREAKOUT (TK_CHILDLESS | TK_BREAKOUT)
+
+static const uint16_t TK_START[TH_TAG_XMP + 1] = {
+    [TH_TAG_TITLE] = TH_INIT_RCDATA | TK_SVG_POINT,
+    [TH_TAG_TEXTAREA] = TH_INIT_RCDATA,
+    [TH_TAG_STYLE] = TH_INIT_RAWTEXT,
+    [TH_TAG_XMP] = TH_INIT_RAWTEXT,
+    [TH_TAG_IFRAME] = TH_INIT_RAWTEXT,
+    [TH_TAG_NOEMBED] = TH_INIT_RAWTEXT,
+    [TH_TAG_NOFRAMES] = TH_INIT_RAWTEXT,
+    [TH_TAG_NOSCRIPT] = TH_INIT_RAWTEXT,
+    [TH_TAG_SCRIPT] = TH_INIT_SCRIPT_DATA,
+    [TH_TAG_PLAINTEXT] = TH_INIT_PLAINTEXT,
+    [TH_TAG_SVG] = TK_FOREIGN,
+    [TH_TAG_MATH] = TK_FOREIGN,
+    [TH_TAG_AREA] = TK_CHILDLESS,
+    [TH_TAG_BASE] = TK_CHILDLESS,
+    [TH_TAG_BASEFONT] = TK_CHILDLESS,
+    [TH_TAG_BGSOUND] = TK_CHILDLESS,
+    [TH_TAG_BR] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_COL] = TK_CHILDLESS,
+    [TH_TAG_EMBED] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_HR] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_IMG] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_INPUT] = TK_CHILDLESS,
+    [TH_TAG_KEYGEN] = TK_CHILDLESS,
+    [TH_TAG_LINK] = TK_CHILDLESS,
+    [TH_TAG_META] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_PARAM] = TK_CHILDLESS,
+    [TH_TAG_SOURCE] = TK_CHILDLESS,
+    [TH_TAG_TRACK] = TK_CHILDLESS,
+    [TH_TAG_WBR] = TK_CHILDLESS,
+    [TH_TAG_HTML] = TK_CHILDLESS,
+    [TH_TAG_BODY] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_HEAD] = TK_CHILDLESS_BREAKOUT,
+    [TH_TAG_FRAME] = TK_CHILDLESS,
+    [TH_TAG_FRAMESET] = TK_CHILDLESS,
+    [TH_TAG_IMAGE] = TK_CHILDLESS,
+    [TH_TAG_CAPTION] = TK_TABLE_PART,
+    [TH_TAG_COLGROUP] = TK_TABLE_PART,
+    [TH_TAG_TBODY] = TK_TABLE_PART,
+    [TH_TAG_THEAD] = TK_TABLE_PART,
+    [TH_TAG_TFOOT] = TK_TABLE_PART,
+    [TH_TAG_TR] = TK_TABLE_PART,
+    [TH_TAG_TD] = TK_TABLE_PART,
+    [TH_TAG_TH] = TK_TABLE_PART,
+    [TH_TAG_TABLE] = TK_TABLE | TK_BREAKOUT,
+    [TH_TAG_TEMPLATE] = TK_TABLE,
+    [TH_TAG_B] = TK_BREAKOUT,
+    [TH_TAG_BIG] = TK_BREAKOUT,
+    [TH_TAG_BLOCKQUOTE] = TK_BREAKOUT,
+    [TH_TAG_CENTER] = TK_BREAKOUT,
+    [TH_TAG_CODE] = TK_BREAKOUT,
+    [TH_TAG_DD] = TK_BREAKOUT,
+    [TH_TAG_DIV] = TK_BREAKOUT,
+    [TH_TAG_DL] = TK_BREAKOUT,
+    [TH_TAG_DT] = TK_BREAKOUT,
+    [TH_TAG_EM] = TK_BREAKOUT,
+    [TH_TAG_H1] = TK_BREAKOUT,
+    [TH_TAG_H2] = TK_BREAKOUT,
+    [TH_TAG_H3] = TK_BREAKOUT,
+    [TH_TAG_H4] = TK_BREAKOUT,
+    [TH_TAG_H5] = TK_BREAKOUT,
+    [TH_TAG_H6] = TK_BREAKOUT,
+    [TH_TAG_I] = TK_BREAKOUT,
+    [TH_TAG_LI] = TK_BREAKOUT,
+    [TH_TAG_LISTING] = TK_BREAKOUT,
+    [TH_TAG_MENU] = TK_BREAKOUT,
+    [TH_TAG_NOBR] = TK_BREAKOUT,
+    [TH_TAG_OL] = TK_BREAKOUT,
+    [TH_TAG_P] = TK_BREAKOUT,
+    [TH_TAG_PRE] = TK_BREAKOUT,
+    [TH_TAG_RUBY] = TK_BREAKOUT,
+    [TH_TAG_S] = TK_BREAKOUT,
+    [TH_TAG_SMALL] = TK_BREAKOUT,
+    [TH_TAG_SPAN] = TK_BREAKOUT,
+    [TH_TAG_STRONG] = TK_BREAKOUT,
+    [TH_TAG_STRIKE] = TK_BREAKOUT,
+    [TH_TAG_SUB] = TK_BREAKOUT,
+    [TH_TAG_SUP] = TK_BREAKOUT,
+    [TH_TAG_TT] = TK_BREAKOUT,
+    [TH_TAG_U] = TK_BREAKOUT,
+    [TH_TAG_UL] = TK_BREAKOUT,
+    [TH_TAG_VAR] = TK_BREAKOUT,
+    [TH_TAG_FOREIGNOBJECT] = TK_SVG_POINT,
+    [TH_TAG_DESC] = TK_SVG_POINT,
+    [TH_TAG_MI] = TK_MATHML_TEXT,
+    [TH_TAG_MO] = TK_MATHML_TEXT,
+    [TH_TAG_MN] = TK_MATHML_TEXT,
+    [TH_TAG_MS] = TK_MATHML_TEXT,
+    [TH_TAG_MTEXT] = TK_MATHML_TEXT,
 };
 
 static void tk_switch_content(th_tokenizer *sm, uint16_t atom) {
@@ -125,20 +206,6 @@ static void tk_switch_content(th_tokenizer *sm, uint16_t atom) {
         th_tok_switch(sm, (enum th_initial_state)model);
     }
 }
-
-static int tk_atom_in(uint16_t atom, const uint16_t *atoms, size_t count) {
-    for (size_t index = 0; index < count; index++) {
-        if (atoms[index] == atom) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-#define TK_ATOM_IN(atom, atoms) tk_atom_in(atom, atoms, sizeof(atoms) / sizeof((atoms)[0]))
-
-static const uint16_t TK_SVG_HTML_POINTS[] = {TH_TAG_FOREIGNOBJECT, TH_TAG_DESC, TH_TAG_TITLE};
-static const uint16_t TK_MATHML_TEXT_POINTS[] = {TH_TAG_MI, TH_TAG_MO, TH_TAG_MN, TH_TAG_MS, TH_TAG_MTEXT};
 
 /* A MathML annotation-xml is an HTML integration point when its encoding is text/html or application/xhtml+xml in any
    ASCII case. The machine already dropped the duplicates of an attribute name, keeping the first as a browser does. */
@@ -168,25 +235,15 @@ static int tk_annotation_xml_is_html(const th_token *token) {
    that breaks out of foreign content closes the open elements only down to it. */
 static int tk_integration_point(const th_token *token, uint16_t atom, uint8_t ns) {
     if (ns == TH_NS_SVG) {
-        return TK_ATOM_IN(atom, TK_SVG_HTML_POINTS);
+        return (TK_START[atom] & TK_SVG_POINT) != 0;
     }
-    return TK_ATOM_IN(atom, TK_MATHML_TEXT_POINTS) ||
-           (atom == TH_TAG_ANNOTATION_XML && tk_annotation_xml_is_html(token));
+    return (TK_START[atom] & TK_MATHML_TEXT) != 0 || (atom == TH_TAG_ANNOTATION_XML && tk_annotation_xml_is_html(token));
 }
 
 /* The HTML start tags that break out of foreign content; <font> does too when it carries color, face or size. */
 static int tk_foreign_breakout(const th_token *token, uint16_t atom) {
-    static const uint16_t breakout[] = {
-        TH_TAG_B,      TH_TAG_BIG,    TH_TAG_BLOCKQUOTE, TH_TAG_BODY,    TH_TAG_BR,    TH_TAG_CENTER, TH_TAG_CODE,
-        TH_TAG_DD,     TH_TAG_DIV,    TH_TAG_DL,         TH_TAG_DT,      TH_TAG_EM,    TH_TAG_EMBED,  TH_TAG_H1,
-        TH_TAG_H2,     TH_TAG_H3,     TH_TAG_H4,         TH_TAG_H5,      TH_TAG_H6,    TH_TAG_HEAD,   TH_TAG_HR,
-        TH_TAG_I,      TH_TAG_IMG,    TH_TAG_LI,         TH_TAG_LISTING, TH_TAG_MENU,  TH_TAG_META,   TH_TAG_NOBR,
-        TH_TAG_OL,     TH_TAG_P,      TH_TAG_PRE,        TH_TAG_RUBY,    TH_TAG_S,     TH_TAG_SMALL,  TH_TAG_SPAN,
-        TH_TAG_STRONG, TH_TAG_STRIKE, TH_TAG_SUB,        TH_TAG_SUP,     TH_TAG_TABLE, TH_TAG_TT,     TH_TAG_U,
-        TH_TAG_UL,     TH_TAG_VAR,
-    };
     if (atom != TH_TAG_FONT) {
-        return TK_ATOM_IN(atom, breakout);
+        return (TK_START[atom] & TK_BREAKOUT) != 0;
     }
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         const th_buf *name = &token->attrs[index].name;
@@ -225,7 +282,7 @@ static uint8_t tk_start_namespace(TokenizerObject *self, const th_token *token, 
     if (self->depth > 0 && self->open[self->depth - 1].ns != TH_NS_HTML) {
         const tk_open *top = &self->open[self->depth - 1];
         int html_rules;
-        if (top->ns == TH_NS_MATHML && TK_ATOM_IN(top->atom, TK_MATHML_TEXT_POINTS)) {
+        if (top->ns == TH_NS_MATHML && (TK_START[top->atom] & TK_MATHML_TEXT) != 0) {
             html_rules = atom != TH_TAG_MGLYPH && atom != TH_TAG_MALIGNMARK;
         } else if (top->ns == TH_NS_MATHML && top->atom == TH_TAG_ANNOTATION_XML && atom == TH_TAG_SVG) {
             html_rules = 1;
@@ -297,8 +354,9 @@ static int tk_push(TokenizerObject *self, const th_token *token, uint16_t atom, 
             self->open[index].name -= shift;
         }
     }
-    /* a known tag is told apart by its atom; any other by its name, already lowercased by the machine */
-    Py_ssize_t name_len = atom == TH_TAG_UNKNOWN ? token->name.len : 0;
+    /* a known tag is told apart by its atom; any other by its packed name or, past a word, its name, already lowercased
+       by the machine */
+    Py_ssize_t name_len = atom == TH_TAG_UNKNOWN && token->name_key == 0 ? token->name.len : 0;
     size_t cap;
     size_t bytes;
     if (self->depth == self->open_cap) {
@@ -322,6 +380,7 @@ static int tk_push(TokenizerObject *self, const th_token *token, uint16_t atom, 
     }
     int in_table = tk_in_table(self);
     tk_open *open = &self->open[self->depth++];
+    open->key = token->name_key;
     open->atom = atom;
     open->ns = ns;
     open->name = self->names_len;
@@ -350,6 +409,9 @@ static int tk_end_tag_names(const TokenizerObject *self, Py_ssize_t index, const
     }
     if (atom != TH_TAG_UNKNOWN) {
         return 1;
+    }
+    if (open->key != 0 || token->name_key != 0) {
+        return open->key == token->name_key;
     }
     Py_ssize_t end = index + 1 < self->depth ? self->open[index + 1].name : self->names_len;
     int same = end - open->name == token->name.len;
@@ -441,31 +503,32 @@ static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_toke
     return 0;
 }
 
-/* Follow a tag outside foreign content in place where that is all it takes: a start tag that opens a known element
-   pushes it, a void element and the other start tags a browser leaves no element open for push nothing, and the end
-   tag of the innermost element pops it. Returns 1 when the tag needs tk_follow_rules. Inlined at both call sites: it
-   runs for every tag the Tokenizer hands over. */
+/* Follow a tag outside foreign content in place where that is all it takes: a start tag that opens an element with a
+   packed name pushes it, a void element and the other start tags a browser leaves no element open for push nothing,
+   and the end tag of the innermost element pops it. Returns 1 when the tag needs tk_follow_rules. Inlined at both call
+   sites: it runs for every tag the Tokenizer hands over. */
 static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
     if (self->foreign != 0) {
         return 1;
     }
-    uint16_t atom = record->atom;
+    uint64_t key = record->name_key;
     if (record->kind == TH_END_TAG) {
-        if (atom != TH_TAG_UNKNOWN && self->depth > 0 && self->open[self->depth - 1].atom == atom) {
+        if (key != 0 && self->depth > 0 && self->open[self->depth - 1].key == key) {
             self->depth--;
             return 0;
         }
         return 1;
     }
-    uint8_t start = TK_START[atom];
+    uint16_t start = TK_START[record->atom];
     /* the capacity doubles from a power of two up to TK_MAX_DEPTH, so room on it is room under the cap */
-    if ((start & ~TK_MODEL) == 0 && atom != TH_TAG_UNKNOWN && self->depth < self->open_cap) {
+    if ((start & (TK_FOREIGN | TK_CHILDLESS | TK_TABLE_PART | TK_TABLE)) == 0 && key != 0 &&
+        self->depth < self->open_cap) {
         uint8_t in_table = self->depth > 0 && self->open[self->depth - 1].in_table;
-        self->open[self->depth++] =
-            (tk_open){self->names_len, atom, TH_NS_HTML, 0, record->tag_flags & (TH_TAG_SPECIAL | TH_TAG_SCOPING),
-                      in_table};
-        if (start != 0) {
-            th_tok_switch(sm, (enum th_initial_state)start);
+        self->open[self->depth++] = (tk_open){
+            key, self->names_len, record->atom, TH_NS_HTML, 0, record->tag_flags & (TH_TAG_SPECIAL | TH_TAG_SCOPING),
+            in_table};
+        if ((start & TK_MODEL) != 0) {
+            th_tok_switch(sm, (enum th_initial_state)(start & TK_MODEL));
         }
         return 0;
     }
@@ -473,22 +536,24 @@ static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const 
 }
 
 /* Follow a tag with the full rules. Attributes the machine captured for those rules alone are not part of the token
-   the caller asked for: *hidden is how many were hidden, which the caller adds back once the token is handed over, so
+   the caller asked for, so they are hidden; the caller adds back the count returned once the token is handed over, so
    the machine still resets every slot it filled. Returns -1 when the spine cannot grow. */
-static int tk_follow_rules(TokenizerObject *self, th_tokenizer *sm, th_token *record, Py_ssize_t *hidden) {
+static Py_ssize_t tk_follow_rules(TokenizerObject *self, th_tokenizer *sm, th_token *record) {
     int captured = self->machine_foreign && !self->capture_attributes;
-    int rc = 0;
     if (record->kind == TH_START_TAG) {
-        rc = tk_track_start(self, sm, record, record->atom, record->tag_flags);
+        if (tk_track_start(self, sm, record, record->atom, record->tag_flags) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     } else {
         tk_end_tag(self, record, record->atom, record->tag_flags);
         tk_sync(self, sm);
     }
-    if (captured) {
-        *hidden = record->attr_count;
-        record->attr_count = 0;
+    if (!captured) {
+        return 0;
     }
-    return rc;
+    Py_ssize_t hidden = record->attr_count;
+    record->attr_count = 0;
+    return hidden;
 }
 
 static PyObject *iter_new(module_state *state, PyObject *owner) {
@@ -536,9 +601,10 @@ static PyObject *iter_next(PyObject *self) {
     case TH_STEP_TOKEN: {
         Py_ssize_t hidden = 0;
         if ((record->kind == TH_START_TAG || record->kind == TH_END_TAG) && tk_follow_html(owner, sm, record)) {
-            if (tk_follow_rules(owner, sm, record, &hidden) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                result = PyErr_NoMemory();                         /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+            hidden = tk_follow_rules(owner, sm, record);
+            if (hidden < 0) {              /* GCOVR_EXCL_BR_LINE: allocation failure */
+                result = PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
         /* one call site, so the compiler keeps the token builder inlined in this loop */
@@ -862,8 +928,8 @@ static PyObject *tokenizer_dispatch(PyObject *self, PyObject *handler) {
             tokenizer->line = record->line;
             tokenizer->col = record->col;
             if (record->kind == TH_START_TAG) {
-                Py_ssize_t hidden = 0;
-                if (tk_follow_html(tokenizer, sm, record) && tk_follow_rules(tokenizer, sm, record, &hidden) < 0) {
+                Py_ssize_t hidden = tk_follow_html(tokenizer, sm, record) ? tk_follow_rules(tokenizer, sm, record) : 0;
+                if (hidden < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure */
                     PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
                     break;            /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
@@ -875,8 +941,7 @@ static PyObject *tokenizer_dispatch(PyObject *self, PyObject *handler) {
                 target = record->self_closing ? bound.fn[SAX_STARTENDTAG] : bound.fn[SAX_STARTTAG];
             } else if (record->kind == TH_END_TAG) {
                 if (tk_follow_html(tokenizer, sm, record)) {
-                    Py_ssize_t hidden = 0;
-                    tk_follow_rules(tokenizer, sm, record, &hidden); /* an end tag only shrinks the spine */
+                    Py_ssize_t hidden = tk_follow_rules(tokenizer, sm, record); /* an end tag only shrinks the spine */
                     if (hidden != 0) {
                         record->attr_count = hidden; /* handle_endtag takes no attributes */
                     }

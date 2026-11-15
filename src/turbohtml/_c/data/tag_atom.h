@@ -365,37 +365,60 @@ static const uint32_t th_tag_wide_names[] = {
     97u, 97u, 98u, 98u, 114u, 97u, 100u, 100u, 114u, 101u, 115u, 115u, 97u, 110u, 110u, 111u, 116u, 97u, 116u, 105u, 111u, 110u, 45u, 120u, 109u, 108u, 97u, 112u, 112u, 108u, 101u, 116u, 97u, 114u, 101u, 97u, 97u, 114u, 116u, 105u, 99u, 108u, 101u, 97u, 115u, 105u, 100u, 101u, 97u, 117u, 100u, 105u, 111u, 98u, 98u, 97u, 115u, 101u, 98u, 97u, 115u, 101u, 102u, 111u, 110u, 116u, 98u, 100u, 105u, 98u, 100u, 111u, 98u, 103u, 115u, 111u, 117u, 110u, 100u, 98u, 105u, 103u, 98u, 108u, 111u, 99u, 107u, 113u, 117u, 111u, 116u, 101u, 98u, 111u, 100u, 121u, 98u, 114u, 98u, 117u, 116u, 116u, 111u, 110u, 99u, 97u, 110u, 118u, 97u, 115u, 99u, 97u, 112u, 116u, 105u, 111u, 110u, 99u, 101u, 110u, 116u, 101u, 114u, 99u, 105u, 116u, 101u, 99u, 111u, 100u, 101u, 99u, 111u, 108u, 99u, 111u, 108u, 103u, 114u, 111u, 117u, 112u, 99u, 111u, 109u, 109u, 97u, 110u, 100u, 100u, 97u, 116u, 97u, 100u, 97u, 116u, 97u, 108u, 105u, 115u, 116u, 100u, 100u, 100u, 101u, 108u, 100u, 101u, 115u, 99u, 100u, 101u, 116u, 97u, 105u, 108u, 115u, 100u, 102u, 110u, 100u, 105u, 97u, 108u, 111u, 103u, 100u, 105u, 114u, 100u, 105u, 118u, 100u, 108u, 100u, 116u, 101u, 109u, 101u, 109u, 98u, 101u, 100u, 102u, 105u, 101u, 108u, 100u, 115u, 101u, 116u, 102u, 105u, 103u, 99u, 97u, 112u, 116u, 105u, 111u, 110u, 102u, 105u, 103u, 117u, 114u, 101u, 102u, 111u, 110u, 116u, 102u, 111u, 111u, 116u, 101u, 114u, 102u, 111u, 114u, 101u, 105u, 103u, 110u, 111u, 98u, 106u, 101u, 99u, 116u, 102u, 111u, 114u, 109u, 102u, 114u, 97u, 109u, 101u, 102u, 114u, 97u, 109u, 101u, 115u, 101u, 116u, 103u, 104u, 49u, 104u, 50u, 104u, 51u, 104u, 52u, 104u, 53u, 104u, 54u, 104u, 101u, 97u, 100u, 104u, 101u, 97u, 100u, 101u, 114u, 104u, 103u, 114u, 111u, 117u, 112u, 104u, 114u, 104u, 116u, 109u, 108u, 105u, 105u, 102u, 114u, 97u, 109u, 101u, 105u, 109u, 97u, 103u, 101u, 105u, 109u, 103u, 105u, 110u, 112u, 117u, 116u, 105u, 110u, 115u, 105u, 115u, 105u, 110u, 100u, 101u, 120u, 107u, 98u, 100u, 107u, 101u, 121u, 103u, 101u, 110u, 108u, 97u, 98u, 101u, 108u, 108u, 101u, 103u, 101u, 110u, 100u, 108u, 105u, 108u, 105u, 110u, 107u, 108u, 105u, 115u, 116u, 105u, 110u, 103u, 109u, 97u, 105u, 110u, 109u, 97u, 108u, 105u, 103u, 110u, 109u, 97u, 114u, 107u, 109u, 97u, 112u, 109u, 97u, 114u, 107u, 109u, 97u, 114u, 113u, 117u, 101u, 101u, 109u, 97u, 116u, 104u, 109u, 101u, 110u, 117u, 109u, 101u, 116u, 97u, 109u, 101u, 116u, 101u, 114u, 109u, 103u, 108u, 121u, 112u, 104u, 109u, 105u, 109u, 110u, 109u, 111u, 109u, 115u, 109u, 116u, 101u, 120u, 116u, 110u, 97u, 118u, 110u, 111u, 98u, 114u, 110u, 111u, 101u, 109u, 98u, 101u, 100u, 110u, 111u, 102u, 114u, 97u, 109u, 101u, 115u, 110u, 111u, 115u, 99u, 114u, 105u, 112u, 116u, 111u, 98u, 106u, 101u, 99u, 116u, 111u, 108u, 111u, 112u, 116u, 103u, 114u, 111u, 117u, 112u, 111u, 112u, 116u, 105u, 111u, 110u, 111u, 117u, 116u, 112u, 117u, 116u, 112u, 112u, 97u, 114u, 97u, 109u, 112u, 97u, 116u, 104u, 112u, 105u, 99u, 116u, 117u, 114u, 101u, 112u, 108u, 97u, 105u, 110u, 116u, 101u, 120u, 116u, 112u, 114u, 101u, 112u, 114u, 111u, 103u, 114u, 101u, 115u, 115u, 113u, 114u, 98u, 114u, 112u, 114u, 116u, 114u, 116u, 99u, 114u, 117u, 98u, 121u, 115u, 115u, 97u, 109u, 112u, 115u, 99u, 114u, 105u, 112u, 116u, 115u, 101u, 97u, 114u, 99u, 104u, 115u, 101u, 99u, 116u, 105u, 111u, 110u, 115u, 101u, 108u, 101u, 99u, 116u, 115u, 101u, 108u, 101u, 99u, 116u, 101u, 100u, 99u, 111u, 110u, 116u, 101u, 110u, 116u, 115u, 108u, 111u, 116u, 115u, 109u, 97u, 108u, 108u, 115u, 111u, 117u, 114u, 99u, 101u, 115u, 112u, 97u, 110u, 115u, 116u, 114u, 105u, 107u, 101u, 115u, 116u, 114u, 111u, 110u, 103u, 115u, 116u, 121u, 108u, 101u, 115u, 117u, 98u, 115u, 117u, 109u, 109u, 97u, 114u, 121u, 115u, 117u, 112u, 115u, 118u, 103u, 116u, 97u, 98u, 108u, 101u, 116u, 98u, 111u, 100u, 121u, 116u, 100u, 116u, 101u, 109u, 112u, 108u, 97u, 116u, 101u, 116u, 101u, 120u, 116u, 97u, 114u, 101u, 97u, 116u, 102u, 111u, 111u, 116u, 116u, 104u, 116u, 104u, 101u, 97u, 100u, 116u, 105u, 109u, 101u, 116u, 105u, 116u, 108u, 101u, 116u, 114u, 116u, 114u, 97u, 99u, 107u, 116u, 116u, 117u, 117u, 108u, 118u, 97u, 114u, 118u, 105u, 100u, 101u, 111u, 119u, 98u, 114u, 120u, 109u, 112u
 };
 
-/* The atom and category flags of a lowercased ASCII tag name of `len` bytes (at least one), TH_TAG_UNKNOWN and 0
-   for a name outside the table. `readable` is how many bytes from `str` may be read: with 8 or more, a name of at
-   most 8 bytes is loaded as one word, the bytes past it masked off, and found through th_tag_key_hash; any other
-   name goes through th_tag_hash. The tokenizer state machine interns every tag it emits with this. */
-static inline uint16_t th_tag_intern(const unsigned char *str, ptrdiff_t len, ptrdiff_t readable, uint8_t *flags) {
-    uint16_t atom = 0;
-    if (len <= 8 && readable >= 8) {
-        uint64_t key;
-        memcpy(&key, str, sizeof(key));
+/* th_tag_atom_flags[atom] is the atom's category bitmask, 0 for TH_TAG_UNKNOWN. */
+static const uint8_t th_tag_atom_flags[] = {
+    0u, TH_TAG_FORMATTING, 0, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, TH_TAG_FORMATTING, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, TH_TAG_FORMATTING, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL, 0, TH_TAG_FORMATTING, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_FORMATTING, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_FORMATTING, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_FORMATTING, TH_TAG_SPECIAL | TH_TAG_RAWTEXT, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, 0, 0, TH_TAG_SPECIAL | TH_TAG_SCOPING, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, 0, 0, 0, 0, 0, 0, TH_TAG_SPECIAL, TH_TAG_FORMATTING, TH_TAG_SPECIAL | TH_TAG_RAWTEXT, TH_TAG_SPECIAL | TH_TAG_RAWTEXT, TH_TAG_SPECIAL | TH_TAG_RAWTEXT, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL, 0, 0, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, 0, 0, 0, 0, 0, 0, 0, TH_TAG_FORMATTING, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_SPECIAL | TH_TAG_SCOPING, 0, 0, TH_TAG_FORMATTING, TH_TAG_SPECIAL, 0, TH_TAG_FORMATTING, TH_TAG_FORMATTING, TH_TAG_SPECIAL | TH_TAG_RAWTEXT, 0, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL | TH_TAG_RCDATA, TH_TAG_SPECIAL, TH_TAG_SPECIAL | TH_TAG_SCOPING, TH_TAG_SPECIAL, 0, TH_TAG_SPECIAL | TH_TAG_RCDATA, TH_TAG_SPECIAL, TH_TAG_SPECIAL, TH_TAG_FORMATTING, TH_TAG_FORMATTING, TH_TAG_SPECIAL, 0, 0, TH_TAG_SPECIAL, TH_TAG_SPECIAL | TH_TAG_RAWTEXT
+};
+
+static const uint64_t th_tag_key_masks[9] = {
+    0x0ull, 0xffull, 0xffffull, 0xffffffull, 0xffffffffull, 0xffffffffffull, 0xffffffffffffull, 0xffffffffffffffull, 0xffffffffffffffffull
+};
+
+/* A lowercased ASCII tag name of `len` bytes (at least one) packed little-endian into one word as th_tag_keys
+   holds it, so two names compare as one integer, or 0 for a longer name or one with fewer than 8 bytes
+   readable from `str`; the bytes past the name are masked off. */
+static inline uint64_t th_tag_key(const unsigned char *str, ptrdiff_t len, ptrdiff_t readable) {
+    if (len > 8 || readable < 8) {
+        return 0;
+    }
+    uint64_t key;
+    memcpy(&key, str, sizeof(key));
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-        key = __builtin_bswap64(key);
+    key = __builtin_bswap64(key);
 #endif
-        key &= ~(uint64_t)0 >> (64 - 8 * len);
-        atom = th_tag_key_hash[(key * TH_TAG_KEY_MULTIPLIER) >> TH_TAG_KEY_SHIFT];
-        /* a slot no name fills holds atom 0, whose key 0 no name packs to */
-        atom = th_tag_keys[atom] == key ? atom : 0;
-    } else {
-        size_t slot = ((size_t)len * TH_TAG_HASH_LENGTH + (size_t)str[0] * TH_TAG_HASH_FIRST +
-                       (size_t)str[len - 1] * TH_TAG_HASH_LAST + (size_t)str[len > 1] * TH_TAG_HASH_SECOND) &
-                      TH_TAG_HASH_MASK;
-        atom = th_tag_hash[slot];
-        if (atom != 0) {
-            const th_tag_entry *entry = &th_tag_table[atom - 1];
-            int same = entry->name_len == len;
-            for (ptrdiff_t pos = 0; same && pos < len; pos++) {
-                same = str[pos] == (unsigned char)entry->name[pos];
-            }
-            atom = same ? atom : 0;
+    return key & th_tag_key_masks[len];
+}
+
+/* The atom of a name th_tag_key packed, TH_TAG_UNKNOWN for one outside the table. */
+static inline uint16_t th_tag_key_atom(uint64_t key) {
+    uint8_t atom = th_tag_key_hash[(key * TH_TAG_KEY_MULTIPLIER) >> TH_TAG_KEY_SHIFT];
+    return th_tag_keys[atom] == key ? atom : 0; /* an empty slot holds atom 0, whose key 0 no name packs to */
+}
+
+/* The atom of a lowercased ASCII tag name of `len` bytes (at least one) through th_tag_hash. */
+static inline uint16_t th_tag_hash_atom(const unsigned char *str, ptrdiff_t len) {
+    size_t slot = ((size_t)len * TH_TAG_HASH_LENGTH + (size_t)str[0] * TH_TAG_HASH_FIRST +
+                   (size_t)str[len - 1] * TH_TAG_HASH_LAST + (size_t)str[len > 1] * TH_TAG_HASH_SECOND) &
+                  TH_TAG_HASH_MASK;
+    uint16_t atom = th_tag_hash[slot];
+    if (atom == 0 || th_tag_table[atom - 1].name_len != len) {
+        return 0;
+    }
+    const char *name = th_tag_table[atom - 1].name;
+    for (ptrdiff_t pos = 0; pos < len; pos++) {
+        if (str[pos] != (unsigned char)name[pos]) {
+            return 0;
         }
     }
-    *flags = atom != 0 ? th_tag_table[atom - 1].flags : 0;
+    return atom;
+}
+
+/* The atom and category flags of a lowercased ASCII tag name of `len` bytes (at least one), `readable` being how
+   many bytes from `str` may be read. */
+static inline uint16_t th_tag_intern(const unsigned char *str, ptrdiff_t len, ptrdiff_t readable, uint8_t *flags) {
+    uint64_t key = th_tag_key(str, len, readable);
+    uint16_t atom = key != 0 ? th_tag_key_atom(key) : th_tag_hash_atom(str, len);
+    *flags = th_tag_atom_flags[atom];
     return atom;
 }
 
