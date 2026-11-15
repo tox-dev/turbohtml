@@ -827,20 +827,39 @@ typedef struct {
     Py_ssize_t name_len;
     const Py_UCS4 *uri;
     Py_ssize_t uri_len;
+    uint32_t uri_id; /* stands for the uri text among the names one xslt_number_walk tallies; 0 without a uri */
 } xslt_number_name;
+
+/* A namespace declaration in scope, with the integer number_uri_id gave its value. */
+typedef struct {
+    const th_node_attr *attr;
+    uint32_t uri_id;
+} xslt_number_binding;
 
 typedef struct {
     const th_node *node;
     uint32_t atom;
-    const th_node_attr *previous;
+    xslt_number_binding previous;
 } xslt_number_scope;
+
+/* A distinct namespace name the index has seen declared. */
+typedef struct {
+    const Py_UCS4 *text;
+    Py_ssize_t len;
+    uint32_t hash;
+    uint32_t id; /* 0 marks a free slot */
+} xslt_number_uri;
 
 typedef struct {
     th_node_map positions;
     xslt_number_name *names;
     size_t name_capacity;
-    const th_node_attr **bindings;
+    xslt_number_binding *bindings;
     size_t binding_capacity;
+    xslt_number_uri *uris;
+    size_t uri_capacity;
+    size_t uri_count;
+    uint64_t uri_seed;
     xslt_number_scope *scope;
     size_t scope_count;
     size_t scope_capacity;
@@ -855,8 +874,32 @@ typedef struct {
     long value;
     const Py_UCS4 *count_pattern;
     const Py_UCS4 *from_pattern;
-    xslt_number_name name;
 } xslt_number_prefix;
+
+/* How many nodes of one expanded name a level="any" walk has passed since its last from match. */
+typedef struct {
+    xslt_number_name name;
+    long count; /* 0 marks a free slot */
+    long epoch;
+    uint32_t hash;
+} xslt_number_tally;
+
+/* The level="any" walk of a default count: it numbers every node it passes among the nodes of that node's own
+   expanded name, so one pass over the document serves every name and the order the names arrive in costs nothing. */
+typedef struct {
+    th_node_map positions;
+    th_node *last;
+    xslt_number_tally *tallies;
+    xslt_number_tally *recent;
+    const th_node *recent_source;
+    size_t tally_capacity;
+    size_t tally_count;
+    uint64_t seed; /* salt so chosen names cannot flood one slot of tallies */
+    long epoch;    /* the from matches passed: a tally of an earlier epoch has been reset */
+    const Py_UCS4 *from_pattern;
+    int indexed;  /* whether the walk resolved its names through number_index */
+    int repeated; /* whether a call came before: the first is answered by counting backwards, without the walk */
+} xslt_number_walk;
 
 /* A source text node detached by whitespace stripping (section 3.4), kept so the caller's
    tree is restored to its original shape after the transform returns. */
@@ -970,11 +1013,9 @@ typedef struct engine {
     xslt_number_match number_count_match;
     xslt_number_match number_from_match;
     xslt_number_prefix explicit_any;
+    xslt_number_walk default_any;
+    xslt_number_walk from_any;
 
-    th_node_map any_positions;
-    th_node *any_last;
-    long any_count;
-    xslt_number_name any_name;
     xslt_number_name current_number_name;
     const th_node *current_number_node;
     uint32_t default_namespace_atom;
@@ -3718,6 +3759,84 @@ static int number_namespace_atom(engine *eng, const th_node *node, const xslt_nu
     return 0;
 }
 
+/* Salted FNV-1a finished with the splitmix64 mix, as the XML parser hashes the names of its own tables
+   (tokenizer/xml.c): the source document picks the names and namespaces hashed here, and unsalted ones could be
+   chosen to share a slot. Python's randomized bytes hash is the salt: unpredictable per process, yet fixed under
+   PYTHONHASHSEED. */
+static int number_hash_seed(uint64_t *seed) {
+    PyObject *salt = PyBytes_FromStringAndSize("turbohtml:xslt-number", 21);
+    if (salt == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    *seed = (uint64_t)PyObject_Hash(salt) ^ UINT64_C(14695981039346656037);
+    Py_DECREF(salt);
+    return 0;
+}
+
+static uint64_t number_hash_text(uint64_t hash, const Py_UCS4 *text, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hash = (hash ^ text[index]) * UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static uint32_t number_hash_finish(uint64_t hash) {
+    hash = (hash ^ (hash >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94D049BB133111EB);
+    return (uint32_t)(hash ^ (hash >> 31));
+}
+
+static xslt_number_uri *number_uri_slot(xslt_number_uri *uris, size_t capacity, uint32_t hash, const Py_UCS4 *text,
+                                        Py_ssize_t len) {
+    size_t slot = th_hash_slot(hash, capacity);
+    while (uris[slot].id != 0 && !str_eq(uris[slot].text, uris[slot].len, text, len)) {
+        slot = (slot + 1) & (capacity - 1);
+    }
+    return &uris[slot];
+}
+
+/* Give a namespace name the integer that stands for it in this index: equal texts get equal integers, so a walk
+   over the document compares and hashes an element's namespace without reading its text again. The text is read
+   here, once per declaration. Returns -1 on allocation failure. */
+static int number_uri_id(xslt_number_index *index, const Py_UCS4 *text, Py_ssize_t len, uint32_t *id) {
+    if (len == 0) {
+        *id = 0;
+        return 0;
+    }
+    if (index->uri_count == index->uri_capacity / 2) {
+        if (index->uris == NULL && number_hash_seed(&index->uri_seed) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                       /* GCOVR_EXCL_LINE */
+        }
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation failure */
+        if (!th_grow_cap(index->uri_capacity + 1, index->uri_capacity, 16, sizeof(*index->uris), &capacity, &bytes)) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        xslt_number_uri *uris = PyMem_Calloc(1, bytes);
+        if (uris == NULL) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        for (size_t slot = 0; slot < index->uri_capacity; slot++) {
+            const xslt_number_uri *uri = &index->uris[slot];
+            if (uri->id != 0) {
+                *number_uri_slot(uris, capacity, uri->hash, uri->text, uri->len) = *uri;
+            }
+        }
+        PyMem_Free(index->uris);
+        index->uris = uris;
+        index->uri_capacity = capacity;
+    }
+    const uint32_t hash = number_hash_finish(number_hash_text(index->uri_seed, text, len));
+    xslt_number_uri *uri = number_uri_slot(index->uris, index->uri_capacity, hash, text, len);
+    if (uri->id == 0) {
+        *uri = (xslt_number_uri){text, len, hash, (uint32_t)++index->uri_count};
+    }
+    *id = uri->id;
+    return 0;
+}
+
 static int number_namespace_enter(engine *eng, const th_node *node) {
     xslt_number_index *index = &eng->number_index;
     for (Py_ssize_t offset = 0; offset < node->attr_count; offset++) {
@@ -3735,7 +3854,7 @@ static int number_namespace_enter(engine *eng, const th_node *node) {
                              &capacity, &bytes)) {
                 return -1; /* GCOVR_EXCL_LINE */
             }
-            const th_node_attr **grown = PyMem_Realloc(index->bindings, bytes);
+            xslt_number_binding *grown = PyMem_Realloc(index->bindings, bytes);
             if (grown == NULL) {
                 return -1; /* GCOVR_EXCL_LINE */
             }
@@ -3760,12 +3879,20 @@ static int number_namespace_enter(engine *eng, const th_node *node) {
             index->scope = grown;
             index->scope_capacity = capacity;
         }
+        uint32_t uri_id;
+        if (number_uri_id(index, attr->value, attr->value_len, &uri_id) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                         /* GCOVR_EXCL_LINE */
+        }
         index->scope[index->scope_count++] =
             (xslt_number_scope){node, attr->name_atom, index->bindings[attr->name_atom]};
-        index->bindings[attr->name_atom] = attr;
+        index->bindings[attr->name_atom] = (xslt_number_binding){attr, uri_id};
     }
     return 0;
 }
+
+static const Py_UCS4 number_xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w', 'w', 'w', '.', 'w',
+                                         '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
+                                         '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
 
 static int number_index_add(engine *eng, const th_node *node) {
     xslt_number_index *index = &eng->number_index;
@@ -3776,25 +3903,29 @@ static int number_index_add(engine *eng, const th_node *node) {
     if (node->ns != TH_NS_HTML) {
         name.ns = node->ns;
     } else if (name.name - node->text == 4 && ucs4_ascii_eq(node->text, 3, "xml")) {
-        static const Py_UCS4 xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w', 'w', 'w', '.', 'w',
-                                          '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
-                                          '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
-        name.uri = xml_uri;
-        name.uri_len = sizeof(xml_uri) / sizeof(xml_uri[0]);
+        name.uri = number_xml_uri;
+        name.uri_len = sizeof(number_xml_uri) / sizeof(number_xml_uri[0]);
+        /* interned like a declared one, so a prefix a document binds to this name tallies with xml: */
+        if (number_uri_id(index, name.uri, name.uri_len, &name.uri_id) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                        /* GCOVR_EXCL_LINE */
+        }
     } else {
         uint32_t atom;
         if (number_namespace_atom(eng, node, &name, &atom) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;                                            /* GCOVR_EXCL_LINE */
         }
-        if (atom < index->binding_capacity && index->bindings[atom] != NULL) {
-            name.uri = index->bindings[atom]->value;
-            name.uri_len = index->bindings[atom]->value_len;
+        if (atom < index->binding_capacity && index->bindings[atom].attr != NULL) {
+            name.uri = index->bindings[atom].attr->value;
+            name.uri_len = index->bindings[atom].attr->value_len;
+            name.uri_id = index->bindings[atom].uri_id;
             if (ucs4_ascii_eq(name.uri, name.uri_len, XP_SVG_NS_URI)) {
                 name.ns = TH_NS_SVG;
                 name.uri_len = 0;
+                name.uri_id = 0;
             } else if (ucs4_ascii_eq(name.uri, name.uri_len, XP_MATHML_NS_URI)) {
                 name.ns = TH_NS_MATHML;
                 name.uri_len = 0;
+                name.uri_id = 0;
             }
         }
     }
@@ -3861,6 +3992,22 @@ static xslt_number_name number_name(const engine *eng, const th_node *node) {
         return eng->number_index.names[position - 1];
     }
     return number_local_name(eng, node);
+}
+
+/* The expanded name a default count knows node by: node counts for the current node when this equals
+   current_number_name. Without a namespace index no prefix is bound but the reserved xml one. */
+static xslt_number_name number_default_name(const engine *eng, const th_node *node) {
+    if (node->type != TH_NODE_ELEMENT || eng->number_index.positions.count != 0) {
+        return number_name(eng, node);
+    }
+    xslt_number_name name = number_local_name(eng, node);
+    name.ns = node->ns;
+    if (node->ns == TH_NS_HTML && name.name - node->text == 4 && ucs4_ascii_eq(node->text, 3, "xml")) {
+        name.uri = number_xml_uri;
+        name.uri_len = sizeof(number_xml_uri) / sizeof(number_xml_uri[0]);
+        name.uri_id = 1; /* the one namespace a document without declarations can name */
+    }
+    return name;
 }
 
 static const Py_UCS4 *pattern_namespace(th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
@@ -3996,15 +4143,7 @@ static int number_names_equal(const xslt_number_name *left, const xslt_number_na
 }
 
 static int number_counts_name(const engine *eng, const th_node *node) {
-    if (node->type == TH_NODE_ELEMENT && eng->number_index.positions.count == 0) {
-        xslt_number_name name = number_local_name(eng, node);
-        if (node->ns == TH_NS_HTML && name.name - node->text == 4 && ucs4_ascii_eq(node->text, 3, "xml")) {
-            return 0;
-        }
-        return node->ns == eng->current_number_name.ns && name.name_len == eng->current_number_name.name_len &&
-               memcmp(name.name, eng->current_number_name.name, (size_t)name.name_len * sizeof(Py_UCS4)) == 0;
-    }
-    xslt_number_name name = number_name(eng, node);
+    xslt_number_name name = number_default_name(eng, node);
     return number_names_equal(&name, &eng->current_number_name);
 }
 
@@ -4073,46 +4212,6 @@ static th_node *doc_next(th_node *node) {
     return NULL; /* GCOVR_EXCL_LINE */
 }
 
-static int default_any_number(engine *eng, long *out) {
-    int repeated = number_names_equal(&eng->any_name, &eng->current_number_name);
-    if (!repeated) {
-        PyMem_Free(eng->any_positions.entries);
-        eng->any_positions = (th_node_map){0};
-        eng->any_last = NULL;
-        eng->any_count = 0;
-        eng->any_name = eng->current_number_name;
-    }
-    if (eng->any_last == eng->cur_node) {
-        *out = eng->any_count;
-        return 0;
-    }
-    Py_ssize_t position = th_node_map_find(&eng->any_positions, eng->cur_node);
-    if (position != 0) {
-        *out = (long)position;
-        return 0;
-    }
-    long count = eng->any_positions.entries == NULL ? 0 : eng->any_count;
-    th_node *node = eng->any_positions.entries == NULL ? eng->src_root : doc_next(eng->any_last);
-    for (;; node = doc_next(node)) {
-        if (number_counts(eng, NULL, 0, node)) {
-            count++;
-            /* One numbering call does not amortize a document index. */
-            if (repeated) {
-                if (th_node_map_insert(&eng->any_positions, node, count) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
-                    PyErr_NoMemory();                                           /* GCOVR_EXCL_LINE */
-                    return fail_py(eng);                                        /* GCOVR_EXCL_LINE */
-                }
-            }
-        }
-        if (node == eng->cur_node) {
-            eng->any_last = node;
-            eng->any_count = count;
-            *out = count;
-            return 0;
-        }
-    }
-}
-
 static long unindexed_any_number(const engine *eng, const match_set *count_matches, int have_count,
                                  const match_set *from_matches, int have_from) {
     long counter = 0;
@@ -4134,17 +4233,162 @@ static long unindexed_any_number(const engine *eng, const match_set *count_match
     }
 }
 
+/* The names a walk tallies all come from number_default_name in one state of the namespace index, where uri_id
+   stands for the uri: reading the uri text here would cost its length at every element the walk passes. */
+static uint32_t number_name_hash(uint64_t seed, const xslt_number_name *name) {
+    uint64_t hash = seed;
+    hash = (hash ^ (uint64_t)name->type) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)name->ns) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)name->uri_id) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)name->name_len) * UINT64_C(1099511628211);
+    return number_hash_finish(number_hash_text(hash, name->name, name->name_len));
+}
+
+static int number_tally_names(const xslt_number_name *left, const xslt_number_name *right) {
+    const Py_ssize_t differs = (left->type ^ right->type) | (left->ns ^ right->ns) |
+                               (Py_ssize_t)(left->uri_id ^ right->uri_id) | (left->name_len ^ right->name_len);
+    return differs == 0 &&
+           (left->name_len == 0 || memcmp(left->name, right->name, (size_t)left->name_len * sizeof(Py_UCS4)) == 0);
+}
+
+static xslt_number_tally *number_tally_slot(xslt_number_tally *tallies, size_t capacity, uint32_t hash,
+                                            const xslt_number_name *name) {
+    size_t slot = th_hash_slot(hash, capacity);
+    while (tallies[slot].count != 0 && !number_tally_names(&tallies[slot].name, name)) {
+        slot = (slot + 1) & (capacity - 1);
+    }
+    return &tallies[slot];
+}
+
+static int number_tallies_grow(xslt_number_walk *walk) {
+    if (walk->tallies == NULL && number_hash_seed(&walk->seed) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                    /* GCOVR_EXCL_LINE */
+    }
+    size_t capacity;
+    size_t bytes;
+    /* GCOVR_EXCL_BR_START: alloc */
+    if (!th_grow_cap(walk->tally_capacity + 1, walk->tally_capacity, 32, sizeof(*walk->tallies), &capacity, &bytes)) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    xslt_number_tally *tallies = PyMem_Calloc(1, bytes);
+    if (tallies == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    for (size_t index = 0; index < walk->tally_capacity; index++) {
+        const xslt_number_tally *tally = &walk->tallies[index];
+        if (tally->count != 0) {
+            *number_tally_slot(tallies, capacity, tally->hash, &tally->name) = *tally;
+        }
+    }
+    PyMem_Free(walk->tallies);
+    walk->tallies = tallies;
+    walk->tally_capacity = capacity;
+    return 0;
+}
+
+static void number_walk_free(xslt_number_walk *walk) {
+    PyMem_Free(walk->positions.entries);
+    PyMem_Free(walk->tallies);
+}
+
+/* Without the namespace index an element's expanded name is a function of its namespace and its text alone, so an
+   element spelled like the recent source shares its tally without resolving the name again. Every walk starts at the
+   document node, so a recent source is set before the first element arrives. */
+static int number_repeats_source(const xslt_number_walk *walk, const th_node *node) {
+    const th_node *source = walk->recent_source;
+    return ((node->type ^ source->type) | (node->ns ^ source->ns) | (node->text_len ^ source->text_len)) == 0 &&
+           memcmp(node->text, source->text, (size_t)node->text_len * sizeof(Py_UCS4)) == 0;
+}
+
+/* Number node among the nodes of its expanded name the walk has passed since the last from match. Returns the
+   number, or -1 on allocation failure. */
+static long number_walk_step(engine *eng, xslt_number_walk *walk, const th_node *node) {
+    /* number_name expects every element it is asked about to be in the namespace index, which so far reaches the
+       last element numbered or tested by a pattern: the walk to a comment or text node passes elements beyond it. */
+    if (walk->indexed && node->type == TH_NODE_ELEMENT) {
+        if (number_index_extend(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                            /* GCOVR_EXCL_LINE */
+        }
+    }
+    xslt_number_tally *tally = walk->recent;
+    if (eng->number_index.positions.count != 0 || node->type != TH_NODE_ELEMENT || !number_repeats_source(walk, node)) {
+        const xslt_number_name name = number_default_name(eng, node);
+        tally = walk->recent;
+        if (tally == NULL || !number_tally_names(&tally->name, &name)) {
+            if (walk->tally_count == walk->tally_capacity / 2) {
+                if (number_tallies_grow(walk) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                       /* GCOVR_EXCL_LINE */
+                }
+            }
+            const uint32_t hash = number_name_hash(walk->seed, &name);
+            tally = number_tally_slot(walk->tallies, walk->tally_capacity, hash, &name);
+            if (tally->count == 0) {
+                tally->name = name;
+                tally->hash = hash;
+                walk->tally_count++;
+            }
+            walk->recent = tally;
+        }
+        walk->recent_source = node;
+    }
+    if (tally->epoch != walk->epoch) {
+        tally->epoch = walk->epoch;
+        tally->count = 0;
+    }
+    return ++tally->count;
+}
+
+/* level="any" with the default count, back to the nearest match of from_pattern when there is one. The walk keeps
+   a tally per expanded name, not the tally of the name numbered last: a document that alternates two numbered
+   names would otherwise restart it at every node. */
+static int default_any_number(engine *eng, xslt_number_walk *walk, const Py_UCS4 *from_pattern, long *out) {
+    const int indexed = eng->number_index.positions.count != 0;
+    /* Names resolved before the namespace index existed do not compare with the ones resolved through it. */
+    if (walk->from_pattern != from_pattern || walk->indexed != indexed) {
+        number_walk_free(walk);
+        *walk = (xslt_number_walk){.from_pattern = from_pattern, .indexed = indexed};
+    }
+    Py_ssize_t position = th_node_map_find(&walk->positions, eng->cur_node);
+    if (position != 0) {
+        *out = (long)position;
+        return 0;
+    }
+    /* One numbering call does not amortize a document index. */
+    if (!walk->repeated) {
+        walk->repeated = 1;
+        *out = unindexed_any_number(eng, NULL, 0, &eng->number_from_match.matched, from_pattern != NULL);
+        return 0;
+    }
+    th_node *node = walk->last == NULL ? eng->src_root : doc_next(walk->last);
+    for (;; node = doc_next(node)) {
+        TH_WORK_STEP();
+        if (from_pattern != NULL && match_set_has(&eng->number_from_match.matched, node, -1)) {
+            walk->epoch++;
+        }
+        const long number = number_walk_step(eng, walk, node);
+        /* GCOVR_EXCL_BR_START: alloc */
+        if (number < 0 || th_node_map_insert(&walk->positions, node, (Py_ssize_t)number) < 0) {
+            PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
+            return fail_py(eng); /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        if (node == eng->cur_node) {
+            walk->last = node;
+            *out = number;
+            return 0;
+        }
+    }
+}
+
 static int explicit_any_number(engine *eng, const Py_UCS4 *count_pattern, const Py_UCS4 *from_pattern, long *out) {
     xslt_number_prefix *cache = &eng->explicit_any;
-    int repeated = cache->last != NULL && cache->count_pattern == count_pattern &&
-                   cache->from_pattern == from_pattern &&
-                   (count_pattern != NULL || number_names_equal(&cache->name, &eng->current_number_name));
+    int repeated = cache->last != NULL && cache->count_pattern == count_pattern && cache->from_pattern == from_pattern;
     if (!repeated) {
         PyMem_Free(cache->positions.entries);
-        *cache = (xslt_number_prefix){
-            .count_pattern = count_pattern, .from_pattern = from_pattern, .name = eng->current_number_name};
-        cache->value = unindexed_any_number(eng, &eng->number_count_match.matched, count_pattern != NULL,
-                                            &eng->number_from_match.matched, from_pattern != NULL);
+        *cache = (xslt_number_prefix){.count_pattern = count_pattern, .from_pattern = from_pattern};
+        cache->value = unindexed_any_number(eng, &eng->number_count_match.matched, 1, &eng->number_from_match.matched,
+                                            from_pattern != NULL);
         cache->last = eng->cur_node;
         *out = cache->value;
         return 0;
@@ -4164,7 +4408,7 @@ static int explicit_any_number(engine *eng, const Py_UCS4 *count_pattern, const 
         if (from_pattern != NULL && match_set_has(&eng->number_from_match.matched, node, -1)) {
             counter = 0;
         }
-        if (number_counts(eng, &eng->number_count_match.matched, count_pattern != NULL, node)) {
+        if (number_counts(eng, &eng->number_count_match.matched, 1, node)) {
             counter++;
         }
         /* Unmatched nodes can number zero; reserve zero for absent map entries. */
@@ -4262,13 +4506,14 @@ static int remember_number_node(engine *eng) {
 /* level="any": how many counted nodes precede the current one in document order, back to the nearest from match. */
 static int number_any(engine *eng, const match_set *count_matches, int have_count, const match_set *from_matches,
                       int have_from, long *counter) {
-    if (!have_count && !have_from) {
-        return default_any_number(eng, counter);
-    }
-    if ((!have_count || count_matches == &eng->number_count_match.matched) &&
-        (!have_from || from_matches == &eng->number_from_match.matched)) {
-        return explicit_any_number(eng, have_count ? eng->number_count_match.source : NULL,
-                                   have_from ? eng->number_from_match.source : NULL, counter);
+    if (!have_from || from_matches == &eng->number_from_match.matched) {
+        const Py_UCS4 *from_pattern = have_from ? eng->number_from_match.source : NULL;
+        if (!have_count) {
+            return default_any_number(eng, have_from ? &eng->from_any : &eng->default_any, from_pattern, counter);
+        }
+        if (count_matches == &eng->number_count_match.matched) {
+            return explicit_any_number(eng, eng->number_count_match.source, from_pattern, counter);
+        }
     }
     *counter = unindexed_any_number(eng, count_matches, have_count, from_matches, have_from);
     return 0;
@@ -6159,10 +6404,12 @@ static void engine_clear(engine *eng) {
     match_set_free(&eng->number_count_match.matched);
     match_set_free(&eng->number_from_match.matched);
     PyMem_Free(eng->explicit_any.positions.entries);
-    PyMem_Free(eng->any_positions.entries);
+    number_walk_free(&eng->default_any);
+    number_walk_free(&eng->from_any);
     PyMem_Free(eng->number_index.positions.entries);
     PyMem_Free(eng->number_index.names);
     PyMem_Free(eng->number_index.bindings);
+    PyMem_Free(eng->number_index.uris);
     PyMem_Free(eng->number_index.scope);
     PyMem_Free(eng->number_index.prefix);
     for (Py_ssize_t index = 0; index < eng->nrules; index++) {
@@ -6255,10 +6502,8 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->number_count_match = (xslt_number_match){0};
     eng->number_from_match = (xslt_number_match){0};
     eng->explicit_any = (xslt_number_prefix){0};
-    eng->any_positions = (th_node_map){0};
-    eng->any_last = NULL;
-    eng->any_count = 0;
-    eng->any_name = (xslt_number_name){.type = -1};
+    eng->default_any = (xslt_number_walk){0};
+    eng->from_any = (xslt_number_walk){0};
     eng->number_namespaces = -1;
     eng->current_number_node = NULL;
     eng->number_index = (xslt_number_index){0};

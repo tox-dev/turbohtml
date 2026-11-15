@@ -5077,6 +5077,108 @@ def test_number_any_visit_order(
 
 
 @pytest.mark.parametrize(
+    ("source", "instructions", "expected"),
+    [
+        pytest.param(
+            f"<root>{'<item/><note/>' * 40}</root>",
+            '<xsl:number level="any"/>',
+            "".join(f"{index}|{index}|" for index in range(1, 41)),
+            id="alternating-names",
+        ),
+        pytest.param(
+            f"<root>{''.join(f'<n{index}/>' for index in range(100)) * 2}</root>",
+            '<xsl:number level="any"/>',
+            "1|" * 100 + "2|" * 100,
+            id="many-names",
+        ),
+        pytest.param(
+            "<root><section><p/><q/><p/></section><section><q/><p/><q/></section></root>",
+            '<xsl:number level="any" from="section"/>',
+            "1|1|1|2|1|1|1|2|",
+            id="from-resets-every-name",
+        ),
+        pytest.param(
+            "<root><section><p/><q/><p/></section><section><q/><p/><q/></section></root>",
+            '<xsl:number level="any"/>/<xsl:number level="any" from="section"/>',
+            "1/1|1/1|1/1|2/2|2/1|2/1|3/1|3/2|",
+            id="default-beside-from",
+        ),
+        pytest.param(
+            "<root><section><p/><q/><p/></section><section><q/><p/><q/></section></root>",
+            '<xsl:number level="any" from="section"/>/<xsl:number level="any" from="root"/>',
+            "1/1|1/1|1/1|2/2|1/2|1/2|1/3|2/3|",
+            id="two-from-patterns",
+        ),
+    ],
+)
+def test_number_any_default_count_over_interleaved_names(
+    source: str, instructions: str, expected: str, prefix_transform: Callable[[str, str], Transform]
+) -> None:
+    transform: Final = prefix_transform(
+        f'<xsl:for-each select="root//*">{instructions}<xsl:text>|</xsl:text></xsl:for-each>', ""
+    )
+    assert transform(parse_xml(source)) == expected
+
+
+def test_number_any_default_count_renumbers_once_names_carry_namespaces(
+    prefix_transform: Callable[[str, str], Transform],
+) -> None:
+    # the comments are numbered before any element name has been resolved against the namespace declarations
+    transform: Final = prefix_transform(
+        "".join(
+            f'<xsl:for-each select="{select}"><xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>'
+            for select in ("//comment()", "//*[not(*)]")
+        ),
+        "",
+    )
+    assert transform(parse_xml('<root xmlns="urn:x"><!--a--><p/><!--b--><p/><!--c--><p/></root>')) == "1|2|3|1|2|3|"
+
+
+def test_number_any_default_count_walks_past_elements_not_yet_named(
+    prefix_transform: Callable[[str, str], Transform],
+) -> None:
+    # numbering the first p resolves the element names up to it only; the comments lie beyond the q elements after it
+    transform: Final = prefix_transform(
+        "".join(
+            f'<xsl:for-each select="{select}"><xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>'
+            for select in ("//*[local-name() = 'p']", "//comment()", "//*[local-name() = 'q']")
+        ),
+        "",
+    )
+    source: Final = '<root xmlns="urn:x"><p/><!--a--><q/><q/><!--b--><q/><!--c--></root>'
+    assert transform(parse_xml(source)) == "1|1|2|3|1|2|3|"
+
+
+@pytest.mark.parametrize(
+    ("declarations", "pair"),
+    [
+        pytest.param("", "<item/><note/>", id="names"),
+        pytest.param(' xmlns:p="urn:p" xmlns:q="urn:q"', "<p:item/><q:note/>", id="prefixes"),
+    ],
+)
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        pytest.param('<xsl:number level="any"/>', id="default"),
+        pytest.param('<xsl:number level="any" from="list"/>', id="from"),
+    ],
+)
+def test_number_any_default_count_over_interleaved_names_scales_linearly(
+    declarations: str,
+    pair: str,
+    instruction: str,
+    prefix_transform: Callable[[str, str], Transform],
+    work_steps: WorkSteps,
+) -> None:
+    transform: Final = prefix_transform(
+        f'<xsl:for-each select="list/*">{instruction}<xsl:text>|</xsl:text></xsl:for-each>', ""
+    )
+    work_steps.assert_linear(
+        lambda pairs: partial(transform, parse_xml(f"<list{declarations}>{pair * pairs}</list>")), (300, 1200)
+    )
+
+
+@pytest.mark.parametrize(
     ("sort", "expected"),
     [
         pytest.param("", ["1|2|3|", "1|", "1|2|"], id="forward"),
