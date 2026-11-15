@@ -3186,6 +3186,15 @@ def test_schema_with_unnamespaced_sequence_is_not_recognized() -> None:
     assert not xsd_ok(schema, "<r><a>x</a></r>")
 
 
+def test_all_with_unnamespaced_element_declares_nothing() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'
+        '<element name="a"/></xs:all></xs:complexType></xs:element></xs:schema>'
+    )
+    assert xsd_ok(schema, "<r/>")
+    assert not xsd_ok(schema, "<r><a/></r>")
+
+
 def test_simple_typed_element_with_text_and_element_child() -> None:
     schema = f'<xs:schema {_XS}><xs:element name="v" type="xs:string"/></xs:schema>'
     assert not xsd_ok(schema, "<v>text<child/>more</v>")
