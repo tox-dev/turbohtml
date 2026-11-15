@@ -1777,8 +1777,8 @@ static TH_NOINLINE void rw_mirror_close(rw_ctx *ctx) {
 /* Hold a closed spine element for rw_mirror_close; frees it instead when it cannot grow the list. */
 static void rw_mirror_hold(rw_ctx *ctx, const rw_open *open) {
     if (ctx->closing_len == ctx->closing_cap) {
-        size_t cap;
-        size_t bytes;
+        size_t cap = 0;
+        size_t bytes = 0;
         /* the spine depth bounds the list, so the size never overflows */
         th_grow_cap((size_t)(ctx->closing_len + 1), (size_t)ctx->closing_cap, 8, sizeof(rw_closed), &cap, &bytes);
         rw_closed *grown = PyMem_Realloc(ctx->closing, bytes);
