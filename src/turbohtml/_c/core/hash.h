@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/hash_limits.h"
 #include "core/work_steps.h"
 
 /* The 128-bit key, defined and set once per process in core/module.c. */
@@ -40,13 +41,8 @@ uint32_t th_name_hash(const void *data, Py_ssize_t len);
    th_name_hash costs its rounds. FNV-1a is fixed, so a document can still pick names that share one run of
    slots. Each table therefore watches its runs, and once one passes the limit the table rehashes its
    entries under th_name_hash for the rest of its life. Up to that point a probe walks at most the limit,
-   and past it the key decides the slots, so a document can buy one bounded rehash and nothing quadratic.
-
-   A table kept at most half full uses TH_FAST_PROBE_LIMIT, and one filled to 3/4 uses TH_FAST_RUN_LIMIT,
-   since runs of random names grow longer there. Both sit above the longest run random names reach in all
-   but rare large tables, so ordinary documents stay on FNV-1a. */
-#define TH_FAST_PROBE_LIMIT 64
-#define TH_FAST_RUN_LIMIT (2 * TH_FAST_PROBE_LIMIT)
+   and past it the key decides the slots, so a document can buy one bounded rehash and nothing quadratic. The
+   limits are TH_FAST_PROBE_LIMIT and TH_FAST_RUN_LIMIT, in core/hash_limits.h. */
 
 #ifndef TH_NOINLINE
 #if defined(_MSC_VER)
