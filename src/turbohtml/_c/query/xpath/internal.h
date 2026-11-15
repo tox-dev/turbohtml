@@ -292,9 +292,10 @@ struct th_node *document_next(struct th_node *node);
 /* The document order the evaluation's sort uses (eval.c), also for the functions that read a node-set member by
    member. A caller shares xp_order_budget(len) steps across one set of len items; xp_node_order answers negative when
    left precedes right and positive otherwise (the two are never the same node), and XP_ORDER_UNKNOWN once the walks
-   would spend more, so a set whose order the links settle only after long walks (a wide sibling list, a deep chain) is
-   ranked once instead. xp_first_out_of_order ranks one: it gives the first node item after start that does not follow
-   the node item before it, ignoring repeats of that node, else len, or -1 with MemoryError. */
+   would spend more or the nodes lie in separate trees, which no link orders. A set whose order the links settle only
+   after long walks (a wide sibling list, a deep chain) is ranked once instead. xp_first_out_of_order ranks one: it
+   gives the first node item after start that does not follow the node item before it, ignoring repeats of that node,
+   else len, or -1 with MemoryError. */
 #define XP_ORDER_UNKNOWN 2
 
 static inline Py_ssize_t xp_order_budget(Py_ssize_t len) {
