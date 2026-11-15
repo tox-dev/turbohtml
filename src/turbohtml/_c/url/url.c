@@ -14,6 +14,31 @@
 #include "core/ascii.h"
 #include "url/url.h"
 
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+
+/* Pins a hot URL function's entry to a cache line, so its loop padding does not shift when link-time partitioning
+   moves it. */
+#if defined(__GNUC__) || defined(__clang__)
+#define TH_LINE_ALIGNED __attribute__((aligned(64)))
+#else
+#define TH_LINE_ALIGNED
+#endif
+
+/* The coverage build compiles at -O0, where a forced copy in each caller would split gcov's branch counts. */
+#if defined(_MSC_VER)
+#define TH_JOIN_INLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_JOIN_INLINE inline __attribute__((always_inline))
+#else
+#define TH_JOIN_INLINE inline
+#endif
+
 /* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
    byte outside its set is UTF-8 percent-encoded. The special-query set drops ' and keeps `, while the non-special set
    keeps both. The path set keeps neither, the fragment set keeps ' but not `, and the opaque path set keeps printable
@@ -1254,11 +1279,40 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
     return result;
 }
 
+/* https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme other than file skips every
+   slash after the two that open the authority, so the host is read after all of them. With no host after them the
+   RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. `ref_parts` holds an
+   empty authority. Returns the joined URL (NULL with an exception when the allocation fails), or a borrowed Py_None
+   when the base is not special or no host follows the slashes, so the caller goes on with the RFC 3986 join. It tests
+   the base scheme itself and never writes either part, so the join keeps no extra value alive across the call for a
+   reference this rare. */
+static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_parts, const url_ref *ref_parts) {
+    if (!url_scheme_special(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end) ||
+        scheme_eq(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, "file")) {
+        return Py_None;
+    }
+    Py_ssize_t host_start = ref_parts->netloc_start;
+    while (host_start < ref_parts->path_end && url_slash(ref_parts->buf[host_start], 1)) {
+        host_start++;
+    }
+    Py_ssize_t host_end = authority_end(ref_parts->buf, host_start, ref_parts->path_end, 1, 1);
+    if (host_end <= host_start) {
+        return Py_None;
+    }
+    return build_url(base_parts->has_scheme, base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, 1,
+                     ref_parts->buf, host_start, host_end, ref_parts->buf, host_end, ref_parts->path_end,
+                     ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
+                     ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
+}
+
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
-   ported so base_url(), the extraction methods, and the extract_links shim resolve links in C rather than importing
-   urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or NULL with a ValueError set
-   when a host has an unbalanced IPv6 bracket. */
-static PyObject *join_url(PyObject *base, PyObject *target, int document) {
+   ported so the C entry points (th_url_join, th_url_join_link, th_url_document_join, and the c14n base join) resolve
+   links without importing urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or
+   NULL with a ValueError set when a host has an unbalanced IPv6 bracket. `link` reads the reference's host the way a
+   browser reads an HTML link's, skipping the slashes RFC 3986 takes for an empty authority and a rooted path. Forced
+   inline so th_url_join_link, the per-link join, gets its own copy with both flags folded to constants; the other
+   entry points share join_url. */
+static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, int document, int link) {
     int c14n = document == 2;
     if (PyUnicode_GET_LENGTH(base) == 0 && !c14n) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
@@ -1388,6 +1442,9 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
                            ref_parts.path_start, ref_parts.path_end, ref_parts.has_query, ref_parts.buf,
                            ref_parts.query_start, ref_parts.query_end, ref_parts.has_fragment, ref_parts.buf,
                            ref_parts.fragment_start, ref_parts.fragment_end);
+    } else if (link && ref_parts.has_netloc &&
+               (result = join_extra_slash_authority(&base_parts, &ref_parts)) != Py_None) {
+        /* a host followed the extra slashes, and the call above joined it */
     } else if (ref_parts.path_end == ref_parts.path_start) {
         int query_has = ref_parts.has_query;
         Py_ssize_t query_start = ref_parts.query_start;
@@ -1448,8 +1505,17 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
     return result;
 }
 
+static PyObject *join_url(PyObject *base, PyObject *target, int document, int link) {
+    return join_url_body(base, target, document, link);
+}
+
 PyObject *th_url_join(PyObject *base, PyObject *target) {
-    return join_url(base, target, 0);
+    return join_url(base, target, 0, 0);
+}
+
+/* resolve_links and extract_links run this join per link. Out of line so the callers' loops keep their own code. */
+TH_NOINLINE PyObject *th_url_join_link(PyObject *base, PyObject *target) {
+    return join_url_body(base, target, 0, 1);
 }
 
 static int c14n_appendable_target(PyObject *target) {
@@ -1521,7 +1587,7 @@ static PyObject *c14n_join_objects(PyObject *base, PyObject *target) {
         Py_DECREF(adjusted); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *joined = join_url(adjusted, reference, 2);
+    PyObject *joined = join_url(adjusted, reference, 2, 0);
     Py_DECREF(adjusted);
     Py_DECREF(reference);
     return joined;
@@ -1584,7 +1650,7 @@ PyObject *th_url_join_c14n_raw(const Py_UCS4 *base, Py_ssize_t base_len, PyObjec
 }
 
 PyObject *th_url_document_join(PyObject *base, PyObject *target) {
-    return join_url(base, target, 1);
+    return join_url(base, target, 1, 1);
 }
 
 static int file_drive(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end) {
@@ -1809,6 +1875,16 @@ PyObject *turbohtml_url_join(PyObject *Py_UNUSED(module), PyObject *args) {
     return th_url_join(base, target);
 }
 
+/* _url_join_link(base, target): _url_join for a link a browser follows, the resolver Node.resolve_links binds. */
+PyObject *turbohtml_url_join_link(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *base;
+    PyObject *target;
+    if (!PyArg_ParseTuple(args, "UU", &base, &target)) {
+        return NULL;
+    }
+    return th_url_join_link(base, target);
+}
+
 /* The tracking-parameter vocabulary. A crawl-oriented cleaner drops these query keys because they identify the
    referral, not the content, so two URLs differing only in them address the same page. Kept sorted so the exact-name
    test is a binary search. */
@@ -1986,7 +2062,7 @@ PyObject *th_url_literalize_dot_segments(PyObject *url) {
 
 /* _url_remove_dot_segments(path): resolve the "." and ".." segments of a path, in either their literal or %2E
    spelling, keeping every other segment's encoding verbatim. */
-static PyObject *remove_dot_segments(PyObject *arg, int file) {
+static TH_LINE_ALIGNED PyObject *remove_dot_segments(PyObject *arg, int file) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
     if (PyUnicode_FindChar(arg, '.', 0, len, 1) == -1 && PyUnicode_FindChar(arg, '%', 0, len, 1) == -1) {
         return Py_NewRef(arg);
@@ -2278,8 +2354,8 @@ PyObject *turbohtml_url_normalize_query(PyObject *Py_UNUSED(module), PyObject *a
     return th_url_normalize_query(query, allow, deny, strict, content, language, TH_URL_SET_QUERY);
 }
 
-PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict, PyObject *content,
-                                 PyObject *language, int set_id) {
+TH_LINE_ALIGNED PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict,
+                                                 PyObject *content, PyObject *language, int set_id) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(query);
     int kind = PyUnicode_KIND(query);
     const void *data = PyUnicode_DATA(query);

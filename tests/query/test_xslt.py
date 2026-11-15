@@ -1734,15 +1734,13 @@ def test_transform_key_use_evaluation_error() -> None:
 _KEY_LOOKUP: Final[str] = """<xsl:template match="/"><xsl:value-of select="count(key('k0', 'x'))"/></xsl:template>"""
 
 
-def _key_chain(links: int) -> str:
-    chain = "".join(
-        f"""<xsl:key name="k{index}" match="a" use="key('k{index + 1}', .)"/>""" for index in range(links)
-    )
-    return f'{chain}<xsl:key name="k{links}" match="a" use="."/>'
-
-
 def test_transform_key_use_builds_the_key_it_calls() -> None:
     assert _run("<r><a>x</a><a>y</a></r>", _key_chain(3) + _KEY_LOOKUP) == "1"
+
+
+def _key_chain(links: int) -> str:
+    chain = "".join(f"""<xsl:key name="k{index}" match="a" use="key('k{index + 1}', .)"/>""" for index in range(links))
+    return f'{chain}<xsl:key name="k{links}" match="a" use="."/>'
 
 
 def test_transform_key_use_chain_is_depth_limited() -> None:
@@ -2984,6 +2982,18 @@ _CYCLE_HINT: Final[str] = "; remove one of these use-attribute-sets references"
             id="cycle-below-entry",
         ),
         pytest.param(
+            '<xsl:attribute-set name="s"/><xsl:attribute-set name="s" use-attribute-sets="t"/>'
+            '<xsl:attribute-set name="t" use-attribute-sets="s"/>',
+            f"ValueError: circular xsl:attribute-set reference: s -> t -> s{_CYCLE_HINT}",
+            id="cycle-through-redefinition",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="s" use-attribute-sets="t"/><xsl:attribute-set name="s"/>'
+            '<xsl:attribute-set name="t" use-attribute-sets="s"/>',
+            f"ValueError: circular xsl:attribute-set reference: s -> t -> s{_CYCLE_HINT}",
+            id="cycle-through-earlier-definition",
+        ),
+        pytest.param(
             f"""{
                 "".join(
                     f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
@@ -3055,6 +3065,44 @@ def test_transform_attribute_set_shared_by_siblings_is_not_a_cycle() -> None:
         '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
     )
     assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1"/>'
+
+
+_LAST_T_DEFINITION: Final[str] = (
+    '<xsl:attribute-set name="t"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+)
+_ROOT_TEMPLATE: Final[str] = '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
+
+
+def _repeated_references(count: int) -> str:
+    definitions = '<xsl:attribute-set name="t"/>' * count
+    uses = "t " * count
+    return f'{definitions}{_LAST_T_DEFINITION}<xsl:attribute-set name="s" use-attribute-sets="{uses}"/>{_ROOT_TEMPLATE}'
+
+
+def _redefined_users(count: int) -> str:
+    definitions = '<xsl:attribute-set name="t"/>' * count
+    users = '<xsl:attribute-set name="u" use-attribute-sets="t"/>' * count
+    return (
+        f'{definitions}{_LAST_T_DEFINITION}{users}<xsl:attribute-set name="s" use-attribute-sets="u"/>{_ROOT_TEMPLATE}'
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_repeated_references, id="name-repeated"),
+        pytest.param(_redefined_users, id="users-redefined"),
+    ],
+)
+def test_transform_attribute_set_redefinitions_scale_linearly(
+    build: Callable[[int], str], work_steps: WorkSteps
+) -> None:
+    assert _collapse(_run("<r/>", build(3), method="xml")) == '<out a="1"/>'
+
+    def transform_call(count: int) -> Callable[[], object]:
+        return partial(Transform(_sheet(build(count), method="xml")), parse_xml("<r/>"))
+
+    work_steps.assert_linear(transform_call, (300, 1200))
 
 
 def test_transform_namespace_alias_remaps_result_namespace() -> None:
@@ -5465,6 +5513,24 @@ def test_transform_strip_space_reaches_deep_descendants_and_restores_source() ->
             '<item xsl:use-attribute-sets="target"/>',
             '<out><item c="3" a="1" b="2"/></out>',
             id="attribute-set-duplicates-and-chain",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="target"><xsl:attribute name="a">1</xsl:attribute>'
+            '<xsl:attribute name="b">1</xsl:attribute></xsl:attribute-set>'
+            '<xsl:attribute-set name="other"><xsl:attribute name="a">2</xsl:attribute>'
+            '<xsl:attribute name="b">2</xsl:attribute></xsl:attribute-set>'
+            '<xsl:attribute-set name="target"><xsl:attribute name="b">3</xsl:attribute></xsl:attribute-set>',
+            '<item xsl:use-attribute-sets="target other target"/>',
+            '<out><item a="1" b="3"/></out>',
+            id="attribute-set-duplicates-named-twice",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="outer" use-attribute-sets="target"/>'
+            '<xsl:attribute-set name="target"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+            '<xsl:attribute-set name="target"><xsl:attribute name="b">2</xsl:attribute></xsl:attribute-set>',
+            '<item xsl:use-attribute-sets="outer"/>',
+            '<out><item a="1" b="2"/></out>',
+            id="attribute-set-duplicates-used-before-definition",
         ),
         pytest.param("", '<item xsl:use-attribute-sets="missing"/>', "<out><item/></out>", id="missing-attribute-set"),
         pytest.param(
