@@ -1069,8 +1069,7 @@ static Py_ssize_t node_depth(struct th_node *node, Py_ssize_t *budget) {
 
 /* The order of two children of one parent: from their positions once the evaluation has numbered that parent's
    children, else walking forward from left until right or the end of the list. The budget the caller shares across a
-   whole sort is what keeps a long list from paying that walk for every pair. Two parentless nodes have no siblings:
-   the answer is 1, as the comparison always gave for nodes of separate trees. */
+   whole sort is what keeps a long list from paying that walk for every pair. */
 static int sibling_order(xp_caches **caches, struct th_node *left, struct th_node *right, Py_ssize_t *budget) {
     Py_ssize_t left_position = known_position(caches, left);
     if (left_position != 0) {
@@ -1087,11 +1086,15 @@ static int sibling_order(xp_caches **caches, struct th_node *left, struct th_nod
     if (ahead == right) {
         return -1;
     }
+    if (ahead == NULL && left->parent == NULL) {
+        /* A parentless node has no siblings, so its tree is not the right node's: the set's ranks decide. */
+        return XP_ORDER_UNKNOWN;
+    }
     return ahead == NULL ? 1 : XP_ORDER_UNKNOWN;
 }
 
 /* Negative when left precedes right in document (pre-order); positive otherwise; XP_ORDER_UNKNOWN once the walks spend
-   the budget. Never called with left == right. */
+   the budget or the nodes lie in separate trees. Never called with left == right. */
 static int node_before(xp_caches **caches, struct th_node *left, struct th_node *right, Py_ssize_t *budget) {
     struct th_node *left_parent = left->parent;
     struct th_node *right_parent = right->parent;
@@ -1183,25 +1186,21 @@ static int item_order(xp_caches **caches, const xp_item *left, const xp_item *ri
     return left->node->next_sibling == right->node ? -1 : node_before(caches, left->node, right->node, budget);
 }
 
-/* An item with its node's preorder rank among the set and the top its climb stopped at: ranks compare only under one
-   top. */
+/* An item with its node's preorder rank among the set. */
 typedef struct {
     xp_item item;
     Py_ssize_t rank;
-    Py_ssize_t top;
 } ranked_item;
 
-/* item_order's answer for every pair, read from the ranks. node_before finds no link between two separate trees and
-   answers 1 both ways, so this does too: qsort then makes the same moves on a set that spans trees as it always has. */
+/* item_order's answer for every pair, read from the ranks. The ranks number the trees one after another, so nodes of
+   separate trees order by their tree's place in the set; a comparator that answered 1 both ways for them would leave
+   qsort's result to the libc. */
 static TH_NOINLINE int ranked_order(const void *pa, const void *pb) {
     const ranked_item *left = pa;
     const ranked_item *right = pb;
     TH_WORK_STEP();
     if (left->item.node == right->item.node) {
         return same_node_order(&left->item, &right->item);
-    }
-    if (left->top != right->top) {
-        return 1;
     }
     return left->rank < right->rank ? -1 : 1;
 }
@@ -1212,7 +1211,6 @@ typedef struct {
     Py_ssize_t child;
     Py_ssize_t sibling;
     Py_ssize_t rank;
-    Py_ssize_t top;
 } order_vertex;
 
 typedef struct {
@@ -1255,7 +1253,7 @@ static Py_ssize_t skeleton_add(order_skeleton *skeleton, struct th_node *node) {
     if (rank_map_insert(&skeleton->index, node, skeleton->len + 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;                                                        /* GCOVR_EXCL_LINE */
     }
-    skeleton->items[skeleton->len] = (order_vertex){node, -1, -1, -1, 0, 0};
+    skeleton->items[skeleton->len] = (order_vertex){node, -1, -1, -1, 0};
     return skeleton->len++;
 }
 
@@ -1352,7 +1350,7 @@ static Py_ssize_t climb(order_skeleton *skeleton, Py_ssize_t *heads, const ranke
     return active;
 }
 
-/* Number the skeleton under each top in preorder. */
+/* Number the skeleton under each top in preorder, the tops one after another in the order the climb reached them. */
 static void number_skeleton(order_skeleton *skeleton, const Py_ssize_t *heads, Py_ssize_t active) {
     order_vertex *vertices = skeleton->items;
     Py_ssize_t rank = 0;
@@ -1362,7 +1360,6 @@ static void number_skeleton(order_skeleton *skeleton, const Py_ssize_t *heads, P
         for (;;) {
             TH_WORK_STEP();
             vertices[vertex].rank = rank++;
-            vertices[vertex].top = top;
             if (vertices[vertex].child >= 0) {
                 vertex = vertices[vertex].child;
                 continue;
@@ -1378,7 +1375,7 @@ static void number_skeleton(order_skeleton *skeleton, const Py_ssize_t *heads, P
     }
 }
 
-/* Fill each item's rank and top. Costs the skeleton between the set and where its paths join, plus one walk of each
+/* Fill each item's rank. Costs the skeleton between the set and where its paths join, plus one walk of each
    sibling list the evaluation has not numbered yet, instead of a walk per compared pair. */
 static int rank_items(xp_caches **caches, ranked_item *items, Py_ssize_t len) {
     order_skeleton skeleton = {0};
@@ -1390,7 +1387,6 @@ static int rank_items(xp_caches **caches, ranked_item *items, Py_ssize_t len) {
         for (Py_ssize_t index = 0; index < len; index++) {
             const order_vertex *vertex = &skeleton.items[addr_map_find(&skeleton.index, items[index].item.node) - 1];
             items[index].rank = vertex->rank;
-            items[index].top = vertex->top;
         }
     }
     PyMem_Free(heads);
@@ -1416,7 +1412,7 @@ static TH_NOINLINE ranked_item *rank_sets(xp_caches **caches, const xp_nodeset *
     return ranked;
 }
 
-/* Put ns in document order from ranks when the bounded walks found it out of order or ran out of steps. */
+/* Put ns in document order from ranks when the bounded walks found it out of order or could not settle its order. */
 static int sort_ranked(xp_caches **caches, xp_nodeset *ns, int unsorted) {
     const xp_nodeset none = {0};
     ranked_item *ranked = rank_sets(caches, ns, &none);
@@ -2414,8 +2410,9 @@ static int comparison_extreme(struct th_tree *tree, const xp_nodeset *nodes, int
 }
 
 /* Where target's item at left falls against source's item at right, as item_order answers, from ranks once the walks
-   run out of budget; 3 on allocation failure. Out of line, as item_cmp was: inlined into the union that eval_expr_inner
-   inlines, it grew that function until LTO spilled one more register on every evaluation. */
+   run out of budget or the items lie in separate trees; 3 on allocation failure. Out of line, as item_cmp was: inlined
+   into the union that eval_expr_inner inlines, it grew that function until LTO spilled one more register on every
+   evaluation. */
 static TH_NOINLINE int union_order(xp_caches **caches, const xp_nodeset *target, const xp_nodeset *source,
                                    Py_ssize_t left, Py_ssize_t right, Py_ssize_t *budget, ranked_item **ranked) {
     if (*ranked == NULL) {

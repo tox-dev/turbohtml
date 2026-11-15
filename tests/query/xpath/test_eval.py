@@ -280,6 +280,44 @@ def test_absolute_path_after_a_callback_attaches_a_deep_root_follows_the_new_roo
 
 
 @pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param((0, 1, 2), id="in-order"),
+        pytest.param((2, 0, 1), id="last-first"),
+        pytest.param((1, 2, 0), id="middle-first"),
+        pytest.param((2, 1, 0), id="reversed"),
+    ],
+)
+def test_nodes_of_separate_trees_follow_the_order_their_trees_first_appear_in(order: tuple[int, ...]) -> None:
+    document, trees = _detached_trees()
+    ids: Final = (("a1", "a2"), ("b1", "b2"), ("c1", "c2"))
+    result = document.xpath("$other//e/@id", other=[trees[index] for index in order])
+    assert result == [node_id for index in order for node_id in ids[index]]
+
+
+def _detached_trees() -> tuple[Document, list[Element]]:
+    document: Final = parse_xml(
+        "<r><t><e id='a1'/><e id='a2'/></t><t><e id='b1'/><e id='b2'/></t><t><e id='c1'/><e id='c2'/></t></r>"
+    )
+    trees: Final = [one(document, f"/r/t[{position}]") for position in (1, 2, 3)]
+    for tree in trees:
+        tree.extract()
+    return document, trees
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("($left//e | $right//e)/@id", ["b1", "b2", "a1", "a2"], id="descendants"),
+        pytest.param("($left | $right)/e/@id", ["b1", "b2", "a1", "a2"], id="roots"),
+    ],
+)
+def test_union_of_separate_trees_follows_the_order_of_its_left_operand(expression: str, expected: list[str]) -> None:
+    document, (first, second, _third) = _detached_trees()
+    assert document.xpath(expression, left=[second], right=[first]) == expected
+
+
+@pytest.mark.parametrize(
     ("expression", "expected"),
     [
         pytest.param("/descendant::a", ["1", "2", "3", "4"], id="single-root-descendants"),

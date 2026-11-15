@@ -9,11 +9,13 @@ custom extensions, and the compiled :class:`turbohtml.XPath` object.
 :meth:`~turbohtml.Node.xpath` evaluates an XPath 1.0 expression relative to a node and returns a list for a node-set
 (elements, comments, and the document as nodes, attribute and ``text()`` values as ``str``, in document order), or the
 matching ``float`` / ``str`` / ``bool`` for a scalar expression like ``count(...)`` or ``string(...)``. The return type
-is that union, so narrow it with ``isinstance`` before iterating when a type checker is watching.
-:meth:`~turbohtml.Node.xpath_one` returns the first result or ``None``, and :meth:`~turbohtml.Node.xpath_iter` returns
-an iterator. The engine supports the structural axes, the ``name`` / ``*`` / ``node()`` / ``text()`` / ``comment()`` /
-``processing-instruction()`` node tests, predicates, the boolean, relational, and arithmetic operators, unions, and the
-complete XPath 1.0 core function library:
+is that union, so narrow it with ``isinstance`` before iterating when a type checker is watching. Nodes from separate
+trees, such as a detached subtree and the document, have no document order between them. They come back grouped by tree,
+in the order each tree first occurs while the expression collects its nodes. :meth:`~turbohtml.Node.xpath_one` returns
+the first result or ``None``, and :meth:`~turbohtml.Node.xpath_iter` returns an iterator. The engine supports the
+structural axes, the ``name`` / ``*`` / ``node()`` / ``text()`` / ``comment()`` / ``processing-instruction()`` node
+tests, predicates, the boolean, relational, and arithmetic operators, unions, and the complete XPath 1.0 core function
+library:
 
 .. testcode::
 
