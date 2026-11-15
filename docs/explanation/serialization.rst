@@ -38,11 +38,12 @@ that generate implied end tags), since ``</span>`` stops at the open ``<p>`` and
 ``</dd>`` also stays at the end of an ``<li>``, ``<dd>`` or ``<dt>``, whose own end tag is optional; an ``</rt>``,
 ``</rp>``, ``</optgroup>`` or ``</option>`` at the end of its parent stays when that parent is an SVG or MathML
 integration point, whose end tag is ignored under the open HTML child, or another of those four elements (an
-``<option>`` ending its ``<optgroup>`` aside); and a value is unquoted only when no character could end or re-open it.
-The minified doctype keeps its public and system identifiers, since they choose the document mode, and in quirks mode a
-``</p>`` before a ``<table>`` stays, because a quirks parse nests the table inside the open paragraph. The transforms
-that would *not* round-trip (deleting whitespace between block elements, or omitting a tag whose reparse changes
-nesting) are exactly the ones turbohtml declines to make.
+``<option>`` ending its ``<optgroup>`` aside); an ``</rt>``, ``</rp>`` or ``</optgroup>`` before a sibling of its kind
+also stays when its ``<ruby>`` or ``<select>`` is more than 512 levels up, deeper than the parser builds; and a value is
+unquoted only when no character could end or re-open it. The minified doctype keeps its public and system identifiers,
+since they choose the document mode, and in quirks mode a ``</p>`` before a ``<table>`` stays, because a quirks parse
+nests the table inside the open paragraph. The transforms that would *not* round-trip (deleting whitespace between block
+elements, or omitting a tag whose reparse changes nesting) are exactly the ones turbohtml declines to make.
 
 An unclosed formatting element is reopened in every block after it, and each copy carries the attributes of its one
 start tag. The writers draw those copied attributes on a budget: ``html``, ``serialize()``, ``to_source()``,
@@ -85,10 +86,12 @@ optional-tag and unquoted-attribute rules are HTML-parser rules), so it stays HT
 
 The fifth is content XML cannot represent. The XML 1.0 ``Char`` production excludes the C0 controls other than tab,
 newline and carriage return, the surrogate block, and the noncharacters U+FFFE/U+FFFF; a comment cannot contain ``--``
-or end on ``-``; and an attribute name must be an XML ``Name``. The HTML parser keeps such content (a stray control in
-text, a ``--`` in a comment, a tag-soup ``a"b`` attribute name), so ``xml=True`` drops the forbidden characters and
-attribute names and spaces the comment hyphens. The output of ``serialize(Html(xml=True))`` then re-parses with
-:func:`~turbohtml.parse_xml`.
+or end on ``-``; and an element or attribute name must be an XML ``Name``. The HTML parser keeps such content (a stray
+control in text, a ``--`` in a comment, a tag-soup ``a"b`` attribute name), so ``xml=True`` drops the forbidden
+characters and attribute names, writes the children of an element with such a name in its place, and spaces the comment
+hyphens. Those children keep their namespaces: each one gets the declarations the left-out element made, and the
+serialization raises :exc:`ValueError` when these copies would outgrow the rest of the output. ``canonicalize()`` leaves
+the same elements out. The output of ``serialize(Html(xml=True))`` then re-parses with :func:`~turbohtml.parse_xml`.
 
 **********************
  Minifying JavaScript
@@ -237,9 +240,11 @@ line start counts after a list marker too, so ``<li>1. x</li>`` becomes ``- 1\. 
 always escapes because GFM strikes text through between tildes. A ``<`` escapes unless whitespace follows it, since it
 could open raw HTML or an autolink, and a ``&`` escapes when it starts an ``&name;`` or ``&#65;`` reference. A link
 destination keeps balanced parentheses bare, backslash-escapes unbalanced ones, and switches to the ``<...>`` form for a
-space or a leading ``<``. The ``none`` mode drops the prose escapes for output that nothing will parse as Markdown, and
-keeps only the cell pipe escape, since an unescaped ``|`` would split the row it sits in; link destinations, titles and
-image alt text keep their own escapes because their syntax needs them.
+space or a leading ``<``. A ``<`` in a destination or a title is backslash-escaped as well: a reader that does not take
+the link, because the destination nests parentheses past its limit or the link text holds another link, reads both as
+running text, where that ``<`` would open raw HTML. The ``none`` mode drops the prose escapes for output that nothing
+will parse as Markdown, and keeps only the cell pipe escape, since an unescaped ``|`` would split the row it sits in;
+link destinations, titles and image alt text keep their own escapes because their syntax needs them.
 
 The walk holds no state outside its stack frame (no module-level buffers, no per-converter object), so two threads
 exporting two trees never interfere, and the binding takes the same per-tree critical section

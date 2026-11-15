@@ -594,6 +594,15 @@ def test_button_field_value_defaults_empty() -> None:
     assert _tree_field_value_control("<button>Go</button>", "button").field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
 
 
+@pytest.mark.parametrize("foreign", ["svg", "math"])
+@pytest.mark.parametrize("control", ["input", "textarea", "select", "option"])
+def test_foreign_element_named_like_a_control_has_no_field_value(foreign: str, control: str) -> None:
+    element = _tree_field_value_control(f"<{foreign}><{control} value=a selected>t</{control}></{foreign}>", control)
+    assert element.field_value is None
+    with pytest.raises(TypeError, match="can only be set on a form control"):
+        element.field_value = "b"
+
+
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
@@ -1162,14 +1171,52 @@ def test_form_data_skips_an_option_inside_an_hr() -> None:
 
 
 @pytest.mark.parametrize(
-    "markup",
+    ("markup", "expected"),
     [
-        pytest.param(f"{'<select multiple name=s><object>' * 100}{'<option selected><div>' * 100}x", id="html"),
-        pytest.param(f"<svg>{'<select multiple name=s>' * 200}{'<option selected>' * 200}x", id="svg"),
+        pytest.param(
+            f"{'<select multiple name=s><object>' * 100}{'<option selected><div>' * 100}x", [("s", "x")], id="html"
+        ),
+        # in SVG the same names are ordinary elements that nest freely and are no controls at all
+        pytest.param(f"<svg>{'<select multiple name=s>' * 200}{'<option selected>' * 200}x", [], id="svg"),
     ],
 )
-def test_form_data_does_not_multiply_nested_selects_by_nested_options(markup: str) -> None:
-    assert _form(f"<form>{markup}").form_data() == [("s", "x")]
+def test_form_data_does_not_multiply_nested_selects_by_nested_options(
+    markup: str, expected: list[tuple[str, str]]
+) -> None:
+    assert _form(f"<form>{markup}").form_data() == expected
+
+
+@pytest.mark.parametrize("foreign", ["svg", "math"])
+def test_form_data_ignores_foreign_elements_named_like_controls(foreign: str) -> None:
+    # in foreign content these are ordinary elements that nest, so each once submitted the text of all below it
+    form = _form(
+        f"<form><{foreign}><input name=i value=1><textarea name=note>one<textarea name=note>two<select name=s><option>o"
+        f"</{foreign}><input name=a value=2></form>"
+    )
+    assert form.form_data() == [("a", "2")]
+
+
+@pytest.mark.parametrize("foreign", ["svg", "math"])
+def test_select_ignores_foreign_elements_named_option(foreign: str) -> None:
+    form = _form(
+        f"<form><select multiple name=s><option selected>p<{foreign}><option selected>q<option selected>r"
+        f"</{foreign}></select></form>"
+    )
+    assert form.form_data() == [("s", "pqr")]
+    select = form.find("select")
+    assert select is not None
+    assert select.field_value == ["pqr"]
+
+
+@pytest.mark.parametrize("foreign", ["svg", "math"])
+def test_select_skips_a_foreign_option_and_lists_the_html_options(foreign: str) -> None:
+    form = _form(f"<form><select multiple name=s><{foreign}><option selected>x</option></{foreign}><option selected>y")
+    assert form.form_data() == [("s", "y")]
+
+
+def test_form_data_keeps_html_controls_inside_foreign_content() -> None:
+    form = _form("<form><svg><foreignObject><input name=a value=1></foreignObject></svg></form>")
+    assert form.form_data() == [("a", "1")]
 
 
 def test_option_value_falls_back_to_text() -> None:

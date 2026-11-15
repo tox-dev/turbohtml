@@ -1092,6 +1092,67 @@ def test_nullable_pair_repeated_three_times_rejects_odd_count() -> None:
     assert not check(schema, "<r><a/><a/><a/></r>").valid
 
 
+_OPTIONAL_A: Final[str] = '<xs:element name="a" minOccurs="0"/>'
+_OPTIONAL_PAIR: Final[str] = f'<xs:sequence minOccurs="0">{_A_ELEMENT * 2}</xs:sequence>'
+_EMPTIABLE_BODIES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(_OPTIONAL_A, id="optional-element"),
+    pytest.param(f'<xs:sequence minOccurs="0">{_A_ELEMENT}</xs:sequence>', id="optional-sequence"),
+    pytest.param(
+        '<xs:choice minOccurs="0"><xs:element name="a"/><xs:element name="b"/></xs:choice>', id="optional-choice"
+    ),
+    pytest.param("<xs:sequence/>", id="empty-sequence"),
+]
+_REPEAT_OCCURS: Final[list[pytest.ParameterSet]] = [
+    pytest.param('minOccurs="2" maxOccurs="unbounded"', id="at-least-two"),
+    pytest.param('minOccurs="2" maxOccurs="2"', id="exactly-two"),
+    pytest.param('minOccurs="3" maxOccurs="5"', id="three-to-five"),
+    pytest.param('minOccurs="1000" maxOccurs="unbounded"', id="a-thousand-or-more"),
+]
+
+
+@pytest.mark.parametrize("occurs", _REPEAT_OCCURS)
+@pytest.mark.parametrize("body", _EMPTIABLE_BODIES)
+def test_emptiable_repeated_particle_accepts_no_children(occurs: str, body: str) -> None:
+    assert check(_repeated_schema(f"<xs:sequence {occurs}>{body}</xs:sequence>"), "<r/>").valid
+
+
+@pytest.mark.parametrize(
+    ("occurs", "count", "valid"),
+    [
+        pytest.param('minOccurs="2" maxOccurs="2"', 2, True, id="two-of-two"),
+        pytest.param('minOccurs="2" maxOccurs="2"', 3, False, id="three-above-two"),
+        pytest.param('minOccurs="3" maxOccurs="5"', 5, True, id="five-of-five"),
+        pytest.param('minOccurs="3" maxOccurs="5"', 6, False, id="six-above-five"),
+        pytest.param('minOccurs="2" maxOccurs="unbounded"', 7, True, id="unbounded-run"),
+    ],
+)
+def test_optional_element_repeated_within_occurs(occurs: str, count: int, *, valid: bool) -> None:
+    schema = _repeated_schema(f"<xs:sequence {occurs}>{_OPTIONAL_A}</xs:sequence>")
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(0, True, id="no-pair"),
+        pytest.param(1, False, id="one-of-a-pair"),
+        pytest.param(2, True, id="one-pair"),
+        pytest.param(3, False, id="pair-and-one"),
+        pytest.param(4, True, id="two-pairs"),
+        pytest.param(5, False, id="two-pairs-and-one"),
+    ],
+)
+def test_optional_pair_repeated_twice(count: int, *, valid: bool) -> None:
+    model = f'<xs:sequence minOccurs="2" maxOccurs="2">{_OPTIONAL_PAIR}</xs:sequence>'
+    assert check(_repeated_schema(model), f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize("count", [0, 1, 3])
+def test_minimum_above_maximum_matches_nothing(count: int) -> None:
+    model = '<xs:sequence minOccurs="3" maxOccurs="2"><xs:element name="a"/></xs:sequence>'
+    assert not check(_repeated_schema(model), f"<r>{'<a/>' * count}</r>").valid
+
+
 def test_all_any_order_and_missing() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'
@@ -1426,6 +1487,46 @@ def test_all_group_occurring_once_compiles() -> None:
     )
     assert check(schema, "<r><a/><b/></r>").valid
     assert check(schema, "<r/>").valid
+
+
+@pytest.mark.parametrize(
+    ("model", "compositor"),
+    [
+        pytest.param(f'<xs:all minOccurs="0">{_AB}</xs:all>', "all", id="all-min-occurs"),
+        pytest.param(f'<xs:all maxOccurs="1">{_AB}</xs:all>', "all", id="all-max-occurs"),
+        pytest.param('<xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence>', "sequence", id="sequence-min"),
+        pytest.param('<xs:sequence maxOccurs="2"><xs:element name="a"/></xs:sequence>', "sequence", id="sequence-max"),
+        pytest.param('<xs:choice minOccurs="0"><xs:element name="a"/></xs:choice>', "choice", id="choice-min-occurs"),
+        pytest.param(
+            '<xs:choice maxOccurs="unbounded"><xs:element name="a"/></xs:choice>', "choice", id="choice-max-occurs"
+        ),
+    ],
+)
+def test_named_group_model_occurs_raises(model: str, compositor: str) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g">{model}</xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+    )
+    message = f"xs:{compositor} in an xs:group cannot declare minOccurs or maxOccurs"
+    with pytest.raises(ValueError, match=f"^{message}; set them on the xs:group reference$"):
+        XMLSchema(schema)
+
+
+def test_unnamed_group_model_occurs_raises() -> None:
+    schema = _type_schema('<xs:group><xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence></xs:group>')
+    message = "xs:sequence in an xs:group cannot declare minOccurs or maxOccurs"
+    with pytest.raises(ValueError, match=f"^{message}; set them on the xs:group reference$"):
+        XMLSchema(schema)
+
+
+def test_named_group_nested_particle_occurs_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:sequence>'
+        '<xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence></xs:sequence></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r/>").valid
+    assert check(schema, "<r><a/></r>").valid
 
 
 def test_repeated_sequence_group_compiles() -> None:
@@ -4036,3 +4137,47 @@ def test_xsd_compile_preserves_known_builtin_names(type_name: str, value: str) -
 def test_xsd_compile_preserves_declarations(declarations: str, document: str, *, expected: bool) -> None:
     validator: Final = XMLSchema(f"<xs:schema {_XS}>{declarations}</xs:schema>")
     assert [validator.is_valid(parse_xml(document)) for _ in range(2)] == [expected, expected]
+
+
+_COUNTED_REPEAT_SCHEMA: Final[str] = (
+    f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+    '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:string">'
+    '<xs:pattern value="{pattern}"/></xs:restriction></xs:simpleType></xs:element>'
+    "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+)
+
+
+@pytest.mark.parametrize("method", ["validate", "is_valid"])
+@pytest.mark.parametrize(
+    ("pattern", "value"),
+    [
+        pytest.param("(b?){300000}", "b" * 1000, id="nullable-copies"),
+        pytest.param("(b{1,300}){1,500}", "b" * 1200, id="nested-counts"),
+        pytest.param(r"(\p{L}?){300000}", "b" * 1000, id="extended-copies"),
+    ],
+)
+def test_pattern_matching_past_the_step_budget_raises(pattern: str, value: str, *, method: str) -> None:
+    # a counted repeat keeps many automaton states live for every character; the call stops with an error instead of
+    # stepping all of them, and a cheap document validates afterwards
+    schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
+    check_document = getattr(schema, method)
+    element: Final = f"<v>{value}</v>"
+    with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
+        check_document(parse_xml(f"<r>{element}<v>b</v></r>"))
+    assert bool(check_document(parse_xml("<r><v>b</v></r>")))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "value", "valid"),
+    [
+        pytest.param("[a-z]+", "q" * 300_000, True, id="long-value"),
+        pytest.param("[a-z]+", f"{'q' * 300_000}1", False, id="long-value-mismatch"),
+        pytest.param(r"(\s*\S+\s*){1,50}", "word " * 49, True, id="counted-words"),
+        pytest.param("c{0,99999}", "c" * 4000, True, id="large-count-of-one-character"),
+        pytest.param("(ab|cd){1,500}x", f"{'abcd' * 200}x", True, id="counted-alternation"),
+    ],
+)
+def test_ordinary_patterns_fit_the_step_budget(pattern: str, value: str, *, valid: bool) -> None:
+    schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
+    element: Final = f"<v>{value}</v>"
+    assert schema.is_valid(parse_xml(f"<r>{element}{element}</r>")) is valid

@@ -654,6 +654,7 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.xlink.last = NULL;
     self->cursor.xlink.scope = NULL;
     self->cursor.xml_ns = (th_xml_ns_spend){0, 0, TH_XML_NS_BASE};
+    self->cursor.unwrap = (th_xml_unwrap){.spend = {0, 0, TH_XML_NS_BASE}};
     self->cursor.clone_credit = 0;
     self->indent = indent;
     self->indent_len = indent_len;
@@ -665,12 +666,13 @@ static void serialize_iter_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     Py_DECREF(((SerializeIterObject *)self)->handle);
     Py_XDECREF(((SerializeIterObject *)self)->layout);
+    th_xml_unwrap_free(&((SerializeIterObject *)self)->cursor.unwrap);
     type->tp_free(self);
     Py_DECREF(type);
 }
 
-/* normalize, linkify and strip_comments unlink nodes without bumping mutation_version, so a detached resume node shows
-   only as a broken parent chain, not as a version change. */
+/* normalize and strip_comments unlink nodes without bumping mutation_version, so a detached resume node shows only as
+   a broken parent chain, not as a version change. */
 static int cursor_reaches_root(const th_node *cursor, const th_node *root) {
     for (const th_node *node = cursor; node != NULL; node = node->parent) {
         if (node == root) {
@@ -2376,6 +2378,7 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
                               charset_missing,
                               NULL,
                               NULL,
+                              NULL,
                               NULL};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
@@ -2715,9 +2718,20 @@ TH_NODE_API(static, PyObject *, node_to_source, (PyObject * self, PyObject *igno
 static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj,
                                           int sort_attributes, int meta_charset, int xml, int inner) {
     module_state *state = state_of(self);
-    th_serialize_opts opts = {
-        0,   sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL, NULL,
-        NULL};
+    th_serialize_opts opts = {0,
+                              sort_attributes,
+                              meta_charset,
+                              "utf-8",
+                              (Py_ssize_t)strlen("utf-8"),
+                              xml,
+                              inner,
+                              NULL,
+                              0,
+                              NULL,
+                              NULL,
+                              NULL,
+                              NULL,
+                              NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

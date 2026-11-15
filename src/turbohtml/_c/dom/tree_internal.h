@@ -153,6 +153,9 @@ struct th_tree {
     int track_positions; /* record each element's source line/col in trailing node slots */
     int track_locations; /* record each element's granular source spans (implies track_positions) */
     int kind;            /* borrowed input storage */
+    /* attribute slots copied onto formatting-element clones so far, which clone_formatting bounds; it fills the
+       padding before data, so th_tree stays at 512 bytes */
+    uint32_t clone_attr_slots;
     const void *data;
     void *owned_data; /* normalized one-shot input retained when source spans need it */
     Py_ssize_t length;
