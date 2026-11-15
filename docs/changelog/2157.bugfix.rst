@@ -1,0 +1,1 @@
+``minify_css()`` keeps a ``/*! ... */`` bang comment that sat inside a rule it drops as invalid, rather than removing it.

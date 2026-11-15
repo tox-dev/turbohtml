@@ -1072,6 +1072,21 @@ CSS_NOINLINE static Py_ssize_t css_skip_top_blank(const css_char *text, Py_ssize
     return index;
 }
 
+/* A bang comment is a banner the output keeps, even inside a rule the minifier drops as invalid. */
+CSS_NOINLINE static void css_keep_dropped_bangs(css_buf *pool, const token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                                rule_item *item) {
+    css_buf text = {NULL, 0, 0, pool->oom};
+    for (Py_ssize_t index = start; index < end; index++) {
+        const css_token *token = &vec->items[index];
+        if (token->kind == CSS_COMMENT && token->text[2] == '!') {
+            cbuf_put_run(&text, token->text, token->text_len);
+        }
+    }
+    item->text_off = pool_run(pool, text.data, text.len);
+    item->text_len = text.len;
+    cbuf_free(&text);
+}
+
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
 static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyframe, rule_item *item) {
     item->is_rule = 0;
@@ -1087,6 +1102,7 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
         cur->index++;
         if (cur->vec->bad && css_holds_bad(cur->vec, prelude_start, prelude_end)) {
             css_skip_block(cur);
+            css_keep_dropped_bangs(pool, cur->vec, prelude_start, cur->index, item);
             return;
         }
         decl_vec decls = {NULL, 0, 0, pool->oom, 0};
@@ -1131,6 +1147,7 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
         if (block >= 0) {
             cur->index = block + 1;
             css_skip_block(cur);
+            css_keep_dropped_bangs(pool, cur->vec, prelude_start, cur->index, item);
             return;
         }
         cur->no_top_block = 1;

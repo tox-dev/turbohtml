@@ -2766,6 +2766,33 @@ def test_minify_css_top_level_statement_is_a_fixed_point(source: str, expected: 
     assert minify_css(minify_css(source)) == expected
 
 
+# A bang comment is a banner the output keeps, also inside a rule dropped as invalid: a bad token, or a stray `;` or `}`
+# before its block, makes the rule invalid.
+_DROPPED_RULE_BANG_COMMENT: Final[list[pytest.ParameterSet]] = [
+    pytest.param("x;/*! k */a{color:red}", "/*! k */", id="prelude-after-stray-text"),
+    pytest.param("}/*! k */a{color:red}", "/*! k */", id="prelude-after-brace"),
+    pytest.param("a{color:red}/*!a*/;/*!c*/b{color:blue}", "a{color:red}/*!a*//*!c*/", id="between-rules"),
+    pytest.param("/*!a*//*!b*/x;/*!c*//*!d*/a{}", "/*!a*//*!b*//*!c*//*!d*/", id="run-of-bang-comments"),
+    pytest.param("x;/*! k */a{x:1;/*! b */}", "/*! k *//*! b */", id="inside-block"),
+    pytest.param("x;/*c*/a{}/*! k */", "/*! k */", id="plain-comment-beside-bang"),
+    pytest.param("@import 'x';/*!a*/x;/*!c*/b{color:blue}", "@import'x';/*!a*//*!c*/", id="before-import"),
+    pytest.param('x "a\n/*! k */ {color:red}/*! z */', "/*! k *//*! z */", id="bad-string-prelude"),
+    pytest.param("x\\\n/*! k */ {color:red}", "/*! k */", id="bad-escape-prelude"),
+    pytest.param('@media s{x "a\n/*! k */ {color:red}}', "@media s{/*! k */}", id="bad-string-prelude-in-media"),
+    pytest.param("a{color:red}x;/*! c */b{color:blue}a{margin:0}", "a{color:red}/*! c */a{margin:0}", id="no-merge"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _DROPPED_RULE_BANG_COMMENT)
+def test_minify_css_dropped_rule_keeps_bang_comment(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _DROPPED_RULE_BANG_COMMENT)
+def test_minify_css_dropped_rule_keeps_bang_comment_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
 # A dropped space or comment must not spell a `<!--` or `-->` in a selector: a browser reads either as one token, so the
 # selector changes, and at the start of a sheet the top level skips it and the rest matches on its own.
 @pytest.mark.parametrize(
