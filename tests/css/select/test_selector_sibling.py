@@ -562,7 +562,7 @@ _HOLDER: Final[str] = _siblings(("b", 81), filled=(40,))
         pytest.param(_wrapped("b:has(~ :is(", "))", 6, "a"), _AROUND_A, _expected(range(35)), id="nested-in-is"),
         pytest.param(f"div:has({_wrapped('b:has(~ ', ')', 6, 'a')})", _AROUND_A, ["p"], id="descendant-led-nested"),
         pytest.param(
-            f"div:has({_wrapped('b:has(~ ', ')', 6, 'q')})", _AROUND_A, [], id="descendant-led-nested-missing"
+            f"div:has({_wrapped('b:has(~ ', ')', 3, 'q')})", _AROUND_A, [], id="descendant-led-nested-missing"
         ),
     ],
 )
