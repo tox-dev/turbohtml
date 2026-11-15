@@ -650,6 +650,11 @@ def _to_markdown(text: str) -> str:
     return parse(text).to_markdown()
 
 
+def _to_markdown_items(text: str) -> None:
+    for item in parse(text).select("li"):
+        item.to_markdown()
+
+
 def _to_text(text: str) -> str:
     return parse(text).to_text()
 
@@ -784,6 +789,9 @@ TARGETS: Final[dict[str, Target]] = {
     "to_markdown": Target(
         run=_to_markdown, sources=(*_HTML_SOURCES, "serialize/markdown*"), bound=Bound(slope=4.0, offset=256)
     ),
+    # every <li> rendered as a root of its own, the way an extractor emits one snippet per result (#914); an item
+    # holds the items nested in it, so the snippets together have no linear bound and only the time is scored
+    "to_markdown_items": Target(run=_to_markdown_items, sources=(*_HTML_SOURCES, "serialize/markdown*")),
     # nested blockquotes indent lines by up to TH_MAX_INDENT_LEVELS steps of 4 spaces, peaking at 3.42;
     # corpora and repeated literals both peak at 1.00, offset 45
     "to_text": Target(run=_to_text, sources=(*_HTML_SOURCES, "serialize/text.c"), bound=Bound(slope=4.0, offset=64)),
