@@ -3214,6 +3214,78 @@ def test_minify_css_one_call_rewrite_is_a_fixed_point(source: str, expected: str
     assert minify_css(minify_css(source)) == expected
 
 
+# Three or more colons spell no pseudo-element, so the legacy `::name` -> `:name` shortening leaves them as written.
+_COLON_RUN: Final[list[pytest.ParameterSet]] = [
+    pytest.param(":::before{color:red}", ":::before{color:red}", id="three-colons-before"),
+    pytest.param(":::after{color:red}", ":::after{color:red}", id="three-colons-after"),
+    pytest.param("a:::before{color:red}", "a:::before{color:red}", id="three-colons-after-compound"),
+    pytest.param("::::before{color:red}", "::::before{color:red}", id="four-colons"),
+    pytest.param("a:::first-line{color:red}", "a:::first-line{color:red}", id="three-colons-first-line"),
+    pytest.param("::/**/:before{color:red}", ":::before{color:red}", id="comment-splits-run"),
+    pytest.param(":/**/:/**/:before{color:red}", ":::before{color:red}", id="comments-split-run"),
+    pytest.param("a::before:::after{color:red}", "a:before:::after{color:red}", id="run-after-legacy-name"),
+    pytest.param("p:is(:::before){color:red}", "p:is(:::before){color:red}", id="three-colons-in-function"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _COLON_RUN)
+def test_minify_css_colon_run_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _COLON_RUN)
+def test_minify_css_inline_colon_run_is_a_fixed_point(source: str, expected: str) -> None:
+    once = minify_css_inline(source)
+    assert once == minify_css_inline(expected)
+    assert minify_css_inline(once) == once
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_colon_run_meaning_is_a_fixed_point(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    selector = _colon_selector(rng)
+    once = minify_css(f"{selector}{{x:1}}")
+    assert _colon_runs(once.partition("{")[0]) == _expected_colon_runs(selector)
+    assert minify_css(once) == once
+
+
+def _colon_selector(rng: random.Random) -> str:
+    text = []
+    for _ in range(rng.randint(1, 3)):
+        text.append(rng.choice(("a", "b", "")))
+        for index in range(rng.randint(1, 4)):
+            if index:
+                text.append(rng.choice(("", "/**/")))
+            text.append(":")
+        names = ("before", "after", "first-line", "first-letter", "hover", "")
+        text.extend((rng.choice(("", "/**/")), rng.choice(names)))
+    return "".join(text)
+
+
+def _colon_runs(selector: str) -> list[tuple[int, str]]:
+    return [(len(colons), name) for colons, name in _COLON_RUN_RE.findall(selector.replace("/**/", ""))]
+
+
+def _expected_colon_runs(selector: str) -> list[tuple[int, str]]:
+    return [
+        (1 if count == 2 and name in {"before", "after", "first-line", "first-letter"} else count, name)
+        for count, name in _colon_runs(selector)
+    ]
+
+
+_COLON_RUN_RE: Final[re.Pattern[str]] = re.compile(r"(:+)([a-z-]*)")
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_inline_colon_run_meaning_is_a_fixed_point(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    selector = _colon_selector(rng)
+    once = minify_css_inline(f"{selector}{{x:1}}")
+    assert _colon_runs(once.partition("{")[0]) == _expected_colon_runs(selector)
+    assert minify_css_inline(once) == once
+
+
 @pytest.mark.parametrize(
     "value",
     [
