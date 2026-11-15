@@ -191,7 +191,8 @@ def test_css_whitespace_inline_only_context(source: str, expected: str) -> None:
     assert parse(source).to_markdown() == expected
 
 
-_PRE: Final[str] = '<span style="white-space:pre">b</span>'
+_PRE: Final[str] = '<span style="white-space: pre">b</span>'
+_LINE_START_SPAN: Final[str] = '<span style="white-space:pre">b</span>'
 _SETEXT: Final[Markdown.Headings] = Markdown.Headings(style="setext")
 
 
@@ -232,20 +233,20 @@ _SETEXT: Final[Markdown.Headings] = Markdown.Headings(style="setext")
             id="empty-run-dash-before-pre",
         ),
         pytest.param(
-            f"<p>ab<br>c</p><table><tr><th>h</th></tr><tr><td>XXXXX{_PRE}&lt;i&gt;</td></tr></table>",
+            f"<p>a<br>cd</p><table><tr><th>h</th></tr><tr><td>wxyz{_PRE}&lt;i&gt;</td></tr></table>",
             Markdown(),
-            "ab  \nc\n\n| h |\n| --- |\n| XXXXX<pre>b</pre>\\<i> |",
+            "a  \ncd\n\n| h |\n| --- |\n| wxyz<pre>b</pre>\\<i> |",
             id="break-in-another-buffer",
         ),
         pytest.param(
             f'<a href="/t">one twothreefour {_PRE}&lt;i&gt;</a>',
-            Markdown(wrapping=Markdown.Wrapping(width=10)),
+            Markdown(wrapping=Markdown.Wrapping(width=12)),
             "[one\ntwothreefour <pre>b</pre>\\<i>](/t)",
             id="wrapped-link",
         ),
         pytest.param(
             f"<h1>one twothreefour {_PRE}&lt;i&gt;</h1>",
-            Markdown(headings=_SETEXT, wrapping=Markdown.Wrapping(width=10)),
+            Markdown(headings=_SETEXT, wrapping=Markdown.Wrapping(width=12)),
             f"one\ntwothreefour <pre>b</pre>\\<i>\n{'=' * 33}",
             id="wrapped-heading",
         ),
@@ -277,6 +278,24 @@ _SETEXT: Final[Markdown.Headings] = Markdown.Headings(style="setext")
             Markdown(headings=_SETEXT, converters={"i": lambda _element, text: text}),
             "a<pre>b</pre>\n=============",
             id="setext-around-converter",
+        ),
+        pytest.param(
+            f'<a href="/t">a<br><x-c>b</x-c>{_PRE}&lt;i&gt;</a>',
+            Markdown(converters={"x-c": lambda _element, _text: "\n"}),
+            f"[a  \n\n{_LINE_START_SPAN}\\<i>](/t)",
+            id="converter-line-feed-after-break",
+        ),
+        pytest.param(
+            f'<a href="/t">a<x-c>b</x-c>{_PRE}&lt;i&gt;</a>',
+            Markdown(converters={"x-c": lambda _element, _text: "z\n"}),
+            f"[az\n{_LINE_START_SPAN}\\<i>](/t)",
+            id="converter-line-feed-in-link",
+        ),
+        pytest.param(
+            f"<h1>a<x-c>b</x-c>{_PRE}&lt;i&gt;</h1>",
+            Markdown(headings=_SETEXT, converters={"x-c": lambda _element, _text: "z\n"}),
+            f"az\n{_LINE_START_SPAN}\\<i>\n{'=' * 45}",
+            id="converter-line-feed-in-setext-heading",
         ),
     ],
 )

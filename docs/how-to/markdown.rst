@@ -66,9 +66,10 @@ Preformatted output preserves spacing at the cost of inline emphasis and link fo
 turns a styled inline element into a block. Table cells, headings and link text use embedded ``<pre>`` HTML instead of
 fences; character references keep those fragments on one Markdown source line. A fragment never starts a source line,
 where a reader would take it for an HTML block: a hard break in front of it is written ``<br>``, and a setext heading
-that begins with it is written as an ATX heading. Markdown readers must allow embedded HTML to display these fragments.
-This conversion considers inline declarations and their inheritance, without loading stylesheets or reproducing browser
-line wrapping.
+that begins with it is written as an ATX heading. Converter output that ends a line leaves the fragment at a line start,
+so it is written as a ``<span style="white-space:pre">`` element instead. Markdown readers must allow embedded HTML to
+display these fragments. This conversion considers inline declarations and their inheritance, without loading
+stylesheets or reproducing browser line wrapping.
 
 .. testcode::
 

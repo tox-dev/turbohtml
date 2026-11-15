@@ -4853,13 +4853,14 @@ static md_frame *md_unstarted_setext(md_ctx *ctx) {
     return NULL;
 }
 
-/* Get ready to write the <pre> of md_render_whitespace inside a line. A line that starts with <pre is an HTML block
+/* Get ready to write the inline fragment of md_render_whitespace. A line that starts with <pre is an HTML block
    (CommonMark 4.6, start condition 1): it interrupts a paragraph and takes its whole line as raw HTML, the escaped
-   text after </pre> included. So the tag never opens a line: the space owed before it is not traded for a wrap break,
-   a setext heading that would start with the tag is written as an ATX one, as an empty one is, and a hard break just
-   written is spelled <br> and the line goes on, as in a cell. A heading holds no hard break, and a cell or converter
-   starts with no record, so a break written to another output never matches. */
-static void md_before_inline_pre(md_ctx *ctx) {
+   text after </pre> included. A setext heading that has written nothing is written as an ATX one, as an empty one is,
+   and a hard break just written is spelled <br> and the line goes on, as in a cell. A heading holds no hard break, and
+   a cell or converter starts with no record, so a break written to another output never matches. Converter output
+   that ends in a line feed leaves the fragment at a line start, so it is returned as a span: a span is not an HTML
+   block start. */
+static int md_before_inline_pre(md_ctx *ctx) {
     ctx->no_wrap++;
     md_before_visible(ctx);
     ctx->no_wrap--;
@@ -4878,6 +4879,7 @@ static void md_before_inline_pre(md_ctx *ctx) {
         ctx->break_end = -1; /* the record is spent: what is written next may reach its old end again */
         sbuf_puts(&ctx->out, "<br>");
     }
+    return ctx->out.len > 0 && ctx->out.data[ctx->out.len - 1] == '\n';
 }
 
 static int md_render_whitespace(md_ctx *ctx, th_node *node, int inherited) {
@@ -4961,8 +4963,8 @@ done:
     }
     ctx->out.failed |= text.failed;
     if (ctx->in_cell || ctx->inline_only || ctx->in_heading) {
-        md_before_inline_pre(ctx);
-        sbuf_puts(&ctx->out, "<pre>");
+        int at_line_start = md_before_inline_pre(ctx);
+        sbuf_puts(&ctx->out, at_line_start ? "<span style=\"white-space:pre\">" : "<pre>");
         for (Py_ssize_t index = 0; index < text.len; index++) {
             Py_UCS4 character = text.data[index];
             if (is_space(character) || md_is_ascii_punct(character)) {
@@ -4973,7 +4975,7 @@ done:
                 sbuf_putc(&ctx->out, character);
             }
         }
-        sbuf_puts(&ctx->out, "</pre>");
+        sbuf_puts(&ctx->out, at_line_start ? "</span>" : "</pre>");
         ctx->line_has_content = 1;
     } else {
         static const Py_UCS4 empty_language[] = {0};
