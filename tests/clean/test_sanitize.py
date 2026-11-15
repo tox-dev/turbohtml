@@ -631,6 +631,54 @@ def test_set_attributes_preserves_foreign_attribute_case() -> None:
     assert sanitize("<svg></svg>", policy) == '<svg viewBox="0 0 10 10"></svg>'
 
 
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('REL="x" title="t"', 'title="t" rel="noopener"', id="variant-without-exact-dropped"),
+        pytest.param('rel="a" REL="b"', 'rel="noopener" REL="b"', id="variant-after-exact-kept"),
+        pytest.param('REL="b" rel="a"', 'rel="noopener"', id="variant-before-exact-dropped"),
+        pytest.param('REL="b" rel="a" Rel="c"', 'rel="noopener" Rel="c"', id="variants-around-exact"),
+        pytest.param('data-id="1" REL="x"', 'data-id="1" rel="noopener"', id="non-letter-names-kept"),
+    ],
+)
+def test_set_attributes_drops_case_variants_ahead_of_the_exact_name(attributes: str, expected: str) -> None:
+    # an XML element keeps its names' case, so REL is a variant of the forced rel; only the variants written before
+    # the exact rel are dropped, as a scan for each forced name drops them
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset({"data-id", "rel", "REL", "Rel", "title"})},
+        set_attributes={"a": {"rel": "noopener"}},
+    )
+    root = parse_xml(f"<r><a {attributes}/></r>").root
+    assert root is not None
+    assert sanitize_node(root, policy).html == f"<r><a {expected}></a></r>"
+
+
+def test_set_attributes_forcing_many_names_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(sanitize, "<a>t</a>", _forcing_policy(count)), (2000, 8000))
+
+
+def _forcing_policy(count: int) -> Policy:
+    return Policy(tags=frozenset({"a"}), set_attributes={"a": {f"data-{index}": "1" for index in range(count)}})
+
+
+def test_set_attributes_over_many_case_variants_is_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_variants_under_forced_names, (2000, 8000))
+
+
+def _variants_under_forced_names(count: int) -> Callable[[], object]:
+    names = [f"DATA-{index}" for index in range(count)]
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset(names)},
+        set_attributes={"a": {f"data-{index}": "1" for index in range(count)}},
+    )
+    attributes = " ".join(f'{name}="1"' for name in names)
+    root = parse_xml(f"<r><a {attributes}/></r>").root
+    assert root is not None
+    return partial(sanitize_node, root, policy)
+
+
 def test_set_attributes_pass_through_media_host_check() -> None:
     policy = Policy(
         tags=frozenset({"p", "video"}),
@@ -1997,6 +2045,26 @@ def test_add_link_rel_skipped_without_href() -> None:
 def test_add_link_rel_scans_other_attributes_for_href() -> None:
     # name (same length as href, different bytes) and title (different length) exercise both has_attr comparisons
     assert sanitize('<a name="n" title="t">y</a>', Policy.relaxed()) == '<a name="n" title="t">y</a>'
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('rel="x" REL="y"', '<a rel="noopener" REL="y" href="http://x"></a>', id="exact-before-variant"),
+        pytest.param('REL="y" rel="x"', '<a rel="noopener" href="http://x"></a>', id="variant-before-exact"),
+    ],
+)
+def test_add_link_rel_replaces_exact_rel_ahead_of_case_variants(attributes: str, expected: str) -> None:
+    # the HTML reparse keeps the first rel, so the forced value must land on the exact name whatever case variants sit
+    # around it in a parse_xml element
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset({"href", "rel", "REL"})},
+        add_link_rel=frozenset({"noopener"}),
+    )
+    root = parse_xml(f'<r><a {attributes} href="http://x"/></r>').root
+    assert root is not None
+    assert sanitize_node(root, policy).html == f"<r>{expected}</r>"
 
 
 def test_short_and_o_prefixed_attributes_are_not_event_handlers() -> None:
