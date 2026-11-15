@@ -1374,6 +1374,21 @@ def test_formatting_end_tag_keeps_current_node_listed_below_marker() -> None:
 
 
 @pytest.mark.parametrize(
+    ("free_slots", "tail", "expected"),
+    [
+        pytest.param(4, "y", "<b><i>x</i></b></div><b><i>y</i></b>", id="refused-at-cap"),
+        pytest.param(4, "</u>y", "<b><i>x</i></b></div><b><i>y</i></b>", id="refused-then-end-tag"),
+        pytest.param(412, "y", "<b><i><u>x</u></i></b></div><b><i><u>y</u></i></b>", id="below-cap"),
+    ],
+)
+def test_formatting_refused_at_depth_cap_is_not_reopened(free_slots: int, tail: str, expected: str) -> None:
+    # the <u> the cap refuses leaves the list, so no later text reopens it once the nesting closes
+    body = parse(f"<p><b><i><u></p>{'<div>' * (_DEPTH_CAP - free_slots)}x</div>{tail}").find("body")
+    assert body is not None
+    assert expected in body.inner_html
+
+
+@pytest.mark.parametrize(
     ("markup", "parent_tag", "expected"),
     [
         pytest.param("<select><keygen>", "select", ["keygen"], id="select"),

@@ -2527,6 +2527,9 @@ static void reconstruct_afe(th_tree *tree) {
             /* stack_push would refuse the clone, so the entry would stay unopened and every later token would clone
                the whole tail again; as in afe_push_if_open, an element the depth cap keeps off the stack leaves
                the list */
+            for (Py_ssize_t dropped = index; dropped < tree->afe_len; dropped++) {
+                tree->afe[dropped]->afe_listed = 0;
+            }
             tree->afe_len = index;
             tree->afe_hash_valid = 0;
             return;
