@@ -887,7 +887,7 @@ def _extract_items_beside_a_deep_reference(size: int) -> Callable[[], object]:
     def run() -> None:
         for item in items.children:
             item.extract()
-        assert iterator.reference_node is deepest
+        assert iterator.reference_node == deepest
 
     return run
 
