@@ -51,10 +51,11 @@ the number of child elements.
 A RELAX NG ``include`` or ``externalRef`` reads its ``href`` from disk when the schema compiles, resolved against
 ``base_url`` and any ``xml:base`` (sections 4.5 to 4.7). Compilation raises :class:`ValueError` when the schema
 references a file without a ``base_url``, when an ``href`` carries a fragment, names a remote URL or a UNC path, or
-resolves outside ``include_root``, when references form a loop, when one schema follows more than 1,024 references or
-reads more than 8 MiB through them, when an ``externalRef`` loads something other than a pattern or an ``include``
-something other than a ``grammar``, and when an ``include`` overrides a ``start`` or ``define`` the included grammar
-does not have. A file that cannot be read raises :class:`OSError`.
+resolves outside ``include_root``, when an ``xml:base`` gives a base URI longer than 8,192 characters, when references
+form a loop, when one schema follows more than 1,024 references or reads more than 8 MiB through them, when an
+``externalRef`` loads something other than a pattern or an ``include`` something other than a ``grammar``, and when an
+``include`` overrides a ``start`` or ``define`` the included grammar does not have. A file that cannot be read raises
+:class:`OSError`.
 
 Compiling an XSD schema raises :class:`ValueError` for a reference that does not resolve -- an ``xs:element``,
 ``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, or an extension or

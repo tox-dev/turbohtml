@@ -574,6 +574,16 @@ static int query_is_simple_tag(const query_t *query) {
     return query_is_indexed_tag(query) && query->nattr == 0 && query->class_ucs4 == NULL && query->class_filter == NULL;
 }
 
+/* Whether the element index a loop is reading went away since version was recorded.
+   A regex, callable, or list filter runs Python, which may edit the tree; a structural
+   edit frees the index and bumps mutation_version (handle_drop_index), and a later
+   query rebuilds it with another layout, so the bucket the loop was inside is gone
+   either way. The loop then hands over to the axis walk from the candidate it had
+   reached, which visits the same elements in the same order without the index. */
+static int index_went_stale(const HandleObject *handle, uint64_t version) {
+    return handle->mutation_version != version;
+}
+
 /* The cheap, pure-C structural prefilter for the text-search path: whether node
    could match before its collected text is tested, deciding which elements get
    their text gathered in the snapshot pass. Only the allocation-free checks live
@@ -1312,6 +1322,7 @@ TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject 
     module_state *state = state_of(self);
     th_node *origin = ((NodeObject *)self)->node;
     th_node *found = NULL;
+    th_node *walk = NULL; /* where the general walk starts, when the query takes it */
     int error = 0;
     PyObject *result = NULL;
     /* hold the per-tree lock across the walk so a concurrent extract() cannot rewire
@@ -1326,14 +1337,20 @@ TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject 
                 found = handle_obj->index_nodes[pos];
             }
         } else {
+            uint64_t version = handle_obj->mutation_version;
             for (; pos < end; pos++) {
-                int matched = node_matches(state, handle_obj->index_nodes[pos], &query);
+                th_node *node = handle_obj->index_nodes[pos];
+                int matched = node_matches(state, node, &query);
                 if (matched < 0) {
                     error = 1;
                     break;
                 }
                 if (matched) {
-                    found = handle_obj->index_nodes[pos];
+                    found = node;
+                    break;
+                }
+                if (index_went_stale(handle_obj, version)) {
+                    walk = axis_next(node, &origin, query.axis);
                     break;
                 }
             }
@@ -1347,17 +1364,17 @@ TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject 
             }
         }
     } else {
-        for (th_node *node = axis_first(&origin, query.axis); node != NULL;
-             node = axis_next(node, &origin, query.axis)) {
-            int matched = node_matches(state, node, &query);
-            if (matched < 0) {
-                error = 1;
-                break;
-            }
-            if (matched) {
-                found = node;
-                break;
-            }
+        walk = axis_first(&origin, query.axis);
+    }
+    for (th_node *node = walk; node != NULL; node = axis_next(node, &origin, query.axis)) {
+        int matched = node_matches(state, node, &query);
+        if (matched < 0) {
+            error = 1;
+            break;
+        }
+        if (matched) {
+            found = node;
+            break;
         }
     }
     if (!error) {
@@ -1428,6 +1445,7 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
         Py_DECREF(handle);  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    th_node *walk = NULL; /* where the general walk starts, when the query takes it */
     int error = 0;
     /* a non-element node carries TH_TAG_UNKNOWN, so the atom compare alone
        selects the right elements on the fast path */
@@ -1459,6 +1477,7 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
             }
         }
     } else if (use_index) {
+        uint64_t version = handle_obj->mutation_version;
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {
             if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
@@ -1470,12 +1489,13 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
                 error = 1;
                 break;
             }
-            if (matched == 0) {
-                continue;
+            if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot fail */
+                error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-            if (append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                error = 1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+            if (index_went_stale(handle_obj, version)) {
+                walk = axis_next(node, &origin, query.axis);
+                break;
             }
         }
     } else if (query_is_simple_tag(&query)) {
@@ -1492,20 +1512,20 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
             }
         }
     } else {
-        for (th_node *node = axis_first(&origin, query.axis); node != NULL;
-             node = axis_next(node, &origin, query.axis)) {
-            if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
-                break;
-            }
-            int matched = node_matches(state, node, &query);
-            if (matched < 0) {
-                error = 1;
-                break;
-            }
-            if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot fail */
-                error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
+        walk = axis_first(&origin, query.axis);
+    }
+    for (th_node *node = walk; node != NULL; node = axis_next(node, &origin, query.axis)) {
+        if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
+            break;
+        }
+        int matched = node_matches(state, node, &query);
+        if (matched < 0) {
+            error = 1;
+            break;
+        }
+        if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot fail */
+            error = 1;                                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;                                                     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     Py_END_CRITICAL_SECTION();

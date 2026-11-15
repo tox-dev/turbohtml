@@ -19,6 +19,9 @@ typedef struct {
     Py_ssize_t len;
     Py_ssize_t cap;
     int failed;
+    /* added to len for the attribute characters parser clones may still write: each clone attribute takes back twice
+       what it wrote, once as the output it is and once as the allowance it spent (see ser_clone_attr_fits) */
+    Py_ssize_t clone_credit;
 } sbuf;
 
 /* Grow the buffer so at least extra more code points fit, doubling so a run of

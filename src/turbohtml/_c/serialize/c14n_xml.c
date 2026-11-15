@@ -707,7 +707,15 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, int is_ap
     if (ns_count > 1) {
         qsort(namespaces, (size_t)ns_count, sizeof(c14n_xml_ns), c14n_xml_ns_cmp);
     }
+    Py_ssize_t clone_start = ser_clone_start(out, node);
+    /* a clone that cannot declare a prefix writes no attribute, so none uses an undeclared one */
+    int clone_full = 0;
     for (Py_ssize_t index = 0; index < ns_count; index++) {
+        if (clone_start >= 0 &&
+            !ser_clone_attr_fits(out, clone_start, namespaces[index].prefix_len + namespaces[index].uri_len)) {
+            clone_full = 1;
+            break;
+        }
         sbuf_puts(out, " xmlns");
         if (namespaces[index].prefix_len > 0) {
             sbuf_putc(out, ':');
@@ -800,12 +808,18 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, int is_ap
         qsort(attrs, (size_t)count, sizeof(c14n_xml_attr), c14n_xml_attr_cmp);
     }
     for (Py_ssize_t index = 0; index < count; index++) {
+        Py_ssize_t cost = attrs[index].name_len + attrs[index].value_len;
+        if (clone_start >= 0 && (clone_full || !ser_clone_attr_fits(out, clone_start, cost))) {
+            break;
+        }
+        TH_WORK_STEPS_ADD(cost);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
         c14n_put_attr(out, attrs[index].value, attrs[index].value_len);
         sbuf_putc(out, '"');
     }
+    ser_clone_settle(out, clone_start);
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
@@ -983,7 +997,7 @@ static void c14n_xml_document(sbuf *out, th_tree *tree, th_node *doc, const th_c
 }
 
 Py_UCS4 *th_node_canonicalize_xml(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
         c14n_xml_document(&out, tree, node, opts);

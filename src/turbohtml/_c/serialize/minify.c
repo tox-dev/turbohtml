@@ -184,7 +184,7 @@ static Py_UCS4 *mini_style_attr_css(sbuf *out, const Py_UCS4 *value, Py_ssize_t 
         PyMem_Free(result); /* the declarations minified to nothing: the caller renders an empty value */
         return NULL;
     }
-    sbuf decoded = {NULL, 0, 0, 0};
+    sbuf decoded = {NULL, 0, 0, 0, 0};
     sbuf_put_utf8(&decoded, (const char *)result, css_len);
     PyMem_Free(result);
     Py_UCS4 *minified = sbuf_finish(&decoded, out_len);
@@ -204,11 +204,16 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);
     int charset_kind = opts->inject_meta ? ser_meta_charset_kind(tree, node) : 0;
+    Py_ssize_t clone_start = ser_clone_start(out, node);
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
-        sbuf_putc(out, ' ');
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, name_len + attr->value_len)) {
+            break;
+        }
+        TH_WORK_STEPS_ADD(name_len + attr->value_len);
+        sbuf_putc(out, ' ');
         sbuf_put_utf8(out, name, name_len);
         if (ser_put_charset_value(out, opts, charset_kind, name, name_len)) {
             continue;
@@ -241,6 +246,7 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
         }
         PyMem_Free(minified);
     }
+    ser_clone_settle(out, clone_start);
     ser_attr_order_free(order, stack_order);
     sbuf_putc(out, '>');
 }
@@ -910,7 +916,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
 
 Py_UCS4 *th_node_minify(th_tree *tree, th_node *node, const th_minify_opts *minify, const th_serialize_opts *opts,
                         Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     th_serialize_opts context = *opts;
     th_xml_unwrap unwrap = {.spend = {0, 0, TH_XML_NS_BASE}};
     context.xml_unwrap = &unwrap; /* markup inside a raw-text element goes through the XML walk under xml */

@@ -382,16 +382,32 @@ static PyObject *microdata_value(micro_ctx *ctx, th_node *element) {
     return microdata_text(ctx, element);
 }
 
+/* A run of more names than this is checked against a set of the earlier ones, so the check stays linear in the
+   attribute, which the page controls and itemref hands to every item naming the element. A shorter run, which is what
+   an ordinary itemprop is, compares each name with the ones before it and never allocates a set. */
+#define STRUCTURED_DATA_MAX_SCANNED_NAMES ((Py_ssize_t)8)
+
 /* Whether the token at `index` repeats an earlier one: an element's property names are its itemprop tokens with the
    duplicates removed, so itemprop="a a" adds its value under "a" once. */
 static int token_repeats(PyObject *tokens, Py_ssize_t index) {
     PyObject *token = PyList_GET_ITEM(tokens, index);
     for (Py_ssize_t earlier = 0; earlier < index; earlier++) {
+        TH_WORK_STEP();
         if (PyUnicode_Compare(PyList_GET_ITEM(tokens, earlier), token) == 0) {
             return 1;
         }
     }
     return 0;
+}
+
+/* Whether `token` repeats one already in `seen`, recording it when it does not. -1 only on the excluded
+   allocation-failure path. */
+static int token_seen(PyObject *seen, PyObject *token) {
+    Py_ssize_t before = PySet_GET_SIZE(seen);
+    if (PySet_Add(seen, token) < 0) { /* GCOVR_EXCL_BR_LINE: a str insert only fails on allocation failure */
+        return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return PySet_GET_SIZE(seen) == before;
 }
 
 /* Append `value` under every distinct whitespace-separated name in the itemprop run to the properties dict, each name
@@ -404,11 +420,23 @@ static Py_ssize_t add_property(PyObject *properties, const Py_UCS4 *names, Py_ss
     }
     Py_ssize_t count = PyList_GET_SIZE(tokens);
     Py_ssize_t added = 0;
+    PyObject *seen = NULL;
+    if (count > STRUCTURED_DATA_MAX_SCANNED_NAMES) {
+        seen = PySet_New(NULL);
+        if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto error;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
     for (Py_ssize_t index = 0; index < count; index++) {
-        if (token_repeats(tokens, index)) {
+        TH_WORK_STEP();
+        PyObject *key = PyList_GET_ITEM(tokens, index);
+        int repeats = seen == NULL ? token_repeats(tokens, index) : token_seen(seen, key);
+        if (repeats < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto error;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (repeats) {
             continue;
         }
-        PyObject *key = PyList_GET_ITEM(tokens, index);
         PyObject *bucket = PyDict_GetItemWithError(properties, key);
         if (bucket != NULL) {
             Py_INCREF(bucket);
@@ -432,9 +460,11 @@ static Py_ssize_t add_property(PyObject *properties, const Py_UCS4 *names, Py_ss
         }
         added++;
     }
+    Py_XDECREF(seen);
     Py_DECREF(tokens);
     return added;
 error:                 /* GCOVR_EXCL_LINE: shared cleanup for the unreachable allocation-failure arms */
+    Py_XDECREF(seen);  /* GCOVR_EXCL_LINE */
     Py_DECREF(tokens); /* GCOVR_EXCL_LINE */
     return -1;         /* GCOVR_EXCL_LINE */
 }
