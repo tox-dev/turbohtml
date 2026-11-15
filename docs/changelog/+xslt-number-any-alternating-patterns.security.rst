@@ -1,1 +1,2 @@
-``xsl:number level="any"`` now takes linear time when several ``xsl:number`` instructions with different ``count`` or ``from`` patterns alternate over one run.
+``xsl:number`` now takes linear time when several instructions with different or repeated ``count`` or ``from``
+patterns, or alternating sibling names, number one run.

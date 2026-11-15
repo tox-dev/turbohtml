@@ -5302,7 +5302,9 @@ def test_number_any_default_count_over_interleaved_names_scales_linearly(
 @pytest.mark.parametrize(
     "instructions",
     [
-        pytest.param(('<xsl:number level="any" from="g"/>', '<xsl:number level="any" from="h"/>'), id="any-from-patterns"),
+        pytest.param(
+            ('<xsl:number level="any" from="g"/>', '<xsl:number level="any" from="h"/>'), id="any-from-patterns"
+        ),
         pytest.param(
             ('<xsl:number level="any" count="p"/>', '<xsl:number level="any" count="q"/>'), id="any-count-patterns"
         ),
@@ -5313,7 +5315,7 @@ def test_number_any_default_count_over_interleaved_names_scales_linearly(
         pytest.param(('<xsl:number count="p"/>', '<xsl:number count="q"/>'), id="single-count-patterns"),
         pytest.param(('<xsl:number from="g"/>', '<xsl:number from="h"/>'), id="single-from-patterns"),
         pytest.param(('<xsl:number count="p"/>', '<xsl:number count="p"/>'), id="single-same-count-patterns"),
-        pytest.param(('<xsl:number/>', '<xsl:number/>'), id="single-default-names"),
+        pytest.param(("<xsl:number/>", "<xsl:number/>"), id="single-default-names"),
         pytest.param(
             ('<xsl:number level="multiple" count="p"/>', '<xsl:number level="multiple" count="q"/>'),
             id="multiple-count-patterns",

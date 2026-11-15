@@ -4368,7 +4368,8 @@ static long number_walk_step(engine *eng, xslt_number_walk *walk, const th_node 
     return ++tally->count;
 }
 
-/* Index an element of a sibling run before its default name is read, as remember_number_node does for the current node. */
+/* Index an element of a sibling run before its default name is read, as remember_number_node does for the current node.
+ */
 static int number_index_child(engine *eng, th_node *node) {
     if (node->type == TH_NODE_ELEMENT && th_tree_is_xml(eng->src_tree) &&
         (number_has_namespaces(eng) || eng->number_index.positions.count != 0 ||
@@ -4397,8 +4398,8 @@ static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, co
             seen += number_counts(eng, count_set, 1, child);
         } else {
             if (number_index_child(eng, child) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                failed = 1;                          /* GCOVR_EXCL_LINE */
-                break;                               /* GCOVR_EXCL_LINE */
+                failed = 1;                           /* GCOVR_EXCL_LINE */
+                break;                                /* GCOVR_EXCL_LINE */
             }
             const xslt_number_name name = number_default_name(eng, child);
             if (tallies.tally_count == tallies.tally_capacity / 2 &&
@@ -4809,7 +4810,7 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
         th_node *target = number_single(eng, count_matches, have_count, from_matches, have_from);
         if (target != NULL) {
             const long value = level_number(eng, site, count_matches, have_count, target);
-            if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            if (value < 0) {                /* GCOVR_EXCL_BR_LINE: allocation failure */
                 match_set_free(&count_set); /* GCOVR_EXCL_LINE */
                 match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
                 return -1;                  /* GCOVR_EXCL_LINE */
