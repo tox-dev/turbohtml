@@ -1452,6 +1452,172 @@ def test_xml_namespace_attribute_test_on_html_tree_matches_foreign_elements_only
     assert document.xpath("//@xml:lang") == ["it"]
 
 
+_ATOM: Final[str] = "http://www.w3.org/2005/Atom"
+
+
+@pytest.mark.parametrize(
+    ("markup", "expr", "namespaces", "expected"),
+    [
+        pytest.param(f'<feed xmlns="{_ATOM}"><entry/></feed>', "//entry", None, [], id="default-namespace-element"),
+        pytest.param(
+            f'<feed xmlns="{_ATOM}"><entry/></feed>', "//a:entry", {"a": _ATOM}, ["entry"], id="prefixed-registered"
+        ),
+        pytest.param(
+            f'<feed xmlns="{_ATOM}"><entry/></feed>', "//a:entry", {"a": "urn:other"}, [], id="prefixed-other-uri"
+        ),
+        pytest.param(f'<feed xmlns="{_ATOM}"><entry/></feed>', "/feed", None, [], id="root-in-default-namespace"),
+        pytest.param(
+            f'<feed xmlns="{_ATOM}"><entry/></feed>', "//entry", {"a": _ATOM}, [], id="unprefixed-ignores-bindings"
+        ),
+        pytest.param("<feed><entry/></feed>", "//entry", None, ["entry"], id="no-namespace"),
+        pytest.param(
+            f'<feed xmlns="{_ATOM}"><x xmlns=""><entry/></x></feed>',
+            "//entry",
+            None,
+            ["entry"],
+            id="undeclared-default",
+        ),
+        pytest.param(
+            f'<feed xmlns="{_ATOM}"><x xmlns=""><entry/></x></feed>',
+            "//a:entry",
+            {"a": _ATOM},
+            [],
+            id="undeclared-not-atom",
+        ),
+        pytest.param(
+            '<p:feed xmlns:p="urn:a"><p:entry/><entry/></p:feed>',
+            "//entry",
+            None,
+            ["entry"],
+            id="prefixed-element-skipped",
+        ),
+        pytest.param(
+            '<p:feed xmlns:p="urn:a"><p:entry/></p:feed>', "//p:entry", {"p": "urn:a"}, ["p:entry"], id="own-prefix"
+        ),
+        pytest.param(
+            '<p:feed xmlns:p="urn:a"><p:entry/></p:feed>', "//p:entry", {"p": "urn:b"}, [], id="own-prefix-other"
+        ),
+        pytest.param(
+            '<r xmlns="urn:a"><e1/><q xmlns="urn:b"><e2/></q></r>',
+            "//b:e2",
+            {"b": "urn:b"},
+            ["e2"],
+            id="inner-declaration",
+        ),
+        pytest.param(
+            '<r xmlns="urn:a"><e1/><q xmlns="urn:b"><e2/></q></r>',
+            "//a:e2",
+            {"a": "urn:a"},
+            [],
+            id="outer-declaration-hidden",
+        ),
+        pytest.param(
+            "<\U0001d49c:x xmlns:\U0001d49c='urn:z'><\U0001d49c:y/></\U0001d49c:x>",
+            "//\U0001d49c:y",
+            {"\U0001d49c": "urn:z"},
+            ["\U0001d49c:y"],
+            id="astral-prefix",
+        ),
+        pytest.param(
+            "<é:x xmlns:é='urn:e'><é:y/></é:x>",
+            "//é:y",
+            {"é": "urn:e"},
+            ["é:y"],
+            id="two-byte-prefix",
+        ),
+        pytest.param(
+            "<中:x xmlns:中='urn:c'><中:y/></中:x>",
+            "//中:y",
+            {"中": "urn:c"},
+            ["中:y"],
+            id="three-byte-prefix",
+        ),
+    ],
+)
+def test_xml_name_test_matches_the_namespace_in_scope(
+    markup: str, expr: str, namespaces: dict[str, str] | None, expected: list[str]
+) -> None:
+    assert tags(parse_xml(markup).xpath(expr, namespaces=namespaces)) == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "namespaces", "expected"),
+    [
+        pytest.param("//a/@href", None, ["2"], id="unprefixed-attribute"),
+        pytest.param("//a/@x:href", {"x": "urn:x"}, ["1"], id="bound-prefixed-attribute"),
+        pytest.param("//a/@x:href", {"x": "urn:y"}, [], id="other-uri-attribute"),
+    ],
+)
+def test_xml_name_test_matches_attributes_by_namespace(
+    expr: str, namespaces: dict[str, str] | None, expected: list[str]
+) -> None:
+    assert parse_xml('<a xmlns:x="urn:x" x:href="1" href="2"/>').xpath(expr, namespaces=namespaces) == expected
+
+
+def test_xml_undefined_prefix_raises() -> None:
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        parse_xml(f'<feed xmlns="{_ATOM}"><entry/></feed>').xpath("//a:entry")
+
+
+def test_xml_name_test_climbs_scale_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_deep_default_namespace, (500, 2000))
+
+
+def _deep_default_namespace(depth: int) -> Callable[[], object]:
+    document = parse_xml(f'<r xmlns="urn:a">{"<x>" * depth}{"</x>" * depth}</r>')
+    return partial(document.xpath, "//a:x", namespaces={"a": "urn:a"})
+
+
+def test_xml_name_test_resolves_many_prefixes() -> None:
+    count = 40
+    declarations = " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
+    document = parse_xml(f"<r {declarations}>{''.join(f'<p{index}:x/>' for index in range(count))}</r>")
+    expr = " | ".join(f"//p{index}:x" for index in range(count))
+    namespaces = {f"p{index}": f"urn:{index}" for index in range(count)}
+    assert tags(document.xpath(expr, namespaces=namespaces)) == [f"p{index}:x" for index in range(count)]
+
+
+def test_xml_name_test_skips_a_foreign_element_moved_into_an_xml_tree() -> None:
+    document = parse_xml("<r/>")
+    svg = parse("<svg><rect/></svg>").select_one("svg")
+    assert svg is not None
+    one(document, "/r").append(svg)
+    assert document.xpath("//rect") == []
+    assert document.xpath("//svg") == []
+
+
+def test_xml_name_test_keeps_its_memos_when_the_declaration_table_grows() -> None:
+    # the second declaration's atom is interned after hundreds of attribute names, past the table the first one sized
+    attributes = " ".join(f'a{index}="1"' for index in range(600))
+    document = parse_xml(f'<r xmlns:p0="urn:0" {attributes} xmlns:late="urn:l"><p0:x><late:y/></p0:x></r>')
+    result = document.xpath("//p0:x/late:y", namespaces={"p0": "urn:0", "late": "urn:l"})
+    assert tags(result) == ["late:y"]
+
+
+def test_xml_name_test_reads_the_tree_after_a_callback_edits_it() -> None:
+    document = parse_xml('<r xmlns:p="urn:a"><p:x><p:y/></p:x></r>')
+    root = one(document, "/r")
+
+    def drop(_context: SimpleNamespace) -> bool:
+        del root.attrs["xmlns:p"]
+        return True
+
+    result = document.xpath("//p:x[drop()]/p:y", namespaces={"p": "urn:a"}, extensions={(None, "drop"): drop})
+    assert result == []
+
+
+def test_xml_attribute_name_test_reads_the_tree_after_a_callback_edits_it() -> None:
+    document = parse_xml('<r xmlns:p="urn:a"><p:x p:a="1"/></r>')
+    root = one(document, "/r")
+
+    def drop(_context: SimpleNamespace) -> bool:
+        del root.attrs["xmlns:p"]
+        return True
+
+    result = document.xpath("//p:x[drop()]/@p:a", namespaces={"p": "urn:a"}, extensions={(None, "drop"): drop})
+    assert result == []
+
+
 def test_xpath_one_accepts_namespaces(ns_doc: turbohtml.Node) -> None:
     node = ns_doc.xpath_one("//svg:circle", namespaces={"svg": _SVG})
     assert isinstance(node, Element)

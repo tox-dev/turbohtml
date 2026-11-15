@@ -69,7 +69,10 @@ def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
     Translate a CSS selector list to an equivalent XPath 1.0 expression.
 
     The XPath selects the same nodes as the selector does under :meth:`turbohtml.Node.select`; a comma-separated list
-    becomes a ``|`` union with the prefix prepended to each arm.
+    becomes a ``|`` union with the prefix prepended to each arm. A type selector is written as a ``name()`` comparison,
+    such as ``*[name() = 'div']`` rather than ``div``: an XPath name test matches only an element in no namespace, which
+    would miss a default-namespace element the selector matches. The text of every type selector therefore differs from
+    earlier releases, while the selected nodes stay the same.
 
     :param selector: the CSS selector list to translate.
     :param prefix: prepended to each arm; the default scopes the expression to the context node's subtree, matching

@@ -41,16 +41,22 @@ full: the ``xml`` prefix binds only to its own namespace and no other prefix may
 never declarable, a prefix declaration is never empty (``xmlns:=``) and never binds the empty URI (``xmlns:p=""``, an
 undeclaration only Namespaces in XML 1.1 allows), a processing-instruction target is an NCName and carries no colon, and
 two attributes may not resolve to one expanded name -- the same local name reached through two prefixes bound to a
-single URI is a duplicate. What it does **not** do is resolve a prefix to a URI. ``lxml`` stores a namespaced tag in
-Clark notation (``{urn:h}a``) and exposes an ``nsmap``; turbohtml keeps the qualified name exactly as written (``h:a``)
-and leaves every ``xmlns``/``xmlns:prefix`` declaration as an ordinary attribute on the element.
+single URI is a duplicate. What the tree does **not** do is resolve a prefix to a URI: ``lxml`` stores a namespaced tag
+in Clark notation (``{urn:h}a``) and exposes an ``nsmap``; turbohtml keeps the qualified name exactly as written
+(``h:a``) and leaves every ``xmlns``/``xmlns:prefix`` declaration as an ordinary attribute on the element.
+
+XPath name tests resolve against those declarations, as XPath 1.0 defines them. An unprefixed name test matches only an
+element or attribute in no namespace, so ``//entry`` does not select the entries of an Atom feed declared as its default
+namespace. A prefixed name test matches a name whose own prefix is declared to the URI bound in the ``namespaces=``
+mapping, so ``//a:entry`` with ``namespaces={"a": ATOM}`` finds them. CSS selectors are not affected: a type selector
+matches the qualified name whatever the default namespace is.
 
 This is a deliberate fit to turbohtml's node model, whose element namespace is the fixed HTML/SVG/MathML enumeration the
 HTML parser needs, not an open set of URIs. Keeping qualified names verbatim means an XML document round-trips through
 the same serializer and navigates through the same :attr:`~turbohtml.Element.tag`/:attr:`~turbohtml.Element.attrs` API
-as an HTML one, at the cost of not offering URI-keyed lookups. A pipeline that needs true namespace resolution,
-DTD-declared entities, validation, or XSLT stays with ``lxml``; the goal of the XML mode is a well-formed,
-dependency-free tree under the one node API, not a second full XML toolchain.
+as an HTML one, at the cost of not offering URI-keyed lookups beyond those XPath name tests. A pipeline that needs true
+namespace resolution, DTD-declared entities, validation, or XSLT stays with ``lxml``; the goal of the XML mode is a
+well-formed, dependency-free tree under the one node API, not a second full XML toolchain.
 
 **************************
  Why a separate front end
