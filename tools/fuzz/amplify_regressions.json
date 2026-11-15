@@ -136,7 +136,7 @@
     "shape": {
       "kind": "repeat",
       "head": "a",
-      "left": "\u0316\u0301"
+      "left": "̖́"
     }
   },
   {
@@ -151,6 +151,21 @@
       "head": "<div>",
       "left": "<b></b>",
       "tail": "</div>"
+    }
+  },
+  {
+    "name": "of-type-position-walk",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1947",
+    "targets": [
+      "select_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<div>",
+      "left": "<x{n}></x{n}>",
+      "tail": "</div>",
+      "counter": true
     }
   },
   {
@@ -673,7 +688,7 @@
     ],
     "shape": {
       "kind": "repeat",
-      "left": "*~~\u00a0"
+      "left": "*~~ "
     }
   },
   {
@@ -983,6 +998,34 @@
       "left": "blurb ",
       "right": "none ",
       "tail": "}"
+    }
+  },
+  {
+    "name": "whatwg-reopened-link-target",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<p>a<a href='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
+    }
+  },
+  {
+    "name": "whatwg-reopened-attribute-in-raw-table",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<table><tr><td colspan=2><p>a<b title='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
     }
   },
   {

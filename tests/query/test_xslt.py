@@ -1078,6 +1078,43 @@ def test_transform_bad_select_expression_raises() -> None:
         _run("<r/>", '<xsl:template match="/"><xsl:value-of select="@("/></xsl:template>')
 
 
+@pytest.mark.parametrize(
+    "test",
+    [
+        pytest.param("/r/@main = @id", id="absolute"),
+        pytest.param("$main = @id and /r", id="variable-first"),
+        pytest.param("current()/@id = /r/@main", id="current-first"),
+        pytest.param("key('by-id', @id)[/r/@main = @id]", id="key-first"),
+    ],
+)
+def test_transform_absolute_path_inside_for_each_starts_at_the_source_root(test: str) -> None:
+    body: Final = (
+        '<xsl:key name="by-id" match="a" use="@id"/><xsl:variable name="main" select="/r/@main"/>'
+        '<xsl:template match="/"><xsl:for-each select="//a">'
+        f'<xsl:if test="{test}"><xsl:value-of select="count(/r//a[/r])"/></xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    source: Final = turbohtml.parse_xml("<r main='2'><a id='1'><a id='2'/></a></r>")
+    assert Transform(_sheet(body))(source) == "2"
+    inner: Final = source.xpath_one("//a/a")
+    assert isinstance(inner, Element)
+    assert Transform(_sheet(body))(inner) == "2"
+
+
+def test_transform_absolute_path_on_deep_current_nodes_stays_linear(work_steps: WorkSteps) -> None:
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="//e">'
+        '<xsl:if test="current()/@id = /e/@main">x</xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    stylesheet: Final = Transform(_sheet(body))
+
+    def build(size: int) -> Callable[[], object]:
+        return partial(stylesheet, turbohtml.parse_xml("<e>" * size + "</e>" * size))
+
+    work_steps.assert_linear(build, (1000, 4000))
+
+
 def test_transform_for_each_on_non_node_set_raises() -> None:
     with pytest.raises(ValueError, match="not a node-set"):
         _run("<r/>", '<xsl:template match="/"><xsl:for-each select="1 + 1">x</xsl:for-each></xsl:template>')
@@ -1251,6 +1288,26 @@ def test_transform_template_matching_many_nodes_grows_match_set() -> None:
         '<xsl:template match="i"><xsl:value-of select="."/>,</xsl:template>'
     )
     assert _run(f"<r>{items}</r>", body) == "".join(f"{index}," for index in range(30))
+
+
+@pytest.mark.parametrize("rules", [pytest.param(1, id="match-set"), pytest.param(16, id="dispatch-cache")])
+def test_transform_matches_crowded_source_nodes_stays_linear(rules: int, work_steps: WorkSteps) -> None:
+    unused: Final = "".join(f'<xsl:template match="unused{index}"/>' for index in range(rules - 1))
+    convert: Final = Transform(_sheet(f'{unused}<xsl:template match="a">.</xsl:template>'))
+    assert convert(parse_xml(_crowded_source_markup(40))) == "." * 40
+    work_steps.assert_linear(lambda n: partial(convert, parse_xml(_crowded_source_markup(n))), (1000, 4000))
+
+
+def _crowded_source_markup(elements: int) -> str:
+    # Comments take a creation order number without entering a match set or the dispatch cache, so the markup picks
+    # which numbers become keys and places them in the lowest eighth of the table.
+    nodes: list[str] = []
+    placed = 0
+    while placed < elements:
+        crowded = len(nodes) * 0x61C88647 % 2**32 < 2**29
+        nodes.append("<a/>" if crowded else "<!---->")
+        placed += crowded
+    return f"<r>{''.join(nodes)}</r>"
 
 
 def test_transform_key_with_many_distinct_values_grows_table() -> None:

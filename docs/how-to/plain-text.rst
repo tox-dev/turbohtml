@@ -51,6 +51,10 @@ word-wraps:
 
     See the docs (/docs) for more.
 
+An ``<a>`` left unclosed is reopened by the parser in every block that follows it. The targets of those copies draw on
+the padding budget, which the link's start tag also funds once, so a copy the budget does not cover keeps its text and
+omits the target.
+
 ********************************
  Label spans of the export text
 ********************************

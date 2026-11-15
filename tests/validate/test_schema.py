@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from turbohtml import parse_xml
-from turbohtml.validate import RelaxNG, XMLSchema
+from turbohtml.validate import RelaxNG, SchemaValidationError, XMLSchema
 
 if TYPE_CHECKING:
     from traced_bytes import RetainedBytes
@@ -172,3 +172,66 @@ def test_schema_releases_validation_buffers_for_invalid_documents(
     _assert_validation_buffers_released(
         schema_type(source), parse_xml("<value>123</value>"), valid=False, retained_bytes=retained_bytes
     )
+
+
+_NAME_LIMIT: Final[int] = 64
+_ERROR_LIMIT: Final[int] = 1_000
+_ELLIPSIS: Final[str] = "\N{HORIZONTAL ELLIPSIS}"
+
+
+@pytest.mark.parametrize("schema_type", [pytest.param(XMLSchema, id="xsd"), pytest.param(RelaxNG, id="relax-ng")])
+@pytest.mark.parametrize(
+    ("char", "length", "kept", "suffix"),
+    [
+        pytest.param("n", _NAME_LIMIT, _NAME_LIMIT, "", id="at-limit"),
+        pytest.param("n", _NAME_LIMIT + 1, _NAME_LIMIT, _ELLIPSIS, id="past-limit"),
+        pytest.param("n", 200, _NAME_LIMIT, _ELLIPSIS, id="long"),
+        pytest.param("\U0001d538", _NAME_LIMIT + 1, _NAME_LIMIT, _ELLIPSIS, id="four-byte"),
+    ],
+)
+def test_error_path_clips_long_element_names(
+    schema_type: type[XMLSchema | RelaxNG], char: str, length: int, kept: int, suffix: str
+) -> None:
+    name: Final = char * length
+    result: Final = _item_list(schema_type, name).validate(parse_xml(f"<{name}><item>x</item></{name}>"))
+    assert [error.path for error in result.errors] == [f"/{char * kept}{suffix}/item"]
+
+
+def _item_list(schema_type: type[XMLSchema | RelaxNG], name: str) -> XMLSchema | RelaxNG:
+    if schema_type is XMLSchema:
+        return XMLSchema(
+            f'<xs:schema {_XS}><xs:element name="{name}"><xs:complexType><xs:sequence>'
+            '<xs:element name="item" type="xs:int" minOccurs="0" maxOccurs="unbounded"/>'
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+    return RelaxNG(
+        f'<element name="{name}" xmlns="{_RELAXNG_NS}" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
+        '<zeroOrMore><element name="item"><data type="int"/></element></zeroOrMore></element>'
+    )
+
+
+@pytest.mark.parametrize("schema_type", [pytest.param(XMLSchema, id="xsd"), pytest.param(RelaxNG, id="relax-ng")])
+@pytest.mark.parametrize(
+    ("invalid", "collected"),
+    [
+        pytest.param(_ERROR_LIMIT - 1, _ERROR_LIMIT - 1, id="below-limit"),
+        pytest.param(_ERROR_LIMIT, _ERROR_LIMIT, id="at-limit"),
+        pytest.param(_ERROR_LIMIT + 1, _ERROR_LIMIT, id="past-limit"),
+        pytest.param(_ERROR_LIMIT * 5 + 7, _ERROR_LIMIT, id="far-past-limit"),
+    ],
+)
+def test_validate_collects_errors_up_to_the_limit(
+    schema_type: type[XMLSchema | RelaxNG], invalid: int, collected: int
+) -> None:
+    schema: Final = _item_list(schema_type, "list")
+    items: Final = [f"<item>x{index}</item>" for index in range(invalid)]
+    document: Final = parse_xml(f"<list>{''.join(items)}</list>")
+    prefix: Final = parse_xml(f"<list>{''.join(items[:collected])}</list>")
+    result: Final = schema.validate(document)
+    assert not result.valid
+    assert not schema.is_valid(document)
+    assert len(result.errors) == collected
+    assert result.errors == schema.validate(prefix).errors
+    with pytest.raises(SchemaValidationError) as raised:
+        schema.assert_valid(document)
+    assert raised.value.errors == result.errors

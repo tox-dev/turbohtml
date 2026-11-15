@@ -480,10 +480,16 @@ static void text_enter_link(text_ctx *ctx, th_node *node, Py_ssize_t opened) {
     const text_opts *opt = ctx->opt;
     Py_ssize_t href_len;
     const Py_UCS4 *href = text_attr(ctx->tree, node, "href", &href_len);
-    if (href == NULL || opt->links == TH_TEXT_LINKS_NONE) {
+    /* The tree builder reopens an unclosed <a> in every block that follows it, and each clone carries the href the
+       source spelled once. A clone's href spends the padding budget too, so a long one cannot multiply the output by
+       the block count; a clone the budget no longer covers keeps its text alone. A written start tag funds one repeat
+       of its href, the clone the adoption agency moves its content to. */
+    int clone = (node->tag_flags & TH_ELEM_IMPLIED) != 0;
+    if (href == NULL || opt->links == TH_TEXT_LINKS_NONE || (clone && href_len > ctx->padding_left)) {
         text_push(ctx, node, TEXT_WALK_INLINE, TEXT_LEAVE_NONE, opened);
         return;
     }
+    ctx->padding_left += clone ? -href_len : href_len;
     text_frame *frame =
         text_push(ctx, node, TEXT_WALK_INLINE,
                   opt->links == TH_TEXT_LINKS_INLINE ? TEXT_LEAVE_LINK_INLINE : TEXT_LEAVE_LINK_FOOTNOTE, opened);
@@ -1033,6 +1039,7 @@ static void text_leave(text_ctx *ctx) {
     switch (frame->leave) {
     case TEXT_LEAVE_LINK_INLINE:
         text_emit_ascii(ctx, " (");
+        TH_WORK_STEPS_ADD(frame->link.href_len);
         sbuf_put_run(&ctx->out, frame->link.href, frame->link.href_len);
         ctx->column += (int)frame->link.href_len;
         text_emit_ascii(ctx, ")");
@@ -1134,6 +1141,7 @@ static void text_flush_references(text_ctx *ctx) {
         sbuf_putc(&ctx->out, '[');
         md_put_decimal(&ctx->out, ref_index + 1);
         sbuf_puts(&ctx->out, "] ");
+        TH_WORK_STEPS_ADD(ctx->refs[ref_index].url_len);
         sbuf_put_run(&ctx->out, ctx->refs[ref_index].url, ctx->refs[ref_index].url_len);
     }
 }

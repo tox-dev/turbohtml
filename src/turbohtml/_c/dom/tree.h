@@ -127,6 +127,9 @@ struct th_node {
     /* set once an enabled selectedcontent is reachable below this node, never cleared: the adoption agency only
        lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
     uint8_t reaches_selectedcontent;
+    /* Tree builder state: set while the element is an entry of the list of active formatting elements. The list
+       outlives the stack of open elements, so membership is read here instead of searched. */
+    uint8_t afe_listed;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -612,8 +615,10 @@ typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE, TH_MARKDOWN_
    processing instruction and the text of a raw-text element are dropped too: CommonMark
    has no inline form of the `<?x>` spelling, and raw text holds a bare `<` the reader
    would take for the start of markup. */
-Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
-Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *clone_budget,
+                               Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *clone_budget,
+                                   Py_ssize_t *out_len);
 
 typedef struct {
     const Py_UCS4 *open;
@@ -623,7 +628,8 @@ typedef struct {
 } th_cell_wrap;
 
 /* An enclosing inline marker would otherwise vanish at the raw table block boundary. */
-Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *clone_budget,
+                                     Py_ssize_t *out_len);
 
 /* Serialize only node's children (its inner HTML), WHATWG-conformant and
    compact. PyMem-allocated; *out_len receives the length. NULL on failure. */
@@ -648,9 +654,10 @@ typedef struct {
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
     const th_node *xml_boundary;
-    int markdown;         /* a th_markdown_html context, or 0 outside Markdown */
-    int *charset_missing; /* non-NULL when charset is a placeholder no label names: a writer sets *charset_missing
-                             instead of writing it, and the caller refuses the output */
+    int markdown;             /* a th_markdown_html context, or 0 outside Markdown */
+    int *charset_missing;     /* non-NULL when charset is a placeholder no label names: a writer sets *charset_missing
+                                 instead of writing it, and the caller refuses the output */
+    Py_ssize_t *clone_budget; /* Markdown: the attribute characters parser clones may still write, or NULL */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

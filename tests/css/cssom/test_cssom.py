@@ -1408,6 +1408,33 @@ def test_computed_style_nth_offset_near_int_min_matches_nothing() -> None:
     assert computed_style(paragraph)["color"] == "blue"
 
 
+def test_computed_style_type_positions_in_long_run() -> None:
+    # past 32 siblings the cascade indexes the run once for all its elements, and an edit drops that index
+    run: Final = "".join(f"<x-{index % 2}></x-{index % 2}>" for index in range(80))
+    document: Final = parse(
+        "<style>#p > *{color:blue}#p > :last-of-type{color:red}#p > :nth-of-type(2){color:green}</style>"
+        f"<div id=p>{run}</div>"
+    )
+    nodes: Final = document.select("#p > *")
+    before: Final = [computed_style(node)["color"] for node in nodes]
+    nodes[-1].insert_after(Element("x-0"))
+    after: Final = [computed_style(node)["color"] for node in nodes]
+    assert (before, after) == (
+        ["blue"] * 2 + ["green"] * 2 + ["blue"] * 74 + ["red"] * 2,
+        ["blue"] * 2 + ["green"] * 2 + ["blue"] * 75 + ["red"],
+    )
+
+
+def test_computed_style_type_position_looked_up_backwards() -> None:
+    # the cascade remembers the last position it computed; a later call for an earlier sibling past a long run of
+    # other types reads the position memo instead of walking the run
+    document: Final = parse(
+        f"<style>#p > :nth-of-type(1){{color:red}}</style><div id=p><b></b>{'<i></i>' * 40}<b></b></div>"
+    )
+    nodes: Final = document.select("#p > b")
+    assert [computed_style(node)["color"] for node in nodes[::-1]] == ["canvastext", "red"]
+
+
 def test_computed_style_sibling_positions_after_insertion() -> None:
     document: Final = parse("<style>i{color:blue}i:nth-child(odd){color:red}</style><i></i><i></i><i></i>")
     nodes: Final = document.select("i")
