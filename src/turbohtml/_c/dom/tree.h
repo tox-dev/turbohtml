@@ -531,6 +531,10 @@ th_node *th_tree_document(th_tree *tree);
 uint32_t th_tree_attr_generation(const th_tree *tree);
 uint64_t th_tree_attr_version(const th_tree *tree);
 uint64_t th_tree_id_version(const th_tree *tree);
+/* Whether the handle's slot cache still matches the slot attributes: set when the cache starts, cleared by an attribute
+   edit that changes slot assignment (see th_tree.slot_cache_valid). */
+int th_tree_slot_cache_valid(const th_tree *tree);
+void th_tree_set_slot_cache(th_tree *tree, int valid);
 
 /* The WHATWG parse errors collected during the parse, in document order, and
    their count via *out_count. The array (and its static code strings) lives as

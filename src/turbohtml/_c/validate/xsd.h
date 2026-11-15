@@ -588,7 +588,15 @@ static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_s
 
 /* Resolve a simpleType node (or a builtin base) into a facet set. Returns the base
    built-in datatype id, gathering restriction facets and following the base chain. */
-static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *facets, int depth);
+static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *facets, int depth, int content);
+
+static int xsd_is_builtin_base(th_schema *schema, th_node *owner, const Py_UCS4 *base, Py_ssize_t base_len) {
+    const Py_UCS4 *local, *prefix, *uri;
+    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
+    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
+    resolve_ns(schema->tree, owner, prefix, prefix_len, &uri, &uri_len);
+    return is_xsd_uri(uri, uri_len);
+}
 
 static int xsd_base_id(th_schema *schema, th_node *owner, const Py_UCS4 *base, Py_ssize_t base_len, facetset *facets,
                        int depth) {
@@ -601,15 +609,23 @@ static int xsd_base_id(th_schema *schema, th_node *owner, const Py_UCS4 *base, P
         return builtin == DT_UNKNOWN ? DT_STRING : builtin;
     }
     th_node *named = named_find(&schema->simple_types, local, local_len);
+    int content = 0;
+    if (named == NULL && is_schema_el(schema, owner->parent, XSD_NS, "simpleContent")) {
+        th_node *complex = named_find(&schema->complex_types, local, local_len);
+        named = complex != NULL ? first_schema_child(schema, complex, XSD_NS, "simpleContent") : NULL;
+        content = 1;
+    }
     if (named != NULL && depth < 40) {
-        return xsd_gather_facets(schema, named, facets, depth + 1);
+        return xsd_gather_facets(schema, named, facets, depth + 1, content);
     }
     return DT_STRING;
 }
 
-static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *facets, int depth) {
+static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *facets, int depth, int content) {
     th_tree *tree = schema->tree;
-    th_node *restriction = first_schema_child(schema, simpletype, XSD_NS, "restriction");
+    th_node *extension = content ? first_schema_child(schema, simpletype, XSD_NS, "extension") : NULL;
+    th_node *restriction =
+        extension != NULL ? extension : first_schema_child(schema, simpletype, XSD_NS, "restriction");
     if (restriction == NULL) { /* list / union fall back to a permissive string base */
         return facets->base_id;
     }
@@ -618,17 +634,21 @@ static int xsd_gather_facets(th_schema *schema, th_node *simpletype, facetset *f
     int base_id = facets->base_id;
     if (base != NULL) {
         base_id = xsd_base_id(schema, restriction, base, base_len, facets, depth);
-    } else {
-        th_node *inner = first_schema_child(schema, restriction, XSD_NS, "simpleType");
-        if (inner != NULL) {
-            base_id = xsd_gather_facets(schema, inner, facets, depth + 1);
-        }
+    }
+    /* a simpleContent restriction may narrow its named base with an inline simpleType, applied after the base */
+    th_node *inner = base == NULL || content ? first_schema_child(schema, restriction, XSD_NS, "simpleType") : NULL;
+    if (inner != NULL) {
+        base_id = xsd_gather_facets(schema, inner, facets, depth + 1, 0);
     }
     if (base_id < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;     /* GCOVR_EXCL_LINE */
     }
     facets->base_id = base_id;
-    facets->ws = dt_default_ws(base_id);
+    /* an extension keeps the whiteSpace rule of a named base, which the gather above has already set */
+    const int keeps_ws = extension != NULL && base != NULL && !xsd_is_builtin_base(schema, restriction, base, base_len);
+    if (!keeps_ws) {
+        facets->ws = dt_default_ws(base_id);
+    }
     for (th_node *facet = restriction->first_child; facet != NULL; facet = facet->next_sibling) {
         if (facet->type != TH_NODE_ELEMENT) {
             continue;
@@ -655,7 +675,7 @@ typedef struct xfacet_entry {
 } xfacet_entry;
 
 static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
-static int xsd_record_facets(th_schema *schema, th_node *node);
+static int xsd_record_facets(th_schema *schema, th_node *node, int content);
 
 /* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
 static int xsd_cache_facets(th_schema *schema, th_node *node) {
@@ -664,9 +684,10 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
         if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
             return -1;
         }
-        if (u_eq_ascii(name->local, name->local_len, "simpleType")) {
-            if (xsd_record_facets(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return -1;                             /* GCOVR_EXCL_LINE */
+        const int content = u_eq_ascii(name->local, name->local_len, "simpleContent");
+        if (content || u_eq_ascii(name->local, name->local_len, "simpleType")) {
+            if (xsd_record_facets(schema, node, content) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;                                      /* GCOVR_EXCL_LINE */
             }
         } else if (u_eq_ascii(name->local, name->local_len, "all")) {
             if (xsd_record_all(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -809,7 +830,7 @@ static int xsd_require_base(th_schema *schema, th_node *node) {
     return -1;
 }
 
-static int xsd_record_facets(th_schema *schema, th_node *node) {
+static int xsd_record_facets(th_schema *schema, th_node *node, int content) {
     if (schema->facet_count == schema->facet_cap) {
         size_t capacity, bytes;
         const int fits =
@@ -830,8 +851,9 @@ static int xsd_record_facets(th_schema *schema, th_node *node) {
     xfacet_entry *entry = &schema->facet_entries[schema->facet_count++];
     entry->node = node;
     facetset_init(&entry->facets, DT_STRING);
-    if (xsd_gather_facets(schema, node, &entry->facets, 0) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;                                                /* GCOVR_EXCL_LINE */
+    const int status = xsd_gather_facets(schema, node, &entry->facets, 0, content);
+    if (status < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;    /* GCOVR_EXCL_LINE */
     }
     return 0;
 }
@@ -856,7 +878,7 @@ static const facetset *xsd_cached_facets(const th_schema *schema, const th_node 
 }
 
 /* Validate a text value against a simple type (built-in id, or a named/inline
-   simpleType node). Reports on `node`. */
+   simpleType node, or the simpleContent node of a complexType). Reports on `node`. */
 static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
                                 Py_ssize_t len) {
     th_schema *schema = ctx->schema;
@@ -1214,7 +1236,6 @@ static int xsd_is_mixed(const th_schema *schema, th_node *ctype) {
 
 static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype) {
     th_schema *schema = ctx->schema;
-    th_tree *tree = schema->tree;
     th_tree *inst = ctx->tree;
     edecl_vec declared = {NULL, 0, 0};
     xsd_validate_attrs(ctx, instance, ctype, &declared);
@@ -1227,19 +1248,9 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
                 break;
             }
         }
-        th_node *extension = first_schema_child(schema, simple_content, XSD_NS, "extension");
-        th_node *derivation =
-            extension != NULL ? extension : first_schema_child(schema, simple_content, XSD_NS, "restriction");
         Py_ssize_t text_len = 0;
         const Py_UCS4 *text = element_text(ctx, instance, &text_len);
-        if (derivation != NULL) {
-            Py_ssize_t base_len = 0;
-            const Py_UCS4 *base = xsd_attr(tree, derivation, "base", &base_len);
-            facetset probe;
-            facetset_init(&probe, DT_STRING);
-            int base_id = base != NULL ? xsd_base_id(schema, derivation, base, base_len, &probe, 0) : DT_STRING;
-            xsd_validate_simple(ctx, instance, base_id, NULL, text, text_len);
-        }
+        xsd_validate_simple(ctx, instance, DT_STRING, simple_content, text, text_len);
         return;
     }
 

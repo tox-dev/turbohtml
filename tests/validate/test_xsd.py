@@ -1194,6 +1194,124 @@ def test_simple_content_extension_and_mixed() -> None:
     assert not check(schema, '<r u="x"><child/></r>').valid
 
 
+_PERCENT: Final[str] = (
+    '<xs:simpleType name="percent"><xs:restriction base="xs:integer">'
+    '<xs:minInclusive value="0"/><xs:maxInclusive value="100"/></xs:restriction></xs:simpleType>'
+)
+_PERCENT_WITH_UNIT: Final[str] = (
+    '<xs:complexType name="measure"><xs:simpleContent>'
+    '<xs:extension base="percent"><xs:attribute name="unit" type="xs:string"/></xs:extension>'
+    "</xs:simpleContent></xs:complexType>"
+)
+_SPACED_CODE: Final[str] = (
+    '<xs:simpleType name="code"><xs:restriction base="xs:string">'
+    '<xs:whiteSpace value="collapse"/><xs:enumeration value="a b"/></xs:restriction></xs:simpleType>'
+)
+_CURRENCY: Final[str] = (
+    '<xs:simpleType name="currency"><xs:restriction base="xs:string">'
+    '<xs:enumeration value="EUR"/><xs:enumeration value="USD"/></xs:restriction></xs:simpleType>'
+)
+_TENTH: Final[str] = '<xs:maxInclusive value="10"/>'
+_LOWER: Final[str] = '<xs:pattern value="[a-z]+"/>'
+_FROM_FIVE: Final[str] = (
+    '<xs:simpleType><xs:restriction base="percent"><xs:minInclusive value="5"/></xs:restriction></xs:simpleType>'
+)
+
+
+@pytest.mark.parametrize(
+    ("types", "derivation", "value", "valid"),
+    [
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "50", True, id="extends-simple-type-in-range"),
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "-5000", False, id="extends-simple-type-below"),
+        pytest.param(_PERCENT, '<xs:extension base="percent"/>', "abc", False, id="extends-simple-type-lexical"),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "10", True, id="own-facet-met"
+        ),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "50", False, id="own-facet-broken"
+        ),
+        pytest.param(
+            _PERCENT, f'<xs:restriction base="percent">{_TENTH}</xs:restriction>', "-1", False, id="base-facet-broken"
+        ),
+        pytest.param("", f'<xs:restriction base="xs:int">{_TENTH}</xs:restriction>', "50", False, id="builtin-base"),
+        pytest.param("", '<xs:extension base="xs:int"/>', " 50 ", True, id="builtin-base-whitespace"),
+        pytest.param(
+            "", f'<xs:restriction base="xs:string">{_LOWER}</xs:restriction>', "bob", True, id="own-pattern-met"
+        ),
+        pytest.param(
+            "", f'<xs:restriction base="xs:string">{_LOWER}</xs:restriction>', "BOB!", False, id="own-pattern-broken"
+        ),
+        pytest.param(_CURRENCY, '<xs:extension base="currency"/>', "USD", True, id="extends-enumeration-member"),
+        pytest.param(_CURRENCY, '<xs:extension base="currency"/>', "XXX", False, id="extends-enumeration-other"),
+        pytest.param(_SPACED_CODE, '<xs:extension base="code"/>', " a  b ", True, id="base-whitespace-met"),
+        pytest.param(_SPACED_CODE, '<xs:extension base="code"/>', "a c", False, id="base-whitespace-broken"),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            '<xs:extension base="measure"/>',
+            "100",
+            True,
+            id="extends-complex-type-in-range",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            '<xs:extension base="measure"/>',
+            "101",
+            False,
+            id="extends-complex-type-above",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_TENTH}</xs:restriction>',
+            "50",
+            False,
+            id="restricts-complex-type-own-facet",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_TENTH}</xs:restriction>',
+            "-1",
+            False,
+            id="restricts-complex-type-base-facet",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "7",
+            True,
+            id="inline-type-beside-base-met",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "4",
+            False,
+            id="inline-type-beside-base-broken",
+        ),
+        pytest.param(
+            _PERCENT + _PERCENT_WITH_UNIT,
+            f'<xs:restriction base="measure">{_FROM_FIVE}{_TENTH}</xs:restriction>',
+            "11",
+            False,
+            id="facet-after-inline-type-broken",
+        ),
+    ],
+)
+def test_simple_content_keeps_the_facets_of_its_base(types: str, derivation: str, value: str, *, valid: bool) -> None:
+    # the text of a simple-content element was checked against the built-in type at the root of its base alone, so
+    # giving a restricted value an attribute dropped every facet on it
+    schema = (
+        f'<xs:schema {_XS}>{types}<xs:element name="r"><xs:complexType>'
+        f"<xs:simpleContent>{derivation}</xs:simpleContent></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{value}</r>").valid is valid
+
+
+def test_simple_content_base_type_named_by_an_element() -> None:
+    schema = f'<xs:schema {_XS}>{_PERCENT}{_PERCENT_WITH_UNIT}<xs:element name="r" type="measure"/></xs:schema>'
+    assert check(schema, '<r unit="%">50</r>').valid
+    assert not check(schema, '<r unit="%">500</r>').valid
+
+
 def test_mixed_content() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType mixed="true"><xs:sequence>'
@@ -3154,6 +3272,7 @@ _ANNOTATED_GROUP: Final[str] = (
             id="simple-content-base-is-a-complex-type",
         ),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">text</r>', True, id="simple-content-base-is-a-simple-type"),
+        pytest.param(_SIMPLE_TYPE_BASE, '<r a="x">toolong</r>', False, id="simple-content-base-keeps-its-facet"),
         pytest.param(_SIMPLE_TYPE_BASE, '<r a="x"><child/></r>', False, id="simple-content-rejects-a-child"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r/>", True, id="named-type-empty-complex-content"),
         pytest.param(_EMPTY_COMPLEX_CONTENT, "<r><x/></r>", False, id="named-type-empty-complex-content-child"),
