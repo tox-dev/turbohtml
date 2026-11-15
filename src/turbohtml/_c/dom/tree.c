@@ -2508,6 +2508,14 @@ static void reconstruct_afe(th_tree *tree) {
         }
     }
     for (; index < tree->afe_len; index++) {
+        if (tree->open_len >= TH_MAX_TREE_DEPTH) {
+            /* stack_push would refuse the clone, so the entry would stay unopened and every later token would clone
+               the whole tail again; as in afe_push_if_open, an element the depth cap keeps off the stack leaves
+               the list */
+            tree->afe_len = index;
+            tree->afe_hash_valid = 0;
+            return;
+        }
         th_node *clone = node_clone(tree, tree->afe[index]);
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
