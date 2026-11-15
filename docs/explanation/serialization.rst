@@ -325,9 +325,10 @@ What round-trips byte for byte is therefore the tree that faithfully mirrors the
 implied elements or content reordering. A document that spells out its structure (``<html>``, ``<head>``, ``<body>``, an
 explicit ``<tbody>``) reproduces exactly; a fragment reproduces through its children. Two normalizations the parser
 itself performs are not reversible from the tree and so are not preserved: a lowercase ``<!doctype html>`` re-emits as
-``<!DOCTYPE html>``, and a character reference the tokenizer resolved re-emits in its canonical spelling (``&amp;``,
-``&lt;``, ``&gt;``, ``&nbsp;``, and a carriage return as ``&#13;`` survive, since the escaper re-encodes them; a legacy
-or numeric reference becomes its character). A text run whose source bytes hold a literal ``<`` or ``&`` -- a CDATA
-section in SVG or MathML, a stray ``<`` -- likewise re-emits escaped rather than copied, so text never comes back as
-markup whatever an edit leaves around it. Where every byte must survive an error-recovering or reordering parse, reach
-for the streaming rewriter, which sees the token stream the tree has already discarded.
+``<!DOCTYPE html>`` (keeping its public and system identifiers as the minified form does, since they choose the document
+mode the rest of the source re-parses in), and a character reference the tokenizer resolved re-emits in its canonical
+spelling (``&amp;``, ``&lt;``, ``&gt;``, ``&nbsp;``, and a carriage return as ``&#13;`` survive, since the escaper
+re-encodes them; a legacy or numeric reference becomes its character). A text run whose source bytes hold a literal
+``<`` or ``&`` -- a CDATA section in SVG or MathML, a stray ``<`` -- likewise re-emits escaped rather than copied, so
+text never comes back as markup whatever an edit leaves around it. Where every byte must survive an error-recovering or
+reordering parse, reach for the streaming rewriter, which sees the token stream the tree has already discarded.

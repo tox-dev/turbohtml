@@ -106,13 +106,20 @@ typedef struct {
 } sel_compiled;
 
 /* One memoized bit: key names the question (a :has() argument, or the compound a general
-   sibling combinator looks for) and node is the element it was answered for. key == NULL
-   marks an empty slot. */
+   sibling combinator looks for) and node is the element it was answered for, or for a class
+   or attribute test on a long value, the value buffer. seq, the element's seq or
+   th_node_values_seq for a value, picks the home slot and lets the table rehash without
+   reading node. key == NULL marks an empty slot. */
 typedef struct {
     const void *key;
-    const th_node *node;
+    const void *node;
+    uint32_t seq;
     unsigned char result;
 } sel_memo_slot;
+
+/* A class, ~= or *= test on an attribute value at least this long goes through the value memo
+   (sel_ctx.value_memo); a shorter value costs less to read than a probe. */
+#define SEL_VALUE_MEMO_MIN 256
 
 /* How the last general-sibling walk for one compound ended: the compound it looked for,
    the node it started from and its match status. */
@@ -184,7 +191,9 @@ typedef struct {
    it can share a table with the other two and outlive a scope, for as long as the tree is not
    mutated. It also holds the first strong direction of the nodes a :dir() walk entered, the same
    kind of fact; when a context has no legend memo, the first such walk points legend_memo at a
-   per-thread table. */
+   per-thread table. The value memo is never NULL: it holds what a class, ~= or *= test found
+   in a long attribute value, a fact of the value alone, so a driver can share it across scopes
+   and hand it the table it gives the legend memo. */
 typedef struct {
     th_tree *tree;
     th_node *scope;
@@ -195,6 +204,7 @@ typedef struct {
     sel_sibling_memo *sibling_memo;
     sel_memo *legend_memo;
     sel_position_memo *position_memo;
+    sel_memo *value_memo;
 } sel_ctx;
 
 typedef struct {
@@ -227,7 +237,7 @@ const sel_simple *sel_single_simple(const sel_compiled *compiled);
 int sel_match_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx);
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str);
 void selector_free(sel_compiled *compiled);
-int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope);
+int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope, sel_memo *value_memo);
 int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ctx *ctx);
 /* Match one comma-separated alternative (a single complex selector) against node,
    so the cascade can pair each matching alternative with its own specificity. */
@@ -240,6 +250,10 @@ int selector_uses_has_memo(const sel_compiled *compiled);
 /* Whether the selector writes :scope anywhere, so a match depends on the scope element. */
 int selector_uses_scope(const sel_compiled *compiled);
 void sel_memo_free(sel_memo *memo);
+/* An answer about one of node's long attribute value buffers, kept in a value memo under a key that names the
+   question; every element sharing the buffer finds it. */
+int sel_value_memo_get(const sel_memo *memo, const void *key, const th_node *node, const Py_UCS4 *value, int *out);
+void sel_value_memo_put(sel_memo *memo, const void *key, const th_node *node, const Py_UCS4 *value, int result);
 void sel_position_memo_free(sel_position_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
 void sel_free_alts(sel_complex *alts, int count);

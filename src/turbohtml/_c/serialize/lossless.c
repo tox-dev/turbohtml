@@ -226,9 +226,8 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         sbuf_puts(out, "-->");
         break;
     case TH_NODE_DOCTYPE:
-        sbuf_puts(out, "<!DOCTYPE ");
-        sbuf_put_ucs4(out, node->text, doctype_name_len(node));
-        sbuf_putc(out, '>');
+        /* the name alone would move a quirks-mode document to no-quirks, where a <table> closes the open <p> */
+        ser_put_html_doctype(out, tree, node);
         break;
     case TH_NODE_PI:
         sbuf_put_html_pi(out, node->text, node->text_len);
