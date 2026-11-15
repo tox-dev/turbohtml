@@ -1406,6 +1406,47 @@ def test_linkify_snapshot_survives_callback_mutation(prefix: str) -> None:
     )
 
 
+@pytest.mark.parametrize("verdict", ["veto", "keep"])
+def test_linkify_callback_detaches_text_node(verdict: str) -> None:
+    root: Final = parse_fragment("see example.com")
+    text: Final = root.children[0]
+    assert isinstance(text, Text)
+
+    def detach(link: LinkCandidate) -> LinkCandidate | None:
+        root.clear()
+        return link if verdict == "keep" else None
+
+    assert not Linker(Linkify(callbacks=(detach,))).linkify_node(root).inner_html
+    assert text.parent is None
+    assert text.data == "see example.com"
+
+
+def test_linkify_callback_detaches_later_text_node() -> None:
+    root: Final = parse_fragment("<p>see example.com</p>and example.org")
+    later: Final = root.children[1]
+    assert isinstance(later, Text)
+
+    def detach(link: LinkCandidate) -> LinkCandidate:
+        later.extract()
+        return link
+
+    assert Linker(Linkify(callbacks=(detach,))).linkify_node(root).inner_html == (
+        '<p>see <a href="http://example.com">example.com</a></p>'
+    )
+    assert later.data == "and example.org"
+
+
+def test_linkify_callback_detaches_vetoed_existing_anchor() -> None:
+    root: Final = parse_fragment('<p>hi <a href="http://example.com/">x</a></p>')
+    anchor: Final = root.select("a")[0]
+
+    def detach(_link: LinkCandidate) -> None:
+        anchor.extract()
+
+    assert Linker(Linkify(callbacks=(detach,), process_existing=True)).linkify_node(root).inner_html == "<p>hi </p>"
+    assert anchor.html == '<a href="http://example.com/">x</a>'
+
+
 def test_linkify_wide_snapshot_callback_veto() -> None:
     def veto(_link: LinkCandidate) -> None:
         return None
