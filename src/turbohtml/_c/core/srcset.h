@@ -9,9 +9,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Both scanners run srcset_descriptors_valid once per candidate, and GCC kept it out of line, which measured slower than
-   inlining its fast path and leaving the full check as a call. The coverage build compiles at -O0, where an inlined copy
-   lands in every call site and gcc counts its branches once per copy, so it keeps one copy there. */
+/* Both scanners run srcset_descriptors_valid once per candidate, and GCC kept it out of line, which measured slower
+   than inlining its fast path and leaving the full check as a call. The coverage build compiles at -O0, where an
+   inlined copy lands in every call site and gcc counts its branches once per copy, so it keeps one copy there. */
 #if defined(_MSC_VER)
 #define SRCSET_INLINE __forceinline
 #define SRCSET_OUTLINE __declspec(noinline)

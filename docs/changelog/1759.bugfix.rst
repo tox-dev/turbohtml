@@ -1,2 +1,2 @@
-Commas inside parentheses in a ``srcset`` or ``imagesrcset`` descriptor no longer split an image candidate, so links,
-rewriting and sanitizing see the URL a browser loads.
+Link extraction, rewriting and sanitizing now read ``srcset`` candidates like a browser: commas inside parentheses no
+longer split a candidate, and candidates with invalid descriptors are skipped.
