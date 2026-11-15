@@ -47,6 +47,9 @@ enum datatype {
     DT_HEX_BINARY,
     DT_BASE64_BINARY,
     DT_ANY_SIMPLE_TYPE,
+    DT_NMTOKENS,
+    DT_IDREFS,
+    DT_ENTITIES,
     DT_UNKNOWN,
 };
 
@@ -89,6 +92,9 @@ static const dt_name_entry DT_NAMES[] = {
     {"hexBinary", DT_HEX_BINARY},
     {"base64Binary", DT_BASE64_BINARY},
     {"anySimpleType", DT_ANY_SIMPLE_TYPE},
+    {"NMTOKENS", DT_NMTOKENS},
+    {"IDREFS", DT_IDREFS},
+    {"ENTITIES", DT_ENTITIES},
 };
 
 static int dt_int_in_range(int id, int negative, const Py_UCS4 *digits, Py_ssize_t digit_len);
@@ -100,6 +106,27 @@ static int dt_lookup(const Py_UCS4 *name, Py_ssize_t len) {
         }
     }
     return DT_UNKNOWN;
+}
+
+/* The built-in list types: their values are whitespace-separated items, each of the datatype dt_check_lexical gives
+   them, and at least one item. */
+static int dt_is_list(int id) {
+    return id == DT_NMTOKENS || id == DT_IDREFS || id == DT_ENTITIES;
+}
+
+/* The items of a list value, which the length facets of a list count: its runs of non-whitespace. */
+static Py_ssize_t dt_list_count(const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t count = 0;
+    int in_item = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (is_xml_space(value[index])) {
+            in_item = 0;
+        } else if (!in_item) {
+            in_item = 1;
+            count++;
+        }
+    }
+    return count;
 }
 
 /* preserve = 0, replace = 1, collapse = 2. */
@@ -609,12 +636,40 @@ static int lex_base64_binary(const Py_UCS4 *value, Py_ssize_t len) {
     return count % 4 == 0 && pad <= 2;
 }
 
+static int dt_check_lexical(int id, const Py_UCS4 *value, Py_ssize_t len);
+
+/* Whether every whitespace-separated item of `value` has the lexical space of `item`, and there is at least one. */
+static int lex_list(int item, const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t count = 0;
+    for (Py_ssize_t at = 0; at < len;) {
+        if (is_xml_space(value[at])) {
+            at++;
+            continue;
+        }
+        Py_ssize_t end = at;
+        while (end < len && !is_xml_space(value[end])) {
+            end++;
+        }
+        if (!dt_check_lexical(item, value + at, end - at)) {
+            return 0;
+        }
+        count++;
+        at = end;
+    }
+    return count > 0;
+}
+
 /* Whole-value lexical check for a built-in datatype. */
 static int dt_check_lexical(int id, const Py_UCS4 *value, Py_ssize_t len) {
     int negative;
     const Py_UCS4 *digits;
     Py_ssize_t digit_len = 0;
     switch (id) {
+    case DT_NMTOKENS:
+        return lex_list(DT_NMTOKEN, value, len);
+    case DT_IDREFS:
+    case DT_ENTITIES:
+        return lex_list(DT_NCNAME, value, len);
     case DT_STRING:
     case DT_NORMALIZED_STRING:
     case DT_TOKEN:
@@ -1069,7 +1124,7 @@ static int facet_inherit(arena *mem, facetset *facets, const facetset *own) {
             return -1;                    /* GCOVR_EXCL_LINE */
         }
     }
-    if (own->ws >= 0) {
+    if (own->ws >= 0 && !dt_is_list(facets->base_id)) {
         facets->ws = own->ws;
     }
     if (own->has_length) {
@@ -1149,20 +1204,21 @@ typedef struct {
 } facet_levels;
 
 /* Apply every facet to the whitespace-normalized value, reporting each violation on `node`: the facets of `facets`,
-   then the enumerations and patterns of `levels`. Returns 1 when all pass. */
+   then the enumerations and patterns of `levels`. `units` is what the length facets measure: the characters of an
+   atomic value, the items of a list. Returns 1 when all pass. */
 static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const facet_levels *levels,
-                       const Py_UCS4 *value, Py_ssize_t len) {
+                       const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t units) {
     int ok = 1;
-    if (facets->has_length && len != facets->length) {
-        report(ctx, node, "facet", "value length %zd does not equal length facet %d", len, facets->length);
+    if (facets->has_length && units != facets->length) {
+        report(ctx, node, "facet", "value length %zd does not equal length facet %d", units, facets->length);
         ok = 0;
     }
-    if (facets->has_min_length && len < facets->min_length) {
-        report(ctx, node, "facet", "value length %zd is below minLength %d", len, facets->min_length);
+    if (facets->has_min_length && units < facets->min_length) {
+        report(ctx, node, "facet", "value length %zd is below minLength %d", units, facets->min_length);
         ok = 0;
     }
-    if (facets->has_max_length && len > facets->max_length) {
-        report(ctx, node, "facet", "value length %zd exceeds maxLength %d", len, facets->max_length);
+    if (facets->has_max_length && units > facets->max_length) {
+        report(ctx, node, "facet", "value length %zd exceeds maxLength %d", units, facets->max_length);
         ok = 0;
     }
     if (dt_is_numeric(facets->base_id) && (facets->has_min_inclusive || facets->has_max_inclusive ||

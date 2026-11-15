@@ -145,6 +145,27 @@ def grammar(body: str, *, attrs: str = "") -> str:
     return f'<grammar xmlns="{_RELAXNG_NS}" {attrs}>{body}</grammar>'
 
 
+@pytest.mark.parametrize(
+    ("datatype", "params", "value", "expected"),
+    [
+        pytest.param("NMTOKENS", "", "a b", True, id="nmtokens"),
+        pytest.param("NMTOKENS", "", "", False, id="nmtokens-needs-an-item"),
+        pytest.param("NMTOKENS", "", "a 1!", False, id="nmtokens-item-rejects"),
+        pytest.param("IDREFS", "", "a 1b", False, id="idrefs-item-is-an-ncname"),
+        pytest.param("ENTITIES", "", "a b", True, id="entities"),
+        pytest.param("NMTOKENS", '<param name="maxLength">2</param>', "a b c", False, id="max-length-counts-items"),
+        pytest.param("NMTOKENS", '<param name="maxLength">2</param>', "ab", True, id="max-length-one-item"),
+        pytest.param("NMTOKENS", '<param name="minLength">2</param>', "ab", False, id="min-length-counts-items"),
+    ],
+)
+def test_data_list_types(datatype: str, params: str, value: str, *, expected: bool) -> None:
+    schema = grammar(
+        f'<start><element name="r"><data type="{datatype}">{params}</data></element></start>',
+        attrs=f'datatypeLibrary="{_DT}"',
+    )
+    assert check(schema, f"<r>{value}</r>").valid is expected
+
+
 def test_data_param_facets() -> None:
     schema = grammar(
         '<start><element name="s"><data type="string">'

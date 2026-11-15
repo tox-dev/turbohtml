@@ -719,8 +719,21 @@ static int xsd_builtin_id(const Py_UCS4 *local, Py_ssize_t local_len) {
 
 /* One simpleType or simpleContent. Each holds only what its own derivation states and links to the types it derives
    from, so a type with many facets is stored once however many types derive from it. */
+enum { XSD_ATOMIC, XSD_LIST, XSD_UNION };
+
+/* The item type of a list or one member type of a union: a simpleType of the schema, or else a built-in datatype. */
+typedef struct {
+    th_node *type;
+    int builtin;
+} xsd_member;
+
 typedef struct xfacet_entry {
     th_node *node;
+    int variety;         /* XSD_LIST or XSD_UNION when xs:list or xs:union defines this very simpleType */
+    xsd_member *members; /* then its item type, or its member types in schema order */
+    Py_ssize_t member_count, member_cap;
+    const struct xfacet_entry *root; /* the list or union the chain of restrictions ends in; NULL for an atomic type */
+    unsigned char root_state;        /* 0 unsettled, 1 on the walk that settles it, 2 settled */
     facetset *own; /* the derivation's own facets; NULL for a list or union, which reads as its base */
     /* the named type the base attribute resolves to, and the inline simpleType a derivation without a base, or a
        simpleContent restriction beside its base, narrows; xsd_link_facets resolves both to entries */
@@ -734,13 +747,95 @@ typedef struct xfacet_entry {
     facet_levels levels; /* enumerations or patterns stated on several derivations, in the order they were folded */
 } xfacet_entry;
 
+static int xsd_member_push(th_schema *schema, xfacet_entry *entry, th_node *type, int builtin) {
+    if (entry->member_count == entry->member_cap) {
+        const Py_ssize_t next = entry->member_cap ? entry->member_cap * 2 : 4;
+        xsd_member *grown = arena_alloc(&schema->mem, (size_t)next * sizeof(xsd_member));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        if (entry->member_count > 0) {
+            memcpy(grown, entry->members, (size_t)entry->member_count * sizeof(xsd_member));
+        }
+        entry->members = grown;
+        entry->member_cap = next;
+    }
+    entry->members[entry->member_count].type = type;
+    entry->members[entry->member_count++].builtin = builtin;
+    return 0;
+}
+
+/* The built-in datatype a QName names in an xs:list or xs:union, or else DT_STRING with *named set to the simpleType
+   it names; a name that resolves to neither is left for xsd_require_members to reject. */
+static int xsd_member_name(th_schema *schema, th_node *node, const Py_UCS4 *name, Py_ssize_t name_len,
+                           th_node **named) {
+    const Py_UCS4 *local, *prefix, *uri;
+    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
+    split_prefix(name, name_len, &local, &local_len, &prefix, &prefix_len);
+    resolve_ns(schema->tree_ns, node, prefix, prefix_len, &uri, &uri_len);
+    if (is_xsd_uri(uri, uri_len)) {
+        *named = NULL;
+        return xsd_builtin_id(local, local_len);
+    }
+    *named = named_find(&schema->simple_types, local, local_len);
+    return DT_STRING;
+}
+
+static Py_ssize_t xsd_name_end(const Py_UCS4 *names, Py_ssize_t len, Py_ssize_t at) {
+    while (at < len && !is_xml_space(names[at])) {
+        at++;
+    }
+    return at;
+}
+
+/* The item type of an xs:list or the member types of an xs:union: the names its attribute gives, then its simpleType
+   children. */
+static int xsd_gather_members(th_schema *schema, xfacet_entry *entry, th_node *derivation) {
+    Py_ssize_t names_len = 0;
+    const Py_UCS4 *names =
+        xsd_attr(schema->tree, derivation, entry->variety == XSD_LIST ? "itemType" : "memberTypes", &names_len);
+    for (Py_ssize_t at = 0; names != NULL && at < names_len; at++) {
+        if (is_xml_space(names[at])) {
+            continue;
+        }
+        const Py_ssize_t end = xsd_name_end(names, names_len, at);
+        th_node *named;
+        const int builtin = xsd_member_name(schema, derivation, names + at, end - at, &named);
+        if (xsd_member_push(schema, entry, named, builtin) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                                            /* GCOVR_EXCL_LINE */
+        }
+        at = end;
+    }
+    for (th_node *child = derivation->first_child; child != NULL; child = child->next_sibling) {
+        if (!is_schema_el(schema, child, XSD_NS, "simpleType")) {
+            continue;
+        }
+        if (xsd_member_push(schema, entry, child, DT_STRING) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                                              /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+/* The xs:list or xs:union child that makes a simpleType one, with its item or member types; a simpleType with neither
+   is atomic. */
+static int xsd_gather_variety(th_schema *schema, xfacet_entry *entry) {
+    th_node *derivation = first_schema_child(schema, entry->node, XSD_NS, "list");
+    entry->variety = XSD_LIST;
+    if (derivation == NULL) {
+        derivation = first_schema_child(schema, entry->node, XSD_NS, "union");
+        entry->variety = derivation != NULL ? XSD_UNION : XSD_ATOMIC;
+    }
+    return derivation != NULL ? xsd_gather_members(schema, entry, derivation) : 0;
+}
+
 static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content) {
     th_tree *tree = schema->tree;
     th_node *extension = content ? first_schema_child(schema, entry->node, XSD_NS, "extension") : NULL;
     th_node *derivation =
         extension != NULL ? extension : first_schema_child(schema, entry->node, XSD_NS, "restriction");
     if (derivation == NULL) {
-        return 0;
+        return content ? 0 : xsd_gather_variety(schema, entry);
     }
     entry->own = arena_alloc(&schema->mem, sizeof(facetset));
     if (entry->own == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -881,6 +976,7 @@ static int xsd_cache_facets_at(th_schema *schema, th_node *node) {
 
 static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind);
 static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex);
+static int xsd_require_members(th_schema *schema, th_node *node, const char *attr, int list);
 static TH_NOINLINE int xsd_is_builtin_type(const Py_UCS4 *local, Py_ssize_t local_len);
 static int xsd_require_base(th_schema *schema, th_node *node);
 
@@ -948,6 +1044,10 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
             schema->complex_extension = 1;
         }
         return xsd_require_base(schema, node);
+    } else if (u_eq_ascii(local, local_len, "list")) {
+        return xsd_require_members(schema, node, "itemType", 1);
+    } else if (u_eq_ascii(local, local_len, "union")) {
+        return xsd_require_members(schema, node, "memberTypes", 0);
     }
     return 0;
 }
@@ -970,14 +1070,50 @@ static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, c
     return -1;
 }
 
+static int xsd_require_type_name(th_schema *schema, th_node *node, const Py_UCS4 *type, Py_ssize_t type_len,
+                                 int allow_complex);
+
 /* allow_complex matches where the element and attribute validators look a type up. */
 static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex) {
-    th_tree *tree = schema->tree;
     Py_ssize_t type_len = 0;
-    const Py_UCS4 *type = xsd_attr(tree, node, "type", &type_len);
+    const Py_UCS4 *type = xsd_attr(schema->tree, node, "type", &type_len);
     if (type == NULL) {
         return 0;
     }
+    return xsd_require_type_name(schema, node, type, type_len, allow_complex);
+}
+
+/* A list needs exactly one item type and a union at least one member type, each named by the attribute or given as a
+   simpleType child. A value of either is checked against every name, so each must resolve. */
+static int xsd_require_members(th_schema *schema, th_node *node, const char *attr, int list) {
+    Py_ssize_t names_len = 0, count = 0;
+    const Py_UCS4 *names = xsd_attr(schema->tree, node, attr, &names_len);
+    for (Py_ssize_t at = 0; names != NULL && at < names_len; at++) {
+        if (is_xml_space(names[at])) {
+            continue;
+        }
+        const Py_ssize_t end = xsd_name_end(names, names_len, at);
+        if (xsd_require_type_name(schema, node, names + at, end - at, 0) < 0) {
+            return -1;
+        }
+        count++;
+        at = end;
+    }
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        count += is_schema_el(schema, child, XSD_NS, "simpleType");
+    }
+    if (list ? count == 1 : count > 0) {
+        return 0;
+    }
+    PyErr_Format(PyExc_ValueError,
+                 list ? "xs:list requires one item type: an %s attribute or a simpleType child"
+                      : "xs:union requires a member type: a %s attribute or a simpleType child",
+                 attr);
+    return -1;
+}
+
+static int xsd_require_type_name(th_schema *schema, th_node *node, const Py_UCS4 *type, Py_ssize_t type_len,
+                                 int allow_complex) {
     const Py_UCS4 *local, *prefix, *uri;
     Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
     split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
@@ -1001,8 +1137,8 @@ static TH_NOINLINE int xsd_is_builtin_type(const Py_UCS4 *local, Py_ssize_t loca
         return 1;
     }
     /* These XSD 1.0 types retain the existing fallback without dedicated datatype handlers. */
-    static const char *const names[] = {"anyType",  "NOTATION",   "ID",    "IDREF",     "IDREFS", "ENTITY", "ENTITIES",
-                                        "NMTOKENS", "gYearMonth", "gYear", "gMonthDay", "gDay",   "gMonth"};
+    static const char *const names[] = {"anyType",    "NOTATION", "ID",        "IDREF", "ENTITY",
+                                        "gYearMonth", "gYear",    "gMonthDay", "gDay",  "gMonth"};
     for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
         if (u_eq_ascii(local, local_len, names[index])) {
             return 1;
@@ -1224,6 +1360,47 @@ static int xsd_keep_levels(arena *mem, const xfacet_levels *levels, const facets
     return 0;
 }
 
+/* The list or union that the chain of restrictions from each entry ends in, so a value of a restriction of a list is
+   checked item by item however long the chain is. Each entry leads to one next entry, so the walks share their tails
+   and every entry is settled once; a chain that ends in an atomic type, or loops back on itself, has no root. */
+static int xsd_settle_roots(th_schema *schema) {
+    const size_t count = schema->facet_count;
+    xfacet_entry **path = arena_alloc(&schema->mem, count * sizeof(*path));
+    if (path == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    for (size_t index = 0; index < count; index++) {
+        const xfacet_entry *root = NULL;
+        size_t depth = 0;
+        xfacet_entry *cur = &schema->facet_entries[index];
+        for (;;) {
+            if (cur->root_state == 2) {
+                root = cur->root;
+                break;
+            }
+            if (cur->root_state == 1) {
+                break;
+            }
+            cur->root_state = 1;
+            path[depth++] = cur;
+            if (cur->variety != XSD_ATOMIC) {
+                root = cur;
+                break;
+            }
+            cur = cur->inner != NULL ? cur->inner : cur->base;
+            if (cur == NULL) {
+                break;
+            }
+        }
+        while (depth > 0) {
+            xfacet_entry *settled = path[--depth];
+            settled->root = root;
+            settled->root_state = 2;
+        }
+    }
+    return 0;
+}
+
 /* Runs once the entries are sorted and stay put. Each type folds its own chain because the depth cutoff counts from
    it, but a hop costs the fixed-size scalar facets and one pointer, not a copy of the base's facets. */
 static int xsd_link_facets(th_schema *schema) {
@@ -1235,6 +1412,9 @@ static int xsd_link_facets(th_schema *schema) {
         if (entry->inner_node != NULL) {
             entry->inner = xsd_facet_entry(schema, entry->inner_node);
         }
+    }
+    if (xsd_settle_roots(schema) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                      /* GCOVR_EXCL_LINE */
     }
     xfacet_fold fold = {{NULL, 0, 0}, {NULL, 0, 0}};
     for (size_t index = 0; index < schema->facet_count; index++) {
@@ -1269,10 +1449,64 @@ static int xsd_link_facets(th_schema *schema) {
     return 0;
 }
 
-/* Validate a text value against a simple type (built-in id, or a named/inline
-   simpleType node, or the simpleContent node of a complexType). Reports on `node`. */
-static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
-                                Py_ssize_t len) {
+static int xsd_check_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
+                            Py_ssize_t len, int item);
+
+/* A list is valid when each of its items is valid against the item type. Its items are read from the value as written:
+   checking one may normalize into the buffer the collapsed copy is made in, so that copy is only made afterwards, for
+   the facets of the list. The length facets count items. */
+static int xsd_check_list(valctx *ctx, th_node *node, const xfacet_entry *list, const xfacet_entry *entry,
+                          const Py_UCS4 *value, Py_ssize_t len) {
+    int ok = 1;
+    for (Py_ssize_t at = 0; at < len;) {
+        if (is_xml_space(value[at])) {
+            at++;
+            continue;
+        }
+        const Py_ssize_t end = xsd_name_end(value, len, at);
+        if (xsd_check_simple(ctx, node, list->members[0].builtin, list->members[0].type, value + at, end - at, 1) < 0) {
+            ok = 0;
+        }
+        at = end;
+    }
+    Py_ssize_t norm_len = 0;
+    const Py_UCS4 *norm = dt_normalize_ws(ctx->schema, 2, value, len, &norm_len);
+    if (!facet_check(ctx, node, &entry->facets, &entry->levels, norm, norm_len, dt_list_count(norm, norm_len))) {
+        ok = 0;
+    }
+    return ok ? 2 : -1;
+}
+
+/* A union is valid when one of its member types accepts the value, and the members before it rejecting the value is no
+   violation. The accepting member's whitespace rule is the one the facets of a restriction of the union see. An item of
+   a list has no whitespace to normalize, so it is passed as written. */
+static int xsd_check_union(valctx *ctx, th_node *node, const xfacet_entry *choice, const xfacet_entry *entry,
+                           const Py_UCS4 *value, Py_ssize_t len, int item) {
+    const Py_ssize_t error_count = ctx->error_count;
+    const int collect_errors = ctx->collect_errors;
+    int ws = -1;
+    ctx->collect_errors = 0;
+    for (Py_ssize_t index = 0; index < choice->member_count && ws < 0; index++) {
+        ws = xsd_check_simple(ctx, node, choice->members[index].builtin, choice->members[index].type, value, len, item);
+    }
+    ctx->collect_errors = collect_errors;
+    ctx->error_count = error_count;
+    if (ws < 0) {
+        char buffer[128];
+        report(ctx, node, "datatype", "value '%s' is not valid for any member type of the union",
+               name_utf8(value, len, buffer, sizeof(buffer)));
+        return -1;
+    }
+    Py_ssize_t norm_len = len;
+    const Py_UCS4 *norm = item ? value : dt_normalize_ws(ctx->schema, ws, value, len, &norm_len);
+    return facet_check(ctx, node, &entry->facets, &entry->levels, norm, norm_len, norm_len) ? ws : -1;
+}
+
+/* Check a value against a simple type (built-in id, or a named/inline simpleType node, or the simpleContent node of a
+   complexType), reporting on `node`. `item` says the value is one item of a list, which holds no whitespace to
+   normalize. Returns the whitespace rule the value was normalized with, or -1 when it is not valid. */
+static int xsd_check_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
+                            Py_ssize_t len, int item) {
     th_schema *schema = ctx->schema;
     facetset builtin;
     const facetset *facets;
@@ -1280,21 +1514,33 @@ static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_n
     const facet_levels *levels = &no_levels;
     if (simpletype != NULL) {
         const xfacet_entry *entry = xsd_facet_entry(schema, simpletype);
+        if (entry->root != NULL) {
+            return entry->root->variety == XSD_LIST ? xsd_check_list(ctx, node, entry->root, entry, value, len)
+                                                    : xsd_check_union(ctx, node, entry->root, entry, value, len, item);
+        }
         facets = &entry->facets;
         levels = &entry->levels;
     } else {
         facetset_init(&builtin, builtin_id);
         facets = &builtin;
     }
-    Py_ssize_t norm_len = 0;
-    const Py_UCS4 *norm = dt_normalize_ws(schema, facets->ws, value, len, &norm_len);
+    Py_ssize_t norm_len = len;
+    const Py_UCS4 *norm = item ? value : dt_normalize_ws(schema, facets->ws, value, len, &norm_len);
     if (!dt_check_lexical(facets->base_id, norm, norm_len)) {
         char buffer[128];
         report(ctx, node, "datatype", "value '%s' is not a valid %s", name_utf8(norm, norm_len, buffer, sizeof(buffer)),
                DT_NAMES[facets->base_id].name);
-        return;
+        return -1;
     }
-    facet_check(ctx, node, facets, levels, norm, norm_len);
+    const Py_ssize_t units = dt_is_list(facets->base_id) ? dt_list_count(norm, norm_len) : norm_len;
+    return facet_check(ctx, node, facets, levels, norm, norm_len, units) ? facets->ws : -1;
+}
+
+/* Validate a text value against a simple type (built-in id, or a named/inline
+   simpleType node, or the simpleContent node of a complexType). Reports on `node`. */
+static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
+                                Py_ssize_t len) {
+    xsd_check_simple(ctx, node, builtin_id, simpletype, value, len, 0);
 }
 
 /* ---- attributes ---- */
@@ -1931,6 +2177,7 @@ enum { CHAIN_GROUP, CHAIN_ATTRGROUP, CHAIN_TYPE };
 static int xsd_check_chains(th_schema *schema, int kind);
 static int xsd_check_expansion(th_schema *schema);
 static int xsd_check_all_extension(th_schema *schema, th_node *node);
+static int xsd_check_varieties(th_schema *schema);
 
 static int xsd_compile(th_schema *schema) {
     th_tree *tree = schema->tree;
@@ -2002,6 +2249,9 @@ static int xsd_compile(th_schema *schema) {
     if (xsd_link_facets(schema) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         PyErr_NoMemory();              /* GCOVR_EXCL_LINE */
         return 0;                      /* GCOVR_EXCL_LINE */
+    }
+    if (xsd_check_varieties(schema) < 0) {
+        return 0;
     }
     if (schema->all_count > 1) {
         qsort(schema->all_entries, schema->all_count, sizeof(xall_entry), xsd_all_order);
@@ -2503,6 +2753,101 @@ static int xsd_check_expansion(th_schema *schema) {
     memset(sizes, 0, bytes);
     int *const memo[] = {sizes, sizes + groups, sizes + groups + attr_groups}; /* in CHAIN_* order */
     return xsd_check_type_expansion(schema, schema->root, memo);
+}
+
+/* A value of a union is tried against its member types until one accepts it, and a member that is itself a list or
+   union is tried through its own members, so the checks one value takes can multiply at every level. The limit is well
+   above the handful of member types a real union has. */
+#define TH_XSD_MAX_UNION_TRIALS 1000
+
+/* For a list or union a value is checked against: the atomic checks one value of it can take, and how many levels of
+   lists and unions it nests. trials is 0 until measured and -1 while it is measured. */
+typedef struct {
+    int trials, depth;
+} xsd_reach;
+
+/* A list or union whose members are being measured, and the member it resolves next. */
+typedef struct {
+    const xfacet_entry *root;
+    Py_ssize_t next;
+    int trials, deepest;
+} xsd_visit;
+
+/* Measures `start` and every list or union its members reach. An explicit stack holds the ones under way, since a
+   definition can nest as deep as the schema does and compiling does not recurse. */
+static int xsd_measure_root(th_schema *schema, const xfacet_entry *start, xsd_reach *memo, xsd_visit *stack) {
+    static const xsd_reach atomic = {1, 0};
+    size_t depth = 1;
+    memo[start - schema->facet_entries].trials = -1;
+    stack[0] = (xsd_visit){start, 0, 0, 0};
+    while (depth > 0) {
+        xsd_visit *top = &stack[depth - 1];
+        if (top->next == top->root->member_count) {
+            if (top->deepest >= TH_XSD_MAX_REF_DEPTH) {
+                PyErr_Format(PyExc_ValueError,
+                             "simple type nests xs:list and xs:union definitions more than %d deep; flatten the schema "
+                             "or shorten the chain",
+                             TH_XSD_MAX_REF_DEPTH);
+                return -1;
+            }
+            xsd_reach *reach = &memo[top->root - schema->facet_entries];
+            reach->trials = top->trials;
+            reach->depth = top->deepest + 1;
+            depth--;
+            continue;
+        }
+        const xsd_member *member = &top->root->members[top->next];
+        const xfacet_entry *type = member->type != NULL ? xsd_facet_entry(schema, member->type) : NULL;
+        const xfacet_entry *child = type != NULL ? type->root : NULL;
+        const xsd_reach *reached = &atomic;
+        if (child != NULL) {
+            xsd_reach *measured = &memo[child - schema->facet_entries];
+            if (measured->trials == 0) {
+                measured->trials = -1;
+                stack[depth++] = (xsd_visit){child, 0, 0, 0};
+                continue;
+            }
+            if (measured->trials < 0) {
+                PyErr_SetString(PyExc_ValueError, "circular simple type definition through xs:list or xs:union");
+                return -1;
+            }
+            reached = measured;
+        }
+        top->trials += reached->trials;
+        if (top->trials > TH_XSD_MAX_UNION_TRIALS) {
+            PyErr_Format(PyExc_ValueError,
+                         "simple type tries a value against more than %d union member types; flatten the schema or "
+                         "name each member type fewer times",
+                         TH_XSD_MAX_UNION_TRIALS);
+            return -1;
+        }
+        if (reached->depth > top->deepest) {
+            top->deepest = reached->depth;
+        }
+        top->next++;
+    }
+    return 0;
+}
+
+/* Validation follows item and member types by C recursion, so a definition that leads back to itself, nests too deep
+   or fans out too far is a compile error. Each list and union is measured once. */
+static int xsd_check_varieties(th_schema *schema) {
+    const size_t bytes = schema->facet_count * sizeof(xsd_reach);
+    xsd_reach *memo = arena_alloc(&schema->mem, bytes);
+    xsd_visit *stack = arena_alloc(&schema->mem, schema->facet_count * sizeof(xsd_visit));
+    if (memo == NULL || stack == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        PyErr_NoMemory();                /* GCOVR_EXCL_LINE */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    memset(memo, 0, bytes);
+    for (size_t index = 0; index < schema->facet_count; index++) {
+        const xfacet_entry *root = schema->facet_entries[index].root;
+        if (root != NULL && memo[root - schema->facet_entries].trials == 0 &&
+            xsd_measure_root(schema, root, memo, stack) < 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static void xsd_validate_root(valctx *ctx, th_node *root) {
