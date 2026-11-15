@@ -2047,6 +2047,26 @@ def test_add_link_rel_scans_other_attributes_for_href() -> None:
     assert sanitize('<a name="n" title="t">y</a>', Policy.relaxed()) == '<a name="n" title="t">y</a>'
 
 
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('rel="x" REL="y"', '<a rel="noopener" REL="y" href="http://x"></a>', id="exact-before-variant"),
+        pytest.param('REL="y" rel="x"', '<a rel="noopener" href="http://x"></a>', id="variant-before-exact"),
+    ],
+)
+def test_add_link_rel_replaces_exact_rel_ahead_of_case_variants(attributes: str, expected: str) -> None:
+    # the HTML reparse keeps the first rel, so the forced value must land on the exact name whatever case variants sit
+    # around it in a parse_xml element
+    policy = Policy(
+        tags=frozenset({"r", "a"}),
+        attributes={"a": frozenset({"href", "rel", "REL"})},
+        add_link_rel=frozenset({"noopener"}),
+    )
+    root = parse_xml(f'<r><a {attributes} href="http://x"/></r>').root
+    assert root is not None
+    assert sanitize_node(root, policy).html == f"<r>{expected}</r>"
+
+
 def test_short_and_o_prefixed_attributes_are_not_event_handlers() -> None:
     policy = _allow_all({"x"}, {"*"})
     # a (one byte: too short to be on*), ox (starts with o but not on), title (does not start with o)
