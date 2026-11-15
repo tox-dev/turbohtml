@@ -667,6 +667,16 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     return 1;
 }
 
+uint64_t th_unlinks;
+
+uint64_t th_tree_unlinks(void) {
+#if defined(_MSC_VER)
+    return *(volatile uint64_t *)&th_unlinks; /* an aligned 64-bit load is atomic on x64 and arm64 */
+#else
+    return __atomic_load_n(&th_unlinks, __ATOMIC_RELAXED);
+#endif
+}
+
 void th_node_remove(th_node *child) {
     node_remove(child);
 }
