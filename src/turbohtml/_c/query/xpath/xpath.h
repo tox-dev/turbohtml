@@ -160,6 +160,17 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                      xp_before_python_fn before_python, xp_result *out, const char **feature);
 
+/* What id() keeps from one lookup to the next: the root its last unindexed lookup walked, and the index of the
+   elements under a root by id that a second lookup there builds. The index records the tree's id version
+   (th_tree_id_version) it was built at and is rebuilt once it moves, so it outlives Python code that leaves the tree
+   alone. */
+typedef struct xp_id_index xp_id_index;
+typedef struct {
+    struct th_node *walked;
+    xp_id_index *index;
+} xp_id_cache;
+void xp_id_cache_clear(xp_id_cache *cache);
+
 /* The language each node a deep lang() climb passed inherits (eval.c). */
 typedef struct xp_lang_memo xp_lang_memo;
 void xp_lang_memo_free(xp_lang_memo *memo);
@@ -171,10 +182,12 @@ void xp_lang_memo_free(xp_lang_memo *memo);
    extension included: the engine evaluates once per instruction and node, all of them under its source root, so it
    passes that rather than have each evaluation climb to it. langs is NULL, or a slot holding NULL or a memo that
    outlives the call and that the caller ends with xp_lang_memo_free, for the same reason: lang() then climbs each
-   ancestor about once per run rather than once per evaluation. */
+   ancestor about once per run rather than once per evaluation. ids is NULL, or a zeroed cache the caller owns
+   and ends with xp_id_cache_clear, so the id() index outlives the call: the engine indexes its source once
+   per run rather than walk it once per node. */
 int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
-               xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_result *out,
+               xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids, xp_result *out,
                const char **feature);
 
 /* xp_eval_at for an expression the caller only converts to a boolean, as the test of xsl:if and xsl:when is: a
@@ -183,7 +196,7 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *cont
 int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
                          struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
-                         xp_lang_memo **langs, xp_result *out, const char **feature);
+                         xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature);
 
 typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
                                Py_ssize_t name_len);

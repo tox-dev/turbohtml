@@ -8,11 +8,12 @@ worked example.
 
 A style declaration passes through three gates in turn. The non-configurable safety baseline drops ``expression()``,
 ``url(javascript:...)``, ``behavior``, and ``-moz-binding``. It decodes CSS escapes before matching tokens, while text
-inside strings and comments stays inert. Then ``css_properties`` drops names outside the property allowlist. A
-declaration that clears both reaches ``allowed_styles``, which checks its value against the patterns for the element's
-tag or ``"*"``. The sanitizer scrubs a kept ``<style>`` body rule by rule with the same gates. It reads a declaration
-written before a nested-rule ``{``, such as ``color:expression(...){}``, as a declaration: the baseline checks its value
-and drops the whole rule when it carries ``expression()`` or ``url()``.
+inside strings and comments stays inert. It also drops a declaration or rule holding a legacy unicode-range token such
+as ``U+26``, since browsers disagree on where that token ends. Then ``css_properties`` drops names outside the property
+allowlist. A declaration that clears both reaches ``allowed_styles``, which checks its value against the patterns for
+the element's tag or ``"*"``. The sanitizer scrubs a kept ``<style>`` body rule by rule with the same gates. It reads a
+declaration written before a nested-rule ``{``, such as ``color:expression(...){}``, as a declaration: the baseline
+checks its value and drops the whole rule when it carries ``expression()`` or ``url()``.
 
 The layering is deliberately one-directional. ``allowed_styles`` *narrows* -- it can reject a value the earlier layers
 would have kept, but it can never re-admit one they dropped. A caller who writes ``{"color": [r".*"]}`` has not opened a

@@ -1026,6 +1026,7 @@ typedef struct engine {
     th_tree *out_tree;
     th_tree *merged_tree; /* holds copies of the principal + imported stylesheets when importing */
     th_node *src_root;
+    xp_id_cache src_ids; /* id() over the source, which a run leaves alone: indexed once per run, not walked per node */
     xp_lang_memo *src_langs; /* lang()'s answers over the source, kept across the run's evaluations */
 
     xslt_rule *rules;
@@ -2052,9 +2053,9 @@ static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *c
     }
     const char *feature = NULL;
     int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
-                                                  xslt_extension, eng, &eng->src_langs, out, &feature)
+                                                  xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature)
                            : xp_eval_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
-                                        xslt_extension, eng, &eng->src_langs, out, &feature);
+                                        xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature);
     if (bindings != storage) {
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
@@ -2221,7 +2222,7 @@ static int fill_key(engine *eng, xslt_key *key) {
         status = xml ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
                                           callback ? pattern_name_test : NULL, &scope, &matched, &feature)
                      : xp_eval_at(key->match_prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1,
-                                  NULL, NULL, NULL, NULL, &eng->src_langs, &matched, &feature);
+                                  NULL, NULL, NULL, NULL, &eng->src_langs, NULL, &matched, &feature);
     }
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
@@ -2380,7 +2381,7 @@ TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
                                           pattern_callback_needed(eng, rule->prog) ? pattern_name_test : NULL, &scope,
                                           &matched, &feature)
                      : xp_eval_at(rule->prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
-                                  NULL, xslt_extension, eng, &eng->src_langs, &matched, &feature);
+                                  NULL, xslt_extension, eng, &eng->src_langs, NULL, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {   /* GCOVR_EXCL_BR_LINE: pattern evaluation sets an exception only on allocation */
             if (feature == NULL) { /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
@@ -4081,7 +4082,7 @@ static int match_alternative(engine *eng, xslt_pattern_scope *scope, const xp_pr
                                           pattern_callback_needed(eng, prog) ? pattern_name_test : NULL, scope,
                                           &matched, &feature)
                      : xp_eval_at(prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL, NULL,
-                                  xslt_extension, eng, &eng->src_langs, &matched, &feature);
+                                  xslt_extension, eng, &eng->src_langs, NULL, &matched, &feature);
     if (status < 0) {
         return number_pattern_error(eng, status);
     }
@@ -7487,6 +7488,7 @@ static PyObject *serialize_markup(engine *eng, th_node *root) {
 /* ---- engine lifecycle ----------------------------------------------------- */
 
 static void engine_clear(engine *eng) {
+    xp_id_cache_clear(&eng->src_ids);
     xp_lang_memo_free(eng->src_langs);
     PyMem_Free(eng->dispatch);
     for (size_t index = 0; index < eng->number_sites.count; index++) {
@@ -7562,6 +7564,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->owns_model = 0;
     eng->src_tree = src_tree;
     eng->src_root = th_tree_document(src_tree);
+    eng->src_ids = (xp_id_cache){0};
     eng->src_langs = NULL;
     eng->out_tree = NULL;
     eng->dispatch = NULL;

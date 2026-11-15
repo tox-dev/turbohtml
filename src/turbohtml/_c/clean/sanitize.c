@@ -1152,8 +1152,9 @@ static int css_identifier_kind(const Py_UCS4 *value, Py_ssize_t *pos, Py_ssize_t
 }
 
 enum css_token_flag {
-    CSS_TOKEN_BAD = 1,  /* a <bad-string-token>, which invalidates its declaration */
-    CSS_TOKEN_OPEN = 2, /* a string, comment, or url token the input ended inside */
+    CSS_TOKEN_BAD = 1,   /* a <bad-string-token>, which invalidates its declaration */
+    CSS_TOKEN_OPEN = 2,  /* a string, comment, or url token the input ended inside */
+    CSS_TOKEN_RANGE = 4, /* the start of a legacy <unicode-range-token>, which tokenizers disagree about */
 };
 
 /* CSS Syntax "consume a string token": an unescaped newline ends the string as a <bad-string-token> and stays
@@ -1196,9 +1197,62 @@ static Py_ssize_t css_skip_url(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t 
     return end;
 }
 
+/* CSS Syntax reads `<!--` as one CDO token, so the name after one starts past its dashes: read with them, the name in
+   `<!--url(` is the custom name `--url`, never a url token. True when the literal `--` at `pos` follows a `<!` the
+   scanner stepped over as delimiters, the only way both reach it, unless an odd run of backslashes escapes the `<`
+   into the name before it. Callers check the dashes first, so ordinary names never get here. */
+static TH_NOINLINE int css_ends_cdo(const Py_UCS4 *value, Py_ssize_t pos) {
+    if (pos < 2 || value[pos - 1] != '!' || value[pos - 2] != '<') {
+        return 0;
+    }
+    Py_ssize_t run = pos - 2;
+    while (run > 0 && value[run - 1] == '\\') {
+        run--;
+    }
+    return (pos - 2 - run) % 2 == 0;
+}
+
+static Py_ssize_t css_skip_ident(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, int *flags);
+
+/* The rest of css_skip_ident for a name `value[start:pos)` followed by `(` or `+`, the only names whose token depends
+   on what precedes them, kept out of line so every other name pays one compare. A sign before the name is a delimiter
+   the scanner stepped over (an escaped one would have joined the name), so a browser reads a hash or at-keyword token
+   that takes the whole name: neither a url token nor a unicode-range starts in it. */
+static TH_NOINLINE Py_ssize_t css_skip_ident_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t pos, Py_ssize_t end,
+                                                 int is_url, int *flags) {
+    if (pos - start >= 2 && value[start] == '-' && value[start + 1] == '-' && css_ends_cdo(value, start)) {
+        return css_skip_ident(value, start + 2, end, flags);
+    }
+    if (start > 0 && (value[start - 1] == '#' || value[start - 1] == '@')) {
+        return pos;
+    }
+    if (value[pos] == '+') {
+        if (pos == start + 1 && (value[start] | 0x20) == 'u' && pos + 1 < end &&
+            (is_css_hex(value[pos + 1]) || value[pos + 1] == '?')) {
+            /* CSS Syntax dropped the legacy unicode-range token, but tokenizers that keep it disagree on where it
+               ends. No reading is right for every browser, so the declaration or rule holding one is dropped */
+            *flags |= CSS_TOKEN_BAD | CSS_TOKEN_RANGE;
+            return pos + 1;
+        }
+        return pos;
+    }
+    if (!is_url) {
+        return pos;
+    }
+    Py_ssize_t body = pos + 1;
+    while (body < end && is_space(value[body])) {
+        body++;
+    }
+    if (body < end && (value[body] == '"' || value[body] == '\'')) {
+        return pos;
+    }
+    return css_skip_url(value, body, end, flags);
+}
+
 /* CSS Syntax "consume an ident-like token": `url(` without a quote after it starts a url token. Any other function
    leaves its `(` to the caller's nesting count. */
 static Py_ssize_t css_skip_ident(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, int *flags) {
+    Py_ssize_t start = pos;
     char name[4];
     Py_ssize_t name_len = 0;
     while (pos < end && (is_css_ident_char(value[pos]) || value[pos] == '\\')) {
@@ -1213,17 +1267,10 @@ static Py_ssize_t css_skip_ident(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_
         }
         name_len++;
     }
-    if (name_len != 3 || memcmp(name, "url", 3) != 0 || pos >= end || value[pos] != '(') {
+    if (pos >= end || (value[pos] != '(' && value[pos] != '+')) {
         return pos;
     }
-    Py_ssize_t body = pos + 1;
-    while (body < end && is_space(value[body])) {
-        body++;
-    }
-    if (body < end && (value[body] == '"' || value[body] == '\'')) {
-        return pos;
-    }
-    return css_skip_url(value, body, end, flags);
+    return css_skip_ident_end(value, start, pos, end, name_len == 3 && memcmp(name, "url", 3) == 0, flags);
 }
 
 /* Skip a comment, string, identifier, or url token, the tokens whose content can hold a separator a browser ignores.
@@ -1266,6 +1313,10 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
             pos++;
             continue;
         }
+        if (value[pos] == '-' && pos + 1 < end && value[pos + 1] == '-' && css_ends_cdo(value, pos)) {
+            pos += 2;
+        }
+        Py_ssize_t name = pos;
         int identifier_kind = css_identifier_kind(value, &pos, end);
         if (identifier_kind < 0) {
             return 0;
@@ -1282,6 +1333,8 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
             if (url_allowed <= 0) {
                 return url_allowed;
             }
+            /* a url token's body holds no comment or string, so a comment opener in it must not hide the next token */
+            pos = css_skip_ident(value, name, end, &string_flags);
         }
     }
     return 1;
@@ -1546,7 +1599,8 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
         if (c == '{') {
             /* CSS Nesting drops `color:expression(...){...}` as an invalid selector, but a pre-nesting browser applies
                it as a declaration. A real selector (`a:hover`, `li:nth-child(2n)`) never carries url()/expression(). */
-            if (colon >= 0 && css_value_allowed(s, value, colon + 1, index - 1, 1) == 0) {
+            if ((flags & CSS_TOKEN_RANGE) ||
+                (colon >= 0 && css_value_allowed(s, value, colon + 1, index - 1, 1) == 0)) {
                 index = css_skip_block(value, index, len);
             } else {
                 css_emit_prelude(value, seg_start, index - 1, flags & CSS_TOKEN_BAD, out, &out_len);

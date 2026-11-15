@@ -57,6 +57,49 @@ def test_unedited_round_trip_is_byte_identical(markup: str) -> None:
     assert parse(markup, source_locations=True).to_source() == markup
 
 
+@pytest.mark.parametrize(
+    ("doctype", "expected"),
+    [
+        pytest.param(
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2//EN">',
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2//EN">',
+            id="quirky-public",
+        ),
+        pytest.param(
+            "<!doctype html system 'http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd'>",
+            '<!DOCTYPE html SYSTEM "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd">',
+            id="quirky-system",
+        ),
+        pytest.param("<!DOCTYPE html bogus>", "<!DOCTYPE html x>", id="forced-quirks-name"),
+        pytest.param('<!DOCTYPE html PUBLIC "a" "b>', '<!DOCTYPE html PUBLIC "a" "b>', id="forced-quirks-system"),
+    ],
+)
+def test_doctype_keeps_the_document_mode(doctype: str, expected: str) -> None:
+    # the <table> nests in the <p> only in quirks mode, so the output must reparse in the source's mode
+    rest = "<html><head></head><body><p>x<table></table></body></html>"
+    doc = parse(doctype + rest, source_locations=True)
+    assert doc.to_source() == expected + rest
+    assert parse(doc.to_source()).html == doc.html
+
+
+def test_doctype_identifiers_round_trip() -> None:
+    markup = '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">'
+    markup += "<html><head></head><body></body></html>"
+    assert parse(markup, source_locations=True).to_source() == markup
+
+
+@pytest.mark.parametrize(
+    ("doctype", "expected"),
+    [
+        pytest.param('<!DOCTYPE r SYSTEM "r.dtd">', '<!DOCTYPE r SYSTEM "r.dtd">', id="spellable"),
+        pytest.param('<!DOCTYPE r SYSTEM "a><img>">', "<!DOCTYPE r x>", id="system-ends-the-doctype"),
+        pytest.param("<!DOCTYPE r PUBLIC \"p\" 'a><img>'>", "<!DOCTYPE r x>", id="public-and-system"),
+    ],
+)
+def test_xml_doctype_literal_is_not_written_as_markup(doctype: str, expected: str) -> None:
+    assert parse_xml(f"{doctype}<r/>").to_source() == f"{expected}<r></r>"
+
+
 def test_carriage_returns_use_retained_normalized_source() -> None:
     markup = _DOC.format("<p>\r</p>" * 4096)
     assert parse(markup, source_locations=True).to_source() == markup.replace("\r", "\n")
