@@ -480,7 +480,7 @@ typedef struct {
     size_t capacity;
 } xslt_name_index;
 
-static XSLT_FORCEINLINE size_t name_index_probe(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
+static size_t name_index_probe(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
     size_t slot = str_hash(name, length) & (index->capacity - 1);
     while (index->entries[slot].first != 0 &&
            !str_eq(index->entries[slot].name, index->entries[slot].length, name, length)) {
@@ -489,9 +489,9 @@ static XSLT_FORCEINLINE size_t name_index_probe(const xslt_name_index *index, co
     return slot;
 }
 
-/* Lookups share this out-of-line copy of the probe, while name_index_add keeps it inline in the compilation loops
-   that add every declaration. */
-static size_t name_index_slot(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
+/* Lookups share this out-of-line copy of the probe so their callers stay small; name_index_add probes directly, which
+   leaves the compiler free to inline it into the loops that add every declaration. */
+TH_NOINLINE static size_t name_index_slot(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
     return name_index_probe(index, name, length);
 }
 
@@ -509,8 +509,7 @@ static int name_index_reserve(xslt_name_index *index, Py_ssize_t count) {
     return index->entries == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: alloc */
 }
 
-static XSLT_FORCEINLINE Py_ssize_t name_index_add(xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length,
-                                                  Py_ssize_t position) {
+static Py_ssize_t name_index_add(xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length, Py_ssize_t position) {
     const size_t slot = name_index_probe(index, name, length);
     const Py_ssize_t previous = index->entries[slot].first;
     index->entries[slot] = (xslt_name_entry){name, length, position + 1};
@@ -712,7 +711,7 @@ typedef struct engine {
     xslt_name_index named_index;
     xslt_name_index key_index;
     xslt_name_index attrset_index;
-    Py_ssize_t *attrset_previous; /* per set, one past the slot of the definition of its name before it, else 0 */
+    Py_ssize_t *attrset_previous; /* with attrset_index, per set one past the earlier definition of its name, else 0 */
     xslt_slots attrset_uses;
     xslt_space *spaces;
     Py_ssize_t nspaces;
@@ -834,6 +833,29 @@ static Py_ssize_t attrset_find(const engine *eng, const Py_UCS4 *name, Py_ssize_
     return attrset_scan(eng, name, name_len, eng->nattrsets);
 }
 
+/* The definition of the set's name before it, or -1; without the index there are too few sets for a scan to cost. */
+static Py_ssize_t attrset_before(const engine *eng, Py_ssize_t slot) {
+    if (eng->attrset_previous != NULL) {
+        return eng->attrset_previous[slot] - 1;
+    }
+    return attrset_scan(eng, eng->attrsets[slot].name, eng->attrsets[slot].name_len, slot);
+}
+
+/* Same-named sets merge (section 7.1.4): a name resolves to its last definition and this chain leads back through the
+   earlier ones, so a reference costs one slot however many definitions share the name. Kept out of line so the
+   declaration loops of build_name_indexes compile as tightly as they would without it. */
+TH_NOINLINE static int build_attrset_index(engine *eng) {
+    eng->attrset_previous = PyMem_Malloc((size_t)eng->nattrsets * sizeof(*eng->attrset_previous));
+    if (eng->attrset_previous == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < eng->nattrsets; index++) {
+        eng->attrset_previous[index] =
+            name_index_add(&eng->attrset_index, eng->attrsets[index].name, eng->attrsets[index].name_len, index);
+    }
+    return 0;
+}
+
 static int build_name_indexes(engine *eng) {
     /* GCOVR_EXCL_BR_START: allocation failure */
     if (name_index_reserve(&eng->named_index, eng->nnamed) < 0 || name_index_reserve(&eng->key_index, eng->nkeys) < 0 ||
@@ -851,26 +873,7 @@ static int build_name_indexes(engine *eng) {
             name_index_add(&eng->key_index, eng->keys[index].name, eng->keys[index].name_len, index);
         }
     }
-    /* Same-named sets merge (section 7.1.4): a name resolves to its last definition and this chain leads back through
-       the earlier ones, so a reference costs one slot however many definitions share the name. */
-    if (eng->nattrsets != 0) {
-        eng->attrset_previous = PyMem_Malloc((size_t)eng->nattrsets * sizeof(*eng->attrset_previous));
-        if (eng->attrset_previous == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                       /* GCOVR_EXCL_LINE */
-        }
-        if (eng->attrset_index.capacity != 0) {
-            for (Py_ssize_t index = 0; index < eng->nattrsets; index++) {
-                const xslt_attrset *set = &eng->attrsets[index];
-                eng->attrset_previous[index] = name_index_add(&eng->attrset_index, set->name, set->name_len, index);
-            }
-        } else {
-            for (Py_ssize_t index = 0; index < eng->nattrsets; index++) {
-                const xslt_attrset *set = &eng->attrsets[index];
-                eng->attrset_previous[index] = attrset_scan(eng, set->name, set->name_len, index) + 1;
-            }
-        }
-    }
-    return 0;
+    return eng->attrset_index.capacity != 0 ? build_attrset_index(eng) : 0;
 }
 
 /* Template calls, xsl:for-each, result-tree construction and use-attribute-sets chains recurse in C. How much C stack
@@ -2408,7 +2411,7 @@ static int slots_push(xslt_slots *slots, Py_ssize_t slot) {
 }
 
 /* Append the slot of the last definition of every set a use-attribute-sets value names, in order; a name defined
-   several times stands for each definition, which engine.attrset_previous chains from that slot. */
+   several times stands for each definition, which attrset_before chains from that slot. */
 static int attrsets_named(const engine *eng, const Py_UCS4 *names, Py_ssize_t names_len, xslt_slots *slots) {
     Py_ssize_t index = 0;
     while (index < names_len) {
@@ -2506,7 +2509,7 @@ static int order_attrset(engine *eng, Py_ssize_t slot, unsigned char *seen, xslt
     }
     seen[slot] = 1;
     int rc = 0;
-    for (; rc == 0 && slot >= 0; slot = eng->attrset_previous[slot] - 1) {
+    for (; rc == 0 && slot >= 0; slot = attrset_before(eng, slot)) {
         const xslt_attrset *set = &eng->attrsets[slot];
         rc = slots_push(order, slot) < 0 ? fail(eng, "out of memory") : 0; /* GCOVR_EXCL_BR_LINE: alloc */
         for (Py_ssize_t index = set->uses_end - 1; rc == 0 && index >= set->uses_start; index--) {
@@ -2528,7 +2531,7 @@ static int apply_attribute_sets(engine *eng, const Py_UCS4 *names, Py_ssize_t na
     /* The common reference names one set that uses no other and is defined once: it expands to itself alone. */
     if (roots.len == 1) {
         const xslt_attrset *set = &eng->attrsets[roots.items[0]];
-        if (set->uses_start == set->uses_end && eng->attrset_previous[roots.items[0]] == 0) {
+        if (set->uses_start == set->uses_end && attrset_before(eng, roots.items[0]) < 0) {
             PyMem_Free(roots.items);
             return instantiate_body(eng, set->body, out_element);
         }
@@ -5433,7 +5436,7 @@ static int check_attrset(engine *eng, Py_ssize_t slot, int *heights, Py_ssize_t 
     path[depth] = slot;
     heights[slot] = -1;
     int height = 1;
-    for (Py_ssize_t definition = slot; definition >= 0; definition = eng->attrset_previous[definition] - 1) {
+    for (Py_ssize_t definition = slot; definition >= 0; definition = attrset_before(eng, definition)) {
         if (definition != slot && heights[definition] < 0) {
             /* An earlier definition still on the path: its uses lead back to its own name. */
             return raise_attrset_cycle(eng, path, depth - 1, definition);
@@ -5464,6 +5467,9 @@ static int check_attrset(engine *eng, Py_ssize_t slot, int *heights, Py_ssize_t 
 
 /* Resolving names to slots once lets applying a set walk indexes instead of parsing names. */
 static int resolve_attribute_sets(engine *eng) {
+    if (eng->nattrsets == 0) {
+        return 0;
+    }
     for (Py_ssize_t slot = 0; slot < eng->nattrsets; slot++) {
         xslt_attrset *set = &eng->attrsets[slot];
         Py_ssize_t chain_len = 0;
@@ -5482,7 +5488,7 @@ static int resolve_attribute_sets(engine *eng) {
     int height = 0;
     for (Py_ssize_t slot = 0; height >= 0 && slot < eng->nattrsets; slot++) {
         const xslt_attrset *set = &eng->attrsets[slot];
-        if (heights[slot] == 0 && set->uses_start == set->uses_end && eng->attrset_previous[slot] == 0) {
+        if (heights[slot] == 0 && set->uses_start == set->uses_end && attrset_before(eng, slot) < 0) {
             heights[slot] = 1;
         }
         height = heights[slot] != 0 ? heights[slot] : check_attrset(eng, slot, heights, path, 0);
