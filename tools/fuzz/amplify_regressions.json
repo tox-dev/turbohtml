@@ -1093,5 +1093,17 @@
       "left": "if(q){b();throw 0}else{c:;",
       "right": "}"
     }
+  },
+  {
+    "name": "dir-auto-text-walk",
+    "source": "https://github.com/tox-dev/turbohtml/blob/3f4ab87f3de181645050c33ac858eeb0467dcc9f/src/turbohtml/_c/css/select/selector.c#L1818-L1837",
+    "targets": [
+      "select_tree"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "<section dir=auto>",
+      "left": "<i>a</i>"
+    }
   }
 ]

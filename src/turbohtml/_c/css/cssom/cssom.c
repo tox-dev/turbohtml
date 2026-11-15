@@ -1744,7 +1744,7 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
                                int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
     css_slot slots[NUM_PROPS] = {0};
     /* the legend memo keeps its own table: it holds one answer per legend, so it needs no cap and must outlive a
-       :has() table dropped at CSS_HAS_MEMO_LIMIT */
+       :has() table dropped at CSS_HAS_MEMO_LIMIT; one dir=auto answer per element shares it for the same reason */
     sel_ctx ctx = {
         tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->legend_memo, &cache->position_memo};
     long order = 0;
