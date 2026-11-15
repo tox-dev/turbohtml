@@ -302,6 +302,13 @@ def test_inline_script_with_invalid_identifier_escape_stays_verbatim() -> None:
     assert clean.minify(html, Minify(minify_js=JSMinify())) == html
 
 
+def _stacked(base: str, spine: str, rounds: int) -> str:
+    expression = "a"
+    for _ in range(rounds):
+        expression = f"{base.format(expression)}{spine}"
+    return expression
+
+
 # deeply nested / long input is rejected with a clean error rather than overflowing the C stack (#421);
 # each case drives a distinct recursion or spine-building path so every depth guard is exercised
 @pytest.mark.parametrize(
@@ -317,11 +324,39 @@ def test_inline_script_with_invalid_identifier_escape_stays_verbatim() -> None:
         pytest.param(f"new x{'.a' * 4000}", id="new-callee-member-chain"),
         pytest.param(f"f({'class extends ' * 4000}Y{'{ } ' * 4000})", id="class-heritage-chain"),
         pytest.param(f"x = {'class extends new ' * 4000}Y{'{ } ' * 4000}", id="class-heritage-new-chain"),
+        # each chain is under the cap alone; stacked on a parenthesized chain, the tree they build is not
+        pytest.param(f"x={_stacked('({})', '+a' * 700, 3)}", id="binary-spine-on-left-operand"),
+        pytest.param(f"x={_stacked('a+({})', '+a' * 700, 3)}", id="binary-spine-on-right-operand"),
+        pytest.param(f"x={_stacked('({})', '.a' * 700, 3)}", id="member-chain-on-object"),
+        pytest.param(f"x={_stacked('({})', '()' * 700, 3)}", id="call-chain-on-callee"),
+        pytest.param(f"x={_stacked('({})', '[0]' * 500, 4)}", id="index-chain-on-object"),
+        pytest.param(f"x={_stacked('({})', '?.a' * 500, 4)}", id="optional-chain-on-object"),
+        pytest.param(f"x={_stacked('({})', '`a`' * 500, 4)}", id="tagged-template-chain-on-tag"),
+        pytest.param(f"x={_stacked('f({})', '()' * 700, 3)}", id="call-chain-on-argument"),
+        pytest.param(f"x={_stacked('new ({})', '.a' * 700, 3)}", id="new-callee-member-chain-on-object"),
+        pytest.param(f"x={_stacked('({})', '+a' * 60, 25)}", id="many-short-spines"),
     ],
 )
 def test_deep_nesting_is_rejected(source: str) -> None:
     with pytest.raises(ValueError, match="nested too deeply at offset"):
         minify(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(f"x={_stacked('({})', '+a' * 250, 3)}", id="stacked-spines-under-the-cap"),
+        pytest.param(f"x=(a{'+a' * 400})*(a{'.a' * 350})", id="tall-operands-side-by-side"),
+        pytest.param(f"x=[{','.join([_stacked('{}', '+a' * 700, 1)] * 3)}]", id="tall-siblings"),
+        pytest.param(f"x={_stacked('({})', '**a' * 520, 2)}", id="right-leaning-spine-beside-left-operand"),
+        # an operand joins the spine where it is written, so it stands under the later links only
+        pytest.param(f"x=a{'+a' * 560}+(a{'+a' * 240})+a{'+a' * 240}", id="tall-operand-late-in-spine"),
+        pytest.param(f"x=a{'.a' * 560}(a{'+a' * 240}){'.a' * 240}", id="tall-argument-late-in-chain"),
+    ],
+)
+def test_chains_that_stay_under_the_cap_together_still_minify(source: str) -> None:
+    # only height is capped: a chain next to a tall one, rather than on top of it, does not add to it
+    assert minify(source).count("a") == source.count("a")
 
 
 def test_nesting_just_under_the_cap_still_minifies() -> None:
