@@ -20,6 +20,7 @@
 
 #include "tokenizer/binding.h"
 
+#include "core/hash.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "data/attr_atom.h"
@@ -359,6 +360,7 @@ typedef struct {
     Py_ssize_t end_at;        /* set when popped early: output offset the element ended at, or -1 (not in the output) */
     uint32_t line;            /* where the start tag began, which pairs the entry with the th_shadow element */
     uint32_t col;
+    uint32_t name_hash;     /* the keyed hash of a custom name (rw_open_name), unused for a known tag */
     int32_t followed;       /* index of the nearest entry from here down that follows one, or -1 */
     uint16_t foreign_open;  /* SVG/MathML entries from here down */
     uint16_t points_open;   /* integration point entries from here down */
@@ -372,6 +374,33 @@ typedef struct {
     int8_t model;           /* the content model the start tag switched to, or -1 */
     Py_ssize_t long_values; /* code points of its values long enough for the value memo (rw_long_values) */
 } rw_open;
+
+/* One custom name's count of open elements, keyed by its hash. A name that closed keeps its slot at count 0. */
+typedef struct {
+    uint32_t hash;
+    Py_ssize_t count;
+    uint8_t used;
+} rw_name_slot;
+
+/* The first slots of the custom-name table sit inside it, so a document with a few custom names allocates nothing for
+   them. */
+#define RW_NAMES_INLINE 8
+
+/* The custom names the spine has held, counted per keyed hash (core/hash.h) in an open-addressed table with linear
+   probing. cap is 0 or a power of two, and at most half the slots are used, so a probe ends at an unused slot. The
+   table only grows, as dom/tree.c's attribute-name table does, so a probe never shifts a slot. */
+typedef struct {
+    rw_name_slot *slots;
+    size_t cap;
+    size_t used;
+    rw_name_slot inline_slots[RW_NAMES_INLINE];
+} rw_names;
+
+/* The open elements per name: a known tag atom counts in its array slot, a custom name in the table. */
+typedef struct {
+    Py_ssize_t atoms[TH_TAG_XMP + 1];
+    rw_names names;
+} rw_counts;
 
 typedef struct {
     sel_compiled *compiled; /* the selector the matcher runs: source, or its stand-in in deep */
@@ -404,6 +433,12 @@ typedef struct {
     /* number of open ancestors suppressing their content, or -1 inside a raw-text or RCDATA element whose tags were
        dropped, so a text token tests one field for both cases */
     Py_ssize_t suppress;
+    /* the open elements per name, so an end tag that no open element has skips the spine scan for its match. Built only
+       once the stray end tags' scans have walked enough of the spine (rw_note_stray), NULL until then */
+    rw_counts *counts;
+    Py_ssize_t walked; /* spine elements the stray end tags' scans have walked in this call, while counts is NULL */
+    Py_UCS4 *name_buf; /* an end tag's name as code points, for its hash (rw_token_hash) */
+    Py_ssize_t name_cap;
     rw_out out;
     PyObject *handle_type;
     PyObject *append_text; /* the handled element's append_html as ordinary text, for when its tags are dropped */
@@ -1878,6 +1913,173 @@ static void rw_mirror_hold(rw_ctx *ctx, const rw_open *open) {
     ctx->closing[ctx->closing_len++] = (rw_closed){.node = open->node, .mirrored = open->mirrored};
 }
 
+/* --- the open elements per name --- */
+
+/* The slot a hash names, or the unused slot it would take. */
+static size_t rw_names_slot(const rw_names *names, uint32_t hash) {
+    size_t mask = names->cap - 1;
+    for (size_t slot = hash & mask;; slot = (slot + 1) & mask) {
+        TH_WORK_STEP();
+        if (!names->slots[slot].used || names->slots[slot].hash == hash) {
+            return slot;
+        }
+    }
+}
+
+static Py_ssize_t rw_names_count(const rw_names *names, uint32_t hash) {
+    return names->cap == 0 ? 0 : names->slots[rw_names_slot(names, hash)].count;
+}
+
+static void rw_names_free(rw_names *names) {
+    if (names->slots != names->inline_slots) {
+        PyMem_Free(names->slots);
+    }
+}
+
+/* Start the table in its inline slots, or double it, and move the names it holds into it. Returns -1 on allocation
+   failure. */
+static int rw_names_grow(rw_names *names) {
+    size_t cap = names->cap == 0 ? RW_NAMES_INLINE : names->cap * 2;
+    rw_name_slot *slots = names->cap == 0 ? names->inline_slots : PyMem_Calloc(cap, sizeof(rw_name_slot));
+    if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    rw_names grown = {.slots = slots, .cap = cap};
+    for (size_t index = 0; index < names->cap; index++) {
+        if (names->slots[index].used) {
+            grown.slots[rw_names_slot(&grown, names->slots[index].hash)] = names->slots[index];
+            grown.used++;
+        }
+    }
+    rw_names_free(names);
+    names->slots = slots;
+    names->cap = cap;
+    names->used = grown.used;
+    return 0;
+}
+
+/* Count one more open element under a hash. Returns -1 on allocation failure. */
+static int rw_names_add(rw_names *names, uint32_t hash) {
+    if ((names->used + 1) * 2 > names->cap && rw_names_grow(names) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    size_t slot = rw_names_slot(names, hash);
+    if (!names->slots[slot].used) {
+        names->slots[slot].used = 1;
+        names->slots[slot].hash = hash;
+        names->used++;
+    }
+    names->slots[slot].count++;
+    return 0;
+}
+
+static void rw_names_release(rw_names *names, uint32_t hash) {
+    names->slots[rw_names_slot(names, hash)].count--;
+}
+
+/* Count an element pushed on the spine under its known tag atom, or under the keyed hash of its custom name, once the
+   counts exist. Returns -1 on allocation failure. */
+static int rw_open_name(rw_ctx *ctx, rw_open *open) {
+    if (ctx->counts == NULL) {
+        return 0;
+    }
+    if (open->node->atom != TH_TAG_UNKNOWN) {
+        ctx->counts->atoms[open->node->atom]++;
+        return 0;
+    }
+    open->name_hash = th_name_hash(open->node->text, open->node->text_len * (Py_ssize_t)sizeof(Py_UCS4));
+    return rw_names_add(&ctx->counts->names, open->name_hash);
+}
+
+static void rw_close_name(rw_ctx *ctx, const rw_open *open) {
+    if (ctx->counts == NULL) {
+        return;
+    }
+    if (open->node->atom != TH_TAG_UNKNOWN) {
+        ctx->counts->atoms[open->node->atom]--;
+        return;
+    }
+    rw_names_release(&ctx->counts->names, open->name_hash);
+}
+
+static void rw_counts_free(rw_ctx *ctx) {
+    if (ctx->counts != NULL) {
+        rw_names_free(&ctx->counts->names);
+        PyMem_Free(ctx->counts);
+        ctx->counts = NULL;
+    }
+}
+
+/* Build the counts from the spine as it stands, so every element on it is counted from here on. Returns -1 with an
+   error set on allocation failure. */
+static int rw_counts_build(rw_ctx *ctx) {
+    ctx->counts = PyMem_Calloc(1, sizeof(rw_counts));
+    if (ctx->counts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        ctx->error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < ctx->depth; index++) {
+        if (rw_open_name(ctx, &ctx->stack[index]) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            rw_counts_free(ctx);                         /* GCOVR_EXCL_LINE: allocation-failure path */
+            ctx->error = 1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();                            /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return 0;
+}
+
+/* A stray end tag walked the whole spine without a match. Walks add up over the call, and once they outweigh the spine
+   several times over, the counts are built so later stray end tags skip the walk. Returns -1 with an error set on
+   allocation failure. */
+static int rw_note_stray(rw_ctx *ctx) {
+    ctx->walked += ctx->depth;
+    if (ctx->walked <= 4 * ctx->depth + 64) {
+        return 0;
+    }
+    return rw_counts_build(ctx);
+}
+
+static int rw_end_names(const th_node *node, const th_token *token, uint16_t atom);
+
+/* The keyed hash of an end tag's custom name: the hash rw_open_name gives the same code points on the node. Returns -1
+   with MemoryError set on allocation failure. */
+static int rw_token_hash(rw_ctx *ctx, const th_buf *name, uint32_t *hash) {
+    if (name->len > ctx->name_cap) {
+        Py_UCS4 *grown = PyMem_Realloc(ctx->name_buf, (size_t)name->len * sizeof(Py_UCS4));
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        ctx->name_buf = grown;
+        ctx->name_cap = name->len;
+    }
+    for (Py_ssize_t index = 0; index < name->len; index++) {
+        ctx->name_buf[index] = buf_read(name, index);
+    }
+    *hash = th_name_hash(ctx->name_buf, name->len * (Py_ssize_t)sizeof(Py_UCS4));
+    return 0;
+}
+
+/* Whether an open element has an end tag's name, so the scan of the spine for its match can find one. Needs the counts.
+   A custom name compares by hash, so a collision costs a scan and never a missed match. Returns -1 with MemoryError set
+   on allocation failure. */
+static int rw_end_name_open(rw_ctx *ctx, const th_token *token, uint16_t atom) {
+    /* the innermost element is the usual match, so its name is compared before any count or hash is taken */
+    if (ctx->depth > 0 && rw_end_names(ctx->stack[ctx->depth - 1].node, token, atom)) {
+        return 1;
+    }
+    if (atom != TH_TAG_UNKNOWN) {
+        return ctx->counts->atoms[atom] > 0;
+    }
+    uint32_t hash;
+    if (rw_token_hash(ctx, &token->name, &hash) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return rw_names_count(&ctx->counts->names, hash) > 0;
+}
+
 /* Close the open elements above the first `keep`, which a tag ends in a browser with no end tag of their own, so
    their trailing edits are flushed here, where they end. Returns how many it closed: their entries stay in the slots
    above the new depth, each with the output offset it ended at, until the caller knows what becomes of the tag and
@@ -1886,6 +2088,7 @@ static Py_ssize_t rw_pop_to(rw_ctx *ctx, Py_ssize_t keep) {
     Py_ssize_t closed = ctx->depth - keep;
     while (ctx->depth > keep) {
         rw_open *open = &ctx->stack[--ctx->depth];
+        rw_close_name(ctx, open);
         if (open->drop_content) {
             ctx->suppress--;
         }
@@ -2617,6 +2820,17 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         }
         ctx->stack_cap = (Py_ssize_t)cap;
     }
+    if (rw_open_name(ctx, &open) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        if (handle != NULL) {           /* GCOVR_EXCL_LINE: allocation-failure path */
+            handle->live = 0;           /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(handle);          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        Py_XDECREF(open.append_html); /* GCOVR_EXCL_LINE: allocation-failure path */
+        rw_free_node(ctx, node);      /* GCOVR_EXCL_LINE: allocation-failure path */
+        ctx->error = 1;               /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();             /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     open.long_values = rw_long_values(node);
     ctx->open_len += open.long_values;
     ctx->stack[ctx->depth++] = open;
@@ -2695,11 +2909,22 @@ static int rw_end_names(const th_node *node, const th_token *token, uint16_t ato
 /* The open element an end tag closes while a foreign element is on the spine or a th_shadow runs, or -1 once the tag
    is handled in full. *end_from is where the open elements above the match start to get end tags of their own. */
 static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint16_t atom, Py_ssize_t *end_from) {
+    int named = 1;
+    if (ctx->counts != NULL) {
+        named = rw_end_name_open(ctx, token, atom);
+        if (named < 0) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
     if (ctx->shadow == NULL) {
         /* the foreign-content rules close the nearest SVG/MathML element of that name, and hand </p>, </br> and a tag
            that names none of them to the HTML rules */
+        /* a br is void and never stays open, so named is false for it and this loop skips it as before */
+        int svg_named = named && atom != TH_TAG_P;
         for (Py_ssize_t index = ctx->depth - 1;
-             atom != TH_TAG_P && atom != TH_TAG_BR && index >= 0 && ctx->stack[index].ns != TH_NS_HTML; index--) {
+             svg_named && index >= 0 && ctx->stack[index].ns != TH_NS_HTML; /* GCOVR_EXCL_BR_LINE: hash collision */
+             index--) {
             if (rw_end_names(ctx->stack[index].node, token, atom)) {
                 /* dropped, the end tag closes none of the SVG/MathML elements above it in the output */
                 if (ctx->stack[index].drop_end_tag) {
@@ -2721,7 +2946,7 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
     int ignored = !th_shadow_built(ctx->shadow) && open_before == open_after && ctx->changed;
     /* the element the tag names, unless one the tree builder keeps open sits above it */
     Py_ssize_t match = -1;
-    for (Py_ssize_t index = ctx->depth - 1; index >= 0; index--) {
+    for (Py_ssize_t index = ctx->depth - 1; named && index >= 0; index--) {
         TH_WORK_STEP();
         const rw_open *open = &ctx->stack[index];
         if (open->shadow != NULL && !open->shadow->left_stack) {
@@ -2733,6 +2958,10 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
         }
     }
     if (match < 0) {
+        if (ctx->counts == NULL &&
+            rw_note_stray(ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         /* a stray end tag still closes what the tree builder closed for it, such as </p> the SVG/MathML elements */
         rw_release_foreign(ctx, rw_pop_to(ctx, rw_left_from(ctx)), 0, ctx->mirror != NULL, 1);
         if (ctx->suppress <= 0 && !ignored) {
@@ -2766,14 +2995,27 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
             return;
         }
     } else {
-        /* find the matching open element, top-down */
-        for (Py_ssize_t index = ctx->depth - 1; index >= 0; index--) {
+        int named = 1;
+        if (ctx->counts != NULL) {
+            named = rw_end_name_open(ctx, token, atom);
+            if (named < 0) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                ctx->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return;         /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        /* find the matching open element, top-down, unless the counts show no open element has its name */
+        for (Py_ssize_t index = ctx->depth - 1; named && index >= 0; index--) {
+            TH_WORK_STEP();
             if (rw_end_names(ctx->stack[index].node, token, atom)) {
                 match = index;
                 break;
             }
         }
         if (match < 0) {
+            if (ctx->counts == NULL &&
+                rw_note_stray(ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+                return;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
             /* a stray end tag with no open match: emit it verbatim */
             if (ctx->suppress <= 0) {
                 rw_emit_verbatim(&ctx->out, ctx->sm, token);
@@ -2785,6 +3027,7 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
        so they get no end tags of their own, except from end_from up (see rw_foreign_end) */
     for (Py_ssize_t index = ctx->depth - 1; index > match; index--) {
         rw_open *open = &ctx->stack[index];
+        rw_close_name(ctx, open);
         if (open->drop_content) {
             ctx->suppress--;
         }
@@ -2824,6 +3067,7 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
     Py_XDECREF(closing->append_html);
     Py_XDECREF(closing->after_html);
     ctx->open_len -= closing->long_values;
+    rw_close_name(ctx, closing);
     rw_free_node(ctx, closing->node);
     ctx->depth = match;
     if (foreign) {
@@ -3045,6 +3289,52 @@ static void rw_handle_leaf(rw_ctx *ctx, th_token *token, PyObject *handler, enum
 }
 
 /* Free everything the context owns. */
+#ifdef TH_WORK_STEPS
+/* Recount the open elements from the spine, once the drive has ended with the spine still holding what is open, and
+   fail the call when the counts differ, so a drift shows in the test that causes it. Only the work-step build checks.
+ */
+static void rw_names_check(rw_ctx *ctx) {
+    if (ctx->counts == NULL) {
+        return;
+    }
+    uint64_t steps = th_work_steps; /* the walk is the check's own, so the steps it takes are not the rewrite's */
+    Py_ssize_t atoms[TH_TAG_XMP + 1] = {0};
+    rw_names counted = {0};
+    for (Py_ssize_t index = 0; index < ctx->depth; index++) {
+        const rw_open *open = &ctx->stack[index];
+        if (open->node->atom != TH_TAG_UNKNOWN) {
+            atoms[open->node->atom]++;
+        } else if (rw_names_add(&counted, open->name_hash) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rw_names_free(&counted);                              /* GCOVR_EXCL_LINE: allocation-failure path */
+            ctx->error = 1;                                       /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    /* GCOVR_EXCL_START: a drift is a bug in the counts, which no input reaches */
+    int drift = memcmp(atoms, ctx->counts->atoms, sizeof(atoms)) != 0;
+    Py_ssize_t open_total = 0;
+    for (size_t slot = 0; slot < ctx->counts->names.cap; slot++) {
+        open_total += ctx->counts->names.slots[slot].count;
+    }
+    Py_ssize_t counted_total = 0;
+    for (size_t slot = 0; slot < counted.cap; slot++) {
+        if (counted.slots[slot].used) {
+            counted_total += counted.slots[slot].count;
+            drift |= rw_names_count(&ctx->counts->names, counted.slots[slot].hash) != counted.slots[slot].count;
+        }
+    }
+    drift |= open_total != counted_total;
+    th_work_steps = steps;
+    rw_names_free(&counted);
+    if (drift) {
+        PyErr_SetString(PyExc_RuntimeError, "rewrite: the open element counts differ from the spine");
+        ctx->error = 1;
+    }
+    /* GCOVR_EXCL_STOP */
+}
+#endif
+
 static void rw_ctx_clear(rw_ctx *ctx) {
     for (Py_ssize_t index = 0; index < ctx->depth; index++) {
         Py_XDECREF(ctx->stack[index].append_html);
@@ -3060,6 +3350,8 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     rw_values_flush(ctx);
     Py_XDECREF(ctx->append_text); /* still set only when a handler failed */
     PyMem_Free(ctx->stack);
+    rw_counts_free(ctx);
+    PyMem_Free(ctx->name_buf);
     rw_deep_flush(ctx);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
         PyMem_Free(ctx->rules[index].deep);
@@ -3221,6 +3513,11 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
             break;
         }
     }
+#ifdef TH_WORK_STEPS
+    if (!ctx.error) {
+        rw_names_check(&ctx);
+    }
+#endif
     Py_END_CRITICAL_SECTION();
     /* checked once after the loop: a per-token check cost rewrite 26,000 instructions a call */
     if (step == TH_STEP_ERROR) { /* GCOVR_EXCL_BR_LINE: the only step error is an out-of-memory condition */
