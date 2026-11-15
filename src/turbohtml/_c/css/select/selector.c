@@ -2103,8 +2103,9 @@ static int sel_auto_dir(th_node *node, const sel_ctx *ctx) {
 
 /* The element's resolved direction: 1 ltr, 2 rtl. The nearest dir attribute wins
    (auto and a dir-less bdi resolve from the content's first strong character);
-   with none, the document default is ltr (HTML "the dir attribute"). */
-static int sel_direction(th_node *node, const sel_ctx *ctx) {
+   with none, the document default is ltr (HTML "the dir attribute"). Kept out of line so
+   sel_match_simple, which every selector runs, does not carry the :dir() walk. */
+static TH_NOINLINE int sel_direction(th_node *node, const sel_ctx *ctx) {
     /* a telephone input's directionality is its own dir, never inherited, and is ltr
        unless dir explicitly overrides it (HTML "the directionality", issue #374) */
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT && sel_input_type_is(node, "tel")) {

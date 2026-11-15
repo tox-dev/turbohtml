@@ -2411,6 +2411,26 @@ TH_NODE_API(, PyObject *, node_css_closest, (PyObject * self, PyObject *arg), (s
     return node_wrap(state_of(self), ((NodeObject *)self)->handle, found);
 }
 
+/* The nearest inclusive ancestor of scope that matches, under one context for the whole walk, so the ancestors
+   share their :dir() and :disabled answers. A NULL legend_memo is bound on the first dir=auto read. */
+static th_node *closest_from(th_node *scope, const sel_compiled *compiled, sel_memo *legend_memo) {
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, legend_memo, NULL};
+    for (th_node *node = scope; node != NULL; node = node->parent) {
+        if (node->type == TH_NODE_ELEMENT && selector_matches_c(node, compiled, &ctx)) {
+            return node;
+        }
+    }
+    return NULL;
+}
+
+/* A :disabled-family pseudo-class reads the legend table unconditionally, so such a selector owns one for the walk. */
+static TH_NOINLINE th_node *closest_with_legend(th_node *scope, const sel_compiled *compiled) {
+    sel_memo legend_memo = {0};
+    th_node *found = closest_from(scope, compiled, &legend_memo);
+    sel_memo_free(&legend_memo);
+    return found;
+}
+
 int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
     if (check_selector_arg(arg) < 0) {
         return -1;
@@ -2429,16 +2449,7 @@ retry:;
     } else {
         /* closest() scopes :scope to the element it was invoked on */
         th_node *scope = ((NodeObject *)self)->node;
-        /* one context and legend table for the whole walk, so the ancestors share their :disabled and :dir() answers */
-        sel_memo legend_memo = {0};
-        sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, &legend_memo, NULL};
-        for (th_node *node = scope; node != NULL; node = node->parent) {
-            if (node->type == TH_NODE_ELEMENT && selector_matches_c(node, compiled, &ctx)) {
-                *found = node;
-                break;
-            }
-        }
-        sel_memo_free(&legend_memo);
+        *found = compiled->reads_legend ? closest_with_legend(scope, compiled) : closest_from(scope, compiled, NULL);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
