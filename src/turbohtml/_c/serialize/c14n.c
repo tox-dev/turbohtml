@@ -42,7 +42,7 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        index = c14n_find_stop(text, index, len, C14N_TEXT_STOPS);
+        index = c14n_find_text_stop(text, index, len);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }

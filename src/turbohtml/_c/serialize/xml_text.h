@@ -60,45 +60,15 @@ static inline int xml_text_stop(Py_UCS4 character, int in_attr) {
 #define C14N_TEXT_STOPS (0xFFFFF9FFULL | 1ULL << '&' | 1ULL << '<' | 1ULL << '>')
 #define C14N_ATTR_STOPS (0xFFFFFFFFULL | 1ULL << '"' | 1ULL << '&' | 1ULL << '<')
 
-/* Whether a code point lies between `?` and the surrogates, where no c14n writer escapes or drops anything. The
-   subtraction folds both bounds into one unsigned compare. */
-static inline int c14n_plain(Py_UCS4 character) {
-    return character - 0x3F < 0xD800 - 0x3F;
-}
-
-/* Whether a code point that is not plain stops the run: below `?` the writer's bit mask decides, and from the
-   surrogates up only the code points XML forbids stop it. */
-static inline int c14n_stop(Py_UCS4 character, uint64_t ascii_stops) {
-    if (character < 0x3F) {
-        return (int)((ascii_stops >> character) & 1u);
-    }
-    return xml_char_invalid(character);
-}
-
-/* The first stop at or after index, or len. Four code points share one bounds check, and only a code point outside
-   the plain range (spaces, digits and punctuation, and the code points from the surrogates up) takes the exact test,
-   so the invalid-character test adds nothing to letters or most non-ASCII text. */
+/* The first c14n stop at or after index, or len. Every stop below the surrogates lies below `?`, so most code points
+   pass on the first compare alone, as in a scan for the markup characters only; past it a second compare leaves out
+   all but the code points XML forbids. */
 static inline Py_ssize_t c14n_find_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len, uint64_t ascii_stops) {
-    while (index + 4 <= len) {
-        if (c14n_plain(text[index])) {
-            if (!c14n_plain(text[index + 1])) {
-                index += 1;
-            } else if (!c14n_plain(text[index + 2])) {
-                index += 2;
-            } else if (!c14n_plain(text[index + 3])) {
-                index += 3;
-            } else {
-                index += 4;
-                continue;
-            }
+    for (; index < len; index++) {
+        Py_UCS4 character = text[index];
+        if (character < 0x3F ? (ascii_stops >> character) & 1u : character >= 0xD800 && xml_char_invalid(character)) {
+            break;
         }
-        if (c14n_stop(text[index], ascii_stops)) {
-            return index;
-        }
-        index++;
-    }
-    while (index < len && (c14n_plain(text[index]) || !c14n_stop(text[index], ascii_stops))) {
-        index++;
     }
     return index;
 }
