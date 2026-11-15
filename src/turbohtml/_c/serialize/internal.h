@@ -586,6 +586,10 @@ static inline th_node *rawtext_markup_child(const th_node *node) {
 void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *element, th_node *from, const th_serialize_opts *opts,
                             int strip_comments);
 
+/* Write a doctype in HTML syntax with the public and system identifiers that choose the document mode, or the
+   shortest malformed spelling that keeps a forced quirks mode; an identifier HTML cannot spell is left out. */
+void ser_put_html_doctype(sbuf *out, th_tree *tree, th_node *node);
+
 /* Whether a reparse closes node where the tree does once its end tag is left out: the WHATWG optional-tag rule on the
    tree as it stands, for the minifier and for the lossless serializer. formatting_depth counts the formatting elements
    open around node, trailing_formatting says one lies on node's last-child path, quirks is the mode the output
