@@ -4309,6 +4309,7 @@ static int balancer_wrap_runs(sanitizer *s, th_node *parent, th_node *before, th
             s->omitted_wrapper = 1;
         }
         th_node_insert_before(parent, wrapper, child);
+        th_tree_note_deepened(s->tree);
         s->balance_edited = 1;
         /* a browser keeps the row or row group open across text it fosters out and a comment, so they stay inside the
            run; text pops a column group, so only a comment does there. The run still ends at its last match. */

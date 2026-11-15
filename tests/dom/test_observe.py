@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
-from turbohtml import Comment, Element, Node, Text, parse
+from turbohtml import Comment, Element, Node, Range, Text, parse
 from turbohtml.mutations import MutationObserver, MutationRecord
 
 if TYPE_CHECKING:
@@ -502,6 +502,19 @@ def test_re_extract_detached_node_records_once() -> None:
     span.extract()
     span.extract()  # already detached: no second record
     assert len(observer.take_records()) == 1
+
+
+def test_child_list_recorded_after_a_range_insertion() -> None:
+    # the range insertion drops the parsed tree's nest bound, which shares its field with the observer flag
+    div = _div()
+    observer = MutationObserver()
+    observer.observe(div, child_list=True)
+    Range(div, 0).insert_node(Element("i"))
+    observer.take_records()
+    added = Element("b")
+    div.append(added)
+    (record,) = observer.take_records()
+    assert record.added_nodes == (added,)
 
 
 def test_mutation_without_observers_still_works() -> None:

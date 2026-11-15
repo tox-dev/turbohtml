@@ -1079,6 +1079,7 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
     }
     Py_ssize_t new_offset = reference == NULL ? node_length(parent) : node_index(reference);
     new_offset += linked->type == TH_NODE_CONTENT ? node_length(linked) : 1;
+    th_tree_note_deepened(((HandleObject *)range->start_handle)->tree);
     if (linked->type == TH_NODE_CONTENT) {
         /* a DocumentFragment inserts its children and is left empty */
         while (linked->first_child != NULL) {

@@ -318,6 +318,7 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
         }
         /* GCOVR_EXCL_BR_STOP */
     }
+    th_tree_note_deepened(schema->tree);
     if (include) {
         if (rng_rename_div(schema, reference) < 0 || rng_rename_div(schema, copy) < 0) {
             return NULL;
