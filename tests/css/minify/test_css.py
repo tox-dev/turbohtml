@@ -15,7 +15,7 @@ import pytest
 from bench.operations import INPUTS
 
 from turbohtml import clean
-from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
+from turbohtml.clean import CSSMinify, Minify, minify, minify_css, minify_css_inline
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -6283,3 +6283,54 @@ def test_box_merge_supported_edges(property_name: str, edges: tuple[str, ...], e
 def test_box_and_border_cascade_fallback(source: str, expected: str) -> None:
     first: Final = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
+
+
+_LEADING_BOM: Final[list[pytest.ParameterSet]] = [
+    pytest.param("\ufeffa{color:red}b{color:blue}", "a{color:red}b{color:blue}", id="plain-rule"),
+    pytest.param('\ufeff@charset "utf-8";a{color:red}', '@charset "utf-8";a{color:red}', id="charset"),
+    pytest.param("\ufeff@import url(x.css);a{color:red}", '@import"x.css";a{color:red}', id="import"),
+    pytest.param(
+        '\ufeff@namespace svg url("http://www.w3.org/2000/svg");a{color:red}',
+        '@namespace svg"http://www.w3.org/2000/svg";a{color:red}',
+        id="namespace",
+    ),
+    pytest.param("\ufeff@layer base;a{color:red}", "@layer base;a{color:red}", id="layer"),
+    pytest.param("\ufeff@media screen{a{color:red}}", "@media screen{a{color:red}}", id="media"),
+    pytest.param("\ufeff", "", id="only-bom"),
+    pytest.param("\ufeff\ufeffa{color:red}", "\ufeffa{color:red}", id="second-bom-kept"),
+    pytest.param("a{color:red}\ufeffb{color:blue}", "a{color:red}\ufeffb{color:blue}", id="interior-bom-kept"),
+    pytest.param("a", "a", id="short-input-without-bom"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _LEADING_BOM)
+def test_minify_css_leading_bom_is_consumed(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+_BOM_IN_DECODED_TEXT: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "<style>\ufeff@import url(x.css);a { color: red }</style><p>x</p>",
+        "<style></style><p>x",
+        id="style-at-rule-dropped",
+    ),
+    pytest.param(
+        "<style>\ufeffa { color: red }</style><p>x</p>",
+        "<style>\ufeffa{color:red}</style><p>x",
+        id="style-rule-keeps-bom",
+    ),
+    pytest.param(
+        '<p style="\ufeffcolor:red;width:1px">x</p>',
+        "<p style=\ufeffcolor:red;width:1px>x",
+        id="style-attribute",
+    ),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _BOM_IN_DECODED_TEXT)
+def test_minify_html_leading_bom_in_decoded_text_is_content(source: str, expected: str) -> None:
+    assert minify(source, Minify(minify_css=CSSMinify())) == expected
+
+
+def test_minify_css_inline_leading_bom_is_content() -> None:
+    assert minify_css_inline("\ufeffcolor:red;width:1px") == "\ufeffcolor:red;width:1px"

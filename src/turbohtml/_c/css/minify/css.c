@@ -426,6 +426,12 @@ static PyObject *css_minify_entry(PyObject *args, int inline_mode) {
     if (utf8 == NULL) {
         return NULL;
     }
+    /* a standalone stylesheet's BOM is the encoding signature a decoder consumes; declaration lists and document text
+       were decoded already, so their U+FEFF is content */
+    if (!inline_mode && length >= 3 && memcmp(utf8, "\xEF\xBB\xBF", 3) == 0) {
+        utf8 += 3;
+        length -= 3;
+    }
     Py_ssize_t out_len = 0;
     css_char *data = th_minify_css_bytes((const css_char *)utf8, length, inline_mode, baseline, &out_len);
     if (data == NULL && out_len != 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
