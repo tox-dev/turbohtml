@@ -511,6 +511,15 @@ def test_ordered_range_facets_inherited(value: str, messages: list[str]) -> None
         pytest.param("a*", "", True, id="star-empty"),
         pytest.param(r"a\.b", "a.b", True, id="escaped-dot"),
         pytest.param("(){999999999999}", "", True, id="huge-count-of-empty-group"),
+        pytest.param("((){999999999999}){999999999999}", "", True, id="nested-huge-counts-of-empty-group"),
+        pytest.param("((a{0}){999999999999}){999999999999}", "", True, id="nested-huge-counts-of-zero-repeat"),
+        pytest.param("(()*){999999999999}b", "b", True, id="huge-count-of-starred-empty-group"),
+        pytest.param("a{0}", "", True, id="zero-repeat-empty"),
+        pytest.param("a{0,0}b", "ab", False, id="zero-repeat-drops-its-atom"),
+        pytest.param("()+a()?", "a", True, id="empty-groups-around-a-character"),
+        pytest.param("()|a", "", True, id="empty-group-branch"),
+        pytest.param("((a{1}){1}b{1,1}){2}", "abab", True, id="single-repeat-is-its-atom"),
+        pytest.param("a{1,}b{1,2}", "aabb", True, id="repeat-from-one"),
     ],
 )
 def test_regex_pattern(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
@@ -726,6 +735,7 @@ _STATES_ERROR: Final[str] = (
         pytest.param("(a{5000}){5000}", _STATES_ERROR, id="repeat-product"),
         pytest.param("(a{0,3000}){0,3000}", _STATES_ERROR, id="optional-repeat-product"),
         pytest.param("a{999999999999}", _STATES_ERROR, id="huge-count"),
+        pytest.param("((){999999999999}a){999999999999}", _STATES_ERROR, id="huge-count-of-empty-group-per-state"),
         pytest.param(
             "a{5,2}",
             "schema pattern quantifier {5,2} at offset 1 has its minimum above its maximum",
@@ -754,6 +764,13 @@ def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
         for big, small in (("a" * 2000, "b"), ("a" * 1999, "b"), ("a" * 2000, "c"))
     ]
     assert results == [True, False, False]
+
+
+def test_nested_repeats_of_an_empty_group_scale_linearly(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], XMLSchema]:
+        return partial(XMLSchema, restricted(f'<xs:pattern value="((){{{count}}}a){{{count}}}"/>'))
+
+    work_steps.assert_linear(build, (100, 400))
 
 
 @pytest.mark.parametrize(
