@@ -2072,3 +2072,29 @@ def test_fold_cuts_unreachable_up_to_declaration(source: str, expected: str) -> 
 )
 def test_fold_folds_absorbed_statements_once(opening: str, sizes: tuple[int, int], work_steps: WorkSteps) -> None:
     work_steps.assert_linear(lambda n: partial(minify_js, opening * n + "c:;" * n + "}" * n), sizes)
+
+
+@pytest.mark.parametrize(
+    "chain",
+    [
+        pytest.param("!", id="not"),
+        pytest.param("!void ", id="not-void"),
+    ],
+)
+def test_fold_asks_a_not_chain_for_its_truthiness_once_per_level(chain: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, f"x={chain * n}a"), (100, 400))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("x=!!!!!!!''", "x=!0", id="not-odd"),
+        pytest.param("x=!!!!!!''", "x=!1", id="not-even"),
+        pytest.param("x=!void !void !void 1", "x=!0", id="not-void"),
+        pytest.param("x=void !void !void 0?1:2", "x=2", id="void-not"),
+        pytest.param("if(!!!!0)a();else b()", "b()", id="test"),
+        pytest.param("x=!!!!!b", "x=!!!!!b", id="not-constant"),
+    ],
+)
+def test_fold_still_folds_a_constant_under_a_not_chain(source: str, expected: str) -> None:
+    assert minify_js(source) == expected

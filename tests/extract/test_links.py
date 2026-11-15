@@ -114,6 +114,11 @@ def test_external_only_keeps_other_sites() -> None:
         pytest.param("https://a.test.com/", "https://b.test.com/x", id="sibling-subdomains-share-etld1"),
         pytest.param("https://spam.example.co.uk/", "https://example.co.uk/x", id="multi-suffix-same-site"),
         pytest.param("https://sub.tv.com/", "https://other.tv.com/x", id="tld-like-label-is-not-a-suffix"),
+        pytest.param("https://www.maple-trade.org./", "https://blog.maple-trade.org./x", id="trailing-dot-subdomains"),
+        pytest.param("https://www.maple-trade.org./", "https://maple-trade.org./x", id="trailing-dot-apex"),
+        pytest.param(
+            "https://spam.maple-trade.com.au./", "https://maple-trade.com.au./x", id="trailing-dot-multi-suffix"
+        ),
     ],
 )
 def test_external_boundary_drops_the_href(base: str, href: str) -> None:
@@ -130,6 +135,15 @@ def test_external_boundary_drops_the_href(base: str, href: str) -> None:
         pytest.param("https://foo.github.io/", "https://bar.github.io/x", id="private-suffix-github-io"),
         pytest.param("https://www.ck/", "https://other.ck/x", id="wildcard-and-exception-suffix"),
         pytest.param("http://192.0.2.1/", "http://198.51.100.2/x", id="ip-hosts-compare-whole"),
+        pytest.param("https://harbor.com.au./", "https://other.com.au./x", id="trailing-dot-distinct-registrants"),
+        pytest.param("https://foo.pages.dev./", "https://bar.pages.dev./x", id="trailing-dot-private-suffix"),
+        pytest.param(
+            "https://www.city.kawasaki.jp./", "https://other.kawasaki.jp./x", id="trailing-dot-wildcard-exception"
+        ),
+        pytest.param(
+            "https://www.maple-trade.org./", "https://maple-trade.org.attacker.net./x", id="trailing-dot-suffix-attack"
+        ),
+        pytest.param("https://www.maple-trade.org/", "https://www.maple-trade.org./x", id="trailing-dot-only-on-link"),
     ],
 )
 def test_external_boundary_keeps_the_href(base: str, href: str) -> None:
@@ -152,6 +166,19 @@ def test_external_only_canonicalizes_ipv4_hosts_before_comparing() -> None:
     # a browser reads 0x7f.0.0.1 and 127.1 as 127.0.0.1, so they are internal to the loopback base and drop
     html: Final = '<a href="http://0x7f.0.0.1/a">1</a><a href="http://127.1/b">2</a><a href="http://8.8.8.8/c">3</a>'
     assert extract_links(html, "http://127.0.0.1/", external_only=True) == {"http://8.8.8.8/c"}
+
+
+def test_external_only_reports_hosts_whose_dots_only_show_once_canonical() -> None:
+    # a browser opens these as mirror.test and 192.168.1.1; the spelled host holding no dot must not hide the link
+    html: Final = (
+        '<a href="http://mirror%2Etest/a">1</a><a href="http://mirror\u3002test/b">2</a>'
+        '<a href="http://3232235777/c">3</a><a href="http://intranet/d">4</a>'
+    )
+    assert extract_links(html, "http://example.com/", external_only=True) == {
+        "http://mirror.test/a",
+        "http://mirror.test/b",
+        "http://192.168.1.1/c",
+    }
 
 
 def test_external_only_attributes_backslash_authority_to_the_real_host() -> None:

@@ -19,6 +19,7 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult,
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
     from turbohtml import Document
@@ -910,6 +911,69 @@ def test_choice() -> None:
     assert check(schema, "<r><a>x</a></r>").valid
     assert check(schema, "<r><b>x</b></r>").valid
     assert not check(schema, "<r><a>x</a><b>y</b></r>").valid
+
+
+_RUN_OF_THREE: Final[str] = (
+    '<xs:sequence><xs:element name="a"/><xs:element name="a"/><xs:element name="a"/></xs:sequence>'
+)
+_RUN_OF_TWO: Final[str] = '<xs:sequence><xs:element name="a"/><xs:element name="a"/></xs:sequence>'
+_ONE: Final[str] = '<xs:element name="a"/>'
+
+
+@pytest.mark.parametrize(
+    ("alternatives", "children", "valid"),
+    [
+        pytest.param(_RUN_OF_THREE + _ONE, "ab", True, id="shorter-alternative-listed-last"),
+        pytest.param(_RUN_OF_THREE + _ONE, "aaab", True, id="longer-alternative-listed-first"),
+        pytest.param(_RUN_OF_THREE + _ONE, "aab", False, id="length-between-the-alternatives"),
+        pytest.param(_RUN_OF_THREE + _ONE, "b", False, id="no-alternative"),
+        pytest.param(_RUN_OF_THREE + _ONE + _RUN_OF_TWO, "aab", True, id="alternative-fills-the-gap"),
+        pytest.param(_RUN_OF_THREE + _ONE + _RUN_OF_TWO, "aaaab", False, id="longer-than-every-alternative"),
+    ],
+)
+def test_choice_alternatives_of_different_lengths(alternatives: str, children: str, *, valid: bool) -> None:
+    # the alternatives stop at child positions that arrive out of order and leave holes between them, and the particle
+    # after the choice must resume from exactly those positions
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:choice>{alternatives}</xs:choice><xs:element name="b"/>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{''.join(f'<{name}/>' for name in children)}</r>").valid is valid
+
+
+_REPEATED_MODELS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        '<xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="a"/><xs:element name="b"/></xs:choice>',
+        id="choice",
+    ),
+    pytest.param('<xs:sequence><xs:element name="a" minOccurs="0" maxOccurs="unbounded"/></xs:sequence>', id="element"),
+]
+
+
+@pytest.mark.parametrize("model", _REPEATED_MODELS)
+def test_repeated_particle_scales_linearly(model: str, work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema: Final = XMLSchema(_repeated_schema(model))
+        return partial(schema.validate, parse_xml(f"<r>{'<a/>' * count}</r>"))
+
+    work_steps.assert_linear(build, (300, 1200))
+
+
+def _repeated_schema(model: str) -> str:
+    return f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
+
+
+@pytest.mark.parametrize("model", _REPEATED_MODELS)
+def test_repeated_particle_peak_memory_is_linear(model: str, peak_bytes: PeakBytes) -> None:
+    # the position sets of every repetition are reused, so the peak must not grow with the number of children
+    script: Final = (
+        "import sys, tracemalloc\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import XMLSchema\n"
+        "schema = XMLSchema(sys.argv[1])\ndocument = parse_xml(sys.argv[2])\n"
+        "tracemalloc.start()\nschema.validate(document)\nprint(tracemalloc.get_traced_memory()[1])\n"
+    )
+    document: Final = f"<r>{'<a/>' * 3000}</r>"
+    assert peak_bytes(script, (_repeated_schema(model), document)) < 64 * len(document)
 
 
 def test_all_any_order_and_missing() -> None:
