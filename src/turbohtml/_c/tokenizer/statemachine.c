@@ -1193,7 +1193,7 @@ static void finish_tag(th_tokenizer *self) {
     uint64_t key = 0;
     uint16_t atom = TH_TAG_UNKNOWN; /* the table holds only ASCII names */
     if (name->kind == PyUnicode_1BYTE_KIND) {
-        key = th_tag_key(name->data, name->len, name->cap);
+        key = th_tag_key(name->data, name->len);
         atom = key != 0 ? th_tag_key_atom(key) : th_tag_hash_atom(name->data, name->len);
     }
     self->tok.name_key = key;
