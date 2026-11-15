@@ -955,7 +955,6 @@ PyObject *node_xpath_iter(PyObject *self, PyObject *args, PyObject *kwds);
 PyObject *node_xpath_one(PyObject *self, PyObject *args, PyObject *kwds);
 PyObject *node_css_matches(PyObject *self, PyObject *arg);
 PyObject *node_css_closest(PyObject *self, PyObject *arg);
-int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found);
 int node_css_closest_each(PyObject *module, PyObject *nodes, PyObject *selector, PyObject *out);
 PyObject *node_prune(PyObject *self, PyObject *arg);
 PyObject *node_remove(PyObject *self, PyObject *arg);
