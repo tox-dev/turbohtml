@@ -2436,3 +2436,143 @@ def test_regex_patterns_within_query(patterns: tuple[str, ...], flags: tuple[str
         ).xpath("//item[re:test('A', @pattern, @flags)]/@id")
         == expected
     )
+
+
+_PADDING: Final[str] = "str:padding(99000, 'x')"
+_GROWTH_REFUSED: Final[re.Pattern[str]] = re.compile(
+    re.escape(
+        "replacing, joining and padding add more than 16777216 characters (64 MiB) to their inputs in this XPath"
+        " evaluation; shorten the replacement, separator or padding, or replace fewer matches or join fewer items"
+    )
+)
+
+
+@pytest.mark.parametrize(
+    ("markup", "expression"),
+    [
+        pytest.param("", "replace(str:padding(1000, 'a'), 'a', str:padding(16800, 'b'))", id="regex-matches"),
+        pytest.param("", "re:replace(str:padding(1000, 'a'), 'a', 'g', str:padding(16800, 'b'))", id="exslt-regex"),
+        pytest.param("", "str:replace(str:padding(1000, 'a'), 'a', str:padding(16800, 'b'))", id="exslt-literal"),
+        pytest.param("", "replace(str:padding(1000, 'a'), '.*', str:padding(99000, '$0'))", id="regex-references"),
+        pytest.param("<p/>" * 16800, "string-join(//p, str:padding(1000, 'x'))", id="string-join-members"),
+        pytest.param(
+            "<p/>" * 300,
+            "string-join(//p, string-join(//p, str:padding(1000, 'x')))",
+            id="string-join-nested",
+        ),
+        pytest.param("", f"concat({', '.join([_PADDING] * 170)})", id="concat-of-padding"),
+        pytest.param(
+            "",
+            "concat(replace(str:padding(1000, 'a'), 'a', str:padding(8400, 'b')),"
+            " str:replace(str:padding(1000, 'a'), 'a', str:padding(8400, 'b')))",
+            id="shared-by-sibling-calls",
+        ),
+        pytest.param("<p/>" * 200, f"count(//p[string-join(//p, {_PADDING}) != ''])", id="inside-a-node"),
+    ],
+)
+def test_growth_past_the_allowance_raises(markup: str, expression: str) -> None:
+    with pytest.raises(ValueError, match=_GROWTH_REFUSED):
+        parse_xml(f"<r>{markup}</r>").xpath(expression)
+
+
+@pytest.mark.parametrize(
+    ("markup", "expression", "expected"),
+    [
+        pytest.param("<p/>" * 169, "string-length(string-join(//p, str:padding(99000, 'x')))", 16_632_000.0, id="join"),
+        pytest.param(
+            "", "string-length(replace(str:padding(1000, 'a'), 'a', str:padding(16700, 'b')))", 16_700_000.0, id="regex"
+        ),
+        pytest.param(
+            "",
+            "string-length(str:replace(str:padding(1000, 'a'), 'a', str:padding(16700, 'b')))",
+            16_700_000.0,
+            id="literal",
+        ),
+        pytest.param(
+            "",
+            "string-length(re:replace(str:padding(1000, 'a'), 'a', 'g', str:padding(16700, 'b')))",
+            16_700_000.0,
+            id="exslt-regex",
+        ),
+        pytest.param(
+            "",
+            f"string-length(concat({', '.join([_PADDING] * 169)}))",
+            16_731_000.0,
+            id="padding",
+        ),
+    ],
+)
+def test_growth_within_the_allowance(markup: str, expression: str, expected: float) -> None:
+    assert parse_xml(f"<r>{markup}</r>").xpath(expression) == expected
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("string-length(replace($text, 'a', $replacement))", id="regex"),
+        pytest.param("string-length(str:replace($text, 'a', $replacement))", id="literal"),
+    ],
+)
+def test_replace_growth_at_the_allowance_is_allowed(expression: str) -> None:
+    assert parse_xml("<r/>").xpath(expression, text="a" * 4_096, replacement="b" * 4_097) == 16_781_312
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("replace($text, 'a', $replacement)", id="regex"),
+        pytest.param("str:replace($text, 'a', $replacement)", id="literal"),
+    ],
+)
+def test_replace_growth_past_the_allowance_raises(expression: str) -> None:
+    with pytest.raises(ValueError, match=_GROWTH_REFUSED):
+        parse_xml("<r/>").xpath(expression, text="a" * 4_096, replacement="b" * 4_098)
+
+
+def test_replace_refuses_the_text_between_matches_once_the_allowance_is_spent() -> None:
+    # the first replacement fits in the buffer, and the text after it does not
+    with pytest.raises(ValueError, match=_GROWTH_REFUSED):
+        parse_xml("<r/>").xpath("replace($text, 'a', $replacement)", text=f"a{'x' * 10}a", replacement="b" * 16_777_219)
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("string-length(replace($text, 'a', 'b'))", 16_777_217.0, id="regex-same-length"),
+        pytest.param("string-length(str:replace($text, 'a', 'b'))", 16_777_217.0, id="literal-same-length"),
+        pytest.param("string-length(re:replace($text, 'a', 'g', 'b'))", 16_777_217.0, id="exslt-regex-same-length"),
+        pytest.param("string-length(replace($text, 'aa', 'b'))", 8_388_609.0, id="regex-shorter"),
+    ],
+)
+def test_replace_that_does_not_lengthen_its_input_is_not_limited(expression: str, expected: float) -> None:
+    assert parse_xml("<r/>").xpath(expression, text="a" * 16_777_217) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expression", "expected"),
+    [
+        pytest.param(
+            '<a href="/x"/>' * 200,
+            f"count(//a[replace(@href, '^', {_PADDING}) != ''])",
+            200.0,
+            id="regex",
+        ),
+        pytest.param(
+            "<p/>" * 300, "count(//p[string-join(//p, str:padding(1000, 'x')) != ''])", 300.0, id="string-join"
+        ),
+        pytest.param(
+            "<p/>" * 200,
+            "count(//p[str:replace(str:padding(1000, 'a'), 'a', str:padding(10000, 'b')) != ''])",
+            200.0,
+            id="literal",
+        ),
+    ],
+)
+def test_predicate_gets_back_the_growth_it_spent_on_each_node(markup: str, expression: str, expected: float) -> None:
+    assert parse_xml(f"<r>{markup}</r>").xpath(expression) == expected
+
+
+def test_each_evaluation_has_its_own_allowance() -> None:
+    document: Final = parse_xml("<r/>")
+    expression: Final = "string-length(replace(str:padding(1000, 'a'), 'a', str:padding(16700, 'b')))"
+    assert document.xpath(expression) == document.xpath(expression) == 16_700_000
