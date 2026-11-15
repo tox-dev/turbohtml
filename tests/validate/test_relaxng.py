@@ -3386,9 +3386,8 @@ def _repeat(item: str, count: int = _WIDE) -> str:
     ("schema", "document", "expected"),
     [
         pytest.param(wrap("<text/>" * _WIDE), "<doc>x</doc>", True, id="group"),
-        pytest.param(
-            wrap(f"{'<group>' * 20}{_NESTED_GROUP_TAIL * 20}"), "<doc>x</doc>", True, id="nested-groups-first"
-        ),
+        # validation takes about 5 KiB of C stack per nested group, so 8 levels leave room on macOS' thread stacks
+        pytest.param(wrap(f"{'<group>' * 8}{_NESTED_GROUP_TAIL * 8}"), "<doc>x</doc>", True, id="nested-groups-first"),
         pytest.param(wrap(f"<choice>{'<text/>' * _WIDE}</choice>"), "<doc>x</doc>", True, id="choice"),
         pytest.param(
             wrap(f"<choice>{_repeat('<value>w{}</value>')}</choice>"),
