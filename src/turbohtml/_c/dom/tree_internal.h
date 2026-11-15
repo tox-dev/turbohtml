@@ -120,9 +120,10 @@ struct th_tree {
     Py_ssize_t afe_stack_hint;
     uint64_t *afe_hashes;
     size_t afe_hash_count, afe_hash_capacity;
-    int afe_hash_valid;
-    uint32_t node_seq; /* next value for node_new to stamp onto th_node::seq; fills the
-                          padding after afe_hash_valid so th_tree stays <= 512 bytes */
+    uint8_t afe_hash_valid;
+    uint8_t seq_wrapped; /* node_seq has wrapped to 0: a seq no longer numbers one node of the tree */
+    uint32_t node_seq;   /* next value for node_new to stamp onto th_node::seq; fills the
+                            padding after afe_hash_valid so th_tree stays <= 512 bytes */
     Py_ssize_t afe_cap;
     th_node *head;          /* the <head> element once inserted */
     th_node *fragment_root; /* the html root in fragment parsing; NULL otherwise */
@@ -442,6 +443,7 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     node->type = (uint8_t)type;
     node->atom = TH_TAG_UNKNOWN;
     node->seq = tree->node_seq++;
+    tree->seq_wrapped |= tree->node_seq == 0;
     return node;
 }
 

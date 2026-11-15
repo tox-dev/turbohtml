@@ -1,0 +1,2 @@
+Selector queries with a long ``:has()`` argument on a very deep tree no longer use memory that grows with selector
+length times depth.
