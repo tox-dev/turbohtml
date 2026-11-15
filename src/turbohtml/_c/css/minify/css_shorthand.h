@@ -267,7 +267,7 @@ static Py_ssize_t css_position_run(css_buf *pool, const css_comp *items, Py_ssiz
 
 static void css_emit_position_run(comp_vec *result, const pos_val *run, Py_ssize_t count) {
     for (Py_ssize_t index = 0; index < count; index++) {
-        css_comp comp;
+        css_comp comp = {0};
         comp.off = run[index].off;
         comp.len = run[index].len;
         comp.isfunc = 0;
@@ -297,7 +297,7 @@ static void css_handle_background_position(css_buf *pool, comp_vec *comps) {
         if (index == comps->len || at_comma) {
             Py_ssize_t resolved = css_position_run(pool, run_items, run_count, run);
             if (!first_run) {
-                css_comp sep;
+                css_comp sep = {0};
                 sep.off = pool_cstr(pool, ",");
                 sep.len = 1;
                 sep.isfunc = 2;
@@ -674,8 +674,8 @@ static void css_background_run(css_buf *pool, comp_vec *run) {
         index++;
     }
     if (had_tokens && run->len == 0) {
-        css_comp zero_x;
-        css_comp zero_y;
+        css_comp zero_x = {0};
+        css_comp zero_y = {0};
         css_set_comp(pool, &zero_x, "0", CK_NUM);
         css_set_comp(pool, &zero_y, "0", CK_NUM);
         comp_vec_push(run, zero_x);
@@ -697,7 +697,7 @@ static void css_handle_background(css_buf *pool, comp_vec *comps) {
             }
             css_background_run(pool, &run);
             if (!first_run) {
-                css_comp sep;
+                css_comp sep = {0};
                 sep.off = pool_cstr(pool, ",");
                 sep.len = 1;
                 sep.isfunc = 2;
@@ -836,7 +836,7 @@ static css_comp css_font_family_comp(css_buf *pool, css_comp comp) {
             word_start = index + 1;
         }
     }
-    css_comp result;
+    css_comp result = {0};
     if (all_ident) {
         result.off = pool_run(pool, lowered.data, lowered.len);
         result.len = lowered.len;
