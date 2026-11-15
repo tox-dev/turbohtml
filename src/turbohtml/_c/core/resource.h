@@ -34,8 +34,8 @@ void th_resource_policy_clear(th_resource_policy *policy);
 /* A pathlib.Path for a local path or file URL; name labels value in the error a remote or UNC location raises. */
 PyObject *th_resource_path(th_resource_policy *policy, PyObject *value, const char *name);
 PyObject *th_resource_resolve(PyObject *path);
-/* 0 when the resolved path lies inside the root, or -1 with a ValueError. */
-int th_resource_check_root(th_resource_policy *policy, PyObject *path);
+/* 0 when the resolved path lies inside the root, or -1 with a ValueError naming unresolved, the path as referenced. */
+int th_resource_check_root(th_resource_policy *policy, PyObject *path, PyObject *unresolved);
 /* The UTF-8 text of a regular file, opened beneath the root without following symlinks when a root is set. */
 PyObject *th_resource_read_text(th_resource_policy *policy, PyObject *path);
 
