@@ -2347,10 +2347,10 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         if (ctx->shadow != NULL && tokenized != TH_INIT_DATA) {
             open.model = (int8_t)tokenized;
         }
-    }
-    if (ctx->depth >= RW_MAX_DEPTH && ctx->depth >= RW_MAX_DEPTH + (open.model >= 0)) {
-        rw_refuse_element(ctx, &open);
-        return; /* at the limit nothing was popped either, so the CDATA state stands */
+        if (ctx->depth >= RW_MAX_DEPTH + (open.model >= 0)) {
+            rw_refuse_element(ctx, &open);
+            return; /* at the limit nothing was popped either, so the CDATA state stands */
+        }
     }
     if (ctx->depth == ctx->stack_cap) {
         size_t cap;
