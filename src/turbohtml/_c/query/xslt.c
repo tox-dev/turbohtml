@@ -4556,12 +4556,14 @@ static long number_walk_step(engine *eng, xslt_number_walk *walk, const th_node 
 /* Index an element of a sibling run before its default name is read, as remember_number_node does for the current node.
  */
 static int number_index_child(engine *eng, th_node *node) {
-    if (node->type == TH_NODE_ELEMENT && th_tree_is_xml(eng->src_tree) &&
-        (number_has_namespaces(eng) || eng->number_index.positions.count != 0 ||
-         number_local_name(eng, node).name != node->text)) {
-        return number_index_extend(eng, node);
+    if (node->type != TH_NODE_ELEMENT || !th_tree_is_xml(eng->src_tree)) {
+        return 0;
     }
-    return 0;
+    const int prefixed = number_local_name(eng, node).name != node->text;
+    if (!number_has_namespaces(eng) && eng->number_index.positions.count == 0 && !prefixed) {
+        return 0;
+    }
+    return number_index_extend(eng, node);
 }
 
 /* Count every node of the sibling run that node belongs to in one pass, so a run whose counted nodes alternate with
@@ -4575,7 +4577,7 @@ static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, co
     xslt_number_walk tallies = {0};
     long seen = 0;
     int failed = 0;
-    for (th_node *child = first; child != NULL && !failed; child = child->next_sibling) {
+    for (th_node *child = first; child != NULL; child = child->next_sibling) {
         TH_WORK_STEP();
         long ordinal;
         if (have_count) {
@@ -4587,10 +4589,11 @@ static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, co
                 break;                                /* GCOVR_EXCL_LINE */
             }
             const xslt_number_name name = number_default_name(eng, child);
-            if (tallies.tally_count == tallies.tally_capacity / 2 &&
-                number_tallies_grow(&tallies) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                failed = 1;                          /* GCOVR_EXCL_LINE */
-                break;                               /* GCOVR_EXCL_LINE */
+            if (tallies.tally_count == tallies.tally_capacity / 2) {
+                if (number_tallies_grow(&tallies) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    failed = 1;                          /* GCOVR_EXCL_LINE */
+                    break;                               /* GCOVR_EXCL_LINE */
+                }
             }
             const uint32_t hash = number_name_hash(tallies.seed, &name);
             xslt_number_tally *tally = number_tally_slot(tallies.tallies, tallies.tally_capacity, hash, &name);
@@ -4603,6 +4606,7 @@ static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, co
         }
         if (th_node_map_insert(&siblings->counts, child, (Py_ssize_t)ordinal) < 0) { /* GCOVR_EXCL_BR_LINE */
             failed = 1;                                                              /* GCOVR_EXCL_LINE */
+            break;                                                                   /* GCOVR_EXCL_LINE */
         }
     }
     number_walk_free(&tallies);
@@ -4972,9 +4976,12 @@ static int number_attribute(engine *eng, xslt_number_site *site, const match_set
         return 0;
     }
     if (multiple) {
-        if (have_count && number_multiple(eng, site, owner, count_matches, have_count, from_matches, have_from, values,
-                                          nvalues) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                    /* GCOVR_EXCL_LINE */
+        if (have_count) {
+            const int status =
+                number_multiple(eng, site, owner, count_matches, have_count, from_matches, have_from, values, nvalues);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;    /* GCOVR_EXCL_LINE */
+            }
         }
         if (self_counts) {
             values[(*nvalues)++] = 1;
@@ -5062,11 +5069,12 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
         }
         values[(*nvalues)++] = counter;
     } else if (multiple) {
-        if (number_multiple(eng, site, eng->cur_node, count_matches, have_count, from_matches, have_from, values,
-                            nvalues) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            match_set_free(&count_set);     /* GCOVR_EXCL_LINE */
-            match_set_free(&from_set);      /* GCOVR_EXCL_LINE */
-            return -1;                      /* GCOVR_EXCL_LINE */
+        const int status = number_multiple(eng, site, eng->cur_node, count_matches, have_count, from_matches, have_from,
+                                           values, nvalues);
+        if (status < 0) {               /* GCOVR_EXCL_BR_LINE: allocation failure */
+            match_set_free(&count_set); /* GCOVR_EXCL_LINE */
+            match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
+            return -1;                  /* GCOVR_EXCL_LINE */
         }
     } else {
         th_node *target = number_single(eng, eng->cur_node, count_matches, have_count, from_matches, have_from);
