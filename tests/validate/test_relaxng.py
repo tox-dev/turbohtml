@@ -396,6 +396,23 @@ def test_prefix_resolution_skips_a_decoy_attribute() -> None:
     assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
 
 
+def test_prefix_resolution_skips_a_same_length_declaration_of_another_prefix() -> None:
+    # xmlns:z is as long as xmlns:x and binds another prefix, so the resolver has to compare names, not lengths
+    schema = (
+        '<x:element xmlns:z="urn:decoy" xmlns:x="http://relaxng.org/ns/structure/1.0" name="r"><x:text/></x:element>'
+    )
+    assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
+
+
+def test_default_namespace_skips_a_same_length_decoy_attribute() -> None:
+    # label is as long as xmlns and is not a namespace declaration, so the default namespace is found past it
+    schema = (
+        '<grammar label="v" xmlns="http://relaxng.org/ns/structure/1.0">'
+        '<start><element name="r"><text/></element></start></grammar>'
+    )
+    assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
+
+
 @pytest.mark.parametrize(
     ("schema", "xml", "expected"),
     [
