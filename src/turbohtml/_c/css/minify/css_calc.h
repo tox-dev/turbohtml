@@ -226,10 +226,11 @@ static void calc_parse_value(calc_parser *parser, csum *out) {
         calc_parse_sum(parser, out);
         css_nesting_leave(parser->vec);
         calc_skip_ws(parser);
+        /* a group still open when its range ends is closed there, as the renderer closes an unclosed group */
         if (parser->pos < parser->end && parser->vec->items[parser->pos].kind == CSS_DELIM &&
             parser->vec->items[parser->pos].delim == ')') {
             parser->pos++;
-        } else {
+        } else if (parser->pos < parser->end) {
             out->ok = 0;
         }
     }
@@ -605,6 +606,26 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
     cbuf_free(&call);
 }
 
+/* Append a value folded from a whole function call. The call's own parentheses separated it from its neighbors, so a
+   space goes in where the folded text would read as one token with the text before it or with the token at next (a
+   number is spaced by its own rendering, so NUM is left to the caller). */
+static void css_put_folded(css_buf *out, const css_char *text, Py_ssize_t len, token_vec *vec, Py_ssize_t next,
+                           Py_ssize_t end) {
+    if (out->len > 0 && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' &&
+        css_would_merge(out->data[out->len - 1], 0, text, len)) {
+        cbuf_putc(out, ' ');
+    }
+    cbuf_put_run(out, text, len);
+    if (next >= end) {
+        return;
+    }
+    const css_token *token = &vec->items[next];
+    if ((token->kind == CSS_IDENT || token->kind == CSS_URL || token->kind == CSS_URANGE || token->kind == CSS_DELIM) &&
+        css_would_merge(text[len - 1], 0, token->text, token->text_len)) {
+        cbuf_putc(out, ' ');
+    }
+}
+
 /* Render a function value, first trying to simplify a calc()/fold an rgb()/hsl() color, else the generic form. kind is
    the rendered text's component kind: CK_FUNC for a function call (so the assembler glues the following component),
    else the hex, keyword, number or dimension a fold produced, typed as the next call would read that text. */
@@ -718,7 +739,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 css_calc_context context = {substitution ? name : NULL, substitution ? name_len : 0, 0, keep_ws};
                 css_emit_function(pool, vec, index, close_index, &context, &off, &len, &kind);
                 css_nesting_leave(vec);
-                cbuf_put_run(out, pool->data + off, len);
+                css_put_folded(out, pool->data + off, len, vec, close_index + 1, end);
             } else {
                 /* past the nesting cap the nested call goes out as its source text, which reparses to the same value */
                 const css_token *close = &vec->items[close_index < vec->len ? close_index : vec->len - 1];
