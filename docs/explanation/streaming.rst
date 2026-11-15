@@ -28,10 +28,9 @@ never builds.
 
 One part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
 closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint,
-and only until markup around ``<svg>``, ``<math>``, ``<template>`` or ``<frameset>`` makes it run the tree builder (see
-`Foreign content follows the tree builder`_). It also caps the open-element stack at 512 elements, so a pathologically
-deep or unclosed input cannot exhaust memory or the C stack the selector matcher walks. Start tags past the cap,
-formatting elements included, attach at the capped depth as siblings.
+including the tree builder it runs for some markup (see `Foreign content follows the tree builder`_). It also caps the
+open-element stack at 512 elements, so a pathologically deep or unclosed input cannot exhaust memory or the C stack the
+selector matcher walks. Start tags past the cap, formatting elements included, attach at the capped depth as siblings.
 
 ***********************************
  Selectors match against the spine
@@ -101,14 +100,17 @@ through verbatim.
 The rewriter answers them from the spine while the spine matches that stack: in HTML outside ``<svg>`` and ``<math>``,
 and inside them until a tag needs a rule the spine does not keep. Such a tag is one that breaks out of foreign content,
 such as ``<p>`` or ``<div>``, an HTML tag inside an integration point such as ``<foreignObject>`` or ``<desc>``, an end
-tag that names no open SVG or MathML element, or a ``<template>`` or ``<frameset>`` anywhere. At the first one the
-rewriter runs the input before it through the tree builder once, then keeps the tree builder running beside it for the
-rest of the document. From there each tag is read as a parse reads it, with the end tags a browser implies, the
-formatting elements it rebuilds, and the table, template and frameset insertion modes.
+tag that names no open SVG or MathML element, or a ``<template>`` or ``<frameset>`` anywhere. At such a tag the rewriter
+runs the tree builder beside it, so each tag is read as a parse reads it, with the end tags a browser implies, the
+formatting elements it rebuilds, and the table, template and frameset insertion modes. Once the spine matches the stack
+again, outside templates, framesets and integration points, the tree builder waits, and at the next such tag it first
+reads the input it missed, so the cost stays linear and a page whose ``<svg>`` and ``<math>`` hold only their own
+elements and text, as inline icons and formulas do, never starts it.
 
-That tree builder keeps its tree, so from the first such tag on, memory grows with the document instead of with the
-open-element depth. A page whose ``<svg>`` and ``<math>`` hold only their own elements and text, as inline icons and
-formulas do, never starts it.
+The tree builder keeps only what can still change how a later tag is read: the open elements, the active formatting
+elements, and the template insertion modes. Whenever the rest of its tree outgrows that part, it copies that part into a
+fresh tree and drops the old one, so its memory follows the open-element depth and the formatting list, not the
+document.
 
 Handlers can still change how a browser reads what follows: unwrapping a ``<foreignObject>``, or changing the
 ``encoding`` of an ``<annotation-xml>``, turns the raw text after it into markup or back. A guarantee that has to hold

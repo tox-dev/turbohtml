@@ -8,10 +8,10 @@ run of text, each comment, and the doctype). A handler edits the node in place -
 before or after it, replace its inner content, or drop it -- and the edited output is emitted incrementally.
 
 Memory is proportional to the open-element depth plus whatever a handler chooses to buffer, not to the document size,
-so a multi-megabyte page rewrites in a fixed working set. The exception is markup whose reading needs the tree
-builder's state, such as a ``<p>`` inside ``<svg>`` or a ``<template>``: from there on the rewriter runs the tree
-builder beside it, and memory grows with the document (see :doc:`/explanation/streaming`). This is the model
-Cloudflare's lol-html popularized; turbohtml reuses its own native tokenizer and CSS selector engine behind it.
+so a multi-megabyte page rewrites in a fixed working set. Markup whose reading needs the tree builder's state, such
+as a ``<p>`` inside ``<svg>`` or a ``<template>``, runs the tree builder beside the rewriter, which keeps only the open
+and active formatting elements (see :doc:`/explanation/streaming`). This is the model Cloudflare's lol-html
+popularized; turbohtml reuses its own native tokenizer and CSS selector engine behind it.
 
 Because the pass never looks ahead, only the selectors decidable from an element and its ancestors stream: type,
 universal, id, class, and attribute selectors, the descendant (space) and child (``>``) combinators, ``:root``,

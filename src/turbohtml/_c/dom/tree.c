@@ -5677,7 +5677,7 @@ int th_shadow_parkable(const th_shadow *shadow) {
     case M_AFTER_AFTER_FRAMESET:
         return 0;
     default:
-        /* a <plaintext> never gets here: it leaves the mode alone, and what kept the tree from parking before it */
+        /* the tokenizer is in its data state: a <plaintext> never ends what kept the tree from parking */
         return shadow->tree->tmpl_len == 0;
     }
 }
