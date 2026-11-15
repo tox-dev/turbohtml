@@ -4384,6 +4384,11 @@ _CALC_BOUNDARY: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{b:x(calc(9)%)}", "a{b:x(9 %)}", id="number-before-percent"),
     pytest.param("a{b:x(calc(9)\\30)}", "a{b:x(9 \\30)}", id="number-before-escape"),
     pytest.param("a{b:x(calc(9)u+0)}", "a{b:x(9 u+0)}", id="number-before-unicode-range"),
+    pytest.param("a{b:f(x+calc(1))}", "a{b:f(x+ 1)}", id="plus-after-name-before-number"),
+    pytest.param("a{b:f(calc(1)y)}", "a{b:f(1 y)}", id="number-before-name"),
+    pytest.param("a{b:f(calc(1)-y)}", "a{b:f(1 -y)}", id="number-before-minus-name"),
+    pytest.param("a{b:f(calc(1)e3)}", "a{b:f(1 e3)}", id="number-before-exponent-name"),
+    pytest.param("a{b:f(+calc(1)y)}", "a{b:f(+ 1 y)}", id="plus-before-number-before-name"),
     pytest.param("a{b:x(calc(1px)calc(2px))}", "a{b:x(1px 2px)}", id="dimension-before-calc"),
     pytest.param("a{b:e(0.calc(7))}", "a{b:e(0. 7)}", id="dot-before-number"),
     pytest.param("a{b:x(1.calc(7))}", "a{b:x(1. 7)}", id="number-dot-before-number"),
@@ -4411,12 +4416,14 @@ def test_calc_unwrap_keeps_token_boundary(source: str, expected: str) -> None:
 @pytest.mark.parametrize("seed", range(400))
 def test_calc_unwrap_keeps_token_boundary_over_generated_neighbors(seed: int) -> None:
     rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
-    left = rng.choice(("", "0.", "1.", ".", "+", "%", '"s"', "/", ","))
+    left = rng.choice(("", "0.", "1.", ".", "+", "x+", "%", '"s"', "/", ","))
     right = rng.choice((
         "",
         "var(--a)",
         "-x",
         "x",
+        "y",
+        "e3",
         "%",
         "1",
         ".5",
