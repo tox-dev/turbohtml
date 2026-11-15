@@ -101,6 +101,7 @@ typedef struct {
     path_id_map *path_ids;     /* css_path id-occurrence map; NULL until first css_path */
     void *path_positions;
     node_hash_overrides *hash_overrides;
+    uint64_t hash_salt; /* unique to this handle; see handle_node_hash */
     /* etree positional access: the element children last reached by position, so element[i] in a loop walks on from
        the previous one. Valid while view_cursor_version equals mutation_version; see view_element_at. */
     struct view_cursor {
@@ -151,8 +152,9 @@ static inline Py_hash_t handle_node_hash(const HandleObject *handle, const th_no
             }
         }
     }
-    Py_hash_t hash = (Py_hash_t)(uintptr_t)node;
-    return hash == -1 ? -2 : hash; /* GCOVR_EXCL_BR_LINE: an arena pointer is never (Py_hash_t)-1 */
+    /* Addresses repeat once a tree is freed, and a moved node keeps its hash, so each handle salts its own. */
+    Py_hash_t hash = (Py_hash_t)((uint64_t)(uintptr_t)node ^ handle->hash_salt);
+    return hash == -1 ? -2 : hash; /* GCOVR_EXCL_BR_LINE: no test can place a node at its salt's complement */
 }
 
 /* Put node's hash in the first free slot of its probe run. A tree never frees a
