@@ -2356,6 +2356,12 @@ def test_replace_growth_past_the_allowance_raises(expression: str) -> None:
         parse_xml("<r/>").xpath(expression, text="a" * 4_096, replacement="b" * 4_098)
 
 
+def test_replace_refuses_the_text_between_matches_once_the_allowance_is_spent() -> None:
+    # the first replacement fits in the buffer, and the text after it does not
+    with pytest.raises(ValueError, match=_GROWTH_REFUSED):
+        parse_xml("<r/>").xpath("replace($text, 'a', $replacement)", text=f"a{'x' * 10}a", replacement="b" * 16_777_219)
+
+
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
