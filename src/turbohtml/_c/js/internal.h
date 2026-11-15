@@ -25,6 +25,17 @@
 #endif
 #endif
 
+#ifndef TH_FORCEINLINE
+/* an unoptimized build keeps the call, so gcov counts each branch once rather than once per inlined call site */
+#if defined(_MSC_VER)
+#define TH_FORCEINLINE __forceinline
+#elif defined(__GNUC__) && defined(__OPTIMIZE__)
+#define TH_FORCEINLINE inline __attribute__((always_inline))
+#else
+#define TH_FORCEINLINE inline
+#endif
+#endif
+
 /* ECMAScript token kinds. The lexer never decides whether a `/` is division or a
    regular-expression literal (that needs grammar position): it always reports
    JT_DIV / JT_DIV_ASSIGN, and the parser calls jm_lex_rescan_regex when a value is
@@ -306,16 +317,18 @@ typedef struct {
     int32_t ref_scope; /* common read scope, or -1 when reads span scopes */
     int32_t decl_node;
     int32_t declr_node;
-    int32_t ref_prop;  /* the `{ x }` property node when a read is a shorthand: the read doubles as
-                          the key, so an inline must first give the property an explicit key */
-    int32_t min_ref;   /* the lowest read node index: parse order is textual order, so a read below
-                          the binding's own declarator index runs before it initializes */
-    int32_t ref_stmt;  /* the innermost expression, return or throw statement around ref_node, or -1;
-                          with ref_scope it tells whether the one read sits directly in a given statement */
+    int32_t ref_prop; /* the `{ x }` property node when a read is a shorthand: the read doubles as
+                         the key, so an inline must first give the property an explicit key */
+    int32_t min_ref;  /* the lowest read node index: parse order is textual order, so a read below
+                         the binding's own declarator index runs before it initializes */
+    int32_t ref_stmt; /* the innermost expression, return or throw statement around ref_node, or -1;
+                         with ref_scope it tells whether the one read sits directly in a given statement */
+    /* Written by the analysis walk and read only for a function declaration it walked whose one read it saw, so
+       jm_sym_new leaves them unset. */
     int32_t ref_depth; /* how deep, in analysis walk calls from the program root, ref_node sits */
     int32_t fn_depth;  /* a function declaration: how deep its node sits, */
     int32_t fn_height; /* how far below that its parameters and body reach, */
-    int32_t fn_scope;  /* and its own scope (-1 for any other binding) */
+    int32_t fn_scope;  /* and its own scope */
 } jm_sym;
 
 /* A scope node in the lexical scope tree. kind distinguishes a function/block/catch/
@@ -327,10 +340,10 @@ typedef struct {
     int32_t first_sym;    /* head of the chain of symbols declared here (jm_sym.scope == this) */
     int32_t first_child;  /* head of the child-scope list, for an O(scopes) tree walk */
     int32_t next_sibling; /* next scope with the same parent */
-    int32_t first_stmt;   /* a function scope's first body statement: nothing executes before it,
-                             so a var literal declared there dominates every read (-1 elsewhere) */
     int32_t sunk;         /* levels this pass's inlines moved the scope's function down, with all it holds */
     int32_t grown;        /* levels this pass's inlines added below nodes the scope holds */
+    int32_t first_stmt;   /* a function scope's first body statement: nothing executes before it,
+                             so a var literal declared there dominates every read (-1 elsewhere) */
 } jm_scope;
 
 /* A parsed program: the node arena, the symbol and scope tables, the root node, and
@@ -367,6 +380,7 @@ typedef struct jm_program {
     int32_t comment_cap;
 
     int shadows_undefined; /* some binding is named `undefined`, so the fold pass must check each read */
+    int never_undefined;   /* a fold found no binding named `undefined`; no pass creates a binding, so none appears */
     int resolved;          /* every identifier carries its symbol from a with/eval-free resolution */
     int has_regex;         /* a regex literal was parsed: only then can a binding be initialized to one */
 

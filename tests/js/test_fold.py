@@ -1473,6 +1473,11 @@ def test_function_inline_under_a_short_expression_still_nests() -> None:
     assert minify_js(f"function o(){{{body}}}") == f"function o(){{{opened}return 1{closed}}}"
 
 
+def test_labeled_function_declaration_is_not_measured_for_inlining() -> None:
+    # a labeled declaration sits outside any statement list, so no binding owns it and nothing inlines it
+    assert minify_js("function o(){L:function f(){}return f}") == "function o(){a:function f(){}return f}"
+
+
 @pytest.mark.parametrize("count", [pytest.param(2, id="small"), pytest.param(1000, id="long")])
 @pytest.mark.parametrize("nested", [pytest.param(False, id="calls"), pytest.param(True, id="sequences")])
 def test_sequence_growth_preserves_call_order(count: int, *, nested: bool) -> None:
