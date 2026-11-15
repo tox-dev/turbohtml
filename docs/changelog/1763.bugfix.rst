@@ -1,0 +1,2 @@
+Minifying a ``style`` attribute now drops the rest of a declaration broken by a ``{}`` block or a stray ``}``, rather
+than letting it apply.

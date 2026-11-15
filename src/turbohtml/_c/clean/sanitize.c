@@ -843,6 +843,111 @@ static int run_attribute_filter(sanitizer *s, th_node *element, PyObject *tag, c
     return status;
 }
 
+/* The ASCII-lowercased spelling of a name as a new str, or NULL with an error set. */
+static PyObject *lowercase_name_str(const char *name, Py_ssize_t len) {
+    char *lowered = html_name_lower(name, len);
+    if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: html_name_lower fails only to allocate */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *text = PyUnicode_FromStringAndSize(lowered, len);
+    PyMem_Free(lowered);
+    return text;
+}
+
+static int has_ascii_upper(const char *name, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (name[index] >= 'A' && name[index] <= 'Z') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether an attribute name of element has an ASCII uppercase letter, the only way it can be a case variant. */
+static int element_has_upper_attr(sanitizer *s, const th_node *element) {
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        TH_WORK_STEP();
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(s->tree, element->attrs[index].name_atom, &name_len);
+        if (has_ascii_upper(name, name_len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The lowercase spellings of the names a policy forces onto one tag, each mapped to False until its exact spelling is
+   seen in the walk. NULL with an error set on failure. */
+static PyObject *forced_names(PyObject *per_tag) {
+    PyObject *forced = PyDict_New();
+    if (forced == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *key;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(per_tag, &pos, &key, NULL)) {
+        Py_ssize_t key_len;
+        const char *key_bytes = PyUnicode_AsUTF8AndSize(key, &key_len);
+        if (key_bytes == NULL) { /* GCOVR_EXCL_BR_LINE: a lone-surrogate name cannot encode, hard to force */
+            Py_DECREF(forced);   /* GCOVR_EXCL_LINE: surrogate path */
+            return NULL;         /* GCOVR_EXCL_LINE: surrogate path */
+        }
+        PyObject *lowered = lowercase_name_str(key_bytes, key_len);
+        int stored = lowered != NULL && PyDict_SetItem(forced, lowered, Py_False) == 0; /* GCOVR_EXCL_BR_LINE */
+        Py_XDECREF(lowered);
+        if (!stored) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(forced); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return forced;
+}
+
+/* Drop the case variants of the names apply_set_attributes is about to write, in one walk of the element. A variant is
+   dropped when no exact spelling of its name comes before it, which is what a scan for each name drops; scanning the
+   element once per name is quadratic in the number of names a policy forces onto one tag. Returns 0, or -1 on error. */
+static int drop_forced_case_variants(sanitizer *s, th_node *element, PyObject *per_tag) {
+    if (!element_has_upper_attr(s, element)) {
+        return 0;
+    }
+    PyObject *forced = forced_names(per_tag);
+    if (forced == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t kept = 0;
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        TH_WORK_STEP();
+        th_node_attr attr = element->attrs[index];
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(s->tree, attr.name_atom, &name_len);
+        PyObject *lowered = lowercase_name_str(name, name_len);
+        if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(forced); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *seen = PyDict_GetItem(forced, lowered);
+        int upper = has_ascii_upper(name, name_len);
+        int drop = seen == Py_False && upper;
+        int exact = seen != NULL && !upper;
+        if (exact && PyDict_SetItem(forced, lowered, Py_True) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(lowered);                                      /* GCOVR_EXCL_LINE */
+            Py_DECREF(forced);                                       /* GCOVR_EXCL_LINE */
+            return -1;                                               /* GCOVR_EXCL_LINE */
+        }
+        Py_DECREF(lowered);
+        if (drop) {
+            continue;
+        }
+        if (kept != index) {
+            element->attrs[kept] = attr;
+        }
+        kept++;
+    }
+    Py_DECREF(forced);
+    element->attr_count = kept;
+    return 0;
+}
+
 /* Force-set the policy's per-tag attribute values on a kept element, adding the attribute if absent and overwriting it
    if present (what attribute_filter cannot do, since it only sees attributes already there). HTML attribute names are
    ASCII case-insensitive, so policy-created names are canonicalized before interning. Returns 1 when any value was
@@ -854,6 +959,9 @@ static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             return -1;          /* GCOVR_EXCL_LINE: error path */
         }
         return 0; /* no forced attributes for this tag */
+    }
+    if (element->ns == TH_NS_HTML && drop_forced_case_variants(s, element, per_tag) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                                         /* GCOVR_EXCL_LINE */
     }
     PyObject *name, *value;
     Py_ssize_t pos = 0;
@@ -872,7 +980,6 @@ static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
                 return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             write_name = canonical_name;
-            drop_case_variants(s, element, canonical_name);
         }
         Py_UCS4 *points = PyUnicode_AsUCS4Copy(value);
         if (points == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

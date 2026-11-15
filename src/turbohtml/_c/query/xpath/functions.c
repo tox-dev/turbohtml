@@ -2194,7 +2194,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     }
     xp_live_frame frame;
     if (ctx->live != NULL) {
-        frame = (xp_live_frame){.results = args, .result_count = argc};
+        frame = (xp_live_frame){.results = args}; /* result_count follows the arguments as they are stored */
         xp_live_enter(ctx, &frame);
     }
     int filled = 0;
@@ -2213,7 +2213,9 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             return arg_rc;
         }
         filled++;
-        xp_live_changed(ctx);
+        if (ctx->live != NULL) {
+            frame.result_count = filled;
+        }
     }
     int rc = 0;
     if (func_is(fn, "true") || func_is(fn, "false")) {
