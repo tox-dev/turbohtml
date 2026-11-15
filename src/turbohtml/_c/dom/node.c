@@ -1709,6 +1709,7 @@ TH_NODE_API(static, PyObject *, node_article, (PyObject * self, PyObject *ignore
     /* GCOVR_EXCL_BR_START: failed or a NULL text_data only when out of memory */
     if (!failed && (winner == NULL || text_data != NULL)) {
         th_article_metadata(tree, th_tree_document(tree), &meta);
+        failed = th_tree_failed(tree);
     }
     Py_END_CRITICAL_SECTION();
     if (failed || (winner != NULL && text_data == NULL)) {
