@@ -93,7 +93,10 @@ statement about intent, not a relaxation of the mutation-XSS defense that still 
 reached.
 
 The policy walk uses an explicit checked stack rather than C recursion. It reaches the final safety pass at all depths
-that fits in memory; nesting cannot truncate the sanitized result or skip a descendant's checks.
+that fits in memory; nesting cannot truncate the sanitized result or skip a descendant's checks. The one bound is on
+disallowed elements nested in one another, each of which lifts its content a level when it is escaped or stripped: past
+1,536 of them, deeper than any tree the HTML parser builds, the walk raises :exc:`RecursionError` instead of spending
+time quadratic in the nesting.
 
 The HTML output carries a guarantee beyond keeping every node safe: parsed again as the content of a ``div``, it
 rebuilds the tree the policy judged, except that a browser re-creates the implied ``tbody``, ``tr``, and ``colgroup``

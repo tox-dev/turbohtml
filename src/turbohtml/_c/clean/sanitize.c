@@ -3359,12 +3359,27 @@ static int balanced_unwrap_pending(const void *stack, Py_ssize_t depth, const th
     return 0;
 }
 
+/* Escaping or stripping an element lifts its children a level, so a chain of them costs time quadratic in its length.
+   The parser caps its trees, while parse_xml and hand-built trees are uncapped, so the walks refuse longer chains. */
+#define SANITIZE_MAX_UNWRAP_DEPTH ((Py_ssize_t)3 * TH_MAX_TREE_DEPTH)
+
+/* Count one more open element awaiting its unwrap. Returns 0, or -1 with RecursionError set past the limit. */
+static int unwrap_depth_enter(Py_ssize_t *unwrapping) {
+    if (++*unwrapping <= SANITIZE_MAX_UNWRAP_DEPTH) {
+        return 0;
+    }
+    PyErr_Format(PyExc_RecursionError, "sanitize does not support more than %zd nested disallowed elements",
+                 SANITIZE_MAX_UNWRAP_DEPTH);
+    return -1;
+}
+
 /* Walk descendants with an explicit stack. A frame keeps the post-order strip/escape action and the sibling that
    follows the element, so mutations cannot invalidate traversal state. */
 static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     sanitize_frame *frames = NULL;
     Py_ssize_t depth = 0;
     Py_ssize_t capacity = 0;
+    Py_ssize_t unwrapping = 0;
     th_node *child = parent->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3388,6 +3403,7 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 }
                 s->balance_edited |= defer_balance;
                 /* GCOVR_EXCL_BR_STOP */
+                unwrapping--;
             }
             parent_kept = frame.parent_kept;
             child = frame.next;
@@ -3401,6 +3417,10 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 return -1;
             }
             if (action != SANITIZE_DONE) {
+                if (action != SANITIZE_KEEP_CHILDREN && unwrap_depth_enter(&unwrapping) < 0) {
+                    PyMem_Free(frames);
+                    return -1;
+                }
                 if (depth == capacity) {
                     size_t grown;
                     size_t bytes;
@@ -3459,6 +3479,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
     balance_walk walk = {root, NULL, 0, 0, 0, 0};
     uint32_t bits = balancer_child_bits(root, 0);
     int parent_kept = 1; /* the root is kept context */
+    Py_ssize_t unwrapping = 0;
     th_node *child = root->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3486,6 +3507,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
                 }
                 s->balance_edited |= defer_balance;
                 walk.deferred |= defer_balance;
+                unwrapping--;
             }
             if (frame->role > ROLE_RECORDED) {
                 if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */
@@ -3517,6 +3539,11 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
         if (action == SANITIZE_DONE) {
             child = next;
             continue;
+        }
+        if (action != SANITIZE_KEEP_CHILDREN && unwrap_depth_enter(&unwrapping) < 0) {
+            PyMem_Free(frames);
+            PyMem_Free(walk.verdicts);
+            return -1;
         }
         if (bits & CONTEXT_PENDING) {
             /* the parent deferred them: its frame, on top, holds the bits the parent sits in */
