@@ -263,11 +263,31 @@ static int css_name_is_custom(const css_char *name) {
     return name[0] == '-' && name[1] == '-';
 }
 
-/* Build a declaration from a segment [start, end). Returns 1 if a declaration was produced. */
+/* Whether the value tokens [start, end) call var() or env(). Such a value is valid at parse time whatever else it
+   holds (CSS Variables 1 §3), so a browser keeps its declaration and decides at computed-value time. */
+CSS_NOINLINE static int css_value_substitutes(const token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
+    for (Py_ssize_t index = start; index + 1 < end; index++) {
+        const css_token *token = &vec->items[index];
+        if (token->kind == CSS_IDENT && vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
+            (css_run_ieq(token->text, token->text_len, "var") || css_run_ieq(token->text, token->text_len, "env"))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Build a declaration from a segment [start, end). Returns 1 if a declaration was produced. A string cut short or a
+   bad url drops the declaration. A `\` before a newline is a delimiter: a custom property's value and a value that
+   calls var() or env() keep it, written as it stands with its newline, and any other declaration is dropped as a
+   browser drops it. */
 static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, comp_vec *scratch,
                                 css_decl *decl, int preserve_name) {
+    int backslash = 0;
     if (vec->bad && css_holds_bad(vec, start, end)) {
-        return 0;
+        if (css_holds_cut(vec, start, end)) {
+            return 0;
+        }
+        backslash = 1;
     }
     Py_ssize_t colon = -1;
     for (Py_ssize_t index = start; index < end; index++) {
@@ -294,6 +314,10 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
     /* the raw property text spans from the first to the last non-ws token; build it for the --* check and interning */
     const css_token *first = &vec->items[prop_start];
     int is_custom = first->kind == CSS_IDENT && css_name_is_custom(first->text);
+    if (backslash &&
+        (css_holds_bad(vec, start, colon) || (!is_custom && !css_value_substitutes(vec, colon + 1, end)))) {
+        return 0;
+    }
     Py_ssize_t prop_off = pool->len;
     for (Py_ssize_t index = prop_start; index < prop_end; index++) {
         css_token *token = &vec->items[index];
@@ -362,7 +386,8 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
     }
 
     css_buf value = {NULL, 0, 0, pool->oom};
-    css_minify_value(pool, vec, value_start, value_end, pool->data + prop_off, prop_len, is_custom, scratch, &value);
+    css_minify_value(pool, vec, value_start, value_end, pool->data + prop_off, prop_len, is_custom || backslash,
+                     scratch, &value);
     if (!is_custom && value.len == 0) {
         cbuf_free(&value);
         pool->len = prop_off;

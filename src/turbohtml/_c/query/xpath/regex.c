@@ -1771,9 +1771,11 @@ static int xr_reserve(xr_program *program, Py_ssize_t depth) {
     return 0;
 }
 
-/* re compares a case-insensitive back-reference by lowercase, without the fold sets. */
-static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4 *text, Py_ssize_t len,
-                      Py_ssize_t *pos) {
+/* re compares a case-insensitive back-reference by lowercase, without the fold sets. Each character compared draws a
+   step from the budget: the group can span half the text, so charging the instruction alone would let one step cost
+   that much. */
+static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t *pos,
+                      Py_ssize_t *budget) {
     Py_ssize_t slot = 2 * (Py_ssize_t)inst->arg;
     Py_ssize_t from = caps[slot];
     if (from < 0) {
@@ -1787,9 +1789,11 @@ static int xr_backref(const xr_inst *inst, const Py_ssize_t *caps, const Py_UCS4
         Py_UCS4 captured = text[from + index];
         Py_UCS4 ch = text[*pos + index];
         if (inst->op == XRI_BACKREF_FOLD ? xr_lower(captured) != xr_lower(ch) : captured != ch) {
+            *budget -= index;
             return 0;
         }
     }
+    *budget -= size;
     *pos += size;
     return 1;
 }
@@ -1835,7 +1839,7 @@ static int xr_backtrack_at(xr_program *program, xr_cache *cache, const Py_UCS4 *
             break;
         case XRI_BACKREF:
         case XRI_BACKREF_FOLD:
-            ok = xr_backref(inst, caps, text, len, &pos);
+            ok = xr_backref(inst, caps, text, len, &pos, &cache->budget);
             break;
         case XRI_MATCH:
             if (!(must_advance && pos == start)) {
