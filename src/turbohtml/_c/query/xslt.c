@@ -4556,14 +4556,10 @@ static long number_walk_step(engine *eng, xslt_number_walk *walk, const th_node 
 /* Index an element of a sibling run before its default name is read, as remember_number_node does for the current node.
  */
 static int number_index_child(engine *eng, th_node *node) {
-    if (node->type != TH_NODE_ELEMENT || !th_tree_is_xml(eng->src_tree)) {
-        return 0;
+    if (node->type == TH_NODE_ELEMENT && th_tree_is_xml(eng->src_tree)) {
+        return number_index_extend(eng, node);
     }
-    const int prefixed = number_local_name(eng, node).name != node->text;
-    if (!number_has_namespaces(eng) && eng->number_index.positions.count == 0 && !prefixed) {
-        return 0;
-    }
-    return number_index_extend(eng, node);
+    return 0;
 }
 
 /* Count every node of the sibling run that node belongs to in one pass, so a run whose counted nodes alternate with
