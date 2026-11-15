@@ -1079,9 +1079,12 @@ static int merge_name_present(const th_attr_names *names, const th_node *node, u
 }
 
 /* Merge a start tag's attributes onto an existing element, keeping only the
-   ones whose name is not already present (the <html>/<body> re-open rule). */
+   ones whose name is not already present (the <html>/<body> re-open rule).
+   The fragment root is skipped: the standard discards that html element along
+   with anything merged onto it, while parse_fragment() hands it back as the
+   caller's context element, whose attributes the markup must not choose. */
 static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
-    if (token->attr_count == 0) {
+    if (token->attr_count == 0 || node == tree->fragment_root) {
         return;
     }
     th_attr_names *names = NULL;

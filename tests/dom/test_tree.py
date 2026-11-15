@@ -975,6 +975,16 @@ def test_fragment_paths(html: str, context: str, needle: str) -> None:
     assert needle in _parse_fragment(html, context).rstrip("\n")
 
 
+@pytest.mark.parametrize(
+    "context", ["div", "body", "html", "head", "td", "table", "colgroup", "select", "template", "svg g"]
+)
+def test_fragment_html_start_tag_leaves_context_element_bare(context: str) -> None:
+    # the standard's fragment root is scaffolding that is thrown away, so an <html> start tag's attributes never
+    # reach the caller; here the root is returned as the context element and must not take them from the markup
+    root = parse_fragment("<html hidden id=y><b>z</b><html class=k>", context)
+    assert dict(root.attrs) == {}
+
+
 def test_deeply_nested_serializers_are_iterative() -> None:
     # Each serializer (compact .html, pretty indent, #document dump) recursed one
     # C stack frame per tree level and aborted (exit 134) on a deep tree. Running
