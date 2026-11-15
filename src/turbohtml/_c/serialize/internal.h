@@ -394,16 +394,25 @@ static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize
     sbuf_put_ucs4_tail(out, text, start, len);
 }
 
-/* `]]>` cannot appear inside a CDATA section, so the section closes after `]]` and a new one starts at `>`. */
+/* `]]>` cannot appear inside a CDATA section, so the section closes after `]]` and a new one starts at `>`. The
+   scan skips the characters XML forbids, since dropping one can bring a `]]` and a `>` together. */
 static inline void sbuf_put_xml_cdata(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     sbuf_puts(out, "<![CDATA[");
     Py_ssize_t start = 0;
-    for (Py_ssize_t index = 0; index + 2 < len; index++) {
-        if (text[index] == ']' && text[index + 1] == ']' && text[index + 2] == '>') {
-            sbuf_put_ucs4(out, text + start, index + 2 - start);
-            sbuf_puts(out, "]]><![CDATA[");
-            start = index + 2;
+    int closing_brackets = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 character = text[index];
+        if (xml_char_invalid(character)) {
+            sbuf_put_ucs4(out, text + start, index - start);
+            start = index + 1;
+            continue;
         }
+        if (character == '>' && closing_brackets >= 2) {
+            sbuf_put_ucs4(out, text + start, index - start);
+            sbuf_puts(out, "]]><![CDATA[");
+            start = index;
+        }
+        closing_brackets = character == ']' ? closing_brackets + 1 : 0;
     }
     sbuf_put_ucs4_tail(out, text, start, len);
     sbuf_puts(out, "]]>");

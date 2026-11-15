@@ -10,7 +10,7 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && text[index] != '&' && text[index] != '<' && text[index] != '>' && text[index] != 0x0D) {
+        while (index < len && !c14n_text_stop(text[index])) {
             index++;
         }
         if (index > start) {
@@ -24,8 +24,8 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&lt;");
             } else if (character == '>') {
                 sbuf_puts(out, "&gt;");
-            } else {
-                sbuf_puts(out, "&#xD;"); /* the only remaining flagged character is U+000D */
+            } else if (character == 0x0D) {
+                sbuf_puts(out, "&#xD;");
             }
             index++;
         }
@@ -36,8 +36,7 @@ static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && text[index] != '&' && text[index] != '<' && text[index] != '"' && text[index] != 0x09 &&
-               text[index] != 0x0A && text[index] != 0x0D) {
+        while (index < len && !xml_text_stop(text[index], 1)) {
             index++;
         }
         if (index > start) {
@@ -55,8 +54,10 @@ static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&#x9;");
             } else if (character == 0x0A) {
                 sbuf_puts(out, "&#xA;");
-            } else {
-                sbuf_puts(out, "&#xD;"); /* the only remaining flagged character is U+000D */
+            } else if (character == 0x0D) {
+                sbuf_puts(out, "&#xD;");
+            } else if (character == '>') {
+                sbuf_putc(out, '>');
             }
             index++;
         }

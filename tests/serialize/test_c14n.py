@@ -4,6 +4,9 @@ import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this te
 from functools import partial
 from io import BytesIO
 from typing import TYPE_CHECKING, Final, cast
+from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
+    ElementTree as ET,
+)
 
 import pytest
 from bench.operations import INPUTS
@@ -15,7 +18,7 @@ if TYPE_CHECKING:
 
     from work_steps import WorkSteps
 
-    from turbohtml import Document
+    from turbohtml import Document, Node
 
 
 def test_returns_utf8_bytes() -> None:
@@ -126,6 +129,60 @@ def test_stored_xmlns_attribute_is_not_double_emitted() -> None:
 
 def test_cdata_section_becomes_escaped_text() -> None:
     assert Element("a", children=[CData("<x>&")]).canonicalize() == b"<a>&lt;x&gt;&amp;</a>"
+
+
+def _xml_namespace_host() -> Element:
+    host = parse_xml('<r xmlns:p="urn:p"><q/></r>').select_one("q")
+    assert host is not None
+    return host
+
+
+_HOSTS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(lambda: Element("p"), (b"<p", b"</p>"), id="html-tree"),
+    pytest.param(_xml_namespace_host, (b'<q xmlns:p="urn:p"', b"</q>"), id="xml-namespace-tree"),
+]
+_DROPPED_TEXT: Final[list[pytest.ParameterSet]] = [
+    pytest.param("a\x01b", "ab", id="c0-control"),
+    pytest.param("a\ufffeb", "ab", id="noncharacter-fffe"),
+    pytest.param("a\uffffb", "ab", id="noncharacter-ffff"),
+    pytest.param("a\ud800b", "ab", id="lone-surrogate"),
+    pytest.param("\x01<&>", "&lt;&amp;&gt;", id="control-before-specials"),
+    pytest.param("a\x01\rb", "a&#xD;b", id="control-before-carriage-return"),
+]
+
+
+@pytest.mark.parametrize(("make_host", "tags"), _HOSTS)
+@pytest.mark.parametrize("child", [pytest.param(Text, id="text"), pytest.param(CData, id="cdata")])
+@pytest.mark.parametrize(("text", "expected"), _DROPPED_TEXT)
+def test_content_drops_characters_xml_cannot_hold(
+    make_host: Callable[[], Element], tags: tuple[bytes, bytes], child: Callable[[str], Node], text: str, expected: str
+) -> None:
+    host = make_host()
+    host.append(child(text))
+    out = host.canonicalize()
+    assert out == tags[0] + b">" + expected.encode() + tags[1]
+    ET.fromstring(out)  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own canonical output, parsed to assert it is well-formed
+
+
+@pytest.mark.parametrize(("make_host", "tags"), _HOSTS)
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("a\x01b", "ab", id="c0-control"),
+        pytest.param("a\ufffeb", "ab", id="noncharacter-fffe"),
+        pytest.param("a\ud800b", "ab", id="lone-surrogate"),
+        pytest.param("\x01>&", ">&amp;", id="control-before-literal-gt"),
+        pytest.param("a\x01\t\n\rb", "a&#x9;&#xA;&#xD;b", id="control-before-whitespace-controls"),
+    ],
+)
+def test_attribute_value_drops_characters_xml_cannot_hold(
+    make_host: Callable[[], Element], tags: tuple[bytes, bytes], value: str, expected: str
+) -> None:
+    host = make_host()
+    host.attrs["title"] = value
+    out = host.canonicalize()
+    assert out == tags[0] + b' title="' + expected.encode() + b'">' + tags[1]
+    ET.fromstring(out)  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own canonical output, parsed to assert it is well-formed
 
 
 def test_processing_instruction_with_data() -> None:

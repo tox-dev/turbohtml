@@ -24,7 +24,8 @@ The canonical form pins every degree of freedom the serializer otherwise has:
   value, ``&``, ``<``, ``"`` and the tab/newline/carriage-return controls do. Everything else, including non-ASCII, is
   emitted as literal UTF-8, so the output is a UTF-8 octet stream ready to hash.
 - **Dropped constructs.** The document type declaration is dropped, and comments are dropped unless the with-comments
-  variant is chosen.
+  variant is chosen. A character XML 1.0 forbids (a C0 control other than tab, newline and carriage return, a surrogate,
+  U+FFFE or U+FFFF) is dropped from text, CDATA sections and attribute values.
 
 ****************************
  Inclusive versus exclusive

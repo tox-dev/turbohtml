@@ -55,6 +55,17 @@ static inline int xml_text_stop(Py_UCS4 character, int in_attr) {
     return xml_char_invalid(character);
 }
 
+/* Whether a c14n text run stops at a character: the markup characters and the controls XML cannot hold lie below
+   U+0040, so one bit mask covers them (tab and newline stay literal), and the code points XML forbids above it are the
+   surrogates and noncharacters. Most text is below U+0040 or above it with no test beyond the first compare. */
+static inline int c14n_text_stop(Py_UCS4 character) {
+    if (character < 0x40) {
+        const uint64_t stops = 0xFFFFF9FFULL | (1ULL << '&') | (1ULL << '<') | (1ULL << '>');
+        return (int)((stops >> character) & 1u);
+    }
+    return character >= 0xD800 && xml_char_invalid(character);
+}
+
 /* Copy clean runs and drop characters XML 1.0 cannot hold. */
 static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr) {
     Py_ssize_t index = 0;
