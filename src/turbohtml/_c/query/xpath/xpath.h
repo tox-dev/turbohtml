@@ -75,6 +75,17 @@ void xp_nodeset_free(xp_nodeset *ns);
 
 /* The marshaling boundary also builds node-set variables from caller-supplied elements. */
 int ns_push(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr);
+int ns_grow(xp_nodeset *ns);
+
+/* An append that skips the attribute snapshot reference ns_push takes. Only for items no snapshot can own, such as
+   the source-tree nodes an XSLT transform collects, which are never tagged snapshot attributes. */
+static inline int ns_append(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
+    if (ns->len == ns->cap && ns_grow(ns) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                               /* GCOVR_EXCL_LINE */
+    }
+    ns->items[ns->len++] = (xp_item){node, attr};
+    return 0;
+}
 
 /* The four XPath 1.0 value types an expression can evaluate to. */
 enum xp_result_kind { XP_NODESET, XP_NUMBER, XP_STRING, XP_BOOLEAN };
@@ -118,11 +129,12 @@ typedef struct {
 } xp_namespaces;
 
 /* A user extension-function call: resolve `name` against the registered
-   extensions and run it over `args` with `context_node` as the XPath context.
+   extensions and run it over `args` with the context item (`context.node`, or the
+   attribute or namespace node `context.attr` names) as the XPath context.
    Returns 0 with *out filled, -2 when no extension has that name (the engine then
    reports an unknown function), -1 on a Python error (the exception is set). */
 struct th_node;
-typedef int (*xp_extension_fn)(void *ctx, struct th_node *context_node, const Py_UCS4 *name, Py_ssize_t name_len,
+typedef int (*xp_extension_fn)(void *ctx, xp_item context, const Py_UCS4 *name, Py_ssize_t name_len,
                                const xp_result *args, int argc, xp_result *out);
 
 /* Evaluate a compiled program against a context node. vars supplies $name bindings
@@ -145,21 +157,20 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                      xp_before_python_fn before_python, xp_result *out, const char **feature);
 
-/* Like xp_eval, but seeds the context position and size instead of the default 1/1.
-   The XSLT engine reuses this so position()/last() at the top of a select or test
-   expression report the node's place in the current node list (xslt.c). known_root is
-   NULL, or the root `/` selects for context and for every other node the evaluation
-   can meet, through vars and extension included: the engine evaluates once per
-   instruction and node, all of them under its source root, so it passes that rather
-   than have each evaluation climb to it. */
-int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, struct th_node *known_root,
+/* Like xp_eval, but seeds the context item, position and size instead of the node with 1/1. context is a node, or
+   an attribute or namespace node of one (context->attr, see xp_item). The XSLT engine reuses this so position()/last()
+   at the top of a select or test expression report the item's place in the current node list (xslt.c). known_root is
+   NULL, or the root `/` selects for context and for every other node the evaluation can meet, through vars and
+   extension included: the engine evaluates once per instruction and node, all of them under its source root, so it
+   passes that rather than have each evaluation climb to it. */
+int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
                xp_extension_fn extension, void *extension_ctx, xp_result *out, const char **feature);
 
 /* xp_eval_at for an expression the caller only converts to a boolean, as the test of xsl:if and xsl:when is: a
    location path stops at the first node it selects rather than collecting them all, so a node-set in *out is empty
    exactly when the whole one is, and is good for nothing but that question. */
-int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, struct th_node *context,
+int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
                          struct th_node *known_root, Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars,
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                          xp_result *out, const char **feature);

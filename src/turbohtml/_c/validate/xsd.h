@@ -1614,9 +1614,8 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         all = xsd_group_all(schema, content);
     }
     if (all != NULL) {
-        const int optional_group =
-            is_schema_el(schema, content, XSD_NS, "group") && xsd_occurs_min(schema->tree, content) == 0;
-        if (nchildren > 0 || !optional_group) {
+        /* an optional xs:all, direct or through a group ref, is satisfied by empty content */
+        if (nchildren > 0 || xsd_occurs_min(schema->tree, content) != 0) {
             xsd_validate_all(ctx, all, children, nchildren);
         }
         return;
