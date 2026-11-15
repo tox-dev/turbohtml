@@ -38,8 +38,9 @@ the base class and the handlers fire as before:
     ['/x', '/y']
 
 turbohtml resolves references before calling ``handle_data``, so ``handle_entityref`` and ``handle_charref`` never fire.
-A CDATA section reaches ``handle_comment`` rather than ``unknown_decl``. Processing instructions reach ``handle_pi``;
-the reserved ``xml`` and ``xml-stylesheet`` targets remain comments.
+A CDATA section reaches ``handle_comment`` rather than ``unknown_decl``, or ``handle_data`` inside ``<svg>`` and
+``<math>``, where a browser reads it as text. Processing instructions reach ``handle_pi``; the reserved ``xml`` and
+``xml-stylesheet`` targets remain comments.
 
 If you would rather drop the subclass entirely, turbohtml also exposes the raw token stream.
 :class:`python:html.parser.HTMLParser` is callback-driven: you subclass it and override a handler per event. turbohtml
