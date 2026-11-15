@@ -2781,6 +2781,81 @@ def _group_chain(count: int, *, reverse: bool) -> str:
     )
 
 
+def _reference_ladder(kind: str, levels: int, *, refs: int = 1, hidden: bool = False) -> str:
+    opening, closing = ("<xs:sequence>", "</xs:sequence>") if kind == "group" else ("", "")
+    leaf: Final = '<xs:element name="x" minOccurs="0"/>' if kind == "group" else '<xs:attribute name="x"/>'
+    # hidden: the references sit under an annotation, where validation does not follow them
+    wrap: Final = ("<xs:annotation>", "</xs:annotation>") if hidden else ("", "")
+    defs: Final = [
+        f'<xs:{kind} name="g{n}">{opening}{wrap[0]}<xs:{kind} ref="g{n + 1}"/><xs:{kind} ref="g{n + 1}"/>{wrap[1]}'
+        f"{closing}</xs:{kind}>"
+        for n in range(levels)
+    ]
+    defs.append(f'<xs:{kind} name="g{levels}">{opening}{leaf}{closing}</xs:{kind}>')
+    uses: Final = f'<xs:{kind} ref="g0"/>' * refs
+    return (
+        f"<xs:schema {_XS}>{''.join(defs)}"
+        f'<xs:element name="r"><xs:complexType>{opening}{uses}{closing}</xs:complexType></xs:element></xs:schema>'
+    )
+
+
+def _hidden_group_chain(count: int, *, cycle: bool) -> str:
+    defs: Final = [
+        f'<xs:group name="g{n}"><xs:sequence><xs:annotation><xs:group ref="g{(n + 1) % count if cycle else n + 1}"/>'
+        "</xs:annotation></xs:sequence></xs:group>"
+        for n in range(count)
+    ]
+    defs.append(f'<xs:group name="g{count}"><xs:sequence><xs:element name="x"/></xs:sequence></xs:group>')
+    return (
+        f"<xs:schema {_XS}>{''.join(defs)}"
+        '<xs:element name="r"><xs:complexType><xs:group ref="g0"/></xs:complexType></xs:element></xs:schema>'
+    )
+
+
+_EXPANSION_LIMIT: Final[int] = 20_000
+_EXPANSION: Final[str] = f"complex type references expand to more than {_EXPANSION_LIMIT} particles and attributes"
+
+
+def _ladder_under_each_base() -> str:
+    ladder = _reference_ladder("attributeGroup", 10).partition('<xs:element name="r">')[0]
+    bases = "".join(
+        f'<xs:complexType name="t{n}"><xs:complexContent><xs:extension base="t{n + 1}">'
+        '<xs:attributeGroup ref="g0"/></xs:extension></xs:complexContent></xs:complexType>'
+        for n in range(5)
+    )
+    return (
+        f"{ladder}{bases}"
+        '<xs:complexType name="t5"><xs:attributeGroup ref="g0"/></xs:complexType>'
+        '<xs:element name="r" type="t0"/></xs:schema>'
+    )
+
+
+_SHARED_BASE: Final[str] = (
+    f"<xs:schema {_XS}>"
+    '<xs:attributeGroup name="ids"><xs:attribute name="id"/><xs:attributeGroup ref="more"/></xs:attributeGroup>'
+    '<xs:attributeGroup name="more"><xs:attribute name="lang"/></xs:attributeGroup>'
+    '<xs:group name="head"><xs:sequence><!-- first --><xs:element name="title"/></xs:sequence></xs:group>'
+    '<xs:complexType name="base"><xs:annotation/><xs:group ref="head"/><xs:attributeGroup ref="ids"/></xs:complexType>'
+    '<xs:complexType name="left"><xs:complexContent><xs:extension base="base"><xs:sequence>'
+    '<xs:element name="l"/></xs:sequence><xs:attributeGroup ref="more"/></xs:extension></xs:complexContent>'
+    "</xs:complexType>"
+    '<xs:complexType name="right"><xs:complexContent><xs:extension base="base"><xs:sequence>'
+    '<xs:element name="r"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType>'
+    '<xs:element name="doc"><xs:complexType><xs:sequence><xs:element name="a" type="left"/>'
+    '<xs:element name="b" type="right"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+)
+
+
+# a content model the schema spells out costs what it says however long it is; only what references add is expansion
+def _wide_literal_model() -> str:
+    leaves = '<xs:element name="x" minOccurs="0"/>' * (_EXPANSION_LIMIT + 1)
+    return (
+        f'<xs:schema {_XS}><xs:group name="tail"><xs:sequence><xs:element name="y"/></xs:sequence></xs:group>'
+        f'<xs:element name="r"><xs:complexType><xs:sequence>{leaves}'
+        '<xs:group ref="tail"/></xs:sequence><xs:attribute name="a"/></xs:complexType></xs:element></xs:schema>'
+    )
+
+
 def _identity_constraint(constraint: str) -> str:
     return (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
@@ -2897,6 +2972,15 @@ def _identity_constraint(constraint: str) -> str:
             "complex type reference chain exceeds 100 hops",
             id="deep-type-extension-chain",
         ),
+        pytest.param(_reference_ladder("group", 12), _EXPANSION, id="group-ladder"),
+        pytest.param(_reference_ladder("attributeGroup", 12), _EXPANSION, id="attribute-group-ladder"),
+        pytest.param(_reference_ladder("group", 8, refs=30), _EXPANSION, id="group-ladder-referred-to-many-times"),
+        pytest.param(
+            _reference_ladder("attributeGroup", 8, refs=30),
+            _EXPANSION,
+            id="attribute-group-ladder-referred-to-many-times",
+        ),
+        pytest.param(_ladder_under_each_base(), _EXPANSION, id="attribute-group-ladder-under-each-base-type"),
         pytest.param(
             _identity_constraint("unique"), "identity constraint xs:unique is not supported", id="identity-unique"
         ),
@@ -3054,6 +3138,38 @@ _ANNOTATED_GROUP: Final[str] = (
             True,
             id="sequence-wildcard-not-descended",
         ),
+        pytest.param(_reference_ladder("group", 8), "<r><x/><x/><x/></r>", True, id="group-ladder-within-limit"),
+        pytest.param(_reference_ladder("group", 8), "<r><y/></r>", False, id="group-ladder-within-limit-wrong-leaf"),
+        pytest.param(
+            _reference_ladder("attributeGroup", 8), '<r x="1"/>', True, id="attribute-group-ladder-within-limit"
+        ),
+        pytest.param(
+            _reference_ladder("attributeGroup", 8),
+            '<r y="1"/>',
+            False,
+            id="attribute-group-ladder-within-limit-undeclared",
+        ),
+        # validation follows no reference under an annotation, so none of these unfold, loop, or reach the element
+        pytest.param(_hidden_group_chain(9, cycle=False), "<r/>", True, id="group-chain-behind-annotation"),
+        pytest.param(
+            _hidden_group_chain(9, cycle=False), "<r><x/></r>", False, id="group-chain-behind-annotation-no-leaf"
+        ),
+        pytest.param(_hidden_group_chain(250, cycle=False), "<r/>", True, id="deep-group-chain-behind-annotation"),
+        pytest.param(_hidden_group_chain(2, cycle=True), "<r/>", True, id="group-cycle-behind-annotation"),
+        pytest.param(_reference_ladder("group", 12, hidden=True), "<r/>", True, id="group-ladder-behind-annotation"),
+        pytest.param(
+            _SHARED_BASE,
+            '<doc><a id="1" lang="en"><title/><l/></a><b id="2"><title/><r/></b></doc>',
+            True,
+            id="references-shared-through-a-base-type",
+        ),
+        pytest.param(
+            _SHARED_BASE,
+            '<doc><a id="1"><title/><l/></a><b nope="2"><title/><r/></b></doc>',
+            False,
+            id="references-shared-through-a-base-type-undeclared",
+        ),
+        pytest.param(_wide_literal_model(), '<r a="1"><x/><y/></r>', True, id="long-literal-model-is-not-expansion"),
     ],
 )
 def test_schema_compiles_and_validates(schema: str, xml: str, *, valid: bool) -> None:
