@@ -2396,6 +2396,46 @@ def test_minify_css_inline_string_cut_by_newline() -> None:
     assert minify_css_inline('color:red;x:"a\n;--y:{"b\n}') == "color:red"
 
 
+# A hex escape takes one whitespace after its digits, a newline included (CSS Syntax 3 §4.3.7), and a `\` before a
+# newline continues the line (§4.3.5). Neither newline cuts the string short, so what follows it stays string data; a
+# newline after any other escape, or after the whitespace that closed a hex escape, still does.
+_STRING_NEWLINE_IN_ESCAPE: Final[list[pytest.ParameterSet]] = [
+    pytest.param('a{x:"\\a\n;color:red;y:"}', 'a{x:"\\a\n;color:red;y:"}', id="hex-escape"),
+    pytest.param("a{x:'\\a\n;color:red;y:'}", "a{x:'\\a\n;color:red;y:'}", id="hex-escape-single-quote"),
+    pytest.param('a{x:"\\a\r\n;color:red;y:"}', 'a{x:"\\a\r\n;color:red;y:"}', id="hex-escape-crlf"),
+    pytest.param('a{x:"\\a\r;color:red;y:"}', 'a{x:"\\a\r;color:red;y:"}', id="hex-escape-carriage-return"),
+    pytest.param('a{x:"\\a\f;color:red;y:"}', 'a{x:"\\a\f;color:red;y:"}', id="hex-escape-form-feed"),
+    pytest.param('a{x:"\\00000a\n;color:red;y:"}', 'a{x:"\\00000a\n;color:red;y:"}', id="six-digit-hex-escape"),
+    pytest.param('a{x:"\\a\n', 'a{x:"\\a\n"}', id="hex-escape-open-at-eof"),
+    pytest.param('a{b:url("\\a\n);color:red;y:")}', 'a{b:url("\\a\n);color:red;y:")}', id="hex-escape-in-url"),
+    pytest.param('a{b:url("\\a\n', 'a{b:url("\\a\n")}', id="hex-escape-in-url-open-at-eof"),
+    pytest.param('a{b:url("\\a\n)', 'a{b:url("\\a\n)")}', id="hex-escape-in-url-string-open-at-eof"),
+    pytest.param('a{b:url("x\\\n);color:red;y:")}', 'a{b:url("x);color:red;y:")}', id="continuation-in-url"),
+    pytest.param('a{b:url("x\\\r\n);color:red;y:")}', 'a{b:url("x);color:red;y:")}', id="crlf-continuation-in-url"),
+    pytest.param('a{b:url("x\\\r\n)', 'a{b:url("x)")}', id="crlf-continuation-in-url-string-open-at-eof"),
+    pytest.param('a{b:url("x\\\r);color:red;y:")}', 'a{b:url("x);color:red;y:")}', id="cr-continuation-in-url"),
+    pytest.param('a{x:"\\g\n;color:red}', "a{color:red}", id="cut-after-plain-escape"),
+    pytest.param('a{x:"\\\\a\n;color:red}', "a{color:red}", id="cut-after-escaped-backslash"),
+    pytest.param('a{x:"\\a \n;color:red}', "a{color:red}", id="cut-after-hex-escape-space"),
+    pytest.param('a{x:"\\000000a\n;color:red}', "a{color:red}", id="cut-after-seventh-hex-digit"),
+    pytest.param('a{b:url("\\g\n);color:red}', "a{color:red}", id="cut-after-plain-escape-in-url"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRING_NEWLINE_IN_ESCAPE)
+def test_minify_css_string_newline_in_escape(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRING_NEWLINE_IN_ESCAPE)
+def test_minify_css_string_newline_in_escape_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+def test_minify_css_inline_string_newline_in_escape() -> None:
+    assert minify_css_inline('color:"\\a\n;position:fixed;x:"') == 'color:"\\a\n;position:fixed;x:"'
+
+
 # A top-level ';' or '}' is a prelude component value, so a qualified rule carrying one has an invalid selector list
 # and is dropped with its block (CSS Syntax 3 §5.4.3); with no block the stray text is kept as recovery.
 _STRAY_TOP_TOKEN: Final[list[pytest.ParameterSet]] = [
