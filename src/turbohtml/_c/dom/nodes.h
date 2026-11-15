@@ -100,6 +100,7 @@ typedef struct {
     Py_ssize_t *index_offsets; /* th_tag_count + 2 entries; NULL until built */
     path_id_map *path_ids;     /* css_path id-occurrence map; NULL until first css_path */
     void *path_positions;
+    void *path_child_positions; /* xpath_path "*[n]" indices; NULL until a tag name needs one */
     node_hash_overrides *hash_overrides;
     uint64_t hash_salt; /* unique to this handle; see handle_node_hash */
     /* etree positional access: the element children last reached by position, so element[i] in a loop walks on from
@@ -355,8 +356,6 @@ typedef struct {
     PyObject *scope;
     PyObject *tags;
     PyObject *pending;
-    PyObject *pending_handle;
-    uint64_t pending_version;
     uint64_t tag_atoms[4];
     int started;
     int include_self;

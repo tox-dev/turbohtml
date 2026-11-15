@@ -13,7 +13,7 @@ from bench.ci import benchmarks
 from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
-from turbohtml import parse_xml
+from turbohtml import parse, parse_xml
 from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult, XMLSchema
 
 if TYPE_CHECKING:
@@ -698,11 +698,7 @@ def test_regex_unmatched_bracket_raises(pattern: str, offset: int) -> None:
 _NESTING_ERROR: Final[str] = (
     "schema pattern nests groups deeper than 250 levels at offset 250; flatten the nested groups"
 )
-
-
-_STATES_ERROR: Final[str] = (
-    "schema pattern needs more than 2000000 NFA states; lower its repeat counts or split it into several patterns"
-)
+_STATES_ERROR: Final[str] = "schema pattern needs more than 2000000 NFA states; lower its repeat counts"
 
 
 @pytest.mark.parametrize(
@@ -756,6 +752,33 @@ _STATES_ERROR: Final[str] = (
 def test_regex_pattern_past_a_limit_raises(pattern: str, message: str) -> None:
     with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
+@pytest.mark.parametrize(
+    "patterns",
+    [
+        pytest.param(("a{1500000}", "b{600000}"), id="one-past-budget"),
+        pytest.param((f"a{{{2_000_000 - 1}}}", "b"), id="nothing-left"),
+        pytest.param(("a{1000000}", "a{999999}", "a{999998}"), id="counts-differ"),
+    ],
+)
+def test_regex_patterns_past_the_schema_state_budget_raise(patterns: tuple[str, ...]) -> None:
+    # the compiled automata stay in the schema arena, so the budget is shared by all patterns of a schema
+    message = "schema patterns need more than 2000000 NFA states between them; lower their repeat counts"
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        XMLSchema(restricted("".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)))
+
+
+@pytest.mark.parametrize(
+    "patterns",
+    [
+        pytest.param(("a{999999}", "b{999999}"), id="at-budget"),
+        pytest.param(("a{1000000}",) * 3, id="same-text-compiled-once"),
+    ],
+)
+def test_regex_patterns_within_the_schema_state_budget_compile(patterns: tuple[str, ...]) -> None:
+    schema = XMLSchema(restricted("".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)))
+    assert not schema.validate(parse_xml("<v>c</v>")).valid
 
 
 def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
@@ -1404,6 +1427,31 @@ def test_all_each_member_once_is_valid() -> None:
     schema = _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>')
     assert check(schema, "<r><b/><a/></r>").valid
     assert check(schema, "<r><b/></r>").valid
+
+
+@pytest.mark.parametrize(
+    ("positions", "line"),
+    [
+        pytest.param(True, 4, id="tracked"),
+        pytest.param(False, 0, id="untracked"),
+    ],
+)
+def test_all_missing_member_reports_its_element_line(*, positions: bool, line: int) -> None:
+    # the schema's xs:all node carries no source position, so the line must come from the element that lacks the member
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:all>'
+        '<xs:element name="head" minOccurs="0"/><xs:element name="body"><xs:complexType><xs:all>'
+        '<xs:element name="section"><xs:complexType><xs:all><xs:element name="h1"/><xs:element name="p"/>'
+        "</xs:all></xs:complexType></xs:element>"
+        "</xs:all></xs:complexType></xs:element></xs:all></xs:complexType></xs:element></xs:schema>"
+    )
+    document = parse(
+        "<!doctype html>\n<html>\n<body>\n<section><p></p></section>\n</body>\n</html>", positions=positions
+    )
+    errors = XMLSchema(schema).validate(document).errors
+    assert [(error.message, error.path, error.line) for error in errors] == [
+        ("required element 'h1' is missing", "/html/body/section", line)
+    ]
 
 
 _OPTIONAL_ALL: Final[str] = f'<xs:all minOccurs="0">{_AB}</xs:all>'

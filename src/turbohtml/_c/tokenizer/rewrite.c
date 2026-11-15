@@ -299,16 +299,6 @@ static uint32_t rw_attr_atom(th_tree *tree, const char *bytes, Py_ssize_t len) {
     return intern_attr_dynamic(tree, bytes, len);
 }
 
-/* The interned tag atom for a token's name; the raw tokenizer leaves token->atom unset
-   (only the tree builder fills it), so the rewriter resolves it from the name bytes. A
-   non-ASCII name is never in the table, so it stays TH_TAG_UNKNOWN. */
-static uint16_t rw_tag_atom(const th_buf *name) {
-    if (name->kind != PyUnicode_1BYTE_KIND) {
-        return TH_TAG_UNKNOWN;
-    }
-    return th_tag_lookup((const char *)name->data, name->len);
-}
-
 /* One open element on the streaming spine, plus the edits its handler recorded. The
    node's only live link is its parent, so the whole stack is O(open-depth). */
 typedef struct {
@@ -1797,7 +1787,7 @@ static TH_NOINLINE void rw_release_start(rw_ctx *ctx, Py_ssize_t closed, const r
 }
 
 static void rw_handle_element(rw_ctx *ctx, th_token *token) {
-    uint16_t atom = rw_tag_atom(&token->name);
+    uint16_t atom = token->atom;
     Py_ssize_t closed = 0;
     uint8_t ns = TH_NS_HTML;
     th_node *shadow = NULL;
@@ -1829,8 +1819,10 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         return;                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
+    /* a start tag past the depth cap is not pushed, so it switches no content model and nothing checks the text
+       written into it: that text is escaped like any other */
     rw_open open = {.node = node,
-                    .model = (int8_t)model,
+                    .model = ctx->depth < RW_MAX_DEPTH ? (int8_t)model : -1,
                     .ns = ns,
                     .shadow = shadow,
                     .line = (uint32_t)token->line,
@@ -2083,7 +2075,7 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
 }
 
 static void rw_handle_end(rw_ctx *ctx, th_token *token) {
-    uint16_t atom = rw_tag_atom(&token->name);
+    uint16_t atom = token->atom;
     int foreign = ctx->shadow != NULL || rw_spine_foreign(ctx);
     Py_ssize_t end_from = ctx->depth;
     Py_ssize_t match = -1;
@@ -2403,13 +2395,17 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
 
     /* an unclosed element at EOF: flush its trailing edits and free the spine */
     while (ctx.depth > 0 && !ctx.error) {
-        rw_open *open = &ctx.stack[--ctx.depth];
-        int emit = ctx.suppress <= 0;
+        rw_open *open = &ctx.stack[ctx.depth - 1];
         if (open->drop_content) {
             ctx.suppress--;
         }
+        int emit = ctx.suppress <= 0;
         if (emit && open->append_html != NULL) {
             rw_out_str(&ctx.out, open->append_html);
+        }
+        /* PLAINTEXT has no end tag, so nothing written into it can end it */
+        if (emit && open->literal && open->model != TH_INIT_PLAINTEXT && rw_raw_content_closes_early(&ctx, open)) {
+            break; /* still on the spine, so rw_ctx_clear frees it */
         }
         if (emit && open->after_html != NULL) {
             rw_out_str(&ctx.out, open->after_html);
@@ -2417,6 +2413,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
         rw_free_node(open->node);
+        ctx.depth--;
     }
 
     PyObject *result = NULL;
