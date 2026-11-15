@@ -612,6 +612,8 @@ static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pa
     return merged;
 }
 
+static RNG_NOINLINE int rng_repeat_absorbs(th_schema *schema, pattern *head, const pattern *rest);
+
 static pattern *pat_group(th_schema *schema, pattern *p1, pattern *p2) {
     if (p1->type == P_NOTALLOWED || p2->type == P_NOTALLOWED) {
         return schema->p_notallowed;
@@ -621,6 +623,9 @@ static pattern *pat_group(th_schema *schema, pattern *p1, pattern *p2) {
     }
     if (p2->type == P_EMPTY) {
         return p1;
+    }
+    if (schema->routing != NULL && p2->type == P_CHOICE && rng_repeat_absorbs(schema, p1, p2)) {
+        return p2;
     }
     return pat_binary(schema, P_GROUP, p1, p2);
 }
@@ -1350,6 +1355,95 @@ static RNG_FORCEINLINE int rng_nullable_step(th_schema *schema, pattern *p) {
     default: /* P_REF; the compile-time 4.19 check rules out a ref that recurses here without an element */
         return rng_nullable(schema, rng_resolve(schema, p->def_index));
     }
+}
+
+/* Steps one rng_covers check may take: a walk down the deepest schema pattern and back. A derivative rebuilds only
+   the path from a join down to the operand it matched, so the check follows that path, and the sides the derivative
+   left alone compare by pointer. */
+#define RNG_COVER_STEPS (2 * TH_VALIDATE_MAX_DEPTH)
+
+/* The patterns that can cover another one; a leaf covers only itself. */
+#define RNG_COVER_TYPES (RNG_JOIN_TYPES | (1u << P_ONEMORE) | (1u << P_REF))
+
+static int route_locate(th_schema *schema, const rng_route *outer, const rng_route *inner);
+static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget);
+
+/* Whether `x` covered by the side of the join `y` that holds operand `index` of its route means `y` covers it. */
+static int rng_covers_side(th_schema *schema, pattern *x, pattern *y, int index, int *budget) {
+    int first = index < y->mid;
+    pattern *other = first ? y->p2 : y->p1;
+    return (y->type == P_CHOICE || rng_nullable(schema, other)) && rng_covers(schema, x, first ? y->p1 : y->p2, budget);
+}
+
+/* Whether `x` and `y` join by one operator and each side of `y` covers the side of `x` it faces. */
+static int rng_covers_sides(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    return x->type == y->type && rng_covers(schema, x->p1, y->p1, budget) && rng_covers(schema, x->p2, y->p2, budget);
+}
+
+/* rng_covers for a group, choice or interleave `y`. A routed `x` says by its operand range, or by the position of its
+   route among the operands of `y`, which side of `y` it stands for, so the check descends one side. */
+static int rng_covers_join(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    if (x->route != NULL && x->route == y->route) {
+        if (x->hi <= y->mid || x->lo >= y->mid) {
+            return rng_covers_side(schema, x, y, x->lo, budget);
+        }
+        return rng_covers_sides(schema, x, y, budget);
+    }
+    if (x->route != NULL && y->route != NULL) {
+        int index = route_locate(schema, y->route, x->route);
+        if (index >= 0) {
+            return rng_covers_side(schema, x, y, index, budget);
+        }
+    }
+    if (y->type == P_CHOICE) {
+        return rng_covers(schema, x, y->p1, budget) || rng_covers(schema, x, y->p2, budget);
+    }
+    return rng_covers_sides(schema, x, y, budget) ||
+           (rng_nullable(schema, y->p2) && rng_covers(schema, x, y->p1, budget)) ||
+           (rng_nullable(schema, y->p1) && rng_covers(schema, x, y->p2, budget));
+}
+
+/* Whether every string `x` matches, `y` matches too, judged by structure: true only when that holds, false when it
+   does not or the check runs out of `budget`. A join covers a join of the same operator side by side, and a side
+   whose sibling is nullable; a choice covers what either side covers. */
+static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    if (x == y) {
+        return 1;
+    }
+    if (x->type == P_EMPTY) {
+        return rng_nullable(schema, y);
+    }
+    if (!((RNG_COVER_TYPES >> y->type) & 1) || --*budget < 0) {
+        return 0;
+    }
+    TH_WORK_STEP();
+    if (x->type == P_CHOICE) {
+        return rng_covers(schema, x->p1, y, budget) && rng_covers(schema, x->p2, y, budget);
+    }
+    if (y->type == P_ONEMORE) {
+        return rng_covers(schema, x->type == P_ONEMORE ? x->p1 : x, y->p1, budget);
+    }
+    if (y->type == P_REF) {
+        return rng_covers(schema, x, rng_resolve(schema, y->def_index), budget);
+    }
+    return rng_covers_join(schema, x, y, budget);
+}
+
+/* Whether group(`head`, `rest`) is `rest` alone, which holds when `rest` repeats some p zero or more times and `head`
+   is nullable and covered by p: p* then matches what head, p* does. A derivative of a repeat whose content is nullable
+   restarts the repeat at every event, so without this the residual keeps one such group for each place the current
+   round could have started, and every event derives all of them. The check's steps count as the event's work, so an
+   ambiguous schema that makes many checks reaches the work limit as its derivatives would; past it, the next memo
+   entry stops the event. */
+static RNG_NOINLINE int rng_repeat_absorbs(th_schema *schema, pattern *head, const pattern *rest) {
+    pattern *repeat = rest->p1->type == P_EMPTY ? rest->p2 : rest->p2->type == P_EMPTY ? rest->p1 : NULL;
+    if (repeat == NULL || repeat->type != P_ONEMORE || !rng_nullable(schema, head)) {
+        return 0;
+    }
+    int budget = RNG_COVER_STEPS;
+    int covered = rng_covers(schema, head, repeat, &budget);
+    (void)rng_event_spend(schema, RNG_COVER_STEPS - budget);
+    return covered;
 }
 
 static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets, const Py_UCS4 *value, Py_ssize_t len) {
@@ -2577,6 +2671,53 @@ static int route_operand_index(th_schema *schema, const rng_route *route, const 
     }
     const route_pair *found = route_pair_slot(schema->routing, route, operand);
     return found->key == NULL ? -1 : (int)found->value;
+}
+
+/* The position of the operand of `outer` that holds the join of `inner` outside any element, directly or through
+   references and other joins; -1 when none does. Building the state of `outer` linked every route and define its
+   operands hold to their holders, so the walk up from `inner` finds it, once per pair of routes. The walk takes the
+   stamps of route_reach, so the next event key walks up again. */
+static int route_locate(th_schema *schema, const rng_route *outer, const rng_route *inner) {
+    rng_routing *routing = schema->routing;
+    size_t before = routing->pair_len;
+    route_pair *entry = route_pair_get(schema, outer, inner, (uintptr_t)-1);
+    if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    if (routing->pair_len == before) {
+        return (int)(intptr_t)entry->value;
+    }
+    const route_state *target = route_state_get(schema, outer);
+    route_state *from = route_state_get(schema, inner);
+    if (target == NULL || from == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                        /* GCOVR_EXCL_LINE */
+    }
+    routing->reach.kind = ROUTE_NONE;
+    routing->stamp++;
+    routing->work_len = 0;
+    int index = -1;
+    if (route_visit(schema, &from->self) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                              /* GCOVR_EXCL_LINE */
+    }
+    while (routing->work_len > 0 && index < 0) {
+        TH_WORK_STEP();
+        route_unit *unit = routing->work[--routing->work_len];
+        if (unit->owner == target) {
+            index = unit->index;
+        } else if (unit->owner != NULL) {
+            if (route_visit(schema, &unit->owner->self) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;                                     /* GCOVR_EXCL_LINE */
+            }
+        } else {
+            for (Py_ssize_t parent = 0; parent < unit->parent_len; parent++) {
+                if (route_visit(schema, unit->parents[parent]) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                    return -1;                                        /* GCOVR_EXCL_LINE */
+                }
+            }
+        }
+    }
+    route_pair_slot(routing, outer, inner)->value = (uintptr_t)(intptr_t)index;
+    return index;
 }
 
 typedef struct route_span {
