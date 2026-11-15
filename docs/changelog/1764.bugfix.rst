@@ -1,0 +1,1 @@
+XML Schema and RELAX NG range facets now judge the whole of a long numeric value instead of a truncated prefix of it.
