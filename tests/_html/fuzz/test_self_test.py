@@ -551,8 +551,8 @@ def alloc_sweep() -> _Sweep:
     # A count-only run (position 0) measures the call's allocations, then runs 1..N each fail one of them, the failure
     # libxml2's fuzzers inject at one chosen position (``xmlFuzzInjectFailure`` in its ``fuzz/fuzz.c``). Each entry is
     # the escaping exception's name or ``result``, with a suffix when the injected failure never fired. ``setup`` builds
-    # a fresh argument for each run outside the injection window, so a cache the first run fills cannot shift later
-    # positions.
+    # a fresh argument for each run outside the injection window. An uncounted warm-up call comes first, so the module
+    # caches a first call fills (detect's language table, for one) are already filled when the count run measures.
     if not hasattr(_html, "_fuzz_inject_failure"):
         pytest.fail("fuzz-build tests need the fuzz-only build: meson setup -Dfuzzing=true")
     inject: Final[Callable[[int], tuple[int, bool]]] = _html._fuzz_inject_failure
@@ -562,6 +562,7 @@ def alloc_sweep() -> _Sweep:
         setup: Callable[[], _T],
         valid: Callable[[_R], bool] = lambda _: True,
     ) -> list[str]:
+        call(setup())
         argument = setup()
         inject(0)
         call(argument)
