@@ -254,6 +254,22 @@ static Py_ssize_t css_bang_first(const token_vec *vec, Py_ssize_t index) {
     return low;
 }
 
+/* The source end of the raw span tokens [start, end) copy. A bang comment token points at the placeholder, not the
+   source, so the span ends at its last token that is not one, and the bangs it holds are marked written: the copy
+   writes them where they stand. A bang at the end is left to the step's hoist, which writes it once after the step. */
+static const css_char *css_raw_end(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t last = end - 1;
+    while (css_is_bang(&vec->items[last])) {
+        last--;
+    }
+    for (Py_ssize_t index = css_bang_first(vec, start); index < vec->bang_len && vec->bangs[index].index < last;
+         index++) {
+        vec->bangs[index].done = 1;
+    }
+    const css_token *token = &vec->items[last];
+    return token->text + token->text_len + token->unit_len;
+}
+
 /* Write the bang comment at token index where it stands, as raw text of a step, which marks it written. */
 static void css_put_bang(css_buf *out, token_vec *vec, Py_ssize_t index) {
     css_bang *bang = &vec->bangs[css_bang_first(vec, index)];
@@ -418,7 +434,7 @@ static int css_would_merge(css_char last, int last_is_ident, const css_char *nex
     case '/':
         return first == '*';
     default:
-        return css_is_digit(last) && (first == '%' || fraction);
+        return !last_is_ident && css_is_digit(last) && (first == '%' || fraction);
     }
 }
 
@@ -594,11 +610,17 @@ static inline Py_ssize_t css_scan_urange(const css_char *source, Py_ssize_t pos,
     }
     Py_ssize_t scan = pos + 2;
     Py_ssize_t digits = 0;
-    while (scan < length && digits < 6 && (css_is_hex(source[scan]) || source[scan] == '?')) {
+    while (scan < length && digits < 6 && css_is_hex(source[scan])) {
         scan++;
         digits++;
     }
-    if (scan < length && source[scan] == '-') {
+    int wildcard = 0;
+    while (scan < length && digits < 6 && source[scan] == '?') {
+        scan++;
+        digits++;
+        wildcard = 1;
+    }
+    if (!wildcard && scan < length && source[scan] == '-') {
         scan++;
         digits = 0;
         while (scan < length && digits < 6 && css_is_hex(source[scan])) {

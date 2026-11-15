@@ -6371,3 +6371,81 @@ def test_minify_html_leading_bom_in_decoded_text_is_content(source: str, expecte
 
 def test_minify_css_inline_leading_bom_is_content() -> None:
     assert minify_css_inline("\ufeffcolor:red;width:1px") == "\ufeffcolor:red;width:1px"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{b:calc(1", "a{b:1}", id="calc-open-at-end"),
+        pytest.param("a{b:u+ font}", "a{b:u+ font}", id="range-separator-before-name"),
+        pytest.param("a{b:u+/**/font}", "a{b:u+ font}", id="range-comment-before-name"),
+        pytest.param("a{b:U+ background}", "a{b:U+ background}", id="range-separator-upper"),
+        pytest.param("a{b:u+ a}", "a{b:u+ a}", id="range-separator-before-hex"),
+        pytest.param("a{b:u+?/**/0}", "a{b:u+? 0}", id="range-wildcard-then-digit"),
+        pytest.param("a{--c:u+/**/font}", "a{--c:u+/**/font}", id="custom-range-comment-before-name"),
+        pytest.param("a{--c:u/**/+f}", "a{--c:u/**/+f}", id="custom-range-comment-before-plus"),
+        pytest.param("a{--c:u+?/**/0}", "a{--c:u+?/**/0}", id="custom-range-wildcard-then-digit"),
+        pytest.param("a{b:f(rgb(1,2,3)x)}", "a{b:f(#010203 x)}", id="folded-color-before-name"),
+        pytest.param("a{b:f(rgb(1,2,3)\\31 21)}", "a{b:f(#010203 \\31 21)}", id="folded-color-before-escape"),
+        pytest.param("*/**/[x=y]{color:red}", "[x=y]{color:red}", id="universal-comment-before-attribute"),
+        pytest.param("*/**/.c{color:red}", ".c{color:red}", id="universal-comment-before-class"),
+        pytest.param("*/*a*/#x{color:red}", "#x{color:red}", id="universal-comment-before-hash"),
+        pytest.param("a<!/**/--x{color:red}", "a<!/**/--x{color:red}", id="cdo-comment-before-name"),
+        pytest.param("a{b:calc(+ /*!", "a{b:calc(+ )}/*!*/", id="calc-bang-open-at-end"),
+        pytest.param("a{b:calc(+ /*!x*/ 1)}", "a{b:calc(+ /*!x*/ 1)}", id="bang-in-raw-calc-written-once"),
+        pytest.param("a{unicode-range:/*!k*/x}", "a{unicode-range:x}/*!k*/", id="bang-before-raw-range"),
+        pytest.param("a{unicode-range:/*!k*//*!j*/}", "/*!k*//*!j*/", id="bang-only-raw-range"),
+        pytest.param("a{x:calc(/*!k*/-)}", "a{x:calc(/*!k*/-)}", id="bang-in-calc-kept-as-written"),
+        pytest.param("a{x:var(--a,calc(/*!k*/-))}", "a{x:var(--a,calc(/*!k*/-))}", id="bang-in-calc-inside-var"),
+        pytest.param("a{x:min(/*!k*/-, 1)}", "a{x:min(/*!k*/-, 1)}", id="bang-leading-min-argument"),
+        pytest.param("a{x:min(1,- /*!k*/)}", "a{x:min(1,- )}/*!k*/", id="bang-trailing-min-argument"),
+        pytest.param("@media /*!p*/ screen{a{b:c}}", "@media screen{a{b:c}}/*!p*/", id="bang-in-at-rule-prelude"),
+        pytest.param("a{b:u+ab11e3%}", "a{b:u+ab11e3%}", id="range-digits-before-percent"),
+        pytest.param("a{font:'t' u+ab11e3%}", "a{font:'t' u+ab11e3%}", id="font-family-range-before-percent"),
+        pytest.param("a{b:u+ x}", "a{b:u+x}", id="range-separator-before-non-hex"),
+        pytest.param("a{b:u+4?/**/0}", "a{b:u+4? 0}", id="range-wildcard-comment-before-digit"),
+        pytest.param("a{b:u+4?/**/?}", "a{b:u+4? ?}", id="range-wildcard-comment-before-wildcard"),
+        pytest.param("a{b:u+4?/**/x}", "a{b:u+4?x}", id="range-wildcard-comment-before-name"),
+        pytest.param("a{b:u+4/**/-5}", "a{b:u+4 -5}", id="range-comment-before-dash"),
+        pytest.param("a{b:x+ y}", "a{b:x+y}", id="plus-separator-before-name"),
+        pytest.param("a{b:@abc 1}", "a{b:@abc 1}", id="at-keyword-before-number"),
+        pytest.param("a{--c:u/**/x}", "a{--c:u/**/x}", id="custom-range-comment-before-name"),
+        pytest.param("a{--c:u+4?/**/x}", "a{--c:u+4?x}", id="custom-range-wildcard-comment-before-name"),
+        pytest.param("a{--c:u+4/**/-5}", "a{--c:u+4/**/-5}", id="custom-range-comment-before-dash"),
+        pytest.param("a{--c:u+4?/**/0}", "a{--c:u+4?/**/0}", id="custom-range-wildcard-comment-before-digit"),
+        pytest.param("a{--c:u+4?/**/?}", "a{--c:u+4?/**/?}", id="custom-range-wildcard-comment-before-wildcard"),
+        pytest.param("a{--c:u+/**/?0}", "a{--c:u+/**/?0}", id="custom-range-comment-before-wildcard"),
+        pytest.param("a{--c:u+/**/x}", "a{--c:u+x}", id="custom-range-plus-comment-before-name"),
+        pytest.param("a{b:u+/**/?0}", "a{b:u+ ?0}", id="range-comment-before-wildcard"),
+    ],
+)
+def test_minify_css_is_idempotent_for_range_calc_and_universal(source: str, expected: str) -> None:
+    once = minify_css(source)
+    assert once == expected
+    assert minify_css(once) == once
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_range_value_is_idempotent(seed: int) -> None:
+    words: Final[tuple[str, ...]] = (
+        "u", "U", "+", "?", "0", "4?", "f", "a", "1-2", "-", ".", "e", "%", "/**/", "/*!b*/", " ", "\\31 ", "x",
+        "rgb(1,2,3)", "calc(/*!k*/-)", "min(/*!k*/-,1)", "var(--a,calc(/*!k*/-))",
+    )  # fmt: skip
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    prop = rng.choice(["b", "--c"])
+    body = "".join(rng.choice(words) for _ in range(rng.randint(1, 12)))
+    source = f"a{{{prop}:{body}}}"
+    once = minify_css(source)
+    assert minify_css(once) == once, source
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_selector_is_idempotent(seed: int) -> None:
+    words: Final[tuple[str, ...]] = (
+        "*", "[x=y]", ".c", "#x", ":hover", "/**/", " ", ">", "+", "a", "|", "<!", "--x", "/*!b*/", "\\31 ",
+    )  # fmt: skip
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    rule = f"{''.join(rng.choice(words) for _ in range(rng.randint(1, 10)))}{{color:red}}"
+    source = rng.choice([rule, f"@media /*!p*/ screen{{{rule}}}"])
+    once = minify_css(source)
+    assert minify_css(once) == once, source

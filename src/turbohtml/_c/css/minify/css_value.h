@@ -25,6 +25,7 @@ typedef struct {
     Py_ssize_t len;
     int isfunc;
     css_compkind kind;
+    int spaced; /* whether source whitespace or a comment came right before the component */
 } css_comp;
 
 typedef struct {

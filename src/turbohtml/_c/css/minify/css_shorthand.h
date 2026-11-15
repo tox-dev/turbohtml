@@ -1192,10 +1192,14 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
         if (css_handle_unicode_range(vec, start, end, out)) {
             return;
         }
-        /* Rebuilding invalid ranges can join separated U+ and a tokens into a valid range. */
-        const css_token *last = &vec->items[end - 1];
-        cbuf_put_run(out, vec->items[start].text,
-                     last->text + last->text_len + last->unit_len - vec->items[start].text);
+        /* Rebuilding invalid ranges can join separated U+ and a tokens into a valid range. A leading bang comment is
+           written by the step's hoist, so the copy starts at the first token that is not one: the declaration holds
+           such a token, since a value of comments alone is dropped before this point. */
+        Py_ssize_t first = start;
+        while (css_is_bang(&vec->items[first])) {
+            first++;
+        }
+        cbuf_put_run(out, vec->items[first].text, css_raw_end(vec, first, end) - vec->items[first].text);
         if (end == vec->len) {
             css_close_raw_blocks(vec, start, end, out);
         }

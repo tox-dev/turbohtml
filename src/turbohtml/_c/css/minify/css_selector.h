@@ -36,6 +36,19 @@ CSS_NOINLINE static Py_ssize_t css_legacy_pseudo_name(const token_vec *vec, Py_s
     return name < end && css_is_legacy_pseudo_element(&vec->items[name]) ? name : -1;
 }
 
+/* Whether the `*` at index is followed, past any comments, by a hash, class, attribute or pseudo-class: the universal
+   then adds nothing to its compound, so it is dropped. A comment between them makes no token, so it must not hide the
+   token after it. */
+static int css_universal_precedes_part(const token_vec *vec, Py_ssize_t index, Py_ssize_t end) {
+    Py_ssize_t next = css_skip_comments(vec, index + 1, end);
+    if (next == end) {
+        return 0;
+    }
+    const css_token *token = &vec->items[next];
+    return token->kind == CSS_HASH ||
+           (token->kind == CSS_DELIM && (token->delim == '.' || token->delim == '[' || token->delim == ':'));
+}
+
 /* Comments make no token; a namespace bar cannot start an unqualified universal (Selectors 4 §5.2). */
 static int css_universal_starts_compound(const token_vec *vec, Py_ssize_t start, Py_ssize_t index) {
     int whitespace = 0;
@@ -70,7 +83,7 @@ static int css_attribute_value_position(const token_vec *vec, Py_ssize_t index) 
    stays. */
 static int css_plus_before_number(const token_vec *vec, Py_ssize_t index, Py_ssize_t end) {
     Py_ssize_t next = index + 1;
-    while (next < end && vec->items[next].kind == CSS_WS) {
+    while (next < end && (vec->items[next].kind == CSS_WS || vec->items[next].kind == CSS_COMMENT)) {
         next++;
     }
     if (next == end || vec->items[next].kind != CSS_NUM) {
@@ -204,11 +217,7 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
                 continue;
             }
         }
-        if (token->kind == CSS_DELIM && token->delim == '*' && index + 1 < end &&
-            (vec->items[index + 1].kind == CSS_HASH ||
-             (vec->items[index + 1].kind == CSS_DELIM &&
-              (vec->items[index + 1].delim == '.' || vec->items[index + 1].delim == '[' ||
-               vec->items[index + 1].delim == ':'))) &&
+        if (token->kind == CSS_DELIM && token->delim == '*' && css_universal_precedes_part(vec, index, end) &&
             css_universal_starts_compound(vec, start, index) && paren_depth == 0) {
             /* An explicit universal inside a function can constrain the default namespace (Selectors 4 §4.2). */
             continue;
