@@ -2474,7 +2474,8 @@ static Py_ssize_t first_passing(const xp_hop *hops, int count, Py_ssize_t size, 
 /* The positions whose chain value compares to bound under op. The value only rises or only falls with the position,
    so the positions below, equal to and above bound are three runs, which two searches find. */
 static int compare_spans(const xp_hop *hops, int count, Py_ssize_t size, int op, double bound, xp_spans *out) {
-    if (isnan(bound)) {
+    int nan_bound = isnan(bound);
+    if (nan_bound) {
 #ifdef XP_EQ_VIA_PYTHON
         return 0;
 #else
@@ -2538,7 +2539,8 @@ static int collect_hops(const xp_program *prog, int32_t index, xp_ctx *pctx, xp_
         }
         double operand = to_number(pctx->tree, &value);
         xp_result_free(&value);
-        if (!isfinite(operand) || ((node->kind == XN_MUL || node->kind == XN_DIV) && operand == 0)) {
+        int finite = isfinite(operand);
+        if (!finite || ((node->kind == XN_MUL || node->kind == XN_DIV) && operand == 0)) {
             return 1;
         }
         hops[(*count)++] = (xp_hop){(uint8_t)node->kind, (uint8_t)right, operand};
