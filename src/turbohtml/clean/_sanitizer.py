@@ -378,12 +378,16 @@ class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public
     :param xml: emit well-formed XML/XHTML instead of HTML, DOMPurify's ``RETURN_DOM`` served through the XML
         serializer. Every kept empty element self-closes (``<br/>``), foreign SVG and MathML subtrees carry their
         namespace declarations, text and attribute values follow the XML escaping rules, and a kept comment or a
-        stray control character is neutralized so the result reparses through :func:`turbohtml.parse_xml`. Use it to
+        stray control character is neutralized so the result reparses through :func:`turbohtml.parse_xml`. Every check
+        judges a value both as written and with the characters XML cannot hold removed, in either mode, so a tree
+        :func:`sanitize_node` returns stays safe through ``inner_html`` and ``inner_xml`` alike. Use it to
         clean an XHTML dialect (Reportlab's RML, ePub content) whose consumer rejects HTML's bare ``<br>``. Off (the
         default) keeps the HTML serialization.
 
     :param attribute_predicate: an optional predicate called once per attribute before allowlist and safety checks,
         in source order, including transform-added attributes. False drops an attribute; True cannot bypass safety.
+        A value holding characters XML cannot hold is checked a second time with them removed, and both calls must
+        return true to keep it.
         Attributes added by ``set_attributes`` do not pass through this predicate.
     """
 
