@@ -13,6 +13,7 @@
    maps to turbohtml.convert.ExpressionError. */
 
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/nodes.h"
 #include "css/select/selector.h"
 
@@ -116,6 +117,7 @@ static int xt_safe_name(const Py_UCS4 *name, Py_ssize_t length) {
         return 0;
     }
     for (Py_ssize_t index = 1; index < length; index++) {
+        TH_WORK_STEP();
         Py_UCS4 ch = name[index];
         if ((ch | 32) - 'a' >= 26 && ch - '0' >= 10 && ch != '_' && ch != '.' && ch != '-') {
             return 0;
@@ -141,6 +143,7 @@ static void xt_literal(xt_ctx *ctx, const Py_UCS4 *text, Py_ssize_t length) {
     int squote = 0;
     int dquote = 0;
     for (Py_ssize_t index = 0; index < length; index++) {
+        TH_WORK_STEP();
         squote |= text[index] == '\'';
         dquote |= text[index] == '"';
     }
@@ -248,16 +251,17 @@ static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const se
 static void xt_condition_alts(xt_ctx *ctx, const sel_complex *alts, int count);
 static void xt_has_path(xt_ctx *ctx, const sel_complex *rel);
 
-/* The type simple the step's node test can express: the first 'e' simple whose
-   (lowercased) name XPath accepts verbatim, or NULL when the test must stay '*'. */
+/* The compound's type simple, or NULL when it has none. The parser admits a type selector only first, so one look
+   suffices; scanning the compound for each of-type pseudo-class is quadratic in its length. */
+static const sel_simple *xt_type_simple(const sel_compound *compound) {
+    return compound->simples[0].kind == 'e' ? &compound->simples[0] : NULL;
+}
+
+/* The type simple the step's node test can express: the one whose (lowercased) name
+   XPath accepts verbatim, or NULL when the test must stay '*'. */
 static const sel_simple *xt_nodetest(const sel_compound *compound) {
-    for (int index = 0; index < compound->count; index++) {
-        const sel_simple *simple = &compound->simples[index];
-        if (simple->kind == 'e' && xt_safe_name(simple->name, simple->name_len)) {
-            return simple;
-        }
-    }
-    return NULL;
+    const sel_simple *simple = xt_type_simple(compound);
+    return simple != NULL && xt_safe_name(simple->name, simple->name_len) ? simple : NULL;
 }
 
 /* Emit the chosen node test: the type simple's lowercased name, or '*'. */
@@ -377,14 +381,12 @@ static int xt_of_type_test(xt_ctx *ctx, const sel_compound *compound) {
         xt_emit_nodetest(ctx, test);
         return 1;
     }
-    for (int index = 0; index < compound->count; index++) {
-        const sel_simple *named = &compound->simples[index];
-        if (named->kind == 'e') {
-            xt_text(&ctx->out, "*[name() = ");
-            xt_value_literal(ctx, named->name, named->name_len, 1, 0, 0);
-            xt_char(&ctx->out, ']');
-            return 1;
-        }
+    const sel_simple *named = xt_type_simple(compound);
+    if (named != NULL) {
+        xt_text(&ctx->out, "*[name() = ");
+        xt_value_literal(ctx, named->name, named->name_len, 1, 0, 0);
+        xt_char(&ctx->out, ']');
+        return 1;
     }
     ctx->error = "the of-type pseudo-classes need a type selector";
     return 0;
@@ -788,7 +790,9 @@ static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
    expressed as the node test. Returns the number of conditions written. */
 static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const sel_simple *skip) {
     int wrote = 0;
-    for (int index = 0; index < compound->count; index++) {
+    /* past the output limit nothing is kept, and each of-type pseudo-class would re-scan the type name */
+    for (int index = 0; index < compound->count && !ctx->out.failed; index++) {
+        TH_WORK_STEP();
         Py_ssize_t mark = ctx->out.len;
         if (wrote) {
             xt_text(&ctx->out, " and ");
