@@ -7590,6 +7590,8 @@ TH_NODE_API(, PyObject *, turbohtml_xslt_transform, (PyObject * module, PyObject
     } else { /* GCOVR_EXCL_LINE: allocation-failure block end */
         result = run_transform(&eng, compiled->sheet_root, params);
     }
+    /* whitespace stripping detaches the source's blank Text nodes for the run, with no index drop */
+    handle_drop_slots((HandleObject *)source_handle);
     Py_END_CRITICAL_SECTION();
     /* fail() sets eng.error without a Python exception; fail_py() sets the exception and
        leaves eng.error NULL. The two are exclusive, so eng.error != NULL implies no
