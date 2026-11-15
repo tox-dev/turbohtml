@@ -289,8 +289,8 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
     }
     PyObject *path = th_resource_resolve(located);
     Py_DECREF(located);
-    if (path == NULL) { /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
-        return NULL;    /* GCOVR_EXCL_LINE */
+    if (path == NULL) {
+        return NULL;
     }
     if (th_resource_check_root(&loader->policy, path) < 0) {
         Py_DECREF(path);
@@ -318,6 +318,7 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
         }
         /* GCOVR_EXCL_BR_STOP */
     }
+    th_tree_note_deepened(schema->tree);
     if (include) {
         if (rng_rename_div(schema, reference) < 0 || rng_rename_div(schema, copy) < 0) {
             return NULL;

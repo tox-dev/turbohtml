@@ -199,6 +199,8 @@ typedef struct {
     int saved_started;
     int saved_line;
     Py_ssize_t saved_line_number_start;
+    Py_ssize_t saved_break_start;
+    Py_ssize_t saved_break_end;
     int saved_space;
     int saved_drop;
 } md_table;
@@ -216,6 +218,8 @@ typedef struct {
     int started;
     int line_has_content;
     Py_ssize_t line_number_start;
+    Py_ssize_t break_start;
+    Py_ssize_t break_end;
     int space_pending;
     int drop_space;
     int pending_loose;
@@ -334,8 +338,7 @@ typedef struct {
     uint8_t escape_mask;       /* the MD_ASCII classes the options escape */
     uint8_t run_stop;          /* the MD_ASCII classes that end a bulk-copied run */
     Py_ssize_t break_start;    /* where the last hard break was written in out... */
-    Py_ssize_t break_end;      /* ...and where it ended, -1 before the first */
-    const Py_UCS4 *break_data; /* the buffer it was written to */
+    Py_ssize_t break_end;      /* ...and where it ended, -1 when there is none */
 } md_ctx;
 
 static int md_is_emphasis_node(const th_node *node) {
@@ -475,6 +478,7 @@ static void md_block_line(md_ctx *ctx, int loose) {
             }
             if (end > 0 && ctx->out.data[end - 1] == '>') {
                 ctx->out.len = end;
+                ctx->break_end = -1; /* a hard break that ended on the trimmed line no longer ends the output */
             }
         }
         sbuf_putc(&ctx->out, '\n');
@@ -517,20 +521,22 @@ static void md_write_break(md_ctx *ctx) {
     sbuf_puts(&ctx->out, ctx->opt->line_break == TH_MD_BREAK_BACKSLASH || !ctx->line_has_content ? "\\" : "  ");
     md_newline(ctx);
     ctx->break_end = ctx->out.len;
-    ctx->break_data = ctx->out.data;
 }
 
 /* Write an emphasis run's closing delimiter. When the run's content ended with a hard
    break that nothing has followed yet, the delimiter would open the next line, where it
    is not right-flanking (CommonMark 6.2) and cannot close, so it goes in front of the
-   break and the break is written again after it. The buffer check keeps a break written
-   to output a converter or table set aside from matching. */
+   break and the break is written again after it. The record of the break belongs to the
+   output as it stands: a converter or table cell sets it aside with the output and starts
+   with none, and whatever cuts the output back (here, or md_block_line trimming the line
+   the break left) drops it, so only a break that still ends this output matches. */
 static void md_put_close(md_ctx *ctx, const char *close) {
     if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return;            /* GCOVR_EXCL_LINE: allocation failure */
     }
-    if (ctx->out.len == ctx->break_end && ctx->out.data == ctx->break_data) {
+    if (ctx->out.len == ctx->break_end) {
         ctx->out.len = ctx->break_start;
+        ctx->break_end = -1; /* md_write_break can close enclosing runs before it records the break again */
         md_puts8(&ctx->out, close);
         ctx->line_has_content = 1;
         md_write_break(ctx);
@@ -1380,7 +1386,6 @@ static void md_rewrite_open(md_ctx *ctx, md_marker *marker) {
     const char *open = MD_HTML_TAGS[marker->html - 1][0];
     Py_ssize_t open_len = marker->open_len;
     Py_ssize_t shift = (Py_ssize_t)strlen(open) - open_len;
-    const Py_UCS4 *old_data = ctx->out.data;
     sbuf_reserve(&ctx->out, shift);
     if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;            /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1393,8 +1398,7 @@ static void md_rewrite_open(md_ctx *ctx, md_marker *marker) {
     }
     ctx->out.len += shift;
     /* a break recorded past the run moves with it; one before it no longer ends the output */
-    if (ctx->break_data == old_data && ctx->break_start > marker->open_at) {
-        ctx->break_data = ctx->out.data;
+    if (ctx->break_end >= 0 && ctx->break_start > marker->open_at) {
         ctx->break_start += shift;
         ctx->break_end += shift;
     }
@@ -1430,7 +1434,7 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
     Py_UCS4 delimiter = data[marker->open_at];
     Py_ssize_t open_len = marker->open_len;
     /* md_put_close moves a close that would follow a hard break in front of it */
-    int moved = ctx->out.len == ctx->break_end && data == ctx->break_data;
+    int moved = ctx->out.len == ctx->break_end;
     Py_ssize_t close_at = moved ? ctx->break_start : ctx->out.len;
     /* the usual shape settles at a glance: a star run after a space or a line start,
        around content that starts and ends with an ordinary character, opens (it cannot
@@ -3211,6 +3215,8 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .started = ctx->started,
         .line_has_content = ctx->line_has_content,
         .line_number_start = ctx->line_number_start,
+        .break_start = ctx->break_start,
+        .break_end = ctx->break_end,
         .space_pending = ctx->space_pending,
         .drop_space = ctx->drop_space,
         .pending_loose = ctx->pending_loose,
@@ -3229,6 +3235,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
     ctx->started = 0;
     ctx->line_has_content = 0;
     ctx->line_number_start = 0;
+    ctx->break_end = -1;
     ctx->line_start = 0;
     ctx->line_checked = 0;
     ctx->space_pending = 0;
@@ -3329,7 +3336,7 @@ static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text, int bl
 static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     md_converting *saved = frame->convert;
     Py_UCS4 *data = ctx->out.data;
-    Py_ssize_t end = ctx->out.len == ctx->break_end && data == ctx->break_data ? ctx->break_start : ctx->out.len;
+    Py_ssize_t end = ctx->out.len == ctx->break_end ? ctx->break_start : ctx->out.len;
     while (end > 0 && is_space(data[end - 1])) {
         end--;
     }
@@ -3346,6 +3353,8 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     ctx->started = saved->started;
     ctx->line_has_content = saved->line_has_content;
     ctx->line_number_start = saved->line_number_start;
+    ctx->break_start = saved->break_start;
+    ctx->break_end = saved->break_end;
     ctx->line_start = saved->line_start;
     ctx->line_checked = saved->line_checked;
     ctx->space_pending = saved->space_pending;
@@ -3884,6 +3893,8 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_started = ctx->started;
     table->saved_line = ctx->line_has_content;
     table->saved_line_number_start = ctx->line_number_start;
+    table->saved_break_start = ctx->break_start;
+    table->saved_break_end = ctx->break_end;
     table->saved_space = ctx->space_pending;
     table->saved_drop = ctx->drop_space;
     ctx->out = (sbuf){NULL, 0, 0, 0};
@@ -3904,6 +3915,7 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     }
     ctx->line_has_content = 1;
     ctx->line_number_start = 0;
+    ctx->break_end = -1;
     ctx->space_pending = 0;
     ctx->drop_space = 1;
     ctx->in_cell = 1;
@@ -3925,6 +3937,8 @@ static void md_leave_cell(md_ctx *ctx, md_table *table) {
     ctx->started = table->saved_started;
     ctx->line_has_content = table->saved_line;
     ctx->line_number_start = table->saved_line_number_start;
+    ctx->break_start = table->saved_break_start;
+    ctx->break_end = table->saved_break_end;
     ctx->space_pending = table->saved_space;
     ctx->drop_space = table->saved_drop;
     ctx->in_cell = 0;

@@ -180,13 +180,18 @@ th_node *th_tree_make_pi(th_tree *tree, const Py_UCS4 *target, Py_ssize_t target
 }
 
 /* Intern a UTF-8 attribute name to its atom (static table, else the tree's
-   dynamic table), the construction-side counterpart of intern_attr. */
-static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t len) {
+   dynamic table), the construction-side counterpart of intern_attr. Forced into node_attr_store, which the XML
+   builder calls for every attribute; th_attr_intern_utf8 leaves the other callers to the inliner. */
+static TH_TREE_INLINE uint32_t th_attr_intern_utf8_inline(th_tree *tree, const char *bytes, Py_ssize_t len) {
     uint32_t atom = th_attr_atom(bytes, (size_t)len);
     if (atom != TH_ATTR_UNKNOWN) {
         return atom;
     }
     return intern_attr_dynamic(tree, bytes, len);
+}
+
+static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    return th_attr_intern_utf8_inline(tree, bytes, len);
 }
 
 static int is_xml_namespace_decl(const char *name, Py_ssize_t len) {
@@ -476,7 +481,7 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, cons
 static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     tree->attr_version++;
     mark_start_dirty(tree, node);
-    uint32_t atom = th_attr_intern_utf8(tree, name, name_len);
+    uint32_t atom = th_attr_intern_utf8_inline(tree, name, name_len);
     tree->id_version += atom == TH_ATTR_ID;
     return atom;
 }
@@ -613,7 +618,7 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
     if (node->type != TH_NODE_ELEMENT) {
         return -1;
     }
-    uint32_t atom = th_attr_lookup(tree, name, name_len);
+    uint32_t atom = th_attr_lookup_inline(tree, name, name_len);
     if (atom != UINT32_MAX) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
             TH_WORK_STEP();
@@ -784,9 +789,23 @@ void th_node_remove_observed(th_tree *tree, th_node *child) {
     th_node_remove_silent(tree, child);
 }
 
+void th_tree_note_observed(th_tree *tree) {
+    tree->nest_bound |= TH_NEST_OBSERVED;
+}
+
+/* Out of line: a tree reaches it only while it holds a nest bound or may have an observer, so any other insertion
+   pays the single test it paid for the observer check alone. The insertion drops the bound and keeps the observer
+   bit only while an observer is registered. */
+static TH_NOINLINE void child_inserted_hooked(th_tree *tree, th_node *parent, th_node *child) {
+    tree->nest_bound = tree->observer_count > 0 ? TH_NEST_OBSERVED : 0;
+    th_mo_child_inserted(tree, parent, child);
+}
+
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
     node_append(parent, child);
-    th_mo_child_inserted(tree, parent, child);
+    if (tree->nest_bound != 0) {
+        child_inserted_hooked(tree, parent, child);
+    }
 }
 
 /* Whether node lies in one of tree's arena blocks. A node of another tree linked in here points into an arena that can
@@ -951,7 +970,9 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
 
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
-    th_mo_child_inserted(tree, parent, child);
+    if (tree->nest_bound != 0) {
+        child_inserted_hooked(tree, parent, child);
+    }
 }
 
 /* Whether ancestor is a host-including inclusive ancestor of node (DOM pre-insert), the test that rejects making a
@@ -1294,6 +1315,7 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
 }
 
 static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_node) {
+    th_tree_note_deepened(dest);
     th_node *root = th_tree_copy_node_shallow(dest, src, src_node);
     if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1328,7 +1350,8 @@ static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_no
     }
 }
 
-#define TH_COPY_RECURSION_LIMIT TH_DEPTH_LIMIT(64)
+/* below TH_HAS_MEMO_DEPTH, so a copy nests that deep only through copy_node_iterative, which drops the nest bound */
+#define TH_COPY_RECURSION_LIMIT TH_DEPTH_LIMIT(TH_HAS_MEMO_DEPTH - 1)
 
 static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int depth) {
     if (depth == TH_COPY_RECURSION_LIMIT) {

@@ -51,12 +51,14 @@ IRI from the in-scope ``@prefix`` map, which starts from the RDFa 1.1 initial co
 ``foaf:`` resolve without a page-level declaration. Without ``@vocab``, the initial-context terms ``describedby``,
 ``license``, and ``role`` also resolve to their defined IRIs, regardless of ASCII letter case. ``@vocab`` and
 ``@prefix`` thread down the tree and can be overridden per subtree (an empty ``@vocab`` clears it); a token whose prefix
-is undeclared, or an unknown bare term with no vocabulary in scope, stays verbatim. The object of a property follows the
-RDFa rules: the ``content`` literal, else a nested item, else the ``resource``/``href``/``src`` IRI, else a ``<time>``
-``datetime``, else the text. turbohtml does not expand CURIEs embedded in arbitrary IRIs or surface the ``datatype``
-type IRI, so typed literals come back as their lexical string. Dublin Core is a flat mapping like OpenGraph: the
-``dc.*``/``dcterms.*`` ``<meta>`` names, lower-cased so ``DC.Title`` and ``dc.title`` key alike, last occurrence
-winning. Microformats2 remains a later phase.
+is undeclared, or an unknown bare term with no vocabulary in scope, stays verbatim. Because the IRI is copied in front
+of every term in its scope, a ``@vocab`` or ``@prefix`` IRI longer than 256 code points, as written or once resolved
+against the base URL (``<base href>`` or ``base_url``), is ignored: such a ``@vocab`` clears the vocabulary and such a
+prefix declares nothing. The object of a property follows the RDFa rules: the ``content`` literal, else a nested item,
+else the ``resource``/``href``/``src`` IRI, else a ``<time>`` ``datetime``, else the text. turbohtml does not expand
+CURIEs embedded in arbitrary IRIs or surface the ``datatype`` type IRI, so typed literals come back as their lexical
+string. Dublin Core is a flat mapping like OpenGraph: the ``dc.*``/``dcterms.*`` ``<meta>`` names, lower-cased so
+``DC.Title`` and ``dc.title`` key alike, last occurrence winning. Microformats2 remains a later phase.
 
 *******************
  Syndication feeds

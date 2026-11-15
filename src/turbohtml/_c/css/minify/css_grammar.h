@@ -1102,8 +1102,12 @@ static int rule_run_eq(const css_buf *pool, Py_ssize_t a_off, Py_ssize_t a_len, 
     return a_len == b_len && memcmp(pool->data + a_off, pool->data + b_off, (size_t)a_len * sizeof(css_char)) == 0;
 }
 
+/* A rule's selector or body hash for the live-rule set, so a rule whose selector and body are both new skips the
+   backward merge scan. The set holds hashes only: a collision costs a scan that merges nothing, never a wrong merge.
+   The stylesheet picks its selectors and bodies, so the set hashes under th_name_hash from its first rule, which on
+   bodies, hashed eight bytes a round, also costs less than FNV-1a's byte a step. */
 static uint32_t css_rule_hash(const css_buf *pool, Py_ssize_t off, Py_ssize_t len) {
-    uint32_t hash = css_hash_run(pool->data + off, len);
+    uint32_t hash = css_hash_run(pool->data + off, len, 1);
     return hash | (hash == 0);
 }
 
@@ -1113,6 +1117,7 @@ static int css_rule_hash_seen(const uint32_t *table, size_t mask, uint32_t hash)
         if (table[slot] == hash) {
             return 1;
         }
+        TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
     return 0;
@@ -1121,6 +1126,7 @@ static int css_rule_hash_seen(const uint32_t *table, size_t mask, uint32_t hash)
 static void css_rule_hash_add(uint32_t *table, size_t mask, uint32_t hash) {
     size_t slot = hash & mask;
     while (table[slot] != 0 && table[slot] != hash) {
+        TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
     table[slot] = hash;
@@ -1138,10 +1144,14 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     css_tokenize(combined.data, combined.len, &tokens);
     cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
+    Py_ssize_t scratch = pool->len;
     css_parse_declarations(pool, &inner, &decls, 0);
     cbuf_free(&inner.media_next);
     css_buf body = {NULL, 0, 0, pool->oom};
     css_render_declarations(pool, &decls, baseline, &body, CSS_DECL_NORMAL);
+    /* only decls points at what the parse and render interned, and body is a buffer of its own, so the pool gives that
+       scratch back: left there, every merge would hold a parsed copy of the whole body until the call returns */
+    pool->len = scratch;
     prev->body_off = pool_run(pool, body.data, body.len);
     prev->body_len = body.len;
     css_free(tokens.items);
@@ -1152,9 +1162,13 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
 
 /* A physical-slot cap leaves dropped rules as invisible barriers on the next pass. Bound the live-rule search and stop
    growing a merged run once it reaches 10 KiB: an unbounded same-selector run costs O(n^2) time and memory (~115 KiB of
-   CSS reached ~1 GiB). One merge may cross the limit, which keeps later passes from merging a split run. */
+   CSS reached ~1 GiB). One merge may cross the limit, which keeps later passes from merging a split run. A merge
+   re-minifies the whole target, and a rule that repeats the target's declarations never grows it toward that limit, so
+   a rule merges only into a target up to 64 times its length: the re-minified bytes stay linear in the input. Shorter
+   rules fold into each other first, and the merge back is retried once they add up. */
 #define CSS_MAX_MERGE_REACH 256
 #define CSS_MAX_MERGED_RUN_LENGTH 10240
+#define CSS_MAX_MERGE_RATIO 64
 
 static Py_ssize_t css_merge_attribute_end(const css_char *selector, Py_ssize_t len, Py_ssize_t open) {
     Py_ssize_t index = open + 1;
@@ -1489,7 +1503,8 @@ static int css_custom_names(const css_char *body, Py_ssize_t length, css_custom_
             body[index] != ':') {                    /* GCOVR_EXCL_BR_LINE: invalid decl */
             return 0;                                /* GCOVR_EXCL_LINE: invalid declaration removed earlier */
         }
-        names[count++] = (css_custom_name){start, index - start, css_hash_run(body + start, index - start)};
+        /* a filter before the comparison, not a table index, so FNV-1a collisions cost a memcmp each */
+        names[count++] = (css_custom_name){start, index - start, css_hash_run(body + start, index - start, 0)};
         index++;
         while (index < length && body[index] != ';') {
             if (body[index] == '\\' || body[index] == '\'' || /* GCOVR_EXCL_BR_LINE: complex value */
@@ -1559,7 +1574,8 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
             break;
         }
         if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-            if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
+            if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH ||
+                target->body_len / CSS_MAX_MERGE_RATIO > it->body_len) {
                 break;
             }
             Py_ssize_t body_off = target->body_off;
@@ -1639,14 +1655,18 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             continue;
         }
         it->prev_live = last_live;
-        uint32_t selector_hash = css_rule_hash(pool, it->sel_off, it->sel_len);
-        uint32_t body_hash = css_rule_hash(pool, it->body_off, it->body_len);
-        if (hashes != NULL && !css_rule_hash_seen(hashes, hash_cap - 1, selector_hash) &&
-            !css_rule_hash_seen(hashes, hash_cap - 1, body_hash)) {
-            css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
-            css_rule_hash_add(hashes, hash_cap - 1, body_hash);
-            last_live = index;
-            continue;
+        uint32_t selector_hash = 0;
+        uint32_t body_hash = 0;
+        if (hashes != NULL) {
+            selector_hash = css_rule_hash(pool, it->sel_off, it->sel_len);
+            body_hash = css_rule_hash(pool, it->body_off, it->body_len);
+            if (!css_rule_hash_seen(hashes, hash_cap - 1, selector_hash) &&
+                !css_rule_hash_seen(hashes, hash_cap - 1, body_hash)) {
+                css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
+                css_rule_hash_add(hashes, hash_cap - 1, body_hash);
+                last_live = index;
+                continue;
+            }
         }
         Py_ssize_t end = index + 1;
         int rewritten = 0;

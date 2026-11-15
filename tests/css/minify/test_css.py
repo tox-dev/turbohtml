@@ -18,6 +18,7 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     from traced_bytes import PeakBytes
     from work_steps import WorkSteps
@@ -267,6 +268,17 @@ def test_minify_css_invalid_shorthand_keeps_longhand(
 )
 def test_minify_css_interleaved_shorthand_keeps_longhands(source: str) -> None:
     assert minify_css(source) == source
+
+
+def test_minify_css_wide_keyword_shorthand_among_same_length_names() -> None:
+    # Each rule fills its table with custom properties as long as the margin longhands, so under any hash key some
+    # longhand lookup walks past a name of its own length.
+    prefixes = [
+        "".join(f"--{rule:02d}{index:0{width}d}:v;" for width in range(6, 10) for index in range(120))
+        for rule in range(20)
+    ]
+    source = "".join(f"a{rule}{{{prefix}margin-top:1px;margin:inherit}}" for rule, prefix in enumerate(prefixes))
+    assert minify_css(source) == "".join(f"a{rule}{{{prefix}margin:inherit}}" for rule, prefix in enumerate(prefixes))
 
 
 def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
@@ -1402,6 +1414,55 @@ def _max_decls_per_rule(rule_count: int) -> int:
 
 
 _MAX_DECLS_PER_RULE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{([^}]*)\}")
+
+
+@pytest.mark.parametrize(
+    ("rules", "tail"),
+    [
+        pytest.param("a{--p0:0}" * 3, "}a{--p0:0}", id="short-rule-stays-apart"),
+        pytest.param("a{--q0:0}a{--q1:0}", ";--q0:0;--q1:0}", id="short-rules-add-up"),
+    ],
+)
+def test_minify_css_same_selector_merge_is_bounded_by_target_length(rules: str, tail: str) -> None:
+    # a merge re-minifies the whole target, so a rule under 1/64 of its length stays apart however often it repeats
+    body: Final = ";".join(f"--p{index}:0" for index in range(64))
+    result: Final = minify_css(f"a{{{body}}}{rules}")
+    assert (result, minify_css(result)) == (f"a{{{body}{tail}", result)
+
+
+def test_minify_css_same_selector_merge_below_the_cap_bounds_memory() -> None:
+    # a rule repeating a declaration of the body it joins never grows that body toward the cap, so each merge
+    # re-minified the whole body and kept one more copy of it in the pool until the call returned
+    # PyPy has no tracemalloc.
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    body: Final = ";".join(["b:c", *(f"p{index}:v" for index in range(1000))])
+    repeated: Final = "a{b:c}" * 3000
+    tracing.start()
+    try:
+        result: Final = minify_css(f"a{{{body}}}{repeated}")
+        peak: Final = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert (len(body) < 10 * 1024, result, peak < 16 * 1024 * 1024) == (True, f"a{{{body}}}a{{b:c}}", True), peak
+
+
+def test_minify_css_same_selector_merge_releases_its_scratch() -> None:
+    # a merge parses the whole merged body, and what that parse interned stayed in the pool until the call returned,
+    # so a run of merges into a body of nested functions held many times the source at once
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
+    value = "1px"
+    for _ in range(30):
+        value = f"min({value},2px)"
+    body: Final = ";".join(f"p{index:02d}:{value}" for index in range(12))
+    repeated: Final = f"a{{p00:{value};p01:{value}}}" * 300
+    source: Final = f"a{{{body}}}{repeated}"
+    tracing.start()
+    try:
+        result: Final = minify_css(source)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert (result.count("{"), peak < 200 * len(source), minify_css(result)) == (1, True, result), peak
 
 
 def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:

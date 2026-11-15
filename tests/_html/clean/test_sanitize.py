@@ -80,16 +80,15 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     # named to keep boolean positional arguments off boolean-positional-value-in-call
     allow_relative = strip_comments = True
     allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = bleach_url_policy = False
-    xml = False
+    xml = inner = False
     allow_html = allow_svg = allow_mathml = True
     empty: frozenset[str] = frozenset()
-    schemes = frozenset({"http", "https", "mailto"})
     original = root.inner_html
     sanitized = _sanitize(
-        root, tags, {}, schemes, allow_relative, allow_fragments, OnDisallowed.REMOVE.value, strip_comments,
-        None, None, {}, empty,
+        root, tags, {}, frozenset({"http", "https", "mailto"}), allow_relative, allow_fragments,
+        OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
         empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
-        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None, bleach_url_policy, xml,
+        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None, bleach_url_policy, xml, inner,
     )  # fmt: skip
     assert root.inner_html == original
     return sanitized.inner_html

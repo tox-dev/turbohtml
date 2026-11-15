@@ -98,6 +98,8 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind) {
     scope->first_child = -1;
     scope->next_sibling = -1;
     scope->first_stmt = -1;
+    scope->sunk = 0;
+    scope->grown = 0;
     if (parent >= 0) {
         scope->next_sibling = prog->scopes[parent].first_child;
         prog->scopes[parent].first_child = index;

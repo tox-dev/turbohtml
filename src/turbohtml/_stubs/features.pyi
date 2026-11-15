@@ -203,6 +203,7 @@ def sanitize(
     attribute_predicate: Callable[[str, str, str], bool] | None,
     bleach_url_policy: bool,
     xml: bool,
+    inner: bool,
     /,
 ) -> Node: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...

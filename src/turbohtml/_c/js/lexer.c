@@ -85,16 +85,6 @@ void jm_lex_init(jm_lexer *lx, const Py_UCS4 *src, Py_ssize_t len) {
     lx->error = 0;
 }
 
-int jm_text_eq(const jm_lexer *lx, const char *keyword) {
-    Py_ssize_t index = 0;
-    for (; keyword[index] != '\0'; index++) {
-        if (index >= lx->text_len || lx->text[index] != (Py_UCS4)(unsigned char)keyword[index]) {
-            return 0;
-        }
-    }
-    return index == lx->text_len;
-}
-
 /* Whether body[0..body_len) contains needle (an ASCII literal) as a substring. */
 static int jm_body_has(const Py_UCS4 *body, Py_ssize_t body_len, const char *needle) {
     Py_ssize_t needle_len = (Py_ssize_t)strlen(needle);

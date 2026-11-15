@@ -3116,6 +3116,34 @@ def test_the_string_forms_accept_a_node() -> None:
     assert sanitize_report(root, Policy.relaxed()) == sanitize_report(_POST, Policy.relaxed())
 
 
+@pytest.mark.parametrize(
+    "tag",
+    [pytest.param(tag, id=tag) for tag in ("xmp", "style", "script", "iframe", "noembed", "noframes", "plaintext")],
+)
+def test_the_string_forms_escape_the_text_of_a_raw_text_node(tag: str) -> None:
+    # the string leaves the node out, so text the node held verbatim as a raw-text element must not come back as markup
+    node = parse(f"<{tag} id=u><b class=c>one</b> two").select_one("#u")
+    assert node is not None
+    assert node.inner_html == "<b class=c>one</b> two"
+    escaped = "&lt;b class=c&gt;one&lt;/b&gt; two"
+    assert sanitize(node) == escaped
+    assert sanitize(node, Policy.strict()) == escaped
+    assert sanitize(node, Policy.relaxed()) == escaped
+    assert sanitize_report(node) == (escaped, [])
+
+
+def test_the_string_forms_keep_escaped_elements_escaped_under_a_raw_text_node() -> None:
+    # a built raw-text element can hold elements; one the policy escapes becomes text that has to stay escaped
+    node = E.style(E.hr({"title": "t"}), E.em("yo"))
+    assert sanitize(node) == '&lt;hr title="t"&gt;<em>yo</em>'
+
+
+def test_the_tree_form_keeps_a_raw_text_node_around_its_text() -> None:
+    node = parse("<xmp id=u><i>yo</i></xmp>").select_one("#u")
+    assert node is not None
+    assert sanitize_node(node).html == '<xmp id="u"><i>yo</i></xmp>'
+
+
 def test_the_report_form_pairs_the_copy_with_the_drops() -> None:
     clean, removed = assert_type(
         sanitize_report_node(parse_fragment(_POST), Policy.relaxed()), tuple[Element, list[Removed]]
@@ -3132,6 +3160,13 @@ def test_a_reusable_sanitizer_offers_both_node_forms() -> None:
         assert_type(sanitizer.sanitize_report_node(root), tuple[Element, list[Removed]])[1]
         == sanitizer.sanitize_report(_POST)[1]
     )
+
+
+def test_the_node_form_gets_a_fragment_context_the_markup_could_not_touch() -> None:
+    # sanitize_node keeps the node it is given without judging it, so an <html> start tag in the untrusted markup must
+    # not have put its attributes on the context element parse_fragment returns
+    root = parse_fragment("<html hidden title=x>Nice <b>post</b>!")
+    assert sanitize_node(root).html == "<div>Nice <b>post</b>!</div>"
 
 
 @pytest.mark.parametrize(
