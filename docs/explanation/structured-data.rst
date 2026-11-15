@@ -15,6 +15,11 @@ Nested Microdata and RDFa resources become nested Python records. The extractor 
 record contains more than 400 nested records, or when Microdata ``itemref`` links form a nested-item cycle. DOM wrappers
 do not count toward that limit, and the flat metadata helpers remain iterative.
 
+A Microdata or RDFa property without an attribute to read takes the text of its whole subtree as its value, so text
+under several such properties is copied once for each of them. The extractor leaves out a property that heads a chain of
+more than 32 of them nested in one another, whichever records they belong to, and still reports the properties inside
+it; without that limit a chain of properties above one run of text would return the text once per level.
+
 *********************
  Where the work runs
 *********************
