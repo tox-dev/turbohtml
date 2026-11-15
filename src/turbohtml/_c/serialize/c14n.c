@@ -220,12 +220,6 @@ static int c14n_attr_name_cmp(const void *left, const void *right) {
     return order != 0 ? order : (first->position > second->position) - (first->position < second->position);
 }
 
-static int c14n_attr_position_cmp(const void *left, const void *right) {
-    const c14n_attr *first = left;
-    const c14n_attr *second = right;
-    return (first->position > second->position) - (first->position < second->position);
-}
-
 /* Drop each inherited xml: attribute that the apex or a nearer ancestor already
    supplies, so it never shadows theirs. attrs holds the apex's own attributes,
    which all stay, and then every inheritable one, nearest ancestor first. Looking
@@ -243,8 +237,6 @@ static Py_ssize_t c14n_drop_shadowed(c14n_attr *attrs, Py_ssize_t own, Py_ssize_
             attrs[kept++] = attrs[index];
         }
     }
-    /* back in the order gathered: attributes that tie in the canonical order keep the place they had */
-    qsort(attrs, (size_t)kept, sizeof(*attrs), c14n_attr_position_cmp);
     return kept;
 }
 

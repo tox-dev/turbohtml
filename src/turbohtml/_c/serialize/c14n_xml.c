@@ -612,8 +612,8 @@ static int c14n_xml_ns_cmp(const void *left, const void *right) {
 }
 
 static c14n_xml_attr c14n_xml_make_attr(const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
-                                        Py_ssize_t value_len, c14n_xml_scope *scope) {
-    c14n_xml_attr attr = {name, name_len, name, name_len, NULL, 0, -1, value, value_len, 0};
+                                        Py_ssize_t value_len, c14n_xml_scope *scope, Py_ssize_t position) {
+    c14n_xml_attr attr = {name, name_len, name, name_len, NULL, 0, -1, value, value_len, position};
     const char *colon = memchr(name, ':', (size_t)name_len);
     if (colon != NULL) {
         Py_ssize_t prefix_len = colon - name;
@@ -661,7 +661,11 @@ static int c14n_xml_attr_cmp(const void *left, const void *right) {
     }
     common = first->local_len < second->local_len ? first->local_len : second->local_len;
     int order = memcmp(first->local, second->local, (size_t)common);
-    return order != 0 ? order : (first->local_len > second->local_len) - (first->local_len < second->local_len);
+    if (order == 0) {
+        order = (first->local_len > second->local_len) - (first->local_len < second->local_len);
+    }
+    /* qsort is not stable, so attributes that tie in the canonical order are kept in the order gathered here */
+    return order != 0 ? order : (first->position > second->position) - (first->position < second->position);
 }
 
 /* By qualified name and then by the order gathered, so the attribute that wins a name leads the ones it shadows. */
@@ -677,20 +681,11 @@ static int c14n_xml_attr_name_cmp(const void *left, const void *right) {
     return order != 0 ? order : (first->position > second->position) - (first->position < second->position);
 }
 
-static int c14n_xml_attr_position_cmp(const void *left, const void *right) {
-    const c14n_xml_attr *first = left;
-    const c14n_xml_attr *second = right;
-    return (first->position > second->position) - (first->position < second->position);
-}
-
 /* Drop each inherited xml: attribute that the apex or a nearer ancestor already supplies. attrs holds the apex's own
    attributes, which all stay, and then every inheritable one, nearest ancestor first. Looking each one up among those
    gathered before it costs the square of their number, so they are sorted by name instead and only the first of a name
    is kept. */
 static Py_ssize_t c14n_xml_drop_shadowed(c14n_xml_attr *attrs, Py_ssize_t own, Py_ssize_t count) {
-    for (Py_ssize_t index = 0; index < count; index++) {
-        attrs[index].position = index;
-    }
     qsort(attrs, (size_t)count, sizeof(c14n_xml_attr), c14n_xml_attr_name_cmp);
     Py_ssize_t kept = 1;
     for (Py_ssize_t index = 1; index < count; index++) {
@@ -699,8 +694,6 @@ static Py_ssize_t c14n_xml_drop_shadowed(c14n_xml_attr *attrs, Py_ssize_t own, P
             attrs[kept++] = attrs[index];
         }
     }
-    /* back in the order gathered: attributes that tie in the canonical order keep the place they had */
-    qsort(attrs, (size_t)kept, sizeof(c14n_xml_attr), c14n_xml_attr_position_cmp);
     return kept;
 }
 
@@ -776,8 +769,9 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, node->attrs[index].name_atom, &name_len);
         if (!c14n_name_is_nsdecl(name, name_len)) {
-            attrs[count++] =
-                c14n_xml_make_attr(name, name_len, node->attrs[index].value, node->attrs[index].value_len, scope);
+            attrs[count] = c14n_xml_make_attr(name, name_len, node->attrs[index].value, node->attrs[index].value_len,
+                                              scope, count);
+            count++;
         }
     }
     if (node == apex && !opts->exclusive) {
@@ -795,8 +789,9 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
                     (opts->version == 1 && !c14n_xml_1_1_inherits_xml_attribute(name, name_len))) {
                     continue;
                 }
-                attrs[count++] = c14n_xml_make_attr(name, name_len, ancestor->attrs[index].value,
-                                                    ancestor->attrs[index].value_len, scope);
+                attrs[count] = c14n_xml_make_attr(name, name_len, ancestor->attrs[index].value,
+                                                  ancestor->attrs[index].value_len, scope, count);
+                count++;
             }
         }
         if (count > own) {
