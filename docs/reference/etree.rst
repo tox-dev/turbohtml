@@ -48,7 +48,9 @@ multiple elements in a ``div``, or pass a tag name for another parent. A detache
 ``Element(tag, attrib=None, **extra)`` creates a detached element. ``SubElement(parent, /, tag, attrib=None, **extra)``
 attaches one to a parent. ``append``, ``insert`` and ``replace`` move elements with their tails. ``remove`` detaches an
 element and retains its tail; ``drop_tree`` leaves that tail in the former parent, so the dropped element has none.
-``drop_tag`` unwraps the element.
+``drop_tag`` unwraps the element. Assigning a string to ``text`` or ``tail`` writes it into the first ``Text`` node of
+that run and removes the others, so a held ``Text`` sees the new value and a mutation observer records a
+``characterData`` change; assigning ``None`` removes the run.
 
 ``iter`` and ``iterdescendants`` traverse elements in document order. ``iterchildren``, ``iterancestors`` and
 ``itersiblings`` select the corresponding axis. Tag filters accept strings, iterables of strings and ``*``. ``itertext``

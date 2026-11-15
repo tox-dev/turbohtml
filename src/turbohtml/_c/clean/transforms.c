@@ -181,5 +181,6 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
     }
     node->text = output;
     node->text_len = length;
+    node->text_capacity_shift = 0; /* output is exact-sized */
     return 0;
 }

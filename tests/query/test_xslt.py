@@ -3553,6 +3553,26 @@ def test_transform_number_multiple_levels() -> None:
     assert result == "[1][1.1][1.2][2]"
 
 
+def test_transform_number_multiple_numbers_every_level_past_chain_limit() -> None:
+    depth = 135
+    source = f"{'<e>' * (depth - 1)}<leaf/>{'</e>' * (depth - 1)}"
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//leaf"/></xsl:template>'
+        '<xsl:template match="leaf"><xsl:number level="multiple" count="*" format="1."/></xsl:template>'
+    )
+    assert _run(source, body) == "1." * depth
+
+
+def test_transform_number_multiple_attribute_past_chain_limit() -> None:
+    depth = 135
+    source = f'{"<e>" * (depth - 1)}<leaf a="1"/>{"</e>" * (depth - 1)}'
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//leaf/@a"/></xsl:template>'
+        '<xsl:template match="@a"><xsl:number level="multiple" count="*|@*" format="1."/></xsl:template>'
+    )
+    assert _run(source, body) == "1." * (depth + 1)
+
+
 def test_transform_number_level_any() -> None:
     body = (
         '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
@@ -7452,6 +7472,125 @@ def test_transform_pattern_source_prefix_cases(
         '<xsl:template match="*">other</xsl:template></xsl:stylesheet>'
     )
     assert Transform(sheet)(source) == expected
+
+
+@pytest.mark.parametrize("prefix", [pytest.param("abc", id="short"), pytest.param("p" * 70, id="long")])
+def test_transform_pattern_attribute_prefix_rebound_beyond_climb_limit(prefix: str) -> None:
+    above: Final = f'<n {prefix}:id="1">' * 150
+    below: Final = f'<n {prefix}:id="1">' * 150
+    source: Final = parse_xml(
+        f'<root xmlns:{prefix}="urn:x">{above}<w xmlns:{prefix}="urn:y">{below}{"</n>" * 150}</w>{"</n>" * 150}</root>'
+    )
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
+        '<xsl:output method="text"/><xsl:template match="/"><xsl:apply-templates select="//n/@*"/></xsl:template>'
+        '<xsl:template match="@p:id">m</xsl:template><xsl:template match="@*">.</xsl:template></xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == "m" * 150 + "." * 150
+
+
+def test_transform_pattern_attribute_prefix_undeclared_beyond_climb_limit() -> None:
+    source: Final = parse_xml(f"<root>{'<n>' * 300}{'</n>' * 300}</root>")
+    element = source.root
+    for _ in range(300):
+        assert isinstance(element, Element)
+        element = element.children[0]
+        assert isinstance(element, Element)
+        element.attrs["abc:id"] = "1"
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
+        '<xsl:output method="text"/><xsl:template match="/"><xsl:apply-templates select="//n/@*"/></xsl:template>'
+        '<xsl:template match="@p:id">m</xsl:template><xsl:template match="@*">.</xsl:template></xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == "." * 300
+
+
+def test_transform_pattern_valueless_source_declaration_matches_nothing() -> None:
+    source: Final = parse_xml('<root xmlns:abc="urn:x"><n abc:id="1"/></root>')
+    root: Final = source.root
+    assert root is not None
+    root.attrs["xmlns:abc"] = None
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
+        '<xsl:output method="text"/><xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+        '<xsl:template match="n[@p:id]">match</xsl:template>'
+        '<xsl:template match="*">other</xsl:template></xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == "otherother"
+
+
+@pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(200, id="deep")])
+def test_transform_pattern_stylesheet_prefix_undefined(depth: int) -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="x" xmlns:q="urn:x"/>'
+        f'<xsl:template match="/">{"<s>" * depth}<xsl:number count="q:n"/>{"</s>" * depth}</xsl:template>'
+        "</xsl:stylesheet>"
+    )
+    with pytest.raises(ValueError, match="xsl:number pattern error"):
+        Transform(sheet)(parse_xml("<n/>"))
+
+
+def test_transform_pattern_stylesheet_prefix_valueless() -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:q="urn:x">'
+        '<xsl:output method="text"/><xsl:template match="/"><xsl:number count="q:n"/></xsl:template>'
+        "</xsl:stylesheet>"
+    )
+    root: Final = sheet.root
+    assert root is not None
+    root.attrs["xmlns:q"] = None
+    with pytest.raises(ValueError, match="xsl:number pattern error"):
+        Transform(sheet)(parse_xml("<n/>"))
+
+
+def test_transform_pattern_attribute_prefix_stays_linear(work_steps: WorkSteps) -> None:
+    def build(depth: int) -> Callable[[], object]:
+        opened: Final = '<n abc:id="1">' * depth
+        source: Final = parse_xml(f'<root xmlns:abc="urn:x">{opened}{"</n>" * depth}</root>')
+        sheet: Final = parse_xml(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
+            '<xsl:output method="text"/><xsl:template match="/"><xsl:apply-templates select="//@*"/></xsl:template>'
+            '<xsl:template match="@p:id">m</xsl:template><xsl:template match="@*">.</xsl:template></xsl:stylesheet>'
+        )
+        return partial(Transform(sheet), source)
+
+    work_steps.assert_linear(build, (500, 2_000))
+
+
+@pytest.mark.parametrize(
+    ("declaration", "expected"),
+    [
+        pytest.param("", "1", id="declared-above"),
+        pytest.param(' xmlns:q="urn:y"', "0", id="rebound-above"),
+    ],
+)
+def test_transform_pattern_stylesheet_prefix_beyond_climb_limit(declaration: str, expected: str) -> None:
+    source: Final = parse_xml('<a:n xmlns:a="urn:x"/>')
+    body: Final = (
+        f'<xsl:for-each select="//*">{"<s>" * 100}<t{declaration}>{"<s>" * 100}'
+        '<xsl:number level="any" count="q:n"/>'
+        f"{'</s>' * 100}</t>{'</s>' * 100}</xsl:for-each>"
+    )
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:q="urn:x">'
+        f'<xsl:output method="text"/><xsl:template match="/">{body}</xsl:template></xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == expected
+
+
+def test_transform_pattern_stylesheet_prefix_stays_linear(work_steps: WorkSteps) -> None:
+    def build(depth: int) -> Callable[[], object]:
+        source: Final = parse_xml('<a:n xmlns:a="urn:x"/>')
+        numbers: Final = '<s><xsl:number level="any" count="q:n"/>' * depth
+        sheet: Final = parse_xml(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:q="urn:x">'
+            '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="//*">'
+            f"{numbers}{'</s>' * depth}</xsl:for-each></xsl:template></xsl:stylesheet>"
+        )
+        return partial(Transform(sheet), source)
+
+    work_steps.assert_linear(build, (200, 380), exponent=1.5)
 
 
 def test_transform_pattern_html_key() -> None:

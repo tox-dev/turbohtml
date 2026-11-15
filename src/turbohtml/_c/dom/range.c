@@ -113,6 +113,7 @@ static th_node *split_data_node(th_tree *tree, th_node *node, Py_ssize_t offset)
         tail->text = node->text + offset;
         tail->text_len = node->text_len - offset;
         tail->text_exclusive = node->text_exclusive;
+        node->text_capacity_shift = 0; /* the tail reads the rest of the buffer, so the head must not grow into it */
     }
     if (th_node_delete_data(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */

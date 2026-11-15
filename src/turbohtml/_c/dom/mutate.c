@@ -597,8 +597,49 @@ TH_NOINLINE int th_node_attr_append(th_tree *tree, th_node *node, const char *na
     return 0;
 }
 
-/* Replace a node's character data with a copy of len code points (an empty buffer
-   is stored as none). Returns 0, or -1 with MemoryError set on allocation failure. */
+/* Room for len code points of node's character data, keeping its first keep code points: the node's own buffer when it
+   is large enough, else a new one. The arena frees nothing while the tree lives, so a node that took a new buffer on
+   every write would keep each value it ever held. text_capacity_shift records what the node's buffer holds, and a
+   buffer that has to grow again doubles, so a run of writes allocates a small multiple of its largest value in total.
+   The first new buffer is exact, as one write needs no more. An element records none: an element clone shares its
+   source's name buffer, so a rename must not write into it. NULL on allocation failure. */
+static Py_UCS4 *text_room(th_tree *tree, th_node *node, Py_ssize_t len, Py_ssize_t keep) {
+    size_t capacity = node->text_capacity_shift ? (size_t)1 << node->text_capacity_shift : 0;
+    if ((size_t)len <= capacity) {
+        return node->text;
+    }
+    size_t slots = ((size_t)len + 3) & ~(size_t)3; /* the arena rounds to 16 bytes anyway */
+    size_t bytes = slots * sizeof(Py_UCS4);
+    /* GCOVR_EXCL_BR_START: allocation-size overflow */
+    if (capacity > 0 &&
+        (!th_grow_cap((size_t)len, capacity, 16, sizeof(Py_UCS4), &slots, &bytes) || bytes > PY_SSIZE_T_MAX)) {
+        /* GCOVR_EXCL_BR_STOP */
+        return NULL; /* GCOVR_EXCL_LINE: allocation-size overflow */
+    }
+    Py_UCS4 *grown = arena_alloc(tree, (Py_ssize_t)bytes);
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    TH_WORK_STEPS_ADD(slots);
+    if (keep > 0) {
+        memcpy(grown, node->text, (size_t)keep * sizeof(Py_UCS4));
+    }
+    node->text = grown;
+    if (node->type != TH_NODE_ELEMENT) {
+        /* the largest power of two within slots: exact for a doubled buffer, a lower bound for an exact one */
+#if defined(_MSC_VER)
+        unsigned long high;
+        _BitScanReverse64(&high, (unsigned long long)slots);
+        node->text_capacity_shift = (uint8_t)high;
+#else
+        node->text_capacity_shift = (uint8_t)(63 - __builtin_clzll((unsigned long long)slots));
+#endif
+    }
+    return grown;
+}
+
+/* Replace a node's character data with a copy of len code points. Returns 0, or -1 with MemoryError set on allocation
+   failure. */
 int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len) {
     const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
     if (old == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
@@ -607,17 +648,18 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
     }
     th_mo_char_data_changed(tree, node, old, node->text_len);
     if (len == 0) {
-        node->text = (Py_UCS4 *)th_empty_text;
-        node->text_len = 0;
+        if (node->text_capacity_shift == 0) {
+            node->text = (Py_UCS4 *)th_empty_text;
+        }
+        node->text_len = 0; /* a buffer with room stays for the next value */
         return 0;
     }
-    Py_UCS4 *owned = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
-    if (owned == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    Py_UCS4 *room = text_room(tree, node, len, 0);
+    if (room == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memcpy(owned, data, (size_t)len * sizeof(Py_UCS4));
-    node->text = owned;
+    memmove(room, data, (size_t)len * sizeof(Py_UCS4)); /* data may point into this node's own buffer */
     node->text_len = len;
     return 0;
 }
@@ -639,6 +681,7 @@ int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_
     } else if (from == 0) {
         node->text += to;
         node->text_len = remaining;
+        node->text_capacity_shift = 0; /* the capacity counts from the start of the buffer, which the node left */
     } else {
         if (!node->text_exclusive) {
             Py_UCS4 *owned = arena_alloc(tree, (from + remaining) * (Py_ssize_t)sizeof(Py_UCS4));
@@ -649,12 +692,14 @@ int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_
             memcpy(owned, old, (size_t)from * sizeof(Py_UCS4));
             node->text = owned;
             node->text_exclusive = 1;
+            node->text_capacity_shift = 0; /* owned is exact-sized */
         }
         memmove(node->text + from, old + to, (size_t)remaining * sizeof(Py_UCS4));
         node->text_len = from + remaining;
     }
     if (node->text_len == 0) {
         node->text = (Py_UCS4 *)th_empty_text;
+        node->text_capacity_shift = 0;
     }
     return 0;
 }
@@ -1520,6 +1565,7 @@ static th_node *copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node
         if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        TH_WORK_STEPS_ADD(src_node->text_len);
         memcpy(owned, text, (size_t)src_node->text_len * sizeof(Py_UCS4));
         node->text = owned;
         node->text_len = src_node->text_len;
@@ -1790,12 +1836,17 @@ static int normalize_children(th_tree *tree, th_node *root, int iterators) {
             }
             next = child->next_sibling;
             if (merged_len > child->text_len) {
-                Py_UCS4 *merged = arena_alloc(tree, merged_len * (Py_ssize_t)sizeof(Py_UCS4));
+                if (need_text(tree, child) == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                    return -1;                        /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                /* the merged text goes behind the first node's own when its buffer has room, so normalizing after
+                   each append copies only the appended text */
+                Py_UCS4 *merged = text_room(tree, child, merged_len, child->text_len);
                 if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                     return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                Py_ssize_t offset = 0;
-                for (th_node *part = child; part != end; part = part->next_sibling) {
+                Py_ssize_t offset = child->text_len;
+                for (th_node *part = child->next_sibling; part != end; part = part->next_sibling) {
                     const Py_UCS4 *text = need_text(tree, part);
                     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text realization fails only on allocation failure */
                         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1803,7 +1854,6 @@ static int normalize_children(th_tree *tree, th_node *root, int iterators) {
                     memcpy(merged + offset, text, (size_t)part->text_len * sizeof(Py_UCS4));
                     offset += part->text_len;
                 }
-                child->text = merged;
                 child->text_len = merged_len;
             }
             while (next != end) {
