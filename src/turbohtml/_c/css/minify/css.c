@@ -83,6 +83,15 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     return minified;
 }
 
+/* A style="" value has no rule list to write its bang comments after, so they lead its declarations. */
+static void css_lead_bangs(token_vec *tokens, css_buf *out) {
+    for (Py_ssize_t index = 0; index < tokens->bang_len; index++) {
+        css_bang *bang = &tokens->bangs[index];
+        cbuf_put_run(out, bang->text, bang->text_len);
+        bang->done = 1;
+    }
+}
+
 static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
                                  Py_ssize_t *out_len) {
     /* one flag for the whole call: every buffer and vector below points at it, so a failed allocation anywhere,
@@ -117,11 +126,12 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
     }
     css_buf pool = {NULL, 0, 0, &oom};
     css_buf out = {NULL, 0, 0, &oom};
-    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0, inline_mode};
+    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0, inline_mode, 0};
     /* readers index the pool from its start, so the parsers run only on complete tokens and an allocated pool */
     if (!oom && cbuf_reserve(&pool, CSS_POOL_RESERVE(length)) && /* GCOVR_EXCL_BR_LINE: OOM only */
         cbuf_reserve(&out, length)) {                            /* GCOVR_EXCL_BR_LINE: OOM only */
         if (inline_mode) {
+            css_lead_bangs(&tokens, &out);
             decl_vec decls = {NULL, 0, 0, &oom, 0};
             css_parse_declarations(&pool, &cur, &decls, 0);
             css_render_declarations(&pool, &decls, baseline, &out, CSS_DECL_NORMAL);
@@ -131,7 +141,7 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
         }
     }
     cbuf_free(&cur.media_next);
-    css_free(tokens.items);
+    css_token_vec_free(&tokens);
     cbuf_free(&pool);
     if (oom) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         cbuf_free(&out); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -200,7 +210,7 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
 
 static css_char *css_minify_spelled(token_vec *tokens, css_buf *spelled, int inline_mode, int baseline,
                                     Py_ssize_t *out_len) {
-    css_free(tokens->items);
+    css_token_vec_free(tokens);
     if (*spelled->oom) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         cbuf_free(spelled); /* GCOVR_EXCL_LINE */
         *out_len = 1;       /* GCOVR_EXCL_LINE */

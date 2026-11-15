@@ -208,6 +208,15 @@ typedef struct {
     css_char delim;
 } css_token;
 
+/* A bang comment the tokenizer replaced with a placeholder token. The parser writes each one exactly once, after the
+   rule-list step holding its token, so no construct the minifier drops takes its banner with it. */
+typedef struct {
+    Py_ssize_t index;
+    const css_char *text;
+    Py_ssize_t text_len;
+    int done;
+} css_bang;
+
 typedef struct {
     css_token *items;
     Py_ssize_t len;
@@ -217,7 +226,45 @@ typedef struct {
     int bad;     /* whether any token is CSS_BAD, so valid input skips the per-declaration scan for one */
     int escaped; /* whether a name holds an escape, so input without one skips css_spell_names */
     int escapes; /* whether output can end in an escape, so input that cannot skips every check for one */
+    css_bang *bangs;
+    Py_ssize_t bang_len;
+    Py_ssize_t bang_cap;
 } token_vec;
+
+/* The text every bang comment token points at. An empty comment spells nothing, so the placeholder keeps the token
+   boundaries the bang comment made. */
+static const css_char css_bang_placeholder[4] = {'/', '*', '*', '/'};
+
+static int css_is_bang(const css_token *token) {
+    return token->kind == CSS_COMMENT && token->text == css_bang_placeholder;
+}
+
+/* The position in vec->bangs of the first bang comment whose token index is at least index. */
+static Py_ssize_t css_bang_first(const token_vec *vec, Py_ssize_t index) {
+    Py_ssize_t low = 0;
+    Py_ssize_t high = vec->bang_len;
+    while (low < high) {
+        Py_ssize_t mid = low + (high - low) / 2;
+        if (vec->bangs[mid].index < index) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+/* Write the bang comment at token index where it stands, as raw text of a step, which marks it written. */
+static void css_put_bang(css_buf *out, token_vec *vec, Py_ssize_t index) {
+    css_bang *bang = &vec->bangs[css_bang_first(vec, index)];
+    cbuf_put_run(out, bang->text, bang->text_len);
+    bang->done = 1;
+}
+
+static void css_token_vec_free(token_vec *vec) {
+    css_free(vec->items);
+    css_free(vec->bangs);
+}
 
 /* Untrusted nesting drives the parsers into C recursion. 100 sits between rust-cssparser's 75 and WebKit's 128; the
    deepest shape, nested @media, then needs about 42 KiB of stack with clang -O3, a third of a 128 KiB thread. */
@@ -279,6 +326,21 @@ static CSS_FORCEINLINE void token_vec_push(token_vec *vec, css_token token) {
         return;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     vec->items[vec->len++] = token;
+}
+
+/* Record the bang comment about to be pushed as the next token. Out of line: only a bang comment reaches it. */
+CSS_NOINLINE static void css_bang_push(token_vec *vec, const css_char *text, Py_ssize_t text_len) {
+    if (vec->bang_len == vec->bang_cap) {
+        Py_ssize_t cap = vec->bang_cap < 8 ? 8 : vec->bang_cap * 2;
+        css_bang *grown = css_realloc(vec->bangs, (size_t)cap * sizeof(css_bang));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            *vec->oom = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        vec->bangs = grown;
+        vec->bang_cap = cap;
+    }
+    vec->bangs[vec->bang_len++] = (css_bang){vec->len, text, text_len, 0};
 }
 
 /* Character-class bitmask over the 7-bit ASCII range, the rcssmin trick: the hot tokenizer classifiers become a single
@@ -646,6 +708,7 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
         } else if (character == '/' && pos + 1 < length && source[pos + 1] == '*') {
             Py_ssize_t scan = pos + 2;
             Py_ssize_t end = length; /* an unterminated comment runs to EOF */
+            int closed = 0;
             while (scan + 1 < length) {
                 const css_char *star = memchr(source + scan, '*', (size_t)(length - scan - 1));
                 if (star == NULL) {
@@ -654,9 +717,19 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                 scan = (Py_ssize_t)(star - source);
                 if (source[scan + 1] == '/') {
                     end = scan + 2;
+                    closed = 1;
                     break;
                 }
                 scan++;
+            }
+            if (closed && source[pos + 2] == '!') {
+                css_bang_push(vec, &source[pos], end - pos);
+                token.kind = CSS_COMMENT;
+                token.text = css_bang_placeholder;
+                token.text_len = (Py_ssize_t)sizeof css_bang_placeholder;
+                token_vec_push(vec, token);
+                pos = end;
+                continue;
             }
             /* dropping this comment would join `<` and `/`, which starts the `</style` end tag once the stylesheet
                sits inside an HTML <style> */
