@@ -15,6 +15,7 @@
 #include "dom/tree_internal.h" /* arena, node_new, node_append */
 
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "tokenizer/xml_names.h"
 
 #include <string.h>
@@ -47,6 +48,8 @@ typedef struct {
     Py_ssize_t shadowed;   /* the binding of the same prefix this one hides until it closes, or -1 */
     Py_UCS4 *uri;          /* the namespace name the prefix binds, for expanded-name comparison */
     Py_ssize_t uri_len;
+    uint64_t uri_hash; /* the salted FNV state past the URI, valid once uri_hashed is set */
+    int uri_hashed;
     Py_ssize_t depth;
 } xml_nsdecl;
 
@@ -59,8 +62,9 @@ typedef struct {
    current generation, so a new element (or the switch from the raw-name to the expanded-name
    keying) resets the duplicate table by bumping the generation rather than clearing it, which keeps
    a tiny element after a huge one O(1). The prefix table never resets and stays at PREFIX_SLOT_LIVE.
-   `hash` lets a grow re-slot entries without re-reading their key; `index` points back into the
-   array the table keys (element attributes, attribute spans, or prefixes). */
+   `hash` lets a grow re-slot entries without re-reading their key and the expanded-name probe
+   step over a slot without reading its namespace URI; `index` points back into the array the
+   table keys (element attributes, attribute spans, or prefixes). */
 typedef struct {
     uint64_t gen;
     uint64_t hash;
@@ -531,7 +535,7 @@ static TH_NOINLINE int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_s
     if (owned_uri == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    parser->ns[parser->ns_len++] = (xml_nsdecl){start, len, -1, -1, owned_uri, uri_len, depth};
+    parser->ns[parser->ns_len++] = (xml_nsdecl){start, len, -1, -1, owned_uri, uri_len, 0, 0, depth};
     if (parser->prefix_slots_cap == 0 && parser->ns_len < PREFIX_TABLE_MIN_BINDINGS) {
         return 0;
     }
@@ -1291,18 +1295,29 @@ static uint64_t dup_hash_atom(uint64_t seed, uint32_t atom) {
 }
 
 /* Slot hash for the expanded-name keying: salt, then the namespace URI, a ':' separator
-   so "ab"+"c" and "a"+"bc" differ, then the local name. */
-static uint64_t dup_hash_expanded(uint64_t seed, const Py_UCS4 *uri, Py_ssize_t uri_len, const xml_parser *parser,
-                                  Py_ssize_t local_start, Py_ssize_t local_len) {
-    uint64_t hash = seed ^ FNV_BASIS;
-    for (Py_ssize_t offset = 0; offset < uri_len; offset++) {
-        hash = (hash ^ uri[offset]) * FNV_PRIME;
-    }
-    hash = (hash ^ ':') * FNV_PRIME;
+   so "ab"+"c" and "a"+"bc" differ, then the local name. `uri_hash` is the state decl_uri_hash
+   kept after the salt and the URI, so no attribute reads the URI again. */
+static uint64_t dup_hash_expanded(uint64_t uri_hash, const xml_parser *parser, Py_ssize_t local_start,
+                                  Py_ssize_t local_len) {
+    uint64_t hash = (uri_hash ^ ':') * FNV_PRIME;
     for (Py_ssize_t offset = 0; offset < local_len; offset++) {
         hash = (hash ^ cp(parser, local_start + offset)) * FNV_PRIME;
     }
     return hash_mix(hash);
+}
+
+/* Folded on the first prefixed attribute that reads the binding, so a declaration no attribute uses costs nothing. */
+static uint64_t decl_uri_hash(xml_parser *parser, xml_nsdecl *decl) {
+    if (!decl->uri_hashed) {
+        uint64_t hash = parser->hash_seed ^ FNV_BASIS;
+        for (Py_ssize_t offset = 0; offset < decl->uri_len; offset++) {
+            TH_WORK_STEP();
+            hash = (hash ^ decl->uri[offset]) * FNV_PRIME;
+        }
+        decl->uri_hash = hash;
+        decl->uri_hashed = 1;
+    }
+    return decl->uri_hash;
 }
 
 /* Parse one attribute onto `element`, tracking any xmlns declaration at `depth`.
@@ -1545,20 +1560,24 @@ static int consume_start_tag(xml_parser *parser) {
         }
         const Py_ssize_t local_start = span->colon + 1;
         const Py_ssize_t local_len = span->end - local_start;
-        const xml_nsdecl *decl_ns = &parser->ns[span->declaration];
-        uint64_t hash =
-            dup_hash_expanded(parser->hash_seed, decl_ns->uri, decl_ns->uri_len, parser, local_start, local_len);
+        xml_nsdecl *decl_ns = &parser->ns[span->declaration];
+        uint64_t hash = dup_hash_expanded(decl_uri_hash(parser, decl_ns), parser, local_start, local_len);
         Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(parser->dup_cap - 1));
         while (parser->dup[slot].gen == parser->dup_gen) {
-            const xml_attr_span *previous = &parser->attr_spans[parser->dup[slot].index];
-            const xml_nsdecl *other_ns = &parser->ns[previous->declaration];
-            const Py_ssize_t other_local_len = previous->end - (previous->colon + 1);
-            if (decl_ns->uri_len == other_ns->uri_len &&
-                memcmp(decl_ns->uri, other_ns->uri, (size_t)decl_ns->uri_len * sizeof(Py_UCS4)) == 0 &&
-                local_len == other_local_len &&
-                local_names_equal(parser, local_start, previous->colon + 1, local_len)) {
-                record(parser, "xml-duplicate-attribute", span->start);
-                return -1;
+            /* Compare the stored hash first, so stepping over a neighbor in the probe run does not re-read its URI. */
+            if (parser->dup[slot].hash == hash) {
+                const xml_attr_span *previous = &parser->attr_spans[parser->dup[slot].index];
+                const xml_nsdecl *other_ns = &parser->ns[previous->declaration];
+                const Py_ssize_t other_local_len = previous->end - (previous->colon + 1);
+                /* GCOVR_EXCL_BR_START: names that differ under one salted 64-bit hash cannot be forced from a test */
+                if (decl_ns->uri_len == other_ns->uri_len &&
+                    memcmp(decl_ns->uri, other_ns->uri, (size_t)decl_ns->uri_len * sizeof(Py_UCS4)) == 0 &&
+                    local_len == other_local_len &&
+                    local_names_equal(parser, local_start, previous->colon + 1, local_len)) {
+                    /* GCOVR_EXCL_BR_STOP */
+                    record(parser, "xml-duplicate-attribute", span->start);
+                    return -1;
+                }
             }
             slot = (slot + 1) & (parser->dup_cap - 1);
         }
