@@ -378,14 +378,10 @@ static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *parti
 
 /* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
 static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
-                             posset *out, int in_all) {
+                             posset *out) {
     posset_clear(out);
     int min = xsd_occurs_min(schema->tree, particle);
     int max = xsd_occurs_max(schema->tree, particle);
-    if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
-        min = min != 0;
-        max = max != 0;
-    }
     if (max < 0) {
         xsd_match_unbounded(schema, inst, particle, children, in, min, out);
     } else {
@@ -434,7 +430,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
                 continue;
             }
-            xsd_match_occurs(schema, inst, child, children, in, &branch, 0);
+            xsd_match_occurs(schema, inst, child, children, in, &branch);
             posset_or(out, &branch);
         }
         posset_free(schema, &branch);
@@ -447,12 +443,11 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         return;                                      /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
-    const int in_all = is_schema_el(schema, particle, XSD_NS, "all");
     for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
         if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
             continue;
         }
-        xsd_match_occurs(schema, inst, child, children, &cur, &next, in_all);
+        xsd_match_occurs(schema, inst, child, children, &cur, &next);
         posset spare = cur;
         cur = next;
         next = spare;
@@ -1638,14 +1633,14 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         if (after_base.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return;                      /* GCOVR_EXCL_LINE */
         }
-        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base, 0);
+        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base);
         if (model != NULL) {
-            xsd_match_occurs(schema, inst, model, children, &after_base, &end, 0);
+            xsd_match_occurs(schema, inst, model, children, &after_base, &end);
         } else {
             posset_copy(&end, &after_base);
         }
     } else {
-        xsd_match_occurs(schema, inst, model, children, &start, &end, 0);
+        xsd_match_occurs(schema, inst, model, children, &start, &end);
     }
 
     if (!end.member[nchildren]) {
