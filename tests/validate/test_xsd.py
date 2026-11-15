@@ -2501,6 +2501,47 @@ def test_simple_typed_element_with_child() -> None:
     assert not xsd_ok(schema, "<v><child/></v>")
 
 
+_INLINE_STRING: Final[str] = (
+    '<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="[a-z]+"/></xs:restriction></xs:simpleType>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "document"),
+    [
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element></xs:schema>',
+            "<v>bob<child>x</child></v>",
+            id="root",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+            f'<xs:element name="v">{_INLINE_STRING}</xs:element>'
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>",
+            "<r><v>bob<child>x</child></v></r>",
+            id="sequence-particle",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element>'
+            '<xs:element name="r"><xs:complexType><xs:sequence><xs:element ref="v"/></xs:sequence>'
+            "</xs:complexType></xs:element></xs:schema>",
+            "<r><v>bob<child>x</child></v></r>",
+            id="ref",
+        ),
+    ],
+)
+def test_inline_simple_typed_element_with_child(schema: str, document: str) -> None:
+    result = check(schema, document)
+    assert [(error.type, error.message) for error in result.errors] == [
+        ("structure", "simple-typed element must not contain child elements"),
+    ]
+
+
+def test_inline_simple_typed_element_keeps_comment_child() -> None:
+    schema = f'<xs:schema {_XS}><xs:element name="v">{_INLINE_STRING}</xs:element></xs:schema>'
+    assert xsd_ok(schema, "<v>bob<!--note--></v>")
+
+
 def test_occurs_multi_digit_and_bounds() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
