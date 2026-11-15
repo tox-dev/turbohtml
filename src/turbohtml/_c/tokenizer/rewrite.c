@@ -2339,6 +2339,15 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         Py_DECREF(handle);
     }
 
+    if (ctx->depth >= RW_MAX_DEPTH) {
+        /* a th_shadow steers the tokenizer, and the tree builder switches it for a raw-text element it refuses at its
+           own cap, so the tokenizer's state is the element's content model even when the spine has none */
+        const th_buf *end_tag;
+        enum th_initial_state tokenized = th_tok_content_model(ctx->sm, &end_tag);
+        if (ctx->shadow != NULL && tokenized != TH_INIT_DATA) {
+            open.model = (int8_t)tokenized;
+        }
+    }
     if (ctx->depth >= RW_MAX_DEPTH && ctx->depth >= RW_MAX_DEPTH + (open.model >= 0)) {
         rw_refuse_element(ctx, &open);
         return; /* at the limit nothing was popped either, so the CDATA state stands */

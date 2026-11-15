@@ -442,6 +442,13 @@ def test_rewrite_removed_raw_text_past_depth_limit_drops_its_content() -> None:
     assert rewrite(html, elements=[("script", lambda element: element.remove())]) == f"{'<p>' * _PAST_LIMIT}tail"
 
 
+@pytest.mark.parametrize("filler", [pytest.param("<p>", id="p"), pytest.param("<div>", id="div")])
+def test_rewrite_removed_raw_text_past_depth_limit_inside_an_integration_point_drops_its_content(filler: str) -> None:
+    # the tree builder refuses the script at its own cap but still reads it as raw text, so the removal must hold
+    prefix = f"<svg><foreignObject>{filler * _PAST_LIMIT}"
+    assert rewrite(f"{prefix}<script>a<b>x</b></script>tail", elements=[("script", _remove)]) == f"{prefix}tail"
+
+
 @pytest.mark.parametrize(
     "edit",
     [
