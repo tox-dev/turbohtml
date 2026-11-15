@@ -976,6 +976,77 @@ def test_repeated_particle_peak_memory_is_linear(model: str, peak_bytes: PeakByt
     assert peak_bytes(script, (_repeated_schema(model), document)) < 64 * len(document)
 
 
+_A_ELEMENT: Final[str] = '<xs:element name="a"/>'
+_AMBIGUOUS_REPEATS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        f'<xs:sequence maxOccurs="unbounded">{_A_ELEMENT}<xs:element name="a" minOccurs="0"/></xs:sequence>',
+        id="element-then-optional-element",
+    ),
+    pytest.param(
+        f'<xs:choice maxOccurs="unbounded">{_A_ELEMENT}<xs:sequence>{_A_ELEMENT * 2}</xs:sequence></xs:choice>',
+        id="element-or-pair",
+    ),
+    pytest.param(
+        f'<xs:choice maxOccurs="unbounded">{_A_ELEMENT}<xs:sequence>{_A_ELEMENT * 50}</xs:sequence></xs:choice>',
+        id="element-or-run-of-fifty",
+    ),
+]
+
+
+@pytest.mark.parametrize("model", _AMBIGUOUS_REPEATS)
+def test_ambiguous_repeated_particle_scales_linearly(model: str, work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema: Final = XMLSchema(_repeated_schema(model))
+        return partial(schema.validate, parse_xml(f"<r>{'<a/>' * count}</r>"))
+
+    work_steps.assert_linear(build, (300, 1200))
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(1, False, id="one-is-too-few"),
+        pytest.param(2, True, id="two-by-the-run"),
+        pytest.param(3, True, id="three-by-the-run-after-an-empty-prefix"),
+    ],
+)
+def test_optional_prefix_before_repeated_run(count: int, *, valid: bool) -> None:
+    run = '<xs:element name="a" minOccurs="2" maxOccurs="unbounded"/>'
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:sequence minOccurs="0" maxOccurs="1">{run}</xs:sequence>{run}'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(1, False, id="one-is-too-few"),
+        pytest.param(2, False, id="two-is-too-few"),
+        pytest.param(3, True, id="three-is-enough"),
+    ],
+)
+def test_run_of_at_least_three(count: int, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:sequence minOccurs="3" maxOccurs="unbounded"><xs:element name="a"/></xs:sequence>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+def test_nullable_pair_repeated_three_times_rejects_odd_count() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:sequence minOccurs="3" maxOccurs="unbounded">'
+        f'<xs:sequence minOccurs="0">{_A_ELEMENT * 2}</xs:sequence>'
+        "</xs:sequence></xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert not check(schema, "<r><a/><a/><a/></r>").valid
+
+
 def test_all_any_order_and_missing() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'

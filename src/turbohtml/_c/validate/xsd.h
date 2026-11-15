@@ -206,14 +206,14 @@ static void xsd_collect_edecls(th_schema *schema, th_node *particle, edecl_vec *
 
 /* ---- content-model position-set matcher ---- */
 
-/* The child positions a particle can stop at. Only the window [lo, hi) counts: it runs from the lowest set position to
-   one past the highest and the bytes outside it are never read, so making, clearing and combining sets costs the width
-   of the window, which for a deterministic model is a position or two, and not the element's child count. */
+/* The child positions a particle can stop at. items lists each position once and member flags it, so making, clearing
+   and combining a set costs the positions it holds and not the element's child count. */
 typedef struct {
-    char *pos;
-    Py_ssize_t size; /* nchildren + 1 */
-    Py_ssize_t lo, hi;
-    struct posset_spare *block; /* the allocation holding pos, handed back by posset_free */
+    char *member;
+    Py_ssize_t *items;
+    Py_ssize_t count;
+    Py_ssize_t size;            /* nchildren + 1 */
+    struct posset_spare *block; /* the allocation holding items and member, handed back by posset_free */
 } posset;
 
 /* The bytes of a position set no matcher holds any more, kept for the next one to take. */
@@ -222,65 +222,71 @@ typedef struct posset_spare {
 } posset_spare;
 
 static int posset_empty(const posset *set) {
-    return set->lo == set->hi;
+    return set->count == 0;
 }
 
-/* Add one position, zeroing the bytes the window grows over; returns whether the set gained it. */
+/* Returns whether the set gained the position. */
 static int posset_add(posset *set, Py_ssize_t index) {
-    if (posset_empty(set)) {
-        set->lo = index;
-        set->hi = index + 1;
-    } else if (index < set->lo) {
-        memset(set->pos + index, 0, (size_t)(set->lo - index));
-        set->lo = index;
-    } else if (index >= set->hi) {
-        memset(set->pos + set->hi, 0, (size_t)(index + 1 - set->hi));
-        set->hi = index + 1;
-    } else if (set->pos[index]) {
+    if (set->member[index]) {
         return 0;
     }
-    set->pos[index] = 1;
+    set->member[index] = 1;
+    set->items[set->count++] = index;
     return 1;
 }
 
 /* Returns whether `into` gained a position. */
 static int posset_or(posset *into, const posset *from) {
     int gained = 0;
-    for (Py_ssize_t index = from->lo; index < from->hi; index++) {
-        if (from->pos[index]) {
-            gained |= posset_add(into, index);
-        }
+    for (Py_ssize_t index = 0; index < from->count; index++) {
+        gained |= posset_add(into, from->items[index]);
     }
     return gained;
 }
 
+static void posset_clear(posset *set) {
+    for (Py_ssize_t index = 0; index < set->count; index++) {
+        set->member[set->items[index]] = 0;
+    }
+    set->count = 0;
+}
+
 static void posset_copy(posset *into, const posset *from) {
-    memcpy(into->pos + from->lo, from->pos + from->lo, (size_t)(from->hi - from->lo));
-    into->lo = from->lo;
-    into->hi = from->hi;
+    posset_clear(into);
+    posset_or(into, from);
 }
 
 /* An empty set. The matcher takes its working sets here and hands them back with posset_free, so matching one element
    holds a few sets per level of its model however often a particle repeats; the arena, which releases nothing until
    validation ends, would otherwise keep one per repetition. An element with another child count starts a new list. */
+static posset posset_new(th_schema *schema, Py_ssize_t size) {
+    size_t items_bytes = (size_t)size * sizeof(Py_ssize_t);
+    posset_spare *spare = arena_alloc(&schema->mem, sizeof(posset_spare) + items_bytes + (size_t)size);
+    if (spare == NULL) {                            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return (posset){NULL, NULL, 0, size, NULL}; /* GCOVR_EXCL_LINE */
+    }
+    memset((char *)(spare + 1) + items_bytes, 0, (size_t)size);
+    Py_ssize_t *items = (Py_ssize_t *)(spare + 1);
+    return (posset){(char *)(items + size), items, 0, size, spare};
+}
+
 static posset posset_alloc(th_schema *schema, Py_ssize_t size) {
     if (schema->posset_size != size) {
         schema->posset_spares = NULL;
         schema->posset_size = size;
     }
     posset_spare *spare = schema->posset_spares;
-    if (spare != NULL) {
-        schema->posset_spares = spare->next;
-    } else {
-        spare = arena_alloc(&schema->mem, sizeof(posset_spare) + (size_t)size);
-        if (spare == NULL) {                         /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return (posset){NULL, size, 0, 0, NULL}; /* GCOVR_EXCL_LINE */
-        }
+    if (spare == NULL) {
+        return posset_new(schema, size);
     }
-    return (posset){(char *)(spare + 1), size, 0, 0, spare};
+    schema->posset_spares = spare->next;
+    Py_ssize_t *items = (Py_ssize_t *)(spare + 1);
+    return (posset){(char *)(items + size), items, 0, size, spare};
 }
 
-static void posset_free(th_schema *schema, const posset *set) {
+/* Clears the set, so the block the next matcher takes starts with no position flagged. */
+static void posset_free(th_schema *schema, posset *set) {
+    posset_clear(set);
     set->block->next = schema->posset_spares;
     schema->posset_spares = set->block;
 }
@@ -288,28 +294,21 @@ static void posset_free(th_schema *schema, const posset *set) {
 static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                            posset *out);
 
-/* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
-static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
-                             posset *out, int in_all) {
-    out->lo = out->hi = 0;
-    int min = xsd_occurs_min(schema->tree, particle);
-    int max = xsd_occurs_max(schema->tree, particle);
-    if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
-        min = min == 0 ? 0 : 1;
-        max = max == 0 ? 0 : 1;
-    }
-    if (min == 0) {
-        posset_or(out, in);
-    }
+/* A bounded particle takes every repetition from the positions the one before reached, and stops after maxOccurs. */
+static void xsd_match_bounded(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
+                              int min, int max, posset *out) {
     posset seen = posset_alloc(schema, in->size);
     posset cur = posset_alloc(schema, in->size);
     posset next = posset_alloc(schema, in->size);
-    if (seen.pos == NULL || cur.pos == NULL || next.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                                    /* GCOVR_EXCL_LINE */
+    if (!seen.member || !cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                        /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
     posset_copy(&seen, in);
-    for (int count = 1; max < 0 || count <= max; count++) {
+    if (min == 0) {
+        posset_or(out, in);
+    }
+    for (int count = 1; count <= max; count++) {
         xsd_match_once(schema, inst, particle, children, &cur, &next);
         if (posset_empty(&next)) {
             break;
@@ -329,15 +328,75 @@ static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle
     posset_free(schema, &seen);
 }
 
+/* An unbounded particle reaches its minOccurs-th set of positions, then closes it under one more repetition. The
+   closure steps only from the positions each round adds, so a position is stepped from once however many repetitions
+   reach it. */
+static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *particle, th_node **children,
+                                const posset *in, int min, posset *out) {
+    posset seen = posset_alloc(schema, in->size);
+    posset cur = posset_alloc(schema, in->size);
+    posset next = posset_alloc(schema, in->size);
+    if (!seen.member || !cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                        /* GCOVR_EXCL_LINE */
+    }
+    posset_copy(&cur, in);
+    posset_copy(&seen, in);
+    int reached = 1;
+    for (int count = 1; reached && count <= min; count++) {
+        xsd_match_once(schema, inst, particle, children, &cur, &next);
+        reached = !posset_empty(&next);
+        if (count < min) {
+            /* a repetition adding no position ends the count, so a settled set is not repeated minOccurs times */
+            reached = reached && posset_or(&seen, &next);
+        }
+        posset spare = cur;
+        cur = next;
+        next = spare;
+    }
+    if (reached) {
+        posset_copy(out, &cur);
+        while (!posset_empty(&cur)) {
+            xsd_match_once(schema, inst, particle, children, &cur, &next);
+            posset_clear(&cur);
+            for (Py_ssize_t index = 0; index < next.count; index++) {
+                if (posset_add(out, next.items[index])) {
+                    posset_add(&cur, next.items[index]);
+                }
+            }
+        }
+    }
+    posset_free(schema, &next);
+    posset_free(schema, &cur);
+    posset_free(schema, &seen);
+}
+
+/* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
+static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
+                             posset *out, int in_all) {
+    posset_clear(out);
+    int min = xsd_occurs_min(schema->tree, particle);
+    int max = xsd_occurs_max(schema->tree, particle);
+    if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
+        min = min == 0 ? 0 : 1;
+        max = max == 0 ? 0 : 1;
+    }
+    if (max < 0) {
+        xsd_match_unbounded(schema, inst, particle, children, in, min, out);
+    } else {
+        xsd_match_bounded(schema, inst, particle, children, in, min, max, out);
+    }
+}
+
 static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                            posset *out) {
-    out->lo = out->hi = 0;
+    posset_clear(out);
     if (is_schema_el(schema, particle, XSD_NS, "element")) {
         edecl want;
         xsd_element_name(schema, particle, &want);
-        for (Py_ssize_t pos = in->lo; pos < in->hi && pos + 1 < in->size; pos++) {
+        for (Py_ssize_t index = 0; index < in->count; index++) {
             TH_WORK_STEP();
-            if (!in->pos[pos]) {
+            Py_ssize_t pos = in->items[index];
+            if (pos + 1 >= in->size) {
                 continue;
             }
             qname name = node_qname(inst, children[pos], children[pos]->text, children[pos]->text_len, 0);
@@ -356,8 +415,8 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     }
     if (is_schema_el(schema, particle, XSD_NS, "choice")) {
         posset branch = posset_alloc(schema, in->size);
-        if (branch.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;               /* GCOVR_EXCL_LINE */
+        if (branch.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;                  /* GCOVR_EXCL_LINE */
         }
         for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
             /* wildcards are not matched: xs:any stays the branch that consumes nothing, without a descent */
@@ -378,8 +437,8 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     /* sequence: thread the position set through each child particle in order */
     posset cur = posset_alloc(schema, in->size);
     posset next = posset_alloc(schema, in->size);
-    if (cur.pos == NULL || next.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                /* GCOVR_EXCL_LINE */
+    if (cur.member == NULL || next.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                      /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
     const int in_all = is_schema_el(schema, particle, XSD_NS, "all");
@@ -1339,14 +1398,14 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
 
     posset start = posset_alloc(schema, nchildren + 1);
     posset end = posset_alloc(schema, nchildren + 1);
-    if (start.pos == NULL || end.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                 /* GCOVR_EXCL_LINE */
+    if (start.member == NULL || end.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                       /* GCOVR_EXCL_LINE */
     }
     posset_add(&start, 0);
     if (base_model != NULL) {
         posset after_base = posset_alloc(schema, nchildren + 1);
-        if (after_base.pos == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;                   /* GCOVR_EXCL_LINE */
+        if (after_base.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;                      /* GCOVR_EXCL_LINE */
         }
         xsd_match_occurs(schema, inst, base_model, children, &start, &after_base, 0);
         if (model != NULL) {
@@ -1358,7 +1417,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         xsd_match_occurs(schema, inst, model, children, &start, &end, 0);
     }
 
-    if (end.hi != end.size) { /* hi is one past the furthest position reached */
+    if (!end.member[nchildren]) {
         report(ctx, instance, "structure", "content of element does not match its content model");
     }
 
