@@ -1274,7 +1274,8 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
     Py_ssize_t out_len;
     Py_UCS4 *data;
     Py_BEGIN_CRITICAL_SECTION(handle);
-    data = th_node_markdown(((HandleObject *)handle)->tree, ((NodeObject *)self)->node, &opt, &out_len);
+    data = th_node_markdown(((HandleObject *)handle)->tree, ((NodeObject *)self)->node, &opt,
+                            &((HandleObject *)handle)->md_ordinals, &out_len);
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
     Py_XDECREF(conv);

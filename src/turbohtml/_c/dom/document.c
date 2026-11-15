@@ -1595,6 +1595,7 @@ static void handle_dealloc(PyObject *self) {
     path_positions_free(handle->path_child_positions);
     th_copy_memo_free(&handle->copies);
     handle_drop_slots(handle);
+    th_markdown_ordinals_free(handle->md_ordinals);
     th_tree_free(handle->tree);
     Py_XDECREF(handle->source);
     Py_XDECREF(handle->encoding);
