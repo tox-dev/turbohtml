@@ -1,0 +1,1 @@
+``minify_css`` and ``minify_css_inline`` treat a leading byte-order mark as the encoding signature, so the first rule or declaration after it is no longer dropped.
