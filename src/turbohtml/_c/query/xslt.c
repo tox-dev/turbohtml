@@ -3474,26 +3474,172 @@ static int instantiate_without_element(engine *eng, th_node *instruction, th_nod
     return 0;
 }
 
-/* Whether an xsl:element with an unprefixed name creates an element in no namespace: its namespace attribute evaluates
-   to the empty string, or it has none and the stylesheet's default namespace in scope is empty. */
-static int element_no_namespace(engine *eng, th_node *instruction) {
-    Py_ssize_t ns_avt_len = 0;
-    const Py_UCS4 *ns_avt = attr_lookup(eng->sheet_tree, instruction, "namespace", 9, &ns_avt_len);
-    if (ns_avt == NULL) {
-        const th_node_attr *decl = sheet_default_decl(eng, instruction);
-        return decl == NULL || decl->value_len == 0;
+static Py_ssize_t qname_colon(const Py_UCS4 *name, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (name[index] == ':') {
+            return index;
+        }
     }
-    Py_UCS4 *nsuri;
-    Py_ssize_t nsuri_len = 0;
-    if (eval_avt(eng, ns_avt, ns_avt_len, &nsuri, &nsuri_len) < 0) {
-        return -1;
-    }
-    int empty = nsuri == NULL;
-    PyMem_Free(nsuri);
-    return empty;
+    return -1;
 }
 
-/* xsl:element name={avt}: create an element and instantiate its body inside it. */
+/* The namespace an xsl:element creates its element in (section 7.1.2): the namespace attribute's value when present,
+   else the stylesheet's binding of the name's prefix, or of the default namespace for an unprefixed name. *evaluated
+   owns the buffer it returns. A NULL *uri or a zero *uri_len is no namespace. Returns -1 on error. */
+static int element_namespace(engine *eng, th_node *instruction, const Py_UCS4 *name, Py_ssize_t colon,
+                             Py_UCS4 **evaluated, const Py_UCS4 **uri, Py_ssize_t *uri_len) {
+    *evaluated = NULL;
+    Py_ssize_t ns_avt_len = 0;
+    const Py_UCS4 *ns_avt = attr_lookup(eng->sheet_tree, instruction, "namespace", 9, &ns_avt_len);
+    if (ns_avt != NULL) {
+        if (eval_avt(eng, ns_avt, ns_avt_len, evaluated, uri_len) < 0) {
+            return -1;
+        }
+        *uri = *evaluated;
+        return 0;
+    }
+    if (colon < 0) {
+        const th_node_attr *decl = sheet_default_decl(eng, instruction);
+        *uri = decl == NULL ? NULL : decl->value;
+        *uri_len = decl == NULL ? 0 : decl->value_len;
+        return 0;
+    }
+    if (ucs4_ascii_eq(name, colon, "xml")) {
+        *evaluated = ucs4_from_ascii(XP_XML_NS_URI, sizeof(XP_XML_NS_URI) - 1, uri_len);
+        if (*evaluated == NULL) {              /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        *uri = *evaluated;
+        return 0;
+    }
+    Py_ssize_t prefix_len = 0;
+    char *prefix = ucs4_to_utf8(name, colon, &prefix_len);
+    if (prefix == NULL) {                  /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    const th_node_attr *declared;
+    int resolved =
+        pattern_declaration(&eng->sheet_declarations, eng->sheet_tree, instruction, prefix, prefix_len, &declared);
+    PyMem_Free(prefix);
+    if (resolved < 0) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    if (declared == NULL) {
+        return fail(eng, "xsl:element name uses an undeclared prefix");
+    }
+    *uri = declared->value;
+    *uri_len = declared->value_len;
+    return 0;
+}
+
+static int qname_join(xb *qname, const char *prefix, const Py_UCS4 *local, Py_ssize_t local_len) {
+    if (xb_add_ascii(qname, prefix) < 0 || xb_add_char(qname, ':') < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                        /* GCOVR_EXCL_LINE */
+    }
+    return xb_add(qname, local, local_len);
+}
+
+/* Declares xmlns:prefix (or xmlns when prefix_len is 0) on element to uri, unless an output ancestor already binds that
+   prefix to uri. */
+static int declare_element_ns(engine *eng, th_node *element, th_node *out_parent, const Py_UCS4 *prefix,
+                              Py_ssize_t prefix_len, const Py_UCS4 *uri, Py_ssize_t uri_len) {
+    xb decl = {0};
+    int added = prefix_len > 0 ? qname_join(&decl, "xmlns", prefix, prefix_len) : xb_add_ascii(&decl, "xmlns");
+    if (added < 0) {                       /* GCOVR_EXCL_BR_LINE: alloc */
+        xb_free(&decl);                    /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t decl_len = 0;
+    char *utf8 = ucs4_to_utf8(decl.data, decl.len, &decl_len);
+    xb_free(&decl);
+    if (utf8 == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    int in_scope = output_ns_in_scope(eng, out_parent, utf8, decl_len, uri, uri_len);
+    if (in_scope < 0) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(utf8);                  /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    int rc = in_scope ? 0 : th_node_attr_set(eng->out_tree, element, utf8, decl_len, uri, uri_len, 1);
+    PyMem_Free(utf8);
+    if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
+/* Creates the element xsl:element names, in namespace uri (section 7.1.2), and declares what that needs: the default
+   namespace for an unprefixed name, the name's prefix otherwise, or a generated ns_N when the prefix is reserved. */
+static int instantiate_element(engine *eng, th_node *instruction, th_node *out_parent, const Py_UCS4 *name,
+                               Py_ssize_t name_len, Py_ssize_t colon, const Py_UCS4 *uri, Py_ssize_t uri_len) {
+    const Py_UCS4 *local = name + colon + 1;
+    Py_ssize_t local_len = name_len - colon - 1;
+    xb qname = {0};
+    const Py_UCS4 *text = name;
+    Py_ssize_t text_len = name_len;
+    Py_ssize_t text_colon = colon;
+    int bound = eng->default_bound;
+    int declare = 0;
+    int xml = eng->output_method == OUT_XML;
+    if (uri_len == 0) {
+        text = local;
+        text_len = local_len;
+        text_colon = -1;
+        bound = 0;
+    } else if (ucs4_ascii_eq(uri, uri_len, XP_XML_NS_URI)) {
+        if (qname_join(&qname, "xml", local, local_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&qname);                                   /* GCOVR_EXCL_LINE */
+            return fail(eng, "out of memory");                 /* GCOVR_EXCL_LINE */
+        }
+        text = qname.data;
+        text_len = qname.len;
+        text_colon = 3;
+    } else if (colon < 0) {
+        bound = xml;
+        declare = xml;
+    } else {
+        declare = xml;
+        if (ucs4_ascii_eq(name, colon, "xml")) {
+            char generated[32];
+            int made = snprintf(generated, sizeof(generated), "ns_%d", ++eng->ns_counter);
+            if (qname_join(&qname, generated, local, local_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                xb_free(&qname);                                       /* GCOVR_EXCL_LINE */
+                return fail(eng, "out of memory");                     /* GCOVR_EXCL_LINE */
+            }
+            text = qname.data;
+            text_len = qname.len;
+            text_colon = made;
+        }
+    }
+    uint16_t atom = atom_for_name(text, text_len);
+    th_node *element = th_tree_make_element(eng->out_tree, text, text_len, atom, 0);
+    if (element == NULL) {                 /* GCOVR_EXCL_BR_LINE: alloc */
+        xb_free(&qname);                   /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    th_node_append_child(out_parent, element);
+    int rc = 0;
+    if (uri_len == 0) {
+        if (eng->default_bound) {
+            rc = undeclare_default(eng, element);
+        }
+    } else if (declare) {
+        Py_ssize_t prefix_len = text_colon < 0 ? 0 : text_colon;
+        rc = declare_element_ns(eng, element, out_parent, text, prefix_len, uri, uri_len);
+    }
+    xb_free(&qname);
+    if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t use_len = 0;
+    const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
+    if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
+        return -1;
+    }
+    return instantiate_under(eng, instruction, element, bound, NULL);
+}
+
+/* xsl:element name={avt} namespace={avt}: create an element in its namespace and instantiate its body inside it. */
 static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t name_len = 0;
     const Py_UCS4 *name_avt = attr_lookup(eng->sheet_tree, instruction, "name", 4, &name_len);
@@ -3509,32 +3655,17 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
         PyMem_Free(name);
         return instantiate_without_element(eng, instruction, out_parent);
     }
-    uint16_t atom = atom_for_name(name, resolved_len);
-    th_node *element = th_tree_make_element(eng->out_tree, name, resolved_len, atom, 0);
+    Py_ssize_t colon = qname_colon(name, resolved_len);
+    Py_UCS4 *evaluated;
+    const Py_UCS4 *uri;
+    Py_ssize_t uri_len = 0;
+    int rc = element_namespace(eng, instruction, name, colon, &evaluated, &uri, &uri_len);
+    if (rc == 0) {
+        rc = instantiate_element(eng, instruction, out_parent, name, resolved_len, colon, uri, uri_len);
+    }
+    PyMem_Free(evaluated);
     PyMem_Free(name);
-    if (element == NULL) {                 /* GCOVR_EXCL_BR_LINE: alloc */
-        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
-    }
-    th_node_append_child(out_parent, element);
-    int bound = eng->default_bound;
-    if (bound && !name_is_prefixed(element->text, element->text_len)) {
-        int no_namespace = element_no_namespace(eng, instruction);
-        if (no_namespace < 0) {
-            return -1;
-        }
-        if (no_namespace) {
-            if (undeclare_default(eng, element) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                             /* GCOVR_EXCL_LINE */
-            }
-            bound = 0;
-        }
-    }
-    Py_ssize_t use_len = 0;
-    const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
-    if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
-        return -1;
-    }
-    return instantiate_under(eng, instruction, element, bound, NULL);
+    return rc;
 }
 
 static uint32_t out_binding_hash(const th_node *element, const Py_UCS4 *uri, Py_ssize_t uri_len) {
@@ -8672,15 +8803,16 @@ static int precompile_instruction(engine *eng, th_node *element) {
             return -1;
         }
     }
-    if (is_xsl(eng, element, "element") || is_xsl(eng, element, "attribute") ||
-        is_xsl(eng, element, "processing-instruction")) {
+    int element_instruction = is_xsl(eng, element, "element");
+    int attribute_instruction = !element_instruction && is_xsl(eng, element, "attribute");
+    if (element_instruction || attribute_instruction || is_xsl(eng, element, "processing-instruction")) {
         Py_ssize_t length = 0;
         const Py_UCS4 *source = attr_lookup(eng->sheet_tree, element, "name", 4, &length);
         if (source != NULL && precompile_avt(eng, source, length) < 0) {
             return -1;
         }
     }
-    if (is_xsl(eng, element, "attribute")) {
+    if (element_instruction || attribute_instruction) {
         Py_ssize_t length = 0;
         const Py_UCS4 *source = attr_lookup(eng->sheet_tree, element, "namespace", 9, &length);
         if (source != NULL && precompile_avt(eng, source, length) < 0) {
