@@ -314,6 +314,7 @@ typedef struct {
     int pending_word;           /* code points in the word the owed space precedes, for greedy wrapping */
     int no_wrap;                /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
     int inline_only;            /* >0 inside link text: a block flattens to inline, never opens a line */
+    th_node *link;              /* the link whose text is being written, kept for a converter's content too */
     int in_cell;                /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
     int in_heading;             /* inside a heading: a <br> becomes a space, since a heading is one line of text */
     int drop_space;             /* swallow the next pending space (block/inline start) without emitting */
@@ -1342,6 +1343,8 @@ static Py_UCS4 md_text_first(md_ctx *ctx, th_node *node, Py_UCS4 fallback) {
     return text == NULL ? fallback : text[0]; /* GCOVR_EXCL_BR_LINE: lazy text OOM */
 }
 
+static int md_is_link(md_ctx *ctx, th_node *node);
+
 /* The character the output holds right after an inline element, read off the tree for
    the flanking test of its closing run: the next text's first character, a line end at
    a block or cell boundary or a break, the punctuation an enclosing run or a link closes
@@ -1380,7 +1383,8 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
             if (md_is_emphasis(atom)) {
                 return '*';
             }
-            if (atom == TH_TAG_A && th_node_attr_find(ctx->tree, cursor, "href", 4) >= 0) {
+            /* inside link text only that link closes with a bracket: an `a` in it is a placeholder */
+            if (ctx->link != NULL ? cursor == ctx->link : md_is_link(ctx, cursor)) {
                 return ']';
             }
             next = cursor->next_sibling;
@@ -1403,8 +1407,8 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
         if (atom == TH_TAG_IMG) {
             return punct_depth > 0 ? '*' : 'a';
         }
-        if (atom == TH_TAG_A && !opt->ignore_links && th_node_attr_find(ctx->tree, cursor, "href", 4) >= 0) {
-            return '['; /* link text opens with its bracket, empty or not */
+        if (ctx->link == NULL && md_is_link(ctx, cursor)) {
+            return '['; /* link text opens with its bracket, empty or not; inside link text an `a` is a placeholder */
         }
         if ((atom == TH_TAG_DEL || atom == TH_TAG_S || atom == TH_TAG_STRIKE) && !opt->keep_strikethrough) {
             continue; /* struck-through content is not written */
@@ -2141,7 +2145,9 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
     }
     Py_ssize_t title_len;
     const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
-    if (ignored || !md_clone_pays(ctx, node, href_len + title_len)) {
+    /* a link cannot hold a link (CommonMark 6.3): a reader takes the inner one alone and reads the outer
+       destination and title as text, where a `<` opens raw HTML, so inside link text an `a` is a placeholder too */
+    if (ignored || ctx->link != NULL || !md_clone_pays(ctx, node, href_len + title_len)) {
         md_push(ctx, node, MD_WALK_INLINE, opt->wrap_links ? MD_LEAVE_NONE : MD_LEAVE_NO_WRAP);
         return;
     }
@@ -2184,11 +2190,13 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
        `x [t](...)` */
     frame->marker = md_push_marker(ctx, "[");
     ctx->inline_only++;
+    ctx->link = node;
 }
 
 static void md_leave_link(md_ctx *ctx, md_frame *frame) {
     const md_opts *opt = ctx->opt;
     ctx->inline_only--;
+    ctx->link = NULL;
     if (frame->marker >= 0 && !ctx->markers[frame->marker].emitted) { /* GCOVR_EXCL_BR_LINE: -1 only on failure */
         md_before_visible(ctx); /* link text with nothing visible still gets its brackets */
     }
@@ -2618,8 +2626,8 @@ static int md_code_writes_text(md_ctx *ctx, th_node *node) {
 }
 
 /* Whether an element renders as a Markdown link, whose text cannot hold a block: the
-   cases md_enter_link leaves as a placeholder are not. Only elements reach here: the
-   link a break sits in, its element ancestors, and elements after the break. */
+   cases md_enter_link leaves as a placeholder are not. Inside link text every other
+   link is a placeholder too, which the callers decide from md_ctx.link. */
 static int md_is_link(md_ctx *ctx, th_node *node) {
     if (node->ns != TH_NS_HTML || node->atom != TH_TAG_A || ctx->opt->ignore_links ||
         th_node_attr_find(ctx->tree, node, "href", 4) < 0) {
@@ -2648,10 +2656,7 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
     }
     /* link text flattens its blocks onto its line (md_render_inline_tag), so inside a
        link a block ends nothing; link holds the link the scan is in */
-    th_node *link = NULL;
-    for (th_node *ancestor = node->parent; ctx->inline_only > 0 && link == NULL; ancestor = ancestor->parent) {
-        link = md_is_link(ctx, ancestor) ? ancestor : NULL;
-    }
+    th_node *link = ctx->inline_only > 0 ? ctx->link : NULL;
     th_node *cursor = node;
     th_node *next = node->next_sibling;
     for (;;) {

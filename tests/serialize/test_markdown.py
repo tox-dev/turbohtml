@@ -1766,6 +1766,7 @@ def test_selected_item_keeps_nested_list_depth() -> None:
         pytest.param("<p>a<b>x<br>y</b>c</p>", "a**x  \ny**c", id="break-inside-emphasis-stays-inside"),
         pytest.param("<p>a<a href='u'>x<br></a>c</p>", "a[x  \n](u)c", id="break-stays-inside-link-text"),
         pytest.param("<math><mtext>x<br></mtext></math>", "x", id="break-climbs-out-of-a-foreign-parent"),
+        pytest.param("<p>a<br><math><mtext>b</mtext></math></p>", "a  \nb", id="break-before-foreign-content-kept"),
         pytest.param("<p><br><a></a></p>", "", id="break-before-placeholder-link-dropped"),
         pytest.param("<p>x<br><em></em></p>", "x", id="break-before-empty-emphasis-dropped"),
         pytest.param('<p>x<br><a href="/t"></a></p>', "x[](/t)", id="break-before-empty-link-dropped"),
@@ -1799,6 +1800,142 @@ def test_break_in_skipped_link_inside_link_text() -> None:
     inner = Element("a", {"href": "#t"}, [Text("x"), Element("br"), Element("div", children=[Text("y")])])
     root = Element("p", children=[Element("a", {"href": "/u"}, [inner])])
     assert root.to_markdown(Markdown(links=Markdown.Links(skip_internal=True))) == "[x  \ny](/u)"
+
+
+@pytest.mark.parametrize(
+    ("html", "config", "expected"),
+    [
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><table><tr><td><a href="/x">z</a></td></tr></table></a>',
+            Markdown(),
+            '[z](/y "\\<b>")',
+            id="table-cell",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><table><caption><a href="/x">z</a></caption></table></a>',
+            Markdown(),
+            '[z](/y "\\<b>")',
+            id="caption",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><object><a href="/x">z</a></object></a>',
+            Markdown(),
+            '[z](/y "\\<b>")',
+            id="object",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><marquee><a href="/x">z</a></marquee></a>',
+            Markdown(),
+            '[z](/y "\\<b>")',
+            id="marquee",
+        ),
+        pytest.param(
+            '<a href="/y?&lt;b&gt;"><table><tr><td><a href="/x">z</a></td></tr></table></a>',
+            Markdown(),
+            "[z](/y?\\<b>)",
+            id="bare-destination",
+        ),
+        pytest.param(
+            '<a href="b c"><table><tr><td><a href="/x">z</a></td></tr></table></a>',
+            Markdown(),
+            "[z](<b c>)",
+            id="angle-destination",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><table><tr><td><a href="http://x/">http://x/</a></td></tr></table></a>',
+            Markdown(),
+            '[http://x/](/y "\\<b>")',
+            id="inner-autolink",
+        ),
+        pytest.param(
+            '<a href="/y"><object>a<a href="/x">b<object><a href="/w">c</a></object></a></object></a>',
+            Markdown(),
+            "[abc](/y)",
+            id="three-deep",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><table><tr><td><a href="/x">z</a></td></tr></table></a>',
+            Markdown(links=Markdown.Links(style="reference")),
+            '[z][1]\n\n[1]: /y "\\<b>"',
+            id="reference",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><table><tr><td><span><a href="/x">z</a></span></td></tr></table></a>',
+            Markdown(converters={"span": lambda _element, content: content}),
+            '[z](/y "\\<b>")',
+            id="converter-content",
+        ),
+        pytest.param(
+            '<a href="/y" title="&lt;b&gt;"><object><a href="/x">z</a></object></a> <a href="/w">w</a>',
+            Markdown(),
+            '[z](/y "\\<b>") [w](/w)',
+            id="link-after-the-outer-link-is-a-link",
+        ),
+        pytest.param(
+            '<a href="/y"><table><tr><td>a <a href="/x">z</a> b</td></tr></table></a> c c c c',
+            Markdown(wrapping=Markdown.Wrapping(width=4, links=False)),
+            "[a z b](/y)\nc c\nc c",
+            id="unwrapped-outer-link-then-wrapping-resumes",
+        ),
+    ],
+)
+def test_link_inside_link_text_is_written_as_its_content(html: str, config: Markdown, expected: str) -> None:
+    # a CommonMark link cannot hold a link (6.3): written as one, the inner link alone would be read as a link and
+    # the outer destination and title as text, where their `<` opens raw HTML
+    output: Final = parse(html).to_markdown(config)
+    assert output == expected
+    assert {element.tag for element in parse(_render(output)).select("body *")} == {"p", "a"}
+
+
+@pytest.mark.parametrize(
+    ("html", "config", "expected"),
+    [
+        pytest.param(
+            "<a href=u>x<object><em>y.</em><a href=v>z</a></object></a>",
+            Markdown(),
+            "[x<em>y.</em>z](u)",
+            id="before-a-link-inside-link-text",
+        ),
+        pytest.param(
+            "<a href=u>x<object><a href=v><em>y.</em></a>z</object></a>",
+            Markdown(),
+            "[x<em>y.</em>z](u)",
+            id="ending-a-link-inside-link-text",
+        ),
+        pytest.param("<a href=u>x<em>y.</em></a>z", Markdown(), "[x*y.*](u)z", id="ending-the-link"),
+        pytest.param("<p><em>x.</em><a href=v>z</a></p>", Markdown(), "*x.*[z](v)", id="before-a-link"),
+        pytest.param(
+            '<p><em>x.</em><a href="#i">z</a></p>',
+            Markdown(links=Markdown.Links(skip_internal=True)),
+            "<em>x.</em>z",
+            id="before-a-skipped-internal-link",
+        ),
+    ],
+)
+def test_closing_run_next_to_a_link_placeholder(html: str, config: Markdown, expected: str) -> None:
+    # a closing run after punctuation pairs only before more punctuation: a link writes a bracket, a placeholder none
+    output: Final = parse(html).to_markdown(config)
+    assert output == expected
+    assert [element.text for element in parse(_render(output)).select("em")] == [parse(html).select("em")[0].text]
+
+
+def test_break_in_link_inside_link_text() -> None:
+    # the inner link is a placeholder, so the outer one's text still flattens the block after it
+    html: Final = '<a href="/u"><object><a href="/t">x<br></a><div>y</div></object></a>'
+    assert md(html) == "[x  \ny](/u)"
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("#t", "x\n\ny", id="skipped-link"),
+        pytest.param("/t", "x  \n[y](/t)", id="kept-link"),
+    ],
+)
+def test_break_before_block_in_link_with_internal_links_skipped(href: str, expected: str) -> None:
+    # a skipped link is a placeholder, so the block in it stays a block and ends the one the break is in
+    html: Final = f'<div>x<br><a href="{href}"><div>y</div></a></div>'
+    assert parse(html).to_markdown(Markdown(links=Markdown.Links(skip_internal=True))) == expected
 
 
 def test_break_inside_raw_emphasis_survives_round_trip() -> None:
@@ -2287,11 +2424,6 @@ _REFERENCE_LINKS: Final[Markdown] = Markdown(links=Markdown.Links(style="referen
         pytest.param(f'<a href="http://a/{_DEEP}{_SCRIPT}">t</a>', Markdown(), id="destination"),
         pytest.param(f'<a href="http://a/{_DEEP}" title="{_SCRIPT}">t</a>', _REFERENCE_LINKS, id="definition-title"),
         pytest.param(f'<a href="http://a/{_DEEP}{_SCRIPT}">t</a>', _REFERENCE_LINKS, id="definition-destination"),
-        pytest.param(
-            f'<a href="/a" title="{_SCRIPT}">x<table><tr><td><a href="/b">y</a></table></a>',
-            Markdown(),
-            id="link-in-link",
-        ),
     ],
 )
 def test_refused_link_leaves_no_raw_html(html: str, config: Markdown) -> None:
