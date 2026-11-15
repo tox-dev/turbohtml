@@ -599,6 +599,15 @@ CSS_NOINLINE static int css_prelude_space_optional(const token_vec *vec, Py_ssiz
     return vec->items[index].kind == CSS_STR;
 }
 
+static CSS_FORCEINLINE void css_insert_space(css_buf *out, Py_ssize_t mark) {
+    if (!cbuf_reserve(out, 1)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return;                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    memmove(out->data + mark + 1, out->data + mark, (size_t)(out->len - mark) * sizeof(css_char));
+    out->data[mark] = ' ';
+    out->len++;
+}
+
 /* Render an at-rule prelude into out: a leading space unless it opens with '(' or a string, where only @charset keeps
    one, since a stylesheet's encoding is sniffed from the exact bytes `@charset "` (CSS Syntax 3 §3.2). */
 static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, int allow_url_string,
@@ -714,12 +723,12 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
     default:
         break;
     }
-    if (!cbuf_reserve(out, 1)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    /* a raw name ending in a hex escape takes the closing space a spelled name already has, so the first pass writes
+       what the second pass reads back; only input with an escape can end a name in one */
+    if (vec->escapes && css_hex_escape_ends(out->data, mark)) {
+        css_insert_space(out, mark);
     }
-    memmove(out->data + mark + 1, out->data + mark, (size_t)(out->len - mark) * sizeof(css_char));
-    out->data[mark] = ' ';
-    out->len++;
+    css_insert_space(out, mark);
 }
 
 /* Write a closer for each block a statement at-rule's prelude leaves open at the end of input, where consuming a simple
@@ -2252,6 +2261,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        reads the at-statements behind a written delimiter as at-statements again, so they keep their separators. */
     int delim_pending = 0;
     int delim_written = 0;
+    int stray_since_delim = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
         if (item->dropped || (item->unsniffed && top && out->len == 0)) {
@@ -2275,6 +2285,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             if (delim_pending && item->text_len > 0 && ((item->stray && lead > 0) || text[0] == '@')) {
                 cbuf_putc(out, ';');
                 delim_written = 1;
+                stray_since_delim = 0;
                 prev_stray = 0;
             }
             if (lead < item->text_len) {
@@ -2288,7 +2299,8 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             if (item->stray == 2) {
                 /* the text opens no rule, so only what was written earlier keeps what follows in one; behind a written
                    delimiter the text still needs its own, or the reparse reads an at-statement after it as its end */
-                delim_pending = !after_stray && (!delim_written || item->text_len > 0);
+                delim_pending = !after_stray && (!delim_written || item->text_len > 0 || stray_since_delim);
+                stray_since_delim = stray_since_delim || item->text_len > 0;
                 prev_stray = prev_stray || item->text_len > 0;
             } else {
                 prev_stray = top && item->stray;

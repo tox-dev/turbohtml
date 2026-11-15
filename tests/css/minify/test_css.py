@@ -2785,6 +2785,14 @@ _STRAY_BRACKET: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{b:(<!--\\2d", "a{b:(<!--\\2d )}", "a{b:(<!--\\2d )}", id="hex-escape-before-closer"),
     pytest.param("a{b:[<!--\\2d", "a{b:[<!--\\2d ]}", "a{b:[<!--\\2d ]}", id="hex-escape-before-bracket-closer"),
     pytest.param("a:(<!--\\2d", "a:(<!--\\2d", "a:(<!--\\2d )", id="declaration-hex-escape-before-closer"),
+    pytest.param("@1\\2d}x", "@1\\2d  }x;", "@1\\2d", id="hex-escape-at-keyword-before-brace"),
+    pytest.param("@1\\2d }x", "@1\\2d  }x;", "@1\\2d ", id="hex-escape-at-keyword-then-space-before-brace"),
+    pytest.param("@1\\2d}@b", "@1\\2d  }@b;", "@1\\2d", id="hex-escape-at-keyword-before-brace-and-at-rule"),
+    pytest.param("<!--;<!--}}@b", ";<!--;@b;", "", id="cdo-behind-delimiter-before-at-rule"),
+    pytest.param(";;<!--}}@b", ";<!--;@b;", "", id="cdo-behind-empty-delimiter-before-at-rule"),
+    pytest.param(";;-->}}@b", ";-->;@b;", "", id="cdc-behind-empty-delimiter-before-at-rule"),
+    pytest.param(";-->}}@import", ";-->;@import;", "", id="cdc-before-import-at-rule"),
+    pytest.param("}-->}@media}<:)", ";-->;@media;<:)", "", id="cdc-at-rule-before-stray-text"),
 ]
 
 
@@ -2798,9 +2806,10 @@ def test_minify_stray_bracket_is_a_fixed_point(source: str, stylesheet: str, inl
     assert (minify_css(minify_css(source)), minify_css_inline(minify_css_inline(source))) == (stylesheet, inline)
 
 
-@pytest.mark.parametrize("seed", range(2000))
+@pytest.mark.parametrize("seed", range(10000))
 def test_minify_stray_bracket_output_is_a_fixed_point(seed: int) -> None:
     segments = ("(:)", "[:]", "(", "[", "{", ")", "]", "}", "url", "b", ":", ";", " ", "(:", "url(", "ur", "l(", "(;")
+    segments += ("<!--", "-->", "@1\\2d", "\\2d", "@import", "@b")
     rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
     source = "".join(rng.choice(segments) for _ in range(rng.randint(1, 6)))
     stylesheet = minify_css(source)
