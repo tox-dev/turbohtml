@@ -596,6 +596,27 @@ void ser_put_html_doctype(sbuf *out, th_tree *tree, th_node *node);
    reparses in. */
 int ser_end_tag_omissible(th_tree *tree, th_node *node, int strip_comments, int formatting_depth,
                           int trailing_formatting, int quirks);
+/* Write the end tag a script needs ahead of its own when its content, which the caller wrote at out[content..], leaves
+   a re-parse in the script data double escaped state: after a "<!--" that no "-->" ended and, inside it, a "<script"
+   start tag that no "</script" end tag ended. There the next "</script>" only ends the double escape, so one end tag
+   does not close the element. A parse makes such text only in a script the input ended inside, but the walk is in tree
+   order, where the "after head" and "after body" rules and foster parenting put that script ahead of a comment or
+   style the source had before it: left open it would run on to a "</script>" inside one and turn the rest of that
+   node into markup. Writes nothing for an element that is not a script, and callers skip a script nested in another
+   raw-text element, whose end tag is text there. verbatim says out[content..] is the element's text unchanged: a
+   script whose content is one Text node then keeps a clean result on that node (script_text_closes), so serializing
+   the same tree again skips the scan. The parser sets that bit on the text of a script its end tag closed. */
+void ser_script_end_scan(sbuf *out, th_node *element, Py_ssize_t content, th_node *alone);
+static inline void ser_end_script_double_escape(sbuf *out, th_node *element, Py_ssize_t content, int verbatim) {
+    if (element->atom != TH_TAG_SCRIPT) {
+        return;
+    }
+    th_node *text = element->first_child;
+    th_node *alone = verbatim && text != NULL && text->type == TH_NODE_TEXT && text->next_sibling == NULL ? text : NULL;
+    if (alone == NULL || !alone->script_text_closes) {
+        ser_script_end_scan(out, element, content, alone);
+    }
+}
 
 /* The WHATWG fragment-serialization void set extends the parser's void elements
    with `frame`: it is emitted as a start tag only, never an end tag. `frame` is

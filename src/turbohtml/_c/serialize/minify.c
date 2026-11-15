@@ -842,6 +842,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node, tree->scripting)) {
+                Py_ssize_t content = out->len;
                 /* the JS and CSS minifiers parse text alone, so a markup child keeps the content verbatim */
                 if (rawtext_markup_child(node) != NULL) {
                     ser_put_rawtext_markup(out, tree, node, node->first_child, st, opts->strip_comments);
@@ -854,6 +855,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 if (node->atom == TH_TAG_PLAINTEXT) {
                     after_plaintext = 1;
                 } else if (!(st->inner && node == root)) {
+                    ser_end_script_double_escape(out, node, content, 0);
                     ser_close_tag(out, node);
                 }
                 break;

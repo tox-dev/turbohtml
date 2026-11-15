@@ -4308,8 +4308,15 @@ static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc, int
         insert_text(tree, text, len);
         return TH_DRAIN_NEXT;
     }
-    /* end tag (or EOF) closes the raw-text/RCDATA element; a depth-capped one never reached the stack */
+    /* the end tag closes the raw-text/RCDATA element; a depth-capped one never reached the stack */
     if (pushed) {
+        th_node *element = current_node(tree);
+        /* the tokenizer reads a script's end tag only outside the double escaped state, so a re-parse of its text,
+           which the inserts merge into one node, ends there too and the serializer can skip its scan; the end of input
+           pops a script elsewhere, so the one it ends inside keeps the scan */
+        if (element->atom == TH_TAG_SCRIPT && element->first_child != NULL) {
+            element->first_child->script_text_closes = 1;
+        }
         stack_pop(tree);
     }
     dc->mode = dc->original_mode;

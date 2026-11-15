@@ -670,6 +670,7 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
         return -1;                           /* GCOVR_EXCL_LINE: allocation failure */
     }
     th_mo_char_data_changed(tree, node, old, node->text_len);
+    node->script_text_closes = 0;
     if (len == 0) {
         if (node->text_capacity_shift == 0) {
             node->text = (Py_UCS4 *)th_empty_text;
@@ -698,6 +699,7 @@ int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_
         return -1;                           /* GCOVR_EXCL_LINE: allocation failure */
     }
     th_mo_char_data_changed(tree, node, old, node->text_len);
+    node->script_text_closes = 0;
     Py_ssize_t remaining = node->text_len - to;
     if (remaining == 0) {
         node->text_len = from;
@@ -1902,6 +1904,7 @@ static int normalize_children(th_tree *tree, th_node *root, int iterators) {
                     offset += part->text_len;
                 }
                 child->text_len = merged_len;
+                child->script_text_closes = 0;
             }
             while (next != end) {
                 th_node *after = next->next_sibling;
