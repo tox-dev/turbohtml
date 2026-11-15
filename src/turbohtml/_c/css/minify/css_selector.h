@@ -36,6 +36,19 @@ CSS_NOINLINE static Py_ssize_t css_legacy_pseudo_name(const token_vec *vec, Py_s
     return name < end && css_is_legacy_pseudo_element(&vec->items[name]) ? name : -1;
 }
 
+/* Whether the colon at index directly follows another colon, comments aside. A `::` it starts is part of a longer run,
+   which no pseudo-element spells, so the legacy shortening must leave it as written. */
+static int css_colon_before(const token_vec *vec, Py_ssize_t start, Py_ssize_t index) {
+    while (index > start) {
+        const css_token *previous = &vec->items[--index];
+        if (previous->kind == CSS_COMMENT) {
+            continue;
+        }
+        return previous->kind == CSS_DELIM && previous->delim == ':';
+    }
+    return 0;
+}
+
 /* Comments make no token; a namespace bar cannot start an unqualified universal (Selectors 4 §5.2). */
 static int css_universal_starts_compound(const token_vec *vec, Py_ssize_t start, Py_ssize_t index) {
     int whitespace = 0;
@@ -196,7 +209,8 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
         last_is_ident = token->kind == CSS_IDENT;
         if (token->kind == CSS_DELIM && token->delim == ':' && attr_depth == 0 && index + 1 < end &&
             (vec->items[index + 1].kind == CSS_COMMENT ||
-             (vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == ':'))) {
+             (vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == ':')) &&
+            !css_colon_before(vec, start, index)) {
             Py_ssize_t name = css_legacy_pseudo_name(vec, index + 1, end);
             if (name >= 0) {
                 cbuf_putc(out, ':'); /* legacy pseudo-element: emit one colon, drop the second; the name renders next */
