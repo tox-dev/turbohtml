@@ -343,6 +343,7 @@ class _StartTags(HTMLParser):
         pytest.param("<svg><font x FACE=a><style><i>", ["svg", "font", "style"], id="font-face"),
         pytest.param("<svg><font size=1><style><i>", ["svg", "font", "style"], id="font-size"),
         pytest.param("<svg><font ā size=1><style><i>", ["svg", "font", "style"], id="font-wide-name"),
+        pytest.param("<svg><font fāce=1><style><i>", ["svg", "font", "style", "i"], id="font-wide-same-length"),
         pytest.param("<svg><font sized><style><i>", ["svg", "font", "style", "i"], id="font-plain"),
         pytest.param("<svg><desc><svg><b><style><i>", ["svg", "desc", "svg", "b", "style"], id="breakout-to-point"),
         pytest.param("<svg></p><style><i>", ["svg", "style"], id="end-p"),
