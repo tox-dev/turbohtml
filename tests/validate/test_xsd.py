@@ -1011,7 +1011,8 @@ def test_all_children_naming_no_member_scale_linearly(work_steps: WorkSteps) -> 
         return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<zz/>' * count}</r>"))
 
     work_steps.assert_linear(build, _LINEAR_SIZES)
-    assert len(build(_LINEAR_SIZES[1])().errors) == _LINEAR_SIZES[1]
+    # validate() lists at most 1,000 of the errors
+    assert len(build(_LINEAR_SIZES[1])().errors) == 1_000
 
 
 def test_all_groups_scale_linearly(work_steps: WorkSteps) -> None:
