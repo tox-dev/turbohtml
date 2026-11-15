@@ -1551,7 +1551,8 @@ PyDoc_STRVAR(tables_doc, "tables()\n--\n\n"
                          "entry. The result is a list[list[list[str]]] of plain strings, with no pandas\n"
                          "dependency; pass one table to pandas.DataFrame for a frame. Raises ValueError\n"
                          "when tables nested inside two or more other tables repeat more than 16,000,000\n"
-                         "characters of cell text in one call.");
+                         "characters of cell text in one call, or when the spans and the padding of all the tables\n"
+                         "together add more than 4,000,000 cells to their grids.");
 
 TH_NODE_API(static, PyObject *, node_tables, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
