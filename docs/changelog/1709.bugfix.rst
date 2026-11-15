@@ -1,0 +1,2 @@
+Reading or clearing every attribute of an element with many attributes, or removing them by name from either end, now
+takes time linear in the attribute count.

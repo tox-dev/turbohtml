@@ -335,9 +335,7 @@ TH_NODE_API(static, PyObject *, attrs_copy, (PyObject * self, PyObject *ignored)
 /* Remove the attribute at index and return its value; the caller holds the tree lock. */
 static PyObject *attrs_take(PyObject *self, th_tree *tree, th_node *node, Py_ssize_t index) {
     PyObject *value = attrs_value(self, &node->attrs[index]);
-    Py_ssize_t name_len;
-    const char *name = th_attr_name(tree, node->attrs[index].name_atom, &name_len);
-    th_node_attr_del(tree, node, name, name_len);
+    th_node_attr_del_at(tree, node, index);
     return value;
 }
 
@@ -406,10 +404,9 @@ TH_NODE_API(static, PyObject *, attrs_clear, (PyObject * self, PyObject *ignored
     th_node *node = owner->node;
     th_tree *tree = tree_of((PyObject *)owner);
     Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    /* last first and by position: no name scan and nothing to shift, so clearing is linear in the attribute count */
     while (node->attr_count > 0) {
-        Py_ssize_t name_len;
-        const char *name = th_attr_name(tree, node->attrs[node->attr_count - 1].name_atom, &name_len);
-        th_node_attr_del(tree, node, name, name_len);
+        th_node_attr_del_at(tree, node, node->attr_count - 1);
     }
     Py_END_CRITICAL_SECTION();
     Py_RETURN_NONE;
