@@ -83,12 +83,15 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     return minified;
 }
 
-/* A style="" value has no rule list to write its bang comments after, so they lead its declarations. */
+/* A style="" value has no rule list to write its bang comments after, so the ones its declarations did not write where
+   they stand lead them. */
 static void css_lead_bangs(token_vec *tokens, css_buf *out) {
     for (Py_ssize_t index = 0; index < tokens->bang_len; index++) {
         css_bang *bang = &tokens->bangs[index];
-        cbuf_put_run(out, bang->text, bang->text_len);
-        bang->done = 1;
+        if (!bang->done) {
+            cbuf_put_run(out, bang->text, bang->text_len);
+            bang->done = 1;
+        }
     }
 }
 
@@ -131,10 +134,18 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
     if (!oom && cbuf_reserve(&pool, CSS_POOL_RESERVE(length)) && /* GCOVR_EXCL_BR_LINE: OOM only */
         cbuf_reserve(&out, length)) {                            /* GCOVR_EXCL_BR_LINE: OOM only */
         if (inline_mode) {
-            css_lead_bangs(&tokens, &out);
             decl_vec decls = {NULL, 0, 0, &oom, 0};
             css_parse_declarations(&pool, &cur, &decls, 0);
-            css_render_declarations(&pool, &decls, baseline, &out, CSS_DECL_NORMAL);
+            if (tokens.bang_len == 0) {
+                css_render_declarations(&pool, &decls, baseline, &out, CSS_DECL_NORMAL);
+            } else {
+                /* rendering marks the bang comments a declaration writes where it stands, so they are not led too */
+                css_buf body = {NULL, 0, 0, &oom};
+                css_render_declarations(&pool, &decls, baseline, &body, CSS_DECL_NORMAL);
+                css_lead_bangs(&tokens, &out);
+                cbuf_put_run(&out, body.data, body.len);
+                cbuf_free(&body);
+            }
             css_free(decls.items);
         } else {
             css_parse_rules(&pool, &cur, 1, 0, 0, &out);

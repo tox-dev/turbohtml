@@ -14,6 +14,7 @@ from turbohtml.rewrite import rewrite
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
     from turbohtml.rewrite import Element as RewriteElement
@@ -706,10 +707,10 @@ def test_computed_style_nth_of_out_of_order_deep_tree() -> None:
 
 
 def test_computed_style_deep_has_past_memo_limit() -> None:
-    # 64 :has() arguments each keep an answer per element, past the most answers the cascade keeps
-    arguments: Final = 64
+    # 128 :has() arguments of two compounds keep two answers per element, past the bytes of answers the cascade keeps
+    arguments: Final = 128
     sheet: Final = f":has({','.join(['p q'] * arguments)}){{color:blue}}:has(p){{color:red}}"
-    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 21) // arguments + 8_192)}")
+    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}")
     root: Final = document.select_one("html")
     assert root is not None
     assert computed_style(root)["color"] == "red"
@@ -731,3 +732,54 @@ def _observed(depth: int) -> Document:
     MutationObserver().observe(document, child_list=True, subtree=True)
     _top(document).append(Element("x"))
     return document
+
+
+@pytest.mark.parametrize(
+    ("above", "count"),
+    [
+        pytest.param(999, 1, id="reaches"),
+        pytest.param(998, 0, id="misses"),
+    ],
+)
+def test_select_deep_has_past_memo_bound(above: int, count: int) -> None:
+    # an i with `above` d's over it, then a run of 5000 d's holding no i: d^999 i matches only if 999 d's sit over the i
+    document: Final = parse_xml(f"<doc>{'<d>' * above}<i/>{'<d>' * 5000}{'</d>' * 5000}{'</d>' * above}</doc>")
+    assert len(document.select(f"doc:has({'d ' * 999}i)")) == count
+
+
+def test_select_deep_has_memo_stays_within_budget(peak_bytes: PeakBytes) -> None:
+    # the answers of a deep query take two bits per compound and node, so the traced peak stays far below the hash table
+    peak: Final = peak_bytes(
+        "import tracemalloc\n"
+        "from turbohtml import parse_xml\n"
+        "above = 998\n"
+        "chain = '<d>' * above + '<i/>' + '<d>' * 5000\n"
+        "document = parse_xml('<doc>' + chain + '</d>' * 5000 + '</d>' * above + '</doc>')\n"
+        "tracemalloc.start()\n"
+        "found = document.select('doc:has(' + 'd ' * 999 + 'i)')\n"
+        "assert not found\n"
+        "print(tracemalloc.get_traced_memory()[1])\n",
+        (),
+    )
+    assert peak < 16 * 1024 * 1024, peak
+
+
+def test_select_deep_has_memo_work_linear(work_steps: WorkSteps) -> None:
+    # a 16-compound :has() over a chain: each compound answers once per node, so the steps grow with the depth alone
+    work_steps.assert_linear(lambda depth: partial(_nested(depth).select, f"b:has({'b ' * 15}i)"), (600, 2400))
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        pytest.param("section:has(div b)", id="descendant-pair"),
+        pytest.param("div:has(p b i)", id="descendant-triple"),
+        pytest.param("section:has(p > b i)", id="child-pair"),
+        pytest.param("div:has(u ~ b i)", id="general-sibling-inside"),
+        pytest.param("section:has(b + u)", id="adjacent-inside"),
+        pytest.param("section:has(p b x)", id="descendant-missing"),
+    ],
+)
+def test_deep_has_matches_parsed_page_per_compound(selector: str) -> None:
+    # the same page through the ordinary matcher and through the deep stand-in, whose :has() memo keys each compound
+    assert _paths(_deep(_SIBLINGS).select(selector)) == _paths(parse(_SIBLINGS).select(selector))

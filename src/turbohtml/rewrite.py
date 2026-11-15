@@ -137,6 +137,8 @@ def rewrite(
         its content, or if a handler runs while an SVG or MathML element is nested past the depth limit.
     :raises SelectorSyntaxError: if a selector is malformed or uses a construct the stream cannot match (a sibling
         combinator, a positional or structural pseudo-class, or ``:has()``).
+    :raises RecursionError: if a selector chains more compound selectors than the C stack this thread has left can
+        match.
     """
     return _rewrite(html, tuple(elements), text, comments, doctype)
 

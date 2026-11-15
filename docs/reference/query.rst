@@ -115,6 +115,8 @@ Configuration
 
 .. autodata:: DEBUG
 
-A malformed selector raises :class:`turbohtml.SelectorSyntaxError`, the one error every selector-parse path shares.
+A malformed selector raises :class:`turbohtml.SelectorSyntaxError`, the one error every selector-parse path shares. A
+selector that chains more compound selectors than the calling thread's C stack can match raises :class:`RecursionError`
+instead of matching; see :doc:`troubleshooting </how-to/troubleshooting>`.
 
 .. autofunction:: escape_identifier

@@ -115,7 +115,9 @@ static int check_selector_arg(PyObject *arg) {
    compiled before a new attribute name was interned is recompiled in place so a
    once-absent attribute now resolves. The caller must already hold the handle's
    critical section and have type-checked arg; the returned pointer is borrowed
-   (the cache owns it). Returns NULL with a Python error set on a compile error. */
+   (the cache owns it). Returns NULL with a Python error set on a compile error, or when
+   the calling thread's stack cannot match the selector's chain: the cache may hold a
+   compile made on another thread, so the stack is checked on every call. */
 static sel_compiled *cached_compile(PyObject *selector_error, HandleObject *handle, PyObject *arg) {
 restart:;
     uint32_t gen = th_tree_attr_generation(handle->tree);
@@ -138,7 +140,11 @@ restart:;
             memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
             handle->sel_cache[0] = entry;
         }
-        return entry.compiled;
+        sel_compiled *hit = entry.compiled;
+        if (sel_stack_check(hit->chain) < 0) {
+            return NULL;
+        }
+        return hit;
     }
     if (handle->sel_cache_len == SEL_CACHE_CAP) {
         sel_cache_entry evicted = handle->sel_cache[--handle->sel_cache_len];
@@ -166,6 +172,9 @@ restart:;
     memmove(&handle->sel_cache[1], &handle->sel_cache[0],
             (size_t)(handle->sel_cache_len - 1) * sizeof(sel_cache_entry));
     handle->sel_cache[0] = (sel_cache_entry){Py_NewRef(arg), compiled, gen};
+    if (sel_stack_check(compiled->chain) < 0) {
+        return NULL;
+    }
     return compiled;
 }
 
@@ -2619,6 +2628,18 @@ retry:;
     return PyBool_FromLong(matched);
 }
 
+/* The closest driver and its helpers stay inline in node_css_closest: an out-of-line copy adds a call to every
+ * closest(). */
+#if defined(_MSC_VER)
+#define CLOSEST_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define CLOSEST_INLINE inline __attribute__((always_inline))
+#else
+#define CLOSEST_INLINE inline
+#endif
+
+static CLOSEST_INLINE int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found);
+
 TH_NODE_API(, PyObject *, node_css_closest, (PyObject * self, PyObject *arg), (self, arg),
             (PyObject * self, PyObject *arg), (NodeObject *)self,
             arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
@@ -2655,7 +2676,7 @@ static TH_NOINLINE th_node *closest_sharing_dir(th_node *scope, const sel_compil
     return found;
 }
 
-int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
+static CLOSEST_INLINE int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
     if (check_selector_arg(arg) < 0) {
         return -1;
     }
@@ -2750,12 +2771,6 @@ typedef struct {
     closest_entry *retry; /* grouped runs: the nodes that moved to another tree before their run took them */
     Py_ssize_t retries;
 } closest_call;
-
-#if defined(__GNUC__)
-#define CLOSEST_INLINE inline __attribute__((always_inline))
-#else
-#define CLOSEST_INLINE inline
-#endif
 
 /* What a run does with the node at position: CLOSEST_CLIMB from *start, CLOSEST_SKIP it (it moved to another tree
    and waits for the next round of the grouped runs), or CLOSEST_END the run there (a run without a group ends at the

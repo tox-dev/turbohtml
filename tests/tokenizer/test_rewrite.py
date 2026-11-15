@@ -1,28 +1,32 @@
 from __future__ import annotations
 
 import random
-from bisect import bisect_left
+import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from difflib import SequenceMatcher
 from functools import partial
 from operator import methodcaller
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, Namespace, SelectorSyntaxError, _html, parse, parse_fragment  # ruff:ignore[import-private-name]  # the depth cap the rewriter keeps
+from turbohtml import Comment, Namespace, SelectorSyntaxError, Text, _html, parse, parse_fragment  # ruff:ignore[import-private-name]  # the depth cap the rewriter keeps
 from turbohtml import Element as ParsedElement
 from turbohtml.rewrite import Element, rewrite
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Hashable, Iterator, Mapping
 
     from traced_bytes import PeakBytes
     from work_steps import WorkSteps
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
-    from turbohtml import Document, ShadowRoot, SourceLocation
-from typing import Final
+    from turbohtml import Document, Node, ShadowRoot, SourceLocation
+from typing import Final, NamedTuple
 
 _Read = str | bool | None | tuple[tuple[str, str | None], ...]
 
@@ -1531,7 +1535,7 @@ _TITLE: Final[str] = "<title><script>run()</script></title>"
             f"<table><td><i><svg><desc><b></td></b></desc>{_TITLE}",
             "td",
             _unwrap,
-            f"<table><i><svg><desc><b></b></desc></svg></i></b></desc>{_TITLE}",
+            "<table><i><svg><desc><b></desc></svg></b></desc><title>&lt;script&gt;run()&lt;/script&gt;</title>",
             id="end-through-point",
         ),
         pytest.param(f"<div/><svg></div>{_TITLE}", "div", _unwrap, f"<svg></svg>{_TITLE}", id="end-html-slash"),
@@ -1584,7 +1588,7 @@ def test_rewrite_dropped_breakout_ends_foreign_elements_in_place() -> None:
         pytest.param("<script/><b></script><i>", "i", "<script/><b></script>", id="script"),
         pytest.param("<div/>x</div>y", "div", "y", id="html-stays-open"),
         pytest.param('<div class="ad"/><img src=x></div>ok', ".ad", "ok", id="html-keeps-its-content"),
-        pytest.param("<svg><input/>x</input>y</svg>", "input", "<svg>x</input>y</svg>", id="foreign-closes"),
+        pytest.param("<svg><input/>x</input>y</svg>", "input", "<svg>xy</svg>", id="foreign-closes"),
         pytest.param("<svg><input>x</input>y</svg>", "input", "<svg>y</svg>", id="foreign-is-not-void"),
     ],
 )
@@ -1825,8 +1829,8 @@ def test_rewrite_looks_past_an_element_the_tree_builder_does_not_open(source: st
     [
         pytest.param("<td>x</td>y", "<td>x</td>+y", id="outermost"),
         pytest.param("<div><td>x</td>y", "<div><td>x</td>+y", id="in-html"),
-        pytest.param("<svg><desc><td>x</td>y", "<svg><desc><td>x</td>+y", id="in-integration-point"),
-        pytest.param("<svg><desc><td><td>x</td>y", "<svg><desc><td><td>x</td>+y+", id="innermost"),
+        pytest.param("<svg><desc><td>x</td>y", "<svg><desc>x+y", id="in-integration-point"),
+        pytest.param("<svg><desc><td><td>x</td>y", "<svg><desc>x+y+", id="innermost"),
     ],
 )
 def test_rewrite_end_tag_closes_an_element_the_tree_builder_does_not_open(source: str, expected: str) -> None:
@@ -2093,13 +2097,8 @@ def _misread(source: str) -> list[str]:
     marked = rewrite(source, elements=[("*", lambda element: element.before(mark))])
     starts = [at - before for before, at in enumerate(at for at, char in enumerate(marked) if char == mark)]
     if (written := marked.replace(mark, "")) != source:
-        # text before a <frameset> makes a parse ignore it, so the rewrite adds the end tags that keep the output
-        # reading the rest as the source does; map each call back to where the source has the tag
-        blocks = SequenceMatcher(None, written, source, autojunk=False).get_matching_blocks()
-        starts = [
-            next(source_at + at - written_at for written_at, source_at, size in blocks if at < written_at + size)
-            for at in starts
-        ]
+        # map each call back to where the source has its tag
+        starts = _source_offsets(written, source, starts)
     seen = set(starts)
     located = [
         (element, location)
@@ -2117,6 +2116,55 @@ def _misread(source: str) -> list[str]:
     ]
 
 
+def _source_offsets(written: str, source: str, marks: list[int]) -> list[int]:
+    blocks = _shared_text(written, source)
+    ends = [written_at + size for written_at, _, size in blocks]
+    offsets: list[int] = []
+    for at in marks:
+        written_at, source_at, _ = blocks[min(bisect_right(ends, at), len(blocks) - 1)]
+        offsets.append(source_at + at - written_at)
+    return offsets
+
+
+def _shared_text(written: str, source: str) -> list[tuple[int, int, int]]:
+    # the rewrite adds and drops tags, so a line it changed is aligned tag by tag, and the other lines whole: a search
+    # over characters of the whole document is quadratic in the repeated markup a long test document is made of
+    written_lines = written.split("\n")
+    source_lines = source.split("\n")
+    if len(written_lines) != len(source_lines):
+        return [
+            (at, other, size)
+            for at, other, size in SequenceMatcher(None, written, source, autojunk=False).get_matching_blocks()
+        ]
+    blocks: list[tuple[int, int, int]] = []
+    written_at = source_at = 0
+    for written_line, source_line in zip(written_lines, source_lines, strict=False):
+        if written_line == source_line:
+            blocks.append((written_at, source_at, len(written_line)))
+        else:
+            blocks += _tag_blocks(written_line, source_line, written_at, source_at)
+        written_at += len(written_line) + 1
+        source_at += len(source_line) + 1
+    blocks.append((len(written), len(source), 0))
+    return blocks
+
+
+def _tag_blocks(written: str, source: str, written_at: int, source_at: int) -> list[tuple[int, int, int]]:
+    # end tags are left out: the rewrite adds and drops them far more often than it touches start tags and text
+    written_pieces = [(piece.group(), written_at + piece.start()) for piece in _TAG_PIECE.finditer(written)]
+    source_pieces = [(piece.group(), source_at + piece.start()) for piece in _TAG_PIECE.finditer(source)]
+    written_pieces = [piece for piece in written_pieces if not piece[0].startswith("</")]
+    source_pieces = [piece for piece in source_pieces if not piece[0].startswith("</")]
+    matcher = SequenceMatcher(
+        None, [text for text, _ in written_pieces], [text for text, _ in source_pieces], autojunk=False
+    )
+    return [
+        (written_pieces[index + step][1], source_pieces[other + step][1], len(written_pieces[index + step][0]))
+        for index, other, size in matcher.get_matching_blocks()
+        for step in range(size)
+    ]
+
+
 def _parsed_elements(node: Document | ParsedElement | ShadowRoot) -> Iterator[ParsedElement]:
     for child in node.descendants:
         if isinstance(child, ParsedElement):
@@ -2131,6 +2179,16 @@ def _call_inside_raw_text(element: ParsedElement, location: SourceLocation, star
     inside = bisect_left(starts, location.start_tag.end_offset)
     text_end = end if location.end_tag is None else location.end_tag.start_offset
     return inside if inside < bisect_left(starts, text_end) else None
+
+
+_TAG_PIECE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    <[^<>]*>  # a tag
+    | [^<]+   # text
+    | <       # a lone less-than sign
+    """,
+    re.VERBOSE,
+)
 
 
 _BREAKOUT_RUN: Final[str] = "<svg><g><p></b><i></g>"
@@ -2231,7 +2289,7 @@ def _prepend_inside_inserted_xmp(element: Element) -> None:
         pytest.param(
             f"<b><object><svg></b><style><desc><xmp></style>{_RUN}</xmp>",
             [("object", _unwrap)],
-            f"<b><svg></b><style></style><desc><xmp></style>{_RUN}</xmp>",
+            f"<b><svg><style><desc><xmp></style>{_RUN}</xmp>",
             id="scope-boundary-unwrapped",
         ),
         pytest.param(
@@ -2321,19 +2379,19 @@ def _prepend_inside_inserted_xmp(element: Element) -> None:
         pytest.param(
             f"<iframe></iframe><frameset><title>{_RUN}</title>",
             [("iframe", _remove)],
-            f"<frameset><title>{_RUN_TEXT}</title>",
+            f"<title>{_RUN}</title>",
             id="frameset-after-removed-iframe",
         ),
         pytest.param(
             f"<textarea></textarea><frameset><title>{_RUN}</title>",
             [("textarea", _remove)],
-            f"<frameset><title>{_RUN_TEXT}</title>",
+            f"<title>{_RUN}</title>",
             id="frameset-after-removed-textarea",
         ),
         pytest.param(
             f"<style></style><frameset><title>{_RUN}</title>",
             [("style", methodcaller("set_content", "a"))],
-            "<style>a</style><frameset><title></title>",
+            "<style>a</style><frameset>",
             id="frameset-after-raw-text-edit",
         ),
         pytest.param(
@@ -2380,9 +2438,7 @@ def test_rewrite_text_written_into_raw_text_the_output_reads_as_markup_is_escape
 @pytest.mark.parametrize(
     ("source", "handlers", "leaves", "expected"),
     [
-        pytest.param(
-            "x<frameset><svg><g></g></svg>", [], {"text": _remove}, "<frameset><svg><g></g></svg>", id="text-removed"
-        ),
+        pytest.param("x<frameset><svg><g></g></svg>", [], {"text": _remove}, "<svg><g></g></svg>", id="text-removed"),
         pytest.param(
             f"<!doctype html><svg><title>{_RUN}</title>",
             [],
@@ -2737,6 +2793,657 @@ def test_rewrite_passthrough_adds_no_element_the_source_lacks(seed: int) -> None
             assert not _element_counts(result) - before, (source, result)
 
 
+def _blank(element: Element) -> None:
+    element.replace("")
+
+
+def _extract(element: ParsedElement) -> None:
+    element.extract()
+
+
+def _unwrap_dom(element: ParsedElement) -> None:
+    element.unwrap()
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "edit", "expected"),
+    [
+        pytest.param(
+            "<frameset><iframe src=a></iframe></frameset>", "frameset", _unwrap, "", id="unwrap-ignored-iframe"
+        ),
+        pytest.param("<frameset><style>x{}</style></frameset>", "frameset", _remove, "", id="remove-ignored-style"),
+        pytest.param("<frameset><base href=a></frameset>", "frameset", _blank, "", id="blank-ignored-base"),
+        pytest.param("<frameset><frame src=a></frameset><img src=a>", "frameset", _remove, "", id="after-removed"),
+        pytest.param(
+            "<frameset></frameset><meta http-equiv=refresh content=0>", "frameset", _unwrap, "", id="after-unwrapped"
+        ),
+        pytest.param(
+            "<frameset></frameset><iframe src=a></iframe>", "frameset", _remove, "", id="after-closed-frameset"
+        ),
+        pytest.param("<template><img src=a><tr>", "img", _remove, "<template>", id="template-img-removed"),
+        pytest.param("<template><b></b><tr>", "b", _remove, "<template>", id="template-element-removed"),
+        pytest.param(
+            "<iframe src=a></iframe><frameset><frame src=a>",
+            "iframe",
+            _remove,
+            "<frame src=a>",
+            id="frameset-ok-iframe",
+        ),
+        pytest.param("<input><frameset><frame src=a>", "input", _remove, "<frame src=a>", id="frameset-ok-input"),
+        pytest.param("<p><base href=a><frameset><frame src=a>", "frameset", _remove, "", id="body-content-discarded"),
+        pytest.param(
+            "<b><base href=a><frameset><frame src=a>",
+            "b",
+            _unwrap,
+            "<frameset><frame src=a>",
+            id="body-opened-by-edited-element",
+        ),
+        pytest.param(
+            "<p><script>s()</script><frameset><frame src=a>",
+            "script",
+            _unwrap,
+            "<frameset><frame src=a>",
+            id="body-content-cut-before-kept-frameset",
+        ),
+        pytest.param(
+            "<meta name=a><p>x</p><frameset><frame src=a>",
+            "meta",
+            _remove,
+            "<p>x</p><frame src=a>",
+            id="edit-in-head-keeps-body-text",
+        ),
+        pytest.param(
+            "<meta name=a>x<frameset><frame src=a>", "meta", _remove, "x<frame src=a>", id="edit-in-head-text-body"
+        ),
+        pytest.param(
+            "<meta name=a></br><frameset><frame src=a>",
+            "meta",
+            _remove,
+            "</br><frame src=a>",
+            id="body-opened-by-end-tag",
+        ),
+        pytest.param(
+            "<meta name=a><textarea>x</textarea><frameset><frame src=a>",
+            "meta",
+            _remove,
+            "<textarea>x</textarea><frame src=a>",
+            id="body-opened-by-raw-text",
+        ),
+        pytest.param(
+            "<body><p>x</p></body><iframe src=a></iframe>",
+            "p",
+            _remove,
+            "<body></body><iframe src=a></iframe>",
+            id="after-body",
+        ),
+        pytest.param("<p>\r\n<base href=a></p><frameset><frame src=a>", "frameset", _remove, "", id="crlf-line-break"),
+    ],
+)
+def test_rewrite_frameset_edit_writes_no_ignored_or_discarded_tag(
+    source: str, selector: str, edit: Callable[[Element], None], expected: str
+) -> None:
+    assert rewrite(source, elements=[(selector, edit)]) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "edit", "dom_edit"),
+    [
+        pytest.param(
+            "<frameset><iframe src=a></iframe></frameset>", "frameset", _unwrap, _unwrap_dom, id="unwrap-ignored-iframe"
+        ),
+        pytest.param("<frameset><base href=a></frameset>", "frameset", _blank, _extract, id="blank-ignored-base"),
+        pytest.param("<template><img src=a><tr>", "img", _remove, _extract, id="template-img-removed"),
+        pytest.param(
+            "<iframe src=a></iframe><frameset><frame src=a>", "iframe", _remove, _extract, id="frameset-ok-iframe"
+        ),
+        pytest.param(
+            "<p><base href=a><frameset><frame src=a>", "frameset", _remove, _extract, id="body-content-discarded"
+        ),
+        pytest.param(
+            "<meta name=a><p>x</p><frameset><frame src=a>", "meta", _remove, _extract, id="edit-in-head-keeps-body-text"
+        ),
+        pytest.param(
+            "<p>\r\n<base href=a></p><frameset><frame src=a>", "frameset", _remove, _extract, id="crlf-line-break"
+        ),
+    ],
+)
+def test_rewrite_edit_reads_as_the_dom_edit(
+    source: str, selector: str, edit: Callable[[Element], None], dom_edit: Callable[[ParsedElement], None]
+) -> None:
+    dom = parse(source)
+    for element in list(dom.select(selector)):
+        dom_edit(element)
+    assert _without_empty_body(parse(rewrite(source, elements=[(selector, edit)])).serialize()) == (
+        _without_empty_body(dom.serialize())
+    )
+
+
+def _without_empty_body(markup: str) -> str:
+    return markup.replace("<body></body>", "")
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_rewrite_edit_revives_no_element_the_source_lacks(seed: int) -> None:
+    pieces: Final = (
+        "<frameset>",
+        "</frameset>",
+        "<frame src=a>",
+        "<noframes>",
+        "</noframes>",
+        "<iframe src=a></iframe>",
+        "<img src=a>",
+        "<style>x{}</style>",
+        "<base href=a>",
+        "<meta http-equiv=refresh content=0>",
+        "<script>s()</script>",
+        "<link rel=x>",
+        "<title>t</title>",
+        "<template>",
+        "</template>",
+        "<table>",
+        "</table>",
+        "<tr>",
+        "<td>",
+        "</td>",
+        "</tr>",
+        "<tbody>",
+        "<col>",
+        "<colgroup>",
+        "<caption>",
+        "<select>",
+        "</select>",
+        "<option>",
+        "<input>",
+        "<input type=hidden>",
+        "<textarea>",
+        "</textarea>",
+        "<xmp>",
+        "</xmp>",
+        "<body>",
+        "<html>",
+        "<head>",
+        "</head>",
+        "<svg>",
+        "</svg>",
+        "<math>",
+        "</math>",
+        "<b>",
+        "</b>",
+        "<a>",
+        "</a>",
+        "<p>",
+        "</p>",
+        "<div>",
+        "</div>",
+        "<button>",
+        "<li>",
+        "<h1>",
+        "</h1>",
+        "<form>",
+        "</form>",
+        "text",
+        "x y",
+        "<!-- c -->",
+        "</body>",
+        "</html>",
+        "<desc>",
+        "</desc>",
+        "&amp;",
+        " ",
+        "\n",
+        "<br>",
+        "<nobr>",
+        "</nobr>",
+        "<object>",
+        "<embed src=a>",
+        "</table></tr>",
+    )
+    targets: Final = (
+        "frameset",
+        "frame",
+        "template",
+        "table",
+        "tr",
+        "td",
+        "tbody",
+        "col",
+        "colgroup",
+        "caption",
+        "select",
+        "option",
+        "svg",
+        "math",
+        "b",
+        "a",
+        "p",
+        "div",
+        "input",
+        "textarea",
+        "xmp",
+        "body",
+        "html",
+        "head",
+        "iframe",
+        "img",
+        "style",
+        "script",
+        "base",
+        "meta",
+        "noframes",
+        "desc",
+        "title",
+        "button",
+        "form",
+        "nobr",
+        "li",
+        "h1",
+        "object",
+        "embed",
+        "link",
+    )
+    edits: Final = (_remove, _unwrap, _blank)
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed generated corpus
+    for _ in range(2000):
+        source = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 12)))
+        target = rng.choice(targets)
+        result = rewrite(source, elements=[(target, rng.choice(edits))])
+        assert not _revivable(result) - _revivable(source), (source, target, result)
+
+
+def _revivable(markup: str) -> set[tuple[str, tuple[str, ...]]]:
+    return {
+        (element.tag, tuple(sorted(element.attrs)))
+        for element in parse(markup).select("*")
+        if element.tag not in {"html", "head", "body"}
+    }
+
+
+_READ_BY_BUILDER: Final[frozenset[tuple[str, str, str]]] = frozenset({
+    ("html", "input", "type"),
+    ("html", "option", "disabled"),
+    ("html", "option", "selected"),
+    ("html", "optgroup", "disabled"),
+    ("html", "selectedcontent", "disabled"),
+    ("html", "select", "multiple"),
+    ("html", "template", "shadowrootmode"),
+    ("html", "template", "shadowrootdelegatesfocus"),
+    ("html", "template", "shadowrootclonable"),
+    ("math", "annotation-xml", "encoding"),
+    ("svg", "font", "color"),
+    ("svg", "font", "face"),
+    ("svg", "font", "size"),
+    ("math", "font", "color"),
+    ("math", "font", "face"),
+    ("math", "font", "size"),
+})
+_BUILDER_TAGS: Final[tuple[str, ...]] = (
+    "input",
+    "option",
+    "optgroup",
+    "selectedcontent",
+    "select",
+    "template",
+    "annotation-xml",
+    "font",
+    "meta",
+    "div",
+    "p",
+    "img",
+    "a",
+    "desc",
+    "textarea",
+    "caption",
+)
+_BUILDER_ATTRS: Final[tuple[str, ...]] = (
+    "type",
+    "disabled",
+    "selected",
+    "multiple",
+    "shadowrootmode",
+    "shadowrootdelegatesfocus",
+    "shadowrootclonable",
+    "encoding",
+    "color",
+    "face",
+    "size",
+    "charset",
+    "http-equiv",
+    "content",
+    "name",
+    "class",
+    "value",
+    "hidden",
+    "lang",
+)
+_BUILDER_VALUES: Final[tuple[str, ...]] = ("", "hidden", "open", "text/html", "x")
+_BUILDER_SELECT_HEAD: Final[str] = "<select><button><selectedcontent></selectedcontent></button>"
+_BUILDER_CONTEXTS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType({
+    "html": (
+        "",
+        "<table>",
+        _BUILDER_SELECT_HEAD,
+        f"{_BUILDER_SELECT_HEAD}<option>first</option>",
+        "<div>",
+        "<frameset>",
+    ),
+    "svg": ("<svg>", "<svg><g>"),
+    "math": ("<math>",),
+})
+_BUILDER_INNER: Final[Mapping[str, str]] = MappingProxyType({
+    "select": "<button><selectedcontent></selectedcontent></button><option>o</option><option>p</option>",
+    "optgroup": "<option>o</option>",
+    "option": "x",
+    "template": "<p>y</p>",
+    "annotation-xml": "<p>y</p>",
+})
+_BUILDER_VOID: Final[frozenset[str]] = frozenset({"input", "img", "meta"})
+
+
+def test_builder_reads_attr_is_exactly_the_attributes_that_change_the_tree() -> None:
+    candidates = set(_builder_candidates())
+    altering = {candidate for candidate in candidates if _alters_tree(*candidate)}
+    assert altering == _READ_BY_BUILDER
+    assert {candidate for candidate in candidates if _html._builder_reads_attr(*candidate)} == altering  # ruff:ignore[private-member-access]  # the trigger the rewriter consults
+
+
+def _builder_candidates() -> Iterator[tuple[str, str, str]]:
+    for namespace in _BUILDER_CONTEXTS:
+        for tag in _BUILDER_TAGS:
+            for attr in _BUILDER_ATTRS:
+                yield namespace, tag, attr
+
+
+def _alters_tree(namespace: str, tag: str, attr: str) -> bool:
+    tails = ("", "<table><tr><td>x</td></tr></table>", "<svg><desc>y</desc></svg>x", "<option>later</option>")
+    for prefix in _BUILDER_CONTEXTS[namespace]:
+        for tail in tails:
+            for value in _BUILDER_VALUES:
+                base = prefix + _builder_markup(tag, attr, None) + tail
+                if _builder_snapshot(base, attr) != _builder_snapshot(
+                    prefix + _builder_markup(tag, attr, value) + tail, attr
+                ):
+                    return True
+    return False
+
+
+def _builder_markup(tag: str, attr: str, value: str | None) -> str:
+    extra = ' shadowrootmode="open"' if tag == "template" and attr != "shadowrootmode" else ""
+    attrs = "" if value is None else f' {attr}="{value}"'
+    if tag in _BUILDER_VOID:
+        return f"<{tag}{extra}{attrs}>"
+    return f"<{tag}{extra}{attrs}>{_BUILDER_INNER.get(tag, 'x<p>y</p>')}</{tag}>"
+
+
+def _builder_snapshot(markup: str, hidden: str) -> tuple[Hashable, ...]:
+    return tuple(_builder_shape(child, hidden) for child in parse(markup).children)
+
+
+def _builder_shape(node: Node, hidden: str) -> Hashable:
+    if isinstance(node, ParsedElement):
+        root = node.shadow_root
+        shadow = None if root is None else (root.mode, root.delegates_focus, root.clonable)
+        attrs = tuple(sorted((key, repr(value)) for key, value in node.attrs.items() if key != hidden))
+        return _ElementShape(str(node.namespace), node.tag, attrs, shadow, _builder_children(node, hidden))
+    if isinstance(node, (Text, Comment)):
+        return (type(node).__name__, node.data)
+    return (type(node).__name__, _builder_children(node, hidden))
+
+
+class _ElementShape(NamedTuple):
+    namespace: str
+    tag: str
+    attrs: tuple[tuple[str, str], ...]
+    shadow: tuple[str, bool, bool] | None
+    children: tuple[Hashable, ...]
+
+
+def _builder_children(node: Node, hidden: str) -> tuple[Hashable, ...]:
+    return tuple(_builder_shape(child, hidden) for child in node.children)
+
+
+@pytest.mark.parametrize(("tag", "name"), [("input", "TYPE"), ("input", "Type"), ("select", "MULTIPLE")])
+def test_builder_reads_attr_compares_names_case_insensitively(tag: str, name: str) -> None:
+    assert _html._builder_reads_attr("html", tag, name)  # ruff:ignore[private-member-access]  # the trigger the rewriter consults
+
+
+@pytest.mark.parametrize("name", ["ty-e", "TY_E", "typo"])
+def test_builder_reads_attr_ignores_names_that_only_differ_in_case_from_the_attribute(name: str) -> None:
+    assert not _html._builder_reads_attr("html", "input", name)  # ruff:ignore[private-member-access]  # the trigger the rewriter consults
+
+
+def test_builder_reads_attr_rejects_unknown_namespaces_and_argument_types() -> None:
+    with pytest.raises(ValueError, match="unknown namespace"):
+        _html._builder_reads_attr("xhtml", "input", "type")  # ruff:ignore[private-member-access]  # the trigger the rewriter consults
+    with pytest.raises(TypeError):
+        _html._builder_reads_attr(1, "input", "type")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose  # ruff:ignore[private-member-access]  # the trigger the rewriter consults
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "name", "value", "expected"),
+    [
+        pytest.param(
+            "<table><input name=a><tr><td>x",
+            "input",
+            "type",
+            "hidden",
+            '<table><input name="a" type="hidden"><tr><td>x',
+            id="table-input-hidden",
+        ),
+        pytest.param(
+            "<select><option>a<option>b</select>",
+            "option",
+            "selected",
+            "",
+            '<select><option selected="">a<option selected="">b</select>',
+            id="select-option-selected",
+        ),
+        pytest.param(
+            "<svg><font>x</font></svg><p>y",
+            "font",
+            "color",
+            "red",
+            '<svg><font color="red">x</font></svg><p>y',
+            id="svg-font-breakout",
+        ),
+        pytest.param(
+            "<math><annotation-xml>x<p>y</p></annotation-xml></math>",
+            "annotation-xml",
+            "encoding",
+            "text/html",
+            '<math><annotation-xml encoding="text/html">x<p>y</p>',
+            id="annotation-xml-integration",
+        ),
+        pytest.param(
+            "<div><template>x<p>y</p></template></div>",
+            "template",
+            "shadowrootmode",
+            "open",
+            '<div><template shadowrootmode="open">x<p>y</p></template></div>',
+            id="declarative-shadow-root",
+        ),
+    ],
+)
+def test_rewrite_attribute_the_builder_reads_is_written_as_the_parse_reads_it(
+    source: str, selector: str, name: str, value: str, expected: str
+) -> None:
+    assert rewrite(source, elements=[(selector, _set_attr(name, value))]) == expected
+
+
+def _set_attr(name: str, value: str) -> Callable[[Element], None]:
+    def edit(element: Element) -> None:
+        element.set_attribute(name, value)
+
+    return edit
+
+
+def test_rewrite_read_attribute_edit_drops_ignored_tags_after_it() -> None:
+    source = "<math><annotation-xml><template></td><tr></select><meta charset=x></svg><td>"
+    result = rewrite(source, elements=[("annotation-xml", _set_attr("encoding", "text/html"))])
+    assert result == '<math><annotation-xml encoding="text/html"><template><tr><meta charset=x>'
+
+
+def test_rewrite_unwrap_keeps_formatting_elements_open() -> None:
+    assert rewrite("<div><b><i>x</div>c", elements=[("div", _unwrap)]) == "<b><i>xc"
+
+
+@pytest.mark.parametrize(
+    ("source", "handlers", "expected"),
+    [
+        pytest.param(
+            "<input><div><b><i>x</div>c",
+            [("input", _set_attr("type", "hidden")), ("div", _unwrap)],
+            '<input type="hidden"><b><i>xc',
+            id="attribute-edit-then-unwrap",
+        ),
+        pytest.param(
+            "<p>a<img><input><div><b><i>x</div>c",
+            [("img", _remove), ("input", _set_attr("type", "hidden")), ("div", _unwrap)],
+            '<p>a<input type="hidden"><b><i>xc',
+            id="structural-edit-before-attribute-edit",
+        ),
+        pytest.param(
+            "<input><div><b><i>x</div>c",
+            [("div", _unwrap), ("input", _set_attr("type", "hidden"))],
+            '<input type="hidden"><b><i>xc',
+            id="unwrap-before-attribute-edit",
+        ),
+    ],
+)
+def test_rewrite_unwrap_keeps_formatting_elements_open_with_attribute_edit(
+    source: str, handlers: list[tuple[str, Callable[[Element], None]]], expected: str
+) -> None:
+    assert rewrite(source, elements=handlers) == expected
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_rewrite_attribute_edits_on_read_attributes_revive_no_element(seed: int) -> None:
+    pieces: Final = (
+        "<frameset>",
+        "</frameset>",
+        "<frame src=a>",
+        "<iframe src=a></iframe>",
+        "<table>",
+        "</table>",
+        "<tr>",
+        "<td>",
+        "</td>",
+        "</tr>",
+        "<tbody>",
+        "<col>",
+        "<caption>",
+        "<select>",
+        "</select>",
+        "<option>",
+        "<optgroup>",
+        "<selectedcontent>",
+        "<button>",
+        "<input>",
+        "<input type=hidden>",
+        "<input type=text>",
+        "<template>",
+        "</template>",
+        "<template shadowrootmode=open>",
+        "<svg>",
+        "</svg>",
+        "<svg><font>",
+        "<math>",
+        "</math>",
+        "<math><annotation-xml>",
+        "</annotation-xml>",
+        "<p>",
+        "</p>",
+        "<b>",
+        "</b>",
+        "<div>",
+        "</div>",
+        "<style>x{}</style>",
+        "<meta charset=x>",
+        "<noframes>",
+        "text",
+        "<img src=a>",
+    )
+    targets: Final = (
+        "input",
+        "option",
+        "optgroup",
+        "selectedcontent",
+        "select",
+        "template",
+        "annotation-xml",
+        "font",
+        "meta",
+        "frameset",
+        "table",
+        "td",
+        "svg",
+        "math",
+        "p",
+        "div",
+        "b",
+        "caption",
+    )
+    edits: Final = (
+        ("type", "hidden"),
+        ("type", None),
+        ("selected", ""),
+        ("disabled", ""),
+        ("multiple", ""),
+        ("encoding", "text/html"),
+        ("color", "red"),
+        ("face", "x"),
+        ("size", "2"),
+        ("shadowrootmode", "open"),
+        ("shadowrootclonable", ""),
+        ("class", "b"),
+    )
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed generated corpus
+    for _ in range(2000):
+        source = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 12)))
+        target = rng.choice(targets)
+        name, value = rng.choice(edits)
+        dom = parse(source)
+        _set_dom_attr(dom, target, name, value)
+        result = rewrite(source, elements=[(target, _edit(name, value))])
+        oracle = _live_tags(parse(dom.serialize()))
+        assert not _live_tags(parse(result)) - oracle - _live_tags(parse(source)), (source, target, name, value, result)
+
+
+def _set_dom_attr(dom: Node, selector: str, name: str, value: str | None) -> None:
+    for element in dom.select(selector):
+        if value is None:
+            element.attrs.pop(name, None)
+        else:
+            element.attrs[name] = value
+
+
+def _edit(name: str, value: str | None) -> Callable[[Element], None]:
+    return _remove_attr(name) if value is None else _set_attr(name, value)
+
+
+def _remove_attr(name: str) -> Callable[[Element], None]:
+    def edit(element: Element) -> None:
+        element.remove_attribute(name)
+
+    return edit
+
+
+def _live_tags(document: Node) -> set[str]:
+    # an element is live when it is in the document or a shadow root, and template content is inert
+    tags: set[str] = set()
+    pending: list[Node] = [document]
+    while pending:
+        for child in pending.pop().children:
+            if isinstance(child, ParsedElement) and child.tag != "template":
+                tags.add(child.tag)
+                pending.append(child)
+            if isinstance(child, ParsedElement) and child.shadow_root is not None:
+                pending.append(child.shadow_root)
+    return tags - _SCAFFOLD
+
+
+_SCAFFOLD: Final[frozenset[str]] = frozenset({"html", "head", "body", "tbody", "colgroup"})
+
+
 def test_rewrite_follows_the_tree_builder_in_linear_time(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda count: partial(rewrite, _BREAKOUT_RUN * count, elements=[("*", lambda _: None)]),
@@ -2943,7 +3650,8 @@ def _long_tag(count: int, prefix: str) -> str:
     return f"<p{names}>"
 
 
-def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
+# every name in turn: one name's probe run depends on the hash seed, the sweep averages over the table
+def test_removing_and_setting_each_name_in_turn_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda count: partial(rewrite, _long_tag(count, "a"), elements=[("p", _toggler(count))]), (500, 2000)
     )
@@ -2951,9 +3659,9 @@ def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_
 
 def _toggler(count: int) -> Callable[[Element], None]:
     def toggle(element: Element) -> None:
-        for _ in range(count):
-            element.remove_attribute("a0")
-            element.set_attribute("a0", "v")
+        for index in range(count):
+            element.remove_attribute(f"a{index}")
+            element.set_attribute(f"a{index}", "v")
 
     return toggle
 
@@ -3018,3 +3726,25 @@ def test_rewrite_long_class_above_many_elements_in_linear_time(child: str, work_
         ),
         (250, 1000),
     )
+
+
+def test_long_selector_chain_raises_recursion_error_on_a_small_stack() -> None:
+    code = (
+        "import threading\n"
+        "from turbohtml.rewrite import rewrite\n"
+        "outcome = []\n"
+        "def run():\n"
+        "    try:\n"
+        '        outcome.append(rewrite("<s></s>", elements=[(" ".join(["s"] * 6_144), lambda element: None)]))\n'
+        "    except RecursionError as error:\n"
+        "        outcome.append(str(error))\n"
+        "threading.stack_size(256 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(outcome[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr

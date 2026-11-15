@@ -103,12 +103,16 @@ typedef struct {
     uint16_t left_atom;
     int quirks;         /* the tree was parsed in quirks mode: class/ID match case-insensitively */
     int has_relational; /* the selector contains a :has() somewhere: a match may want the subtree memo */
+    int nests_has;      /* a :has() sits inside another :has(): a single match wants the sibling table */
     int reads_legend;   /* a :disabled, :enabled, :read-only or :read-write somewhere: a match wants the legend memo */
     int reads_dir;      /* a :dir() somewhere: a walk over many nodes wants one context for its dir=auto answers */
     th_tree *tree;      /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
     /* 1 when a match walks ancestors, as far as the tree nests: a descendant combinator, :lang() or :dir() somewhere;
        2 when a match walks ancestors from each ancestor such a walk passes, a square of how far the tree nests */
     int climbs;
+    /* the most compounds a match recurses through: one complex selector's compounds plus the longest chain of a
+       functional pseudo-class list nested in them (sel_alts_chain) */
+    Py_ssize_t chain;
 } sel_compiled;
 
 /* One memoized bit: key names the question (a :has() argument, or the compound a general
@@ -222,6 +226,7 @@ typedef struct {
     int depth;              /* nesting level of the functional-pseudo lists being parsed */
     Py_ssize_t err_pos;     /* the position the failing token starts at, for the error message */
     const char *err_reason; /* a human-readable reason for the failure */
+    Py_ssize_t compounds;   /* every compound parsed, nested lists included: no chain is longer than this */
 } sel_parser;
 
 /* The deepest functional-pseudo nesting (:is()/:where()/:has()/:not(), and the 'of S'
@@ -230,6 +235,20 @@ typedef struct {
    stack rather than raising a clean error (issue #421). Real selectors nest a handful
    of levels, far below this. */
 #define SEL_MAX_DEPTH TH_DEPTH_LIMIT(128)
+
+/* A selector whose chain is at most this long matches without checking the C stack: its recursion fits in the margin
+   core/stack.h keeps below every checked frame. */
+#define SEL_CHAIN_CHECK 64
+
+/* Whether the calling thread's C stack holds a match that recurses through chain compounds. Returns 0, or -1 with
+   RecursionError set. */
+int sel_stack_check_chain(Py_ssize_t chain);
+
+/* A driver asks this once per call before it matches a selector of this chain, since a compiled selector may be cached
+   on one thread and matched on another. */
+static inline int sel_stack_check(Py_ssize_t chain) {
+    return chain > SEL_CHAIN_CHECK ? sel_stack_check_chain(chain) : 0;
+}
 
 /* Entry points compiled once in selector.c; the rest of the matcher and parser
    stays static there. query/methods.c drives the query bindings and to_xpath.c
@@ -263,6 +282,29 @@ void sel_value_memo_put(sel_memo *memo, const void *key, const th_node *node, co
 void sel_position_memo_free(sel_position_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
 
+/* The deep stand-in's answers: two bits (unknown, no, yes) per key and node, a key being a pointer into the selector
+   (a :has() compound index, an ancestor target or a simple). A key's pages are indexed by node->seq, which the
+   tree numbers from 0 in creation order, and a page exists once a node in its block is stored. The memo holds
+   at most limit bytes of pages and directories, and past that, or when allocation fails, it is failed and the
+   matcher walks directly. */
+typedef struct {
+    const void *key;       /* NULL marks an empty slot */
+    unsigned char **pages; /* a page per block of SEL_DEEP_PAGE_NODES seqs, NULL until one of its nodes is stored */
+    size_t pages_len;
+} sel_deep_key;
+
+typedef struct {
+    sel_deep_key *keys; /* open addressing by key, NULL until the first store */
+    size_t mask;        /* capacity - 1 */
+    size_t count;       /* keys stored */
+    sel_deep_key *last; /* the slot of the key looked up last, valid until the table grows */
+    size_t bytes;       /* bytes of pages and page directories allocated */
+    size_t limit;       /* the most bytes of pages and directories a caller sets */
+    int failed;         /* past the limit or out of memory: the matcher walks directly */
+} sel_deep_memo;
+
+void sel_deep_memo_free(sel_deep_memo *memo);
+
 /* A query's stand-in for a selector that climbs (sel_compiled.climbs) on a tree that may nest deep. The HTML tree
    builder nests no deeper than TH_MAX_TREE_DEPTH, but an XML or a built tree nests without limit, and an ancestor walk
    from every candidate of a deep one is quadratic. The stand-in is one compound of one PSEUDO_DEEP simple whose sub is
@@ -274,12 +316,12 @@ typedef struct {
     sel_complex complex;
     sel_compound compound;
     sel_simple simple;
-    sel_memo memo;
+    sel_deep_memo memo;
 } sel_deep_query;
 
 sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep);
 /* Match one alternative as selector_matches_alt does, keeping the answers of the ancestor walks in memo. */
-int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_memo *memo);
+int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo);
 
 /* Whether a query over compiled runs on a stand-in: compiled climbs on a tree that may nest deep, or climbs from its
    climbs on any tree. */
@@ -294,13 +336,13 @@ int selector_matches_deep(th_node *node, sel_compiled *compiled, th_node *scope)
 /* The selector a query over compiled runs: compiled itself, or the stand-in in deep when sel_climbs_deep.
    sel_deep_leave frees what the stand-in kept. */
 static inline sel_compiled *sel_deep_enter(sel_compiled *compiled, sel_deep_query *deep) {
-    deep->memo.slots = NULL;
+    deep->memo.keys = NULL;
     return compiled->climbs != 0 && sel_climbs_deep(compiled) ? sel_deep_wrap(compiled, deep) : compiled;
 }
 
 static inline void sel_deep_leave(sel_deep_query *deep) {
-    if (deep->memo.slots != NULL) {
-        sel_memo_free(&deep->memo);
+    if (deep->memo.keys != NULL) {
+        sel_deep_memo_free(&deep->memo);
     }
 }
 void sel_free_alts(sel_complex *alts, int count);

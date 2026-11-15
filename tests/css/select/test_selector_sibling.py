@@ -9,7 +9,7 @@ from turbohtml import Element, parse
 from turbohtml.query import compile  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from work_steps import WorkSteps
 
@@ -538,3 +538,58 @@ def test_select_type_position_after_rename() -> None:
     assert first is not None
     first.tag = "x-lone"
     assert (before, _ids(document.select("#p > :only-of-type"))) == (["e40"], [])
+
+
+def _wrapped(opening: str, closing: str, depth: int, innermost: str) -> str:
+    return opening * depth + innermost + closing * depth
+
+
+_AROUND_A: Final[str] = _siblings(("b", 40), ("a", 1), ("b", 40))
+_HOLDER: Final[str] = _siblings(("b", 81), filled=(40,))
+
+
+@pytest.mark.parametrize(
+    ("selector", "html", "expected"),
+    [
+        pytest.param(f"b:has({'~ b ' * 12}~ a)", _AROUND_A, _expected(range(28)), id="chain"),
+        pytest.param(f"b:has({'~ b ' * 12}~ q)", _AROUND_A, [], id="chain-missing"),
+        pytest.param(f"b:has(+ b {'~ b ' * 6}~ a)", _AROUND_A, _expected(range(33)), id="adjacent-lead-chain"),
+        pytest.param("b:has(~ b ~ b i)", _HOLDER, _expected(range(39)), id="chain-descendant-tail"),
+        pytest.param("b:has(~ b ~ b ~ b i)", _HOLDER, _expected(range(38)), id="chain-descendant-tail-deeper"),
+        pytest.param("b:has(~ b:has(~ b ~ a))", _AROUND_A, _expected(range(38)), id="nested-chain"),
+        pytest.param(_wrapped("b:has(~ ", ")", 8, "a"), _AROUND_A, _expected(range(33)), id="nested"),
+        pytest.param(_wrapped("b:has(~ ", ")", 8, "q"), _AROUND_A, [], id="nested-missing"),
+        pytest.param(_wrapped("b:has(~ :is(", "))", 6, "a"), _AROUND_A, _expected(range(35)), id="nested-in-is"),
+        pytest.param(f"div:has({_wrapped('b:has(~ ', ')', 6, 'a')})", _AROUND_A, ["p"], id="descendant-led-nested"),
+        pytest.param(
+            f"div:has({_wrapped('b:has(~ ', ')', 3, 'q')})", _AROUND_A, [], id="descendant-led-nested-missing"
+        ),
+    ],
+)
+def test_select_chained_has_siblings(selector: str, html: str, expected: list[str | None]) -> None:
+    document = parse(html)
+    elements = document.select("[id]")
+    assert _ids(document.select(selector)) == expected
+    assert _ids([element for element in elements if element.matches(selector)]) == expected
+
+
+@pytest.mark.parametrize(
+    ("build", "sizes"),
+    [
+        pytest.param(lambda links: f"b:has({'~ b ' * links}~ q)", (2, 6), id="chain"),
+        pytest.param(lambda links: f"b:has(+ b {'~ b ' * links}~ q)", (2, 6), id="adjacent-lead"),
+        pytest.param(lambda links: f"b:has({'~ b ' * links}~ b q)", (2, 6), id="descendant-tail"),
+        pytest.param(lambda depth: _wrapped("b:has(~ ", ")", depth, "q"), (2, 5), id="nested"),
+    ],
+)
+def test_select_chained_has_siblings_work_linear(
+    build: Callable[[int], str], sizes: tuple[int, int], work_steps: WorkSteps
+) -> None:
+    document = parse(_AROUND_A)
+    work_steps.assert_linear(lambda size: partial(document.select, build(size)), sizes)
+
+
+def test_matches_nested_has_siblings_work_linear(work_steps: WorkSteps) -> None:
+    anchor: Final = parse(_AROUND_A).select_one("#e0")
+    assert anchor is not None
+    work_steps.assert_linear(lambda depth: partial(anchor.matches, _wrapped("b:has(~ ", ")", depth, "q")), (2, 5))

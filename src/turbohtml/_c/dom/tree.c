@@ -917,6 +917,54 @@ static void append_meta_label(th_tree *tree, const th_buf *value, int from_conte
     tree->meta_label_count++;
 }
 
+/* ASCII case-insensitive equality of an attribute name with a literal. Names a rewrite handler supplies are not
+   lowercased, and the tree builder reads them lowercased. */
+static int name_iequals_ascii(const char *name, Py_ssize_t len, const char *ascii) {
+    if (len != (Py_ssize_t)strlen(ascii)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        char c = name[index];
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (c != ascii[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int th_builder_reads_attr(uint8_t ns, uint16_t tag, const char *name, Py_ssize_t len) {
+    if (ns == TH_NS_HTML) {
+        switch (tag) {
+        case TH_TAG_INPUT:
+            return name_iequals_ascii(name, len, "type");
+        case TH_TAG_OPTION:
+            return name_iequals_ascii(name, len, "disabled") || name_iequals_ascii(name, len, "selected");
+        case TH_TAG_OPTGROUP:
+        case TH_TAG_SELECTEDCONTENT:
+            return name_iequals_ascii(name, len, "disabled");
+        case TH_TAG_SELECT:
+            return name_iequals_ascii(name, len, "multiple");
+        case TH_TAG_TEMPLATE:
+            return name_iequals_ascii(name, len, "shadowrootmode") ||
+                   name_iequals_ascii(name, len, "shadowrootdelegatesfocus") ||
+                   name_iequals_ascii(name, len, "shadowrootclonable");
+        default:
+            return 0;
+        }
+    }
+    if (ns == TH_NS_MATHML && tag == TH_TAG_ANNOTATION_XML) {
+        return name_iequals_ascii(name, len, "encoding");
+    }
+    if (tag == TH_TAG_FONT) {
+        return name_iequals_ascii(name, len, "color") || name_iequals_ascii(name, len, "face") ||
+               name_iequals_ascii(name, len, "size");
+    }
+    return 0;
+}
+
 /* Record a <meta> element's encoding declarations in the order the tree-construction rule tries them: its charset
    value, then -- for an http-equiv="content-type" element -- its content value, whose charset= token still needs
    extracting. A value that names no encoding falls through to the next declaration rather than ending the search,
@@ -5730,6 +5778,11 @@ struct th_shadow {
     Py_ssize_t budget;    /* allocated past which th_shadow_compact copies the tree */
     th_node gone;         /* stands in for an element the tree let go of: it has left the stack */
     int mirror;           /* sm is the shadow's own, fed by th_shadow_mirror_feed, and its input moves */
+    int built;            /* the last token th_shadow_step read built a node */
+    int discarded;        /* the last token th_shadow_step read detached the body, as a frameset replacing it does */
+    int body_open;        /* the tree has opened a body, by the token at body_line:body_col */
+    Py_ssize_t body_line;
+    Py_ssize_t body_col;
 };
 
 /* Arena growth a shadow tree may reach before its first copy, and on top of three times what the last copy kept. */
@@ -5795,6 +5848,11 @@ static void shadow_take(th_shadow *shadow, th_token *token) {
     drain_token(tree, &shadow->dc, token);
     tree->closing_end_tag = NULL;
     tree->errors.len = 0; /* nobody reads the shadow's parse errors, and keeping them would grow with the document */
+    if (!shadow->body_open && tree->open_len > 1 && tree->open[1]->atom == TH_TAG_BODY) {
+        shadow->body_open = 1;
+        shadow->body_line = token->line;
+        shadow->body_col = token->col;
+    }
 }
 
 /* Copy one node of src into dest, under parent when it has one. A template's content goes with it: a content
@@ -5924,7 +5982,11 @@ int th_shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, size_
     return shadow->allocated > shadow->budget ? shadow_compact(shadow, refs, count, stride) : 0;
 }
 
-int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride) {
+/* Replay the input from the shadow's synced offset up to offset. With to_body, the replay stops after the token that
+   opens a body, parked there. Returns 1 when it stopped at a body, 0 when it reached offset, or -1 on allocation
+   failure. */
+static int shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride,
+                           int to_body) {
     th_tree *tree = shadow->tree;
     th_tokenizer *replay = th_tok_new();
     if (replay == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -5938,6 +6000,7 @@ int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_
     shadow->dc.sm = replay;
     th_token *token;
     int failed = 0;
+    int stopped = 0;
     while (th_tok_set_cdata(replay, shadow->tree->open_len > 0 && current_node(shadow->tree)->ns != TH_NS_HTML),
            th_tok_next(replay, &token) == TH_STEP_TOKEN) {
         shadow_take(shadow, token);
@@ -5947,12 +6010,27 @@ int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_
             break;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         /* GCOVR_EXCL_BR_STOP */
+        if (to_body && shadow->body_open) {
+            th_shadow_park(shadow, token);
+            stopped = 1;
+            break;
+        }
     }
     failed |= th_tok_failed(replay); /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
     th_tok_free(replay);
     shadow->dc.sm = shadow->sm;
-    shadow->synced = offset;
-    return failed ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (!stopped) {
+        shadow->synced = offset;
+    }
+    return failed ? -1 : stopped; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+}
+
+int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride) {
+    return shadow_catch_up(shadow, offset, refs, count, stride, 0);
+}
+
+int th_shadow_catch_body(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride) {
+    return shadow_catch_up(shadow, offset, refs, count, stride, 1);
 }
 
 int th_shadow_step(th_shadow *shadow, th_token *token) {
@@ -5961,11 +6039,29 @@ int th_shadow_step(th_shadow *shadow, th_token *token) {
     if (kind == TH_CHARREF) {
         token->kind = TH_TEXT; /* the decoded reference, as a parse reads it inside its text run */
     }
+    th_node *body = tree->open_len > 1 && tree->open[1]->atom == TH_TAG_BODY ? tree->open[1] : NULL;
+    uint32_t seq_before = tree->node_seq;
     shadow_take(shadow, token);
+    shadow->built = tree->node_seq != seq_before;
+    shadow->discarded = body != NULL && body->parent == NULL;
     token->kind = kind;
     /* the tag the shadow started at put <html> on the stack, and nothing takes it off */
     th_tok_set_cdata(shadow->sm, current_node(tree)->ns != TH_NS_HTML);
     return tree->failed ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+}
+
+int th_shadow_built(const th_shadow *shadow) {
+    return shadow->built;
+}
+
+int th_shadow_discarded(const th_shadow *shadow) {
+    return shadow->discarded;
+}
+
+int th_shadow_body(const th_shadow *shadow, Py_ssize_t *line, Py_ssize_t *col) {
+    *line = shadow->body_line;
+    *col = shadow->body_col;
+    return shadow->body_open;
 }
 
 int th_shadow_parkable(const th_shadow *shadow) {

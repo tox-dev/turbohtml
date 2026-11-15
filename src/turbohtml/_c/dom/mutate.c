@@ -2017,6 +2017,10 @@ uint32_t th_tree_node_count(const th_tree *tree) {
     return tree->node_seq;
 }
 
+int th_tree_seq_wrapped(const th_tree *tree) {
+    return tree->seq_wrapped;
+}
+
 void th_tree_set_document(th_tree *tree, th_node *document) {
     tree->document = document;
 }
