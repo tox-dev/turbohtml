@@ -1950,6 +1950,7 @@ static int sel_strong_dir(Py_UCS4 ch) {
    1 ltr default when none is strong. */
 static int sel_first_strong_dir(const Py_UCS4 *text, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
+        TH_WORK_STEP();
         int strong = sel_strong_dir(text[index]);
         if (strong != 0) {
             return strong;
@@ -1958,10 +1959,21 @@ static int sel_first_strong_dir(const Py_UCS4 *text, Py_ssize_t len) {
     return 1;
 }
 
+/* Keys the dir=auto answers in a sel_memo; no selector object shares its address. */
+static const char sel_dir_memo_key = 0;
+
+/* The legend table of a single test (selector_matches, rewrite rules), which builds its
+   context with no memo. Only this per-thread table outlives that context, so the matcher
+   binds it on the first dir=auto read rather than selector_matches setting up and freeing
+   one for every call; binding empties what the previous test left. */
+static _Thread_local sel_memo sel_single_test_memo;
+
 /* The direction a dir=auto element resolves to (HTML "the directionality of an
    element"): an input element resolves from its value attribute, every other element
-   from its text content. */
-static int sel_auto_dir(th_tree *tree, th_node *node) {
+   from its text content. Reading that content walks the element's whole subtree, and
+   every descendant without a dir of its own resolves through the same element, so a
+   query remembers the answer per element rather than re-walking it per candidate. */
+static int sel_auto_dir(th_node *node, const sel_ctx *ctx) {
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT) {
         const th_node_attr *value = sel_find_attr(node, TH_ATTR_VALUE);
         if (value == NULL || value->value == NULL) {
@@ -1969,20 +1981,32 @@ static int sel_auto_dir(th_tree *tree, th_node *node) {
         }
         return sel_first_strong_dir(value->value, value->value_len);
     }
+    sel_memo *memo = ctx->legend_memo;
+    if (memo == NULL) {
+        memo = &sel_single_test_memo;
+        sel_memo_free(memo);
+        /* every context is a writable local of its driver or of the matcher copying it */
+        ((sel_ctx *)ctx)->legend_memo = memo;
+    }
+    int rtl = 0;
+    if (sel_memo_get(memo, &sel_dir_memo_key, node, &rtl)) {
+        return rtl ? 2 : 1;
+    }
     Py_ssize_t len = 0;
-    Py_UCS4 *text = th_node_text(tree, node, &len);
+    Py_UCS4 *text = th_node_text(ctx->tree, node, &len);
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int dir = sel_first_strong_dir(text, len);
     PyMem_Free(text);
+    sel_memo_put(memo, &sel_dir_memo_key, node, dir == 2);
     return dir;
 }
 
 /* The element's resolved direction: 1 ltr, 2 rtl. The nearest dir attribute wins
    (auto and a dir-less bdi resolve from the content's first strong character);
    with none, the document default is ltr (HTML "the dir attribute"). */
-static int sel_direction(th_tree *tree, th_node *node) {
+static int sel_direction(th_node *node, const sel_ctx *ctx) {
     /* a telephone input's directionality is its own dir, never inherited, and is ltr
        unless dir explicitly overrides it (HTML "the directionality", issue #374) */
     if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT && sel_input_type_is(node, "tel")) {
@@ -1995,7 +2019,7 @@ static int sel_direction(th_tree *tree, th_node *node) {
                 return 2;
             }
             if (sel_kw(attr->value, attr->value_len, "auto")) {
-                return sel_auto_dir(tree, node);
+                return sel_auto_dir(node, ctx);
             }
         }
         return 1;
@@ -2010,11 +2034,11 @@ static int sel_direction(th_tree *tree, th_node *node) {
                 return 2;
             }
             if (sel_kw(attr->value, attr->value_len, "auto")) {
-                return sel_auto_dir(tree, ancestor);
+                return sel_auto_dir(ancestor, ctx);
             }
             /* an invalid dir value is ignored; keep walking up the ancestor chain */
         } else if (ancestor->ns == TH_NS_HTML && ancestor->atom == TH_TAG_BDI) {
-            return sel_auto_dir(tree, ancestor); /* a dir-less bdi defaults to auto */
+            return sel_auto_dir(ancestor, ctx); /* a dir-less bdi defaults to auto */
         }
     }
     return 1;
@@ -2100,7 +2124,7 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_LANG:
         return sel_matches_lang(ctx->tree, node, simple);
     case PSEUDO_DIR:
-        return sel_direction(ctx->tree, node) == simple->nth_a;
+        return sel_direction(node, ctx) == simple->nth_a;
     /* :link/:any-link: an a or area carrying an href (HTML "the :link/:any-link") */
     case PSEUDO_ANY_LINK:
         return (node->atom == TH_TAG_A || node->atom == TH_TAG_AREA) && sel_has_attr(node, TH_ATTR_HREF);

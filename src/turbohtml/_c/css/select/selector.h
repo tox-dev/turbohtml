@@ -178,7 +178,9 @@ typedef struct {
    per candidate passes it only for a selector without :scope. The legend memo holds which
    legends are their fieldset's first, the :disabled exemption every control below one asks
    about; that is a fact of the tree alone, so it can share a table with the other two and
-   outlive a scope, for as long as the tree is not mutated. */
+   outlive a scope, for as long as the tree is not mutated. It also holds the direction each
+   dir=auto element resolved to for :dir(), the same kind of fact; when a context has no
+   legend memo, the first such read points legend_memo at a per-thread table. */
 typedef struct {
     th_tree *tree;
     th_node *scope;

@@ -1712,6 +1712,53 @@ def test_dir_auto_skips_neutral_then_resolves() -> None:
 
 
 @pytest.mark.parametrize(
+    ("selector", "ids"),
+    [
+        pytest.param(":dir(rtl)", ["a", "c", "d", "e", "outer"], id="rtl"),
+        pytest.param("[id]:dir(ltr)", ["b"], id="ltr"),
+        pytest.param("[id]:has(> :dir(ltr))", ["outer"], id="inside-has"),
+        pytest.param(":dir(rtl) > :dir(ltr)", ["b"], id="across-a-combinator"),
+    ],
+)
+def test_dir_auto_answers_once_per_element(selector: str, ids: list[str]) -> None:
+    # every candidate below a dir=auto element resolves through it, and a query reads that element's text once;
+    # the bdi elements between them keep their own answers
+    html = "<div id=outer dir=auto>א<p id=a></p><bdi id=b>x</bdi><p id=c></p><bdi id=d>א</bdi><p id=e></p></div>"
+    assert _ids(html, selector) == ids
+
+
+def test_dir_auto_is_read_again_by_the_next_query() -> None:
+    document = parse("<div dir=auto><i>א</i><p id=a></p></div>")
+    before = [element.attrs.get("id") for element in document.select("p:dir(rtl)")]
+    document.remove("i")
+    assert (before, document.select("p:dir(rtl)")) == (["a"], [])
+
+
+def test_matches_dir_auto_answers_once_per_element() -> None:
+    # one matches() call tests every child inside :has(): the paragraphs share the div's answer, the bdi keeps its
+    # own, and the next call reads the text again
+    outer = parse("<div dir=auto>א<p></p><bdi>x</bdi><p></p></div>").select("div")[0]
+    before = (outer.matches(":has(> p:dir(rtl) + bdi:dir(ltr) + p:dir(rtl))"), outer.matches(":has(> bdi:dir(rtl))"))
+    text = outer.children[0]
+    assert isinstance(text, Text)
+    text.data = "x"
+    assert (before, outer.matches(":has(> p:dir(ltr) ~ p:dir(ltr))")) == ((True, False), True)
+
+
+def test_closest_dir_resolves_each_auto_ancestor() -> None:
+    document = parse("<div id=outer dir=auto>א<bdi>x<p><span></span></p></bdi></div>")
+    closest = document.select("span")[0].closest(":dir(rtl)")
+    assert closest is not None
+    assert closest.attrs.get("id") == "outer"
+
+
+def test_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(parse(f"<section dir=auto>{'<i>1</i>' * n}").select, ":dir(rtl)"), (500, 2000)
+    )
+
+
+@pytest.mark.parametrize(
     ("html", "direction"),
     [
         # the input-value special case is HTML-only, so a foreign (non-HTML) element with

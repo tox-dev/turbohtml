@@ -2429,8 +2429,10 @@ retry:;
     } else {
         /* closest() scopes :scope to the element it was invoked on */
         th_node *scope = ((NodeObject *)self)->node;
+        /* one context for the whole walk, so the ancestors below a dir=auto element share its :dir() answer */
+        sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL};
         for (th_node *node = scope; node != NULL; node = node->parent) {
-            if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, scope)) {
+            if (node->type == TH_NODE_ELEMENT && selector_matches_c(node, compiled, &ctx)) {
                 *found = node;
                 break;
             }
