@@ -205,6 +205,7 @@ typedef struct {
     Py_ssize_t saved_break_end;
     int saved_space;
     int saved_drop;
+    Py_ssize_t saved_table_end;
 } md_table;
 
 /* The output state a converted element's children render without, restored before
@@ -233,6 +234,7 @@ typedef struct {
     int inline_only;
     int deep_block_span;
     char list_end_marker;
+    Py_ssize_t table_end;
 } md_converting;
 
 /* One element whose children are being rendered: the child it reached and what it
@@ -332,6 +334,8 @@ typedef struct {
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
     char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
+    Py_ssize_t table_end;       /* output length when the last pipe table closed, -1 when none ends the output */
+    Py_ssize_t table_prefix;    /* the prefix length that table was laid out under */
     Py_ssize_t list_over;       /* output length where a reader is out of that list; behind list_end until then */
     int g_bold;                 /* google_doc: a CSS font-weight bold is in force from an ancestor */
     int g_italic;               /* google_doc: a CSS font-style italic is in force from an ancestor */
@@ -463,6 +467,68 @@ static void md_write_blank_prefix(md_ctx *ctx) {
     sbuf_put_run(&ctx->out, ctx->prefix.data, len);
 }
 
+/* What a line opens for a reader: nothing, the HTML block of a tag alone on its line, or
+   that of a table or list passed through raw. */
+enum { MD_HTML_LINE_NONE, MD_HTML_LINE_TAG, MD_HTML_LINE_BLOCK };
+
+/* Whether the line written so far opens an HTML block that only a blank line ends
+   (CommonMark 4.6): the one-line HTML of a table or list passed through raw (start
+   condition 6), or a single tag with nothing else on its line, as a `<br>` or a raw
+   `<img>` leaves (condition 7). A reader copies the lines after it out verbatim, their
+   backslash escapes and code fences dead, so the caller keeps what it writes next off
+   them. The line is read from the output rather than from the prefix, past whatever a
+   container leads a line with (indentation, quote markers, a list item's marker), since
+   the prefix may have grown or shrunk since the line was written and a reader need not
+   agree that its container closed. Escaped prose never puts a bare `<` there before a
+   letter; an autolink does, and its scheme or address runs on where a tag name ends at
+   a space or `>`. A tag's attribute values are double-quoted and may hold a `>`. */
+static int md_line_opens_html(md_ctx *ctx) {
+    static const char lead[] = " >-*+.)0123456789";
+    const Py_UCS4 *data = ctx->out.data;
+    Py_ssize_t end = ctx->out.len;
+    if (end == 0 || data[end - 1] != '>') {
+        return MD_HTML_LINE_NONE; /* a raw block and a lone tag both end on their `>`, so the scan back is skipped */
+    }
+    Py_ssize_t start = end;
+    while (start > 0 && data[start - 1] != '\n') {
+        start--;
+    }
+    while (start < end && data[start] < 0x80 && memchr(lead, (int)data[start], sizeof(lead) - 1) != NULL) {
+        start++;
+    }
+    if (start + 1 >= end || data[start] != '<') {
+        return MD_HTML_LINE_NONE;
+    }
+    Py_ssize_t name = start + 1 + (data[start + 1] == '/');
+    Py_ssize_t scan = name;
+    while (is_ascii_alpha(data[scan])) { /* the line ends on a `>`, which is no letter, so the name stops inside it */
+        scan++;
+    }
+    if (scan == name || (data[scan] != ' ' && data[scan] != '>')) {
+        return MD_HTML_LINE_NONE;
+    }
+    if (ser_value_iequals(&data[name], scan - name, "table") || ser_value_iequals(&data[name], scan - name, "ol")) {
+        return MD_HTML_LINE_BLOCK;
+    }
+    int quoted = 0;
+    for (; scan < end - 1; scan++) {
+        if (data[scan] == '"') {
+            quoted = !quoted;
+        } else if (data[scan] == '>' && !quoted) {
+            return MD_HTML_LINE_NONE; /* the tag ends before the line does, so it is not alone on it */
+        }
+    }
+    return MD_HTML_LINE_TAG;
+}
+
+/* Whether the output ends with a pipe table that the next line, written at the table's depth or deeper, would
+   join: a GFM reader takes the line under a table as one more row (GFM 4.10) and cuts it at every pipe before it
+   reads inline spans, so a code span holding one is split and its text read as markup. A line of a container the
+   table sat in is not a row, so an item marker after the table's own item stays tight. */
+static int md_after_table(md_ctx *ctx) {
+    return ctx->out.len == ctx->table_end && ctx->prefix.len >= ctx->table_prefix;
+}
+
 /* Position the cursor at the start of a fresh, prefixed line for the next block,
    collapsing the margin with the previous block (a blank line when either side
    is loose). loose marks whether this block wants blank lines around it. */
@@ -489,14 +555,15 @@ static void md_block_line(md_ctx *ctx, int loose) {
                 ctx->break_end = -1; /* a hard break that ended on the trimmed line no longer ends the output */
             }
         }
-        sbuf_putc(&ctx->out, '\n');
         /* a list item starts with at most one blank line (CommonMark 5.2), and a marker
-           line with nothing after it already is one */
+           line with nothing after it already is one; an HTML block ends at a blank line
+           alone (4.6), so one follows it in a tight item and under single spacing too */
         if (((ctx->pending_loose || loose) && !ctx->tight && !ctx->opt->block_spacing_single && !ctx->item_marker) ||
-            ctx->interrupt_blank) {
-            md_write_blank_prefix(ctx);
+            ctx->interrupt_blank || md_after_table(ctx) || md_line_opens_html(ctx)) {
             sbuf_putc(&ctx->out, '\n');
+            md_write_blank_prefix(ctx);
         }
+        sbuf_putc(&ctx->out, '\n');
         md_write_prefix(ctx);
         ctx->line_has_content = 0;
     }
@@ -520,13 +587,31 @@ static void md_newline(md_ctx *ctx) {
 /* Write a hard break, remembering where it sits so an emphasis run that closes right
    after it can put its closing delimiter in front of it (md_put_close). A line of only
    spaces is blank (CommonMark 4.9) and ends the paragraph, so a break with nothing
-   before it on its line takes the backslash spelling whatever the style. */
+   before it on its line takes the backslash spelling whatever the style. So does a
+   break after a tag alone on its line: with only spaces behind it the tag opens an HTML
+   block (4.6) that takes the rest of the paragraph as raw HTML. */
+static int md_opener_ends_output(md_ctx *ctx) {
+    Py_ssize_t index = ctx->marker_count;
+    while (index > ctx->marker_base && !ctx->markers[index - 1].emitted) {
+        index--;
+    }
+    if (index == ctx->marker_base) {
+        return 0;
+    }
+    const md_marker *marker = &ctx->markers[index - 1];
+    return marker->open_at + marker->open_len == ctx->out.len;
+}
+
 static void md_write_break(md_ctx *ctx) {
     if (ctx->block_ended) {
         md_block_line(ctx, 1); /* the break opens the block after an inner one, so it leads that block's line */
     }
     ctx->break_start = ctx->out.len;
-    sbuf_puts(&ctx->out, ctx->opt->line_break == TH_MD_BREAK_BACKSLASH || !ctx->line_has_content ? "\\" : "  ");
+    /* a run opened with nothing after it would take the spaces as the space after its delimiter, which settles it
+       as a raw tag, and the break would leave that tag alone on its line */
+    int backslash = ctx->opt->line_break == TH_MD_BREAK_BACKSLASH || !ctx->line_has_content ||
+                    md_line_opens_html(ctx) || md_opener_ends_output(ctx);
+    sbuf_puts(&ctx->out, backslash ? "\\" : "  ");
     md_newline(ctx);
     ctx->break_end = ctx->out.len;
 }
@@ -582,7 +667,9 @@ static void md_flush_space(md_ctx *ctx) {
     if (drop) {
         return;
     }
-    if (ctx->opt->wrap_width > 0 && ctx->no_wrap == 0 && md_line_column(ctx) + 1 + word > ctx->opt->wrap_width) {
+    /* a tag left alone on its line by a wrap would open an HTML block there, so its line runs on */
+    if (ctx->opt->wrap_width > 0 && ctx->no_wrap == 0 && md_line_column(ctx) + 1 + word > ctx->opt->wrap_width &&
+        md_line_opens_html(ctx) != MD_HTML_LINE_TAG) {
         md_newline(ctx);
         /* the break consumed the owed space and the wrapped word follows it with
            no leading space, so clear the drop md_newline raised for a real <br> */
@@ -2510,28 +2597,24 @@ static void md_cell_flat_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
    becomes the alt (CommonMark 6.4), so an emphasis delimiter, or a `<` or `&` that
    would open raw HTML or a character reference, is escaped as prose escapes it, and
    a line break, which could open a block on the next line, is written as its numeric
-   reference (6.5). The plain alt-only image mode passes escape=0 since it emits no
-   brackets to protect. */
-static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int escape) {
+   reference (6.5). The alt-only image mode writes no description: there the alt
+   text is prose (md_emit_image). */
+static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len) {
     if (alt != NULL) {
-        if (escape) {
-            for (Py_ssize_t index = 0; index < alt_len; index++) {
-                Py_UCS4 ch = alt[index];
-                uint8_t kind = ch < 0x80 ? MD_ASCII[ch] : 0;
-                if (kind != 0) { /* a character in no class needs no escape */
-                    if (ch == '\n' || ch == '\r') {
-                        sbuf_puts(&ctx->out, ch == '\n' ? "&#10;" : "&#13;");
-                        continue;
-                    }
-                    if (ch == '[' || ch == ']' || ch == '\\' || ch == '`' || (kind & ctx->escape_mask) ||
-                        ((kind & MD_CH_CONTEXT) && ctx->escape_prose && md_escape_by_context(alt, index, alt_len))) {
-                        sbuf_putc(&ctx->out, '\\');
-                    }
+        for (Py_ssize_t index = 0; index < alt_len; index++) {
+            Py_UCS4 ch = alt[index];
+            uint8_t kind = ch < 0x80 ? MD_ASCII[ch] : 0;
+            if (kind != 0) { /* a character in no class needs no escape */
+                if (ch == '\n' || ch == '\r') {
+                    sbuf_puts(&ctx->out, ch == '\n' ? "&#10;" : "&#13;");
+                    continue;
                 }
-                md_put_literal(ctx, ch);
+                if (ch == '[' || ch == ']' || ch == '\\' || ch == '`' || (kind & ctx->escape_mask) ||
+                    ((kind & MD_CH_CONTEXT) && ctx->escape_prose && md_escape_by_context(alt, index, alt_len))) {
+                    sbuf_putc(&ctx->out, '\\');
+                }
             }
-        } else {
-            md_put_run(ctx, alt, alt_len);
+            md_put_literal(ctx, ch);
         }
     } else {
         md_puts8(&ctx->out, ctx->opt->default_image_alt);
@@ -2586,9 +2669,43 @@ static int md_attr_has_space_run(const Py_UCS4 *value, Py_ssize_t len) {
     return 0;
 }
 
+/* Alt text the prose writer would copy unchanged is written as one run. Empty alt text
+   leaves a reference open across the image, which the prose writer would close. A digit
+   only matters as the first character, where it may start a line-numbered list item. */
+static int md_alt_is_plain(const md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len) {
+    if (alt_len == 0) {
+        return 1;
+    }
+    if (is_ascii_digit(alt[0]) || ctx->opt->transliterate || ctx->opt->wrap_width > 0 || ctx->amp_open ||
+        ctx->line_number_start > 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < alt_len; index++) {
+        if (alt[index] >= 0x80 || MD_ASCII[alt[index]] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void md_emit_image(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
     if (opt->image_mode == TH_MD_IMAGE_IGNORE) {
+        return;
+    }
+    Py_ssize_t alt_len;
+    const Py_UCS4 *alt = md_attr(ctx->tree, node, "alt", &alt_len);
+    if (opt->image_mode == TH_MD_IMAGE_ALT && alt != NULL) {
+        /* with no brackets around it the alt text joins the prose, and a reader parses it as it does any text */
+        if (md_alt_is_plain(ctx, alt, alt_len)) {
+            md_before_visible(ctx);
+            md_put_run(ctx, alt, alt_len);
+            ctx->line_has_content = 1;
+            ctx->clone_budget += alt_len;
+            ctx->tags_left += alt_len;
+        } else {
+            md_emit_text(ctx, node, alt, alt_len);
+        }
         return;
     }
     md_before_visible(ctx);
@@ -2596,10 +2713,8 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
         md_emit_raw_html(ctx, node);
         return;
     }
-    Py_ssize_t alt_len;
-    const Py_UCS4 *alt = md_attr(ctx->tree, node, "alt", &alt_len);
     if (opt->image_mode == TH_MD_IMAGE_ALT) {
-        md_emit_alt(ctx, alt, alt_len, 0);
+        md_emit_alt(ctx, NULL, 0); /* no alt text: the configured default */
         return;
     }
     Py_ssize_t src_len;
@@ -2634,7 +2749,7 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
         return;
     }
     sbuf_puts(&ctx->out, "![");
-    md_emit_alt(ctx, alt, alt_len, 1);
+    md_emit_alt(ctx, alt, alt_len);
     sbuf_puts(&ctx->out, "](");
     if (src != NULL) {
         int relative = *opt->base_url != '\0' && !md_href_absolute(src, src_len) && !md_href_internal(src);
@@ -2824,6 +2939,12 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
         if (md_br_trailing(ctx, node)) {
             /* a hard break at the end of a block does nothing (CommonMark 6.7); emitting
                it would leave a line of spaces that reads as a blank line */
+            return;
+        }
+        if (ctx->block_ended) {
+            /* the break opens the block after an inner one: a tag written here would sit on that block's last
+               line, and behind a closing code fence it keeps the fence from closing */
+            md_write_break(ctx);
             return;
         }
         if (ctx->raw_emphasis && md_is_emphasis_node(node->parent)) {
@@ -3347,6 +3468,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .inline_only = ctx->inline_only,
         .deep_block_span = ctx->deep_block_span,
         .list_end_marker = ctx->list_end_marker,
+        .table_end = ctx->table_end,
     };
     ctx->out = (sbuf){0};
     ctx->prefix = (sbuf){0};
@@ -3369,6 +3491,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
     ctx->inline_only = 0;
     ctx->deep_block_span = 0; /* it counts the markers above marker_base, and a run closing in here must not clear it */
     ctx->list_end_marker = 0;
+    ctx->table_end = -1;
     return 1;
 }
 
@@ -3461,6 +3584,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     while (end > 0 && is_space(data[end - 1])) {
         end--;
     }
+    int table_ended = end == ctx->table_end; /* the converted children end with a pipe table */
     PyObject *content = NULL;
     if (!(ctx->out.failed | ctx->prefix.failed)) { /* GCOVR_EXCL_BR_LINE: only an unforceable allocation fails */
         content = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, end);
@@ -3489,6 +3613,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     ctx->inline_only = saved->inline_only;
     ctx->deep_block_span = saved->deep_block_span;
     ctx->list_end_marker = saved->list_end_marker;
+    ctx->table_end = saved->table_end;
     PyObject *tag = saved->tag;
     PyObject *converter = saved->converter;
     PyMem_Free(saved);
@@ -3524,6 +3649,18 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     }
     Py_DECREF(tag);
     md_emit_converted(ctx, node, result, blank);
+    if (PyUnicode_GET_LENGTH(result) > 0) {
+        /* a converter that hands its content back leaves a table that ended it at the end of the output; text
+           after it would run on along the table's last line, as one more row of a pipe table or inside the HTML
+           block of a raw one, so it opens a block of its own */
+        if (table_ended) {
+            ctx->table_end = ctx->out.len;
+            ctx->table_prefix = ctx->prefix.len;
+        }
+        if (table_ended || md_line_opens_html(ctx) == MD_HTML_LINE_BLOCK) {
+            ctx->block_ended = 1;
+        }
+    }
     Py_DECREF(result);
 }
 
@@ -4037,6 +4174,8 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_break_end = ctx->break_end;
     table->saved_space = ctx->space_pending;
     table->saved_drop = ctx->drop_space;
+    table->saved_table_end = ctx->table_end;
+    ctx->table_end = -1;
     ctx->out = (sbuf){NULL, 0, 0, 0, 0};
     ctx->prefix = (sbuf){NULL, 0, 0, 0, 0};
     Py_ssize_t outer = ctx->marker_count;
@@ -4081,6 +4220,7 @@ static void md_leave_cell(md_ctx *ctx, md_table *table) {
     ctx->break_end = table->saved_break_end;
     ctx->space_pending = table->saved_space;
     ctx->drop_space = table->saved_drop;
+    ctx->table_end = table->saved_table_end;
     ctx->in_cell = 0;
     sbuf *dst = table->grid != NULL ? &table->grid[table->row * table->columns + table->column] : &ctx->out;
     /* a block in the cell opens on a fresh line, so the rendering can start with a
@@ -4458,6 +4598,10 @@ static int md_table_step(md_ctx *ctx, md_frame *frame) {
 }
 
 static void md_leave_table(md_ctx *ctx, md_table *table) {
+    if (table->phase == MD_TABLE_ROWS || table->phase == MD_TABLE_PADDED) {
+        ctx->table_end = ctx->out.len;
+        ctx->table_prefix = ctx->prefix.len;
+    }
     if (table->grid != NULL) {
         for (Py_ssize_t index = 0; index < table->count * table->columns; index++) {
             PyMem_Free(table->grid[index].data);
@@ -4879,12 +5023,13 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         if (ctx->started) {
             /* close the previous block and open the separator with the OUTER
                prefix, so the blank line is not itself quoted, before adding the
-               "> " that every line inside the quote carries */
-            sbuf_putc(&ctx->out, '\n');
-            if (!ctx->tight && !ctx->item_marker) {
-                md_write_blank_prefix(ctx);
+               "> " that every line inside the quote carries; an HTML block before
+               the quote ends at that blank line alone, so a tight item writes it too */
+            if ((!ctx->tight && !ctx->item_marker) || md_after_table(ctx) || md_line_opens_html(ctx)) {
                 sbuf_putc(&ctx->out, '\n');
+                md_write_blank_prefix(ctx);
             }
+            sbuf_putc(&ctx->out, '\n');
             ctx->item_marker = 0;
             sbuf_puts(&ctx->prefix, marker);
             md_write_prefix(ctx);
@@ -4925,6 +5070,9 @@ static void md_leave_heading(md_ctx *ctx, md_frame *frame) {
             sbuf_puts(&ctx->out, level == 1 ? "#" : "##");
             ctx->line_has_content = 1;
             return;
+        }
+        if (md_line_opens_html(ctx)) {
+            return; /* the underline would only be one more line of the HTML block the text opens */
         }
         md_newline(ctx);
         Py_UCS4 rule = level == 1 ? '=' : '-';
@@ -5147,6 +5295,7 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.markers = ctx.inline_markers = inline_markers;
     ctx.marker_cap = MD_INLINE_MARKERS;
     ctx.break_end = -1;
+    ctx.table_end = -1;
     /* a few short targets repeat in clones before any rendered text funds the budget */
     ctx.clone_budget = TH_CLONE_ALLOWANCE;
     /* Let a few deep runs reopen in full before source text has to fund them. */
