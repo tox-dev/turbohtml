@@ -100,6 +100,13 @@ typedef struct {
    global replace of (\w+)\W+\1 over prose spends, the heaviest common pattern measured. */
 #define XR_BUDGET_BASE 10000000
 #define XR_BUDGET_PER_CHAR 100
+/* The Pike VM's work grows with the states alive at each position and the capture slots they carry, not only with the
+   positions, so the budget charges those too. */
+#define XR_STATES_PER_STEP 8
+#define XR_SLOTS_PER_STEP 64
+/* The literal prefix xr_skip compares at each candidate start: a longer one seldom filters better, and comparing all of
+   it is quadratic on a text that keeps matching most of it, work no budget sees. */
+#define XR_MAX_PREFIX 32
 
 struct xr_program {
     Py_UCS4 *pattern;
@@ -114,7 +121,7 @@ struct xr_program {
     int32_t slots;     /* capture slots, 2 per group plus the whole match */
     int32_t registers; /* loop-start positions only the backtracker reads */
     int32_t prefilter; /* the first consuming instruction when every match starts with it */
-    int32_t prefix;    /* how many literal characters every match starts with */
+    int32_t prefix;    /* how many literal characters every match starts with, up to XR_MAX_PREFIX */
     uint8_t anchored;
     uint8_t backrefs;
     uint8_t first_filter;
@@ -1518,7 +1525,7 @@ static xr_program *xr_assemble(xr_parser *parser, int32_t root, int flags) {
     }
     program->anchored = (uint8_t)(program->code[pc].op == XRI_ASSERT && program->code[pc].arg == XRA_START);
     program->prefilter = program->code[pc].op <= XRI_CLASS ? pc : -1;
-    while (program->code[pc + program->prefix].op == XRI_CHAR) {
+    while (program->prefix < XR_MAX_PREFIX && program->code[pc + program->prefix].op == XRI_CHAR) {
         program->prefix++;
     }
     return program;
@@ -1664,8 +1671,8 @@ static void xr_add(xr_program *program, xr_list *list, int32_t pc, const Py_UCS4
     }
 }
 
-static int xr_pike(xr_program *program, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t start, int must_advance,
-                   Py_ssize_t *spans) {
+static int xr_pike(xr_program *program, xr_cache *cache, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t start,
+                   int must_advance, Py_ssize_t *spans) {
     if (program->prefilter < 0 && program->first_filter == 0 && (program->frames != NULL || len - start >= 64)) {
         if (xr_first_chars(program) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;                     /* GCOVR_EXCL_LINE */
@@ -1696,6 +1703,20 @@ static int xr_pike(xr_program *program, const Py_UCS4 *text, Py_ssize_t len, Py_
                  (text[pos] >= 128 || (program->first_ascii[text[pos] >> 5] & ((uint32_t)1 << (text[pos] & 31)))))) {
                 xr_add(program, current, 0, text, len, pos, width);
             }
+        }
+        /* The size caps bound the work of one position, the evaluation's budget its sum over the text and over the
+           searches of a global replace. */
+        size_t spent = 1 + (size_t)current->len / XR_STATES_PER_STEP;
+        if (width > 0) {
+            spent += (size_t)(current->active_len + 1) * (size_t)width / XR_SLOTS_PER_STEP;
+        }
+        cache->budget -= (Py_ssize_t)spent;
+        if (cache->budget < 0) {
+            PyErr_Format(PyExc_ValueError,
+                         "regular expression needs more than %zd matching steps (10000000 plus 100 per character "
+                         "searched in this XPath evaluation); simplify the pattern or search a shorter string",
+                         cache->allowance);
+            return -1;
         }
         if (current->len == 0) {
             if (matched || program->anchored) {
@@ -1877,7 +1898,7 @@ static int xr_backtrack_at(xr_program *program, xr_cache *cache, const Py_UCS4 *
 static int xr_search(xr_program *program, xr_cache *cache, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t start,
                      int must_advance, Py_ssize_t *spans) {
     if (!program->backrefs) {
-        return xr_pike(program, text, len, start, must_advance, spans);
+        return xr_pike(program, cache, text, len, start, must_advance, spans);
     }
     if (xr_prepare(program, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */

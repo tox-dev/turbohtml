@@ -1,0 +1,2 @@
+Canonical XML and XML serialization now drop characters XML 1.0 forbids from CDATA sections, text and attribute values,
+so the output parses.

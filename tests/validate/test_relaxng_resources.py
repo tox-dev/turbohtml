@@ -356,6 +356,15 @@ def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> R
             "schema compilation does not support trees nested 400 levels",
             id="deep-graft",
         ),
+        pytest.param(
+            {
+                "main.rng": f'<element {_NS} name="doc"><externalRef href="x"/><externalRef href="x"/></element>',
+                "x": f'<attribute {_NS} name="id"/>',
+            },
+            ValueError,
+            "attributes whose names overlap",
+            id="external-attribute-twice",
+        ),
     ],
 )
 def test_relaxng_resources_reject(tmp_path: Path, files: dict[str, str], error: type[Exception], match: str) -> None:
