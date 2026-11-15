@@ -30,6 +30,13 @@ def test_element_tree_insert(tree: ElementView, incoming: ElementView, index: in
     assert tostring(tree, encoding="unicode") == expected
 
 
+@pytest.mark.parametrize("index", [pytest.param(-1, id="from-end"), pytest.param(0, id="first")])
+def test_element_tree_insert_into_childless(incoming: ElementView, index: int) -> None:
+    empty: Final = etree.fromstring("<div>start</div>")
+    empty.insert(index, incoming)
+    assert etree.tostring(empty, encoding="unicode") == "<div>start<strong>N</strong>tail</div>"
+
+
 @pytest.mark.parametrize(
     ("operation", "expected"),
     [
