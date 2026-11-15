@@ -1675,13 +1675,22 @@ static pattern *rng_end_tag_deriv(th_schema *schema, pattern *p) {
     return schema->p_notallowed;
 }
 
-static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element);
+/* An element whose children are still being derived over. rng_child_element keeps these on an explicit stack
+   (walk_stack_reserve) instead of recursing once per instance level. */
+typedef struct {
+    th_node *element;
+    th_node *child;     /* the next child to derive over, NULL once the list is consumed */
+    Py_ssize_t mark;    /* path length to restore at the end tag */
+    Py_ssize_t before;  /* error count at the start tag: unchanged at the end tag, no failure in here is reported yet */
+    Py_ssize_t ns_mark; /* namespace bindings to unbind at the end tag */
+} rng_frame;
 
 /* Derive over an element's child list, ignoring whitespace-only text between elements
-   and allowing insignificant whitespace when the content is a single text run. */
-static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
+   and allowing insignificant whitespace when the content is a single text run. A list with child elements is only
+   queued on the frame: rng_next_child derives over it one child at a time. */
+static pattern *rng_children_deriv(valctx *ctx, pattern *p, rng_frame *frame) {
     th_schema *schema = ctx->schema;
-    th_tree *tree = ctx->tree;
+    th_node *element = frame->element;
     Py_ssize_t element_children = 0, text_children = 0;
     for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_ELEMENT) {
@@ -1701,42 +1710,48 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
         pattern *derived = rng_text_walk(schema, p, text, len);
         return rng_is_whitespace(text, len) ? pat_choice(schema, p, derived) : derived;
     }
-    pattern *current = p;
-    for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
+    frame->child = element->first_child;
+    return p;
+}
+
+/* Derive *p over the frame's queued children up to the next child element and return that element for the caller
+   to derive over, or NULL once the list is consumed. */
+static th_node *rng_next_child(valctx *ctx, pattern **p, rng_frame *frame) {
+    th_schema *schema = ctx->schema;
+    th_tree *tree = ctx->tree;
+    while (frame->child != NULL) {
+        th_node *child = frame->child;
+        frame->child = child->next_sibling;
         if (child->type == TH_NODE_ELEMENT) {
-            current = rng_child_element(ctx, current, child);
-        } else if (is_chardata(child)) {
+            return child;
+        }
+        if (is_chardata(child)) {
             Py_ssize_t len = child->text_len;
             const Py_UCS4 *text = len == 0 ? EMPTY_UCS4 : th_node_realize_text(tree, child);
-            if (text == NULL) {              /* GCOVR_EXCL_BR_LINE: text realization allocation failure */
-                ctx->failed = 1;             /* GCOVR_EXCL_LINE */
-                PyErr_NoMemory();            /* GCOVR_EXCL_LINE */
-                return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+            if (text == NULL) {            /* GCOVR_EXCL_BR_LINE: text realization allocation failure */
+                ctx->failed = 1;           /* GCOVR_EXCL_LINE */
+                PyErr_NoMemory();          /* GCOVR_EXCL_LINE */
+                *p = schema->p_notallowed; /* GCOVR_EXCL_LINE */
+                return NULL;               /* GCOVR_EXCL_LINE */
             }
             if (!rng_is_whitespace(text, len)) {
                 memo_begin_event(schema);
-                current = rng_text_walk(schema, current, text, len);
+                *p = rng_text_walk(schema, *p, text, len);
             }
         }
     }
-    return current;
+    return NULL;
 }
 
-static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *element);
-
-/* Derive the pattern over one child element, localizing any failure to it. */
-static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
-    Py_ssize_t mark = ns_scope_enter(ctx->schema, ctx->tree, element);
-    pattern *ended = rng_child_element_scoped(ctx, p, element);
-    ns_scope_leave(ctx->schema, mark);
-    return ended;
-}
-
-static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *element) {
+/* Derive the pattern over an element's start tag and attributes, and over its content when that has no child
+   elements. A start tag the pattern refuses is reported here and queues no children, so the walk goes straight to
+   the end tag, which passes NotAllowed on without a second report. */
+static pattern *rng_start_tag(valctx *ctx, pattern *p, th_node *element, rng_frame *frame) {
     th_schema *schema = ctx->schema;
     th_tree *tree = ctx->tree;
+    Py_ssize_t ns_mark = ns_scope_enter(schema, tree, element);
     qname name = node_qname_scoped(schema, element->text, element->text_len, 0);
-    Py_ssize_t mark = ctx->path.len;
+    *frame = (rng_frame){element, NULL, ctx->path.len, ctx->error_count, ns_mark};
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
         PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
@@ -1748,7 +1763,6 @@ static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *eleme
         char buffer[256];
         report(ctx, element, "structure", "element '%s' is not allowed here",
                name_utf8(element->text, element->text_len, buffer, sizeof(buffer)));
-        ctx->path.len = mark;
         return schema->p_notallowed;
     }
     pattern *after_attrs = opened;
@@ -1773,18 +1787,66 @@ static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *eleme
     }
     memo_begin_event(schema);
     pattern *closed = rng_start_tag_close_walk(schema, after_attrs);
-    Py_ssize_t before = ctx->error_count;
-    pattern *content = rng_children_deriv(ctx, closed, element);
-    pattern *ended = rng_end_tag_deriv(schema, content);
+    return rng_children_deriv(ctx, closed, frame);
+}
+
+/* Derive the pattern left by an element's content over its end tag. */
+static pattern *rng_end_tag(valctx *ctx, pattern *content, const rng_frame *frame) {
+    th_node *element = frame->element;
+    pattern *ended = rng_end_tag_deriv(ctx->schema, content);
     /* endTagDeriv yields NotAllowed exactly when this element's own content failed; a
        non-nullable residual is just the continuation the parent's siblings must match. */
-    if (ended->type == P_NOTALLOWED && ctx->error_count == before) {
+    if (ended->type == P_NOTALLOWED && ctx->error_count == frame->before) {
         char buffer[256];
         report(ctx, element, "structure", "content of element '%s' does not match the schema",
                name_utf8(element->text, element->text_len, buffer, sizeof(buffer)));
     }
-    ctx->path.len = mark;
+    ctx->path.len = frame->mark;
+    ns_scope_leave(ctx->schema, frame->ns_mark);
     return ended;
+}
+
+/* Derive the pattern over the children an element queued below the shallow levels, each one's children in turn, on the
+   explicit stack. A start tag is taken on the way in and its end tag once that element's children are consumed, the
+   order childDeriv recurses in. */
+static pattern *rng_walk(valctx *ctx, pattern *p, const rng_frame *base) {
+    th_schema *schema = ctx->schema;
+    rng_frame *open = NULL;
+    Py_ssize_t depth = 0, cap = 0;
+    open = walk_stack_reserve(&schema->mem, open, depth, &cap, sizeof(rng_frame));
+    if (open == NULL) {              /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return schema->p_notallowed; /* GCOVR_EXCL_LINE: the validate entry raises the MemoryError */
+    }
+    open[depth++] = *base;
+    for (;;) {
+        th_node *element = rng_next_child(ctx, &p, &open[depth - 1]);
+        if (element != NULL) {
+            open = walk_stack_reserve(&schema->mem, open, depth, &cap, sizeof(rng_frame));
+            if (open == NULL) {              /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return schema->p_notallowed; /* GCOVR_EXCL_LINE: the validate entry raises the MemoryError */
+            }
+            p = rng_start_tag(ctx, p, element, &open[depth++]);
+            continue;
+        }
+        p = rng_end_tag(ctx, p, &open[depth - 1]);
+        if (--depth == 0) {
+            return p;
+        }
+    }
+}
+
+/* Derive the pattern over one child element, localizing any failure to it. Levels up to TH_VALIDATE_SHALLOW_DEPTH
+   recurse on the C stack; deeper levels continue in rng_walk. */
+static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element, Py_ssize_t depth) {
+    rng_frame frame;
+    p = rng_start_tag(ctx, p, element, &frame);
+    if (depth >= TH_VALIDATE_SHALLOW_DEPTH) {
+        return rng_walk(ctx, p, &frame);
+    }
+    while ((element = rng_next_child(ctx, &p, &frame)) != NULL) {
+        p = rng_child_element(ctx, p, element, depth + 1);
+    }
+    return rng_end_tag(ctx, p, &frame);
 }
 
 /* ---- compile & entry ---- */
@@ -3512,7 +3574,7 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
                             ? (Py_ssize_t)schema->pattern_count * 2
                             : MEMO_FREE_STEPS;
     Py_ssize_t before = ctx->error_count;
-    pattern *result = rng_child_element(ctx, schema->start, root);
+    pattern *result = rng_child_element(ctx, schema->start, root, 0);
     if (!rng_nullable(schema, result) && ctx->error_count == before) {
         report(ctx, root, "structure", "document does not match the schema");
     }

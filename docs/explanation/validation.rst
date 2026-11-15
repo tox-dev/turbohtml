@@ -73,7 +73,9 @@ matcher for the ``pattern`` facet -- keeps a schema check close to the cost of t
 second pass in Python. The compiler rejects a RELAX NG schema whose refs recurse without an element in between, so the
 derivative does not see such a grammar and cannot overflow the stack on it. Compilation and validation start with an
 iterative tree-depth scan. A schema or instance nested 400 levels or deeper raises :class:`RecursionError` before a
-recursive grammar walk starts, including on small worker-thread stacks.
+recursive grammar walk starts, including on small worker-thread stacks. Both validators then descend the instance
+recursively for a fixed number of levels and with an explicit stack of open elements below them, so the C stack a
+validation needs does not grow with how deep the document nests.
 
 ***********************
  What a result carries

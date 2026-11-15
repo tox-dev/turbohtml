@@ -462,8 +462,6 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     posset_free(schema, &cur);
 }
 
-static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl);
-
 /* One element particle of an xs:all group. */
 typedef struct {
     edecl want;
@@ -626,14 +624,29 @@ static int xsd_hit_member_order(const void *left, const void *right) {
     return (left_member > right_member) - (left_member < right_member);
 }
 
-/* Validate an `all` group: each child element matches the member it names and order is ignored. Each member occurs at
-   most once (XML Schema Part 1 limits an xs:all particle to maxOccurs 0 or 1), so a second child naming it is reported
-   and not validated. */
-static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_ssize_t nchildren) {
+/* An element whose child elements are still to validate. xsd_validate_tree keeps these on an explicit stack
+   (walk_stack_reserve) instead of recursing once per instance level. */
+typedef struct {
+    th_node **children;
+    Py_ssize_t nchildren, next;
+    edecl_vec decls;             /* the declarations the content model reaches, typing a child by name */
+    th_node *all;                /* the `all` group when that is the content model: it types the children itself */
+    const xall_entry *group;     /* that group's members by name */
+    const xall_member **matched; /* the member each child is validated against, NULL for one naming none or a repeat */
+    xall_hit *hits;              /* the children naming a member, sorted by member then position */
+    size_t hit_count;
+    Py_ssize_t present; /* the required weight of the members some child names */
+    Py_ssize_t mark;    /* path length to restore once the element is done */
+    Py_ssize_t ns_mark; /* namespace bindings to unbind once the element is done */
+} xsd_frame;
+
+/* Match each child of an `all` group to the member it names. Each member occurs at most once (XML Schema Part 1 limits
+   an xs:all particle to maxOccurs 0 or 1), so a second child naming it matches nothing and is reported when its turn
+   comes. */
+static void xsd_all_match(valctx *ctx, xsd_frame *frame, th_node *all, th_node **children, Py_ssize_t nchildren) {
     th_schema *schema = ctx->schema;
     th_tree *inst = ctx->tree;
     const xall_entry *group = xsd_cached_all(schema, all);
-    /* the member each child is validated against, NULL for a child that names none or repeats a member */
     const xall_member **matched = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
     xall_hit *hits = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_hit));
     if (matched == NULL || hits == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -657,28 +670,31 @@ static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_s
             present += hits[index].member->required;
         }
     }
-    for (Py_ssize_t index = 0; index < nchildren; index++) {
-        TH_WORK_STEP();
-        if (matched[index] == NULL) {
-            char buffer[256];
-            report(ctx, children[index], "structure", "element '%s' is not allowed here",
-                   name_utf8(children[index]->text, children[index]->text_len, buffer, sizeof(buffer)));
-        } else {
-            xsd_validate_element(ctx, children[index], matched[index]->want.decl);
-        }
-    }
-    if (present == group->required_count) {
+    frame->children = children;
+    frame->nchildren = nchildren;
+    frame->all = all;
+    frame->group = group;
+    frame->matched = matched;
+    frame->hits = hits;
+    frame->hit_count = hit_count;
+    frame->present = present;
+}
+
+/* Report each required member of an `all` group that no child matched, once the group's children are done. */
+static void xsd_all_missing(valctx *ctx, xsd_frame *frame) {
+    const xall_entry *group = frame->group;
+    if (frame->present == group->required_count) {
         return;
     }
     for (Py_ssize_t index = 0; index < group->required_count; index++) {
         TH_WORK_STEP();
         const xall_member *member = group->required[index];
         const xall_hit probe = {member, 0};
-        if (bsearch(&probe, hits, hit_count, sizeof(xall_hit), xsd_hit_member_order) != NULL) {
+        if (bsearch(&probe, frame->hits, frame->hit_count, sizeof(xall_hit), xsd_hit_member_order) != NULL) {
             continue;
         }
         char buffer[256];
-        report(ctx, all, "structure", "required element '%s' is missing",
+        report(ctx, frame->all, "structure", "required element '%s' is missing",
                name_utf8(member->want.local, member->want.local_len, buffer, sizeof(buffer)));
     }
 }
@@ -1502,7 +1518,9 @@ static int xsd_is_mixed(const th_schema *schema, th_node *ctype) {
     return 0;
 }
 
-static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype) {
+/* Validate an element against its complex type. Its child elements are checked against the content model here and
+   queued on the frame; xsd_frame_next hands each one out with the declaration that types it. */
+static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype, xsd_frame *frame) {
     th_schema *schema = ctx->schema;
     th_tree *inst = ctx->tree;
     edecl_vec declared = {NULL, 0, 0};
@@ -1570,7 +1588,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         const int optional_group =
             is_schema_el(schema, model, XSD_NS, "group") && xsd_occurs_min(schema->tree, model) == 0;
         if (nchildren > 0 || !optional_group) {
-            xsd_validate_all(ctx, all, children, nchildren);
+            xsd_all_match(ctx, frame, all, children, nchildren);
         }
         return;
     }
@@ -1613,32 +1631,54 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
     if (model != NULL) {
         xsd_collect_edecls(schema, model, &decls);
     }
-    for (Py_ssize_t index = 0; index < nchildren; index++) {
-        qname name = element_qname_scoped(schema, inst, children[index]);
-        for (Py_ssize_t decl = 0; decl < decls.count; decl++) {
-            if (qname_eq(&name, &decls.items[decl])) {
-                xsd_validate_element(ctx, children[index], decls.items[decl].decl);
-                break;
-            }
-        }
-    }
+    frame->children = children;
+    frame->nchildren = nchildren;
+    frame->decls = decls;
 }
 
 /* ---- element ---- */
 
-static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node *decl);
-
-static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) {
-    Py_ssize_t mark = ns_scope_enter(ctx->schema, ctx->tree, instance);
-    xsd_validate_element_scoped(ctx, instance, decl);
-    ns_scope_leave(ctx->schema, mark);
+/* The next queued child that a declaration types, with that declaration in *decl, or NULL once the element's
+   children are done. A child the content model does not name has no type to validate against and is passed over. */
+static th_node *xsd_frame_next(valctx *ctx, xsd_frame *frame, th_node **decl) {
+    while (frame->next < frame->nchildren) {
+        const Py_ssize_t position = frame->next++;
+        th_node *child = frame->children[position];
+        if (frame->all != NULL) {
+            TH_WORK_STEP();
+            if (frame->matched[position] == NULL) {
+                char buffer[256];
+                report(ctx, child, "structure", "element '%s' is not allowed here",
+                       name_utf8(child->text, child->text_len, buffer, sizeof(buffer)));
+                continue;
+            }
+            *decl = frame->matched[position]->want.decl;
+            return child;
+        }
+        qname name = element_qname_scoped(ctx->schema, ctx->tree, child);
+        for (Py_ssize_t index = 0; index < frame->decls.count; index++) {
+            if (qname_eq(&name, &frame->decls.items[index])) {
+                *decl = frame->decls.items[index].decl;
+                return child;
+            }
+        }
+    }
+    if (frame->all != NULL) {
+        xsd_all_missing(ctx, frame);
+    }
+    return NULL;
 }
 
-static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node *decl) {
+/* Validate one element against its declaration, queuing its child elements on the frame. */
+static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, xsd_frame *frame) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
+    frame->ns_mark = ns_scope_enter(schema, ctx->tree, instance);
     qname name = node_qname_scoped(schema, instance->text, instance->text_len, 0);
-    Py_ssize_t mark = ctx->path.len;
+    frame->mark = ctx->path.len;
+    frame->next = 0;
+    frame->nchildren = 0;
+    frame->all = NULL;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
         PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
@@ -1657,7 +1697,7 @@ static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node 
         int is_xsd_ns = is_xsd_uri(uri, uri_len);
         th_node *complex = is_xsd_ns ? NULL : named_find(&schema->complex_types, local, local_len);
         if (complex != NULL) {
-            xsd_validate_complex(ctx, instance, complex);
+            xsd_validate_complex(ctx, instance, complex, frame);
         } else {
             th_node *simple = is_xsd_ns ? NULL : named_find(&schema->simple_types, local, local_len);
             for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
@@ -1672,13 +1712,60 @@ static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node 
                                 text_len);
         }
     } else if (inline_complex != NULL) {
-        xsd_validate_complex(ctx, instance, inline_complex);
+        xsd_validate_complex(ctx, instance, inline_complex, frame);
     } else if (inline_simple != NULL) {
         Py_ssize_t text_len = 0;
         const Py_UCS4 *text = element_text(ctx, instance, &text_len);
         xsd_validate_simple(ctx, instance, DT_STRING, inline_simple, text, text_len);
     }
-    ctx->path.len = mark;
+}
+
+/* Validate the children an element queued below the shallow levels, each one's children in turn, on the explicit stack.
+   An element is validated on the way in and left once its queued children are, so errors come out in document order. */
+static void xsd_validate_walk(valctx *ctx, const xsd_frame *base) {
+    xsd_frame *open = NULL;
+    Py_ssize_t depth = 0, cap = 0;
+    open = walk_stack_reserve(&ctx->schema->mem, open, depth, &cap, sizeof(xsd_frame));
+    if (open == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;         /* GCOVR_EXCL_LINE: the validate entry raises the MemoryError */
+    }
+    open[depth++] = *base;
+    for (;;) {
+        th_node *child;
+        th_node *decl;
+        child = xsd_frame_next(ctx, &open[depth - 1], &decl);
+        if (child != NULL) {
+            open = walk_stack_reserve(&ctx->schema->mem, open, depth, &cap, sizeof(xsd_frame));
+            if (open == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return;         /* GCOVR_EXCL_LINE: the validate entry raises the MemoryError */
+            }
+            xsd_validate_element(ctx, child, decl, &open[depth++]);
+            continue;
+        }
+        ctx->path.len = open[depth - 1].mark;
+        ns_scope_leave(ctx->schema, open[depth - 1].ns_mark);
+        if (--depth == 0) {
+            return;
+        }
+    }
+}
+
+/* Validate an element and everything below it, in document order. The first TH_VALIDATE_SHALLOW_DEPTH levels recurse
+   on the C stack, where a frame costs nothing extra; deeper levels queue on the explicit stack in xsd_validate_walk. */
+static void xsd_validate_tree(valctx *ctx, th_node *instance, th_node *decl, Py_ssize_t depth) {
+    xsd_frame frame;
+    xsd_validate_element(ctx, instance, decl, &frame);
+    if (depth >= TH_VALIDATE_SHALLOW_DEPTH) {
+        xsd_validate_walk(ctx, &frame);
+        return;
+    }
+    th_node *child;
+    th_node *child_decl;
+    while ((child = xsd_frame_next(ctx, &frame, &child_decl)) != NULL) {
+        xsd_validate_tree(ctx, child, child_decl, depth + 1);
+    }
+    ctx->path.len = frame.mark;
+    ns_scope_leave(ctx->schema, frame.ns_mark);
 }
 
 /* ---- compile & entry ---- */
@@ -2040,7 +2127,7 @@ static void xsd_validate_root(valctx *ctx, th_node *root) {
         report(ctx, root, "structure", "document root is in the wrong namespace");
         return;
     }
-    xsd_validate_element(ctx, root, decl);
+    xsd_validate_tree(ctx, root, decl, 0);
 }
 
 #endif /* TURBOHTML_VALIDATE_XSD_H */
