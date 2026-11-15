@@ -295,6 +295,38 @@ def test_emails_and_domains_keep_winning(text: str, kwargs: _Policy, expected: l
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("213-373-4253-mysite.org", ["tel:+12133734253", "http://mysite.org"], id="domain-after-a-number"),
+        pytest.param(
+            "213-373-4253-p.213-373-4253-q.r.invalidtld", ["tel:+12133734253"] * 2, id="refused-for-its-suffix"
+        ),
+        pytest.param("213-373-4253-p.213-373-4253-q.r_s.com", ["tel:+12133734253"] * 2, id="refused-for-an-underscore"),
+        pytest.param(
+            "213-373-4253-p.r.s_-213-373-4253-t.com",
+            ["tel:+12133734253", "tel:+12133734253", "http://t.com"],
+            id="last-two-labels-still-start-a-host",
+        ),
+        pytest.param(
+            "213-373-4253-p.213-373-4253-q.r.invalidtld 213-373-4253-u.org",
+            ["tel:+12133734253"] * 3 + ["http://u.org"],
+            id="next-run-is-read",
+        ),
+    ],
+)
+def test_a_label_hyphenated_onto_a_number_starts_a_host(text: str, expected: list[str]) -> None:
+    assert _urls(text) == expected
+
+
+def test_a_refused_run_leaves_the_domain_before_it() -> None:
+    assert _urls("10.0.0.99 650.253 0000.com", {"tlds": ["99"]}) == ["http://10.0.0.99", "http://0000.com"]
+
+
+def test_numbers_hyphenated_onto_one_run_of_labels_scan_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(_urls, "213-373-4253-p." * n), (1000, 4000))
+
+
+@pytest.mark.parametrize(
     ("text", "kwargs", "expected"),
     [
         pytest.param("tel:+1-650-253-0000", {}, ["tel:+16502530000"], id="tel-uri-links-to-its-number"),

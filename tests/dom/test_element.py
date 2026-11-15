@@ -930,6 +930,29 @@ def test_an_enabled_fieldset_keeps_its_controls() -> None:
     assert form.form_data() == [("a", "1")]
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            "<svg><fieldset disabled><foreignObject><input name=a value=1></foreignObject></fieldset></svg>",
+            id="svg-fieldset",
+        ),
+        pytest.param("<math><fieldset disabled><mi><input name=a value=1></mi></fieldset></math>", id="math-fieldset"),
+    ],
+)
+def test_a_foreign_fieldset_does_not_disable_its_controls(markup: str) -> None:
+    form = _form(f"<form>{markup}<input name=b value=2></form>")
+    assert form.form_data() == [("a", "1"), ("b", "2")]
+
+
+def test_an_html_fieldset_inside_a_foreign_element_still_disables_its_controls() -> None:
+    form = _form(
+        "<form><svg><foreignObject><fieldset disabled><input name=a value=1></fieldset></foreignObject></svg>"
+        "<input name=b value=2></form>"
+    )
+    assert form.form_data() == [("b", "2")]
+
+
 def test_single_select_submits_the_selected_option() -> None:
     form = _form("<form><select name=c><option value=r>Red<option value=g selected>Green</select></form>")
     assert form.form_data() == [("c", "g")]

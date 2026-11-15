@@ -834,6 +834,19 @@ static inline int ser_xml_ns_name(const char *name, Py_ssize_t len) {
 
 int th_xml_attr_name_wellformed_utf8(const char *name, Py_ssize_t name_len);
 
+/* Whether an element name is an XML QName: a Name with at most one colon, neither first nor last. The XML output
+   and the canonical form leave out an element whose name is not and write its children in its place. */
+int th_xml_element_name_wellformed(const Py_UCS4 *name, Py_ssize_t len);
+
+/* th_xml_element_name_wellformed of element's name, kept on the element so a tree canonicalized again, or a name
+   repeated across it, is not scanned each time. */
+static inline int ser_xml_element_name_wellformed(th_node *element) {
+    if (element->xml_name_wellformed == 0) {
+        element->xml_name_wellformed = th_xml_element_name_wellformed(element->text, element->text_len) ? 1 : 2;
+    }
+    return element->xml_name_wellformed == 1;
+}
+
 static inline int ser_xml_ns_uri_equals(const Py_UCS4 *value, Py_ssize_t len, const char *uri) {
     Py_ssize_t uri_len = (Py_ssize_t)strlen(uri);
     if (len != uri_len) {
@@ -1041,12 +1054,56 @@ static inline int ser_xml_xlink_inherited(th_tree *tree, const th_node *node, th
     return inherited;
 }
 
+/* Make room for one more `size`-byte item after the `len` an array holds. Returns the array, moved
+   when it grew, or NULL on allocation failure with the array left as it was. */
+static inline void *ser_reserve(void *items, Py_ssize_t len, Py_ssize_t *cap, size_t size) {
+    if (len < *cap) {
+        return items;
+    }
+    size_t grown_cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)len + 1, (size_t)*cap, 8, size, &grown_cap, &bytes);
+    if (!grew) {     /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        return NULL; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    }
+    void *grown = PyMem_Realloc(items, bytes);
+    if (grown != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        *cap = (Py_ssize_t)grown_cap;
+    }
+    return grown;
+}
+
+/* The frame of element when it is the left-out element the walk is innermost in, NULL otherwise. */
+static inline const th_xml_unwrap_frame *ser_xml_unwrapped(const th_xml_unwrap *unwrap, const th_node *element) {
+    return unwrap->len > 0 && unwrap->frames[unwrap->len - 1].node == element ? &unwrap->frames[unwrap->len - 1] : NULL;
+}
+
+void ser_xml_unwrapped_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted,
+                                int injected_xlink, th_xml_unwrap *unwrap, Py_ssize_t chain);
+
+/* Copy onto node the namespace declarations of what its tag stands in for: the ancestors above the boundary when node
+   is written right below it, or the left-out run node is a child of. */
+static inline void ser_xml_copied_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted,
+                                           int injected_xlink, const th_serialize_opts *opts,
+                                           const th_xml_unwrap_frame *unwrapped, const th_node *parent) {
+    if (opts->xml_boundary != NULL && parent == opts->xml_boundary) {
+        ser_xml_inherited_ns_decls(out, tree, node, emitted,
+                                   unwrapped != NULL && opts->xml_ns_spend == NULL ? &opts->xml_unwrap->spend
+                                                                                   : opts->xml_ns_spend);
+    } else if (unwrapped != NULL && unwrapped->chain < opts->xml_unwrap->decls_len) {
+        ser_xml_unwrapped_ns_decls(out, tree, node, emitted, injected_xlink, opts->xml_unwrap, unwrapped->chain);
+    }
+}
+
 /* Emit the default namespace on a foreign subtree root and a missing xlink binding.
-   XML trees keep inherited xlink declarations; HTML trees need the built-in URI. */
+   XML trees keep inherited xlink declarations; HTML trees need the built-in URI. A
+   child of a left-out element is written against the nearest ancestor whose tag is. */
 static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node,
                                               const th_serialize_opts *opts) {
     xml_ns_emitted emitted = {0};
-    if (node->parent == NULL ? node->ns != TH_NS_HTML : node->parent->ns != node->ns) {
+    const th_xml_unwrap_frame *unwrapped = ser_xml_unwrapped(opts->xml_unwrap, node->parent);
+    const th_node *parent = unwrapped == NULL ? node->parent : unwrapped->anchor;
+    if (parent == NULL ? node->ns != TH_NS_HTML : parent->ns != node->ns) {
         sbuf_puts(out, node->ns == TH_NS_HTML  ? " xmlns=\"\""
                        : node->ns == TH_NS_SVG ? " xmlns=\"http://www.w3.org/2000/svg\""
                                                : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
@@ -1057,9 +1114,7 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
         if (walk != NULL && walk->last != NULL) {
             ser_xml_xlink_inherited(tree, node, walk);
         }
-        if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
-            ser_xml_inherited_ns_decls(out, tree, node, emitted, opts->xml_ns_spend);
-        }
+        ser_xml_copied_ns_decls(out, tree, node, emitted, 0, opts, unwrapped, parent);
         return emitted;
     }
     int has_xlink_attr = 0;
@@ -1080,12 +1135,11 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
         has_xlink_decl = 1;
     }
     /* A local binding is written with attributes; an XML ancestor already binds the prefix. */
-    if (has_xlink_attr && !has_xlink_decl) {
+    int injected_xlink = has_xlink_attr && !has_xlink_decl;
+    if (injected_xlink) {
         sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
     }
-    if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
-        ser_xml_inherited_ns_decls(out, tree, node, emitted, opts->xml_ns_spend);
-    }
+    ser_xml_copied_ns_decls(out, tree, node, emitted, injected_xlink, opts, unwrapped, parent);
     return emitted;
 }
 

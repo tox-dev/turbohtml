@@ -186,6 +186,16 @@ def test_data_param_pattern_too_complex_raises() -> None:
         RelaxNG(schema)
 
 
+def test_data_param_patterns_share_the_state_budget() -> None:
+    data = "".join(
+        f'<element name="{name}"><data type="string"><param name="pattern">a{{{count}}}</param></data></element>'
+        for name, count in (("s", 1500000), ("t", 600000))
+    )
+    schema = grammar(f'<start><element name="r">{data}</element></start>', attrs=f'datatypeLibrary="{_DT}"')
+    with pytest.raises(ValueError, match=r"^schema patterns need more than 2000000 NFA states between them; lower"):
+        RelaxNG(schema)
+
+
 def test_list_pattern() -> None:
     schema = grammar(
         '<start><element name="nums"><list><oneOrMore><data type="int"/></oneOrMore></list></element></start>',

@@ -189,6 +189,24 @@ def test_form_data_skips_controls_inside_a_datalist() -> None:
     assert _submitted("<datalist><input name=a value=1></datalist><input name=b value=2>") == [("b", "2")]
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            "<svg><datalist><foreignObject><input name=a value=1></foreignObject></datalist></svg>", id="svg-datalist"
+        ),
+        pytest.param(
+            "<svg><template><foreignObject><input name=a value=1></foreignObject></template></svg>",
+            id="svg-template",
+        ),
+        pytest.param("<math><datalist><mi><input name=a value=1></mi></datalist></math>", id="math-datalist"),
+        pytest.param("<math><template><mi><input name=a value=1></mi></template></math>", id="math-template"),
+    ],
+)
+def test_form_data_keeps_controls_inside_a_foreign_datalist_or_template(markup: str) -> None:
+    assert _submitted(f"{markup}<input name=b value=2>") == [("a", "1"), ("b", "2")]
+
+
 def test_form_data_normalizes_textarea_newlines() -> None:
     form: Element = E.form(E.textarea({"name": "t"}, "a\r\nb\rc\nd\r"))
     assert form.form_data() == [("t", "a\nb\nc\nd\n")]
