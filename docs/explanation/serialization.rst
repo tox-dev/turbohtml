@@ -79,10 +79,12 @@ optional-tag and unquoted-attribute rules are HTML-parser rules), so it stays HT
 
 The fifth is content XML cannot represent. The XML 1.0 ``Char`` production excludes the C0 controls other than tab,
 newline and carriage return, the surrogate block, and the noncharacters U+FFFE/U+FFFF; a comment cannot contain ``--``
-or end on ``-``; and an attribute name must be an XML ``Name``. The HTML parser keeps such content (a stray control in
-text, a ``--`` in a comment, a tag-soup ``a"b`` attribute name), so ``xml=True`` drops the forbidden characters and
-attribute names and spaces the comment hyphens. The output of ``serialize(Html(xml=True))`` then re-parses with
-:func:`~turbohtml.parse_xml`.
+or end on ``-``; and an element or attribute name must be an XML ``Name``. The HTML parser keeps such content (a stray
+control in text, a ``--`` in a comment, a tag-soup ``a"b`` attribute name), so ``xml=True`` drops the forbidden
+characters and attribute names, writes the children of an element with such a name in its place, and spaces the comment
+hyphens. Those children keep their namespaces: each one gets the declarations the left-out element made, and the
+serialization raises :exc:`ValueError` when these copies would outgrow the rest of the output. ``canonicalize()`` leaves
+the same elements out. The output of ``serialize(Html(xml=True))`` then re-parses with :func:`~turbohtml.parse_xml`.
 
 **********************
  Minifying JavaScript

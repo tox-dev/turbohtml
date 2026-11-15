@@ -264,7 +264,8 @@ static void c14n_ns_push_ancestors(c14n_ns *scope, th_tree *tree, th_node *apex)
    Returns -1 with an exception set on allocation failure. */
 static int c14n_ns_mark_uses(c14n_ns *scope, th_tree *tree, th_node *apex) {
     for (th_node *node = apex; node != NULL; node = preorder_next(node, apex)) {
-        if (node->type != TH_NODE_ELEMENT) {
+        /* a left-out element writes neither its name nor its attributes */
+        if (node->type != TH_NODE_ELEMENT || (node->atom == TH_TAG_UNKNOWN && !ser_xml_element_name_wellformed(node))) {
             continue;
         }
         Py_ssize_t tag_len = c14n_tag_prefix_len(node);
@@ -342,15 +343,8 @@ static void c14n_ns_use_name(c14n_ns *scope, const th_node *node, const char *na
     scope->prefixes[prefix].use = scope->uses_len++;
 }
 
-/* Push the prefixed declarations node carries, then collect the ones it must render, sorted by prefix into
-   scope->candidates. The apex answers for every binding in scope; below it a declaration renders where it differs from
-   the one it shadows, and an exclusive visible use renders where it differs from the nearest using ancestor's. A forced
-   prefix keeps no uses, so each prefix is a candidate from one source only and the list has no repeats. Returns the
-   count, or -1 with ValueError set for a relative namespace URI. */
-/* Kept out of line: the ordinary walk inlines its step, and these only run on a subtree with prefixed declarations. */
-static Py_ssize_t c14n_ns_enter(c14n_ns *scope, const th_node *node, const th_node *apex) {
-    Py_ssize_t decl_mark = scope->decls_len;
-    Py_ssize_t use_mark = scope->uses_len;
+/* Push the prefixed declarations node carries. */
+static void c14n_ns_declare(c14n_ns *scope, const th_node *node) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(scope->tree, node->attrs[index].name_atom, &name_len);
@@ -362,6 +356,18 @@ static Py_ssize_t c14n_ns_enter(c14n_ns *scope, const th_node *node, const th_no
                                                         node, scope->prefixes[prefix].decl};
         scope->prefixes[prefix].decl = scope->decls_len++;
     }
+}
+
+/* Push the prefixed declarations node carries, then collect the ones it must render, sorted by prefix into
+   scope->candidates. An apex answers for every binding in scope; below it a declaration renders where it differs from
+   the one it shadows outside the left-out run node is written in place of, and an exclusive visible use renders where
+   it differs from the nearest using ancestor's. run is where that run's declarations start, or where node's own do. A
+   forced prefix keeps no uses, so each prefix is a candidate from one source only and the list has no repeats. Returns
+   the count, or -1 with ValueError set for a relative namespace URI. */
+/* Kept out of line: the ordinary walk inlines its step, and these only run on a subtree with prefixed declarations. */
+static Py_ssize_t c14n_ns_enter(c14n_ns *scope, const th_node *node, int is_apex, Py_ssize_t run) {
+    Py_ssize_t use_mark = scope->uses_len;
+    c14n_ns_declare(scope, node);
     if (scope->exclusive) {
         Py_ssize_t tag_len = c14n_tag_prefix_len(node);
         if (tag_len > 0) {
@@ -382,7 +388,7 @@ static Py_ssize_t c14n_ns_enter(c14n_ns *scope, const th_node *node, const th_no
         }
     }
     Py_ssize_t count = 0;
-    if (node == apex) {
+    if (is_apex) {
         for (Py_ssize_t index = 0; index < scope->prefix_count; index++) {
             TH_WORK_STEP();
             if (scope->prefixes[index].decl >= 0 && c14n_ns_wanted(scope, index)) {
@@ -390,9 +396,15 @@ static Py_ssize_t c14n_ns_enter(c14n_ns *scope, const th_node *node, const th_no
             }
         }
     } else {
-        for (Py_ssize_t index = decl_mark; index < scope->decls_len; index++) {
+        for (Py_ssize_t index = run; index < scope->decls_len; index++) {
             Py_ssize_t prefix = scope->decls[index].prefix;
+            if (scope->prefixes[prefix].decl != index) {
+                continue; /* a nearer declaration in the left-out run, or node's own, hides it */
+            }
             Py_ssize_t shadowed = scope->decls[index].shadowed;
+            while (shadowed >= run) {
+                shadowed = scope->decls[shadowed].shadowed;
+            }
             if (c14n_ns_wanted(scope, prefix) &&
                 (shadowed < 0 || !c14n_ns_same_uri(&scope->decls[index], &scope->decls[shadowed]))) {
                 scope->candidates[count++] = prefix;
@@ -487,10 +499,11 @@ static Py_ssize_t c14n_scoped_decl_end(const sbuf *tag, Py_ssize_t start, const 
 /* The start tag of an element that renders prefixed declarations. c14n_open_tag writes the default and xlink
    declarations ahead of the attributes, so they are split off its output: the scope's declarations are written between
    them, in prefix order, and the attributes follow. */
-static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex, const th_c14n_opts *opts,
-                                 const th_node **xlink_binding, c14n_ns *scope, Py_ssize_t count) {
+static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
+                                 const c14n_left_out *left_out, const th_c14n_opts *opts, const th_node **xlink_binding,
+                                 c14n_ns *scope, Py_ssize_t count) {
     sbuf tag = {NULL, 0, 0, 0};
-    c14n_open_tag(&tag, tree, node, apex, opts, xlink_binding);
+    c14n_open_tag(&tag, tree, node, apex, left_out, opts, xlink_binding);
     Py_ssize_t default_end = c14n_scoped_decl_end(&tag, 1 + node->text_len, " xmlns=\"");
     Py_ssize_t xlink_end = c14n_scoped_decl_end(&tag, default_end, " xmlns:xlink=\"");
     sbuf_put_ucs4(out, tag.data, default_end);
@@ -500,22 +513,45 @@ static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const 
     PyMem_Free(tag.data);
 }
 
+/* Enter node, which the canonical form leaves out: its declarations are in scope for its children, which render them
+   as their own. */
+static int c14n_scoped_left_out(c14n_ns *scope, c14n_left_outs *left_outs, const th_node *node, const th_node *apex,
+                                const c14n_left_out *left_out) {
+    Py_ssize_t run = left_out != NULL ? left_out->run : scope->decls_len;
+    c14n_ns_declare(scope, node);
+    if (node->first_child == NULL) {
+        c14n_ns_leave(scope, node);
+        return 0;
+    }
+    return c14n_left_out_push(left_outs, node, apex, left_out, run);
+}
+
 /* Emit one node of the subtree rooted at apex, the scoped counterpart of c14n_step: an element pushes its declarations
    and visible uses, and pops them as it closes. */
 static th_node *c14n_scoped_step(sbuf *out, th_tree *tree, th_node *node, const th_node *apex, const th_c14n_opts *opts,
-                                 c14n_ns *scope, const th_node **xlink_binding) {
+                                 c14n_ns *scope, const th_node **xlink_binding, c14n_left_outs *left_outs) {
     th_node *descend = NULL;
     switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
     case TH_NODE_ELEMENT: {
-        Py_ssize_t count = c14n_ns_enter(scope, node, apex);
+        const c14n_left_out *left_out = c14n_left_out_of(left_outs, node->parent);
+        if (node->atom == TH_TAG_UNKNOWN && !ser_xml_element_name_wellformed(node)) {
+            if (c14n_scoped_left_out(scope, left_outs, node, apex, left_out) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+                out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            descend = node->first_child;
+            break;
+        }
+        Py_ssize_t count = c14n_ns_enter(scope, node, c14n_is_apex(node, apex, left_out),
+                                         left_out != NULL ? left_out->run : scope->decls_len);
         if (count < 0) {
             out->failed = 1;
             return NULL;
         }
         if (count == 0) {
-            c14n_open_tag(out, tree, node, apex, opts, xlink_binding);
+            c14n_open_tag(out, tree, node, apex, left_out, opts, xlink_binding);
         } else {
-            c14n_scoped_open_tag(out, tree, node, apex, opts, xlink_binding, scope, count);
+            c14n_scoped_open_tag(out, tree, node, apex, left_out, opts, xlink_binding, scope, count);
         }
         if (node->first_child != NULL) {
             descend = node->first_child;
@@ -561,7 +597,10 @@ static th_node *c14n_scoped_step(sbuf *out, th_tree *tree, th_node *node, const 
             return node->next_sibling;
         }
         node = node->parent;
-        if (node->type == TH_NODE_ELEMENT) {
+        if (c14n_left_out_of(left_outs, node) != NULL) {
+            left_outs->len--;
+            c14n_ns_leave(scope, node);
+        } else if (node->type == TH_NODE_ELEMENT) {
             c14n_close_tag(out, node);
             c14n_ns_leave(scope, node);
         }
@@ -578,10 +617,12 @@ static void c14n_scoped_subtree(sbuf *out, th_tree *tree, th_node *apex, const t
     }
     /* GCOVR_EXCL_STOP */
     const th_node *xlink_binding = !opts->exclusive && c14n_xlink_in_scope(tree, apex->parent) ? apex->parent : NULL;
+    c14n_left_outs left_outs = {NULL, 0, 0};
     th_node *node = apex;
     while (node != NULL) {
-        node = c14n_scoped_step(out, tree, node, apex, opts, &scope, &xlink_binding);
+        node = c14n_scoped_step(out, tree, node, apex, opts, &scope, &xlink_binding, &left_outs);
     }
+    PyMem_Free(left_outs.items);
     c14n_ns_end(&scope);
 }
 

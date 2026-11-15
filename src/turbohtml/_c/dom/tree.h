@@ -137,6 +137,9 @@ struct th_node {
     /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
        exact-sized; nothing reads it once the tree is built. */
     uint8_t text_capacity_shift;
+    /* Element: whether its name is an XML QName, worked out by the first canonicalization that needs it: 0 not yet, 1
+       yes, 2 no. A rename resets it. */
+    uint8_t xml_name_wellformed;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -710,6 +713,27 @@ typedef struct {
     Py_ssize_t base;    /* code points of copies granted before any other output funds them */
 } th_xml_ns_spend;
 
+/* An element the XML output leaves out because its name is no XML name, while the walk is inside it. Its children take
+   its place, so they are written against what anchor declares and carry the declarations the left-out run holds. */
+typedef struct {
+    const th_node *node;
+    const th_node *anchor; /* the nearest ancestor of node whose tag is written, or what stands above the output */
+    Py_ssize_t chain;      /* index in decls of the first declaration of the left-out run that ends at node */
+    Py_ssize_t own;        /* index in decls of the first declaration node carries */
+} th_xml_unwrap_frame;
+
+/* The left-out elements the walk is inside, innermost last, and the namespace declarations they carry. Start it zeroed
+   with spend at {0, 0, TH_XML_NS_BASE}, and release it with th_xml_unwrap_free. */
+typedef struct {
+    th_xml_unwrap_frame *frames;
+    Py_ssize_t len, cap;
+    const th_node_attr **decls;
+    Py_ssize_t decls_len, decls_cap;
+    th_xml_ns_spend spend; /* the copies of the declarations onto the children, funded by the rest of the output */
+} th_xml_unwrap;
+
+void th_xml_unwrap_free(th_xml_unwrap *unwrap);
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -729,6 +753,7 @@ typedef struct {
     Py_ssize_t *clone_budget;      /* Markdown: the attribute characters parser clones may still write, or NULL */
     th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
     th_xml_ns_spend *xml_ns_spend; /* set by the serializer when xml_boundary has every child carry its own copy */
+    th_xml_unwrap *xml_unwrap;     /* set by the serializer whenever xml is */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the
@@ -748,12 +773,14 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
    indentation depth, the xlink walk and the inherited namespace declarations charged
-   so far. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}}. */
+   so far, and the left-out elements the walk is inside. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}}
+   with unwrap as th_xml_unwrap asks, and release unwrap with th_xml_unwrap_free. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
     th_xml_ns_spend xml_ns;
+    th_xml_unwrap unwrap;
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from

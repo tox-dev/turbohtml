@@ -6418,9 +6418,13 @@ static PyObject *serialize_markup(engine *eng, th_node *root) {
     for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
         Py_ssize_t chunk_len = 0;
         Py_UCS4 *chunk = th_node_serialize(eng->out_tree, child, &opts, NULL, 0, &chunk_len);
-        if (chunk == NULL) {         /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);        /* GCOVR_EXCL_LINE */
-            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        if (chunk == NULL) {
+            xb_free(&buffer);
+            /* copies of the declarations on an element XML leaves out past their allowance leave ValueError set */
+            if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the no-exception NULL is an unforceable allocation failure */
+                return NULL;
+            }
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         int rc = xb_add(&buffer, chunk, chunk_len);
         PyMem_Free(chunk);
