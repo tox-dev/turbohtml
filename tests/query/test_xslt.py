@@ -1221,7 +1221,8 @@ def _key_chain(links: int, *, match: str = "a") -> str:
             '<xsl:value-of select="$v"/></xsl:template>',
             id="variable-body",
         ),
-        pytest.param(f"{_key_chain(300, match='r')}{_KEY_LOOKUP}", id="key-chain"),
+        # past the 400-level cap: only Linux checks the C stack in enter_deep_level, so elsewhere the cap is what raises
+        pytest.param(f"{_key_chain(400 + 2, match='r')}{_KEY_LOOKUP}", id="key-chain"),
     ],
 )
 def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
