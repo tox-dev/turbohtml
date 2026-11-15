@@ -117,6 +117,17 @@ def test_encode_minify() -> None:
         pytest.param("<a href='x'>t</a>", "<a href=x>t</a>", id="unquote-safe-value"),
         pytest.param("<a title='a b'>t</a>", '<a title="a b">t</a>', id="unquote-keeps-quotes-on-space"),
         pytest.param('<input disabled="">', "<input disabled>", id="unquote-empty-value-becomes-bare-name"),
+        # a name keeps a leading "=", which after a bare name would open that name's value instead
+        pytest.param(
+            '<a title="" =q>t</a>',
+            '<a title="" =q>t</a>',
+            id="unquote-empty-value-stays-before-equals-name",
+        ),
+        pytest.param(
+            '<a p="" =q="" =r s="">t</a>',
+            '<a p="" =q="" =r s>t</a>',
+            id="unquote-empty-value-stays-before-each-equals-name",
+        ),
         pytest.param("<p>a</p><!--c--><p>b</p>", "<p>a</p><p>b</p>", id="strip-comment"),
         pytest.param("<p>a</p><p>b</p>", "<p>a</p><p>b</p>", id="omit-off-keeps-all-tags"),
         # space, tab, line feed, form feed and carriage return all fold to one space
@@ -192,6 +203,13 @@ def test_unquote_keeps_quotes_on_unsafe(value: str, expected: str) -> None:
 
 def test_unquote_off_keeps_quotes() -> None:
     assert frag("<a href='x'>t</a>", unquote_attributes=False, omit_optional_tags=False) == '<a href="x">t</a>'
+
+
+def test_minify_sorted_bare_name_before_equals_name() -> None:
+    out = parse_fragment("<p =b='' -a=''>x</p>", "div").serialize(
+        Html(layout=Minify(omit_optional_tags=False), sort_attributes=True)
+    )
+    assert out == '<div><p -a="" =b>x</p></div>'
 
 
 def test_keep_comment_when_off() -> None:
