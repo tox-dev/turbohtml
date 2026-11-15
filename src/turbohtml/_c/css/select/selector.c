@@ -1213,6 +1213,26 @@ TH_NOINLINE int sel_stack_check_chain(Py_ssize_t chain) {
     return -1;
 }
 
+/* Whether a :has() sits inside another :has() argument, at any depth. */
+static int sel_alts_nest_has(const sel_complex *alts, int count, int inside) {
+    for (int alt = 0; alt < count; alt++) {
+        const sel_complex *complex = &alts[alt];
+        for (int index = 0; index < complex->count; index++) {
+            const sel_compound *compound = &complex->compounds[index];
+            for (int at = 0; at < compound->count; at++) {
+                const sel_simple *simple = &compound->simples[at];
+                if (simple->kind == ':' && simple->sub != NULL) {
+                    const int has = simple->pseudo == PSEUDO_HAS;
+                    if ((has && inside) || sel_alts_nest_has(simple->sub, simple->sub_count, inside || has)) {
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 /* Compile a selector string against the tree it will run on. Returns NULL with a
    SelectorSyntaxError set on a syntax error. */
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str) {
@@ -1241,6 +1261,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     /* the parsed total bounds the chain, so the walk runs only for a selector long enough to reach the check */
     compiled->chain =
         parser.compounds > SEL_CHAIN_CHECK ? sel_alts_chain(compiled->alts, compiled->count) : parser.compounds;
+    compiled->nests_has = sel_alts_nest_has(compiled->alts, compiled->count, 0);
     return compiled;
 }
 
@@ -2977,14 +2998,24 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
     return 0;
 }
 
+/* Whether a compound holds a nested selector list, whose match can walk siblings of its own. */
+static int sel_compound_nests(const sel_compound *compound) {
+    for (int index = 0; index < compound->count; index++) {
+        if (compound->simples[index].sub != NULL) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* :has(~ x R) or :has(+ x R) for a rel without :scope: an element sibling y after the
    anchor (for +, the next one) matches x and y:has(R) holds, R being the rest of rel with
    its own leading combinator. The match can only reach y's level from a sibling, so the
    anchor's own subtree never needs a scan. Whether such a y exists at or after a node
-   depends only on that node, so for ~, past the first SEL_SIBLING_MEMO_MIN_RUN siblings
-   the walk stops at the first one whose answer the sibling memo holds, and it stores its
-   answer under each sibling it passed from there: a query testing anchors in document
-   order visits each sibling a bounded number of times. */
+   depends only on that node, so for ~, past the first min_run siblings the walk stops at
+   the first one whose answer the sibling memo holds, and it stores its answer under each
+   sibling it passed from there: a query testing anchors in document order visits each
+   sibling a bounded number of times. */
 static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const sel_ctx *ctx) {
     const char lead = rel->compounds[0].combinator;
     const sel_complex rest = {rel->compounds + 1, rel->count - 1};
@@ -2996,13 +3027,17 @@ static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const 
     scoped.has_memo = NULL;
     sel_memo *memo = lead == '~' ? &ctx->sibling_memo->table : NULL;
     const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
+    /* a sibling left unmemoized repeats the walk of rest or of a nested list, and each link multiplies that walk, so
+       a test with more to verify memoizes from its second sibling, and a nested list from its first */
+    const int min_run = sel_compound_nests(&rel->compounds[0]) ? 0 : rel->count > 1 ? 1 : SEL_SIBLING_MEMO_MIN_RUN;
     th_node *memo_from = NULL;
     int found = 0;
     int walked = 0;
     th_node *sibling = sel_next_element_sibling(anchor);
     for (; sibling != NULL; sibling = sel_next_element_sibling(sibling), walked++) {
-        if (memo != NULL && walked >= SEL_SIBLING_MEMO_MIN_RUN) {
-            if (walked == SEL_SIBLING_MEMO_MIN_RUN) {
+        TH_WORK_STEP();
+        if (memo != NULL && walked >= min_run) {
+            if (walked == min_run) {
                 memo_from = sibling;
             }
             if (sel_memo_get(memo, rel->compounds, sibling, &found)) {
@@ -3608,15 +3643,28 @@ sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep) {
 }
 
 /* scope is the element :scope matches: the node the query was rooted at. A single
-   test builds a throwaway context with no :has() memo (nothing to amortize over). A
-   selector that reads a :disabled-family pseudo-class gets a legend memo, since one :has()
-   or sibling walk tests many controls under one fieldset. */
-static TH_NOINLINE int sel_matches_with_legend(th_node *node, const sel_compiled *compiled, th_node *scope,
+   test builds a throwaway context with no :has() memo (nothing to amortize over), but a
+   selector that nests a :has() gets a sibling table, since each nested :has() repeats its
+   sibling walks at every level without one. A selector that reads a :disabled-family pseudo-class gets
+   a legend memo, since one :has() or sibling walk tests many controls under one fieldset.
+   Both tables live for this one test, so scope is fixed for every fact they hold. */
+static TH_NOINLINE int sel_matches_with_tables(th_node *node, const sel_compiled *compiled, th_node *scope,
                                                sel_memo *value_memo) {
     sel_memo legend_memo = {0};
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, &legend_memo, NULL, value_memo};
+    sel_sibling_memo siblings = {0};
+    sel_ctx ctx = {compiled->tree,
+                   scope,
+                   compiled->quirks,
+                   NULL,
+                   NULL,
+                   NULL,
+                   compiled->nests_has ? &siblings : NULL,
+                   compiled->reads_legend ? &legend_memo : NULL,
+                   NULL,
+                   value_memo};
     const int matched = sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
     sel_memo_free(&legend_memo);
+    sel_memo_free(&siblings.table);
     return matched;
 }
 
@@ -3634,8 +3682,8 @@ int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope
     if (value_memo == NULL) {
         return selector_matches_once(node, compiled, scope);
     }
-    if (compiled->reads_legend) {
-        return sel_matches_with_legend(node, compiled, scope, value_memo);
+    if (compiled->reads_legend || compiled->nests_has) {
+        return sel_matches_with_tables(node, compiled, scope, value_memo);
     }
     sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL, value_memo};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
