@@ -457,7 +457,7 @@ static size_t strmap_keyed_slot(const strmap *map, const Py_UCS4 *str, Py_ssize_
     return probe;
 }
 
-static nodevec *strmap_seat(strmap *map, size_t probe, const Py_UCS4 *str, Py_ssize_t str_len) {
+static TH_NOINLINE nodevec *strmap_seat(strmap *map, size_t probe, const Py_UCS4 *str, Py_ssize_t str_len) {
     Py_UCS4 *owned = ucs4_dup(str, str_len);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return NULL;     /* GCOVR_EXCL_LINE */
@@ -3620,9 +3620,10 @@ static xslt_number_name number_local_name(const engine *eng, const th_node *node
 
 static int number_has_namespaces(engine *eng) {
     if (eng->number_namespaces < 0) {
-        eng->default_namespace_atom = th_attr_lookup(eng->src_tree, "xmlns", 5);
-        eng->number_namespaces = eng->default_namespace_atom != UINT32_MAX;
         uint32_t count = th_tree_attr_generation(eng->src_tree);
+        /* xmlns is no static attribute name, so a tree without dynamic names declares no default namespace */
+        eng->default_namespace_atom = count == 0 ? UINT32_MAX : th_attr_lookup(eng->src_tree, "xmlns", 5);
+        eng->number_namespaces = eng->default_namespace_atom != UINT32_MAX;
         for (uint32_t index = 0; !eng->number_namespaces && index < count; index++) {
             Py_ssize_t length;
             const char *name = th_attr_name(eng->src_tree, TH_ATTR__DYNAMIC_BASE + index, &length);

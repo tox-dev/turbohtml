@@ -1118,7 +1118,7 @@ static int radio_ids_build(radio_group *group) {
 /* radio_form_owner for a form id its path_id_hash walk missed: on keyed ids, the walk under path_id_keyed; on ids still
    on path_id_hash after a walk past TH_FAST_PROBE_LIMIT, that walk once the ids move to path_id_keyed for good. A miss
    walks to the end of the run its home falls in, and the page can line up homes into one long run without seating any
-   id far from its own. Out of line, so radio_form_owner inlines as before. */
+   id far from its own. Out of line, so the path_id_hash walk keeps its registers. */
 static TH_NOINLINE int radio_form_owner_keyed(radio_group *group, const th_node_attr *form, th_node **owner) {
     if (!group->keyed) {
         PyMem_Free(group->ids);
@@ -1140,9 +1140,10 @@ static TH_NOINLINE int radio_form_owner_keyed(radio_group *group, const th_node_
     return 0;
 }
 
-static int radio_form_owner(radio_group *group, th_node *radio, th_node **owner, int initial) {
+/* The form owner of radio, whose form attribute the caller already looked up. */
+static int radio_form_owner(radio_group *group, th_node *radio, const th_node_attr *form, th_node **owner,
+                            int initial) {
     *owner = NULL;
-    const th_node_attr *form = find_node_attr(radio, TH_ATTR_FORM);
     if (form != NULL && group->connected < 0) {
         group->connected = radio_tree_connected(group->tree, group->root);
     }
@@ -1165,24 +1166,20 @@ static int radio_form_owner(radio_group *group, th_node *radio, th_node **owner,
             return -1;                                          /* GCOVR_EXCL_LINE */
         }
         /* The path_id_hash walk runs on keyed ids too: they hold each id once, so finding it anywhere is the answer,
-           and runs under path_id_keyed are short wherever the walk starts. The home is kept only once the walk leaves
-           it, so a lookup that ends there pays nothing for the bound. */
+           and runs under path_id_keyed are short wherever the walk starts. */
         size_t slot = (size_t)path_id_hash(form->value, form->value_len, 0, 0) & group->mask;
-        if (group->ids[slot].value == NULL) {
-            return group->keyed ? radio_form_owner_keyed(group, form, owner) : 0;
-        }
         const size_t home = slot;
-        while (!ucs4_runs_equal(form->value, form->value_len, group->ids[slot].value, group->ids[slot].len)) {
+        while (group->ids[slot].value != NULL) {
+            if (ucs4_runs_equal(form->value, form->value_len, group->ids[slot].value, group->ids[slot].len)) {
+                *owner = group->ids[slot].form;
+                return 0;
+            }
             TH_WORK_STEP();
             slot = (slot + 1) & group->mask;
-            if (group->ids[slot].value == NULL) {
-                return group->keyed || ((slot - home) & group->mask) > TH_FAST_PROBE_LIMIT
-                           ? radio_form_owner_keyed(group, form, owner)
-                           : 0;
-            }
         }
-        *owner = group->ids[slot].form;
-        return 0;
+        return group->keyed || ((slot - home) & group->mask) > TH_FAST_PROBE_LIMIT
+                   ? radio_form_owner_keyed(group, form, owner)
+                   : 0;
     }
     for (th_node *ancestor = radio->parent; ancestor != NULL; ancestor = ancestor->parent) {
         if (ancestor->ns == TH_NS_HTML && ancestor->atom == TH_TAG_FORM) {
@@ -1205,8 +1202,8 @@ static int radio_owner_matches(radio_group *group, th_node *radio, th_node *form
             return 0;
         }
         th_node *owner;
-        if (radio_form_owner(group, radio, &owner, 0) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                                       /* GCOVR_EXCL_LINE */
+        if (radio_form_owner(group, radio, explicit_form, &owner, 0) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                      /* GCOVR_EXCL_LINE */
         }
         *matches = owner == form;
         return 0;
@@ -1264,19 +1261,20 @@ static int clear_radio_group(HandleObject *handle, th_node *radio) {
     }
     radio_group group = {.tree = tree, .root = root, .connected = -1};
     th_node *form;
-    if (radio_form_owner(&group, radio, &form, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        return -1;                                       /* GCOVR_EXCL_LINE */
+    if (radio_form_owner(&group, radio, find_node_attr(radio, TH_ATTR_FORM), &form, 1) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1; /* GCOVR_EXCL_LINE: allocation cannot be forced */
     }
-    /* Forms without IDs cannot own controls outside their subtree. */
-    group.local_form = form != NULL && find_node_attr(form, TH_ATTR_ID) == NULL;
-    th_node *scope = group.local_form ? form : root;
+    /* Forms without IDs cannot own controls outside their subtree. The loop reads a copy, as group's address escapes
+       to the owner lookups and reading the field would reload it every step. */
+    const int local_form = form != NULL && find_node_attr(form, TH_ATTR_ID) == NULL;
+    group.local_form = local_form;
+    th_node *scope = local_form ? form : root;
     const int indexed = scope == root && handle->index_built && handle_index_usable(handle, root);
     Py_ssize_t cursor = indexed ? handle->index_offsets[TH_TAG_INPUT] : 0;
     const Py_ssize_t end = indexed ? handle->index_offsets[TH_TAG_INPUT + 1] : 0;
     int status = 0;
     for (th_node *node = indexed ? handle->index_nodes[cursor] : scope; node != NULL;
-         node = indexed ? (++cursor < end ? handle->index_nodes[cursor] : NULL)
-                        : radio_next(node, scope, group.local_form)) {
+         node = indexed ? (++cursor < end ? handle->index_nodes[cursor] : NULL) : radio_next(node, scope, local_form)) {
         if (node == radio || node->atom != TH_TAG_INPUT || !input_type_is(node, "radio")) {
             continue;
         }

@@ -176,7 +176,6 @@ typedef struct {
     th_node *root;
     slot_bucket *buckets;
     size_t cap;
-    int keyed; /* 1 once a fill on FNV-1a walked past TH_FAST_PROBE_LIMIT and the index moved to th_name_hash */
 } slot_index;
 
 static void slot_index_empty(slot_index *index) {
@@ -221,26 +220,39 @@ static TH_NOINLINE size_t slot_index_find_keyed(const slot_index *index, const P
     return slot_index_walk(index, slot_index_home(index, name, name_len, 1), name, name_len);
 }
 
-/* The bucket of name, or NULL when the fill on FNV-1a walked past TH_FAST_PROBE_LIMIT to reach it. Every later lookup
-   is for a slot's own name, which walks no further than the fill did to seat it, so the fill's walks bound them all. */
-static inline slot_bucket *slot_index_fill_bucket(slot_index *index, const Py_UCS4 *name, Py_ssize_t name_len) {
-    size_t home = slot_index_home(index, name, name_len, index->keyed);
-    size_t position = slot_index_walk(index, home, name, name_len);
-    if (!index->keyed && ((position - home) & (index->cap - 1)) > TH_FAST_PROBE_LIMIT) {
-        return NULL;
+/* The bucket of name, or NULL when the fill on FNV-1a would walk past TH_FAST_PROBE_LIMIT slots to reach it. Every
+   later lookup is for a slot's own name, which walks no further than the fill did to seat it, so the fill's walks bound
+   them all. The count starts on the first step past the home, so a name seated there pays nothing for the bound. */
+static inline slot_bucket *slot_index_fill_bucket(slot_index *index, const Py_UCS4 *name, Py_ssize_t name_len,
+                                                  int keyed) {
+    size_t position = slot_index_home(index, name, name_len, keyed);
+    TH_WORK_STEP();
+    if (index->buckets[position].slot == NULL ||
+        runs_equal(name, name_len, index->buckets[position].name, index->buckets[position].name_len)) {
+        return &index->buckets[position];
     }
+    size_t steps_left = TH_FAST_PROBE_LIMIT + 1;
+    do {
+        TH_WORK_STEP();
+        position = (position + 1) & (index->cap - 1);
+        if (!keyed && --steps_left == 0) {
+            return NULL;
+        }
+    } while (index->buckets[position].slot != NULL &&
+             !runs_equal(name, name_len, index->buckets[position].name, index->buckets[position].name_len));
     return &index->buckets[position];
 }
 
-/* Seat every slot of the root and assign the host's slotables. 1 when a walk on FNV-1a went past the limit, which stops
-   the fill, so a fill costs at most the limit per name; -1 on allocation failure. */
-static int slot_index_fill(th_tree *tree, slot_index *index) {
+/* Seat every slot of the root and assign the host's slotables, under th_name_hash when keyed, else FNV-1a. 1 when a
+   walk on FNV-1a went past the limit, which stops the fill, so a fill costs at most the limit per name; -1 on
+   allocation failure. keyed is a constant at each call, so each copy computes one hash. */
+static inline int slot_index_fill(th_tree *tree, slot_index *index, int keyed) {
     for (th_node *node = index->root->first_child; node != NULL; node = preorder_next(node, index->root)) {
         if (is_slot(node)) {
             const Py_UCS4 *name = NULL;
             Py_ssize_t name_len = 0;
             named_value(node, TH_ATTR_NAME, &name, &name_len);
-            slot_bucket *bucket = slot_index_fill_bucket(index, name, name_len);
+            slot_bucket *bucket = slot_index_fill_bucket(index, name, name_len, keyed);
             if (bucket == NULL) {
                 return 1;
             }
@@ -260,7 +272,7 @@ static int slot_index_fill(th_tree *tree, slot_index *index) {
         if (child->type == TH_NODE_ELEMENT) {
             named_value(child, TH_ATTR_SLOT, &name, &name_len);
         }
-        slot_bucket *bucket = slot_index_fill_bucket(index, name, name_len);
+        slot_bucket *bucket = slot_index_fill_bucket(index, name, name_len, keyed);
         if (bucket == NULL) {
             return 1;
         }
@@ -272,6 +284,14 @@ static int slot_index_fill(th_tree *tree, slot_index *index) {
         }
     }
     return 0;
+}
+
+/* slot_index_fill under th_name_hash, after the FNV-1a fill went past the limit. Out of line, so the FNV-1a fill keeps
+   its registers. */
+static TH_NOINLINE int slot_index_fill_keyed(th_tree *tree, slot_index *index) {
+    slot_index_empty(index);
+    memset(index->buckets, 0, index->cap * sizeof(slot_bucket));
+    return slot_index_fill(tree, index, 1);
 }
 
 static TH_NOINLINE int slot_index_build(th_tree *tree, slot_index *index) {
@@ -291,13 +311,8 @@ static TH_NOINLINE int slot_index_build(th_tree *tree, slot_index *index) {
         return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
     } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
     index->cap = cap;
-    int filled;
-    while ((filled = slot_index_fill(tree, index)) > 0) {
-        slot_index_empty(index);
-        memset(index->buckets, 0, cap * sizeof(slot_bucket));
-        index->keyed = 1;
-    }
-    return filled;
+    const int filled = slot_index_fill(tree, index, 0);
+    return filled > 0 ? slot_index_fill_keyed(tree, index) : filled;
 }
 
 static void collect_slotables_indexed(th_tree *tree, th_node *slot, th_node *root, nodevec *vec, slot_index *index) {
@@ -306,7 +321,9 @@ static void collect_slotables_indexed(th_tree *tree, th_node *slot, th_node *roo
         return;
     }
     if (index->root != root) {
-        slot_index_clear(index);
+        if (index->buckets != NULL) {
+            slot_index_clear(index);
+        }
         index->root = root;
         collect_slotables(tree, slot, vec);
         return;
@@ -324,16 +341,21 @@ static void collect_slotables_indexed(th_tree *tree, th_node *slot, th_node *roo
     named_value(slot, TH_ATTR_NAME, &name, &name_len);
     /* The FNV-1a walk runs on a keyed index too: the index holds each name once, so finding it anywhere is the answer,
        and runs under th_name_hash are short wherever the walk starts. Only a walk that ends empty there takes the keyed
-       one; an index on FNV-1a always finds its slot's name, so it never does. */
-    size_t position = slot_index_walk(index, slot_index_home(index, name, name_len, 0), name, name_len);
-    if (index->buckets[position].slot == NULL) {
-        position = slot_index_find_keyed(index, name, name_len);
-    }
-    slot_bucket *bucket = &index->buckets[position];
-    if (bucket->slot == slot) {
-        for (Py_ssize_t position = 0; position < bucket->assigned.len; position++) {
-            nodevec_push(vec, bucket->assigned.items[position].node);
+       one; an index on FNV-1a always finds its slot's name, so it never does, and a slot that owns its bucket never
+       reaches the test. */
+    slot_bucket *bucket =
+        &index->buckets[slot_index_walk(index, slot_index_home(index, name, name_len, 0), name, name_len)];
+    if (bucket->slot != slot) {
+        if (bucket->slot != NULL) {
+            return;
         }
+        bucket = &index->buckets[slot_index_find_keyed(index, name, name_len)];
+        if (bucket->slot != slot) {
+            return;
+        }
+    }
+    for (Py_ssize_t position = 0; position < bucket->assigned.len; position++) {
+        nodevec_push(vec, bucket->assigned.items[position].node);
     }
 }
 
@@ -395,8 +417,10 @@ static void collect_flattened(th_tree *tree, th_node *slot, nodevec *vec, slot_i
 
 /* Collect node's flattened-tree children: a shadow host descends into its shadow tree,
    a shadow slot yields its flattened slotables, and any child slot is replaced by its
-   flattened slotables. Every other child passes through unchanged. */
-static void collect_flattened_children(th_tree *tree, th_node *node, nodevec *vec) {
+   flattened slotables. Every other child passes through unchanged. Out of line, so the
+   caller's result vector stays in memory instead of in registers saved around every call
+   for a slot. */
+static TH_NOINLINE void collect_flattened_children(th_tree *tree, th_node *node, nodevec *vec) {
     if (is_slot(node) && th_node_is_shadow_root(node_root(node))) {
         collect_flattened(tree, node, vec, NULL);
         return;
@@ -411,7 +435,9 @@ static void collect_flattened_children(th_tree *tree, th_node *node, nodevec *ve
             nodevec_push(vec, child);
         }
     }
-    slot_index_clear(&slots);
+    if (slots.buckets != NULL) { /* a host with one slot never builds the index */
+        slot_index_clear(&slots);
+    }
 }
 
 static PyObject *nodevec_to_list(nodevec *vec, module_state *state, PyObject *handle, int elements_only) {

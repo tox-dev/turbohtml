@@ -216,8 +216,9 @@ static int string_arg(struct th_tree *tree, const xp_result *value, const Py_UCS
     return *owned == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
 }
 
-static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, Py_ssize_t flen, const Py_UCS4 *to,
-                     Py_ssize_t tlen, xp_result *out) {
+/* Out of line, so its scan loops keep their registers instead of sharing eval_function's. */
+static TH_NOINLINE int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, Py_ssize_t flen,
+                                 const Py_UCS4 *to, Py_ssize_t tlen, xp_result *out) {
     Py_UCS4 *buf = PyMem_Malloc((size_t)slen * sizeof(Py_UCS4));
     if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;     /* GCOVR_EXCL_LINE */

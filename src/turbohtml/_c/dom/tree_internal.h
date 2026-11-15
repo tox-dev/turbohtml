@@ -497,10 +497,12 @@ static inline uint32_t th_attr_lookup_inline(th_tree *tree, const char *bytes, P
     if (atom != TH_ATTR_UNKNOWN) {
         return atom;
     }
+    /* hashed before the table test, so the hash loop follows the static-name scan without a branch between */
+    uint32_t hash = th_fnv1a_bytes(bytes, len);
     if (tree->attr_fast == NULL) {
         return tree->attr_slots == NULL ? UINT32_MAX : th_attr_lookup_slow(tree, bytes, len);
     }
-    uint32_t found = dynamic_slot(tree, bytes, len, th_fnv1a_bytes(bytes, len));
+    uint32_t found = dynamic_slot(tree, bytes, len, hash);
     return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
 }
 
