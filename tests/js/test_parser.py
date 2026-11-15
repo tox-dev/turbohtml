@@ -355,6 +355,17 @@ def test_deep_nesting_is_rejected(source: str) -> None:
         minify(source)
 
 
+def _thread_stack_accepted(kib: int) -> bool:
+    previous = threading.stack_size()
+    try:
+        threading.stack_size(kib * 1024)
+    except ValueError:  # the platform's minimum thread stack is above this size
+        return False
+    finally:
+        threading.stack_size(previous)
+    return True
+
+
 @pytest.mark.parametrize(
     ("source", "passes", "kib", "expected"),
     [
@@ -363,9 +374,21 @@ def test_deep_nesting_is_rejected(source: str) -> None:
         # a chain costs the parser no stack, but each pass after it recurses once per link
         pytest.param(f"x=a{'+a' * 985}", "fold", 192, "nested too deeply at offset", id="fold"),
         pytest.param(
-            f"function f(a){{return a{'+a' * 985}}}", "mangle", 80, "nested too deeply at offset", id="mangle"
+            f"function f(a){{return a{'+a' * 985}}}",
+            "mangle",
+            80,
+            "nested too deeply at offset",
+            id="mangle",
+            marks=pytest.mark.skipif(not _thread_stack_accepted(80), reason="thread stack minimum is above 80 KiB"),
         ),
-        pytest.param(f"x=a{'.b' * 985}", "print", 64, "nested too deeply at offset", id="print"),
+        pytest.param(
+            f"x=a{'.b' * 985}",
+            "print",
+            64,
+            "nested too deeply at offset",
+            id="print",
+            marks=pytest.mark.skipif(not _thread_stack_accepted(64), reason="thread stack minimum is above 64 KiB"),
+        ),
         # a flat statement list the guard fold nests once per guard, as deep as the thread's stack allows
         pytest.param(
             f"function f(){{{'if(c)return 4;' * 3000}return 2}}",
@@ -373,6 +396,7 @@ def test_deep_nesting_is_rejected(source: str) -> None:
             80,
             "function f(){if(c)return 4;if(c)return 4",
             id="fold-rewrite",
+            marks=pytest.mark.skipif(not _thread_stack_accepted(80), reason="thread stack minimum is above 80 KiB"),
         ),
     ],
 )

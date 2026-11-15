@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import threading
 from collections import Counter
 from functools import partial
 from operator import ge, gt, itemgetter, le, lt
@@ -2005,6 +2006,17 @@ def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermos
     assert (result.returncode, result.stdout) == (0, "True\n"), result.stderr
 
 
+def _thread_stack_accepted(kib: int) -> bool:
+    previous = threading.stack_size()
+    try:
+        threading.stack_size(kib * 1024)
+    except ValueError:  # the platform's minimum thread stack is above this size
+        return False
+    finally:
+        threading.stack_size(previous)
+    return True
+
+
 @pytest.mark.parametrize(
     ("opening", "innermost", "closing"),
     [
@@ -2013,9 +2025,10 @@ def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermos
         pytest.param("descendant-or-self::node()[", "true()", "]", id="step-predicate"),
     ],
 )
+@pytest.mark.skipif(not _thread_stack_accepted(52), reason="the platform's minimum thread stack is above 52 KiB")
 def test_nesting_on_the_smallest_thread_stack_raises_cleanly(opening: str, innermost: str, closing: str) -> None:
-    # 52 KiB is the smallest stack Python starts a thread with on Linux, too small for the cap; past what it holds the
-    # expression raises like one past the cap
+    # 52 KiB is too small for the cap; past what the stack holds the expression raises like one past the cap. Linux on
+    # arm64 refuses a thread that small, so there the test is skipped
     code = (
         "import sys, threading, turbohtml\n"
         "doc = turbohtml.parse('<p>')\n"

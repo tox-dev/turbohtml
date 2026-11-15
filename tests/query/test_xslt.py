@@ -1720,6 +1720,17 @@ def _key_chain(links: int, *, match: str = "a") -> str:
     return f'{chain}<xsl:key name="k{links}" match="{match}" use="."/>'
 
 
+def _thread_stack_accepted(kib: int) -> bool:
+    previous = threading.stack_size()
+    try:
+        threading.stack_size(kib * 1024)
+    except ValueError:  # the platform's minimum thread stack is above this size
+        return False
+    finally:
+        threading.stack_size(previous)
+    return True
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -1737,6 +1748,7 @@ def _key_chain(links: int, *, match: str = "a") -> str:
         pytest.param(f"{_key_chain(400 + 2, match='r')}{_KEY_LOOKUP}", id="key-chain"),
     ],
 )
+@pytest.mark.skipif(not _thread_stack_accepted(112), reason="the platform's minimum thread stack is above 112 KiB")
 def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
     # a stack overflow kills the interpreter, so the transform runs in a subprocess and the crash becomes a failure
     code = (
