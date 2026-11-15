@@ -844,6 +844,24 @@ def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespa
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
+        pytest.param("<svg><forťignobject>x", "<svg><forťignobject>x</forťignobject></svg>", id="ucs2-low-byte-e"),
+        pytest.param(
+            "<svg><alt\U00010067lyph>x",
+            "<svg><alt\U00010067lyph>x</alt\U00010067lyph></svg>",
+            id="ucs4-low-byte-g",
+        ),
+        pytest.param("<svg><foreignobject>x", "<svg><foreignObject>x</foreignObject></svg>", id="ascii"),
+    ],
+)
+def test_svg_name_adjustment_skips_non_ascii_name(html: str, expected: str) -> None:
+    # a code point whose low byte spells the missing letter is not that letter: the element is no HTML integration
+    # point, so it must not serialize under the name that reparses as one
+    assert parse_fragment(html).inner_html == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
         pytest.param(
             "<!doctype html><!doctype></p>",
             "<!DOCTYPE html><html><head></head><body></body></html>",

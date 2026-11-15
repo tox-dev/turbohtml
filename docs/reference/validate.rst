@@ -56,9 +56,11 @@ Compiling an XSD schema raises :class:`ValueError` for a reference that does not
 ``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, or an extension or
 restriction ``base`` whose QName names no built-in or declared component -- and the message names the unresolved QName.
 The same error covers a reference cycle among ``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type
-derivations, and any such chain longer than 100 hops. A schema that declares an ``xs:unique``, ``xs:key``, or
-``xs:keyref`` identity constraint raises it too, because the validator does not enforce the constraint and would accept
-documents that break it. An ``xs:group`` particle without a ``ref`` compiles and matches no content.
+derivations, and any such chain longer than 100 hops. It also covers a complex type whose ``xs:group``,
+``xs:attributeGroup``, and base-type references expand to more than 20,000 particles and attribute declarations. A
+schema that declares an ``xs:unique``, ``xs:key``, or ``xs:keyref`` identity constraint raises it too, because the
+validator does not enforce the constraint and would accept documents that break it. An ``xs:group`` particle without a
+``ref`` compiles and matches no content.
 
 .. autoclass:: XMLSchema
     :members:

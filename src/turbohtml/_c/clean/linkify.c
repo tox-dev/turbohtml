@@ -1540,8 +1540,12 @@ static int replace_anchor_text(th_tree *tree, th_node *anchor, PyObject *text) {
     return 0;
 }
 
+/* a vetoing callback can detach the anchor, leaving no sibling list to splice its children into */
 static void unwrap_anchor(th_tree *tree, th_node *anchor) {
     th_node *parent = anchor->parent;
+    if (parent == NULL) {
+        return;
+    }
     while (anchor->first_child != NULL) {
         th_node *child = anchor->first_child;
         th_node_remove_silent(tree, child);
@@ -1751,7 +1755,8 @@ TH_NODE_API(static, int, apply_text,
         if (status == 0) { /* GCOVR_EXCL_BR_LINE: prior child allocation */
             status = append_data_slice(tree, fragment, points, cursor, PyUnicode_GET_LENGTH(text));
         }
-        if (status == 0) { /* GCOVR_EXCL_BR_LINE: fragment child allocation */
+        /* a callback can detach the node after collect_targets() listed it, leaving nothing to splice into */
+        if (status == 0 && node->parent != NULL) { /* GCOVR_EXCL_BR_LINE: fragment child allocation */
             th_node *parent = node->parent;
             th_tree_note_deepened(tree);
             /* no iterator can point into the fragment this call built, so its children move without the steps */

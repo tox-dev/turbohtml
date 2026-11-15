@@ -1202,7 +1202,145 @@ TH_NODE_API(static, PyObject *, view_children, (PyObject * self, PyObject *ignor
     return result;
 }
 
+/* The element sibling after node (forward) or before it, or NULL. */
+static th_node *view_element_step(th_node *node, int forward) {
+    do {
+        TH_WORK_STEP();
+        node = forward ? node->next_sibling : node->prev_sibling;
+    } while (node != NULL && node->type != TH_NODE_ELEMENT);
+    return node;
+}
+
+/* The cursor kept for parent, or NULL. Every structural edit bumps the handle's mutation_version (handle_drop_index),
+   which empties the cursors: element positions only change with such an edit. The caller holds the tree lock. */
+static struct view_cursor *view_cursor_find(HandleObject *handle, const th_node *parent) {
+    if (handle->view_cursor_version != handle->mutation_version) {
+        memset(handle->view_cursors, 0, sizeof(handle->view_cursors));
+        handle->view_cursor_version = handle->mutation_version;
+    }
+    for (size_t slot = 0; slot < sizeof(handle->view_cursors) / sizeof(handle->view_cursors[0]); slot++) {
+        if (handle->view_cursors[slot].parent == parent) {
+            return &handle->view_cursors[slot];
+        }
+    }
+    return NULL;
+}
+
+/* Remember that child has skip element siblings before it (forward) or after it, in parent's cursor or the next one
+   in turn. */
+static void view_cursor_store(HandleObject *handle, th_node *parent, th_node *child, Py_ssize_t skip, int forward) {
+    struct view_cursor *cursor = view_cursor_find(handle, parent);
+    if (cursor == NULL) {
+        const size_t slots = sizeof(handle->view_cursors) / sizeof(handle->view_cursors[0]);
+        cursor = &handle->view_cursors[handle->view_cursor_next++ % slots];
+    }
+    cursor->parent = parent;
+    cursor->child = child;
+    cursor->skip = skip;
+    cursor->forward = forward;
+}
+
+/* The element child of parent with skip element siblings before it (forward) or after it, or NULL. The walk starts
+   from the end the position counts from or from the child this parent was last asked for, whichever is nearer, so a
+   loop over the positions of a long child list takes one step per element instead of a walk from the end each time.
+   The caller holds the tree lock. */
+static th_node *view_element_at(HandleObject *handle, th_node *parent, Py_ssize_t skip, int forward) {
+    const struct view_cursor *cursor = view_cursor_find(handle, parent);
+    th_node *node;
+    Py_ssize_t at;
+    if (cursor != NULL && cursor->forward == forward && cursor->child->parent == parent &&
+        (cursor->skip > skip ? cursor->skip - skip : skip - cursor->skip) < skip) {
+        node = cursor->child;
+        at = cursor->skip;
+    } else {
+        node = forward ? parent->first_child : parent->last_child;
+        if (node != NULL && node->type != TH_NODE_ELEMENT) {
+            node = view_element_step(node, forward);
+        }
+        at = 0;
+    }
+    for (; node != NULL && at < skip; at++) {
+        node = view_element_step(node, forward);
+    }
+    for (; node != NULL && at > skip; at--) { /* GCOVR_EXCL_BR_LINE: the siblings before a cursor exist */
+        node = view_element_step(node, !forward);
+    }
+    if (node != NULL) {
+        view_cursor_store(handle, parent, node, skip, forward);
+    }
+    return node;
+}
+
+/* The element child at index, counted from the end when negative, or None when there is none. Only that child is
+   wrapped: reading one entry of the view_children list costs a view per sibling, which makes a caller's loop over the
+   positions of a long child list quadratic in views. */
+TH_NODE_API(static, PyObject *, view_child_at, (PyObject * self, Py_ssize_t index), (self, index),
+            (PyObject * self, Py_ssize_t index), ((ElementView *)self)->node, NULL) {
+    NodeObject *owner = ((ElementView *)self)->node;
+    int forward = index >= 0;
+    Py_ssize_t skip = forward ? index : -(index + 1);
+    PyObject *node;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    th_node *child = view_element_at((HandleObject *)owner->handle, owner->node, skip, forward);
+    node = node_wrap_locked(state_of((PyObject *)owner), owner->handle, child);
+    Py_END_CRITICAL_SECTION();
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    PyObject *result = view_wrap(state_of((PyObject *)owner), node);
+    Py_DECREF(node);
+    return result;
+}
+
+/* The position of child among the element children, or -1 when it is not one of them. The count walks back toward
+   the first child and, in step, both ways toward the child this parent was last asked for, and ends at whichever it
+   meets first, so asking for each child of a long list in turn stays linear. */
+TH_NODE_API(static, Py_ssize_t, view_child_position, (PyObject * self, NodeObject *child), (self, child),
+            (PyObject * self, NodeObject *child), ((ElementView *)self)->node, child) {
+    NodeObject *owner = ((ElementView *)self)->node;
+    Py_ssize_t position = -1;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    if (child->handle == owner->handle && child->node->parent == owner->node) {
+        HandleObject *handle = (HandleObject *)owner->handle;
+        const struct view_cursor *cursor = view_cursor_find(handle, owner->node);
+        const th_node *known = cursor != NULL && cursor->forward ? cursor->child : NULL;
+        th_node *before = child->node;
+        th_node *after = known != NULL ? child->node : NULL;
+        for (Py_ssize_t steps = 0; position < 0; steps++) {
+            if (before == known) { /* before is never NULL here, so this needs a cursor */
+                position = cursor->skip + steps;
+            } else if (after != NULL && after == known) {
+                position = cursor->skip - steps;
+            } else {
+                before = view_element_step(before, 0);
+                if (before == NULL) {
+                    position = steps;
+                } else if (after != NULL) {
+                    after = view_element_step(after, 1);
+                }
+            }
+        }
+        view_cursor_store(handle, owner->node, child->node, position, 1);
+    }
+    Py_END_CRITICAL_SECTION();
+    return position;
+}
+
 static PyObject *view_subscript(PyObject *self, PyObject *key) {
+    if (PyIndex_Check(key)) {
+        Py_ssize_t index = PyNumber_AsSsize_t(key, PyExc_IndexError);
+        if (index == -1 && PyErr_Occurred()) {
+            return NULL;
+        }
+        PyObject *child = view_child_at(self, index);
+        if (child == Py_None) {
+            Py_DECREF(child);
+            PyErr_SetString(PyExc_IndexError, "list index out of range");
+            return NULL;
+        }
+        return child;
+    }
+    /* a slice, or a key for the list to reject */
     PyObject *children = view_children(self, NULL);
     if (children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
@@ -1213,13 +1351,17 @@ static PyObject *view_subscript(PyObject *self, PyObject *key) {
 }
 
 static PyObject *view_index(PyObject *self, PyObject *child) {
-    PyObject *children = view_children(self, NULL);
-    if (children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+    module_state *state = state_of((PyObject *)((ElementView *)self)->node);
+    Py_ssize_t position = -1;
+    /* views compare by identity and a node has one, so only a view can be found */
+    if (PyObject_TypeCheck(child, (PyTypeObject *)state->element_view_type)) {
+        position = view_child_position(self, ((ElementView *)child)->node);
     }
-    Py_ssize_t index = PySequence_Index(children, child);
-    Py_DECREF(children);
-    return index < 0 ? NULL : PyLong_FromSsize_t(index);
+    if (position < 0) {
+        PyErr_SetString(PyExc_ValueError, "sequence.index(x): x not in sequence");
+        return NULL;
+    }
+    return PyLong_FromSsize_t(position);
 }
 
 typedef struct {
@@ -1412,19 +1554,7 @@ static PyObject *view_axis_iterator(PyObject *self, PyObject *args, int axis, in
     if (filter == NULL) {
         return NULL;
     }
-    PyObject *first;
-    if (children) {
-        PyObject *items = view_children(self, NULL);
-        if (items == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
-            Py_DECREF(filter); /* GCOVR_EXCL_LINE: allocation failure */
-            return NULL;       /* GCOVR_EXCL_LINE: allocation failure */
-        }
-        first = Py_NewRef(
-            PyList_GET_SIZE(items) == 0 ? Py_None : PyList_GET_ITEM(items, axis == 1 ? 0 : PyList_GET_SIZE(items) - 1));
-        Py_DECREF(items);
-    } else {
-        first = view_relation(self, axis);
-    }
+    PyObject *first = children ? view_child_at(self, axis == 1 ? 0 : -1) : view_relation(self, axis);
     if (first == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
         Py_DECREF(filter); /* GCOVR_EXCL_LINE: allocation failure */
         return NULL;       /* GCOVR_EXCL_LINE: allocation failure */

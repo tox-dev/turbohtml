@@ -322,6 +322,7 @@ typedef struct {
     int tight;                  /* inside a list item: inline runs do not add blank lines */
     int list_depth;             /* nesting depth of the current list, for bullet cycling */
     int indent_levels;          /* list and quote nesting that indents the prefix, capped by TH_MAX_INDENT_LEVELS */
+    Py_ssize_t clone_budget;    /* the attribute characters the parser's clones of an element may still write */
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
     char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
@@ -994,6 +995,8 @@ static void md_emit_text(md_ctx *ctx, th_node *node, const Py_UCS4 *text, Py_ssi
             ctx->line_number_start = 0;
         }
     }
+    /* Source text funds at most the same number of attribute characters repeated by clones. */
+    ctx->clone_budget += len;
     /* a reference continues only when nothing comes between the last node's `&` and name
        and this node's first character; what is already written md_escape_split_reference
        reads back, and an opening run still pending would come between */
@@ -1931,6 +1934,7 @@ static void md_emit_url(md_ctx *ctx, const char *base, const Py_UCS4 *url, Py_ss
     }
     md_puts8(&ctx->out, base);
     for (Py_ssize_t index = 0; index < len; index++) {
+        TH_WORK_STEP();
         Py_UCS4 ch = url[index];
         int bracket = angle ? ch == '<' || ch == '>' : unbalanced && (ch == '(' || ch == ')');
         if (bracket || ch == '\\' || (ch == '&' && md_starts_reference(url, index, len))) {
@@ -1968,6 +1972,7 @@ static void md_emit_url_without_breaks(md_ctx *ctx, const char *base, const Py_U
    could open a block (a `>` quote, a `#` heading) and end the paragraph mid-link. */
 static void md_emit_title(md_ctx *ctx, const Py_UCS4 *title, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
+        TH_WORK_STEP();
         if (title[index] == '\n' || title[index] == '\r') {
             sbuf_puts(&ctx->out, title[index] == '\n' ? "&#10;" : "&#13;");
             continue;
@@ -2039,6 +2044,21 @@ static Py_ssize_t md_add_reference(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t u
     return ++ctx->ref_count;
 }
 
+/* The tree builder reopens an unclosed formatting element in every block after it, and each copy repeats the attributes
+   the source spelled once. Rendered text funds the budget a copy's attributes spend, so the output cannot grow with the
+   block count; a copy the budget does not cover keeps its text and drops the link or language. */
+static int md_clone_pays(md_ctx *ctx, const th_node *node, Py_ssize_t len) {
+    if (!(node->tag_flags & TH_ELEM_IMPLIED)) {
+        ctx->clone_budget += len;
+        return 1;
+    }
+    if (len > ctx->clone_budget) {
+        return 0;
+    }
+    ctx->clone_budget -= len;
+    return 1;
+}
+
 static void md_enter_link(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
     Py_ssize_t href_len;
@@ -2053,7 +2073,7 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
     if (ctx->in_cell && !ignored && md_attr_has_space_run(href, href_len) && opt->link_style != TH_MD_LINK_REFERENCE &&
         !opt->link_title && (*opt->base_url == '\0' || md_href_absolute(href, href_len) || md_href_internal(href))) {
         Py_ssize_t len;
-        Py_UCS4 *opening = th_node_markdown_open_tag(ctx->tree, node, TH_MARKDOWN_HTML_CELL, &len);
+        Py_UCS4 *opening = th_node_markdown_open_tag(ctx->tree, node, TH_MARKDOWN_HTML_CELL, &ctx->clone_budget, &len);
         if (opening == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
             return;              /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2072,12 +2092,12 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
     if (!opt->wrap_links) {
         ctx->no_wrap++;
     }
-    if (ignored) {
+    Py_ssize_t title_len;
+    const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
+    if (ignored || !md_clone_pays(ctx, node, href_len + title_len)) {
         md_push(ctx, node, MD_WALK_INLINE, opt->wrap_links ? MD_LEAVE_NONE : MD_LEAVE_NO_WRAP);
         return;
     }
-    Py_ssize_t title_len;
-    const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
     int relative = *opt->base_url != '\0' && !md_href_absolute(href, href_len) && !md_href_internal(href);
     if (opt->autolink && title == NULL && !relative && md_href_absolute(href, href_len) &&
         md_href_autolinkable(href, href_len)) {
@@ -2195,10 +2215,11 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     }
     const th_cell_wrap wrap = {cell_open.data, cell_open.len, cell_close.data, cell_close.len};
     Py_ssize_t len;
-    Py_UCS4 *html = cell_open.len > 0
-                        ? th_node_markdown_table_html(ctx->tree, node, &wrap, &len)
-                        : th_node_markdown_html(ctx->tree, node,
-                                                ctx->in_cell ? TH_MARKDOWN_HTML_CELL : TH_MARKDOWN_HTML_BLOCK, &len);
+    Py_UCS4 *html =
+        cell_open.len > 0
+            ? th_node_markdown_table_html(ctx->tree, node, &wrap, &ctx->clone_budget, &len)
+            : th_node_markdown_html(ctx->tree, node, ctx->in_cell ? TH_MARKDOWN_HTML_CELL : TH_MARKDOWN_HTML_BLOCK,
+                                    &ctx->clone_budget, &len);
     PyMem_Free(cell_open.data);
     PyMem_Free(cell_close.data);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -2254,7 +2275,7 @@ static Py_ssize_t md_markup_length(const Py_UCS4 *text, Py_ssize_t len) {
    whitespace collapse puts the rest on one line. */
 static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
-    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_INLINE, &len);
+    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_INLINE, &ctx->clone_budget, &len);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -4365,6 +4386,9 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
 
 static const Py_UCS4 *md_pre_language(md_ctx *ctx, th_node *node, th_node *code, Py_ssize_t *length) {
     const Py_UCS4 *language = code == NULL ? NULL : md_code_language(ctx, code, length);
+    if (language != NULL && !md_clone_pays(ctx, code, *length)) {
+        language = NULL; /* a cloned <code> repeats its class in every <pre> it is reopened in */
+    }
     return language == NULL ? md_code_language(ctx, node, length) : language;
 }
 
@@ -4430,6 +4454,7 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
             sbuf_putc(&ctx->out, '`');
         }
         if (lang != NULL) {
+            TH_WORK_STEPS_ADD(lang_len);
             sbuf_put_run(&ctx->out, lang, lang_len);
         } else {
             md_puts8(&ctx->out, opt->code_language);
@@ -4899,6 +4924,8 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.markers = ctx.inline_markers = inline_markers;
     ctx.marker_cap = MD_INLINE_MARKERS;
     ctx.break_end = -1;
+    /* a few short targets repeat in clones before any rendered text funds the budget */
+    ctx.clone_budget = 256;
     ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);
     /* mode="none" leaves prose as written apart from the asterisk and underscore
        choices, keeping only the cell pipe escape a pipe table cannot do without */

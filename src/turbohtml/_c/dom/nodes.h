@@ -102,6 +102,16 @@ typedef struct {
     void *path_positions;
     node_hash_overrides *hash_overrides;
     uint64_t hash_salt; /* unique to this handle; see handle_node_hash */
+    /* etree positional access: the element children last reached by position, so element[i] in a loop walks on from
+       the previous one. Valid while view_cursor_version equals mutation_version; see view_element_at. */
+    struct view_cursor {
+        th_node *parent;
+        th_node *child;
+        Py_ssize_t skip; /* element siblings before child (forward) or after it */
+        int forward;
+    } view_cursors[4];
+    uint64_t view_cursor_version;
+    unsigned view_cursor_next;
     node_binding_slot *bindings;
     node_binding_slot inline_bindings[16];
     uint16_t binding_capacity;

@@ -1340,6 +1340,7 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) 
 enum { CHAIN_GROUP, CHAIN_ATTRGROUP, CHAIN_TYPE };
 
 static int xsd_check_chains(th_schema *schema, int kind);
+static int xsd_check_expansion(th_schema *schema);
 
 static int xsd_compile(th_schema *schema) {
     th_tree *tree = schema->tree;
@@ -1401,7 +1402,7 @@ static int xsd_compile(th_schema *schema) {
         return 0;
     }
     if (xsd_check_chains(schema, CHAIN_GROUP) < 0 || xsd_check_chains(schema, CHAIN_ATTRGROUP) < 0 ||
-        xsd_check_chains(schema, CHAIN_TYPE) < 0) {
+        xsd_check_chains(schema, CHAIN_TYPE) < 0 || xsd_check_expansion(schema) < 0) {
         return 0;
     }
     if (schema->facet_count > 1) {
@@ -1560,6 +1561,118 @@ static int xsd_chain_refscan(th_schema *schema, int kind, th_node *node, int *st
         }
     }
     return 0;
+}
+
+/* The chain checks bound how deep references go, not how much they unfold to in total. */
+#define TH_XSD_MAX_EXPANSION 20000
+
+static int xsd_expansion_cap(int total) {
+    return total > TH_XSD_MAX_EXPANSION ? TH_XSD_MAX_EXPANSION + 1 : total;
+}
+
+static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo, int own);
+
+/* Validation follows exactly these refs; xsd_check_chains has found them acyclic and shallow,
+   so this recursion ends. */
+static int xsd_ref_expansion(th_schema *schema, int kind, th_node *node, const char *attr, int *const *memo) {
+    Py_ssize_t ref_len = 0;
+    const Py_UCS4 *ref = xsd_attr(schema->tree, node, attr, &ref_len);
+    if (ref == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
+    named_vec *vec = xsd_chain_vec(schema, kind);
+    Py_ssize_t index = named_find_index(vec, local, local_len);
+    if (index < 0) {
+        return 0;
+    }
+    if (memo[kind][index] == 0) { /* a measured definition counts itself, so its size is never 0 */
+        memo[kind][index] = xsd_scope_expansion(schema, vec->items[index].node, memo, 1);
+    }
+    return memo[kind][index];
+}
+
+static int xsd_particle_expansion(th_schema *schema, th_node *particle, int *const *memo, int own) {
+    if (is_schema_el(schema, particle, XSD_NS, "element")) {
+        return own;
+    }
+    if (is_schema_el(schema, particle, XSD_NS, "group")) {
+        return own + xsd_ref_expansion(schema, CHAIN_GROUP, particle, "ref", memo);
+    }
+    int total = own;
+    for (th_node *child = particle->first_child; child != NULL && total <= TH_XSD_MAX_EXPANSION;
+         child = child->next_sibling) {
+        if (xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
+            total += xsd_particle_expansion(schema, child, memo, own);
+        }
+    }
+    return xsd_expansion_cap(total);
+}
+
+/* A group holds no attributes and an attributeGroup no particles, so each is walked only for what validation reads. */
+static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo, int own) {
+    static const char *const models[] = {"sequence", "choice", "all", "group"};
+    const int particles = !is_schema_el(schema, scope, XSD_NS, "attributeGroup");
+    const int attributes = !is_schema_el(schema, scope, XSD_NS, "group");
+    th_node *content = is_schema_el(schema, scope, XSD_NS, "complexType") ? xsd_type_content(schema, scope) : NULL;
+    int total = own;
+    for (th_node *child = scope->first_child; child != NULL && total <= TH_XSD_MAX_EXPANSION;
+         child = child->next_sibling) {
+        if (attributes && is_schema_el(schema, child, XSD_NS, "attribute")) {
+            total += own;
+        } else if (attributes && is_schema_el(schema, child, XSD_NS, "attributeGroup")) {
+            total += own + xsd_ref_expansion(schema, CHAIN_ATTRGROUP, child, "ref", memo);
+        } else if (particles && xsd_is_particle(schema, child, models, 4)) {
+            total += xsd_particle_expansion(schema, child, memo, own);
+        } else if (child == content) {
+            th_node *derivation = first_schema_child(schema, child, XSD_NS, "extension");
+            if (derivation == NULL) {
+                derivation = first_schema_child(schema, child, XSD_NS, "restriction");
+            }
+            if (derivation != NULL) {
+                total += xsd_ref_expansion(schema, CHAIN_TYPE, derivation, "base", memo) +
+                         xsd_scope_expansion(schema, derivation, memo, own);
+            }
+        }
+    }
+    return xsd_expansion_cap(total);
+}
+
+/* Every complex type, named or inline, is what some element is validated against. */
+static int xsd_check_type_expansion(th_schema *schema, th_node *node, int *const *memo) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (is_schema_el(schema, child, XSD_NS, "complexType") &&
+            xsd_scope_expansion(schema, child, memo, 0) > TH_XSD_MAX_EXPANSION) {
+            PyErr_Format(PyExc_ValueError,
+                         "complex type references expand to more than %d particles and attributes; flatten the schema "
+                         "or refer to each group, attribute group, and base type fewer times",
+                         TH_XSD_MAX_EXPANSION);
+            return -1;
+        }
+        if (xsd_check_type_expansion(schema, child, memo) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int xsd_check_expansion(th_schema *schema) {
+    /* a reference resolves only to a named definition, so without one no type can expand */
+    if (schema->groups.len == 0 && schema->attr_groups.len == 0 && schema->complex_types.len == 0) {
+        return 0;
+    }
+    Py_ssize_t groups = schema->groups.len, attr_groups = schema->attr_groups.len;
+    size_t bytes = (size_t)(groups + attr_groups + schema->complex_types.len) * sizeof(int);
+    int *sizes = arena_alloc(&schema->mem, bytes);
+    if (sizes == NULL) {  /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    memset(sizes, 0, bytes);
+    int *const memo[] = {sizes, sizes + groups, sizes + groups + attr_groups}; /* in CHAIN_* order */
+    return xsd_check_type_expansion(schema, schema->root, memo);
 }
 
 static void xsd_validate_root(valctx *ctx, th_node *root) {

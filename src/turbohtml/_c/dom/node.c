@@ -1551,7 +1551,8 @@ PyDoc_STRVAR(tables_doc, "tables()\n--\n\n"
                          "entry. The result is a list[list[list[str]]] of plain strings, with no pandas\n"
                          "dependency; pass one table to pandas.DataFrame for a frame. Raises ValueError\n"
                          "when tables nested inside two or more other tables repeat more than 16,000,000\n"
-                         "characters of cell text in one call.");
+                         "characters of cell text in one call, or when the spans and the padding of all the tables\n"
+                         "together add more than 4,000,000 cells to their grids.");
 
 TH_NODE_API(static, PyObject *, node_tables, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
@@ -2343,8 +2344,8 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
             charset = label;
         }
     }
-    th_serialize_opts opts = {0,   sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset),
-                              xml, inner,           NULL,         0,       charset_missing};
+    th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml, inner, NULL,
+                              0, charset_missing, NULL};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2678,8 +2679,8 @@ TH_NODE_API(static, PyObject *, node_to_source, (PyObject * self, PyObject *igno
 static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj,
                                           int sort_attributes, int meta_charset, int xml, int inner) {
     module_state *state = state_of(self);
-    th_serialize_opts opts = {0,   sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"),
-                              xml, inner,           NULL,         0,       NULL};
+    th_serialize_opts opts = {
+        0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
