@@ -98,45 +98,28 @@ static int realize_char_data(th_tree *tree, th_node *node, const Py_UCS4 **text)
     return 0;
 }
 
-/* Splice the [from, to) code-point run out of a character-data node's text. Returns 0, or -1 on
-   allocation failure. */
-static int replace_data_delete(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
-    Py_ssize_t remaining = node->text_len - to;
-    Py_ssize_t new_len = from + remaining;
-    const Py_UCS4 *text;
-    if (realize_char_data(tree, node, &text) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
-        return -1;                                  /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    Py_UCS4 *buffer = PyMem_Malloc((size_t)(new_len > 0 ? new_len : 1) * sizeof(Py_UCS4));
-    if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (node->text_len > 0) { /* parsed empty character data has a NULL text pointer */
-        memcpy(buffer, text, (size_t)from * sizeof(Py_UCS4));
-        memcpy(buffer + from, text + to, (size_t)remaining * sizeof(Py_UCS4));
-    }
-    int rc = th_node_set_data(tree, node, buffer, new_len);
-    PyMem_Free(buffer);
-    return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: th_node_set_data only fails on OOM */
-}
-
 static inline const Py_UCS4 *char_data_offset(const Py_UCS4 *text, Py_ssize_t offset) {
     return text == NULL ? NULL : text + offset; /* GCOVR_EXCL_BR_LINE: empty text or allocation failure */
 }
 
 /* Split a character-data node at offset: the tail becomes a new sibling right after it, which is
-   returned. NULL on allocation failure. */
+   returned. The tail reads the rest of the head's buffer, so a split stores no text. NULL on
+   allocation failure. */
 static th_node *split_data_node(th_tree *tree, th_node *node, Py_ssize_t offset) {
     const Py_UCS4 *text;
     if (realize_char_data(tree, node, &text) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
         return NULL;                                /* GCOVR_EXCL_LINE: allocation failure */
     }
-    th_node *tail = th_tree_make_data_node(tree, node->type, char_data_offset(text, offset), node->text_len - offset);
+    th_node *tail = th_tree_make_data_node(tree, node->type, NULL, 0);
     if (tail == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (replace_data_delete(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+    if (offset < node->text_len) {
+        tail->text = node->text + offset;
+        tail->text_len = node->text_len - offset;
+        tail->text_exclusive = node->text_exclusive;
+    }
+    if (th_node_delete_data(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_node_insert_before(node->parent, tail, node->next_sibling);
@@ -286,7 +269,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, piece);
-        if (replace_data_delete(tree, start_node, start_offset, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        if (th_node_delete_data(tree, start_node, start_offset, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;                                                           /* GCOVR_EXCL_LINE: OOM path */
         }
         return fragment;
@@ -314,8 +297,8 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, piece);
-        /* replace_data_delete only fails on OOM */
-        if (replace_data_delete(tree, start_node, start_offset, start_node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+        /* th_node_delete_data only fails on OOM */
+        if (th_node_delete_data(tree, start_node, start_offset, start_node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             PyMem_Free(contained);                                                           /* GCOVR_EXCL_LINE: OOM */
             return NULL;                                                                     /* GCOVR_EXCL_LINE: OOM */
         }
@@ -348,7 +331,7 @@ static th_node *do_extract(th_tree *tree, th_node *start_node, Py_ssize_t start_
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, piece);
-        if (replace_data_delete(tree, end_node, 0, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        if (th_node_delete_data(tree, end_node, 0, end_offset) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;                                              /* GCOVR_EXCL_LINE: OOM path */
         }
     } else if (last != NULL) {

@@ -11,6 +11,7 @@ from turbohtml import (
     Doctype,
     Document,
     Element,
+    MutationObserver,
     Node,
     ProcessingInstruction,
     Range,
@@ -21,6 +22,7 @@ from turbohtml import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from types import ModuleType
 
 
 def _doctype(doc: Document) -> Doctype:
@@ -562,6 +564,111 @@ _STALE_COMPARISONS: Final[tuple[pytest.ParameterSet, ...]] = (
         id="compare_boundary_points-source",
     ),
 )
+
+
+def _wrap_last_match_first(text: Text) -> None:
+    for offset in range(len(text.data) - 2, -1, -2):  # the earlier offsets stay valid
+        hit = Range(text, offset)
+        hit.set_end(text, offset + 1)
+        hit.surround_contents(Element("mark"))
+
+
+def _wrap_first_match_first(text: Text) -> None:
+    rest: Node | None = text
+    while isinstance(rest, Text) and "x" in rest.data:
+        offset = rest.data.index("x")
+        hit = Range(rest, offset)
+        hit.set_end(rest, offset + 1)
+        mark = Element("mark")
+        hit.surround_contents(mark)
+        rest = mark.next_sibling  # the split left the unsearched text after the wrapper
+
+
+def _delete_every_match(text: Text) -> None:
+    for offset in range(len(text.data) - 2, 0, -2):
+        hit = Range(text, offset)
+        hit.set_end(text, offset + 1)
+        hit.delete_contents()
+
+
+def _insert_between_matches(text: Text) -> None:
+    for offset in range(len(text.data) - 2, 0, -2):
+        Range(text, offset).insert_node(Element("wbr"))
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(_wrap_last_match_first, id="surround-last-first"),
+        pytest.param(_wrap_first_match_first, id="surround-first-first"),
+        pytest.param(_delete_every_match, id="delete"),
+        pytest.param(_insert_between_matches, id="insert"),
+    ],
+)
+def test_repeated_edits_of_one_text_node_keep_no_copy_per_edit(edit: Callable[[Text], None]) -> None:
+    # PyPy has no tracemalloc; the arena that the peak measures is allocated through PyMem, which CPython traces
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    text = _data_node(parse(f"<p>{'xo' * 1500}</p>"))
+    tracing.start()
+    try:
+        edit(text)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < 4 * 1024 * 1024  # the copies of the remaining text take 10 to 19 MiB on the old code
+
+
+def _data_node(doc: Document) -> Text:
+    text = _found(doc, "p").children[0]
+    assert isinstance(text, Text)
+    return text
+
+
+@pytest.mark.parametrize(("edited", "untouched"), [("option", "selectedcontent"), ("selectedcontent", "option")])
+def test_edit_in_place_leaves_text_shared_with_a_parser_clone(edited: str, untouched: str) -> None:
+    doc = parse("<select><button><selectedcontent></selectedcontent></button><option>hello world</option></select>")
+    text = _found(doc, edited).children[0]
+    for expected in ("hllo world", "hlo world"):  # the second run closes up inside the node's own buffer
+        cut = Range(text, 1)
+        cut.set_end(text, 2)
+        cut.delete_contents()
+        assert _data(text) == expected
+        assert _data(_found(doc, untouched).children[0]) == "hello world"
+
+
+def test_split_halves_edit_independently() -> None:
+    text = Text("abcdefghij")
+    paragraph = Element("p", children=[text])
+    cut = Range(text, 4)
+    cut.set_end(text, 6)
+    cut.delete_contents()  # "abcdghij", now in a buffer of the node's own
+    Range(text, 4).insert_node(Element("br"))
+    tail = paragraph.children[2]
+    assert isinstance(tail, Text)
+    assert (_data(text), _data(tail)) == ("abcd", "ghij")
+    for node, expected in ((text, "ad"), (tail, "gj")):
+        cut = Range(node, 1)
+        cut.set_end(node, 3)
+        cut.delete_contents()
+        assert _data(node) == expected
+    assert (_data(text), _data(tail)) == ("ad", "gj")
+    Range(tail, 2).insert_node(Element("hr"))  # a split at the end leaves an empty tail
+    assert [_data(node) for node in paragraph.children if isinstance(node, Text)] == ["ad", "gj", ""]
+    tail.data = "rewritten"
+    assert (_data(text), _data(tail)) == ("ad", "rewritten")
+
+
+def test_edit_in_place_records_the_old_text() -> None:
+    text = Text("abcdef")
+    Element("p", children=[text])
+    observer = MutationObserver()
+    observer.observe(text, character_data=True, character_data_old_value=True)
+    for start in (2, 1):
+        cut = Range(text, start)
+        cut.set_end(text, start + 1)
+        cut.delete_contents()
+    assert [record.old_value for record in observer.take_records()] == ["abcdef", "abdef"]
+    assert text.data == "adef"
 
 
 def test_insert_node_at_stale_offset_past_children() -> None:
