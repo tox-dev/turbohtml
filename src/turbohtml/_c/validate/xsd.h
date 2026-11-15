@@ -1624,11 +1624,12 @@ static TH_NOINLINE th_node *xsd_inherited_model(th_schema *schema, th_node *ctyp
     return model;
 }
 
-/* The effective particle for a complexType, following a complexContent extension so a
-   derived type's base content precedes its own. Returns NULL for empty/simple content. */
-static th_node *xsd_effective_model(th_schema *schema, th_node *ctype, th_node **base_model_out) {
+/* The effective content of a complexType. Returns its own particle, NULL for empty/simple content. A complexContent
+   extension appends that particle to its base type's content, which the base may itself have extended, so the particles
+   inherited along the whole base chain are counted in *base_count and, when base_models is not NULL, stored there
+   root-most type first. A restriction restates its content, which ends the climb. */
+static th_node *xsd_effective_model(th_schema *schema, th_node *ctype, th_node **base_models, Py_ssize_t *base_count) {
     th_tree *tree = schema->tree;
-    *base_model_out = NULL;
     th_node *complex_content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
     if (complex_content != NULL) {
         th_node *extension = first_schema_child(schema, complex_content, XSD_NS, "extension");
@@ -1645,9 +1646,13 @@ static th_node *xsd_effective_model(th_schema *schema, th_node *ctype, th_node *
                 Py_ssize_t local_len = 0, prefix_len = 0;
                 split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
                 th_node *base_type = named_find(&schema->complex_types, local, local_len);
-                if (base_type != NULL) {
-                    th_node *ignore;
-                    *base_model_out = xsd_effective_model(schema, base_type, &ignore);
+                th_node *base_model =
+                    base_type != NULL ? xsd_effective_model(schema, base_type, base_models, base_count) : NULL;
+                if (base_model != NULL) {
+                    if (base_models != NULL) {
+                        base_models[*base_count] = base_model;
+                    }
+                    (*base_count)++;
                 }
             }
         }
@@ -1690,8 +1695,8 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
         return;
     }
 
-    th_node *base_model;
-    th_node *model = xsd_effective_model(schema, ctype, &base_model);
+    Py_ssize_t nbase = 0;
+    th_node *model = xsd_effective_model(schema, ctype, NULL, &nbase);
     int mixed = xsd_is_mixed(schema, ctype);
     if (!mixed) {
         for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
@@ -1743,32 +1748,33 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
         }
         return;
     }
-    if (model == NULL && base_model == NULL) {
+    if (model == NULL && nbase == 0) {
         if (nchildren > 0) {
             report(ctx, instance, "structure", "element must be empty");
         }
         return;
     }
 
+    /* every particle of the content in order: what the base chain supplies, then the type's own */
+    th_node **models = arena_alloc(&schema->mem, (size_t)(nbase + 1) * sizeof(th_node *));
     posset start = posset_alloc(schema, nchildren + 1);
     posset end = posset_alloc(schema, nchildren + 1);
-    if (start.member == NULL || end.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                       /* GCOVR_EXCL_LINE */
+    if (models == NULL || start.member == NULL || end.member == NULL) { /* GCOVR_EXCL_BR_LINE: OOM is unforceable */
+        return;                                                         /* GCOVR_EXCL_LINE */
     }
-    posset_add(&start, 0);
-    if (base_model != NULL) {
-        posset after_base = posset_alloc(schema, nchildren + 1);
-        if (after_base.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;                      /* GCOVR_EXCL_LINE */
-        }
-        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base);
-        if (model != NULL) {
-            xsd_match_occurs(schema, inst, model, children, &after_base, &end);
-        } else {
-            posset_copy(&end, &after_base);
-        }
-    } else {
-        xsd_match_occurs(schema, inst, model, children, &start, &end);
+    Py_ssize_t nmodels = 0;
+    if (nbase > 0) {
+        xsd_effective_model(schema, ctype, models, &nmodels);
+    }
+    if (model != NULL) {
+        models[nmodels++] = model;
+    }
+    posset_add(&end, 0);
+    for (Py_ssize_t index = 0; index < nmodels; index++) { /* each particle starts where the one before it stopped */
+        posset spare = start;
+        start = end;
+        end = spare;
+        xsd_match_occurs(schema, inst, models[index], children, &start, &end);
     }
 
     if (!end.member[nchildren]) {
@@ -1776,11 +1782,8 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
     }
 
     edecl_vec decls = {NULL, 0, 0};
-    if (base_model != NULL) {
-        xsd_collect_edecls(schema, base_model, &decls);
-    }
-    if (model != NULL) {
-        xsd_collect_edecls(schema, model, &decls);
+    for (Py_ssize_t index = 0; index < nmodels; index++) {
+        xsd_collect_edecls(schema, models[index], &decls);
     }
     frame->children = children;
     frame->nchildren = nchildren;
@@ -2437,8 +2440,15 @@ static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *me
     return result;
 }
 
+/* An xs:all content model, written directly or as a group ref to one. */
+static int xsd_is_all_model(th_schema *schema, th_node *model) {
+    return model != NULL && (is_schema_el(schema, model, XSD_NS, "all") ||
+                             (is_schema_el(schema, model, XSD_NS, "group") && xsd_group_all(schema, model) != NULL));
+}
+
 /* XSD 1.0 cos-all-limited: an xs:all content model cannot be extended with particles, since the base's members would
-   then sit beside particles the base does not allow. */
+   then sit beside particles the base does not allow. Nor can it be the particle an extension adds to a base with
+   content, since the base's particles would then sit beside it. */
 static int xsd_check_all_extension(th_schema *schema, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (is_schema_el(schema, child, XSD_NS, "complexType")) {
@@ -2453,6 +2463,9 @@ static int xsd_check_all_extension(th_schema *schema, th_node *node) {
                     return -1;
                 }
                 schema->all_inherited = 1;
+            } else if (inherited != NULL && xsd_is_all_model(schema, xsd_content_model(schema, extension))) {
+                PyErr_SetString(PyExc_ValueError, "an xs:all content model cannot extend a base type with content");
+                return -1;
             }
         }
         if (xsd_check_all_extension(schema, child) < 0) {

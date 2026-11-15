@@ -1553,6 +1553,32 @@ def test_all_base_extended_with_particles_raises(schema: str) -> None:
         XMLSchema(schema)
 
 
+_SEQUENCE_BASE: Final[str] = f'<xs:complexType name="base"><xs:sequence>{_AB}</xs:sequence></xs:complexType>'
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}>{_SEQUENCE_BASE}<xs:complexType name="middle"><xs:complexContent>'
+            f'<xs:extension base="base"><xs:all>{_AB}</xs:all></xs:extension></xs:complexContent></xs:complexType>'
+            '<xs:element name="r" type="middle"/></xs:schema>',
+            id="direct-all-over-sequence",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_SEQUENCE_BASE}<xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+            '<xs:complexType name="middle"><xs:complexContent><xs:extension base="base"><xs:group ref="g"/>'
+            "</xs:extension></xs:complexContent></xs:complexType>"
+            '<xs:element name="r" type="middle"/></xs:schema>',
+            id="group-all-over-sequence",
+        ),
+    ],
+)
+def test_all_extension_of_base_with_content_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all content model cannot extend a base type with content"):
+        XMLSchema(schema)
+
+
 def test_extension_of_builtin_base_chain_compiles() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:complexType name="a"><xs:complexContent><xs:extension base="xs:anyType"/>'
@@ -2362,6 +2388,45 @@ def test_extension_without_own_particle() -> None:
         "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
     )
     assert xsd_ok(schema, '<r k="v"><a>x</a></r>')
+
+
+def _extension_chain(middle: str) -> str:
+    return (
+        f"<xs:schema {_XS}>"
+        '<xs:complexType name="base"><xs:sequence><xs:element name="a" type="xs:int"/></xs:sequence></xs:complexType>'
+        f'<xs:complexType name="middle"><xs:complexContent>{middle}</xs:complexContent></xs:complexType>'
+        '<xs:complexType name="derived"><xs:complexContent><xs:extension base="middle">'
+        '<xs:sequence><xs:element name="c" type="xs:int"/></xs:sequence>'
+        "</xs:extension></xs:complexContent></xs:complexType>"
+        '<xs:element name="r" type="derived"/></xs:schema>'
+    )
+
+
+_EXTENDED_TWICE: Final[str] = _extension_chain(
+    '<xs:extension base="base"><xs:sequence><xs:element name="b" type="xs:int"/></xs:sequence></xs:extension>'
+)
+_EXTENDED_OVER_BARE_STEP: Final[str] = _extension_chain('<xs:extension base="base"/>')
+_EXTENDED_OVER_RESTRICTION: Final[str] = _extension_chain(
+    '<xs:restriction base="base"><xs:sequence><xs:element name="b" type="xs:int"/></xs:sequence></xs:restriction>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "xml", "valid"),
+    [
+        pytest.param(_EXTENDED_TWICE, "<r><a>1</a><b>2</b><c>3</c></r>", True, id="twice-whole-chain"),
+        pytest.param(_EXTENDED_TWICE, "<r><b>2</b><c>3</c></r>", False, id="twice-root-content-missing"),
+        pytest.param(_EXTENDED_TWICE, "<r><a>1</a><c>3</c></r>", False, id="twice-middle-content-missing"),
+        pytest.param(_EXTENDED_TWICE, "<r><b>2</b><a>1</a><c>3</c></r>", False, id="twice-out-of-order"),
+        pytest.param(_EXTENDED_TWICE, "<r><a>x</a><b>2</b><c>3</c></r>", False, id="twice-root-content-typed"),
+        pytest.param(_EXTENDED_OVER_BARE_STEP, "<r><a>1</a><c>3</c></r>", True, id="bare-step-whole-chain"),
+        pytest.param(_EXTENDED_OVER_BARE_STEP, "<r><c>3</c></r>", False, id="bare-step-root-content-missing"),
+        pytest.param(_EXTENDED_OVER_RESTRICTION, "<r><b>2</b><c>3</c></r>", True, id="restriction-replaces-its-base"),
+        pytest.param(_EXTENDED_OVER_RESTRICTION, "<r><a>1</a><b>2</b><c>3</c></r>", False, id="restriction-ends-chain"),
+    ],
+)
+def test_extension_chain_keeps_every_base(schema: str, xml: str, valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
+    assert xsd_ok(schema, xml) is valid
 
 
 def test_simple_typed_element_with_child() -> None:
