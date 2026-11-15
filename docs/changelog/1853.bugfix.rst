@@ -1,0 +1,2 @@
+Minifying CSS with stray brackets, hex escapes or CDO/CDC tokens now gives the same output on a second pass, drops
+declarations whose name holds a bracket, and folds an unclosed nested ``calc()``.

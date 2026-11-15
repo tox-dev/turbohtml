@@ -358,9 +358,10 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
     while (prop_end > prop_start && vec->items[prop_end - 1].kind == CSS_WS) {
         prop_end--;
     }
-    /* in a declaration left open at the end of the input, a block still open before the colon holds it, so the text is
-       no declaration; written out, the block would take in the `}` that ends the rule */
-    if (prop_start >= prop_end || (end == vec->len && css_leaves_block_open(vec, prop_start, colon))) {
+    /* a name that opens a block before the colon, as in `(:)`, is no declaration (CSS Syntax 3 §5.4.5): a browser drops
+       it, so the first pass must too. A single ident opens no block and skips the scan. */
+    int bare_name = prop_end == prop_start + 1 && vec->items[prop_start].kind == CSS_IDENT;
+    if (prop_start >= prop_end || (!bare_name && css_leaves_block_open(vec, prop_start, colon))) {
         return 0;
     }
     /* the raw property text spans from the first to the last non-ws token; build it for the --* check and interning */
