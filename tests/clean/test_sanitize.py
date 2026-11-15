@@ -2256,6 +2256,86 @@ def test_attribute_compaction_report_order(policy: Policy) -> None:
     )
 
 
+def test_attribute_compaction_report_interleaves(policy: Policy) -> None:
+    pairs: Final = [f' bad-{index}="x" data-{index}="x"' for index in range(32)]
+    rest: Final = ' onclick="x" title="t" last="x"'
+    html: Final = "".join(('<a first="x"', *pairs[:16], ' href="javascript:x"', *pairs[16:], rest, ">x</a>"))
+    bad: Final = [f"bad-{index}" for index in range(32)]
+    kept: Final = "".join(f' data-{index}="x"' for index in range(32))
+    assert Sanitizer(policy).sanitize_report(html) == (
+        f'<a{kept} title="t">x</a>',
+        [Removed("a", name) for name in ("first", *bad[:16], "href", *bad[16:], "onclick", "last")],
+    )
+
+
+@pytest.mark.parametrize(
+    "callbacks",
+    [
+        pytest.param(Policy(), id="report"),
+        pytest.param(Policy(attribute_filter=lambda _tag, _name, value: value), id="attribute-filter"),
+        pytest.param(Policy(custom_element_check=lambda tag: tag == "x-card"), id="custom-element-check"),
+    ],
+)
+def test_attribute_compaction_report_matches_sanitize(policy: Policy, callbacks: Policy) -> None:
+    attribute_filter, custom_element_check = callbacks.attribute_filter, callbacks.custom_element_check
+    sanitizer: Final = Sanitizer(
+        replace(policy, attribute_filter=attribute_filter, custom_element_check=custom_element_check)
+    )
+    attributes: Final = "".join(f' bad-{index}="x"' for index in range(4_096))
+    html: Final = f'<a{attributes} href="/safe">x</a>'
+    out, removed = sanitizer.sanitize_report(html)
+    assert (out, sanitizer.sanitize(html)) == ('<a href="/safe">x</a>', '<a href="/safe">x</a>')
+    assert removed == [Removed("a", f"bad-{index}") for index in range(4_096)]
+
+
+def test_attribute_compaction_custom_check_drops(policy: Policy) -> None:
+    parts: Final = [f' bad-{index}="x"' for index in range(32)]
+    parts[7] = ' bad-7="x" is="x"'
+    attributes: Final = "".join(parts)
+    sanitizer: Final = Sanitizer(
+        replace(
+            policy,
+            custom_element_check=lambda tag: tag == "x-card",
+            custom_attribute_check=lambda _tag, name: name == "bad-7",
+        )
+    )
+    assert sanitizer.sanitize_report(f"<x-card{attributes}>x</x-card>") == (
+        '<x-card bad-7="x">x</x-card>',
+        [Removed("x-card", name) for name in (*(f"bad-{index}" for index in range(7)), "is")]
+        + [Removed("x-card", f"bad-{index}") for index in range(8, 32)],
+    )
+
+
+def test_attribute_compaction_custom_check_raises(policy: Policy) -> None:
+    def boom(_tag: str, name: str) -> bool:
+        raise ValueError(name)
+
+    attributes: Final = "".join(f' bad-{index}="x"' for index in range(32))
+    sanitizer: Final = Sanitizer(
+        replace(policy, custom_element_check=lambda tag: tag == "x-card", custom_attribute_check=boom)
+    )
+    with pytest.raises(ValueError, match="bad-0"):
+        sanitizer.sanitize(f"<x-card{attributes}>x</x-card>")
+
+
+@pytest.mark.parametrize(
+    "callbacks",
+    [
+        pytest.param(Policy(), id="report"),
+        pytest.param(Policy(attribute_filter=lambda _tag, _name, value: value), id="attribute-filter"),
+    ],
+)
+def test_attribute_compaction_report_is_linear(policy: Policy, callbacks: Policy, work_steps: WorkSteps) -> None:
+    sanitizer: Final = Sanitizer(replace(policy, attribute_filter=callbacks.attribute_filter))
+
+    def markup(count: int) -> str:
+        attributes: Final = "".join(f' bad-{index:x}="x"' for index in range(count))
+        return f'<a{attributes} href="/safe">x</a>'
+
+    work_steps.assert_linear(lambda n: partial(sanitizer.sanitize_report, markup(n)), (500, 2000))
+    assert sanitizer.sanitize_report(markup(500))[0] == '<a href="/safe">x</a>'
+
+
 def test_attribute_compaction_filter_order(policy: Policy) -> None:
     names: Final[list[str]] = []
 

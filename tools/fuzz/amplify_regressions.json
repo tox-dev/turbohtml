@@ -957,6 +957,21 @@
     }
   },
   {
+    "name": "sanitize-report-attribute-drops",
+    "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/clean/sanitize.c#L1916-L1917",
+    "targets": [
+      "sanitize_report"
+    ],
+    "base": 16384,
+    "shape": {
+      "kind": "repeat",
+      "head": "<a",
+      "left": " a{n}",
+      "tail": ">x</a>",
+      "counter": true
+    }
+  },
+  {
     "name": "css-border-default-rescan",
     "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/css/minify/css_render.h#L777",
     "targets": [

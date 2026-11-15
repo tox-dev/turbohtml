@@ -51,17 +51,9 @@ static int is_inclusive_ancestor(th_node *ancestor, th_node *node) {
     return ancestor == node || is_ancestor(ancestor, node);
 }
 
-/* Compare two boundary points sharing a root: -1 (left before right), 0 (equal), +1 (left after). */
-static int bp_compare(th_node *left_node, Py_ssize_t left_offset, th_node *right_node, Py_ssize_t right_offset) {
-    if (left_node == right_node) {
-        if (left_offset == right_offset) {
-            return 0;
-        }
-        return left_offset < right_offset ? -1 : 1;
-    }
-    if (node_order(left_node, right_node) > 0) {
-        return bp_compare(right_node, right_offset, left_node, left_offset) == -1 ? 1 : -1;
-    }
+/* bp_compare for two different nodes with left_node not after right_node in tree order: -1, or +1 when left_node is
+   an ancestor of right_node and the point sits after the child that leads to it. */
+static int bp_compare_ordered(th_node *left_node, Py_ssize_t left_offset, th_node *right_node) {
     if (is_ancestor(left_node, right_node)) {
         th_node *child = right_node;
         while (child->parent != left_node) {
@@ -72,6 +64,22 @@ static int bp_compare(th_node *left_node, Py_ssize_t left_offset, th_node *right
         }
     }
     return -1;
+}
+
+/* Compare two boundary points sharing a root: -1 (left before right), 0 (equal), +1 (left after). The swap is done
+   once and not by recursion: two nodes that share no root each sort after the other, which used to recurse without
+   end. */
+static int bp_compare(th_node *left_node, Py_ssize_t left_offset, th_node *right_node, Py_ssize_t right_offset) {
+    if (left_node == right_node) {
+        if (left_offset == right_offset) {
+            return 0;
+        }
+        return left_offset < right_offset ? -1 : 1;
+    }
+    if (node_order(left_node, right_node) > 0) {
+        return bp_compare_ordered(right_node, right_offset, left_node) == -1 ? 1 : -1;
+    }
+    return bp_compare_ordered(left_node, left_offset, right_node);
 }
 
 /* Whether two boundary containers share a root; a differing handle guarantees a different tree. */
@@ -492,6 +500,16 @@ static int validate_boundary(th_node *node, Py_ssize_t offset) {
     return 0;
 }
 
+/* The one stale state a comparison has to reject: bp_compare recurses without end on two points that share no root,
+   and a point checked against the start's tree says nothing about the end's once an edit has split them. */
+static int check_shared_root(RangeObject *range) {
+    if (!same_root(range->start_handle, range->start_node, range->end_handle, range->end_node)) {
+        PyErr_SetString(PyExc_ValueError, "the range boundaries no longer share a root after a tree edit");
+        return -1;
+    }
+    return 0;
+}
+
 /* A range does not follow edits made through other tree APIs, so a boundary can outlive its text offset, its shared
    root, or its order; reject that before an operation reads text past its end or walks toward a common ancestor. A
    child offset past the end needs no check: every child walk stops at the last child. */
@@ -501,8 +519,7 @@ static int check_boundaries(RangeObject *range) {
         PyErr_SetString(PyExc_IndexError, "a boundary offset is out of range for its container after a tree edit");
         return -1;
     }
-    if (!same_root(range->start_handle, range->start_node, range->end_handle, range->end_node)) {
-        PyErr_SetString(PyExc_ValueError, "the range boundaries no longer share a root after a tree edit");
+    if (check_shared_root(range) < 0) {
         return -1;
     }
     if (bp_compare(range->start_node, range->start_offset, range->end_node, range->end_offset) > 0) {
@@ -789,6 +806,9 @@ static PyObject *range_compare_boundary_points(PyObject *self, PyObject *args) {
     }
     RangeObject *left = (RangeObject *)self;
     RangeObject *right = (RangeObject *)source;
+    if (check_shared_root(left) < 0 || check_shared_root(right) < 0) {
+        return NULL;
+    }
     if (!same_root(left->start_handle, left->start_node, right->start_handle, right->start_node)) {
         PyErr_SetString(PyExc_ValueError, "the two ranges are in different trees");
         return NULL;
@@ -823,7 +843,8 @@ static PyObject *range_compare_boundary_points(PyObject *self, PyObject *args) {
 
 /* Parse and validate a (node, offset) point argument against the range's own tree. Returns 0, or
    -1 with an exception; *outside is set true when the point is in another tree (for the callers
-   that treat that as a plain false rather than an error). */
+   that treat that as a plain false rather than an error). A range whose boundaries an edit split
+   across roots has no one tree to test the point against, so that is an error for every caller. */
 static int point_arg(PyObject *self, PyObject *args, th_node **node, Py_ssize_t *offset, int *outside) {
     PyObject *container;
     if (!PyArg_ParseTuple(args, "On", &container, offset)) {
@@ -834,6 +855,9 @@ static int point_arg(PyObject *self, PyObject *args, th_node **node, Py_ssize_t 
         return -1;
     }
     RangeObject *range = (RangeObject *)self;
+    if (check_shared_root(range) < 0) {
+        return -1;
+    }
     *outside = !same_root(handle, *node, range->start_handle, range->start_node);
     return 0;
 }
@@ -893,6 +917,9 @@ TH_NODE_API(static, PyObject *, range_intersects_node, (PyObject * self, PyObjec
         return NULL;
     }
     RangeObject *range = (RangeObject *)self;
+    if (check_shared_root(range) < 0) {
+        return NULL;
+    }
     if (!same_root(handle, node, range->start_handle, range->start_node)) {
         Py_RETURN_FALSE;
     }

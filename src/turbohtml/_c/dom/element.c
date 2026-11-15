@@ -722,7 +722,7 @@ static PyObject *option_value_str(th_tree *tree, th_node *option) {
 /* The optgroups an option walk is inside and has already asked for their disabled attribute, outermost first. Every
    option asks its parent group, so without this a group's attribute list is searched once per option; with it, once
    per group. It is a stack, not one remembered group, because groups nest (the parser builds
-   <optgroup><option><b><optgroup>) and an inner group's options then sit between two of the outer group's. Entries are
+   <optgroup><div><optgroup>) and an inner group's options then sit between two of the outer group's. Entries are
    compared and never dereferenced. A tree built by hand can nest groups deeper than the tree builder's cap; the groups
    past it are searched per option. */
 typedef struct {
@@ -738,15 +738,27 @@ static void optgroup_memo_init(optgroup_memo *memo) {
     memo->count = 0;
 }
 
-/* The next option element after current within root's subtree, in document order. A walk that calls option_disabled
-   passes its memo, which drops each optgroup as the walk climbs out of it; any other walk passes NULL. */
+/* Whether a select's list of options (HTML Standard) leaves out everything below node: an option under another
+   option, a datalist, an hr, or a template's content has no nearest ancestor select, and one under a nested select
+   belongs to that select, as option_nearest_select() has it in the tree builder. Matched by atom alone, like the
+   options themselves. */
+static int ends_option_descent(const th_node *node) {
+    return node->atom == TH_TAG_OPTION || node->atom == TH_TAG_SELECT || node->atom == TH_TAG_DATALIST ||
+           node->atom == TH_TAG_HR || node->type == TH_NODE_CONTENT;
+}
+
+/* The next option after current in root's list of options, in document order. An option belongs to one select and
+   no listed option holds another, so nested selects and nested options are each read once, not once per level. A walk
+   that calls option_disabled passes its memo, which drops each optgroup as the walk climbs out of it; any other walk
+   passes NULL. */
 static th_node *next_option(th_node *current, th_node *root, optgroup_memo *memo) {
     th_node *node = current;
     for (;;) {
-        if (node->first_child != NULL) {
+        if (node->first_child != NULL && (node == root || !ends_option_descent(node))) {
             node = node->first_child;
         } else {
-            /* as in preorder_next, the climb meets NULL when the cursor was detached (extract()) mid-walk */
+            /* step over node's subtree; as in preorder_next, the climb meets NULL when the cursor was detached
+               (extract()) mid-walk */
             while (node != NULL && node != root && node->next_sibling == NULL) { /* GCOVR_EXCL_BR_LINE: NULL as above */
                 node = node->parent;
                 if (memo != NULL && memo->count > 0 && memo->groups[memo->count - 1] == node) {

@@ -24,6 +24,11 @@ def test_base_element_wins_over_the_fetch_url() -> None:
     assert extract_links(html, _BASE) == {"https://cdn.test/assets/p"}
 
 
+def test_overlong_base_element_leaves_the_fetch_url_the_base() -> None:
+    html = f'<base href="https://cdn.test/{"b" * (2048 + 1)}/"><a href="p">x</a><a href="q">y</a>'
+    assert extract_links(html, _BASE) == {"https://test.com/dir/p", "https://test.com/dir/q"}
+
+
 def test_relative_links_without_a_base_are_dropped() -> None:
     assert extract_links('<a href="page.html">x</a><a href="https://a.example/x">y</a>') == {"https://a.example/x"}
 
