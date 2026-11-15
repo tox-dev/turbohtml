@@ -56,6 +56,20 @@ if get_option('work_steps')
     mode_args += '-DTH_WORK_STEPS'
     mode_sources += 'src/turbohtml/_c/core/work_steps.c'
 endif
+# gcov writes counters only when the process exits, and pytest-xdist SIGKILLs a worker still exiting 10 s after
+# teardown, losing every counter it gathered; the coverage build exposes a flush the test session calls first.
+# The flush is built uninstrumented: its own reset call would zero the one counter it could report.
+coverage_flush = []
+if get_option('b_coverage')
+    mode_args += '-DTH_COVERAGE_FLUSH'
+    coverage_flush += static_library(
+        'coverage_flush',
+        'src/turbohtml/_c/core/coverage_flush.c',
+        include_directories: include_directories('src/turbohtml/_c'),
+        dependencies: py.dependency(),
+        override_options: ['b_coverage=false'],
+    )
+endif
 
 py.extension_module(
     '_html',
@@ -141,6 +155,7 @@ py.extension_module(
     include_directories: include_directories('src/turbohtml/_c'),
     c_args: mode_args,
     link_args: release_link_args,
+    link_with: coverage_flush,
     install: true,
     subdir: 'turbohtml',
 )
