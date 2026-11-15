@@ -174,6 +174,12 @@ def test_nesting_just_under_the_cap_is_translated() -> None:
     assert len(css_to_xpath(f"{':nth-child(2 of ' * 18}a{')' * 18}")) < 16_777_216
 
 
+def test_output_limit_passed_inside_an_of_type_axis_raises() -> None:
+    # the compound writes its name once and the of-type axis writes it again; the second copy passes the limit there
+    with pytest.raises(ExpressionError, match="more than 16777216"):
+        css_to_xpath(f"{'x' * (16_777_216 // 2)}:nth-of-type(2)")
+
+
 def test_nested_of_clause_repeats_the_inner_condition() -> None:
     inner = "((self::a)) and count(preceding-sibling::*[(self::a)]) = 1"
     assert css_to_xpath("li:nth-child(2n+3 of :nth-child(2 of a))") == (
