@@ -3711,3 +3711,16 @@ def test_stray_end_tags_under_foreign_elements_are_matched_once_counted() -> Non
     strays = "</q>" * 100
     source = f"<svg><x-a><g>{strays}<x-c></x-c></g></x-a></svg>"
     assert rewrite(source, elements=[("x-a", _mark)]) == f'<svg><x-a k=""><g>{strays}<x-c></x-c></g></x-a></svg>'
+
+
+def test_custom_names_opened_after_the_counts_are_built_grow_the_table() -> None:
+    names = [f"x-{index}" for index in range(20)]
+    opened = "".join(f"<{name}>" for name in names)
+    closed = "".join(f"</{name}>" for name in reversed(names))
+    source = f"<b>{'</q>' * 100}{opened}{closed}</x-none>"
+    assert rewrite(source, elements=[("p", _mark)]) == source
+
+
+def test_end_tag_after_the_spine_empties_with_the_counts_built() -> None:
+    source = f"<b>{'</q>' * 100}</b></x-after>"
+    assert rewrite(source, elements=[("p", _mark)]) == source

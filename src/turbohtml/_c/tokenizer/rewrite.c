@@ -2958,9 +2958,8 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
         }
     }
     if (match < 0) {
-        if (ctx->counts == NULL &&
-            rw_note_stray(ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-            return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (ctx->counts == NULL && rw_note_stray(ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         /* a stray end tag still closes what the tree builder closed for it, such as </p> the SVG/MathML elements */
         rw_release_foreign(ctx, rw_pop_to(ctx, rw_left_from(ctx)), 0, ctx->mirror != NULL, 1);
@@ -3012,9 +3011,8 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
             }
         }
         if (match < 0) {
-            if (ctx->counts == NULL &&
-                rw_note_stray(ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-                return;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            if (ctx->counts == NULL && rw_note_stray(ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             /* a stray end tag with no open match: emit it verbatim */
             if (ctx->suppress <= 0) {
