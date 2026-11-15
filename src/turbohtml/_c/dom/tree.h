@@ -141,15 +141,16 @@ struct th_node {
        exact-sized; nothing reads it once the tree is built. */
     uint8_t text_capacity_shift;
     /* Element: whether its name is an XML QName, worked out by the first canonicalization that needs it: 0 not yet, 1
-       yes, 2 no. A rename resets it. */
-    uint8_t xml_name_wellformed;
-    /* Valid while attr_values_shared: the seq of the element whose values the sharing started from, the same for
-       every element sharing them, so the selector memo hashes a shared value alike from each (th_node_values_seq). */
-    uint32_t values_seq;
+       yes, 2 no. A rename resets it. The bit field shares its byte with text_exclusive, which keeps the node at 96
+       bytes. */
+    uint8_t xml_name_wellformed : 2;
     /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
        Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
        selectedcontent mirror reuses the option's text). */
-    uint8_t text_exclusive;
+    uint8_t text_exclusive : 1;
+    /* Valid while attr_values_shared: the seq of the element whose values the sharing started from, the same for
+       every element sharing them, so the selector memo hashes a shared value alike from each (th_node_values_seq). */
+    uint32_t values_seq;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -161,6 +162,8 @@ struct th_node {
     th_node_attr *attrs;
     Py_ssize_t attr_count;
 };
+
+_Static_assert(sizeof(void *) != 8 || sizeof(th_node) == 96, "a 64-bit parsed node is 96 bytes");
 
 /* Set in attr_capacity_shift while dom/mutate.c keeps a hash index behind the attribute array. Bit 0x40 rather than
    0x80 lets th_node_attr_capacity mask it with 63, which x86-64 shifts apply for free. An indexed array has at least
