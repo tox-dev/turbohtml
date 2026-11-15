@@ -1024,8 +1024,6 @@ void th_tree_verify(th_tree *tree, th_node *start, Py_ssize_t (*visit)(void *con
         }
     }
 #endif
-    /* every write that bumps id_version bumps attr_version with it (node_attr_begin, th_node_attr_del) */
-    found->versions = tree->id_version > tree->attr_version;
 }
 
 /* Whether node sits in the sibling run [first, last] (never when first is NULL). */

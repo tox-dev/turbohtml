@@ -1553,6 +1553,32 @@ def test_all_base_extended_with_particles_raises(schema: str) -> None:
         XMLSchema(schema)
 
 
+_SEQUENCE_BASE: Final[str] = f'<xs:complexType name="base"><xs:sequence>{_AB}</xs:sequence></xs:complexType>'
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}>{_SEQUENCE_BASE}<xs:complexType name="middle"><xs:complexContent>'
+            f'<xs:extension base="base"><xs:all>{_AB}</xs:all></xs:extension></xs:complexContent></xs:complexType>'
+            '<xs:element name="r" type="middle"/></xs:schema>',
+            id="direct-all-over-sequence",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_SEQUENCE_BASE}<xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+            '<xs:complexType name="middle"><xs:complexContent><xs:extension base="base"><xs:group ref="g"/>'
+            "</xs:extension></xs:complexContent></xs:complexType>"
+            '<xs:element name="r" type="middle"/></xs:schema>',
+            id="group-all-over-sequence",
+        ),
+    ],
+)
+def test_all_extension_of_base_with_content_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all content model cannot extend a base type with content"):
+        XMLSchema(schema)
+
+
 def test_extension_of_builtin_base_chain_compiles() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:complexType name="a"><xs:complexContent><xs:extension base="xs:anyType"/>'
@@ -1893,6 +1919,138 @@ def test_attribute_group_and_ref() -> None:
     )
     assert check(schema, '<r gid="5"/>').valid
     assert not check(schema, "<r/>").valid
+
+
+@pytest.mark.parametrize("namespaces", [pytest.param(False, id="attributes"), pytest.param(True, id="namespaces")])
+@pytest.mark.parametrize("count", [pytest.param(0, id="none"), pytest.param(3, id="few"), pytest.param(40, id="many")])
+def test_declaration_is_read_among_ignored_attributes(count: int, *, namespaces: bool) -> None:
+    extra: Final = _ignored_attributes(count, namespaces=namespaces)
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"{extra}>'
+        f'<xs:element{extra} name="r"><xs:complexType{extra}><xs:sequence{extra}>'
+        f'<xs:element{extra} name="item" type="t:int" minOccurs="0" maxOccurs="unbounded"/>'
+        f'</xs:sequence><xs:attribute{extra} name="a" type="t:int" use="required" fixed="7"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    documents: Final = [
+        '<r a="7"/>',
+        '<r a="7"><item>1</item></r>',
+        "<r><item>1</item></r>",
+        '<r a="8"/>',
+        '<r a="7"><item>x</item></r>',
+        '<r a="7"><other/></r>',
+    ]
+    assert [schema.is_valid(parse_xml(document)) for document in documents] == [True, True, False, False, False, False]
+
+
+def _ignored_attributes(count: int, *, namespaces: bool = False) -> str:
+    # names that share a prefix with the properties XSD reads, so a sorted list must order them apart from those
+    near_misses: Final = (
+        "name2",
+        "names",
+        "ref2",
+        "refs",
+        "typ",
+        "types",
+        "use2",
+        "uses",
+        "fixed2",
+        "value",
+        "values",
+        "a",
+    )
+    names: Final = [*near_misses, *(f"z{index}" for index in range(count))][:count]
+    if namespaces:
+        return "".join(f' xmlns:{name}="urn:{name}"' for name in names)
+    return "".join(f' {name}="0"' for name in names)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="a" xmlns:xs="urn:other"/><xs:element name="v" type="xs:int"/>'
+            "</xs:schema>",
+            id="sibling-after-a-shadowing-element",
+        ),
+        pytest.param(
+            '<schema xmlns="http://www.w3.org/2001/XMLSchema"><element name="v" type="int"/></schema>',
+            id="default-namespace",
+        ),
+    ],
+)
+def test_qname_prefix_resolves_in_its_scope(schema: str) -> None:
+    checked: Final = XMLSchema(schema)
+    assert checked.is_valid(parse_xml("<v>1</v>"))
+    assert not checked.is_valid(parse_xml("<v>x</v>"))
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema">'
+            '<xs:element name="v" type="t:int" xmlns:t="urn:other"/></xs:schema>',
+            id="shadowed-on-the-declaration",
+        ),
+        pytest.param(f'<xs:schema {_XS}><xs:element name="v" type="q:int"/></xs:schema>', id="unbound-prefix"),
+    ],
+)
+def test_qname_prefix_out_of_scope_does_not_resolve(schema: str) -> None:
+    with pytest.raises(ValueError, match="does not resolve"):
+        XMLSchema(schema)
+
+
+def test_declaration_properties_scale_linearly(work_steps: WorkSteps) -> None:
+    def validation(count: int) -> Callable[[], object]:
+        schema: Final = XMLSchema(_declaration_schema(count))
+        return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
+
+    work_steps.assert_linear(validation, (250, 1000))
+
+
+def _declaration_schema(count: int) -> str:
+    return (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+        f'<xs:attribute{_ignored_attributes(count)} name="x" type="xs:int"/>'
+        "</xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+
+
+def test_namespace_declarations_scale_linearly(work_steps: WorkSteps) -> None:
+    def validation(count: int) -> Callable[[], object]:
+        declarations: Final = _ignored_attributes(count, namespaces=True)
+        schema: Final = XMLSchema(
+            f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"><xs:element name="r"><xs:complexType>'
+            '<xs:sequence><xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+            f'<xs:attribute{declarations} name="x" type="t:int"/>'
+            "</xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
+
+    work_steps.assert_linear(validation, (250, 1000))
+
+
+def test_facet_names_compile_linearly(work_steps: WorkSteps) -> None:
+    def compilation(count: int) -> Callable[[], object]:
+        facets: Final = "".join(f'<xs:enumeration value="v{index}"/>' for index in range(count))
+        return partial(
+            XMLSchema,
+            f'<xs:schema {_XS}><xs:simpleType name="t"><xs:restriction{_ignored_attributes(count)} base="xs:string">'
+            f"{facets}</xs:restriction></xs:simpleType></xs:schema>",
+        )
+
+    work_steps.assert_linear(compilation, (250, 1000))
+
+
+def test_schema_namespace_scope_compiles_linearly(work_steps: WorkSteps) -> None:
+    def compilation(count: int) -> Callable[[], object]:
+        declarations: Final = _ignored_attributes(count, namespaces=True)
+        elements: Final = "".join(f'<xs:element name="e{index}"/>' for index in range(count))
+        return partial(XMLSchema, f"<xs:schema {_XS}{declarations}>{elements}</xs:schema>")
+
+    work_steps.assert_linear(compilation, (250, 1000))
 
 
 def test_complex_content_extension() -> None:
@@ -2420,6 +2578,63 @@ def test_extension_without_own_particle() -> None:
         "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
     )
     assert xsd_ok(schema, '<r k="v"><a>x</a></r>')
+
+
+def _extension_chain(middle: str) -> str:
+    return (
+        f"<xs:schema {_XS}>"
+        '<xs:complexType name="base"><xs:sequence><xs:element name="a" type="xs:int"/></xs:sequence></xs:complexType>'
+        f'<xs:complexType name="middle"><xs:complexContent>{middle}</xs:complexContent></xs:complexType>'
+        '<xs:complexType name="derived"><xs:complexContent><xs:extension base="middle">'
+        '<xs:sequence><xs:element name="c" type="xs:int"/></xs:sequence>'
+        "</xs:extension></xs:complexContent></xs:complexType>"
+        '<xs:element name="r" type="derived"/></xs:schema>'
+    )
+
+
+_EXTENDED_TWICE: Final[str] = _extension_chain(
+    '<xs:extension base="base"><xs:sequence><xs:element name="b" type="xs:int"/></xs:sequence></xs:extension>'
+)
+_EXTENDED_OVER_BARE_STEP: Final[str] = _extension_chain('<xs:extension base="base"/>')
+_EXTENDED_OVER_RESTRICTION: Final[str] = _extension_chain(
+    '<xs:restriction base="base"><xs:sequence><xs:element name="b" type="xs:int"/></xs:sequence></xs:restriction>'
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "xml", "valid"),
+    [
+        pytest.param(_EXTENDED_TWICE, "<r><a>1</a><b>2</b><c>3</c></r>", True, id="twice-whole-chain"),
+        pytest.param(_EXTENDED_TWICE, "<r><b>2</b><c>3</c></r>", False, id="twice-root-content-missing"),
+        pytest.param(_EXTENDED_TWICE, "<r><a>1</a><c>3</c></r>", False, id="twice-middle-content-missing"),
+        pytest.param(_EXTENDED_TWICE, "<r><b>2</b><a>1</a><c>3</c></r>", False, id="twice-out-of-order"),
+        pytest.param(_EXTENDED_TWICE, "<r><a>x</a><b>2</b><c>3</c></r>", False, id="twice-root-content-typed"),
+        pytest.param(_EXTENDED_OVER_BARE_STEP, "<r><a>1</a><c>3</c></r>", True, id="bare-step-whole-chain"),
+        pytest.param(_EXTENDED_OVER_BARE_STEP, "<r><c>3</c></r>", False, id="bare-step-root-content-missing"),
+        pytest.param(_EXTENDED_OVER_RESTRICTION, "<r><b>2</b><c>3</c></r>", True, id="restriction-replaces-its-base"),
+        pytest.param(_EXTENDED_OVER_RESTRICTION, "<r><a>1</a><b>2</b><c>3</c></r>", False, id="restriction-ends-chain"),
+    ],
+)
+def test_extension_chain_keeps_every_base(schema: str, xml: str, valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
+    assert xsd_ok(schema, xml) is valid
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r><a/><b/><c/></r>", True, id="sequence-group-after-base"),
+        pytest.param("<r><a/><b/></r>", False, id="sequence-group-missing"),
+    ],
+)
+def test_sequence_group_extends_base_with_content(xml: str, valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
+    sequence_group: str = '<xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+    schema = (
+        f"<xs:schema {_XS}>{_SEQUENCE_BASE}{sequence_group}"
+        '<xs:complexType name="middle"><xs:complexContent><xs:extension base="base"><xs:group ref="s"/>'
+        "</xs:extension></xs:complexContent></xs:complexType>"
+        '<xs:element name="r" type="middle"/></xs:schema>'
+    )
+    assert xsd_ok(schema, xml) is valid
 
 
 def test_simple_typed_element_with_child() -> None:
