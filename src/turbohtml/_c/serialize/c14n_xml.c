@@ -41,6 +41,7 @@ typedef struct {
     Py_ssize_t prefix_len;
     const Py_UCS4 *uri;
     Py_ssize_t uri_len;
+    const th_node *owner; /* the element that carries the declaration */
 } c14n_xml_ns;
 
 typedef struct {
@@ -191,8 +192,7 @@ typedef struct {
     c14n_xml_ns ns;
     Py_ssize_t prefix;   /* index into the scope's prefixes */
     Py_ssize_t shadowed; /* the binding of the same prefix this one hides until it closes, or -1 */
-    Py_ssize_t outer;    /* the binding of the prefix on the nearest written ancestor of owner, or -1 */
-    const th_node *owner;
+    Py_ssize_t outer;    /* the binding of the prefix on the nearest written ancestor of ns.owner, or -1 */
     Py_ssize_t uri_rank; /* c14n_xml_uri_rank of a long ns.uri, -1 until an attribute needs it */
 } c14n_xml_binding;
 
@@ -234,6 +234,7 @@ typedef struct {
     uint64_t hash_seed;           /* per-walk salt so chosen prefixes cannot flood one slot */
     c14n_xml_left_out *left_outs; /* the left-out elements the walk is inside, innermost last */
     Py_ssize_t left_outs_len, left_outs_cap;
+    Py_ssize_t copied; /* code points of declarations written on an element that does not carry them */
 } c14n_xml_scope;
 
 /* Salted FNV-1a under a splitmix64 finalizer, the hash the XML parser keys its own prefix table with. */
@@ -365,11 +366,11 @@ static int c14n_xml_scope_declare(c14n_xml_scope *scope, th_tree *tree, const th
         }
         scope->bindings = bindings;
         c14n_xml_binding *binding = &scope->bindings[scope->bindings_len];
-        binding->ns = (c14n_xml_ns){prefix, prefix_len, element->attrs[index].value, element->attrs[index].value_len};
+        binding->ns =
+            (c14n_xml_ns){prefix, prefix_len, element->attrs[index].value, element->attrs[index].value_len, element};
         binding->prefix = record;
         binding->shadowed = scope->prefixes[record].binding;
         binding->outer = binding->shadowed >= chain ? scope->bindings[binding->shadowed].outer : binding->shadowed;
-        binding->owner = element;
         binding->uri_rank = -1;
         scope->prefixes[record].binding = scope->bindings_len++;
     }
@@ -463,7 +464,7 @@ static int c14n_xml_scope_uses(c14n_xml_scope *scope, th_tree *tree, const th_no
 
 /* Pop what `node` declared and used as it closes, restoring what each entry hid. */
 static void c14n_xml_scope_close(c14n_xml_scope *scope, const th_node *node) {
-    while (scope->bindings_len > 0 && scope->bindings[scope->bindings_len - 1].owner == node) {
+    while (scope->bindings_len > 0 && scope->bindings[scope->bindings_len - 1].ns.owner == node) {
         TH_WORK_STEP();
         const c14n_xml_binding *closing = &scope->bindings[--scope->bindings_len];
         scope->prefixes[closing->prefix].binding = closing->shadowed;
@@ -711,19 +712,31 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, int is_ap
     /* a clone that cannot declare a prefix writes no attribute, so none uses an undeclared one */
     int clone_full = 0;
     for (Py_ssize_t index = 0; index < ns_count; index++) {
-        if (clone_start >= 0 &&
-            !ser_clone_attr_fits(out, clone_start, namespaces[index].prefix_len + namespaces[index].uri_len)) {
+        const c14n_xml_ns *namespace = &namespaces[index];
+        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, namespace->prefix_len + namespace->uri_len)) {
             clone_full = 1;
             break;
         }
+        int copy = namespace->owner != node;
+        if (copy && !c14n_ns_copy_funded(out, scope->copied, namespace->prefix_len + namespace->uri_len + 10)) {
+            if (namespaces != stack_namespaces) {
+                PyMem_Free(namespaces);
+            }
+            out->failed = 1;
+            return;
+        }
+        Py_ssize_t start = out->len;
         sbuf_puts(out, " xmlns");
-        if (namespaces[index].prefix_len > 0) {
+        if (namespace->prefix_len > 0) {
             sbuf_putc(out, ':');
-            sbuf_put_utf8(out, namespaces[index].prefix, namespaces[index].prefix_len);
+            sbuf_put_utf8(out, namespace->prefix, namespace->prefix_len);
         }
         sbuf_puts(out, "=\"");
-        c14n_put_attr(out, namespaces[index].uri, namespaces[index].uri_len);
+        c14n_put_attr(out, namespace->uri, namespace->uri_len);
         sbuf_putc(out, '"');
+        if (copy) {
+            scope->copied += out->len - start; /* what was written: escaping can lengthen the URI */
+        }
     }
 
     Py_ssize_t attr_capacity = node->attr_count;

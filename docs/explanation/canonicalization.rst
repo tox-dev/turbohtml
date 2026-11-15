@@ -39,6 +39,15 @@ signatures use, because it stays stable when the signed element moves between do
 namespaces around it. ``inclusive_ns_prefixes`` re-admits specific ancestor prefixes to the apex when a subtree needs
 them despite not naming them.
 
+Exclusive form declares a namespace again on each element that uses it below an ancestor that does not, so a namespace
+URI declared once above many elements is written once per element. In either form, a child written in place of an
+element left out for its name also carries that element's declarations. The rest of the output funds these repeated
+declarations as it funds the copies in inner XML output: 32 characters of declaration for each character written
+otherwise, on top of a 65,536-character base. A declaration written on the element that carries it costs nothing.
+:meth:`~turbohtml.Node.canonicalize` raises :class:`ValueError` when a long namespace URI above many short elements
+would outgrow that. Ordinary documents stay far inside the ratio: an OOXML relationships declaration repeated on every
+``<r:id>`` costs 6 characters for each other character.
+
 **********************************
  Complete subtrees, not node-sets
 **********************************
