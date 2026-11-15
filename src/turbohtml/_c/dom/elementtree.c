@@ -1,4 +1,3 @@
-#include "core/node_map.h"
 #include "dom/nodes.h"
 
 #include <stddef.h>
@@ -1935,43 +1934,68 @@ static PyObject *view_subelement(PyObject *module, PyObject *args, PyObject *kwa
     return result;
 }
 
-/* Returns the matches strip_elements() removes, in document order. One walk of owner's subtree decides them all: a
-   getparent() climb from each match costs its depth again, and parse_xml() does not bound depth. The walk stops at the
-   nodes the climb stops at: a template's content, a tail holder, and an earlier match with its whole subtree. The walk
-   looks matches up by node rather than by position, so a match detached or moved out of the subtree after items was
-   collected is never reached and is left alone while the others are still removed. A match another tree now holds
-   keeps its node in the lookup table: the wrapper in items holds that tree's handle, so the node's arena outlives the
-   call, and the walk never reaches the node. */
-TH_NODE_API(static, PyObject *, view_strip_targets, (NodeObject * owner, PyObject *items), (owner, items),
-            (NodeObject * owner, PyObject *items), owner, NULL) {
+static int view_tag_matches(th_node *node, PyObject *filter) {
+    if (filter == Py_None) {
+        return 1;
+    }
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(filter); index++) {
+        PyObject *name = PyList_GET_ITEM(filter, index);
+        if (PyUnicode_GET_LENGTH(name) != node->text_len) {
+            continue;
+        }
+        int kind = PyUnicode_KIND(name);
+        const void *data = PyUnicode_DATA(name);
+        Py_ssize_t offset = 0;
+        while (offset < node->text_len && PyUnicode_READ(kind, data, offset) == node->text[offset]) {
+            offset++;
+        }
+        if (offset == node->text_len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int view_collect_append(module_state *state, NodeObject *owner, PyObject *targets, th_node *node) {
+    PyObject *wrapped = node_wrap_locked(state, owner->handle, node);
+    if (wrapped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    PyObject *view = view_wrap(state, wrapped);
+    Py_DECREF(wrapped);
+    if (view == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    int status = PyList_Append(targets, view);
+    Py_DECREF(view);
+    return status;
+}
+
+/* Collects, in document order, the elements a strip call acts on, as element views. strip_tags() takes every match.
+   strip_elements() takes the matches a getparent() climb from each would reach: the climb stops at a template's
+   content, a tail holder, and an earlier match with its whole subtree, so the walk skips everything under those.
+   Collecting under the tree lock keeps the list in step with the tree the caller then changes, and avoids a climb
+   per match, which costs its depth again and parse_xml() does not bound. */
+static PyObject *view_strip_collect_locked(NodeObject *owner, PyObject *filter, int unwrap) {
     PyObject *targets = PyList_New(0);
     if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;       /* GCOVR_EXCL_LINE: allocation failure */
     }
-    th_node_map found = {0};
-    int status = 0;
-    Py_BEGIN_CRITICAL_SECTION(owner->handle);
-    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(items); index++) {
-        /* GCOVR_EXCL_BR_STOP */
-        th_node *node = NULL;
-        Py_DECREF(node_owner_pair(((ElementView *)PyList_GET_ITEM(items, index))->node, &node));
-        status = th_node_map_insert(&found, node, index + 1);
-    }
+    module_state *state = state_of((PyObject *)owner);
     th_node *root = owner->node;
-    th_node *barrier = NULL;
-    th_node *node = root;
+    th_node *barrier = view_is_holder(root) ? root : NULL;
+    th_node *node = root->first_child;
+    int status = 0;
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
     while (status == 0 && node != NULL) {
         /* GCOVR_EXCL_BR_STOP */
         TH_WORK_STEP();
-        Py_ssize_t position = th_node_map_find(&found, node);
-        if (position != 0) {
-            if (barrier == NULL) {
+        if (node->type == TH_NODE_ELEMENT && view_tag_matches(node, filter) && (unwrap || barrier == NULL)) {
+            if (!unwrap) {
                 barrier = node;
-                status = PyList_Append(targets, PyList_GET_ITEM(items, position - 1));
             }
-        } else if (barrier == NULL && (node->type != TH_NODE_ELEMENT || view_is_holder(node))) {
+            status = view_collect_append(state, owner, targets, node);
+        } else if (!unwrap && barrier == NULL && (node->type != TH_NODE_ELEMENT || view_is_holder(node))) {
             barrier = node;
         }
         th_node *next = node->first_child;
@@ -1984,13 +2008,40 @@ TH_NODE_API(static, PyObject *, view_strip_targets, (NodeObject * owner, PyObjec
         }
         node = next;
     }
-    Py_END_CRITICAL_SECTION();
-    PyMem_Free(found.entries);
     if (status < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
         Py_DECREF(targets); /* GCOVR_EXCL_LINE: allocation failure */
         return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
     }
     return targets;
+}
+
+/* The collection and the changes run under one lock, so a concurrent move can neither end the collection early nor
+   change a match between being collected and being removed. */
+TH_NODE_API(static, int, view_strip_locked, (NodeObject * owner, PyObject *filter, int unwrap, int with_tail),
+            (owner, filter, unwrap, with_tail), (NodeObject * owner, PyObject *filter, int unwrap, int with_tail),
+            owner, NULL) {
+    PyObject *targets = view_strip_collect_locked(owner, filter, unwrap);
+    if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    int status = 0;
+    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
+    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(targets); index++) {
+        /* GCOVR_EXCL_BR_STOP */
+        PyObject *item = PyList_GET_ITEM(targets, index);
+        if (unwrap) {
+            status = view_discard(view_drop_tag(item, NULL));
+        } else {
+            status = with_tail ? view_set_text(item, Py_None, (void *)1) : 0;
+            /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
+            if (status == 0) {
+                /* GCOVR_EXCL_BR_STOP */
+                status = view_discard(node_extract((PyObject *)((ElementView *)item)->node, NULL));
+            }
+        }
+    }
+    Py_DECREF(targets);
+    return status;
 }
 
 static PyObject *view_strip(PyObject *module, PyObject *args, int unwrap, int with_tail) {
@@ -2011,44 +2062,18 @@ static PyObject *view_strip(PyObject *module, PyObject *args, int unwrap, int wi
     if (!present) {
         Py_RETURN_NONE;
     }
-    PyObject *root = PyTuple_GET_ITEM(args, 0);
     PyObject *tags = PyTuple_GetSlice(args, 1, PyTuple_GET_SIZE(args));
     if (tags == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
     }
-    PyObject *iterator = view_descendants(root, tags);
+    PyObject *filter = view_filter(tags);
     Py_DECREF(tags);
-    if (iterator == NULL) {
+    if (filter == NULL) {
         return NULL;
     }
-    PyObject *items = PySequence_List(iterator);
-    Py_DECREF(iterator);
-    if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    PyObject *targets = unwrap ? Py_NewRef(items) : view_strip_targets(((ElementView *)root)->node, items);
-    Py_DECREF(items);
-    if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    int status = 0;
-    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(targets); index++) {
-        /* GCOVR_EXCL_BR_STOP */
-        PyObject *item = PyList_GET_ITEM(targets, index);
-        if (unwrap) {
-            status = view_discard(view_drop_tag(item, NULL));
-        } else {
-            status = with_tail ? view_set_text(item, Py_None, (void *)1) : 0;
-            /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-            if (status == 0) {
-                /* GCOVR_EXCL_BR_STOP */
-                status = view_discard(node_extract((PyObject *)((ElementView *)item)->node, NULL));
-            }
-        }
-    }
-    Py_DECREF(targets);
-    if (status < 0) { /* GCOVR_EXCL_BR_LINE: selected descendants have parents; only allocation can fail */
+    int status = view_strip_locked(((ElementView *)PyTuple_GET_ITEM(args, 0))->node, filter, unwrap, with_tail);
+    Py_DECREF(filter);
+    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;  /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_RETURN_NONE;

@@ -184,6 +184,24 @@ def test_element_tree_strip_elements_stops_at_tail_holder() -> None:
     assert etree.tostring(removed, encoding="unicode") == "<p><b>bold</b></p>tail"
 
 
+def test_element_tree_strip_elements_stops_at_tail_holder_below_root() -> None:
+    tree: Final = etree.fromstring("<div><p><b>bold</b></p>tail</div>")
+    removed: Final = tree[0]
+    tree.remove(removed)
+    holder: Final = removed.node.parent
+    assert isinstance(holder, Element)
+    outer: Final = etree.fromstring("<main><i>z</i></main>")
+    outer.append(etree.ElementView(holder))
+    etree.strip_elements(outer, "b")
+    assert etree.tostring(removed, encoding="unicode") == "<p><b>bold</b></p>tail"
+
+
+def test_element_tree_strip_elements_star_removes_every_element() -> None:
+    tree: Final = etree.fromstring("<div>a<b>x</b>c<i>y</i></div>")
+    etree.strip_elements(tree, "*")
+    assert etree.tostring(tree, encoding="unicode") == "<div>a</div>"
+
+
 def test_element_tree_strip_elements_stays_linear(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(_match_per_level, (700, 2_800))
 
