@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Final, assert_type
 
@@ -1214,3 +1215,161 @@ def test_common_ancestor_container_of_deep_boundaries_is_the_root() -> None:
     boundary = Range(_found(doc, "lo").children[0], 0)
     boundary.set_end(_found(doc, "hi").children[0], 1)
     assert boundary.common_ancestor_container == _found(doc, "top")
+
+
+@pytest.mark.parametrize(
+    "loop",
+    [
+        pytest.param(lambda wide: [wide.boundary.set_start_before(kid) for kid in wide.kids], id="start-before"),
+        pytest.param(lambda wide: [wide.boundary.set_start_after(kid) for kid in wide.kids], id="start-after"),
+        pytest.param(lambda wide: [wide.boundary.set_end_before(kid) for kid in wide.kids], id="end-before"),
+        pytest.param(lambda wide: [wide.boundary.set_end_after(kid) for kid in wide.kids], id="end-after"),
+        pytest.param(lambda wide: [wide.boundary.select_node(kid) for kid in wide.kids], id="select-node"),
+        pytest.param(
+            lambda wide: [wide.boundary.select_node(kid) for kid in reversed(wide.kids)], id="select-backwards"
+        ),
+        pytest.param(lambda wide: [wide.boundary.select_node_contents(wide.parent) for _ in wide.kids], id="contents"),
+        pytest.param(lambda wide: [wide.boundary.set_start(wide.parent, at) for at in wide.offsets], id="set-start"),
+        pytest.param(lambda wide: [wide.boundary.set_end(wide.parent, at) for at in wide.offsets], id="set-end"),
+        pytest.param(
+            lambda wide: [wide.boundary.set_start(wide.parent, at) for at in reversed(wide.offsets)],
+            id="set-start-backwards",
+        ),
+        pytest.param(lambda wide: [Range(wide.parent, at) for at in wide.offsets], id="construct"),
+        pytest.param(
+            lambda wide: [wide.boundary.is_point_in_range(wide.parent, at) for at in wide.offsets], id="point-offset"
+        ),
+        pytest.param(lambda wide: [wide.boundary.is_point_in_range(kid, 0) for kid in wide.kids], id="point-node"),
+        pytest.param(lambda wide: [wide.boundary.compare_point(kid, 0) for kid in wide.kids], id="compare-point"),
+        pytest.param(lambda wide: [wide.boundary.intersects_node(kid) for kid in wide.kids], id="intersects"),
+        pytest.param(lambda wide: [_compare_with_last(kid, wide.kids) for kid in wide.kids], id="compare-boundaries"),
+        pytest.param(lambda wide: [_select(wide.boundary, kid).clone_contents() for kid in wide.kids], id="clone"),
+        pytest.param(lambda wide: [_select(wide.boundary, kid).extract_contents() for kid in wide.kids], id="extract"),
+        pytest.param(lambda wide: [_select(wide.boundary, kid).delete_contents() for kid in wide.kids], id="delete"),
+        pytest.param(
+            lambda wide: [_select(wide.boundary, kid).surround_contents(Element("b")) for kid in wide.kids],
+            id="surround",
+        ),
+        pytest.param(
+            lambda wide: [_span(text, 0, 1).surround_contents(Element("b")) for text in wide.kids[1::2]],
+            id="surround-text",
+        ),
+        pytest.param(
+            lambda wide: [_before(wide.boundary, kid).insert_node(Element("b")) for kid in wide.kids], id="insert"
+        ),
+        pytest.param(
+            lambda wide: [Range(text, 1).insert_node(Element("b")) for text in wide.kids[1::2]], id="insert-split"
+        ),
+    ],
+)
+def test_range_call_per_sibling_is_linear(work_steps: WorkSteps, loop: Callable[[_Wide], object]) -> None:
+    work_steps.assert_linear(lambda count: partial(loop, _Wide.of(count)), (300, 1200))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Wide:
+    boundary: Range
+    parent: Element
+    kids: list[Node]
+
+    @classmethod
+    def of(cls, count: int) -> _Wide:
+        parent = _found(parse_xml(f"<top><mid>{'<s>t</s>u' * count}</mid></top>"), "mid")
+        return cls(boundary=Range(parent), parent=parent, kids=list(parent.children))
+
+    @property
+    def offsets(self) -> range:
+        return range(len(self.kids))
+
+
+def _compare_with_last(kid: Node, kids: list[Node]) -> int:
+    return Range(kid, 0).compare_boundary_points(Range.START_TO_START, Range(kids[-1], 0))
+
+
+def _select(boundary: Range, kid: Node) -> Range:
+    boundary.select_node(kid)
+    return boundary
+
+
+def _before(boundary: Range, kid: Node) -> Range:
+    boundary.set_start_before(kid)
+    boundary.set_end_before(kid)
+    return boundary
+
+
+@pytest.mark.parametrize("cursor", [0, 3, 7], ids=lambda cursor: f"cursor-{cursor}")
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda parent: _select(Range(parent), parent[3]).surround_contents(Element("b")), id="surround"),
+        pytest.param(lambda parent: _select(Range(parent), parent[0]).surround_contents(Element("b")), id="wrap-first"),
+        pytest.param(lambda parent: Range(parent, 0).insert_node(Element("b")), id="insert-first"),
+        pytest.param(lambda parent: Range(parent, 4).insert_node(Element("b")), id="insert-middle"),
+        pytest.param(lambda parent: Range(parent, 8).insert_node(Element("b")), id="insert-last"),
+        pytest.param(lambda parent: Range(parent, 2).insert_node(parent[6]), id="move-back"),
+        pytest.param(lambda parent: Range(parent, 6).insert_node(parent[1]), id="move-forward"),
+        pytest.param(lambda parent: Range(parent, 2).insert_node(parent[7]), id="move-last"),
+        pytest.param(lambda parent: Range(parent, 1).insert_node(_fragment(3)), id="insert-fragment"),
+        pytest.param(lambda parent: Range(parent[4][0], 0).insert_node(Element("b")), id="insert-in-child"),
+        pytest.param(lambda parent: _span(parent, 2, 5).extract_contents(), id="extract-middle"),
+        pytest.param(lambda parent: _span(parent, 0, 2).delete_contents(), id="delete-head"),
+        pytest.param(lambda parent: _span(parent, 6, 8).delete_contents(), id="delete-tail"),
+        pytest.param(lambda parent: _span(parent, 0, 8).delete_contents(), id="delete-all"),
+        pytest.param(lambda parent: _span(parent, 3, 4).delete_contents(), id="delete-one"),
+        pytest.param(lambda parent: parent[2].insert_before(Element("b")), id="node-insert-before"),
+        pytest.param(lambda parent: parent[5].extract(), id="node-extract"),
+        pytest.param(lambda parent: parent.insert(0, Element("b")), id="element-insert"),
+        pytest.param(lambda parent: parent.append(Element("b")), id="element-append"),
+    ],
+)
+def test_offsets_follow_tree_edits_between_range_calls(cursor: int, edit: Callable[[Element], object]) -> None:
+    parent = Element("p", children=[Element("i", children=[Text("t")]) for _ in range(8)])
+    _select(Range(parent), parent[cursor])
+    edit(parent)
+    assert _offsets_backwards(parent) == list(range(len(parent)))[::-1]
+
+
+def _offsets_backwards(parent: Element) -> list[int]:
+    boundary = Range(parent)
+    return [_select(boundary, child).start_offset for child in reversed(parent.children)]
+
+
+@pytest.mark.parametrize("offset", [3, 8])
+def test_offsets_follow_an_insert_beside_two_cursors(offset: int) -> None:
+    parent = Element("p", children=[Element("i") for _ in range(8)])
+    _select(Range(parent), parent[5])
+    Range(parent, 2)
+    Range(parent, offset).insert_node(Element("b"))
+    assert _offsets_backwards(parent) == list(range(9))[::-1]
+
+
+def test_offsets_follow_normalize_between_range_calls() -> None:
+    parent = Element("p", children=[Text("a"), Text("b"), Element("i")])
+    assert _select(Range(parent), parent[2]).start_offset == 2
+    parent.normalize()
+    assert _offsets_backwards(parent) == [1, 0]
+
+
+def test_offsets_follow_text_split_by_insert_node() -> None:
+    parent = Element("p", children=[Element("i"), Text("ab"), Element("i")])
+    _select(Range(parent), parent[2])
+    Range(parent[1], 1).insert_node(Element("b"))
+    assert _offsets_backwards(parent) == [4, 3, 2, 1, 0]
+
+
+def test_offsets_follow_surround_with_a_filled_wrapper_after_an_edit() -> None:
+    parent = Element("p", children=[Element("i"), Text("ab"), Element("i")])
+    _select(Range(parent), parent[2])
+    parent.append(Element("i"))
+    _span(parent[1], 0, 1).surround_contents(Element("b", children=[Element("u")]))
+    assert _offsets_backwards(parent) == [5, 4, 3, 2, 1, 0]
+
+
+def _span(parent: Node, start: int, end: int) -> Range:
+    boundary = Range(parent, start)
+    boundary.set_end(parent, end)
+    return boundary
+
+
+def _fragment(count: int) -> Node:
+    return _span(Element("div", children=[Element("b") for _ in range(count)]), 0, count).extract_contents()
