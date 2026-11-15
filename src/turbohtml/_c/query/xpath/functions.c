@@ -766,11 +766,11 @@ typedef struct {
 
 /* Every element under one root that carries a non-empty id. A lookup reads its tokens' elements off the table where the
    walk in eval_id visits the whole tree, so one lookup per node, as in //ref[id(@to)], costs time linear rather than
-   quadratic in the document. The versions are the tree's when it was built: an edit through the mutation API bumps
-   one of them, so the table is rebuilt after an edit and kept across Python code that makes none. */
+   quadratic in the document. id_version is the tree's when it was built: every edit through the mutation API that can
+   change which element an id names bumps it, so the table is rebuilt after such an edit and kept across Python code
+   that makes none. */
 struct xp_id_index {
     struct th_node *root;
-    uint64_t element_version;
     uint64_t id_version;
     xp_id_entry *entries; /* in document order */
     size_t count;
@@ -853,13 +853,11 @@ static int id_index_fill(xp_id_index *index) {
 
 /* Point *out at the index of root, or at NULL for the caller to walk the tree instead. The first lookup under a root
    walks, which is all a lone id() costs; the next one there indexes it, and later ones reuse that index until an edit
-   moves one of the tree's versions. Returns 0, or -1 with MemoryError set. */
+   moves the tree's id version. Returns 0, or -1 with MemoryError set. */
 static int id_cache_index(struct th_tree *tree, xp_id_cache *cache, struct th_node *root, xp_id_index **out) {
-    const uint64_t element_version = th_tree_element_version(tree);
     const uint64_t id_version = th_tree_id_version(tree);
     xp_id_index *index = cache->index;
-    if (index != NULL && index->root == root && index->element_version == element_version &&
-        index->id_version == id_version) {
+    if (index != NULL && index->root == root && index->id_version == id_version) {
         *out = index;
         return 0;
     }
@@ -875,7 +873,7 @@ static int id_cache_index(struct th_tree *tree, xp_id_cache *cache, struct th_no
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         return -1;        /* GCOVR_EXCL_LINE */
     }
-    *index = (xp_id_index){.root = root, .element_version = element_version, .id_version = id_version};
+    *index = (xp_id_index){.root = root, .id_version = id_version};
     if (id_index_fill(index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
         id_index_free(index);       /* GCOVR_EXCL_LINE */
         PyErr_NoMemory();           /* GCOVR_EXCL_LINE */

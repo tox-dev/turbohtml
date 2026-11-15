@@ -910,7 +910,8 @@ void th_tree_verify(th_tree *tree, th_node *start, Py_ssize_t (*visit)(void *con
             found->iterators += !is_inclusive_ancestor_of(iterator->root, iterator->candidate);
         }
     }
-    /* every write that bumps id_version bumps attr_version with it (node_attr_begin, th_node_attr_del) */
+    /* every write that bumps id_version bumps attr_version with it (node_attr_begin, th_node_attr_del,
+       th_tree_note_element_edit) */
     found->versions = tree->id_version > tree->attr_version;
 }
 

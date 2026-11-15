@@ -171,7 +171,6 @@ struct th_tree {
     uint32_t *attr_slots; /* slot -> record index + 1; 0 marks an empty slot */
     uint64_t attr_version;
     uint64_t id_version;
-    uint64_t element_version; /* see th_tree_element_version */
     /* set while the handle keeps a slot cache, cleared by a write or removal of slot=, or of name= on a <slot>: the
        attribute edits that change slot assignment */
     int slot_cache_valid;
