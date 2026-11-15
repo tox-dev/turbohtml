@@ -173,6 +173,9 @@ static int attr_table_reserve(th_tree *tree) {
 /* Add a name the table does not hold, hashed to hash under the table's current hash.
    Out of line, since a tree adds each name once and looks it up for every element. */
 TH_NOINLINE uint32_t intern_attr_insert(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
+    if (len > 6 && memcmp(bytes, "xmlns:", 6) == 0) {
+        tree->has_prefix_decl = 1;
+    }
     if (attr_table_reserve(tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return TH_ATTR_UNKNOWN;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1398,7 +1401,10 @@ static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len) {
         if (prev_text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;              /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        size_t capacity = tree->merged_text_node == prev ? tree->merged_text_capacity : 0;
+        /* The capacity lives on the node, not in one slot for the tree: text can alternate between two open text
+           nodes (in a table, whitespace stays inside while other text is foster-parented before it), and a node that
+           forgot its capacity would copy its whole payload into a fresh arena buffer on every append. */
+        size_t capacity = prev->text_capacity_shift ? (size_t)1 << prev->text_capacity_shift : 0;
         if ((size_t)len > SIZE_MAX - (size_t)prev->text_len) { /* GCOVR_EXCL_BR_LINE: allocation-size overflow */
             tree->failed = 1;                                  /* GCOVR_EXCL_LINE: allocation-size overflow */
             return;                                            /* GCOVR_EXCL_LINE: allocation-size overflow */
@@ -1416,13 +1422,16 @@ static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len) {
             if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 return;           /* GCOVR_EXCL_LINE: allocation-failure path */
             }
+            TH_WORK_STEPS_ADD(prev->text_len);
             memcpy(merged, prev_text, (size_t)prev->text_len * sizeof(Py_UCS4));
             prev->text = merged;
+            prev->text_capacity_shift = 0;
+            for (size_t slots = capacity; slots > 1; slots >>= 1) { /* th_grow_cap doubles, so a power of two */
+                prev->text_capacity_shift++;
+            }
         }
         memcpy(prev->text + prev->text_len, text, (size_t)len * sizeof(Py_UCS4));
         prev->text_len += len;
-        tree->merged_text_node = prev;
-        tree->merged_text_capacity = capacity;
         return;
     }
     th_node *node = node_new(tree, TH_NODE_TEXT);

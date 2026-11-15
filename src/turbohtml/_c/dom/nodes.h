@@ -138,6 +138,9 @@ typedef struct {
     uint32_t slot_scans;    /* long slot scans since the slot cache was last dropped */
     int32_t slot_scan_wait; /* plain slot scans left before the next counted one or cache read */
     uint64_t mutation_version;
+    /* The attribute values imported nodes copied into this tree, kept for the handle's life so that a later import
+       from the same source shares a value an earlier one copied (see import_node). */
+    th_copy_memo copies;
 } HandleObject;
 
 static inline size_t hash_override_slot(const th_node *node, size_t mask) {

@@ -714,7 +714,8 @@ _SELECTOR_HOST: Final[Document] = parse(
     "<div id=a class='x y' data-v=ab><p lang=en-US>t<a href=/u>l</a></p><ul><li>1<li>2</ul><input type=text></div>"
 )
 # a linear-time spread of the engine: descendant and sibling combinators, :has (memoized since #509), nth, attributes,
-# and the of-type positions with no type selector in front, which every element of a sibling list has to answer
+# and the of-type positions with no type selector in front, which every element of a sibling list has to answer, and
+# :dir(), which reads the text of a dir=auto ancestor
 _TREE_SELECTORS: Final[tuple[str, ...]] = (
     "div p",
     "a ~ b",
@@ -724,6 +725,7 @@ _TREE_SELECTORS: Final[tuple[str, ...]] = (
     ":not(:empty)",
     ":last-of-type",
     ":nth-of-type(2)",
+    ":dir(rtl)",
 )
 _XPATH_HOST: Final[Document] = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
 # node walks plus the EXSLT functions that size their result from document data (str:padding is #957)

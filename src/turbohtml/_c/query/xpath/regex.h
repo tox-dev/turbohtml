@@ -1,5 +1,5 @@
 /* Python's re dialect on a Pike VM, so an untrusted pattern matches in time linear in the input; back-references run on
-   a backtracking matcher whose steps draw on a budget shared by the whole XPath evaluation. */
+   a backtracking matcher. Both matchers' steps draw on a budget shared by the whole XPath evaluation. */
 
 #ifndef TURBOHTML_XPATH_REGEX_H
 #define TURBOHTML_XPATH_REGEX_H
@@ -25,11 +25,12 @@ typedef struct {
 
 typedef struct xr_program xr_program;
 
-/* Compiled patterns and the backtracking budget of one XPath evaluation, zeroed before its first use. */
+/* Compiled patterns and the step budget of one XPath evaluation, zeroed before its first use. */
 typedef struct xr_cache {
     xr_program *programs[XR_CACHE_SLOTS];
     xr_program *recent;
-    Py_ssize_t allowance; /* backtracking steps granted so far in the evaluation */
+    size_t rest;          /* bytes the cached programs other than recent hold */
+    Py_ssize_t allowance; /* matching steps granted so far in the evaluation */
     Py_ssize_t budget;    /* the part of the allowance still unspent */
 } xr_cache;
 

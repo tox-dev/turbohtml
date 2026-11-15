@@ -526,9 +526,37 @@ typedef struct def_entry {
     def_part *extra, *last;
     pattern *built;  /* memoized pattern, NULL until first resolved */
     int scan_height; /* compile-time scan: -1 unvisited, -2 expanding, else the levels nested above its elements */
+    int scan_attrs;  /* compile-time scan: an attribute pattern sits in the define, refs followed, elements not */
     nameset names;   /* compile-time 7.4 check: what a ref to this define matches, final once names_state is 2 */
     int names_state; /* compile-time 7.4 check: 0 unvisited, 1 on the DFS stack, 2 done */
 } def_entry;
+
+/* compile-time 7.3 check: the attribute patterns a pattern holds. Up to RNG_ATTRS_FEW stay as their nodes and are
+   compared pair by pair; past that they move into `set`, which merges by the 7.4 name-set rules. */
+#define RNG_ATTRS_FEW 4
+typedef struct rng_attrs {
+    nameset set;
+    th_node *few[RNG_ATTRS_FEW];
+    int count;
+} rng_attrs;
+
+/* compile-time 7.3 check, one per define in a side table: the attributes a ref to the define holds, whether one is an
+   anyName or nsName attribute outside oneOrMore or zeroOrMore, and whether the record is built. Kept out of def_entry
+   so a grammar that never refs a define from an element pays nothing for it. */
+typedef struct def_attrs {
+    rng_attrs attrs;
+    int bad;
+    int built;
+} def_attrs;
+
+/* An attribute pattern's name class, built once for the 7.3 check and taken over by rng_build. `set` holds the class
+   as a name set once the check needs one; it lives in names_mem, so only the compile reads it. */
+typedef struct rng_attr_class {
+    th_node *node;
+    struct nameclass *nc;
+    nameset set;
+    int has_set;
+} rng_attr_class;
 
 typedef struct {
     def_entry *items;
@@ -552,7 +580,13 @@ typedef struct th_schema {
     pattern *start;
     pattern *p_empty, *p_notallowed, *p_text;
     int rng_references; /* the annotation pruning walk met an include or externalRef with href */
+    int rng_attributes; /* the annotation pruning walk met an attribute pattern, so the 7.3 check has work */
     def_vec defines;
+    /* compile-time 7.3 check: one record per define, NULL until a scope refs a define */
+    def_attrs *def_attrs_table;
+    /* the 7.3 check's attribute name classes by node, open addressed in `mem` so a later rng_build reuses them */
+    rng_attr_class **rng_attr_classes;
+    size_t rng_attr_classes_cap, rng_attr_classes_len;
     arena names_mem;       /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
     Py_ssize_t rng_work;   /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
     Py_ssize_t rng_nodes;  /* compile-time 7.4 check: treap nodes allocated against RNG_INTERLEAVE_NODE_LIMIT */
@@ -572,6 +606,8 @@ typedef struct th_schema {
                                memo */
     Py_ssize_t choice_limit; /* leaves a choice built during validation may hold: 0 until a wide merge computes it, -1
                                 once a merge ran past it */
+    Py_ssize_t event_work;   /* merge steps and memoized derivatives of the event in progress, against the limit
+                                rng_event_spend() takes from the choice limit */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
@@ -592,6 +628,7 @@ typedef struct th_schema {
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
+    int named_all; /* a content model reaches an xs:all through a group ref, so validation resolves group refs */
 } th_schema;
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every

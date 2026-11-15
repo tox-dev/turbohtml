@@ -1,0 +1,2 @@
+Named groups holding an ``xs:all`` now accept their children in any order, and an ``xs:all`` nested in a sequence or
+choice fails to compile.
