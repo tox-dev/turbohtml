@@ -1,0 +1,2 @@
+XPath expressions that nest predicates or operators around ``matches()``, ``replace()`` or extension functions no longer
+slow down with each level of nesting.

@@ -47,6 +47,15 @@ enum datatype {
     DT_HEX_BINARY,
     DT_BASE64_BINARY,
     DT_ANY_SIMPLE_TYPE,
+    DT_ID,
+    DT_IDREF,
+    DT_ENTITY,
+    DT_NOTATION,
+    DT_G_YEAR,
+    DT_G_YEAR_MONTH,
+    DT_G_MONTH,
+    DT_G_MONTH_DAY,
+    DT_G_DAY,
     DT_NMTOKENS,
     DT_IDREFS,
     DT_ENTITIES,
@@ -92,6 +101,15 @@ static const dt_name_entry DT_NAMES[] = {
     {"hexBinary", DT_HEX_BINARY},
     {"base64Binary", DT_BASE64_BINARY},
     {"anySimpleType", DT_ANY_SIMPLE_TYPE},
+    {"ID", DT_ID},
+    {"IDREF", DT_IDREF},
+    {"ENTITY", DT_ENTITY},
+    {"NOTATION", DT_NOTATION},
+    {"gYear", DT_G_YEAR},
+    {"gYearMonth", DT_G_YEAR_MONTH},
+    {"gMonth", DT_G_MONTH},
+    {"gMonthDay", DT_G_MONTH_DAY},
+    {"gDay", DT_G_DAY},
     {"NMTOKENS", DT_NMTOKENS},
     {"IDREFS", DT_IDREFS},
     {"ENTITIES", DT_ENTITIES},
@@ -636,6 +654,60 @@ static int lex_base64_binary(const Py_UCS4 *value, Py_ssize_t len) {
     return count % 4 == 0 && pad <= 2;
 }
 
+/* An optional minus and at least four digits; `end` is where the digits stop. */
+static int lex_year_end(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *end) {
+    Py_ssize_t index = 0;
+    if (index < len && value[index] == '-') {
+        index++;
+    }
+    Py_ssize_t year_start = index;
+    while (index < len && is_digit(value[index])) {
+        index++;
+    }
+    if (index - year_start < 4) {
+        return 0;
+    }
+    *end = index;
+    return 1;
+}
+
+static int lex_gyear(const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t end = 0;
+    return lex_year_end(value, len, &end) && lex_timezone(value, end, len);
+}
+
+static int lex_gyear_month(const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t end = 0;
+    if (!lex_year_end(value, len, &end) || len - end < 3 || value[end] != '-') {
+        return 0;
+    }
+    return fixed_digits(value, end + 1, 2, 1, 12) >= 0 && lex_timezone(value, end + 3, len);
+}
+
+static int lex_gmonth(const Py_UCS4 *value, Py_ssize_t len) {
+    if (len < 4 || value[0] != '-' || value[1] != '-') {
+        return 0;
+    }
+    return fixed_digits(value, 2, 2, 1, 12) >= 0 && lex_timezone(value, 4, len);
+}
+
+/* The value names no year, so February takes its leap day. */
+static int lex_gmonth_day(const Py_UCS4 *value, Py_ssize_t len) {
+    if (len < 7 || value[0] != '-' || value[1] != '-' || value[4] != '-') {
+        return 0;
+    }
+    const int month = fixed_digits(value, 2, 2, 1, 12);
+    const int day = fixed_digits(value, 5, 2, 1, 31);
+    return month >= 0 && day >= 0 && day <= days_in_month(month, NULL, 0) && lex_timezone(value, 7, len);
+}
+
+static int lex_gday(const Py_UCS4 *value, Py_ssize_t len) {
+    if (len < 5 || value[0] != '-' || value[1] != '-' || value[2] != '-') {
+        return 0;
+    }
+    return fixed_digits(value, 3, 2, 1, 31) >= 0 && lex_timezone(value, 5, len);
+}
+
 static int dt_check_lexical(int id, const Py_UCS4 *value, Py_ssize_t len);
 
 /* Whether every whitespace-separated item of `value` has the lexical space of `item`, and there is at least one. */
@@ -694,7 +766,22 @@ static int dt_check_lexical(int id, const Py_UCS4 *value, Py_ssize_t len) {
     case DT_QNAME:
         return lex_qname(value, len);
     case DT_NCNAME:
+    case DT_ID:
+    case DT_IDREF:
+    case DT_ENTITY:
         return lex_ncname(value, len);
+    case DT_NOTATION:
+        return lex_qname(value, len);
+    case DT_G_YEAR:
+        return lex_gyear(value, len);
+    case DT_G_YEAR_MONTH:
+        return lex_gyear_month(value, len);
+    case DT_G_MONTH:
+        return lex_gmonth(value, len);
+    case DT_G_MONTH_DAY:
+        return lex_gmonth_day(value, len);
+    case DT_G_DAY:
+        return lex_gday(value, len);
     case DT_NAME:
         return lex_name(value, len);
     case DT_NMTOKEN:

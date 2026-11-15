@@ -550,17 +550,34 @@ static int mini_omit_start_tag(th_tree *tree, th_node *node, int strip_comments)
     if (node->atom == TH_TAG_HEAD) {
         return first == NULL || first->type == TH_NODE_ELEMENT;
     }
-    /* body: omit when empty or when the first thing is not whitespace, a comment, or
-       one of the elements the WHATWG rule keeps the body tag before */
+    /* body: omit when empty or when the first thing is not whitespace, a comment, or an element the "after head"
+       insertion mode would put in the head. The WHATWG rule names meta, noscript, link, script, style and template;
+       a body can also start with the base, basefont, bgsound, noframes or title the rule leaves out. */
     if (first == NULL) {
         return 1;
     }
     if (mini_is_comment_like(first) || mini_starts_with_ws(tree, first)) {
         return 0;
     }
-    return !(first->type == TH_NODE_ELEMENT &&
-             (first->atom == TH_TAG_META || first->atom == TH_TAG_LINK || first->atom == TH_TAG_SCRIPT ||
-              first->atom == TH_TAG_STYLE || first->atom == TH_TAG_TEMPLATE));
+    if (first->type != TH_NODE_ELEMENT || first->ns != TH_NS_HTML) {
+        return 1;
+    }
+    switch (first->atom) {
+    case TH_TAG_BASE:
+    case TH_TAG_BASEFONT:
+    case TH_TAG_BGSOUND:
+    case TH_TAG_LINK:
+    case TH_TAG_META:
+    case TH_TAG_NOFRAMES:
+    case TH_TAG_NOSCRIPT:
+    case TH_TAG_SCRIPT:
+    case TH_TAG_STYLE:
+    case TH_TAG_TEMPLATE:
+    case TH_TAG_TITLE:
+        return 0;
+    default:
+        return 1;
+    }
 }
 
 /* Whether a <script>'s type marks it as JavaScript the minifier may rewrite: 2 for "module", 1 for
@@ -606,10 +623,13 @@ static int script_is_js(th_tree *tree, th_node *node) {
 }
 
 /* `</script` ends the element and `<!--` enters the escaped state, where a later `<script` hides the end tag; a source
-   can carry either inside an escaped `<!--` section whose markers the minifier strips. */
+   can carry either inside an escaped `<!--` section whose markers the minifier strips. `</noscript` ends an enclosing
+   <noscript>: a scripting browser reads that element as raw text up to the first one, where the scripting-off parse
+   built this <script> as its child. */
 static int js_embeds_in_script(const Py_UCS4 *js, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         if (js[index] == '<' && (starts_with_ascii_ci(js + index, len - index, "</script") ||
+                                 starts_with_ascii_ci(js + index, len - index, "</noscript") ||
                                  starts_with_ascii_ci(js + index, len - index, "<!--"))) {
             return 0;
         }
@@ -671,8 +691,11 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
    caller to emit the content verbatim -- for a non-style raw-text element or an empty <style>,
    so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
    would have ended the element there), and the CSS engine returns its input unchanged if its
-   output would spell </style at all, so the minified stylesheet stays inside the element. Kept out
-   of line: only a <style> under minify_css reaches it, and inlined it grows the serializer's walk. */
+   output would spell </style at all, so the minified stylesheet stays inside the element. The
+   engine knows nothing of an enclosing <noscript>, which a scripting browser reads as raw text up to
+   the first `</noscript`, where the scripting-off parse built this <style> as its child, so a minified
+   stylesheet that spells one gives way to the verbatim content here. Kept out of line: only a
+   <style> under minify_css reaches it, and inlined it grows the serializer's walk. */
 static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node, int baseline) {
     if (node->atom != TH_TAG_STYLE) {
         return 0; /* script/textarea/title and other raw-text elements are never CSS */
@@ -707,8 +730,15 @@ static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *no
         out->failed = 1;                  /* GCOVR_EXCL_LINE: allocation-failure path */
         return 1;                         /* GCOVR_EXCL_LINE */
     }
+    Py_ssize_t start = out->len;
     sbuf_put_utf8(out, (const char *)result, css_len); /* css_len 0 (a whitespace-only stylesheet) writes nothing */
     PyMem_Free(result);
+    for (Py_ssize_t index = start; index < out->len; index++) {
+        if (out->data[index] == '<' && starts_with_ascii_ci(out->data + index, out->len - index, "</noscript")) {
+            out->len = start;
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -805,6 +835,22 @@ void ser_put_html_doctype(sbuf *out, th_tree *tree, th_node *node) {
     sbuf_putc(out, '>');
 }
 
+/* The span the parse recorded for a noscript element. The parse records one for every noscript element it builds, in
+   the order of their node sequence, so the search lands on it. */
+static const th_noscript_span *mini_noscript_span(const th_minify_source *source, const th_node *node) {
+    Py_ssize_t low = 0;
+    Py_ssize_t high = source->span_count - 1;
+    while (low < high) {
+        Py_ssize_t mid = low + (high - low) / 2;
+        if (source->spans[mid].seq < node->seq) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return &source->spans[low];
+}
+
 /* Minified outer serialization. The walk is iterative like serialize_compact,
    descending through first_child and ascending through parent pointers, with a
    preserve counter so text inside pre/textarea/listing skips whitespace
@@ -821,9 +867,27 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
        parsed plaintext element ends the document: its end tag, and every ancestor's
        after it, would reparse as literal text. EOF closes them all instead. */
     int after_plaintext = 0;
+    /* a document minify copies noscript content, and the source from a cut onward, as the source spelled it */
+    const th_minify_source *source = opts->source;
     while (1) {
         TH_WORK_STEP();
         th_node *descend = NULL;
+        if (TH_UNLIKELY(source != NULL) && node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML &&
+            node->atom == TH_TAG_NOSCRIPT) {
+            const th_noscript_span *span = mini_noscript_span(source, node);
+            last_was_space = 0;
+            if (!span->stable) {
+                /* the caller passes a source only when the first unstable noscript is a cut, and the walk meets that
+                   one before any element the source starts after it */
+                sbuf_put_source(out, tree, span->start, tree->length);
+                break;
+            }
+            /* the scripting-on parse reads this content as raw text, so it is copied as the source spelled it */
+            mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css, opts->minify_css_baseline);
+            sbuf_put_source(out, tree, span->content, span->end);
+            ser_close_tag(out, node);
+            goto walked;
+        }
         switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
         case TH_NODE_ELEMENT:
             last_was_space = 0;
@@ -917,6 +981,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             descend = node->first_child; /* a transparent container emits only its children */
             break;
         }
+    walked:
         if (descend != NULL) {
             node = descend;
             continue;

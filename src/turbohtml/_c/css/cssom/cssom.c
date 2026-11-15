@@ -17,6 +17,8 @@
 
 #include "data/attr_atom.h"
 #include "core/ascii.h"
+#include "core/node_map.h"
+#include "core/vec.h"
 #include "core/work_steps.h"
 #include "css/cssom/cssom.h"
 #include "dom/nodes.h"
@@ -1418,67 +1420,42 @@ static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int 
     css_apply_box(slots, decl, &rank);
 }
 
-/* An element's resolved computed values: one owned code-point buffer per longhand. */
+/* One longhand's computed value. In the cache it borrows text that outlives the cache: a stylesheet's buffer, a
+   parsed style attribute or the initial values, all of which the cache holds. A map handed to the caller owns copies,
+   since the caller reads them after it lets go of the tree. */
 typedef struct {
-    Py_UCS4 *data;
+    const Py_UCS4 *data;
     Py_ssize_t len;
 } css_value;
 
-static int css_value_set_slice(css_value *value, const Py_UCS4 *data, Py_ssize_t len) {
-    Py_UCS4 *copy = PyMem_Malloc((size_t)(len + 1) * sizeof(Py_UCS4));
-    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    memcpy(copy, data, (size_t)len * sizeof(Py_UCS4));
-    PyMem_Free(value->data);
-    value->data = copy;
-    value->len = len;
-    return 0;
-}
-
-static int css_value_set_ascii(css_value *value, const char *text, Py_ssize_t len) {
-    Py_UCS4 buffer[32];
-    for (Py_ssize_t index = 0; index < len; index++) {
-        buffer[index] = (Py_UCS4)text[index];
-    }
-    return css_value_set_slice(value, buffer, len);
-}
-
 static void css_free_map(css_value *map) {
     for (int index = 0; index < NUM_PROPS; index++) {
-        PyMem_Free(map[index].data);
+        PyMem_Free((Py_UCS4 *)map[index].data);
     }
 }
 
 /* Resolve one longhand for an element: apply the cascade winner (or its absence)
-   and the inherit/initial/unset/revert keywords against the parent's computed value.
-   Returns -1 on allocation failure. */
-static int css_resolve(css_value *out, const css_slot *slot, const css_value *parent, const css_prop_meta *meta) {
-    const css_value *inherited = parent->data != NULL ? parent : NULL;
+   and the inherit/initial/unset/revert keywords against the parent's computed value. */
+static void css_resolve(css_value *out, const css_slot *slot, const css_value *parent, const css_value *initial,
+                        int inherited) {
+    const int has_parent = parent->data != NULL;
     if (slot->set) {
-        const Py_UCS4 *value = slot->value;
-        Py_ssize_t len = slot->value_len;
-        css_wide_value wide = css_wide_keyword(value, len);
+        css_wide_value wide = css_wide_keyword(slot->value, slot->value_len);
+        if (wide == CSS_WIDE_NONE) {
+            *out = (css_value){slot->value, slot->value_len};
+            return;
+        }
         if (wide == CSS_WIDE_INHERIT) {
-            return inherited != NULL ? css_value_set_slice(out, inherited->data, inherited->len)
-                                     : css_value_set_ascii(out, meta->initial, meta->initial_len);
+            *out = has_parent ? *parent : *initial;
+            return;
         }
         if (wide == CSS_WIDE_INITIAL) {
-            return css_value_set_ascii(out, meta->initial, meta->initial_len);
+            *out = *initial;
+            return;
         }
-        if (wide != CSS_WIDE_NONE) {
-            /* no user/UA origin or layers exist here, so both rollback keywords act as unset */
-            if (meta->inherited && inherited != NULL) {
-                return css_value_set_slice(out, inherited->data, inherited->len);
-            }
-            return css_value_set_ascii(out, meta->initial, meta->initial_len);
-        }
-        return css_value_set_slice(out, value, len);
+        /* no user/UA origin or layers exist here, so both rollback keywords act as unset */
     }
-    if (meta->inherited && inherited != NULL) {
-        return css_value_set_slice(out, inherited->data, inherited->len);
-    }
-    return css_value_set_ascii(out, meta->initial, meta->initial_len);
+    *out = inherited && has_parent ? *parent : *initial;
 }
 
 typedef struct {
@@ -1502,24 +1479,243 @@ typedef struct {
 
 typedef struct {
     th_node *node;
+    Py_ssize_t depth; /* how many element ancestors node has */
+    Py_ssize_t slot;  /* where entries holds it */
+    int deep;         /* the path once reached CSS_CHECKPOINT_STRIDE levels below it */
+    int on_path;
     css_value values[NUM_PROPS];
 } css_computed_entry;
+
+/* A style attribute parsed once per cache. Computed values borrow slices of clean, and parsing it again would decode
+   the escaped names that the first parse decoded in place a second time. */
+typedef struct {
+    Py_UCS4 *clean;
+    css_decl *decls;
+    Py_ssize_t count;
+} css_inline_style;
 
 /* The largest :has() table the cascade keeps: 2^21 slots of 24 bytes, 48 MB. Each :has() argument keys its own answers,
    one per element, so without a cap the table grows with arguments times elements. */
 #define CSS_HAS_MEMO_LIMIT ((size_t)1 << 21)
 
-/* Two entries retain a parent while successive child styles replace the other entry. */
+/* How many consecutive levels of an ancestor chain path holds. The HTML tree builder nests no deeper than
+   TH_MAX_TREE_DEPTH, so the chain of a parsed page fits whole; an XML or a built tree can be deeper. */
+#define CSS_PATH_DENSE ((Py_ssize_t)2 * TH_MAX_TREE_DEPTH)
+
+/* The spacing of the checkpoints: a level whose depth is a multiple of it, and that the path once reached this many
+   levels below, keeps its values after the path leaves it. */
+#define CSS_CHECKPOINT_STRIDE 16
+
+/* path holds the computed values of the last element asked about and of its ancestors, outermost first, up to
+   CSS_PATH_DENSE levels. A walk over a tree keeps coming back to an ancestor for its next child, and the ancestor is
+   still here, so the walk cascades each element once. A level the path leaves is freed unless it is a checkpoint, which
+   entries keeps until the tree changes. Any element is then fewer than 2 * CSS_CHECKPOINT_STRIDE cascades below a kept
+   ancestor or below the elements no call has reached yet, whatever order the calls come in. A checkpoint has its own
+   CSS_CHECKPOINT_STRIDE descendants that no other checkpoint counts, so checkpoints number at most the elements divided
+   by the stride. */
 typedef struct {
     uint64_t attr_version;
     sel_memo has_memo;
     sel_nth_memo nth_memo;
     sel_position_memo position_memo;
-    css_computed_entry entries[2];
+    css_computed_entry **path;
+    Py_ssize_t path_len;
+    Py_ssize_t path_capacity;
+    /* every kept level, path and checkpoints; entry_index maps a node to its slot plus one, and a freed level leaves
+       its slot NULL until the slots are compacted */
+    css_computed_entry **entries;
+    Py_ssize_t entry_count;
+    Py_ssize_t entry_capacity;
+    Py_ssize_t live;
+    th_node_map entry_index;
+    th_node **pending; /* the levels a call cascades, innermost first */
+    Py_ssize_t pending_capacity;
+    css_inline_style *inline_styles;
+    Py_ssize_t inline_count;
+    Py_ssize_t inline_capacity;
+    th_node_map inline_index;
+    Py_UCS4 *initial_text;
+    css_value initial[NUM_PROPS];
     sel_memo legend_memo;
     /* one answer per rule and long attribute value, a product the page sets both factors of, so capped as has_memo */
     sel_memo value_memo;
 } css_computed_cache;
+
+static css_computed_cache *css_computed_new(uint64_t version) {
+    css_computed_cache *cache = PyMem_Calloc(1, sizeof(*cache));
+    if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    Py_ssize_t total = 0;
+    for (int prop = 0; prop < NUM_PROPS; prop++) {
+        total += CSS_PROPS[prop].initial_len;
+    }
+    cache->initial_text = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+    if (cache->initial_text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(cache);             /* GCOVR_EXCL_LINE: allocation failure */
+        return NULL;                   /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    Py_UCS4 *text = cache->initial_text;
+    for (int prop = 0; prop < NUM_PROPS; prop++) {
+        cache->initial[prop] = (css_value){text, CSS_PROPS[prop].initial_len};
+        for (Py_ssize_t index = 0; index < CSS_PROPS[prop].initial_len; index++) {
+            *text++ = (Py_UCS4)CSS_PROPS[prop].initial[index];
+        }
+    }
+    cache->attr_version = version;
+    cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
+    cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
+    return cache;
+}
+
+/* Take path levels [from, to) off the path, freeing each but the checkpoints. */
+static void css_path_drop(css_computed_cache *cache, Py_ssize_t from, Py_ssize_t to) {
+    if (from == to) {
+        return; /* also the first call, whose path is still NULL */
+    }
+    for (Py_ssize_t index = from; index < to; index++) {
+        css_computed_entry *const entry = cache->path[index];
+        if (entry->deep && entry->depth % CSS_CHECKPOINT_STRIDE == 0) {
+            entry->on_path = 0;
+            continue;
+        }
+        cache->entries[entry->slot] = NULL;
+        cache->live--;
+        PyMem_Free(entry);
+    }
+    memmove(cache->path + from, cache->path + to, (size_t)(cache->path_len - to) * sizeof(css_computed_entry *));
+    cache->path_len -= to - from;
+}
+
+/* Make room on the path for one more level. Returns -1 on allocation failure. */
+static int css_path_reserve(css_computed_cache *cache) {
+    if (cache->path_len < cache->path_capacity || cache->path_len == CSS_PATH_DENSE) {
+        return 0;
+    }
+    size_t capacity;
+    size_t bytes;
+    const int grew = th_grow_cap((size_t)cache->path_len + 1, (size_t)cache->path_capacity, 8,
+                                 sizeof(css_computed_entry *), &capacity, &bytes);
+    if (!grew) {   /* GCOVR_EXCL_BR_LINE: the path stops growing at CSS_PATH_DENSE levels */
+        return -1; /* GCOVR_EXCL_LINE: the path stops growing at CSS_PATH_DENSE levels */
+    }
+    css_computed_entry **bigger = PyMem_Realloc(cache->path, bytes);
+    if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;        /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    cache->path = bigger;
+    cache->path_capacity = (Py_ssize_t)capacity;
+    return 0;
+}
+
+/* Put entry, a child of the innermost level, on the path; css_path_reserve made the room. A full path first lets go of
+   its outer half, whose levels are all far enough above the new one to stay as checkpoints when their depth fits. */
+static void css_path_append(css_computed_cache *cache, css_computed_entry *entry) {
+    if (cache->path_len == CSS_PATH_DENSE) {
+        css_path_drop(cache, 0, CSS_PATH_DENSE / 2);
+    }
+    entry->on_path = 1;
+    cache->path[cache->path_len++] = entry;
+    if (cache->path_len > CSS_CHECKPOINT_STRIDE) {
+        cache->path[cache->path_len - 1 - CSS_CHECKPOINT_STRIDE]->deep = 1;
+    }
+}
+
+static css_computed_entry *css_entry_find(const css_computed_cache *cache, const th_node *node) {
+    const Py_ssize_t slot = th_node_map_find(&cache->entry_index, node);
+    return slot > 0 ? cache->entries[slot - 1] : NULL;
+}
+
+/* Make room for one more kept level. Once half the slots are freed, compacting them and rebuilding entry_index takes
+   the place of growing, so both stay within twice the kept levels. Returns -1 on allocation failure. */
+static int css_entry_reserve(css_computed_cache *cache) {
+    if (cache->entry_count == cache->entry_capacity && cache->live <= cache->entry_count / 2) {
+        Py_ssize_t kept = 0;
+        for (Py_ssize_t slot = 0; slot < cache->entry_count; slot++) {
+            if (cache->entries[slot] != NULL) {
+                cache->entries[slot]->slot = kept;
+                cache->entries[kept++] = cache->entries[slot];
+            }
+        }
+        cache->entry_count = kept;
+        PyMem_Free(cache->entry_index.entries);
+        cache->entry_index = (th_node_map){0};
+        for (Py_ssize_t slot = 0; slot < kept; slot++) {
+            const int indexed = th_node_map_insert(&cache->entry_index, cache->entries[slot]->node, slot + 1);
+            if (indexed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;     /* GCOVR_EXCL_LINE: allocation failure */
+            }
+        }
+    }
+    if (cache->entry_count == cache->entry_capacity) {
+        size_t capacity;
+        size_t bytes;
+        const int grew = th_grow_cap((size_t)cache->entry_count + 1, (size_t)cache->entry_capacity, 16,
+                                     sizeof(css_computed_entry *), &capacity, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        css_computed_entry **bigger = PyMem_Realloc(cache->entries, bytes);
+        if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;        /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        cache->entries = bigger;
+        cache->entry_capacity = (Py_ssize_t)capacity;
+    }
+    /* at most a quarter full: most lookups are misses, which walk a whole run of slots */
+    return th_node_map_reserve(&cache->entry_index, 2 * (cache->entry_index.count + 1));
+}
+
+/* Keep entry; css_entry_reserve made the room. A node whose earlier level was freed takes over its stale index slot. */
+static void css_entry_add(css_computed_cache *cache, css_computed_entry *entry) {
+    entry->slot = cache->entry_count;
+    cache->entries[cache->entry_count++] = entry;
+    cache->live++;
+    const size_t index = th_node_map_slot(&cache->entry_index, entry->node);
+    cache->entry_index.count += cache->entry_index.entries[index].node == NULL;
+    cache->entry_index.entries[index] = (th_node_map_entry){entry->node, entry->slot + 1};
+}
+
+/* The parsed style attribute attr of element, parsed on its first cascade under this cache. Returns NULL on
+   allocation failure. */
+static const css_inline_style *css_inline_style_of(css_computed_cache *cache, const th_node *element,
+                                                   const th_node_attr *attr) {
+    const Py_ssize_t known = th_node_map_find(&cache->inline_index, element);
+    if (known > 0) {
+        return &cache->inline_styles[known - 1];
+    }
+    if (cache->inline_count == cache->inline_capacity) {
+        size_t capacity;
+        size_t bytes;
+        const int grew = th_grow_cap((size_t)cache->inline_count + 1, (size_t)cache->inline_capacity, 8,
+                                     sizeof(css_inline_style), &capacity, &bytes);
+        if (!grew) {     /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return NULL; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        css_inline_style *bigger = PyMem_Realloc(cache->inline_styles, bytes);
+        if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        cache->inline_styles = bigger;
+        cache->inline_capacity = (Py_ssize_t)capacity;
+    }
+    css_inline_style style = {0};
+    Py_ssize_t clean_len = 0;
+    style.clean = css_strip_comments(attr->value, attr->value_len, &clean_len);
+    if (style.clean == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;           /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    Py_ssize_t capacity = 0;
+    style.count = css_parse_block(style.clean, 0, clean_len, &style.decls, &capacity, 1);
+    const Py_ssize_t index = cache->inline_count + 1;
+    if (style.count < 0 || th_node_map_insert(&cache->inline_index, element, index) < 0) { /* GCOVR_EXCL_BR_LINE */
+        PyMem_Free(style.decls); /* GCOVR_EXCL_LINE: allocation failure */
+        PyMem_Free(style.clean); /* GCOVR_EXCL_LINE: allocation failure */
+        return NULL;             /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    cache->inline_styles[cache->inline_count] = style;
+    return &cache->inline_styles[cache->inline_count++];
+}
 
 static void css_free_computed(HandleObject *handle) {
     css_computed_cache *cache = handle->css_computed;
@@ -1529,19 +1725,34 @@ static void css_free_computed(HandleObject *handle) {
         sel_memo_free(&cache->legend_memo);
         sel_memo_free(&cache->value_memo);
         sel_position_memo_free(&cache->position_memo);
-        css_free_map(cache->entries[0].values);
-        css_free_map(cache->entries[1].values);
+        for (Py_ssize_t slot = 0; slot < cache->entry_count; slot++) {
+            PyMem_Free(cache->entries[slot]);
+        }
+        PyMem_Free(cache->entries);
+        PyMem_Free(cache->entry_index.entries);
+        PyMem_Free(cache->path);
+        PyMem_Free(cache->pending);
+        for (Py_ssize_t index = 0; index < cache->inline_count; index++) {
+            PyMem_Free(cache->inline_styles[index].decls);
+            PyMem_Free(cache->inline_styles[index].clean);
+        }
+        PyMem_Free(cache->inline_styles);
+        PyMem_Free(cache->inline_index.entries);
+        PyMem_Free(cache->initial_text);
         PyMem_Free(cache);
         handle->css_computed = NULL;
     }
 }
 
+/* Copy source into dest as buffers dest owns. */
 static int css_copy_map(css_value *dest, const css_value *source) {
     for (int index = 0; index < NUM_PROPS; index++) {
-        const int copied = css_value_set_slice(&dest[index], source[index].data, source[index].len);
-        if (copied < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;    /* GCOVR_EXCL_LINE: allocation failure */
+        Py_UCS4 *copy = PyMem_Malloc((size_t)(source[index].len + 1) * sizeof(Py_UCS4));
+        if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;      /* GCOVR_EXCL_LINE: allocation failure */
         }
+        memcpy(copy, source[index].data, (size_t)source[index].len * sizeof(Py_UCS4));
+        dest[index] = (css_value){copy, source[index].len};
     }
     return 0;
 }
@@ -1794,6 +2005,7 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
    map. Returns -1 on allocation failure. */
 static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count, th_tree *tree,
                                int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
+    TH_WORK_STEP();
     css_slot slots[NUM_PROPS] = {0};
     /* the legend memo keeps its own table: it holds one answer per legend, so it needs no cap and must outlive a
        :has() table dropped at CSS_HAS_MEMO_LIMIT; one dir=auto answer per element shares it for the same reason */
@@ -1845,62 +2057,48 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
             }
         }
     }
-    /* the inline style attribute's cleaned buffer must outlive the resolve below: the
-       winning slots hold slices into it, not copies, so it is freed only at the end */
-    Py_UCS4 *inline_clean = NULL;
-    css_decl *inline_decls = NULL;
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         if (element->attrs[index].name_atom != TH_ATTR_STYLE || element->attrs[index].value == NULL) {
             continue;
         }
-        Py_ssize_t clean_len = 0;
-        inline_clean = css_strip_comments(element->attrs[index].value, element->attrs[index].value_len, &clean_len);
-        if (inline_clean == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;              /* GCOVR_EXCL_LINE: allocation-failure path */
+        const css_inline_style *style = css_inline_style_of(cache, element, &element->attrs[index]);
+        if (style == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        Py_ssize_t capacity = 0;
-        Py_ssize_t decl_count = css_parse_block(inline_clean, 0, clean_len, &inline_decls, &capacity, 1);
-        if (decl_count < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            PyMem_Free(inline_decls); /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyMem_Free(inline_clean); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        for (Py_ssize_t decl = 0; decl < decl_count; decl++) {
-            css_apply_decl(slots, &inline_decls[decl], 1, 0, 0, 0, order++);
+        for (Py_ssize_t decl = 0; decl < style->count; decl++) {
+            css_apply_decl(slots, &style->decls[decl], 1, 0, 0, 0, order++);
         }
         break;
     }
     for (int index = 0; index < NUM_PROPS; index++) {
-        if (css_resolve(&out[index], &slots[index], &parent[index], &CSS_PROPS[index]) < 0) { /* GCOVR_EXCL_BR_LINE */
-            PyMem_Free(inline_decls); /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyMem_Free(inline_clean); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
+        css_resolve(&out[index], &slots[index], &parent[index], &cache->initial[index], CSS_PROPS[index].inherited);
     }
-    PyMem_Free(inline_decls);
-    PyMem_Free(inline_clean);
     return 0;
 }
 
-/* Build the element chain root-first (document order down to element), the order the
-   cascade needs so a parent's computed values exist before its child inherits them.
-   Returns the chain length, or -1 on allocation failure with *out_chain NULL. */
-static Py_ssize_t css_ancestor_chain(th_node *element, th_node ***out_chain) {
-    Py_ssize_t depth = 0;
-    for (th_node *node = element; node != NULL && node->type == TH_NODE_ELEMENT; node = node->parent) {
-        depth++;
+/* Cascade element, a child of the innermost path level (a root when the path is empty), and keep it as the new
+   innermost level. Returns -1 on allocation failure. */
+static int css_path_push(css_computed_cache *cache, th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count,
+                         th_tree *tree) {
+    static const css_value no_parent[NUM_PROPS] = {0};
+    if (css_path_reserve(cache) < 0 || css_entry_reserve(cache) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                     /* GCOVR_EXCL_LINE: allocation failure */
     }
-    th_node **chain = PyMem_Malloc((size_t)depth * sizeof(th_node *));
-    if (chain == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        *out_chain = NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    css_computed_entry *const entry = PyMem_Malloc(sizeof(*entry));
+    if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE: allocation failure */
     }
-    Py_ssize_t index = depth;
-    for (th_node *node = element; index > 0; node = node->parent) {
-        chain[--index] = node;
+    const css_computed_entry *const parent = cache->path_len > 0 ? cache->path[cache->path_len - 1] : NULL;
+    *entry = (css_computed_entry){.node = element, .depth = parent != NULL ? parent->depth + 1 : 0};
+    const int resolved = css_cascade_element(element, sheets, sheet_count, tree, th_tree_quirks(tree),
+                                             parent != NULL ? parent->values : no_parent, entry->values, cache);
+    if (resolved < 0) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(entry); /* GCOVR_EXCL_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE: allocation failure */
     }
-    *out_chain = chain;
-    return depth;
+    css_entry_add(cache, entry);
+    css_path_append(cache, entry);
+    return 0;
 }
 
 static int css_compute_map(module_state *state, HandleObject *handle, th_node *element, css_value *out) {
@@ -1916,65 +2114,62 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
         cache = NULL;
     }
     if (cache == NULL) {
-        cache = PyMem_Calloc(1, sizeof(*cache));
+        cache = css_computed_new(version);
         if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;       /* GCOVR_EXCL_LINE: allocation failure */
         }
-        cache->attr_version = version;
-        cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
-        cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
         handle->css_computed = cache;
     }
-    int parent_slot = -1;
-    for (int slot = 0; slot < 2; slot++) {
-        if (cache->entries[slot].node == element) {
-            return css_copy_map(out, cache->entries[slot].values);
-        }
-        if (cache->entries[slot].node != NULL && cache->entries[slot].node == element->parent) {
-            parent_slot = slot;
-        }
+    if (cache->path_len > 0 && cache->path[cache->path_len - 1]->node == element) {
+        return css_copy_map(out, cache->path[cache->path_len - 1]->values);
     }
-    const int quirks = th_tree_quirks(handle->tree);
-    if (parent_slot >= 0) {
-        const int resolved = css_cascade_element(element, sheets, sheet_count, handle->tree, quirks,
-                                                 cache->entries[parent_slot].values, out, cache);
-        if (resolved < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+    /* Climb to the nearest kept ancestor-or-self: a walk in document order finds the parent on the path, and any other
+       order is fewer than 2 * CSS_CHECKPOINT_STRIDE levels from a checkpoint or from levels never cascaded before. */
+    css_computed_entry *kept = NULL;
+    Py_ssize_t pending = 0;
+    for (th_node *node = element; node != NULL && node->type == TH_NODE_ELEMENT; node = node->parent) {
+        TH_WORK_STEP();
+        kept = css_entry_find(cache, node);
+        if (kept != NULL) {
+            break;
         }
-    } else {
-        th_node **chain = NULL;
-        const Py_ssize_t chain_len = css_ancestor_chain(element, &chain);
-        if (chain_len < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;       /* GCOVR_EXCL_LINE: allocation failure */
-        }
-        for (Py_ssize_t index = 0; index < chain_len; index++) {
-            css_value current[NUM_PROPS] = {0};
-            const int resolved =
-                css_cascade_element(chain[index], sheets, sheet_count, handle->tree, quirks, out, current, cache);
-            if (index > 0 && index + 1 == chain_len) {
-                css_free_map(cache->entries[1].values);
-                memcpy(cache->entries[1].values, out, sizeof(current));
-                cache->entries[1].node = chain[index - 1];
-                parent_slot = 1;
-            } else {
-                css_free_map(out);
+        if (pending == cache->pending_capacity) {
+            size_t capacity;
+            size_t bytes;
+            const int grew = th_grow_cap((size_t)pending + 1, (size_t)cache->pending_capacity, 16, sizeof(th_node *),
+                                         &capacity, &bytes);
+            if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
             }
-            memcpy(out, current, sizeof(current));
-            if (resolved < 0) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
-                PyMem_Free(chain); /* GCOVR_EXCL_LINE: allocation failure */
-                return -1;         /* GCOVR_EXCL_LINE: allocation failure */
+            th_node **bigger = PyMem_Realloc(cache->pending, bytes);
+            if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;        /* GCOVR_EXCL_LINE: allocation failure */
             }
+            cache->pending = bigger;
+            cache->pending_capacity = (Py_ssize_t)capacity;
         }
-        PyMem_Free(chain);
+        cache->pending[pending++] = node;
     }
-    css_computed_entry *const entry = &cache->entries[parent_slot == 0 ? 1 : 0];
-    css_free_map(entry->values);
-    memset(entry, 0, sizeof(*entry));
-    if (css_copy_map(entry->values, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                              /* GCOVR_EXCL_LINE: allocation failure */
+    if (pending == 0) {
+        return css_copy_map(out, kept->values);
     }
-    entry->node = element;
-    return 0;
+    /* The path is one chain, so a kept ancestor on it sits at the index its depth gives; one off it is a checkpoint
+       the path restarts from. */
+    const Py_ssize_t keep = kept != NULL && kept->on_path ? kept->depth - cache->path[0]->depth + 1 : 0;
+    css_path_drop(cache, keep, cache->path_len);
+    if (kept != NULL && keep == 0) {
+        if (css_path_reserve(cache) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                     /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        css_path_append(cache, kept);
+    }
+    while (pending > 0) {
+        th_node *const next = cache->pending[--pending];
+        if (css_path_push(cache, next, sheets, sheet_count, handle->tree) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    }
+    return css_copy_map(out, cache->path[cache->path_len - 1]->values);
 }
 
 PyObject *turbohtml_css_computed_style(PyObject *module, PyObject *arg) {

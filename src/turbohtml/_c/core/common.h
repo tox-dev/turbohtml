@@ -354,6 +354,9 @@ PyObject *turbohtml_parse_tree(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_fragment(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_only(PyObject *module, PyObject *arg);
 
+/* Implemented in dom/node.c: the document minify behind turbohtml.clean.minify. */
+PyObject *turbohtml_minify_document(PyObject *module, PyObject *args);
+
 /* Implemented in query/xslt.c. _xslt_compile builds immutable stylesheet state;
    _xslt_transform applies it with source-specific execution state. */
 PyObject *turbohtml_xslt_compile(PyObject *module, PyObject *args);

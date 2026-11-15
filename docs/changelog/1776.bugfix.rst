@@ -1,0 +1,2 @@
+``minify`` output now reads the same in browsers that run scripts: ``<noscript>`` content is copied from the source, and
+a page whose ``<noscript>`` content parses differently there keeps everything after it unminified.

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import DocumentFragment, Element, Text, parse
+from turbohtml import DocumentFragment, Element, Text, parse, parse_xml
 from turbohtml.build import E
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
 
@@ -1703,6 +1703,122 @@ def test_computed_style_html_style_drops_text_of_appended_element() -> None:
     assert isinstance(paragraph, Element)
     style.append(Element("b", children=[Text("red}")]))
     assert computed_style(paragraph)["color"] == "canvastext"
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param((0, 1, 2, 3, 4, 5, 6, 7, 8), id="document-order"),
+        pytest.param((8, 7, 6, 5, 4, 3, 2, 1, 0), id="reverse-order"),
+        pytest.param((3, 5, 8, 3), id="cousins"),
+        pytest.param((3, 7, 4, 1, 8), id="shallower-branch"),
+    ],
+)
+def test_computed_style_returns_to_an_ancestor(order: tuple[int, ...]) -> None:
+    document: Final = parse(
+        '<div style="color:red"><p><b><i></i></b><b><i></i></b></p><u style="color:blue"><s><i></i></s></u></div>'
+    )
+    nodes: Final = document.select("div,p,b,i,u,s")
+    expected: Final = ("red",) * 6 + ("blue",) * 3
+    assert tuple(computed_style(nodes[index])["color"] for index in order) == tuple(expected[index] for index in order)
+
+
+def _leaves_in_document_order(depth: int) -> list[Element]:
+    return list(parse_xml("<d><b/>" * depth + "</d>" * depth).select("b"))
+
+
+def _leaves_in_reverse_order(depth: int) -> list[Element]:
+    return _leaves_in_document_order(depth)[::-1]
+
+
+def _leaves_in_scattered_order(depth: int) -> list[Element]:
+    leaves: Final = _leaves_in_document_order(depth)
+    return [leaves[index * 7919 % depth] for index in range(depth)]
+
+
+def _alternating_branches(depth: int) -> list[Element]:
+    branch: Final = f"{'<d>' * depth}{{}}{'</d>' * depth}"
+    return list(parse_xml(f"<r>{branch.format('<b/>')}{branch.format('<i/>')}</r>").select("b, i")) * (depth // 2)
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [
+        pytest.param(_leaves_in_document_order, id="document-order"),
+        pytest.param(_leaves_in_reverse_order, id="reverse-order"),
+        pytest.param(_leaves_in_scattered_order, id="scattered-order"),
+        pytest.param(_alternating_branches, id="alternating-branches"),
+    ],
+)
+def test_computed_style_below_a_deep_chain_is_linear(
+    calls: Callable[[int], list[Element]], work_steps: WorkSteps
+) -> None:
+    def walk(depth: int) -> Callable[[], object]:
+        nodes: Final = calls(depth)
+        return lambda: [computed_style(node) for node in nodes]
+
+    work_steps.assert_linear(walk, (1500, 5000))
+
+
+def test_computed_style_in_scattered_order_matches_document_order() -> None:
+    def styled(level: int) -> str:
+        return f' style="color:c{level};width:{level}px"' if level % 7 == 0 else ""
+
+    def leaf(level: int) -> str:
+        return ' style="color:initial;width:inherit"' if level % 5 == 0 else ' style="width:inherit"'
+
+    levels: Final = 1300
+    source: Final = "".join(f"<d{styled(level)}><b{leaf(level)}/>" for level in range(levels)) + "</d>" * levels
+    walked: Final = [_style_items(node) for node in parse_xml(source).select("d, b")]
+    nodes: Final = parse_xml(source).select("d, b")
+    scattered: Final = {
+        index: _style_items(nodes[index]) for index in (step * 7919 % len(nodes) for step in range(len(nodes)))
+    }
+    assert [scattered[index] for index in range(len(nodes))] == walked
+
+
+def _style_items(node: Element) -> list[tuple[str, str]]:
+    style: Final = computed_style(node)
+    return [(name, style[name]) for name in style]
+
+
+def test_computed_style_returns_to_an_element_whose_style_escapes_a_backslash() -> None:
+    document: Final = parse_xml(r'<r><s style="\5c 63olor:red"><b/></s><i/></r>')
+    nodes: Final = document.select("b, i")
+    assert tuple(computed_style(nodes[index])["color"] for index in (0, 1, 0)) == ("canvastext",) * 3
+
+
+def test_computed_style_shares_an_inherited_value_down_a_deep_chain(retained_bytes: RetainedBytes) -> None:
+    depth: Final = 1200
+    color: Final = "x" * 100_000
+    nodes: Final = parse_xml(f'<d style="color:{color}">{"<d><b/>" * depth}{"</d>" * (depth + 1)}').select("b")
+    before: Final = retained_bytes()
+    for index in range(depth):
+        computed_style(nodes[index * 7919 % depth])
+    assert retained_bytes() - before < 8 * len(color) * 4
+
+
+def test_computed_style_detached_subtree_then_document() -> None:
+    document: Final = parse('<div style="color:red"><p style="color:blue"><b></b></p><i></i></div>')
+    inner: Final = document.select("b, i")
+    document.select("p")[0].extract()
+    assert tuple(computed_style(inner[index])["color"] for index in (0, 1, 0)) == ("blue", "red", "blue")
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param((1699, 300, 299, 1000, 1699), id="dropped-levels"),
+        pytest.param((1699, 512, 513, 1698, 0), id="kept-level"),
+        pytest.param((1100, 200, 1699, 700, 1699), id="half-dropped"),
+    ],
+)
+def test_computed_style_chain_deeper_than_the_cached_levels(order: tuple[int, ...]) -> None:
+    colors: Final = {0: "red", 250: "blue", 600: "green", 1300: "teal"}
+    opened: Final = "".join(f'<d style="color:{colors[level]}">' if level in colors else "<d>" for level in range(1700))
+    nodes: Final = parse_xml(opened + "</d>" * 1700).select("d")
+    expected: Final = tuple(colors[max(styled for styled in colors if styled <= level)] for level in order)
+    assert tuple(computed_style(nodes[level])["color"] for level in order) == expected
 
 
 @pytest.mark.parametrize(

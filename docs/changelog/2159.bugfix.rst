@@ -1,0 +1,2 @@
+``XMLSchema`` and ``RelaxNG`` validation now rejects text outside the lexical forms of the ``ID``, ``IDREF``,
+``ENTITY``, ``NOTATION`` and ``g*`` date built-in types instead of accepting any value.

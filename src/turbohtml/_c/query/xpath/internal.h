@@ -65,15 +65,18 @@ enum xp_test {
 };
 
 typedef struct {
-    uint8_t kind;     /* enum xn_kind */
-    uint8_t axis;     /* enum xp_axis (XN_STEP) */
-    uint8_t test;     /* enum xp_test (XN_STEP) */
-    uint8_t absolute; /* XN_PATH: a leading / was present */
-    int32_t first;    /* first child / operand */
-    int32_t second;   /* second child */
-    int32_t next;     /* sibling chain: steps, predicates, args */
-    double num;       /* XN_NUM */
-    Py_UCS4 *str;     /* owned name/literal; NULL when none */
+    uint8_t kind;       /* enum xn_kind */
+    uint8_t axis;       /* enum xp_axis (XN_STEP) */
+    uint8_t test;       /* enum xp_test (XN_STEP) */
+    uint8_t absolute;   /* XN_PATH: a leading / was present */
+    uint8_t positional; /* XN_STEP and XN_PRED: a predicate may depend on the context's position, see parser.c;
+                           inside an offset formula, the expression reads position() */
+    uint8_t offsets;    /* XN_STEP: its positional predicates read offsets into shared walks (offset_formula) */
+    int32_t first;      /* first child / operand */
+    int32_t second;     /* second child */
+    int32_t next;       /* sibling chain: steps, predicates, args */
+    double num;         /* XN_NUM */
+    Py_UCS4 *str;       /* owned name/literal; NULL when none */
     Py_ssize_t str_len;
     Py_ssize_t prefix_len; /* NT_NAME: length of the "prefix" before the ':' in str, else 0 */
 } xn;
@@ -172,6 +175,10 @@ int xp_name_eq(const lexer *lx, const char *kw);
    levels, fewer than a predicate inside a predicate or the class test css_to_xpath
    writes takes, and 64 levels already fire on an expression of a hundred characters. */
 #define XP_MAX_DEPTH 64
+
+/* How deep a position test may nest for the evaluator to work it out from the size of a context's stretch alone
+   (offset_formula in parser.c, view_positions in eval.c). */
+#define XP_OFFSET_DEPTH 8
 
 /* What the evaluator charges on top of the level eval_expr counts. A function call
    keeps its frame under its arguments and a location path its step state under its
@@ -350,6 +357,7 @@ static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ct
 int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
+int xp_pattern_reads_call(const xp_program *prog);
 int xp_step_reads_position(const xp_program *prog, int32_t step_index);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
 
