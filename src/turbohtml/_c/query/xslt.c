@@ -5088,30 +5088,73 @@ static int number_any(engine *eng, th_node *target, xslt_number_site *site, cons
     return 0;
 }
 
-/* level="multiple": one number per counted ancestor-or-self, outermost first, bounded by the nearest from ancestor. */
-static int number_multiple(engine *eng, xslt_number_site *site, th_node *start, const match_set *count_matches,
-                           int have_count, const match_set *from_matches, int have_from, long *values,
-                           Py_ssize_t *nvalues) {
-    th_node *chain[64];
-    Py_ssize_t depth = 0;
-    for (th_node *node = start; node != NULL; node = node->parent) {
-        /* A count chain deeper than the fixed buffer cannot arise from a real document. */
-        if (depth == 64) { /* GCOVR_EXCL_BR_LINE: overflow guard for the chain buffer */
-            break;         /* GCOVR_EXCL_LINE */
+/* The numbers of one xsl:number instruction, outermost first. The stack array holds the usual count chain; a deeper
+   chain moves the numbers to the heap, so no chain length is capped. */
+typedef struct {
+    long *data;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+    long stack[64];
+} number_values;
+
+static void number_values_init(number_values *values) {
+    values->data = values->stack;
+    values->len = 0;
+    values->cap = Py_ARRAY_LENGTH(values->stack);
+}
+
+static void number_values_free(number_values *values) {
+    if (values->data != values->stack) {
+        PyMem_Free(values->data);
+    }
+}
+
+/* Returns -1 on allocation failure. */
+static int number_values_push(number_values *values, long value) {
+    if (values->len == values->cap) {
+        size_t cap;
+        size_t bytes;
+        const int fits = th_grow_cap((size_t)values->len + 1, (size_t)values->cap, Py_ARRAY_LENGTH(values->stack),
+                                     sizeof(long), &cap, &bytes);
+        if (!fits) {   /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            return -1; /* GCOVR_EXCL_LINE */
         }
+        long *grown = PyMem_Malloc(bytes);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        memcpy(grown, values->data, (size_t)values->len * sizeof(long));
+        number_values_free(values);
+        values->data = grown;
+        values->cap = (Py_ssize_t)cap;
+    }
+    values->data[values->len++] = value;
+    return 0;
+}
+
+/* level="multiple": one number per counted ancestor-or-self, outermost first, bounded by the nearest from ancestor.
+   The walk runs innermost first, so its numbers are reversed in place once the chain ends. */
+static int number_multiple(engine *eng, xslt_number_site *site, th_node *start, const match_set *count_matches,
+                           int have_count, const match_set *from_matches, int have_from, number_values *values) {
+    const Py_ssize_t first = values->len;
+    for (th_node *node = start; node != NULL; node = node->parent) {
         if (have_from && match_set_has(from_matches, node, -1)) {
             break;
         }
         if (number_counts(eng, count_matches, have_count, node)) {
-            chain[depth++] = node;
+            const long value = level_number(eng, site, count_matches, have_count, node);
+            if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;   /* GCOVR_EXCL_LINE */
+            }
+            if (number_values_push(values, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                               /* GCOVR_EXCL_LINE */
+            }
         }
     }
-    for (Py_ssize_t index = depth - 1; index >= 0; index--) {
-        const long value = level_number(eng, site, count_matches, have_count, chain[index]);
-        if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;   /* GCOVR_EXCL_LINE */
-        }
-        values[(*nvalues)++] = value;
+    for (Py_ssize_t low = first, high = values->len - 1; low < high; low++, high--) {
+        const long swap = values->data[low];
+        values->data[low] = values->data[high];
+        values->data[high] = swap;
     }
     return 0;
 }
@@ -5135,8 +5178,8 @@ static th_node *number_single(engine *eng, th_node *start, const match_set *coun
    and the preceding axis holds no attribute or namespace nodes, so the item counts itself and the walks resume at its
    owner element. A default count matches only nodes of the item's own type, which no element is, so it never walks. */
 static int number_attribute(engine *eng, xslt_number_site *site, const match_set *count_matches, int have_count,
-                            const match_set *from_matches, int have_from, int any, int multiple, long *values,
-                            Py_ssize_t *nvalues) {
+                            const match_set *from_matches, int have_from, int any, int multiple,
+                            number_values *values) {
     th_node *owner = eng->cur_node;
     const int self_from = have_from && match_set_has(from_matches, owner, eng->cur_attr);
     const int self_counts = !have_count || match_set_has(count_matches, owner, eng->cur_attr);
@@ -5151,7 +5194,9 @@ static int number_attribute(engine *eng, xslt_number_site *site, const match_set
             }
             counter += walked;
         }
-        values[(*nvalues)++] = counter;
+        if (number_values_push(values, counter) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                 /* GCOVR_EXCL_LINE */
+        }
         return 0;
     }
     if (self_from) {
@@ -5160,18 +5205,22 @@ static int number_attribute(engine *eng, xslt_number_site *site, const match_set
     if (multiple) {
         if (have_count) {
             const int status =
-                number_multiple(eng, site, owner, count_matches, have_count, from_matches, have_from, values, nvalues);
+                number_multiple(eng, site, owner, count_matches, have_count, from_matches, have_from, values);
             if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 return -1;    /* GCOVR_EXCL_LINE */
             }
         }
         if (self_counts) {
-            values[(*nvalues)++] = 1;
+            if (number_values_push(values, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                           /* GCOVR_EXCL_LINE */
+            }
         }
         return 0;
     }
     if (self_counts) {
-        values[(*nvalues)++] = 1;
+        if (number_values_push(values, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                           /* GCOVR_EXCL_LINE */
+        }
         return 0;
     }
     th_node *target = number_single(eng, owner, count_matches, have_count, from_matches, have_from);
@@ -5180,14 +5229,16 @@ static int number_attribute(engine *eng, xslt_number_site *site, const match_set
         if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;   /* GCOVR_EXCL_LINE */
         }
-        values[(*nvalues)++] = value;
+        if (number_values_push(values, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                               /* GCOVR_EXCL_LINE */
+        }
     }
     return 0;
 }
 
 /* The numbers xsl:number counts from the source tree when it has no value attribute, per its count, from and level
    attributes. Appends to values and returns -1 on failure. */
-static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssize_t *nvalues) {
+static int count_numbers(engine *eng, th_node *instruction, number_values *values) {
     match_set count_set = {0};
     match_set from_set = {0};
     const match_set *count_matches = &count_set;
@@ -5225,8 +5276,8 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
     const int any = level != NULL && ucs4_ascii_eq(level, level_len, "any");
     const int multiple = level != NULL && ucs4_ascii_eq(level, level_len, "multiple");
     if (xp_is_attribute(eng->cur_attr)) {
-        const int status = number_attribute(eng, site, count_matches, have_count, from_matches, have_from, any,
-                                            multiple, values, nvalues);
+        const int status =
+            number_attribute(eng, site, count_matches, have_count, from_matches, have_from, any, multiple, values);
         if (status < 0) {               /* GCOVR_EXCL_BR_LINE: allocation failure */
             match_set_free(&count_set); /* GCOVR_EXCL_LINE */
             match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
@@ -5249,10 +5300,14 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
         if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;    /* GCOVR_EXCL_LINE */
         }
-        values[(*nvalues)++] = counter;
+        if (number_values_push(values, counter) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            match_set_free(&count_set);                /* GCOVR_EXCL_LINE */
+            match_set_free(&from_set);                 /* GCOVR_EXCL_LINE */
+            return -1;                                 /* GCOVR_EXCL_LINE */
+        }
     } else if (multiple) {
-        const int status = number_multiple(eng, site, eng->cur_node, count_matches, have_count, from_matches, have_from,
-                                           values, nvalues);
+        const int status =
+            number_multiple(eng, site, eng->cur_node, count_matches, have_count, from_matches, have_from, values);
         if (status < 0) {               /* GCOVR_EXCL_BR_LINE: allocation failure */
             match_set_free(&count_set); /* GCOVR_EXCL_LINE */
             match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
@@ -5267,7 +5322,11 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
                 match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
                 return -1;                  /* GCOVR_EXCL_LINE */
             }
-            values[(*nvalues)++] = value;
+            if (number_values_push(values, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                match_set_free(&count_set);              /* GCOVR_EXCL_LINE */
+                match_set_free(&from_set);               /* GCOVR_EXCL_LINE */
+                return -1;                               /* GCOVR_EXCL_LINE */
+            }
         }
     }
     match_set_free(&count_set);
@@ -5276,8 +5335,8 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
 }
 
 TH_NOINLINE static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
-    long values[64];
-    Py_ssize_t nvalues = 0;
+    number_values values;
+    number_values_init(&values);
     Py_ssize_t value_len = 0;
     const Py_UCS4 *value_expr = number_attr(eng, instruction, TH_ATTR_VALUE, "value", &value_len);
     if (value_expr != NULL) {
@@ -5302,8 +5361,9 @@ TH_NOINLINE static int do_number(engine *eng, th_node *instruction, th_node *out
         if (!(value >= 0.5 && rounded < -(double)LONG_MIN)) {
             return emit_out_of_range_value(eng, instruction, out_parent, value, rounded);
         }
-        values[nvalues++] = (long)rounded;
-    } else if (count_numbers(eng, instruction, values, &nvalues) < 0) {
+        values.stack[values.len++] = (long)rounded;
+    } else if (count_numbers(eng, instruction, &values) < 0) {
+        number_values_free(&values);
         return -1;
     }
     Py_ssize_t format_len = 0;
@@ -5316,7 +5376,8 @@ TH_NOINLINE static int do_number(engine *eng, th_node *instruction, th_node *out
         number_attr(eng, instruction, eng->number_attrs.grouping_size, "grouping-size", &gsize_len);
     long gsize = gsize_text != NULL ? parse_grouping_size(gsize_text, gsize_len) : 0;
     xb buffer = {0};
-    int formatted = format_multi(&buffer, format, format_len, values, nvalues, gsep, gsep_len, gsize);
+    int formatted = format_multi(&buffer, format, format_len, values.data, values.len, gsep, gsep_len, gsize);
+    number_values_free(&values);
     if (formatted < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
