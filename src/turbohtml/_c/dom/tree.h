@@ -598,9 +598,11 @@ uint64_t th_tree_attr_version(const th_tree *tree);
 /* Moves on every write or delete of an id attribute and on every edit that can add, drop or reorder the tree's
    elements, so a cache of the tree's elements by id holds while it stands. */
 uint64_t th_tree_id_version(const th_tree *tree);
-/* Bump th_tree_id_version, and th_tree_attr_version with it, for an edit to the tree's elements. Every structural
-   mutator calls it through handle_drop_index. It shares the id counter because th_tree has no room for another one
-   within pymalloc's 512-byte small-object limit. */
+/* Bump th_tree_id_version for an edit to the tree's elements. Every structural mutator calls it through
+   handle_drop_index, and nothing else does, so the id version runs ahead of th_tree_attr_version by at most the
+   handle's mutation_version. It shares the id counter because th_tree has no room for another one within pymalloc's
+   512-byte small-object limit, and leaves the attribute version alone so the caches keyed on it, such as lang()'s,
+   outlive a structural edit. */
 void th_tree_note_element_edit(th_tree *tree);
 /* Whether the handle's slot cache still matches the slot attributes: set when the cache starts, cleared by an attribute
    edit that changes slot assignment (see th_tree.slot_cache_valid). */

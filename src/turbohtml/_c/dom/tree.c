@@ -319,7 +319,6 @@ uint64_t th_tree_id_version(const th_tree *tree) {
 
 void th_tree_note_element_edit(th_tree *tree) {
     tree->id_version++;
-    tree->attr_version++;
 }
 
 int th_tree_slot_cache_valid(const th_tree *tree) {
