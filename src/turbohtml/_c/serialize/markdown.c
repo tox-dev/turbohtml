@@ -740,7 +740,10 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
         marker->open_len = ctx->out.len - marker->open_at;
         marker->emitted = 1;
         ctx->open_markers++;
-        ctx->line_has_content = 1;
+        /* an empty delimiter writes nothing, so the next character still starts the line */
+        if (marker->open_len > 0) {
+            ctx->line_has_content = 1;
+        }
     }
 }
 
@@ -4691,6 +4694,48 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
     }
 }
 
+/* The setext heading that has written none of its text yet, or NULL. The innermost heading is the one being written,
+   unless a converter inside it renders into a buffer of its own. */
+static md_frame *md_unstarted_setext(md_ctx *ctx) {
+    for (Py_ssize_t index = ctx->frame_count; index-- > 0;) { /* GCOVR_EXCL_BR_LINE: in_heading has a frame */
+        md_frame *frame = &ctx->frames[index];
+        if (frame->leave == MD_LEAVE_SETEXT && frame->heading.mark == ctx->out.len) {
+            return frame;
+        }
+        if (frame->leave == MD_LEAVE_SETEXT || frame->leave == MD_LEAVE_ATX || frame->leave == MD_LEAVE_CONVERT) {
+            break;
+        }
+    }
+    return NULL;
+}
+
+/* Get ready to write the <pre> of md_render_whitespace inside a line. A line that starts with <pre is an HTML block
+   (CommonMark 4.6, start condition 1): it interrupts a paragraph and takes its whole line as raw HTML, the escaped
+   text after </pre> included. So the tag never opens a line: the space owed before it is not traded for a wrap break,
+   a setext heading that would start with the tag is written as an ATX one, as an empty one is, and a hard break just
+   written is spelled <br> and the line goes on, as in a cell. A heading holds no hard break, and a cell or converter
+   starts with no record, so a break written to another output never matches. */
+static void md_before_inline_pre(md_ctx *ctx) {
+    ctx->no_wrap++;
+    md_before_visible(ctx);
+    ctx->no_wrap--;
+    if (ctx->in_heading) {
+        md_frame *heading = md_unstarted_setext(ctx);
+        if (heading != NULL) {
+            for (int index = 0; index < heading->heading.level; index++) {
+                sbuf_putc(&ctx->out, '#');
+            }
+            sbuf_putc(&ctx->out, ' ');
+            heading->heading.mark = ctx->out.len;
+            heading->leave = MD_LEAVE_ATX;
+        }
+    } else if (ctx->out.len == ctx->break_end) {
+        ctx->out.len = ctx->break_start;
+        ctx->break_end = -1; /* the record is spent: what is written next may reach its old end again */
+        sbuf_puts(&ctx->out, "<br>");
+    }
+}
+
 static int md_render_whitespace(md_ctx *ctx, th_node *node, int inherited) {
     int mode = md_css_whitespace(ctx, node, inherited);
     if (mode == TH_WS_NORMAL || is_md_skipped(node)) {
@@ -4772,7 +4817,7 @@ done:
     }
     ctx->out.failed |= text.failed;
     if (ctx->in_cell || ctx->inline_only || ctx->in_heading) {
-        md_before_visible(ctx);
+        md_before_inline_pre(ctx);
         sbuf_puts(&ctx->out, "<pre>");
         for (Py_ssize_t index = 0; index < text.len; index++) {
             Py_UCS4 character = text.data[index];
