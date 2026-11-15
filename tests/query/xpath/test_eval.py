@@ -203,12 +203,9 @@ def test_absolute_path_follows_a_context_node_moved_mid_evaluation() -> None:
     ],
 )
 def test_absolute_path_in_a_predicate_over_a_deep_tree_stays_linear(expression: str, work_steps: WorkSteps) -> None:
-    def unused(_context: SimpleNamespace) -> bool:
-        return True
-
     def build(size: int) -> Callable[[], object]:
         document: Final = parse_xml("<e>" * size + "</e>" * size)
-        return lambda: document.xpath(expression, extensions={(None, "unused"): unused})
+        return lambda: document.xpath(expression, extensions={(None, "unused"): lambda _context: True})
 
     work_steps.assert_linear(build, (1000, 4000))
 
