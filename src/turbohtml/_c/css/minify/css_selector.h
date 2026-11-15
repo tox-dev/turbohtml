@@ -1,6 +1,8 @@
 #ifndef TURBOHTML_CSS_SELECTOR_H
 #define TURBOHTML_CSS_SELECTOR_H
 
+#include "core/hash_limits.h"
+
 /* The four pseudo-elements CSS Pseudo-Elements 4 §2 lets a selector spell with one colon (the legacy form) as well as
    two, with identical specificity and match; `::before` -> `:before` etc. saves a byte. */
 static int css_is_legacy_pseudo_element(const css_token *token) {

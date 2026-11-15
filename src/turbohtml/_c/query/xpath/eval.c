@@ -2474,7 +2474,8 @@ static Py_ssize_t first_passing(const xp_hop *hops, int count, Py_ssize_t size, 
 /* The positions whose chain value compares to bound under op. The value only rises or only falls with the position,
    so the positions below, equal to and above bound are three runs, which two searches find. */
 static int compare_spans(const xp_hop *hops, int count, Py_ssize_t size, int op, double bound, xp_spans *out) {
-    if (isnan(bound)) {
+    int nan_bound = isnan(bound);
+    if (nan_bound) {
 #ifdef XP_EQ_VIA_PYTHON
         return 0;
 #else
@@ -2538,7 +2539,8 @@ static int collect_hops(const xp_program *prog, int32_t index, xp_ctx *pctx, xp_
         }
         double operand = to_number(pctx->tree, &value);
         xp_result_free(&value);
-        if (!isfinite(operand) || ((node->kind == XN_MUL || node->kind == XN_DIV) && operand == 0)) {
+        int finite = isfinite(operand);
+        if (!finite || ((node->kind == XN_MUL || node->kind == XN_DIV) && operand == 0)) {
             return 1;
         }
         hops[(*count)++] = (xp_hop){(uint8_t)node->kind, (uint8_t)right, operand};
@@ -2698,8 +2700,10 @@ static int each_filter(xp_overlap *state, Py_ssize_t before) {
         rc = filter_slice(state->prog, state->step->first, state->ctx, following, before, state->accepted);
     }
     if (rc == 0 && drop_repeats(following, before, state->seen) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        rc = -1;                                                       /* GCOVR_EXCL_LINE */
+        /* GCOVR_EXCL_START: allocation-failure path */
+        rc = -1; /* GCOVR_EXCL_LINE */
     }
+    /* GCOVR_EXCL_STOP */
     return rc;
 }
 
@@ -3244,8 +3248,10 @@ static int preceding_views(xp_overlap *state, const xp_nodeset *contexts, xp_nod
         ahead = PyMem_Malloc(((size_t)seq.len + 1) * sizeof(Py_ssize_t));
         marks = PyMem_Calloc((size_t)seq.len + 2, sizeof(Py_ssize_t));
         if (rc == 0 && (keep == NULL || ahead == NULL || marks == NULL)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            rc = -1;                                                       /* GCOVR_EXCL_LINE */
+            /* GCOVR_EXCL_START: allocation-failure path */
+            rc = -1; /* GCOVR_EXCL_LINE */
         }
+        /* GCOVR_EXCL_STOP */
         for (Py_ssize_t d = 0; rc == 0 && d < seq.len; d++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             keep[d] = ended.items[d] < index - first;
             ended.items[d] = 0; /* from here on: the runs that cover the node but not its context's stretch */

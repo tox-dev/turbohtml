@@ -2039,8 +2039,9 @@ CSS_NOINLINE static void css_join_stray(css_buf *out, int prev_stray, const css_
         /* the `;` or `}` that kept the spelling pass from closing this hex escape is gone, so the next pass does */
         cbuf_putc(out, ' ');
     }
+    int joins = prev_stray || css_join_respells(out->data, out->len, text, text_len);
     if ((prev_stray && css_joins_comment_delim(out->data, out->len, text, text_len)) ||
-        ((prev_stray || css_join_respells(out->data, out->len, text, text_len)) &&
+        (joins &&
          css_would_merge_escaped(out->data, out->len, css_ends_in_name(out->data, out->len), text, text_len)) ||
         ((css_ends_in_name(out->data, out->len) || css_is_ident(out->data[out->len - 1])) &&
          css_opens_function(text, text_len))) {

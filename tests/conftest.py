@@ -31,6 +31,7 @@ def wpt_html_tree_corpus() -> WptHtmlTreeCorpus:
     return load_wpt_html_tree()
 
 
+@pytest.hookimpl(trylast=True)  # after the session-scoped fixtures tear down, still before xdist's workerfinished
 def pytest_sessionfinish(session: pytest.Session) -> None:
     # Fail the run if a C extension silently re-enabled the GIL on a free-threaded build.
     #
@@ -41,6 +42,10 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         sys._is_gil_enabled()  # ruff:ignore[private-member-access]  # CPython GIL API
     ):
         session.exitstatus = 1
+    # Write the C coverage counters before xdist reports this worker finished: the controller SIGKILLs a worker
+    # still exiting 10 s after teardown, and gcov otherwise writes only at exit.
+    if (flush := getattr(_html, "_coverage_flush", None)) is not None:  # pragma: no cover  # -Db_coverage=true only
+        flush()
 
 
 @pytest.fixture(params=[1, 2, 4], ids=["ucs1", "ucs2", "ucs4"])

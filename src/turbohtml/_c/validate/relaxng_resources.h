@@ -87,8 +87,10 @@ static PyObject *rng_join_base(rng_loader *loader, th_node *node, const th_node_
             PyObject *pair = PyTuple_Pack(2, parent_uri, joined);
             /* GCOVR_EXCL_BR_START: the pair and its dict entry fail only on allocation */
             if (pair == NULL || PyDict_SetItem(loader->bases, key, pair) < 0) {
+                /* GCOVR_EXCL_START: the pair and its dict entry fail only on allocation */
                 Py_CLEAR(joined); /* GCOVR_EXCL_LINE */
             }
+            /* GCOVR_EXCL_STOP */
             /* GCOVR_EXCL_BR_STOP */
             Py_XDECREF(pair);
         }

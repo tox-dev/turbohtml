@@ -888,6 +888,13 @@ def test_positional_self_step_from_attributes_with_an_unbound_variable_raises(st
         parse(_NESTED_HTML).xpath(f"//@k/{step}{predicates}")
 
 
+def test_ancestor_or_self_attribute_predicate_error_raises() -> None:
+    # the attribute item is judged after the element path, so a predicate that fails only there must still raise
+    document = parse('<p a="1" b="200000">1</p>')
+    with pytest.raises(ValueError, match="str:padding length 200000 exceeds"):
+        document.xpath("//p/@*/ancestor-or-self::node()[boolean(str:padding(number(.)))][position() < 2]")
+
+
 @pytest.mark.parametrize(
     "expression",
     [

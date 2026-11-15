@@ -3576,6 +3576,38 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
     assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
 
 
+def test_rng_routed_chain_on_small_thread_stack_raises_or_validates() -> None:
+    # the wide choice costs its event more than the free steps, so the next event builds the routes from the root, one
+    # build per chained define; a 100-define chain overruns a 32 KiB thread, so the build reaches the stack floor
+    result: Final = _run_on_small_stack(_routed_chain(100), "<root><w5/><leaf/></root>", stack_kib=32)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout in {"True\n", "RecursionError\n"}, result.stderr
+
+
+def _routed_chain(depth: int) -> str:
+    wide = "".join(f'<element name="w{k}"><empty/></element>' for k in range(100))
+    defs = [f'<define name="wide"><choice>{wide}</choice></define>']
+    for index in range(depth):
+        defs.extend((
+            f'<define name="d{index}" combine="choice"><ref name="d{index + 1}"/></define>',
+            f'<define name="d{index}" combine="choice"><element name="x{index}"><empty/></element></define>',
+        ))
+    defs.append(f'<define name="d{depth}"><element name="leaf"><empty/></element></define>')
+    start = '<start><element name="root"><group><ref name="wide"/><ref name="d0"/></group></element></start>'
+    return grammar(start + "".join(defs))
+
+
+def test_rng_small_schema_nested_places_raise() -> None:
+    schema = RelaxNG(
+        grammar(
+            '<start><ref name="x"/></start><define name="x"><element name="a">'
+            '<zeroOrMore><ref name="x"/></zeroOrMore><zeroOrMore><ref name="x"/></zeroOrMore></element></define>'
+        )
+    )
+    with pytest.raises(ValueError, match="too ambiguous"):
+        schema.validate(parse_xml("<a>" * 12 + "</a>" * 12))
+
+
 @cache
 def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
     # every nesting depth from 1 to the cap runs the start-tag walk down the repeat nest on the smallest stack the
@@ -3683,9 +3715,17 @@ def _repeat_check_unreachable() -> bool:
     return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
 
 
+def _pypy_interpreter_overruns_stack() -> bool:
+    # PyPy's json encoder recurses in its own interpreter, whose frames no turbohtml floor bounds: on the thread the
+    # sweep starts with, the interpreter's frames fill the stack before the first validation check, and the process
+    # dies in turbohtml's entry point. CPython's interpreter keeps no such frames, so there a crash stays a failure
+    return sys.implementation.name == "pypy" and _repeat_check_sweep().returncode < 0
+
+
 @pytest.mark.skipif(
-    _repeat_check_unreachable(),
-    reason="this platform never reaches the repeat check with the json sweep; the C coverage gate runs elsewhere",
+    _pypy_interpreter_overruns_stack() or _repeat_check_unreachable(),
+    reason="this platform never reaches the repeat check with the json sweep, or PyPy's interpreter overruns the "
+    "thread stack first; the C coverage gate runs elsewhere",
 )
 def test_rng_repeat_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
     # the sweep is the parent-side probe above: where it completes without RecursionError the test is skipped, and

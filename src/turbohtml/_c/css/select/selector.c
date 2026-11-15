@@ -1141,7 +1141,7 @@ static int sel_alts_climb(const sel_complex *alts, int count, int relative) {
         int walked_from = 0; /* the compounds left of this one are tested along a walk */
         for (int index = 0; index < complex->count; index++) {
             if (complex->compounds[index].combinator == ' ' && (index > 0 || relative)) {
-                climbs = climbs > 1 ? climbs : 1;
+                climbs = 1; /* climbs is 0 or 1 here: the loop below returns 2 for any deeper walk */
                 walked_from = index;
             }
         }

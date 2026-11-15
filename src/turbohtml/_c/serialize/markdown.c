@@ -4264,11 +4264,13 @@ static Py_ssize_t md_root_item_number(md_ctx *ctx, md_ordinal_cache *cache, th_n
     Py_ssize_t number = from != NULL ? ~th_node_map_find(passed, from) : md_list_number_attr(ctx, list, "start", 1);
     int failed = md_list_number_before(ctx, list, from, node, &number, passed) < 0;
     failed |= th_node_map_insert(&cache->map, node, ~number) < 0;
-    if (failed) {                         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        /* GCOVR_EXCL_START: allocation-failure path */
         th_markdown_ordinals_free(cache); /* GCOVR_EXCL_LINE: allocation-failure path */
         *ctx->ordinals = NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
         ctx->out.failed = 1;              /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
     return number;
 }
 
@@ -4285,8 +4287,10 @@ static int md_is_item_wrapper_cached(md_ctx *ctx, th_node *node) {
     }
     int wrapper = md_is_item_wrapper(node);
     if (th_node_map_insert(&cache->wrappers, node, wrapper ? 1 : 2) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        /* GCOVR_EXCL_START: allocation-failure path */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
     return wrapper;
 }
 

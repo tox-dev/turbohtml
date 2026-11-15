@@ -329,6 +329,14 @@ def test_whitespace_in_content_is_preserved() -> None:
     assert node.canonicalize() == b"<a> x <b></b> y </a>"
 
 
+def test_long_namespace_uris_canonicalize_in_any_declaration_order() -> None:
+    uri_x = f"urn:{'x' * 129}"
+    uri_y = f"urn:{'y' * 130}"
+    first = parse_xml(f'<svg xmlns:a="{uri_x}" xmlns:b="{uri_y}"><g a:p="1" b:q="2"/></svg>')
+    second = parse_xml(f'<svg xmlns:b="{uri_y}" xmlns:a="{uri_x}"><g b:q="2" a:p="1"/></svg>')
+    assert first.canonicalize() == second.canonicalize()
+
+
 def test_exclusive_drops_unused_ancestor_namespace() -> None:
     node = _one("<svg xlink:href=x><g><rect/></g></svg>", "g")
     assert node.canonicalize(Canonical(exclusive=True)) == b'<g xmlns="http://www.w3.org/2000/svg"><rect></rect></g>'

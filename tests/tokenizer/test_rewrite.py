@@ -1870,6 +1870,106 @@ def test_rewrite_cdata_section_in_foreign_content(source: str, tags: list[str], 
     assert _seen(source) == tags
 
 
+@pytest.mark.parametrize(
+    ("source", "tag", "after", "before", "prefixed"),
+    [
+        pytest.param(
+            "<svg><title>a&amp;b</title></svg>",
+            "title",
+            "<svg><title>a&amp;b</title>+</svg>",
+            "<svg>+<title>a&amp;b</title></svg>",
+            "<svg><title>&lt;a&lt;&amp;&lt;b</title></svg>",
+            id="svg-title",
+        ),
+        pytest.param(
+            "<svg><style>&amp;x</style></svg>",
+            "style",
+            "<svg><style>&amp;x</style>+</svg>",
+            "<svg>+<style>&amp;x</style></svg>",
+            "<svg><style>&lt;&amp;&lt;x</style></svg>",
+            id="svg-style",
+        ),
+        pytest.param(
+            "<svg><desc>a &amp; b</desc></svg>",
+            "desc",
+            "<svg><desc>a &amp; b</desc>+</svg>",
+            "<svg>+<desc>a &amp; b</desc></svg>",
+            "<svg><desc>&lt;a &lt;&amp;&lt; b</desc></svg>",
+            id="svg-desc",
+        ),
+        pytest.param(
+            "<math><mi>&amp;</mi></math>",
+            "mi",
+            "<math><mi>&amp;</mi>+</math>",
+            "<math>+<mi>&amp;</mi></math>",
+            "<math><mi>&lt;&amp;</mi></math>",
+            id="math-mi",
+        ),
+        pytest.param(
+            "<svg><text>&amp;x</text></svg>",
+            "text",
+            "<svg><text>&amp;x</text>+</svg>",
+            "<svg>+<text>&amp;x</text></svg>",
+            "<svg><text>&lt;&amp;&lt;x</text></svg>",
+            id="svg-text",
+        ),
+        pytest.param(
+            "<svg><title>x<b>&amp;</b></title></svg>",
+            "b",
+            "<svg><title>x<b>&amp;</b>+</title></svg>",
+            "<svg><title>x+<b>&amp;</b></title></svg>",
+            "<svg><title>&lt;x<b>&lt;&amp;</b></title></svg>",
+            id="html-bold-in-svg-title",
+        ),
+        pytest.param(
+            "<svg><foreignObject><textarea>&amp;</textarea></foreignObject></svg>",
+            "textarea",
+            "<svg><foreignObject><textarea>&amp;</textarea>+</foreignObject></svg>",
+            "<svg><foreignObject>+<textarea>&amp;</textarea></foreignObject></svg>",
+            "<svg><foreignObject><textarea>&lt;&amp;</textarea></foreignObject></svg>",
+            id="textarea-in-foreign-object",
+        ),
+        pytest.param(
+            "<svg><desc><p>&amp;</p></desc></svg>",
+            "p",
+            "<svg><desc><p>&amp;</p>+</desc></svg>",
+            "<svg><desc>+<p>&amp;</p></desc></svg>",
+            "<svg><desc><p>&lt;&amp;</p></desc></svg>",
+            id="html-in-svg",
+        ),
+    ],
+)
+def test_rewrite_character_reference_in_foreign_content_keeps_its_text(
+    source: str, tag: str, after: str, before: str, prefixed: str
+) -> None:
+    # a reference in foreign content is its own text token, so a text handler sees each piece on its own
+    assert rewrite(source, elements=[(tag, lambda element: element.after("+"))]) == after
+    assert (
+        rewrite(
+            source, elements=[(tag, lambda element: element.before("+"))], text=lambda text: text.set_text(text.text)
+        )
+        == before
+    )
+    assert rewrite(source, text=lambda text: text.set_text(f"<{text.text}")) == prefixed
+
+
+@pytest.mark.parametrize(
+    ("source", "texts"),
+    [
+        pytest.param("<svg><![CDATA[a]]></svg>", ["a"], id="section"),
+        pytest.param("<svg><![CDATA[a]]>b</svg>", ["a", "b"], id="section-then-text"),
+        pytest.param("<svg>y<![CDATA[z]]>w</svg>", ["y", "z", "w"], id="queued-run"),
+        pytest.param("<svg><![CDATA[a", ["a"], id="eof"),
+    ],
+)
+def test_rewrite_cdata_section_in_each_storage_width(width_prefix: str, source: str, texts: list[str]) -> None:
+    # the prefix sets the input's storage width, so each width's copy of the tokenizer reads the section
+    seen: list[str] = []
+    document = width_prefix + source
+    assert rewrite(document, text=lambda text: seen.append(text.text)) == document
+    assert seen == [text for text in (width_prefix, *texts) if text]
+
+
 def test_rewrite_cdata_section_text_is_escaped_when_rewritten() -> None:
     result = rewrite("<svg><![CDATA[<B>&]]></svg>", text=lambda text: text.set_text(text.text.lower()))
     assert result == "<svg>&lt;b&gt;&amp;</svg>"

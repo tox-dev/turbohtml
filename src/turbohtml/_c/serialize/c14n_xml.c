@@ -976,9 +976,11 @@ static void c14n_xml_subtree(sbuf *out, th_tree *tree, th_node *apex, const th_c
     }
     c14n_xml_scope_free(&scope);
     PyMem_Free(uris.items);
-    if (uris.failed) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (uris.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        /* GCOVR_EXCL_START: allocation-failure path */
         out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
 }
 
 static void c14n_xml_document(sbuf *out, th_tree *tree, th_node *doc, const th_c14n_opts *opts) {

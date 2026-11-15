@@ -413,6 +413,11 @@ char th_fuzz_schema_arena_overread(size_t size);
 PyObject *turbohtml_work_steps(PyObject *module, PyObject *ignored);
 #endif
 
+#ifdef TH_COVERAGE_FLUSH
+/* Implemented in core/coverage_flush.c: write this process's gcov counters to the .gcda files now and zero them. */
+PyObject *turbohtml_coverage_flush(PyObject *module, PyObject *ignored);
+#endif
+
 /* Implemented in validate/conformance.c, the HTML5 authoring-conformance checker behind
    turbohtml.conformance (issue #541). _conformance_check(node) walks a parsed document or
    subtree and returns (valid, findings), each finding a (code, severity, message, line,
