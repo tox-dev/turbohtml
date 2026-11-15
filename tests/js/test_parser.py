@@ -354,6 +354,7 @@ def test_nested_groups_are_matched_in_linear_steps(
         pytest.param("f((a)=>((b))=>b)", "f(a=>b=>b)", id="arrow-body-group"),
         pytest.param("x=((async(a)=>a))", "x=async a=>a", id="async-arrow-head"),
         pytest.param("x=(function(){return((a)=>a)})()", "x=function(){return a=>a}()", id="arrow-in-function"),
+        pytest.param("x=(/'/,(c)=>1,'(',(d)=>1)", "x=(/'/,c=>1,'(',d=>1)", id="regex-quote-hides-group-from-scan"),
     ],
 )
 def test_nested_groups_keep_their_arrow_heads(source: str, expected: str) -> None:
