@@ -395,6 +395,12 @@ static const th_encoding_entry *th_encoding_declared(const th_encoding_entry *en
     return entry;
 }
 
+/* A NUL kept in the buffer would end the C strings the prescan compares early, so a name or value could match a
+   shorter one. 0x7f occurs in no name, keyword or label, so such a declaration stops matching instead. */
+static char prescan_attribute_byte(unsigned char ch) {
+    return ch == '\0' ? (char)0x7f : (char)lower_ascii(ch);
+}
+
 /* WHATWG "get an attribute" over [*pos, end): on success fills name/value (each
    lowercased, NUL-terminated, truncated to its buffer) and returns 1. Returns 0
    when the element's attributes are exhausted or the input ends mid-attribute (an
@@ -437,7 +443,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
             break;
         }
         if (name_len < name_cap - 1) {
-            name[name_len++] = (char)lower_ascii(ch);
+            name[name_len++] = prescan_attribute_byte(ch);
         }
         at++;
     }
@@ -456,7 +462,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
         while (at < end && buf[at] != quote) {
             unsigned char ch = buf[at++];
             if (value_len < value_cap - 1) { /* GCOVR_EXCL_BR_LINE: value outgrows the 1024-byte window */
-                value[value_len++] = (char)lower_ascii(ch);
+                value[value_len++] = prescan_attribute_byte(ch);
             }
         }
         if (at >= end) { /* unterminated quoted value */
@@ -471,7 +477,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
         while (at < end && !is_attr_space(buf[at]) && buf[at] != '>') {
             unsigned char ch = buf[at++];
             if (value_len < value_cap - 1) { /* GCOVR_EXCL_BR_LINE: value outgrows the 1024-byte window */
-                value[value_len++] = (char)lower_ascii(ch);
+                value[value_len++] = prescan_attribute_byte(ch);
             }
         }
         if (at >= end) { /* unquoted value ran to the end of input */
