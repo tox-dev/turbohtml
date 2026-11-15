@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <string.h>
 
 #include <sys/stat.h>
@@ -120,7 +121,27 @@ static int resource_is_unc(PyObject *text) {
     return second == '\\' || second == '/';
 }
 
+/* Path.resolve, Path.is_relative_to and Path.relative_to each rebuild a string per component, so their cost is
+   quadratic in the length of a path an href sets; no system call accepts one longer than this. */
+#ifdef _WIN32
+#define RESOURCE_PATH_MAX 32767
+#elif defined(PATH_MAX)
+#define RESOURCE_PATH_MAX PATH_MAX
+#else
+#define RESOURCE_PATH_MAX 4096
+#endif
+
 PyObject *th_resource_resolve(PyObject *path) {
+    PyObject *text = PyObject_Str(path);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: pathlib.Path.__str__ only allocates */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t length = PyUnicode_GET_LENGTH(text);
+    Py_DECREF(text);
+    if (length > RESOURCE_PATH_MAX) {
+        errno = ENAMETOOLONG;
+        return PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+    }
     return PyObject_CallMethod(path, "resolve", NULL);
 }
 
@@ -491,9 +512,9 @@ int th_resource_policy_init(th_resource_policy *policy, const char *what, const 
         }
         policy->root = th_resource_resolve(root_path);
         Py_DECREF(root_path);
-        if (policy->root == NULL) {           /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
-            th_resource_policy_clear(policy); /* GCOVR_EXCL_LINE */
-            return -1;                        /* GCOVR_EXCL_LINE */
+        if (policy->root == NULL) {
+            th_resource_policy_clear(policy);
+            return -1;
         }
         if (resource_open_root(policy) < 0) {
             th_resource_policy_clear(policy);
