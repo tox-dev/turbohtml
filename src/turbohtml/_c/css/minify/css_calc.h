@@ -601,7 +601,7 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
         *out_off = off;
         *out_len = len;
     }
-    css_free(tokens.items);
+    css_token_vec_free(&tokens);
     cbuf_free(&call);
 }
 

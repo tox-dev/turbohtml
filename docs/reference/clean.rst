@@ -469,9 +469,10 @@ Shorthands
 Structure and selectors
 -----------------------
 
-- Collapse insignificant whitespace and strip comments, keeping a ``/*! … */`` bang comment (`Syntax 3 §3.3
+- Collapse insignificant whitespace and strip comments, keeping every ``/*! … */`` bang comment (`Syntax 3 §3.3
   <https://www.w3.org/TR/css-syntax-3/#input-preprocessing>`__). ``/*c*/a{color:red}`` → ``a{color:red}``, while ``/*!
-  keep */a{color:red}`` → ``/*!keep*/a{color:red}``.
+  keep */a{color:red}`` → ``/*!keep*/a{color:red}``. A bang comment inside a style rule or an at-rule prelude is written
+  after that rule, so ``a{color:red/*! k */;margin:0}`` → ``a{color:red;margin:0}/*! k */``.
 - Drop a declaration an identically-keyed later one overrides, remove an empty rule or an empty ``@media``/
   ``@supports``/``@container`` (an empty ``@layer`` or ``@keyframes`` is kept, since either is observable), merge two
   rules with the same selector or an identical body -- even across intervening rules, as long as each sets none of the

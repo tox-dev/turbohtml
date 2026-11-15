@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import random
 import re
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
@@ -2852,6 +2853,202 @@ def test_minify_css_top_level_statement(source: str, expected: str) -> None:
 @pytest.mark.parametrize(("source", "expected"), _TOP_LEVEL_STATEMENT)
 def test_minify_css_top_level_statement_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
+
+
+# A bang comment is a banner the output keeps, also inside a rule dropped as invalid: a bad token, or a stray `;` or `}`
+# before its block, makes the rule invalid.
+_DROPPED_RULE_BANG_COMMENT: Final[list[pytest.ParameterSet]] = [
+    pytest.param("x;/*! k */a{color:red}", "/*! k */", id="prelude-after-stray-text"),
+    pytest.param("}/*! k */a{color:red}", "/*! k */", id="prelude-after-brace"),
+    pytest.param("a{color:red}/*!a*/;/*!c*/b{color:blue}", "a{color:red}/*!a*//*!c*/", id="between-rules"),
+    pytest.param("/*!a*//*!b*/x;/*!c*//*!d*/a{}", "/*!a*//*!b*//*!c*//*!d*/", id="run-of-bang-comments"),
+    pytest.param("x;/*! k */a{x:1;/*! b */}", "/*! k *//*! b */", id="inside-block"),
+    pytest.param("x;/*c*/a{}/*! k */", "/*! k */", id="plain-comment-beside-bang"),
+    pytest.param("@import 'x';/*!a*/x;/*!c*/b{color:blue}", "@import'x';/*!a*//*!c*/", id="before-import"),
+    pytest.param('x "a\n/*! k */ {color:red}/*! z */', "/*! k *//*! z */", id="bad-string-prelude"),
+    pytest.param("x\\\n/*! k */ {color:red}", "/*! k */", id="bad-escape-prelude"),
+    pytest.param('@media s{x "a\n/*! k */ {color:red}}', "@media s{/*! k */}", id="bad-string-prelude-in-media"),
+    pytest.param("a{color:red}x;/*! c */b{color:blue}a{margin:0}", "a{color:red}/*! c */a{margin:0}", id="no-merge"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _DROPPED_RULE_BANG_COMMENT)
+def test_minify_css_dropped_rule_keeps_bang_comment(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _DROPPED_RULE_BANG_COMMENT)
+def test_minify_css_dropped_rule_keeps_bang_comment_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+# Random sheets for the bang-comment oracle. Bang comments go only between words, so every `/*!` in a sheet is a comment
+# and the output must hold as many. The words cover rules, at-rules, stray text, bad strings and declaration values.
+_BANG_TEXTS: Final[tuple[str, ...]] = ("/*! k */", "/*!a*/", "/*! multi\n * line */")
+_SHEET_WORDS: Final[tuple[str, ...]] = (
+    "a",
+    "b",
+    "ul",
+    ">",
+    "li",
+    ",",
+    ".x",
+    "#y",
+    "p:hover",
+    "{",
+    "}",
+    ";",
+    ":",
+    "color",
+    "margin",
+    "red",
+    "0",
+    "1px",
+    "x",
+    "@media",
+    "screen",
+    "@import",
+    '"a"',
+    "@font-face",
+    "@foo",
+    "<!--",
+    "-->",
+    '"a\n',
+    "@keyframes",
+    "from",
+    "to",
+    "calc(1px + 2px)",
+    "!important",
+    "(",
+    ")",
+    "[x]",
+    "@supports",
+    "@charset",
+    "@namespace",
+    "p",
+    "|",
+    "*",
+    "+",
+    "~",
+    "--x:",
+    "url(a.css)",
+    "var(--x)",
+    "url('b')",
+    "@page",
+    ":first",
+    "::before",
+    "@layer",
+    "@container",
+    "x(1)",
+)
+_INLINE_WORDS: Final[tuple[str, ...]] = (
+    "color",
+    ":",
+    "red",
+    ";",
+    "}",
+    "{",
+    "x",
+    "margin",
+    "0",
+    "calc(1px + 2px)",
+    "!important",
+    '"a"',
+    '"a\n',
+    "a",
+    "b",
+    "@media",
+    "screen",
+    "<!--",
+    "-->",
+    "@import",
+    "@foo",
+    "'b'",
+    "--x:",
+    "url(a.css)",
+    "var(--x)",
+    "(",
+    ")",
+    "@page",
+)
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_keeps_every_bang_comment(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    source, count = _words_with_bangs([rng.choice(_SHEET_WORDS) for _ in range(rng.randint(1, 30))], rng)
+    assert minify_css(source).count("/*!") == count
+
+
+def _words_with_bangs(words: list[str], rng: random.Random) -> tuple[str, int]:
+    parts = [words[0]]
+    count = 0
+    for word in words[1:]:
+        if rng.random() < 0.5:
+            parts.append(f" {rng.choice(_BANG_TEXTS)} ")
+            count += 1
+        else:
+            parts.append(" ")
+        parts.append(word)
+    return "".join(parts), count
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_inline_keeps_every_bang_comment(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    source, count = _words_with_bangs([rng.choice(_INLINE_WORDS) for _ in range(rng.randint(1, 30))], rng)
+    assert minify_css_inline(source).count("/*!") == count
+
+
+# A bang comment inside a style rule, a selector, an at-rule prelude or a declaration the minifier rewrites or drops is
+# written after the construct it came from, so it survives the rewrite.
+_BANG_IN_CONSTRUCT: Final[list[pytest.ParameterSet]] = [
+    pytest.param("a{color:red/*! d */;margin:0}", "a{color:red;margin:0}/*! d */", id="declaration-block"),
+    pytest.param("a{/*! d */color:red}", "a{color:red}/*! d */", id="declaration-block-first"),
+    pytest.param("a /*! s */ b{color:red}", "a b{color:red}/*! s */", id="selector"),
+    pytest.param("a/*! s */b{color:red}", "a/**/b{color:red}/*! s */", id="selector-separator"),
+    pytest.param("a{/*! e */}", "/*! e */", id="empty-rule"),
+    pytest.param("a/*! e */{}", "/*! e */", id="empty-rule-selector"),
+    pytest.param("@import 'x' /*! p */ ;", "@import'x';/*! p */", id="at-prelude"),
+    pytest.param("@media /*! p */ screen{a{x:1}}", "@media screen{a{x:1}}/*! p */", id="media-prelude"),
+    pytest.param("@font-face{/*! f */src:x}", "@font-face{src:x}/*! f */", id="font-face"),
+    pytest.param('a{x:"b\n/*! bd */;color:red}', "a{color:red}/*! bd */", id="bad-string-in-declaration"),
+    pytest.param("a{color:red/*! dup */;color:blue}", "a{color:red;color:blue}/*! dup */", id="overridden-declaration"),
+    pytest.param("a{--x: 1 /*! cp */ 2}", "a{--x:1 2}/*! cp */", id="custom-property"),
+    pytest.param("a{width:calc(1px /*! c */ + 2px)}", "a{width:3px}/*! c */", id="calc"),
+    pytest.param("a{color:red}/*! z */ b{}", "a{color:red}/*! z */", id="after-kept-rule"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _BANG_IN_CONSTRUCT)
+def test_minify_css_keeps_bang_comment_in_construct(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _BANG_IN_CONSTRUCT)
+def test_minify_css_keeps_bang_comment_in_construct_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("color:red/*! i */;margin:0", "/*! i */color:red;margin:0", id="declaration-list"),
+        pytest.param("x;/*! i */color:red", "/*! i */color:red", id="stray-text-before"),
+    ],
+)
+def test_minify_css_inline_keeps_bang_comment(source: str, expected: str) -> None:
+    assert minify_css_inline(source) == expected
+
+
+def test_minify_css_keeps_bang_comment_past_the_nesting_limit() -> None:
+    source = f"{'a{' * 120}/*! deep */{'}' * 120}"
+    assert minify_css(source).endswith("/*! deep */")
+
+
+def test_minify_css_keeps_many_bang_comments() -> None:
+    source = "".join(f"/*! {index} */a{{color:red}}" for index in range(40))
+    assert minify_css(source).count("/*!") == 40
 
 
 # A dropped space or comment must not spell a `<!--` or `-->` in a selector: a browser reads either as one token, so the
