@@ -1206,7 +1206,7 @@ _NOSCRIPT_DOCUMENTS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<noscript><html lang=x></noscript>", id="html-attributes"),
     pytest.param("<table><noscript><form></noscript>", id="form-in-table"),
     pytest.param("<svg><noscript/></svg>", id="foreign-self-closing"),
-    pytest.param("<svg><noscript>a</noscript></svg>", id="foreign"),
+    pytest.param("<svg><noscript>a</noscript></svg><noscript><img src=/a.png></noscript>", id="foreign"),
     pytest.param(
         "<p>a<noscript>  <b>s</b>  </noscript><ul><li><noscript><p>a</noscript></ul>  <p>c</p>", id="stable-first"
     ),

@@ -859,9 +859,10 @@ static int mini_starts_from(th_tree *tree, th_node *node, Py_ssize_t offset) {
 /* Minified outer serialization. The walk is iterative like serialize_compact,
    descending through first_child and ascending through parent pointers, with a
    preserve counter so text inside pre/textarea/listing skips whitespace
-   collapsing. */
-static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_minify_opts *opts,
-                             const th_serialize_opts *st) {
+   collapsing. The source comes apart from opts so that serialize_minify builds a copy of the walk without any of its
+   checks for the callers that have none. */
+static TH_TREE_INLINE void serialize_minify_walk(sbuf *out, th_tree *tree, th_node *root, const th_minify_opts *opts,
+                                                 const th_serialize_opts *st, const th_minify_source *source) {
     th_node *node = root;
     int preserve = 0;
     int formatting = 0;
@@ -875,24 +876,31 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
     /* A document minify copies some noscript content and regions from the source (th_minify_source). While resume is
        not -1 the walk is inside a copied region: it writes nothing, and descends only to find the first element whose
        start tag sits at or past resume. */
-    const th_minify_source *source = opts->source;
     Py_ssize_t span_at = 0;
     Py_ssize_t region_at = 0;
     Py_ssize_t resume = -1;
     while (1) {
         TH_WORK_STEP();
         th_node *descend = NULL;
-        const th_noscript_span *span = NULL;
-        if (resume >= 0 && mini_starts_from(tree, node, resume)) {
-            resume = -1;
-        }
-        if (resume < 0 && source != NULL && node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML &&
-            node->atom == TH_TAG_NOSCRIPT) {
-            span = mini_noscript_span(source, node, &span_at);
-        }
-        if (span != NULL && !span->stable) {
+        if (source != NULL) {
+            if (resume >= 0 && mini_starts_from(tree, node, resume)) {
+                resume = -1;
+            }
+            const th_noscript_span *span =
+                resume < 0 && node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == TH_TAG_NOSCRIPT
+                    ? mini_noscript_span(source, node, &span_at)
+                    : NULL;
+            if (span != NULL && span->stable) {
+                /* the scripting-on parse reads this content as raw text, so it is copied as the source spelled it */
+                last_was_space = 0;
+                mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css,
+                              opts->minify_css_baseline);
+                sbuf_put_source(out, tree, span->content, span->end);
+                ser_close_tag(out, node);
+                goto walked;
+            }
             /* the caller begins a region at every unstable noscript the walk reaches outside one */
-            if (region_at < source->region_count && source->regions[region_at].start == span->start) {
+            if (span != NULL && region_at < source->region_count && source->regions[region_at].start == span->start) {
                 /* a region past every start tag runs to the end of the source */
                 resume =
                     source->regions[region_at].resume < tree->length ? source->regions[region_at].resume : tree->length;
@@ -900,24 +908,15 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 last_was_space = 0;
                 sbuf_put_source(out, tree, span->start, resume);
             }
-            span = NULL;
-        }
-        if (resume >= 0) {
-            /* the ascent undoes these counts as it does for a walked element */
-            if (node->type == TH_NODE_ELEMENT && node->first_child != NULL) {
-                preserve += mini_is_preserve_atom(node);
-                formatting += (node->tag_flags & TH_TAG_FORMATTING) != 0;
+            if (resume >= 0) {
+                /* the ascent undoes these counts as it does for a walked element */
+                if (node->type == TH_NODE_ELEMENT && node->first_child != NULL) {
+                    preserve += mini_is_preserve_atom(node);
+                    formatting += (node->tag_flags & TH_TAG_FORMATTING) != 0;
+                }
+                descend = node->first_child;
+                goto walked;
             }
-            descend = node->first_child;
-            goto walked;
-        }
-        if (span != NULL) {
-            /* the scripting-on parse reads this content as raw text, so it is copied as the source spelled it */
-            last_was_space = 0;
-            mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css, opts->minify_css_baseline);
-            sbuf_put_source(out, tree, span->content, span->end);
-            ser_close_tag(out, node);
-            goto walked;
         }
         switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
         case TH_NODE_ELEMENT:
@@ -1045,6 +1044,15 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
         if (node == root) {
             break;
         }
+    }
+}
+
+static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_minify_opts *opts,
+                             const th_serialize_opts *st) {
+    if (opts->source != NULL) {
+        serialize_minify_walk(out, tree, root, opts, st, opts->source);
+    } else {
+        serialize_minify_walk(out, tree, root, opts, st, NULL);
     }
 }
 

@@ -55,13 +55,22 @@ def _minify_parted(html: str, layout: Minify, start: int) -> str:
     # trees under both modes. Failing that, the copy runs to the end of the source; failing that too, the source is
     # returned as it is.
     config = Html(layout=layout)
-    expected = tuple(_canonical(html, config, layout, scripting=scripting) for scripting in (False, True))
-    trees = tuple(parse(html, scripting=scripting, source_locations=True) for scripting in (False, True))
+    off, on = (parse(html, scripting=scripting, source_locations=True) for scripting in (False, True))
+    # stripping comments leaves the element offsets the regions are worked out from
+    expected = (_canonical(off, config, layout), _canonical(on, config, layout))
+    placed = {_start_offset(element): _ancestry(element) for element in off.iter_elements()}
+    closes = {
+        location.start_tag.start_offset: location.end_tag.end_offset
+        for element in on.iter_elements()
+        if element.tag == "noscript"
+        and (location := element.source_location) is not None
+        and location.end_tag is not None
+    }
     regions: list[tuple[int, int]] = []
     minified: str | None = None
     max_regions = 8
     while start >= 0 and len(regions) < max_regions:
-        regions.append((start, _resume_offset(*trees, start)))
+        regions.append((start, _resume_offset(on, placed, closes.get(start))))
         minified, start = minify_document(html, layout, tuple(regions))
     if minified is not None and _reparses_to(minified, layout, config, expected):
         return minified
@@ -71,34 +80,10 @@ def _minify_parted(html: str, layout: Minify, start: int) -> str:
     return tail if tail is not None and _reparses_to(tail, layout, config, expected) else html
 
 
-def _canonical(markup: str, config: Html, layout: Minify, *, scripting: bool) -> str:
+def _canonical(document: Document, config: Html, layout: Minify) -> str:
     # The minified form of the tree markup parses to: two trees that differ only where minifying folds give the same
     # string. Comments go first, since a stripped one can still decide whether a neighboring end tag is omitted.
-    document = parse(markup, scripting=scripting)
     return (strip_comments_node(document) if layout.strip_comments else document).serialize(config)
-
-
-def _resume_offset(off: Document, on: Document, start: int) -> int:
-    # The start tag offset of the first element past the scripting-on noscript's end tag that both trees build under
-    # the same ancestors, or sys.maxsize when there is none.
-    closes = [
-        location.end_tag.end_offset
-        for element in on.iter_elements()
-        if (location := element.source_location) is not None
-        and location.start_tag.start_offset == start
-        and location.end_tag is not None
-    ]
-    if not closes:
-        return sys.maxsize
-    placed = {_start_offset(element): _ancestry(element) for element in off.iter_elements()}
-    return next(
-        (
-            offset
-            for element in on.iter_elements()
-            if (offset := _start_offset(element)) >= closes[0] and placed.get(offset) == _ancestry(element)
-        ),
-        sys.maxsize,
-    )
 
 
 def _start_offset(element: Element) -> int:
@@ -110,9 +95,24 @@ def _ancestry(element: Element) -> tuple[str, ...]:
     return tuple(ancestor.tag for ancestor in element.ancestors if isinstance(ancestor, Element))
 
 
-def _reparses_to(candidate: str, layout: Minify, config: Html, expected: tuple[str, ...]) -> bool:
+def _resume_offset(on: Document, placed: dict[int, tuple[str, ...]], close: int | None) -> int:
+    # The start tag offset of the first element past the scripting-on noscript's end tag that the scripting-off tree
+    # builds under the same ancestors, or sys.maxsize when there is none.
+    if close is None:
+        return sys.maxsize
+    return next(
+        (
+            offset
+            for element in on.iter_elements()
+            if (offset := _start_offset(element)) >= close and placed.get(offset) == _ancestry(element)
+        ),
+        sys.maxsize,
+    )
+
+
+def _reparses_to(candidate: str, layout: Minify, config: Html, expected: tuple[str, str]) -> bool:
     return all(
-        _canonical(candidate, config, layout, scripting=scripting) == tree
+        _canonical(parse(candidate, scripting=scripting), config, layout) == tree
         for scripting, tree in zip((False, True), expected, strict=True)
     )
 

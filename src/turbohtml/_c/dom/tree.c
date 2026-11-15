@@ -3220,7 +3220,6 @@ typedef struct {
     enum mode original_mode;
     enum mode foster_return;
     int foster_pending;
-    th_noscript_track *track; /* NULL unless the parse records noscript spans for the minifier */
 } th_run_state;
 
 static void run_state_init(th_run_state *run_state, enum mode start_mode) {
@@ -3228,7 +3227,6 @@ static void run_state_init(th_run_state *run_state, enum mode start_mode) {
     run_state->original_mode = M_IN_BODY;
     run_state->foster_return = M_IN_TABLE;
     run_state->foster_pending = 0;
-    run_state->track = NULL;
 }
 
 /* What one insertion-mode handler reads and updates for the token it is handed:
@@ -5094,8 +5092,10 @@ static TH_NOINLINE void drain_tracked(th_tree *tree, th_insert *dc, th_token *to
 /* Drive tree construction over the tokens the tokenizer can produce now,
    returning when it stalls (TH_STEP_NEED_MORE), reaches EOF (TH_STEP_DONE), or
    fails. The insertion-mode state is restored from run_state on entry and saved
-   back on exit so a later call resumes the WHATWG algorithm in place. */
-static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) {
+   back on exit so a later call resumes the WHATWG algorithm in place. A non-NULL track records noscript spans; the
+   parses without one get their own copy of the loop with no check for it. */
+static TH_TREE_INLINE void run_drain_with(th_tree *tree, th_tokenizer *sm, th_run_state *run_state,
+                                          th_noscript_track *track) {
     /* foster_return: a table mode foster-parents a stray token by processing it
        once under in-body rules and then returning to the table mode. table_origin:
        the row/section modes delegate unhandled tokens to the in-table rules without
@@ -5114,11 +5114,12 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
     /* the <![CDATA[ decision depends on the adjusted current node, so the
        tokenizer is told before every pull whether it is foreign */
     /* tree->failed is only set on allocation failure */
-    th_noscript_track *track = run_state->track;
     while (!tree->failed /* GCOVR_EXCL_BR_LINE */ &&
            (th_tok_set_cdata(sm, tree->open_len > 0 && current_node(tree)->ns != TH_NS_HTML),
             th_tok_next(sm, &tok) == TH_STEP_TOKEN)) {
-        if (track != NULL) {
+        /* only a noscript or frameset tag, or a token while a noscript is open, changes the record; drain_tracked reads
+           the kind, as a text token can carry a tag's stale atom */
+        if (track != NULL && (track->open >= 0 || tok->atom == TH_TAG_NOSCRIPT || tok->atom == TH_TAG_FRAMESET)) {
             drain_tracked(tree, dc, tok, track);
         } else {
             drain_token(tree, dc, tok);
@@ -5131,6 +5132,10 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
     run_state->original_mode = dc->original_mode;
     run_state->foster_return = dc->foster_return;
     run_state->foster_pending = dc->foster_pending;
+}
+
+static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) {
+    run_drain_with(tree, sm, run_state, NULL);
 }
 
 /* Stop parsing at EOF: pop the remaining open elements, which runs the
@@ -5333,8 +5338,7 @@ th_tree *th_tree_parse_noscript(int kind, const void *data, Py_ssize_t length, i
     track->frameset_span = -1;
     th_run_state run_state;
     run_state_init(&run_state, M_INITIAL);
-    run_state.track = track;
-    run_drain(tree, sm, &run_state);
+    run_drain_with(tree, sm, &run_state, track);
     run_close(tree);
     track->open = -1; /* EOF closed it, which no raw-text reading matches: it stays unstable */
     retain_normalized_source(tree, sm, normalized);
