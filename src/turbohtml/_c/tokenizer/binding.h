@@ -139,6 +139,7 @@ int phone_register(PyObject *module, module_state *state);
    turbohtml.rewrite.rewrite(). Matches METH_VARARGS:
    (source, element_handlers, text_handler, comment_handler, doctype_handler). */
 PyObject *turbohtml_rewrite(PyObject *module, PyObject *args);
+PyObject *turbohtml_builder_reads_attr(PyObject *module, PyObject *args);
 
 /* Parse markup and return a _SaxEvents iterator that walks the constructed tree in
    document order, yielding one event tuple at a time without ever handing back a
