@@ -936,8 +936,10 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
-    if (target_len >= 3 && PyUnicode_READ_CHAR(target, target_len - 1) == ':' && url_web_special_base(target) &&
-        url_same_scheme(base, target)) {
+    /* A colon before the last character is a port, path, query or fragment colon, not the scheme's. */
+    if (target_len >= 3 && PyUnicode_READ_CHAR(target, target_len - 1) == ':' &&
+        PyUnicode_FindChar(target, ':', 0, target_len, 1) == target_len - 1 && url_web_special_base(target) &&
+        url_same_scheme_at(base, target, target_len - 1)) {
         PyObject *empty = PyUnicode_New(0, 127);
         if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
