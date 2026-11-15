@@ -397,6 +397,10 @@ static int push_open(xml_parser *parser, th_node *element) {
         }
         parser->stack = grown;
         parser->stack_cap = cap;
+        /* past TH_MAX_TREE_DEPTH open elements, an element can have TH_DEEP_NEST ancestors */
+        if (cap > TH_MAX_TREE_DEPTH) {
+            parser->tree->nest_bound = 0;
+        }
     }
     parser->stack[parser->stack_len++] = element;
     return 0;
@@ -1625,6 +1629,7 @@ th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length) {
     }
     tree->can_span = 1; /* text nodes may span into the borrowed input */
     tree->xml = 1;      /* case-sensitive tag and attribute names */
+    tree->nest_bound = TH_NEST_CAPPED;
     tree->kind = kind;
     tree->data = data;
     tree->length = length;

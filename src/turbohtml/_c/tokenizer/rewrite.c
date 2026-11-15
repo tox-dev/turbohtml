@@ -79,12 +79,17 @@ typedef struct {
     int failed;
 } rw_out;
 
+/* Whether a `<` in data text reads as the start of markup when `next` follows it. */
+static int rw_lt_joins(Py_UCS4 next) {
+    return is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+}
+
 /* Whether the pending tail, `<` and what follows it to the end of the output, reads as the start of markup once
    `next` is written after it. The source read it as text because what followed there ended it. */
 static int rw_tail_joins(const rw_out *out, Py_UCS4 next) {
     Py_ssize_t len = out->len - (out->tail - 1);
     if (!out->rcdata) {
-        return len == 2 || is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+        return len == 2 || rw_lt_joins(next);
     }
     if (len == 1) {
         return next == '/';
@@ -368,8 +373,10 @@ typedef struct {
 } rw_open;
 
 typedef struct {
-    sel_compiled *compiled;
+    sel_compiled *compiled; /* the selector the matcher runs: source, or its stand-in in deep */
     PyObject *handler;
+    sel_compiled *source;
+    sel_deep_query *deep; /* NULL until the spine nests deep (rw_go_deep) */
 } rw_rule;
 
 /* A spine element an end tag closed, kept until the tag is written to learn whether the output closed it too. */
@@ -425,12 +432,58 @@ typedef struct {
     Py_ssize_t retired_len;
     Py_ssize_t open_len;
     uint32_t next_seq; /* the value memo hashes a spine element by its seq */
+    /* Some rules run on stand-ins (rw_go_deep), whose memos key an element by its address, so a closed element waits in
+       the retired list (linked through its parent) until the memos are emptied, and no later element can take its
+       address while an entry names it. The memos are emptied once RW_DEEP_RETIRED_MAX elements wait. */
+    int deep;
+    th_node *retired_nodes;
+    Py_ssize_t retired_node_count;
 } rw_ctx;
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
    but not pushed, so a pathologically deep or unclosed input keeps the spine (and the C
-   stack the selector matcher walks) bounded rather than growing without limit. */
+   stack the selector matcher walks) bounded rather than growing without limit. A raw-text
+   or RCDATA element takes the one slot past the cap: the tokenizer reads its content as
+   text, as the tree builder does, and no start tag is read while it is open. */
 #define RW_MAX_DEPTH TH_DEPTH_LIMIT(8192)
+
+/* The most closed elements the stand-ins' memos may name (see rw_ctx.retired_nodes). Emptying them costs the walks
+   that refill them no more than the closed elements already paid for. */
+#define RW_DEEP_RETIRED_MAX ((Py_ssize_t)8 * RW_MAX_DEPTH)
+
+/* Switch the rules that climb at least this far (sel_compiled.climbs) to stand-ins that keep the answers of their
+   ancestor walks: those that climb from their climbs from the start, the others once the spine grows past
+   TH_MAX_TREE_DEPTH open elements and a walk can be as long as the spine. Returns -1 on allocation failure. */
+static int rw_go_deep(rw_ctx *ctx, int climbs) {
+    for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
+        rw_rule *rule = &ctx->rules[index];
+        if (rule->source->climbs < climbs || rule->deep != NULL) {
+            continue;
+        }
+        ctx->deep = 1;
+        rule->deep = PyMem_Calloc(1, sizeof(sel_deep_query));
+        if (rule->deep == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        rule->compiled = sel_deep_wrap(rule->source, rule->deep);
+    }
+    return 0;
+}
+
+/* Empty the stand-ins' memos and free the elements retired while they held entries. */
+static void rw_deep_flush(rw_ctx *ctx) {
+    for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
+        if (ctx->rules[index].deep != NULL) {
+            sel_memo_free(&ctx->rules[index].deep->memo);
+        }
+    }
+    while (ctx->retired_nodes != NULL) {
+        th_node *next = ctx->retired_nodes->parent;
+        PyMem_Free(ctx->retired_nodes);
+        ctx->retired_nodes = next;
+    }
+    ctx->retired_node_count = 0;
+}
 
 /* Empty the value memo and free the long value buffers retired while it held entries. */
 static void rw_values_flush(rw_ctx *ctx) {
@@ -1448,7 +1501,15 @@ static void rw_free_node(rw_ctx *ctx, th_node *node) {
     }
     PyMem_Free(node->attrs);
     PyMem_Free(node->text);
-    PyMem_Free(node);
+    if (!ctx->deep) {
+        PyMem_Free(node);
+        return;
+    }
+    node->parent = ctx->retired_nodes;
+    ctx->retired_nodes = node;
+    if (++ctx->retired_node_count > RW_DEEP_RETIRED_MAX) {
+        rw_deep_flush(ctx);
+    }
 }
 
 /* Build a self-managed spine element from a start-tag token, linked only to its parent
@@ -1641,6 +1702,12 @@ static void rw_emit_end_tag(rw_out *out, const th_node *node) {
    builder's current node is one. */
 static int rw_spine_foreign(const rw_ctx *ctx) {
     return ctx->depth > 0 && ctx->stack[ctx->depth - 1].ns != TH_NS_HTML;
+}
+
+/* Whether any handler is registered: without one the output is the input, so a misread of it changes nothing. */
+static int rw_has_handler(const rw_ctx *ctx) {
+    return ctx->rule_count > 0 || ctx->text_handler != NULL || ctx->comment_handler != NULL ||
+           ctx->doctype_handler != NULL;
 }
 
 /* The spine and the th_shadow read the input; the output is the input with the handlers' edits, and a browser parses
@@ -2145,6 +2212,24 @@ static TH_NOINLINE void rw_mirror_opened(rw_ctx *ctx, rw_open *open, rw_handle *
     Py_CLEAR(ctx->append_text); /* the tags stay, so the content stays raw text */
 }
 
+/* A start tag past the depth cap: the tree builder refuses the element, so its tags stream through and its end tag
+   closes only an element the spine still holds. No content is found again, so an edit that needs one raises. The
+   spine also loses the namespace an SVG or MathML element would give what follows, so a handler could not see it
+   read as the browser does. */
+static TH_NOINLINE void rw_refuse_element(rw_ctx *ctx, rw_open *open) {
+    if (open->drop_content || open->append_html != NULL || open->after_html != NULL) {
+        PyErr_SetString(PyExc_ValueError,
+                        "an element nested past the depth limit cannot be removed or have its content edited");
+        ctx->error = 1;
+    } else if (open->ns != TH_NS_HTML && rw_has_handler(ctx)) {
+        PyErr_SetString(PyExc_ValueError, "SVG or MathML nested past the depth limit cannot be rewritten");
+        ctx->error = 1;
+    }
+    Py_XDECREF(open->append_html);
+    Py_XDECREF(open->after_html);
+    rw_free_node(ctx, open->node);
+}
+
 static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     uint16_t atom = token->atom;
     Py_ssize_t closed = 0;
@@ -2189,10 +2274,8 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         return;                                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
-    /* a start tag past the depth cap is not pushed, so it switches no content model and nothing checks the text
-       written into it: that text is escaped like any other */
     rw_open open = {.node = node,
-                    .model = ctx->depth < RW_MAX_DEPTH ? (int8_t)model : -1,
+                    .model = (int8_t)model,
                     .ns = ns,
                     .shadow = shadow,
                     .line = (uint32_t)token->line,
@@ -2316,11 +2399,17 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     }
 
     if (ctx->depth >= RW_MAX_DEPTH) {
-        /* keep the spine bounded: emit the element's content inline but do not track it,
-           so it never nests deeper than the guard (its end tag streams as a stray) */
-        Py_XDECREF(open.append_html);
-        rw_free_node(ctx, node);
-        return; /* at the limit nothing was popped either, so the CDATA state stands */
+        /* a th_shadow steers the tokenizer, and the tree builder switches it for a raw-text element it refuses at its
+           own cap, so the tokenizer's state is the element's content model even when the spine has none */
+        const th_buf *end_tag;
+        enum th_initial_state tokenized = th_tok_content_model(ctx->sm, &end_tag);
+        if (ctx->shadow != NULL && tokenized != TH_INIT_DATA) {
+            open.model = (int8_t)tokenized;
+        }
+        if (ctx->depth >= RW_MAX_DEPTH + (open.model >= 0)) {
+            rw_refuse_element(ctx, &open);
+            return; /* at the limit nothing was popped either, so the CDATA state stands */
+        }
     }
     if (ctx->depth == ctx->stack_cap) {
         size_t cap;
@@ -2340,6 +2429,14 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             return;                  /* GCOVR_EXCL_LINE */
         }
         ctx->stack = grown;
+        if (cap > TH_MAX_TREE_DEPTH && ctx->stack_cap <= TH_MAX_TREE_DEPTH) {
+            if (rw_go_deep(ctx, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                ctx->error = 1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+                PyErr_NoMemory();         /* GCOVR_EXCL_LINE */
+                rw_free_node(ctx, node);  /* GCOVR_EXCL_LINE */
+                return;                   /* GCOVR_EXCL_LINE */
+            }
+        }
         ctx->stack_cap = (Py_ssize_t)cap;
     }
     open.long_values = rw_long_values(node);
@@ -2577,10 +2674,35 @@ static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, const th_token *token) {
     out->room = out->len;
 }
 
+/* Whether the output at this point is content the tokenizer reads as data, outside any raw-text or RCDATA element. */
+static int rw_data_context(const rw_ctx *ctx) {
+    return ctx->depth == 0 || ctx->stack[ctx->depth - 1].model < 0;
+}
+
+/* Write a text run gathered from several source spans. A token dropped between the pieces (an empty end tag, or one a
+   handler removed) can leave a `<` in front of letters, `/`, `!` or `?`, which the output reads as markup, so such a
+   `<` is escaped. A `<` or `</` at the end of the run is left to the tail, which the next write settles. */
+static TH_NOINLINE int rw_emit_gathered(rw_out *out, const th_buf *text) {
+    Py_ssize_t len = text->len;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = buf_read(text, index);
+        Py_UCS4 next = index + 1 < len ? buf_read(text, index + 1) : 0;
+        if (ch == '<' && rw_lt_joins(next) && (next != '/' || index + 2 < len)) {
+            rw_out_ascii(out, "&lt;");
+        } else {
+            rw_out_char(out, ch);
+        }
+    }
+    return !out->failed;
+}
+
 /* Write an unedited leaf token as it was read. */
 static void rw_emit_read_leaf(rw_ctx *ctx, const th_token *token) {
-    if (!rw_emit_verbatim(&ctx->out, ctx->sm, token)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        return;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+    int written = token->kind == TH_TEXT && !token->is_slice && !token->has_source && rw_data_context(ctx)
+                      ? rw_emit_gathered(&ctx->out, &token->text)
+                      : rw_emit_verbatim(&ctx->out, ctx->sm, token);
+    if (!written) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_UCS4 last = ctx->out.data[ctx->out.len - 1];
     if (last == '<' || last == '/' ||
@@ -2748,8 +2870,10 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     rw_values_flush(ctx);
     Py_XDECREF(ctx->append_text); /* still set only when a handler failed */
     PyMem_Free(ctx->stack);
+    rw_deep_flush(ctx);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
-        selector_free(ctx->rules[index].compiled);
+        PyMem_Free(ctx->rules[index].deep);
+        selector_free(ctx->rules[index].source);
         Py_DECREF(ctx->rules[index].handler);
     }
     PyMem_Free(ctx->rules);
@@ -2805,10 +2929,13 @@ static int rw_compile_rules(rw_ctx *ctx, module_state *state, PyObject *handlers
             Py_DECREF(pair);
             return -1;
         }
-        ctx->rules[ctx->rule_count].compiled = compiled;
-        ctx->rules[ctx->rule_count].handler = Py_NewRef(handler);
+        ctx->rules[ctx->rule_count] = (rw_rule){compiled, Py_NewRef(handler), compiled, NULL};
         ctx->rule_count++;
         Py_DECREF(pair);
+    }
+    if (rw_go_deep(ctx, 2) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory();         /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     return 0;
 }
@@ -2943,5 +3070,8 @@ int rewrite_register(PyObject *module, module_state *state) {
     if (state->rewrite_handle_type == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return PyModule_AddObjectRef(module, "_RewriteHandle", state->rewrite_handle_type);
+    if (PyModule_AddObjectRef(module, "_RewriteHandle", state->rewrite_handle_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                                         /* GCOVR_EXCL_LINE */
+    }
+    return PyModule_AddIntConstant(module, "_REWRITE_MAX_DEPTH", RW_MAX_DEPTH);
 }

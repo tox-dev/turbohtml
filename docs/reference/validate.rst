@@ -13,11 +13,12 @@ Passing a node that is neither a document nor an element, such as a text node, r
 :meth:`~XMLSchema.validate`, :meth:`~XMLSchema.is_valid` and :meth:`~XMLSchema.assert_valid`.
 
 Schema compilation and instance validation raise :class:`RecursionError` before processing a tree nested 400 levels or
-deeper. This limit keeps the recursive grammar walks of validation within small worker-thread stacks; compilation walks
-the schema without recursing, so it fits those stacks at any nesting the limit allows. The validator does not return
-partial results. In a RELAX NG grammar the limit counts the levels of a ``define`` at each ``ref`` to it, up to the next
-``element``: compilation raises :class:`RecursionError` when references nest patterns 400 levels or deeper with no
-``element`` in between.
+deeper. Compilation walks the schema without recursing, except for the groups of one pattern facet, which it parses
+recursively. Validation recurses once per level of a content model, so a deep enough model can need more C stack than a
+worker thread has. Compilation and validation then raise :class:`RecursionError` instead of crashing, on platforms that
+report a thread's stack bounds (Linux, macOS and Windows). The validator does not return partial results. In a RELAX NG
+grammar the limit counts the levels of a ``define`` at each ``ref`` to it, up to the next ``element``: compilation
+raises :class:`RecursionError` when references nest patterns 400 levels or deeper with no ``element`` in between.
 
 :meth:`~XMLSchema.validate` and :meth:`~XMLSchema.assert_valid` collect the first 1,000 errors of a document; further
 violations still make it invalid but are not listed. Each segment of :attr:`ValidationError.path` keeps the first 64

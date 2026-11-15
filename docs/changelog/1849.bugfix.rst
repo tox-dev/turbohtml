@@ -1,0 +1,2 @@
+``minify_css`` keeps a hash color that contains a CSS escape as written instead of shortening it, so the escape no
+longer swallows the closing brace of its rule.

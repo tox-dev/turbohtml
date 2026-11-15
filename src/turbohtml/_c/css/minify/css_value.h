@@ -25,6 +25,7 @@ typedef struct {
     Py_ssize_t len;
     int isfunc;
     css_compkind kind;
+    int spaced; /* whether source whitespace or a comment came right before the component */
 } css_comp;
 
 typedef struct {
@@ -555,6 +556,10 @@ static int css_color_keyword_or_hash(css_buf *pool, const css_token *token, int 
         return 0;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
+        if (token->text[index] == '\\') {
+            /* a backslash is no hex digit: packing its pairs would leave a lone one to escape the next character */
+            return 0;
+        }
         data[index] = css_lower(token->text[index]);
     }
     if (len == 9 && data[7] == 'f' && data[8] == 'f') {
@@ -1231,13 +1236,18 @@ static int css_is_math_func(const css_char *name, Py_ssize_t len) {
     return 0;
 }
 
-/* Trim trailing spaces already written to a scratch buffer (the func-arg comma rule). A space an odd run of backslashes
+/* Trim trailing spaces already written to a scratch buffer, but never below floor: the pool holds the text of earlier
+   rules below a selector's start, and a leading combinator must not trim into it. A space an odd run of backslashes
    precedes is a `\ ` escape of U+0020 (CSS Syntax 3 §4.3.7), a name code point, so it is kept; after an even run (`\\`)
    the space is whitespace. */
-static void css_rtrim(css_buf *buffer) {
-    while (buffer->len > 0 && buffer->data[buffer->len - 1] == ' ' && !css_escapes(buffer->data, buffer->len - 1)) {
+static void css_rtrim_above(css_buf *buffer, Py_ssize_t floor) {
+    while (buffer->len > floor && buffer->data[buffer->len - 1] == ' ' && !css_escapes(buffer->data, buffer->len - 1)) {
         buffer->len--;
     }
+}
+
+static void css_rtrim(css_buf *buffer) {
+    css_rtrim_above(buffer, 0);
 }
 
 /* css_rtrim that keeps the space closing a hex escape. The spelling pass writes one after every name ending in a hex

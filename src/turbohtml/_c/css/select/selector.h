@@ -61,6 +61,9 @@ enum sel_pseudo {
        parse as valid selectors but match nothing (so :is()/:not() still compose) */
     PSEUDO_NEVER,
     PSEUDO_SUBSTR_LONG,
+    /* never parsed: the lone simple of the stand-in sel_deep_enter hands a query, whose sub is the real selector list
+     */
+    PSEUDO_DEEP,
 };
 
 typedef struct {
@@ -103,6 +106,9 @@ typedef struct {
     int reads_legend;   /* a :disabled, :enabled, :read-only or :read-write somewhere: a match wants the legend memo */
     int reads_dir;      /* a :dir() somewhere: a walk over many nodes wants one context for its dir=auto answers */
     th_tree *tree;      /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
+    /* 1 when a match walks ancestors, as far as the tree nests: a descendant combinator, :lang() or :dir() somewhere;
+       2 when a match walks ancestors from each ancestor such a walk passes, a square of how far the tree nests */
+    int climbs;
 } sel_compiled;
 
 /* One memoized bit: key names the question (a :has() argument, or the compound a general
@@ -256,6 +262,47 @@ int sel_value_memo_get(const sel_memo *memo, const void *key, const th_node *nod
 void sel_value_memo_put(sel_memo *memo, const void *key, const th_node *node, const Py_UCS4 *value, int result);
 void sel_position_memo_free(sel_position_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
+
+/* A query's stand-in for a selector that climbs (sel_compiled.climbs) on a tree that may nest deep. The HTML tree
+   builder nests no deeper than TH_MAX_TREE_DEPTH, but an XML or a built tree nests without limit, and an ancestor walk
+   from every candidate of a deep one is quadratic. The stand-in is one compound of one PSEUDO_DEEP simple whose sub is
+   the selector's list: the drivers run it like any selector, and the simple runs the list through the matcher that
+   keeps the answers of its ancestor walks in memo, so a matcher built for shallow trees pays nothing for deep ones. The
+   memo holds for one scope and one state of the tree, like the driver's sibling memo. */
+typedef struct {
+    sel_compiled compiled;
+    sel_complex complex;
+    sel_compound compound;
+    sel_simple simple;
+    sel_memo memo;
+} sel_deep_query;
+
+sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep);
+/* Match one alternative as selector_matches_alt does, keeping the answers of the ancestor walks in memo. */
+int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_memo *memo);
+
+/* Whether a query over compiled runs on a stand-in: compiled climbs on a tree that may nest deep, or climbs from its
+   climbs on any tree. */
+static inline int sel_climbs_deep(const sel_compiled *compiled) {
+    return compiled->climbs > 1 || (compiled->climbs == 1 && th_tree_nests_deep(compiled->tree));
+}
+
+/* selector_matches(node, compiled, scope, NULL) on the stand-in of compiled, for a caller that checked
+   sel_climbs_deep. */
+int selector_matches_deep(th_node *node, sel_compiled *compiled, th_node *scope);
+
+/* The selector a query over compiled runs: compiled itself, or the stand-in in deep when sel_climbs_deep.
+   sel_deep_leave frees what the stand-in kept. */
+static inline sel_compiled *sel_deep_enter(sel_compiled *compiled, sel_deep_query *deep) {
+    deep->memo.slots = NULL;
+    return compiled->climbs != 0 && sel_climbs_deep(compiled) ? sel_deep_wrap(compiled, deep) : compiled;
+}
+
+static inline void sel_deep_leave(sel_deep_query *deep) {
+    if (deep->memo.slots != NULL) {
+        sel_memo_free(&deep->memo);
+    }
+}
 void sel_free_alts(sel_complex *alts, int count);
 int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, int nested, int relative, int forgiving);
 

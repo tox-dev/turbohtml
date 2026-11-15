@@ -21,16 +21,19 @@ entries -- the working set is a function of nesting depth, never of document siz
 This is the property that makes the rewriter usable on inputs a full parse cannot afford: a multi-gigabyte log of
 records, a response streamed through a proxy, a page far larger than memory. The output is produced incrementally as
 each construct is decided, and an untouched construct is copied through verbatim -- character references, attribute
-quoting, and whitespace are preserved exactly -- so a rewrite that edits nothing returns its input unchanged. The
-:doc:`lol-html migration guide </migration/lol-html>` benchmarks this against parse-first peers, running the same edits
-through a full parse, mutate, and serialize and reporting each one's peak resident memory -- the tree the streaming pass
-never builds.
+quoting, and whitespace are preserved exactly -- so a rewrite that edits nothing returns its input unchanged, except
+that an empty end tag is dropped and a ``<`` a dropped token would join with the text after it is written as ``&lt;``.
+The :doc:`lol-html migration guide </migration/lol-html>` benchmarks this against parse-first peers, running the same
+edits through a full parse, mutate, and serialize and reporting each one's peak resident memory -- the tree the
+streaming pass never builds.
 
 One part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
 closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint,
 including the tree builder it runs for some markup (see `Foreign content follows the tree builder`_). It also caps the
-open-element stack at 512 elements, so a pathologically deep or unclosed input cannot exhaust memory or the C stack the
-selector matcher walks. Start tags past the cap, formatting elements included, attach at the capped depth as siblings.
+open-element stack at 8,192 elements, so a pathologically deep or unclosed input cannot exhaust memory or the C stack
+the selector matcher walks. Past the cap the rewriter stops tracking elements, as the tree builder refuses them, but a
+raw-text or RCDATA element still reads its content as text. An edit that needs the content of an element nested that
+deep raises :class:`ValueError`, and so does a handler once an SVG or MathML element starts there.
 
 ***********************************
  Selectors match against the spine

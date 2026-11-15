@@ -5,7 +5,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the tests run 
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from functools import partial
+from functools import cache, partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -3368,6 +3368,7 @@ def test_rng_numeric_bound_controls(datatype: str, params: str, value: str, *, e
 
 
 _WIDE: Final[int] = 4_000
+_DEEP: Final[int] = 380  # a schema nested under the 400-level depth cap once its own wrappers count
 _WIDE_START: Final[str] = '<start><element name="doc"><ref name="wide"/></element></start>'
 _NESTED_GROUP_TAIL: Final[str] = f"{'<text/>' * 300}</group>"
 _SAME_NAME_ELEMENT: Final[str] = '<element name="a"><value>w{}</value></element>'
@@ -3383,71 +3384,87 @@ def _repeat(item: str, count: int = _WIDE) -> str:
 
 
 @pytest.mark.parametrize(
-    ("schema", "document", "expected"),
+    ("schema", "document", "outcomes"),
     [
-        pytest.param(wrap("<text/>" * _WIDE), "<doc>x</doc>", True, id="group"),
+        pytest.param(wrap("<text/>" * _WIDE), "<doc>x</doc>", ("True\n",), id="group"),
         pytest.param(
-            wrap(f"{'<group>' * 20}{_NESTED_GROUP_TAIL * 20}"), "<doc>x</doc>", True, id="nested-groups-first"
+            wrap(f"{'<group>' * 20}{_NESTED_GROUP_TAIL * 20}"),
+            "<doc>x</doc>",
+            ("True\n", "RecursionError\n"),
+            id="nested-groups-first",
         ),
-        pytest.param(wrap(f"<choice>{'<text/>' * _WIDE}</choice>"), "<doc>x</doc>", True, id="choice"),
+        pytest.param(wrap(f"<choice>{'<text/>' * _WIDE}</choice>"), "<doc>x</doc>", ("True\n",), id="choice"),
         pytest.param(
             wrap(f"<choice>{_repeat('<value>w{}</value>')}</choice>"),
             f"<doc>w{_WIDE - 1}</doc>",
-            True,
+            ("True\n",),
             id="choice-of-values",
         ),
         pytest.param(
             wrap(f"<choice>{_repeat('<value>w{}</value>')}</choice>"),
             f"<doc>w{_WIDE}</doc>",
-            False,
+            ("False\n",),
             id="choice-of-values-mismatch",
         ),
         pytest.param(
             wrap(f"<choice>{_repeat(_SAME_NAME_ELEMENT)}</choice>"),
             f"<doc><a>w{_WIDE - 1}</a></doc>",
-            True,
+            ("True\n",),
             id="choice-of-same-name-elements",
         ),
         pytest.param(
             wrap(f"<interleave>{_repeat(_OPTIONAL_ATTRIBUTE)}</interleave>"),
             f'<doc a{_WIDE - 1}="x" a0="y"/>',
-            True,
+            ("True\n",),
             id="interleave",
         ),
         pytest.param(
             f'<element xmlns="{_RELAXNG_NS}"><choice>{_repeat("<name>n{}</name>")}</choice><text/></element>',
             "<n0>x</n0>",
-            True,
+            ("True\n",),
             id="name-class-choice",
         ),
         pytest.param(
             f'<element xmlns="{_RELAXNG_NS}"><choice>{_repeat("<name>n{}</name>")}</choice><text/></element>',
             f"<n{_WIDE}>x</n{_WIDE}>",
-            False,
+            ("False\n",),
             id="name-class-choice-mismatch",
         ),
         pytest.param(
             grammar(f"{_WIDE_START}{_repeat(_COMBINE_CHOICE)}"),
             f"<doc><e{_WIDE - 1}/></doc>",
-            True,
+            ("True\n",),
             id="combine-choice",
         ),
         pytest.param(
-            grammar(f"{_WIDE_START}{_repeat(_COMBINE_INTERLEAVE)}"), "<doc>x</doc>", False, id="combine-interleave"
+            grammar(f"{_WIDE_START}{_repeat(_COMBINE_INTERLEAVE)}"),
+            "<doc>x</doc>",
+            ("False\n",),
+            id="combine-interleave",
         ),
     ],
 )
-def test_rng_wide_pattern_fits_a_small_thread_stack(schema: str, document: str, *, expected: bool) -> None:
+def test_rng_wide_pattern_fits_a_small_thread_stack(schema: str, document: str, *, outcomes: tuple[str, ...]) -> None:
     # the patterns of one container join into a balanced tree, so the derivative recursion grows with the log of their
-    # count; a subprocess turns a stack overflow into a failed assertion instead of a killed worker
+    # count; a subprocess turns a stack overflow into a failed assertion instead of a killed worker. A case whose
+    # nesting needs more C stack than the thread has may instead raise RecursionError.
+    result: Final = _run_on_small_stack(schema, document)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout in outcomes, result.stderr
+
+
+def _run_on_small_stack(schema: str, document: str, stack_kib: int = 128) -> subprocess.CompletedProcess[str]:
     code: Final = (
         "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
-        "data = json.load(sys.stdin)\nthreading.stack_size(128 * 1024)\n"
-        "run = lambda: print(RelaxNG(data['schema']).validate(parse_xml(data['xml'])).valid)\n"
+        "data = json.load(sys.stdin)\n"
+        f"for kib in range({stack_kib}, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
+        "def run():\n    try:\n        print(RelaxNG(data['schema']).validate(parse_xml(data['xml'])).valid)\n"
+        "    except RecursionError:\n        print('RecursionError')\n"
         "worker = threading.Thread(target=run)\n"
         "worker.start()\nworker.join()\n"
     )
-    result: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code],
         input=json.dumps({"schema": schema, "xml": document}),
         capture_output=True,
@@ -3455,7 +3472,230 @@ def test_rng_wide_pattern_fits_a_small_thread_stack(schema: str, document: str, 
         timeout=120,
         check=False,
     )
-    assert (result.returncode, result.stdout) == (0, f"{expected}\n"), result.stderr
+
+
+_LEAF_A: Final[str] = '<element name="a"><empty/></element>'
+_LEAF_B: Final[str] = '<element name="b"><empty/></element>'
+_CHOICE_BRANCHES: Final[str] = "".join(f'<choice><element name="a{index}"><empty/></element>' for index in range(_DEEP))
+_INTERLEAVE_BRANCHES: Final[str] = "".join(
+    f'<interleave><element name="a{index}"><empty/></element>' for index in range(_DEEP)
+)
+_GROUP_OF_A: Final[str] = f"{_LEAF_A}</group>"
+_ATTRIBUTE_GROUPS: Final[str] = "".join(f'<group><attribute name="x{index}"/>' for index in range(50))
+
+
+@pytest.mark.parametrize(
+    ("schema", "document", "stack_kib"),
+    [
+        pytest.param(wrap(f"{'<group>' * _DEEP}<text/>{'</group>' * _DEEP}"), "<doc>x</doc>", 128, id="group-text"),
+        pytest.param(wrap(f"{'<group>' * 50}<text/>{'</group>' * 50}"), "<doc>x</doc>", 16, id="group-text-tiny-stack"),
+        pytest.param(
+            wrap(f"{'<group>' * _DEEP}{_GROUP_OF_A * _DEEP}{_LEAF_B}"),
+            "<doc><a/></doc>",
+            128,
+            id="group-element",
+        ),
+        pytest.param(
+            wrap(f"{'<choice>' * _DEEP}<text/>{_LEAF_A}{'</choice>' * _DEEP}"),
+            "<doc><a/></doc>",
+            128,
+            id="choice-element",
+        ),
+        pytest.param(
+            wrap(f"{_CHOICE_BRANCHES}{_LEAF_B}{'</choice>' * _DEEP}"),
+            "<doc><a0/></doc>",
+            16,
+            id="choice-elements-tiny-stack",
+        ),
+        pytest.param(
+            wrap(f"{'<oneOrMore>' * _DEEP}{_LEAF_A}{'</oneOrMore>' * _DEEP}"),
+            "<doc><a/></doc>",
+            128,
+            id="one-or-more-element",
+        ),
+        pytest.param(
+            wrap(f"{'<oneOrMore>' * _DEEP}{_LEAF_A}{'</oneOrMore>' * _DEEP}"),
+            "<doc><a/></doc>",
+            16,
+            id="one-or-more-element-tiny-stack",
+        ),
+        pytest.param(
+            wrap(f"<oneOrMore><group>{'<group>' * 59}{'<text/>' * 300}{'</group>' * 60}</oneOrMore>"),
+            "<doc>xy xy xy</doc>",
+            128,
+            id="one-or-more-wide-nest",
+        ),
+        pytest.param(
+            wrap(f"<oneOrMore><group>{'<group>' * 59}{'<text/>' * 300}{'</group>' * 60}</oneOrMore>"),
+            "<doc>xy xy xy</doc>",
+            16,
+            id="one-or-more-wide-nest-tiny-stack",
+        ),
+        pytest.param(
+            wrap(f'{_INTERLEAVE_BRANCHES}<attribute name="q"/>{"</interleave>" * _DEEP}'),
+            '<doc q="1"><a0/></doc>',
+            16,
+            id="interleave-attribute-tiny-stack",
+        ),
+        pytest.param(
+            wrap(f"{'<group>' * 40}{_LEAF_A * 300}{'</group>' * 40}"),
+            "<doc><a/></doc>",
+            16,
+            id="group-elements-tiny-stack",
+        ),
+        pytest.param(
+            wrap(f"{_ATTRIBUTE_GROUPS}<empty/>{'</group>' * 50}"),
+            '<doc x0="1"/>',
+            16,
+            id="attribute-groups-tiny-stack",
+        ),
+        pytest.param(
+            wrap(f"{_INTERLEAVE_BRANCHES}{_LEAF_B}{'</interleave>' * _DEEP}"),
+            "<doc><a0/><b/></doc>",
+            128,
+            id="interleave-element",
+        ),
+        pytest.param(
+            wrap(
+                f'<data type="string" datatypeLibrary="{_LIBRARY}"><param name="pattern">'
+                f"{'(' * 240}a{')' * 240}</param></data>"
+            ),
+            "<doc>a</doc>",
+            16,
+            id="pattern-groups-tiny-stack",
+        ),
+    ],
+)
+def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
+    schema: str, document: str, stack_kib: int
+) -> None:
+    # a derivative level costs C stack, so on a small thread a deep enough nest raises RecursionError before the stack
+    # ends; the outcome is a verdict or that error, never a crashed worker
+    result: Final = _run_on_small_stack(schema, document, stack_kib)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
+
+
+@cache
+def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
+    # every nesting depth from 1 to the cap runs the start-tag walk down the repeat nest on the smallest stack the
+    # platform accepts: shallow depths validate, deep ones raise RecursionError. The walk closes the nest before it
+    # opens it, so the depth where the open walk alone runs out of stack lies between two depths, and the sweep crosses
+    # it on any build.
+    code: Final = (
+        "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
+        "data = json.load(sys.stdin)\n"
+        "for kib in range(16, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
+        "outcomes = []\n"
+        "def run():\n"
+        "    document = parse_xml(data['xml'])\n"
+        "    for depth in range(1, data['depths'] + 1):\n"
+        "        nest = '<oneOrMore>' * depth + data['leaf'] + '</oneOrMore>' * depth\n"
+        "        try:\n"
+        '            schema = RelaxNG(f\'<element name="doc" xmlns="{data["ns"]}">{nest}</element>\')\n'
+        "            outcomes.append('valid' if schema.validate(document).valid else 'invalid')\n"
+        "        except RecursionError:\n"
+        "            outcomes.append('RecursionError')\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+        "print(' '.join(outcomes))\n"
+    )
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code],
+        input=json.dumps({"ns": _RELAXNG_NS, "leaf": _LEAF_A, "depths": _DEEP, "xml": "<doc><a/></doc>"}),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def _open_walk_unreachable() -> bool:
+    # a crash stays a failure of the test itself; only a sweep that completes without any RecursionError is skipped
+    sweep: Final = _open_walk_sweep()
+    return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
+
+
+@pytest.mark.skipif(
+    _open_walk_unreachable(),
+    reason="this build's stack never reaches the start-tag walk on the smallest thread stack (optimized build)",
+)
+def test_rng_open_walk_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
+    # the sweep is the parent-side probe: where it completes without RecursionError the test is skipped, and where it
+    # runs, the sweep must raise RecursionError somewhere and never crash
+    sweep: Final = _open_walk_sweep()
+    assert sweep.returncode == 0, sweep.stderr
+    outcomes: Final = sweep.stdout.split()
+    assert len(outcomes) == _DEEP, sweep.stderr
+    assert set(outcomes) <= {"valid", "invalid", "RecursionError"}, sweep.stdout
+    assert "RecursionError" in outcomes, sweep.stdout
+
+
+@cache
+def _repeat_check_sweep() -> subprocess.CompletedProcess[str]:
+    # json's encoder nests one C level per depth and calls the validation from its innermost level, so the stack that
+    # is left at the validation shrinks with the depth; the repeat check recurses on whatever is left, so it fires once
+    # the walk above it has used most of the thread's stack. Each depth validates, or raises RecursionError.
+    nest: Final = "<group>" * 60 + "<text/>" * 300 + "</group>" * 60
+    code: Final = (
+        "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
+        "data = json.load(sys.stdin)\n"
+        "for kib in range(16, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
+        "outcomes = []\n"
+        "def run():\n"
+        "    schema = RelaxNG(data['schema'])\n"
+        "    document = parse_xml(data['xml'])\n"
+        "    for depth in range(120):\n"
+        "        verdicts = []\n"
+        "        def innermost(value):\n"
+        "            try:\n"
+        "                verdicts.append('valid' if schema.validate(document).valid else 'invalid')\n"
+        "            except RecursionError:\n"
+        "                verdicts.append('RecursionError')\n"
+        "            return 'done'\n"
+        "        value = object()\n"
+        "        for _ in range(depth):\n"
+        "            value = [value]\n"
+        "        try:\n"
+        "            json.dumps(value, default=innermost)\n"
+        "            outcomes.append(f'{depth}:{verdicts[0]}')\n"
+        "        except RecursionError:\n"
+        "            outcomes.append(f'{depth}:JSONRecursionError')\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+        "print(' '.join(outcomes))\n"
+    )
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code],
+        input=json.dumps({"schema": wrap(f"<oneOrMore>{nest}</oneOrMore>"), "xml": "<doc>xy xy xy</doc>"}),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def _repeat_check_unreachable() -> bool:
+    # a crash stays a failure of the test itself; only a sweep that completes without any RecursionError is skipped
+    sweep: Final = _repeat_check_sweep()
+    return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
+
+
+@pytest.mark.skipif(
+    _repeat_check_unreachable(),
+    reason="this platform never reaches the repeat check with the json sweep; the C coverage gate runs elsewhere",
+)
+def test_rng_repeat_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
+    # the sweep is the parent-side probe above: where it completes without RecursionError the test is skipped, and
+    # where it runs, the repeat check must fire somewhere in the sweep and the sweep must never crash
+    sweep: Final = _repeat_check_sweep()
+    assert sweep.returncode == 0, sweep.stderr
+    outcomes: Final = [outcome.split(":")[1] for outcome in sweep.stdout.split()]
+    assert len(outcomes) == 120, sweep.stderr
+    assert set(outcomes) <= {"valid", "RecursionError", "JSONRecursionError"}, sweep.stdout
+    assert "RecursionError" in outcomes, sweep.stdout
 
 
 def test_rng_wide_group_in_order_scales_linearly(work_steps: WorkSteps) -> None:

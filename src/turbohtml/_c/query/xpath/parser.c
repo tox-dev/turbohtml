@@ -940,13 +940,13 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
     optimize_descendant_steps(prog);
     mark_positional_steps(prog);
     static const char *const PYTHON_FUNCS[] = {"re:test",    "matches",    "re:replace",   "replace",
-#if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
+#ifdef XP_EQ_VIA_PYTHON
                                                "lower-case", "upper-case", "set:distinct",
 #endif
                                                NULL};
     for (int32_t index = 0; index < prog->count; index++) {
         if (
-#if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
+#ifdef XP_EQ_VIA_PYTHON
             prog->nodes[index].kind == XN_EQ || prog->nodes[index].kind == XN_NE ||
 #endif
             (prog->nodes[index].kind == XN_FUNC && func_name_in(&prog->nodes[index], PYTHON_FUNCS))) {

@@ -365,6 +365,10 @@ Py_ssize_t th_tree_nest_bound(const th_tree *tree) {
     return tree->nest_bound;
 }
 
+int th_tree_nests_deep(const th_tree *tree) {
+    return (tree->nest_bound & TH_NEST_CAPPED) == 0;
+}
+
 void th_tree_note_deepened(th_tree *tree) {
     tree->nest_bound &= TH_NEST_OBSERVED;
 }
@@ -503,8 +507,9 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
+    /* the push cap keeps every element short of TH_DEEP_NEST ancestors */
     if (tree->open_len >= TH_HAS_MEMO_DEPTH) {
-        tree->nest_bound = 0;
+        tree->nest_bound &= TH_NEST_CAPPED;
     }
     return 1;
 }
@@ -5280,6 +5285,33 @@ static void ensure_head_body(th_tree *tree, th_node *html) {
     }
 }
 
+/* The adoption agency and a selectedcontent copy drop the nest bound, since they can nest a node deeper than its start
+   tag would. Measure the finished document once instead, so that a page with no node TH_DEEP_NEST deep keeps
+   TH_NEST_CAPPED for its selector queries. */
+static void bound_parsed_nesting(th_tree *tree) {
+    th_node *const root = tree->document;
+    th_node *node = root;
+    Py_ssize_t ancestors = 0; /* of node's children */
+    for (;;) {
+        if (node->first_child != NULL) {
+            if (++ancestors >= TH_DEEP_NEST) {
+                return;
+            }
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+            ancestors--;
+        }
+        if (node == root) {
+            break;
+        }
+        node = node->next_sibling;
+    }
+    tree->nest_bound = TH_NEST_CAPPED;
+}
+
 /* At EOF a document always has html, head and body (the missing-element rules of
    the early insertion modes), so synthesize any the parse left out. */
 static void finalize_document(th_tree *tree) {
@@ -5292,6 +5324,9 @@ static void finalize_document(th_tree *tree) {
         node_append(tree->document, html);
     }
     ensure_head_body(tree, html);
+    if (tree->nest_bound == 0) {
+        bound_parsed_nesting(tree);
+    }
 }
 
 /* Allocate a fresh document tree ready for token-driven construction (the shared
@@ -5303,7 +5338,7 @@ static th_tree *tree_new_document(int positions, int locations) {
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    tree->nest_bound = TH_HAS_MEMO_DEPTH;
+    tree->nest_bound = TH_HAS_MEMO_DEPTH | TH_NEST_CAPPED;
     tree->track_positions = positions || locations; /* set before any element node_new */
     tree->track_locations = locations;
     tree->document = node_new(tree, TH_NODE_DOCUMENT);

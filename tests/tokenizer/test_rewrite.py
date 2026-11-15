@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import random
 from bisect import bisect_left
+from collections import Counter
 from difflib import SequenceMatcher
 from functools import partial
 from operator import methodcaller
@@ -8,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, Namespace, SelectorSyntaxError, parse, parse_fragment
+from turbohtml import Comment, Namespace, SelectorSyntaxError, _html, parse, parse_fragment  # ruff:ignore[import-private-name]  # the depth cap the rewriter keeps
 from turbohtml import Element as ParsedElement
 from turbohtml.rewrite import Element, rewrite
 
@@ -398,6 +400,106 @@ def test_rewrite_deeply_nested_beyond_depth_guard_is_safe() -> None:
     assert "x" in result
 
 
+_PAST_LIMIT: Final[int] = _html._REWRITE_MAX_DEPTH  # ruff:ignore[private-member-access]  # the cap the rewriter keeps
+_RAW_TAGS: Final[tuple[str, ...]] = ("style", "xmp", "textarea", "title", "iframe", "noembed", "noframes")
+
+
+@pytest.mark.parametrize("tag", _RAW_TAGS)
+@pytest.mark.parametrize("refused", [pytest.param(0, id="at-the-limit"), pytest.param(9, id="nine-refused-before")])
+def test_rewrite_raw_text_past_depth_limit_keeps_its_markup_hidden(tag: str, refused: int) -> None:
+    # the tokenizer reads a raw-text element past the cap as raw text, so the markup in its attribute is not a script
+    html = f'{"<p>" * (_PAST_LIMIT + refused)}<{tag}><a title="</{tag}><script>void 0</script>">'
+    assert rewrite(html) == html
+    removed = rewrite(html, elements=[("script", lambda element: element.remove())])
+    assert "<script" not in removed
+    assert "void 0" not in removed
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda element: element.remove(), id="remove"),
+        pytest.param(lambda element: element.replace("R"), id="replace"),
+        pytest.param(lambda element: element.set_content("S"), id="set-content"),
+        pytest.param(lambda element: element.append("A"), id="append"),
+        pytest.param(lambda element: element.prepend("P"), id="prepend"),
+        pytest.param(lambda element: element.after("F"), id="after"),
+        pytest.param(lambda element: element.remove_and_keep_content(), id="remove-and-keep-content"),
+        pytest.param(lambda element: element.set_attribute("k", "v"), id="set-attribute"),
+    ],
+)
+@pytest.mark.parametrize("tag", _RAW_TAGS)
+@pytest.mark.parametrize("refused", [pytest.param(0, id="at-the-limit"), pytest.param(9, id="nine-refused-before")])
+def test_rewrite_raw_text_past_depth_limit_is_edited_as_below_it(
+    edit: Callable[[Element], None], tag: str, refused: int
+) -> None:
+    body = f"<{tag}>a<b>x</b>&amp;</{tag}>tail"
+    below = rewrite(body, elements=[(tag, edit)])
+    prefix = "<p>" * (_PAST_LIMIT + refused)
+    assert rewrite(prefix + body, elements=[(tag, edit)]) == prefix + below
+
+
+def test_rewrite_removed_raw_text_past_depth_limit_drops_its_content() -> None:
+    html = f"{'<p>' * _PAST_LIMIT}<script>a<b>x</b></script>tail"
+    assert rewrite(html, elements=[("script", lambda element: element.remove())]) == f"{'<p>' * _PAST_LIMIT}tail"
+
+
+@pytest.mark.parametrize("filler", [pytest.param("<p>", id="p"), pytest.param("<div>", id="div")])
+def test_rewrite_removed_raw_text_past_depth_limit_inside_an_integration_point_drops_its_content(filler: str) -> None:
+    # the tree builder refuses the script at its own cap but still reads it as raw text, so the removal must hold
+    prefix = f"<svg><foreignObject>{filler * _PAST_LIMIT}"
+    assert rewrite(f"{prefix}<script>a<b>x</b></script>tail", elements=[("script", _remove)]) == f"{prefix}tail"
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda element: element.remove(), id="remove"),
+        pytest.param(lambda element: element.replace("R"), id="replace"),
+        pytest.param(lambda element: element.set_content("S"), id="set-content"),
+        pytest.param(lambda element: element.append("A"), id="append"),
+        pytest.param(lambda element: element.after("F"), id="after"),
+    ],
+)
+def test_rewrite_element_past_depth_limit_rejects_an_edit_of_its_content(edit: Callable[[Element], None]) -> None:
+    with pytest.raises(ValueError, match="nested past the depth limit"):
+        rewrite(f"{'<p>' * _PAST_LIMIT}<div>x</div>", elements=[("div", edit)])
+
+
+def test_rewrite_element_past_depth_limit_applies_edits_to_its_tags() -> None:
+    prefix = "<p>" * _PAST_LIMIT
+    assert rewrite(f"{prefix}<div>x</div>", elements=[("div", _set("k", "v"))]) == f'{prefix}<div k="v">x</div>'
+    prepended = rewrite(f"{prefix}<div>x</div>", elements=[("div", lambda element: element.prepend("P"))])
+    assert prepended == f"{prefix}<div>Px</div>"
+    kept = rewrite(f"{prefix}<div>x</div>", elements=[("div", lambda element: element.remove_and_keep_content())])
+    assert kept == f"{prefix}x</div>"
+
+
+def test_rewrite_svg_past_depth_limit_is_unchanged_without_handlers() -> None:
+    html = f"{'<p>' * _PAST_LIMIT}<svg><script>x</script></svg>"
+    assert rewrite(html) == html
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        pytest.param(lambda source: rewrite(source, elements=[("p", lambda _: None)]), id="element"),
+        pytest.param(lambda source: rewrite(source, text=lambda _: None), id="text"),
+        pytest.param(lambda source: rewrite(source, comments=lambda _: None), id="comments"),
+        pytest.param(lambda source: rewrite(source, doctype=lambda _: None), id="doctype"),
+    ],
+)
+def test_rewrite_svg_past_depth_limit_raises_for_a_handler(run: Callable[[str], str]) -> None:
+    with pytest.raises(ValueError, match="SVG or MathML nested past the depth limit"):
+        run(f"{'<p>' * _PAST_LIMIT}<svg><script>x</script></svg>")
+
+
+def test_rewrite_raw_content_past_depth_limit_that_ends_it_raises() -> None:
+    edit = [("script", lambda element: element.set_content("</script><em>"))]
+    with pytest.raises(ValueError, match="must not contain '</script'"):
+        rewrite(f"{'<p>' * _PAST_LIMIT}<script>a</script>", elements=edit)
+
+
 def test_rewrite_misnested_end_tags() -> None:
     assert rewrite("<b><i>x</b>y</i>", elements=[("i", _set("m", "1"))]) == '<b><i m="1">x</b>y</i>'
 
@@ -688,11 +790,6 @@ def test_rewrite_raw_text_in_unclosed_element_is_literal() -> None:
             "<svg><g><script/></g></svg>",
             "<svg><g><script/>&lt;/script&gt;&lt;em&gt;</g></svg>",
             id="self-closed-foreign",
-        ),
-        pytest.param(
-            f"{'<div>' * 8300}<script>a</script>",
-            f"{'<div>' * 8300}<script>&lt;/script&gt;&lt;em&gt;a</script>",
-            id="beyond-depth-guard",
         ),
     ],
 )
@@ -2437,6 +2534,107 @@ def test_rewrite_source_lt_stays_text_whatever_follows_it(
 )
 def test_rewrite_source_lt_unedited_is_kept(source: str) -> None:
     assert rewrite(source, elements=[("*", lambda _: None)], text=lambda _: None, comments=lambda _: None) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "handlers", "leaves", "expected"),
+    [
+        pytest.param("<p>a<</>b</p>", [], {}, "<p>a&lt;b</p>", id="empty-end-tag-before-letter"),
+        pytest.param("<p>x<</>!y</p>", [], {}, "<p>x&lt;!y</p>", id="empty-end-tag-before-bang"),
+        pytest.param("<p>x<</>?y</p>", [], {}, "<p>x&lt;?y</p>", id="empty-end-tag-before-question"),
+        pytest.param("<p>x<</>/y</p>", [], {}, "<p>x&lt;/y</p>", id="empty-end-tag-before-solidus"),
+        pytest.param("<p>a<</>b<</>c</p>", [], {}, "<p>a&lt;b&lt;c</p>", id="several-empty-end-tags"),
+        pytest.param("<p>a<</> b</p>", [], {}, "<p>a< b</p>", id="lt-before-space-kept"),
+        pytest.param("<p>a</>b<</p>", [], {}, "<p>ab<</p>", id="lt-at-the-end-of-the-run-kept"),
+        pytest.param("<p><</>/</i>x</p>", [], {}, "<p>&lt;/</i>x</p>", id="solidus-before-stray-end-tag"),
+        pytest.param("<p>a<<!x>b</p>", [], {"comments": _remove}, "<p>a&lt;b</p>", id="bogus-comment-removed"),
+        pytest.param("<p>a<<!--c-->b</p>", [], {"comments": _remove}, "<p>a&lt;b</p>", id="comment-removed"),
+        pytest.param("<p>a<<b>c</b>d</p>", [("b", _remove)], {}, "<p>a&lt;d</p>", id="element-removed"),
+        pytest.param("<p>a<<b>c</b>d</p>", [("b", _unwrap)], {}, "<p>a&lt;cd</p>", id="element-unwrapped"),
+        pytest.param("<p>a<<xmp>b</xmp>c</p>", [("xmp", _remove)], {}, "<p>a&lt;c</p>", id="raw-text-removed"),
+        pytest.param("<p>a<<xmp>b<</xmp>c</p>", [("xmp", _unwrap)], {}, "<p>a&lt;b&lt;c</p>", id="raw-text-unwrapped"),
+    ],
+)
+def test_rewrite_text_joined_across_a_dropped_token_escapes_its_lt(
+    source: str,
+    handlers: list[tuple[str, Callable[[Element], None]]],
+    leaves: dict[str, Callable[[Element], None]],
+    expected: str,
+) -> None:
+    result = rewrite(source, elements=handlers, **leaves)
+    assert result == expected
+    assert not _element_counts(result) - _element_counts(source)
+
+
+def _element_counts(markup: str) -> Counter[str]:
+    return Counter(element.tag for element in parse(markup).select("*"))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<style>a\x00<b</style>", "<style>a�<b</style>", id="style"),
+        pytest.param("<title>a\x00<b</title>", "<title>a�<b</title>", id="rcdata"),
+    ],
+)
+def test_rewrite_gathered_raw_text_is_read_as_raw(source: str, expected: str) -> None:
+    assert rewrite(source) == expected
+
+
+@pytest.mark.parametrize(
+    "prefix", [pytest.param("", id="html"), pytest.param("<svg><foreignObject>", id="integration-point")]
+)
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param("<script>a\x00<b</script>", "<script>a\ufffd<b</script>", id="raw-text-kept"),
+        pytest.param("<script><</>/script><img src=x>", "<script><</>/script><img src=x>", id="raw-text-not-joined"),
+        pytest.param("<script>a</script><</>script>run()", "<script>a</script>&lt;script>run()", id="data-after-raw"),
+    ],
+)
+def test_rewrite_past_the_depth_guard_reads_raw_text_as_raw(prefix: str, body: str, expected: str) -> None:
+    assert rewrite(f"{prefix}{'<div>' * (_PAST_LIMIT + 1)}{body}").endswith(expected)
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_rewrite_passthrough_adds_no_element_the_source_lacks(seed: int) -> None:
+    pieces: Final = (
+        "<",
+        "<",
+        "</>",
+        "</",
+        "/",
+        "!",
+        "?",
+        "x",
+        "script>",
+        "<b>",
+        "</b>",
+        "<script>",
+        "</script>",
+        "<xmp>",
+        "</xmp>",
+        "<!x>",
+        "<!--c-->",
+        "<?p>",
+        "<p>",
+        "</p>",
+        "<img src=x>",
+        "<title>",
+        "</title>",
+        "&amp;",
+        "\x00",
+    )
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed generated corpus
+    for _ in range(40):
+        source = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 14)))
+        before = _element_counts(source)
+        for result in (
+            rewrite(source),
+            rewrite(source, elements=[("script", _remove)], comments=_remove),
+            rewrite(source, elements=[("img", _set("loading", "lazy"))]),
+        ):
+            assert not _element_counts(result) - before, (source, result)
 
 
 def test_rewrite_follows_the_tree_builder_in_linear_time(work_steps: WorkSteps) -> None:

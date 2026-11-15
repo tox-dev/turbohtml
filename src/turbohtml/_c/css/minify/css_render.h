@@ -71,13 +71,17 @@ static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec,
                                                   int color_mode, int drop_zero_unit, const css_calc_context *context,
                                                   comp_vec *comps) {
     Py_ssize_t index = start;
+    int gap = 0;
     while (index < end) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
+            gap = 1;
             index++;
             continue;
         }
         css_comp comp = {0};
+        comp.spaced = gap;
+        gap = 0;
         if (token->kind == CSS_DELIM && (token->delim == ',' || token->delim == '/')) {
             comp.off = pool->len;
             cbuf_putc(pool, token->delim);
@@ -133,6 +137,49 @@ static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec,
     }
 }
 
+/* Whether the `u` or `U` component at index is a one-character identifier that a `+` component follows. */
+static int css_is_range_u(const css_buf *pool, const comp_vec *comps, Py_ssize_t index) {
+    const css_comp *comp = &comps->items[index];
+    return comp->kind == CK_IDENT && comp->len == 1 && (pool->data[comp->off] | 0x20) == 'u';
+}
+
+static int css_is_plus(const css_buf *pool, const comp_vec *comps, Py_ssize_t index) {
+    const css_comp *comp = &comps->items[index];
+    return comp->kind == CK_DELIM && comp->len == 1 && pool->data[comp->off] == '+';
+}
+
+static int css_is_question(const css_buf *pool, const comp_vec *comps, Py_ssize_t index) {
+    const css_comp *comp = &comps->items[index];
+    return comp->kind == CK_DELIM && comp->len == 1 && pool->data[comp->off] == '?';
+}
+
+/* Whether the component at index is a unicode-range token the tokenizer kept whole: the only delimiter component of
+   three or more code points that starts with a `u`. */
+static int css_is_range_token(const css_buf *pool, const comp_vec *comps, Py_ssize_t index) {
+    const css_comp *comp = &comps->items[index];
+    return comp->kind == CK_DELIM && comp->len >= 3 && (pool->data[comp->off] | 0x20) == 'u';
+}
+
+/* Whether the source separated the component at index from the one before it in a way the output must keep: a `u`
+   and `+` that were apart, a `+` and a hex digit or `?` that were apart after a `u`, or a `?` and a hex digit or `?`
+   that were apart. Written with no separator, such a pair reads as a unicode-range token, which only a hex digit
+   followed by `?` marks may not continue; a pair the source ran together stays as it was. */
+static int css_splits_range(const css_buf *pool, const comp_vec *comps, Py_ssize_t index) {
+    const css_comp *comp = &comps->items[index];
+    if (!comp->spaced) {
+        return 0;
+    }
+    if (css_is_range_u(pool, comps, index - 1)) {
+        return css_is_plus(pool, comps, index);
+    }
+    const css_char first = pool->data[comp->off];
+    if (css_is_range_token(pool, comps, index - 1) || css_is_question(pool, comps, index - 1)) {
+        return css_is_hex(first) || first == '?' || first == '-';
+    }
+    return index >= 2 && css_is_plus(pool, comps, index - 1) && css_is_range_u(pool, comps, index - 2) &&
+           (css_is_hex(first) || first == '?');
+}
+
 /* Assemble components into the value buffer: a single space between components, except after a function/url/separator,
    before a parenthesised piece, around a bare delimiter, or between a unitless number and a negative unitless one: a
    `-` before a digit starts no unit, so `1-1` reads as two numbers (CSS Syntax 3 §4.3.3). A negative dimension still
@@ -152,8 +199,9 @@ static void css_assemble(css_buf *pool, comp_vec *comps, int escapes, css_buf *o
                                         (prev->kind == CK_NUM || (prev->kind == CK_DIM && prev->len == 1)) &&
                                         text[0] == '-';
             if (!negative_after_number &&
-                (!glued || css_would_merge_after(escapes, pool->data + prev->off, prev->len, prev->kind == CK_IDENT,
-                                                 pool->data + comp->off, comp->len))) {
+                (css_splits_range(pool, comps, index) || !glued ||
+                 css_would_merge_after(escapes, pool->data + prev->off, prev->len, prev->kind == CK_IDENT,
+                                       pool->data + comp->off, comp->len))) {
                 cbuf_putc(out, ' ');
             }
         }
@@ -242,6 +290,10 @@ CSS_NOINLINE static void css_render_raw_value(token_vec *vec, Py_ssize_t start, 
     int any_ws = 0;
     int comment_gap = 0;
     int last_is_ident = 0;
+    /* 1 after a `u` or `U` identifier, 2 after the `+` that follows one: a comment kept between the pieces of a range
+       start, as a separator, stops them reading as a unicode-range token */
+    int range_state = 0;
+    int after_range = 0;
     Py_ssize_t written = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
@@ -254,15 +306,23 @@ CSS_NOINLINE static void css_render_raw_value(token_vec *vec, Py_ssize_t start, 
             comment_gap = 1;
             continue;
         }
+        css_char first = token->text[0];
+        int range_split = range_state == 1   ? token->kind == CSS_DELIM && token->delim == '+'
+                          : range_state == 2 ? css_is_hex(first) || first == '?'
+                          : after_range      ? css_is_hex(first) || first == '?' || first == '-'
+                                             : 0;
         if (pending_ws && written > 0) {
             cbuf_putc(out, ' ');
-        } else if (comment_gap && written > 0 &&
-                   css_would_merge_after(vec->escapes, out->data, out->len, last_is_ident, token->text,
-                                         token->text_len)) {
+        } else if (written > 0 && comment_gap &&
+                   (range_split || css_would_merge_after(vec->escapes, out->data, out->len, last_is_ident, token->text,
+                                                         token->text_len))) {
             cbuf_puts(out, "/**/");
         }
         pending_ws = 0;
         comment_gap = 0;
+        int is_u = token->kind == CSS_IDENT && token->text_len == 1 && css_lower(token->text[0]) == 'u';
+        range_state = range_state == 1 && token->kind == CSS_DELIM && token->delim == '+' ? 2 : is_u;
+        after_range = token->kind == CSS_URANGE || (token->kind == CSS_DELIM && token->delim == '?');
         last_is_ident = token->kind == CSS_IDENT;
         if (token->kind == CSS_NUM) {
             cbuf_put_run(out, token->text, token->text_len);
@@ -1059,7 +1119,7 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
                     css_compkind kind;
                     if (css_try_calc(pool, vec, index + 2, close_index, &context, &off, &len, &kind) &&
                         len < vec->items[close_index].text + vec->items[close_index].text_len - token->text) {
-                        cbuf_put_run(&joined, pool->data + off, len);
+                        css_put_folded(&joined, pool->data + off, len, vec, close_index + 1, end);
                         index = close_index;
                         last_is_ident = 0;
                         continue;

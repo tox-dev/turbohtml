@@ -5456,7 +5456,7 @@ static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, co
         PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
-    return th_node_map_find(&siblings->counts, node);
+    return (long)th_node_map_find(&siblings->counts, node);
 }
 
 /* The count of node in its sibling run, filled once per run. Default counts are dropped when the number index changes,
@@ -5471,7 +5471,7 @@ static long sibling_count(engine *eng, xslt_number_siblings *siblings, const mat
     }
     const Py_ssize_t position = th_node_map_find(&siblings->counts, node);
     if (position != 0) {
-        return position;
+        return (long)position;
     }
     long count = 1;
     th_node *prev = node->prev_sibling;

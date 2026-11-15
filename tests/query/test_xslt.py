@@ -6,6 +6,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs the fixed
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from functools import partial
 from pathlib import Path
 from threading import Barrier
@@ -1720,6 +1721,16 @@ def _key_chain(links: int, *, match: str = "a") -> str:
     return f'{chain}<xsl:key name="k{links}" match="{match}" use="."/>'
 
 
+def _thread_stack_accepted(kib: int) -> bool:
+    previous = threading.stack_size()
+    accepted = False
+    with suppress(ValueError):  # the platform's minimum thread stack is above this size
+        threading.stack_size(kib * 1024)
+        accepted = True
+    threading.stack_size(previous)
+    return accepted
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -1737,6 +1748,7 @@ def _key_chain(links: int, *, match: str = "a") -> str:
         pytest.param(f"{_key_chain(400 + 2, match='r')}{_KEY_LOOKUP}", id="key-chain"),
     ],
 )
+@pytest.mark.skipif(not _thread_stack_accepted(112), reason="the platform's minimum thread stack is above 112 KiB")
 def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
     # a stack overflow kills the interpreter, so the transform runs in a subprocess and the crash becomes a failure
     code = (
@@ -2334,7 +2346,13 @@ def test_transform_key_use_builds_the_key_it_calls() -> None:
 
 
 def test_transform_key_use_chain_is_depth_limited() -> None:
-    with pytest.raises(RecursionError, match="building an xsl:key exceeds the nesting limit of 400 levels"):
+    # PyPy's recursion limit answers the key chain before the 400-level cap does
+    message: Final = (
+        "maximum recursion depth exceeded while applying an XSLT stylesheet"
+        if sys.implementation.name == "pypy"
+        else "building an xsl:key exceeds the nesting limit of 400 levels"
+    )
+    with pytest.raises(RecursionError, match=message):
         _run("<r><a>x</a></r>", _key_chain(400 + 2) + _KEY_LOOKUP)
 
 
