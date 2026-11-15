@@ -224,6 +224,13 @@ numbers (``min``, ``max``, ``highest``, ``lowest``, ``abs``, ``power``), and ``d
 ``str:padding`` raises :exc:`ValueError` for a length above 100,000 characters, which bounds the allocation a length
 read from document data can request.
 
+``str:concat``, ``string-join``, ``set:distinct`` and ``id`` read the string-value of every member of a node-set. An
+element's string-value is the text of all its descendants, so a member inside another member repeats text, and a set of
+nested elements such as ``//div`` holds the innermost text once for each level. One call may gather 2,621,440 characters
+(10 MiB) of such repeated text before it raises :exc:`ValueError`. Members that do not contain one another spend none of
+it. A node-set an extension function returns out of document order spends it on every member from the first one out of
+place.
+
 ``str:tokenize`` and ``str:split`` are not built in: they would have to synthesize token nodes, and the engine's
 node-sets only reference nodes that already exist in the tree. Likewise ``date:`` reads an explicit date string rather
 than the implicit current date-time, so a query stays deterministic. Register either through ``extensions=`` if you need

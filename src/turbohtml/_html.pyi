@@ -189,6 +189,9 @@ from ._stubs.features import (
     _url_join as _url_join,
 )
 from ._stubs.features import (
+    _url_join_link as _url_join_link,
+)
+from ._stubs.features import (
     _url_language_matches as _url_language_matches,
 )
 from ._stubs.features import (

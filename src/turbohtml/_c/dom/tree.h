@@ -109,7 +109,7 @@ enum th_ns {
 
 struct th_node {
     uint8_t type;
-    uint8_t attr_capacity_shift; /* zero for exact-sized arrays */
+    uint8_t attr_capacity_shift; /* zero for exact-sized arrays; read it through th_node_attr_capacity */
     uint16_t atom;               /* TH_TAG_* for elements, else TH_TAG_UNKNOWN */
     uint8_t tag_flags;           /* category bitmask from the atom table */
     uint8_t ns;                  /* enum th_ns: HTML / SVG / MathML */
@@ -138,6 +138,16 @@ struct th_node {
     th_node_attr *attrs;
     Py_ssize_t attr_count;
 };
+
+/* Set in attr_capacity_shift while dom/mutate.c keeps a hash index behind the attribute array. Bit 0x40 rather than
+   0x80 lets th_node_attr_capacity mask it with 63, which x86-64 shifts apply for free. An indexed array has at least
+   ATTR_INDEX_MIN slots, so the flag never sits on a zero shift and the zero test can read the byte unmasked. */
+#define TH_ATTR_INDEXED 0x40
+
+static inline size_t th_node_attr_capacity(const th_node *node) {
+    const unsigned shift = node->attr_capacity_shift;
+    return shift ? (size_t)1 << (shift & (TH_ATTR_INDEXED - 1)) : 0;
+}
 
 /* The next node of a pre-order walk bounded to root's subtree, or NULL once the walk is done. */
 static inline th_node *preorder_next(th_node *current, th_node *root) {
@@ -331,7 +341,7 @@ int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
                      Py_ssize_t value_len, int has_value);
 /* The caller has already established that this attribute name is absent. */
 int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
-                        Py_ssize_t value_len, int has_value);
+                        Py_ssize_t value_len);
 
 /* An element's attribute array and count; (NULL, 0) for every non-element node. */
 static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **attrs) {
