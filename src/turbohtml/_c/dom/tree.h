@@ -134,6 +134,9 @@ struct th_node {
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
     uint8_t attr_values_shared;
+    /* Tree builder state: set once the element leaves the stack of open elements, which the streaming rewriter reads
+       to follow a th_shadow. */
+    uint8_t left_stack;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -513,6 +516,25 @@ th_tree *th_stream_finish(th_stream *stream);
 /* Free the parser and, unless th_stream_finish already handed it off, its
    in-progress tree. */
 void th_stream_free(th_stream *stream);
+
+/* Tree construction that follows a tokenizer someone else drives (the streaming rewriter): it switches that
+   tokenizer's content model and CDATA handling exactly as a document parse with scripting on does. */
+typedef struct th_shadow th_shadow;
+
+/* Build the tree for the first `prefix` code points of sm's input, a prefix that ends where a tag starts, by
+   replaying them through a tokenizer of its own; the tokens after it come from sm through th_shadow_step. sm's input
+   must be complete and stay in place while the shadow lives. Returns NULL on allocation failure. */
+th_shadow *th_shadow_new(th_tokenizer *sm, Py_ssize_t prefix);
+
+/* Run the token sm just produced through tree construction, then set sm up for the next one. A TH_CHARREF counts as
+   its decoded text. Returns 0, or -1 on allocation failure. */
+int th_shadow_step(th_shadow *shadow, th_token *token);
+
+/* The stack of open elements, outermost first; *count receives its length. */
+th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count);
+
+/* Free the shadow and its tree; NULL is a no-op. */
+void th_shadow_free(th_shadow *shadow);
 
 /* Serialize the tree in the html5lib tree-construction "#document" format (one
    "| " indented line per node) into a freshly PyMem-allocated UCS4 buffer;

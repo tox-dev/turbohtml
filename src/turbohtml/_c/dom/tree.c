@@ -540,6 +540,7 @@ static void stack_pop_any(th_tree *tree) {
         tree->open_len--;
         tree->stack_version++;
         th_node *popped = tree->open[tree->open_len];
+        popped->left_stack = 1;
         if (popped->ns == TH_NS_HTML && popped->atom == TH_TAG_P) {
             tree->open_p_count--;
         }
@@ -2212,6 +2213,7 @@ static void afe_remove_at(th_tree *tree, Py_ssize_t index) {
 
 /* Remove the open-elements-stack entry at index, shifting the tail down. */
 static void stack_remove_at(th_tree *tree, Py_ssize_t index) {
+    tree->open[index]->left_stack = 1;
     memmove(&tree->open[index], &tree->open[index + 1], (size_t)(tree->open_len - index - 1) * sizeof(th_node *));
     tree->open_len--;
     tree->stack_version++;
@@ -2669,6 +2671,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
                 return 1;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             }
             afe_replace_at(tree, node_afe, clone);
+            node->left_stack = 1; /* the clone takes its place on the stack */
             tree->open[node_idx] = clone;
             tree->stack_version++;
             node = clone;
@@ -4752,6 +4755,169 @@ static enum th_drain drain_after_after_frameset(th_tree *tree, th_token *tok, th
     return TH_DRAIN_NEXT; /* everything else is a parse error and ignored */
 }
 
+/* Run one token through tree construction: the foreign-content dispatch, then the current insertion mode, reprocessing
+   it as the modes direct. run_drain feeds it the tokens it pulls; th_shadow_step feeds it the streaming rewriter's. */
+static TH_TREE_INLINE void drain_token(th_tree *tree, th_insert *dc, th_token *tok) {
+    if (dc->foster_pending) {
+        /* The one fostered token was processed under in-body rules; restore
+           the table/cell mode only if those rules did not themselves switch
+           the insertion mode (a fostered <select>/<table> legitimately
+           does, and that switch must survive). */
+        if (dc->mode == M_IN_BODY) {
+            dc->mode = dc->foster_return;
+        }
+        tree->foster = 0;
+        dc->foster_pending = 0;
+    }
+    dc->table_origin = M_IN_TABLE;
+    tree->text_offset = 0; /* a fresh token: any consumed-prefix offset is stale */
+    /* the pre/listing/textarea leading-LF skip applies only to the token
+       immediately following the start tag: a text token consumes it in its
+       own branch, so any other intervening token (a comment or element) must
+       clear the flag here or a later newline would be dropped too */
+    if (tree->drop_newline && tok->kind != TH_TEXT) {
+        tree->drop_newline = 0;
+    }
+reprocess:;
+    /* Intern the tag name once; every comparison and insert below reads
+       tok->atom / tok->tag_flags instead of re-interning the same name. */
+    if (tok->kind == TH_START_TAG || tok->kind == TH_END_TAG) {
+        tok->atom = intern_atom(&tok->name, &tok->tag_flags);
+    } else {
+        tok->atom = TH_TAG_UNKNOWN;
+        tok->tag_flags = 0;
+    }
+    /* the element(s) this end tag pops are the ones the source closed explicitly */
+    tree->closing_end_tag = tok->kind == TH_END_TAG ? tok : NULL;
+    if (use_foreign_rules(tree, tok) && foreign_step(tree, tok)) {
+        goto token_done; /* handled under foreign-content rules */
+    }
+    /* template tags are handled uniformly across the table/select modes (the
+       spec routes them through in-head); in-body/in-head/in-template keep
+       their own handlers for the active-formatting interactions */
+    if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
+        if (current_template_refused(tree)) {
+            afe_clear_to_marker(tree);
+            tmpl_pop(tree);
+            dc->mode = reset_insertion_mode(tree);
+        } else if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
+            generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+            /* an element still open inside the template may have pushed its own formatting marker, which the clear
+               below leaves behind, shielding an outer a/nobr the output's explicit end tags no longer shield */
+            tree->reparse_hazard |= current_node(tree)->atom != TH_TAG_TEMPLATE;
+            pop_until_atom(tree, TH_TAG_TEMPLATE);
+            afe_clear_to_marker(tree);
+            tmpl_pop(tree);
+            dc->mode = reset_insertion_mode(tree);
+        }
+        goto token_done;
+    }
+    if (tok->kind == TH_START_TAG &&
+        (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
+         dc->mode == M_IN_COLUMN_GROUP || dc->mode == M_IN_CAPTION) &&
+        tok_atom(tok) == TH_TAG_TEMPLATE) {
+        stack_push_template(tree, insert_template(tree, tok));
+        dc->mode = M_IN_TEMPLATE;
+        goto token_done;
+    }
+    /* "in select in table": a select opened in a table context does not get its own
+       mode here, so a table-family start tag would nest inside the still-open select.
+       Per the spec it pops the select, resets the insertion mode, and reprocesses, so
+       the table element becomes a sibling of the closed select (#90). */
+    if (tok->kind == TH_START_TAG && (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW ||
+                                      dc->mode == M_IN_CELL || dc->mode == M_IN_CAPTION)) {
+        uint16_t atom = tok_atom(tok);
+        if ((atom == TH_TAG_CAPTION || atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
+             atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH) &&
+            has_in_scope(tree, TH_TAG_SELECT)) {
+            pop_until_atom(tree, TH_TAG_SELECT);
+            dc->mode = reset_insertion_mode(tree);
+            goto reprocess;
+        }
+    }
+    /* a DOCTYPE in any insertion mode other than "initial" is a parse error that is
+       ignored without changing the insertion mode (foreign content already handled
+       its own DOCTYPE above); only the initial mode builds the doctype node */
+    if (tok->kind == TH_DOCTYPE && dc->mode != M_INITIAL) {
+        th_error_sink_push(&tree->errors, "unexpected-doctype", tok->line, tok->col);
+        return;
+    }
+    /* every insertion mode has an explicit case, so the compiler default arm is unreachable */
+    enum th_drain action = TH_DRAIN_NEXT;
+    switch (dc->mode) /* GCOVR_EXCL_BR_LINE */ {
+    case M_INITIAL:
+        action = drain_initial(tree, tok, dc);
+        break;
+    case M_BEFORE_HTML:
+        action = drain_before_html(tree, tok, dc);
+        break;
+    case M_BEFORE_HEAD:
+        action = drain_before_head(tree, tok, dc);
+        break;
+    case M_IN_HEAD:
+        action = drain_in_head(tree, tok, dc);
+        break;
+    case M_IN_HEAD_NOSCRIPT:
+        action = drain_in_head_noscript(tree, tok, dc);
+        break;
+    case M_AFTER_HEAD:
+        action = drain_after_head(tree, tok, dc);
+        break;
+    case M_IN_TEMPLATE:
+        action = drain_in_template(tree, tok, dc);
+        break;
+    case M_IN_FRAMESET:
+        action = drain_in_frameset(tree, tok, dc);
+        break;
+    case M_AFTER_FRAMESET:
+        action = drain_after_frameset(tree, tok, dc);
+        break;
+    case M_IN_BODY:
+        action = drain_in_body(tree, tok, dc);
+        break;
+    case M_TEXT:
+        action = drain_text(tree, tok, dc, 1);
+        break;
+    case M_TEXT_REFUSED:
+        action = drain_text(tree, tok, dc, 0);
+        break;
+    case M_IN_TABLE:
+        action = drain_in_table(tree, tok, dc);
+        break;
+    case M_IN_CAPTION:
+        action = drain_in_caption(tree, tok, dc);
+        break;
+    case M_IN_COLUMN_GROUP:
+        action = drain_in_column_group(tree, tok, dc);
+        break;
+    case M_IN_TABLE_BODY:
+        action = drain_in_table_body(tree, tok, dc);
+        break;
+    case M_IN_ROW:
+        action = drain_in_row(tree, tok, dc);
+        break;
+    case M_IN_CELL:
+        action = drain_in_cell(tree, tok, dc);
+        break;
+    case M_AFTER_BODY:
+        action = drain_after_body(tree, tok, dc);
+        break;
+    case M_AFTER_AFTER_BODY:
+        action = drain_after_after_body(tree, tok, dc);
+        break;
+    case M_AFTER_AFTER_FRAMESET:
+        action = drain_after_after_frameset(tree, tok, dc);
+        break;
+    }
+    if (action == TH_DRAIN_REPROCESS) {
+        goto reprocess;
+    }
+token_done:
+    if (tok->kind == TH_START_TAG && tok->self_closing && !tok->self_closing_acknowledged) {
+        th_error_sink_push(&tree->errors, "non-void-html-element-start-tag-with-trailing-solidus", tok->line, tok->col);
+    }
+}
+
 /* Drive tree construction over the tokens the tokenizer can produce now,
    returning when it stalls (TH_STEP_NEED_MORE), reaches EOF (TH_STEP_DONE), or
    fails. The insertion-mode state is restored from run_state on entry and saved
@@ -4778,165 +4944,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
     while (!tree->failed /* GCOVR_EXCL_BR_LINE */ &&
            (th_tok_set_cdata(sm, tree->open_len > 0 && current_node(tree)->ns != TH_NS_HTML),
             th_tok_next(sm, &tok) == TH_STEP_TOKEN)) {
-        if (dc->foster_pending) {
-            /* The one fostered token was processed under in-body rules; restore
-               the table/cell mode only if those rules did not themselves switch
-               the insertion mode (a fostered <select>/<table> legitimately
-               does, and that switch must survive). */
-            if (dc->mode == M_IN_BODY) {
-                dc->mode = dc->foster_return;
-            }
-            tree->foster = 0;
-            dc->foster_pending = 0;
-        }
-        dc->table_origin = M_IN_TABLE;
-        tree->text_offset = 0; /* a fresh token: any consumed-prefix offset is stale */
-        /* the pre/listing/textarea leading-LF skip applies only to the token
-           immediately following the start tag: a text token consumes it in its
-           own branch, so any other intervening token (a comment or element) must
-           clear the flag here or a later newline would be dropped too */
-        if (tree->drop_newline && tok->kind != TH_TEXT) {
-            tree->drop_newline = 0;
-        }
-    reprocess:;
-        /* Intern the tag name once; every comparison and insert below reads
-           tok->atom / tok->tag_flags instead of re-interning the same name. */
-        if (tok->kind == TH_START_TAG || tok->kind == TH_END_TAG) {
-            tok->atom = intern_atom(&tok->name, &tok->tag_flags);
-        } else {
-            tok->atom = TH_TAG_UNKNOWN;
-            tok->tag_flags = 0;
-        }
-        /* the element(s) this end tag pops are the ones the source closed explicitly */
-        tree->closing_end_tag = tok->kind == TH_END_TAG ? tok : NULL;
-        if (use_foreign_rules(tree, tok) && foreign_step(tree, tok)) {
-            goto token_done; /* handled under foreign-content rules */
-        }
-        /* template tags are handled uniformly across the table/select modes (the
-           spec routes them through in-head); in-body/in-head/in-template keep
-           their own handlers for the active-formatting interactions */
-        if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
-            if (current_template_refused(tree)) {
-                afe_clear_to_marker(tree);
-                tmpl_pop(tree);
-                dc->mode = reset_insertion_mode(tree);
-            } else if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
-                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                /* an element still open inside the template may have pushed its own formatting marker, which the clear
-                   below leaves behind, shielding an outer a/nobr the output's explicit end tags no longer shield */
-                tree->reparse_hazard |= current_node(tree)->atom != TH_TAG_TEMPLATE;
-                pop_until_atom(tree, TH_TAG_TEMPLATE);
-                afe_clear_to_marker(tree);
-                tmpl_pop(tree);
-                dc->mode = reset_insertion_mode(tree);
-            }
-            goto token_done;
-        }
-        if (tok->kind == TH_START_TAG &&
-            (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
-             dc->mode == M_IN_COLUMN_GROUP || dc->mode == M_IN_CAPTION) &&
-            tok_atom(tok) == TH_TAG_TEMPLATE) {
-            stack_push_template(tree, insert_template(tree, tok));
-            dc->mode = M_IN_TEMPLATE;
-            goto token_done;
-        }
-        /* "in select in table": a select opened in a table context does not get its own
-           mode here, so a table-family start tag would nest inside the still-open select.
-           Per the spec it pops the select, resets the insertion mode, and reprocesses, so
-           the table element becomes a sibling of the closed select (#90). */
-        if (tok->kind == TH_START_TAG && (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY ||
-                                          dc->mode == M_IN_ROW || dc->mode == M_IN_CELL || dc->mode == M_IN_CAPTION)) {
-            uint16_t atom = tok_atom(tok);
-            if ((atom == TH_TAG_CAPTION || atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
-                 atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH) &&
-                has_in_scope(tree, TH_TAG_SELECT)) {
-                pop_until_atom(tree, TH_TAG_SELECT);
-                dc->mode = reset_insertion_mode(tree);
-                goto reprocess;
-            }
-        }
-        /* a DOCTYPE in any insertion mode other than "initial" is a parse error that is
-           ignored without changing the insertion mode (foreign content already handled
-           its own DOCTYPE above); only the initial mode builds the doctype node */
-        if (tok->kind == TH_DOCTYPE && dc->mode != M_INITIAL) {
-            th_error_sink_push(&tree->errors, "unexpected-doctype", tok->line, tok->col);
-            continue;
-        }
-        /* every insertion mode has an explicit case, so the compiler default arm is unreachable */
-        enum th_drain action = TH_DRAIN_NEXT;
-        switch (dc->mode) /* GCOVR_EXCL_BR_LINE */ {
-        case M_INITIAL:
-            action = drain_initial(tree, tok, dc);
-            break;
-        case M_BEFORE_HTML:
-            action = drain_before_html(tree, tok, dc);
-            break;
-        case M_BEFORE_HEAD:
-            action = drain_before_head(tree, tok, dc);
-            break;
-        case M_IN_HEAD:
-            action = drain_in_head(tree, tok, dc);
-            break;
-        case M_IN_HEAD_NOSCRIPT:
-            action = drain_in_head_noscript(tree, tok, dc);
-            break;
-        case M_AFTER_HEAD:
-            action = drain_after_head(tree, tok, dc);
-            break;
-        case M_IN_TEMPLATE:
-            action = drain_in_template(tree, tok, dc);
-            break;
-        case M_IN_FRAMESET:
-            action = drain_in_frameset(tree, tok, dc);
-            break;
-        case M_AFTER_FRAMESET:
-            action = drain_after_frameset(tree, tok, dc);
-            break;
-        case M_IN_BODY:
-            action = drain_in_body(tree, tok, dc);
-            break;
-        case M_TEXT:
-            action = drain_text(tree, tok, dc, 1);
-            break;
-        case M_TEXT_REFUSED:
-            action = drain_text(tree, tok, dc, 0);
-            break;
-        case M_IN_TABLE:
-            action = drain_in_table(tree, tok, dc);
-            break;
-        case M_IN_CAPTION:
-            action = drain_in_caption(tree, tok, dc);
-            break;
-        case M_IN_COLUMN_GROUP:
-            action = drain_in_column_group(tree, tok, dc);
-            break;
-        case M_IN_TABLE_BODY:
-            action = drain_in_table_body(tree, tok, dc);
-            break;
-        case M_IN_ROW:
-            action = drain_in_row(tree, tok, dc);
-            break;
-        case M_IN_CELL:
-            action = drain_in_cell(tree, tok, dc);
-            break;
-        case M_AFTER_BODY:
-            action = drain_after_body(tree, tok, dc);
-            break;
-        case M_AFTER_AFTER_BODY:
-            action = drain_after_after_body(tree, tok, dc);
-            break;
-        case M_AFTER_AFTER_FRAMESET:
-            action = drain_after_after_frameset(tree, tok, dc);
-            break;
-        }
-        if (action == TH_DRAIN_REPROCESS) {
-            goto reprocess;
-        }
-    token_done:
-        if (tok->kind == TH_START_TAG && tok->self_closing && !tok->self_closing_acknowledged) {
-            th_error_sink_push(&tree->errors, "non-void-html-element-start-tag-with-trailing-solidus", tok->line,
-                               tok->col);
-        }
+        drain_token(tree, dc, tok);
     }
     /* the tokenizer reports its allocation failures as TH_STEP_ERROR, which would otherwise end the drain as if the
        input had ended and return a partial tree, and a parse error the sink dropped would leave the list incomplete */
@@ -5411,4 +5419,83 @@ void th_stream_free(th_stream *stream) {
         th_tree_free(stream->tree);
     }
     PyMem_Free(stream);
+}
+
+/* A document tree built alongside another consumer's tokenizer: tree construction runs on each token that consumer
+   pulls and steers its tokenizer as it would its own, so the consumer reads the input exactly as a parse does. */
+struct th_shadow {
+    th_tree *tree;
+    th_insert dc;
+};
+
+th_shadow *th_shadow_new(th_tokenizer *sm, Py_ssize_t prefix) {
+    th_shadow *shadow = PyMem_Calloc(1, sizeof(th_shadow));
+    if (shadow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_tree *tree = tree_new_document(1, 0); /* the start tag positions pair the elements with the consumer's */
+    th_tokenizer *replay = th_tok_new();
+    if (tree == NULL || replay == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tree_free(tree);               /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_tok_free(replay);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(shadow);               /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* the settings of a document parse that runs scripts, as a browser does */
+    tree->scripting = 1;
+    tree->declarative_shadow = 1;
+    /* the consumer's input is final and outlives the tree, so text can stay a span of it; any slice may hold a NUL */
+    tree->data = th_tok_input_data(sm, &tree->kind);
+    tree->can_span = 1;
+    tree->has_nul = 1;
+    /* the prefix ends where a tag starts, so the replay stops in the data state the consumer is in */
+    th_tok_borrow_input(replay, tree->kind, tree->data, prefix);
+    th_tok_close(replay);
+    TH_WORK_STEPS_ADD(prefix);
+    th_run_state run_state;
+    run_state_init(&run_state, M_INITIAL);
+    run_drain(tree, replay, &run_state);
+    th_tok_free(replay);
+    tree->closing_end_tag = NULL;
+    shadow->tree = tree;
+    shadow->dc = (th_insert){
+        .sm = sm,
+        .mode = run_state.mode,
+        .original_mode = run_state.original_mode,
+        .foster_return = run_state.foster_return,
+        .foster_pending = run_state.foster_pending,
+        .table_origin = M_IN_TABLE,
+    };
+    if (tree->failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_shadow_free(shadow); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return shadow;
+}
+
+int th_shadow_step(th_shadow *shadow, th_token *token) {
+    th_tree *tree = shadow->tree;
+    enum th_kind kind = token->kind;
+    if (kind == TH_CHARREF) {
+        token->kind = TH_TEXT; /* the decoded reference, as a parse reads it inside its text run */
+    }
+    drain_token(tree, &shadow->dc, token);
+    token->kind = kind;
+    tree->closing_end_tag = NULL;
+    /* the tag the shadow started at put <html> on the stack, and nothing takes it off */
+    th_tok_set_cdata(shadow->dc.sm, current_node(tree)->ns != TH_NS_HTML);
+    return tree->failed || th_error_sink_failed(&tree->errors) ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation */
+}
+
+th_node *const *th_shadow_open(const th_shadow *shadow, Py_ssize_t *count) {
+    *count = shadow->tree->open_len;
+    return shadow->tree->open;
+}
+
+void th_shadow_free(th_shadow *shadow) {
+    if (shadow == NULL) {
+        return;
+    }
+    th_tree_free(shadow->tree);
+    PyMem_Free(shadow);
 }

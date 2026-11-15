@@ -5,13 +5,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, SelectorSyntaxError, parse, parse_fragment
+from turbohtml import Comment, Namespace, SelectorSyntaxError, parse, parse_fragment
+from turbohtml import Element as ParsedElement
 from turbohtml.rewrite import Element, rewrite
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from work_steps import WorkSteps
+    from wpt_tree_corpus import WptHtmlTreeCorpus
+
+    from turbohtml import Document, ShadowRoot
 from typing import Final
 
 _Read = str | bool | None | tuple[tuple[str, str | None], ...]
@@ -1356,7 +1360,7 @@ _TITLE: Final[str] = "<title><script>run()</script></title>"
             f"<table><td><i><svg><desc><b></td></b></desc>{_TITLE}",
             "td",
             _unwrap,
-            f"<table><i><svg><desc><b></b></desc></svg></b></desc>{_TITLE}",
+            f"<table><i><svg><desc><b></b></desc></svg></i></b></desc>{_TITLE}",
             id="end-through-point",
         ),
         pytest.param(f"<div/><svg></div>{_TITLE}", "div", _unwrap, f"<svg></svg>{_TITLE}", id="end-html-slash"),
@@ -1787,6 +1791,118 @@ def test_rewrite_th_start_tag_closes_the_cell_and_the_foreign_content_in_it() ->
 
 def test_parse_unclosed_cdata_section_in_foreign_content_is_text() -> None:
     assert [element.text for element in parse("<svg><![CDATA[<i>").select("svg")] == ["<i>"]
+
+
+_RAW_TEXT: Final[frozenset[str]] = frozenset({
+    "iframe",
+    "noembed",
+    "noframes",
+    "noscript",
+    "plaintext",
+    "script",
+    "style",
+    "textarea",
+    "title",
+    "xmp",
+})
+
+
+def test_rewrite_calls_handlers_on_the_elements_a_parse_builds(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
+    failures = [
+        f"{case['file']}: {case['data']!r}: {problem}"
+        for case in [*wpt_html_tree_corpus["cases"], *wpt_html_tree_corpus["exclusions"]]
+        if case["context"] is None
+        for problem in _misread(case["data"])
+    ]
+    assert not failures, f"{len(failures)} misread\n" + "\n".join(failures[:10])
+
+
+def _misread(source: str) -> list[str]:
+    mark = "\ue000"
+    marked = rewrite(source, elements=[("*", lambda element: element.before(mark))])
+    starts = {at - before for before, at in enumerate(at for at, char in enumerate(marked) if char == mark)}
+    problems = []
+    for element in _parsed_elements(parse(source, source_locations=True, scripting=True)):
+        if (location := element.source_location) is None:
+            continue
+        if location.start_tag.start_offset not in starts:
+            problems.append(f"no handler call for <{element.tag}> at {location.start_tag.start_offset}")
+        if element.namespace is Namespace.HTML and element.tag in _RAW_TEXT:
+            end = len(source) if location.end_tag is None else location.end_tag.start_offset
+            problems.extend(
+                f"handler call at {at} inside the text of <{element.tag}>"
+                for at in sorted(starts)
+                if location.start_tag.end_offset <= at < end
+            )
+    return problems
+
+
+def _parsed_elements(node: Document | ParsedElement | ShadowRoot) -> Iterator[ParsedElement]:
+    for child in node.descendants:
+        if isinstance(child, ParsedElement):
+            yield child
+            if child.shadow_root is not None:
+                yield from _parsed_elements(child.shadow_root)
+
+
+_BREAKOUT_RUN: Final[str] = "<svg><g><p></b><i></g>"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<template><col><textarea></template><script>a()</script>", id="template-column"),
+        pytest.param("<frameset><title><b></title><noframes><i></noframes>", id="frameset"),
+        pytest.param("<a><svg><desc><a></desc></a></desc><style><i></style>", id="adoption-agency-in-foreign"),
+        pytest.param("<b><svg><desc><b></desc><i></b><style><i></style>", id="formatting-reopened-in-foreign"),
+        pytest.param(
+            "<svg><foreignObject><div><style><i></style></div></foreignObject><style><i>", id="foreign-object"
+        ),
+        pytest.param("<math><annotation-xml encoding=text/html><style><i></style></annotation-xml>", id="annotation"),
+        pytest.param("<math><annotation-xml><svg><style><i></style></svg></annotation-xml>", id="annotation-svg"),
+        pytest.param("<math><mi><mglyph><style><i></style><malignmark></mi><style><i>", id="text-integration"),
+        pytest.param("<svg><g></p><style><i></style>", id="paragraph-end-breaks-out"),
+        pytest.param("<svg><g></br><style><i></style>", id="br-end-breaks-out"),
+        pytest.param("<svg><font color=red><style><i></style>", id="font-breakout"),
+        pytest.param("<svg><font><style><i></style>", id="plain-font"),
+        pytest.param("<table><tr><td><svg><desc><td></td></desc><title><i></title>", id="cell-in-integration-point"),
+        pytest.param("<select><svg><style><i></style></select><style><i>", id="select"),
+        pytest.param("<svg><desc><p><svg><p><style><i></style>", id="nested-integration"),
+        pytest.param("<div><template shadowrootmode=open><svg><p><style><i>", id="shadow-root"),
+        pytest.param("<svg><desc><table><col><style><i></style>", id="column-group-implied"),
+        pytest.param("<template></template>&amp;<frameset><title><b></title>", id="reference-ends-the-head"),
+        pytest.param("<div><div>\n<div><div>\n<svg><p><style><i></style>", id="multi-line"),
+        pytest.param("<frameset><img><noframes><i></noframes>", id="ignored-void"),
+        pytest.param(_BREAKOUT_RUN * 3, id="repeated-breakout"),
+    ],
+)
+def test_rewrite_calls_handlers_on_the_elements_a_parse_builds_around_foreign_content(source: str) -> None:
+    assert _misread(source) == []
+
+
+def test_rewrite_removes_a_script_the_adoption_agency_moves_out_of_foreign_content() -> None:
+    source = "<a><svg><desc><a></desc></a></desc><style><script>run()</script></style>"
+    assert "run()" not in rewrite(source, elements=[("script", lambda element: element.remove())])
+
+
+@pytest.mark.parametrize(
+    ("handlers", "expected"),
+    [
+        pytest.param([("g", _unwrap)], "<svg><circle><path></path></circle><title>", id="kept"),
+        pytest.param([("g", _unwrap), ("circle", _remove)], "<svg><title>", id="removed"),
+    ],
+)
+def test_rewrite_unwrapped_foreign_end_tag_leaves_end_tags_for_the_elements_it_closed(
+    handlers: list[tuple[str, Callable[[Element], None]]], expected: str
+) -> None:
+    assert rewrite("<svg><g><circle><path></g><title>", elements=handlers) == expected
+
+
+def test_rewrite_follows_the_tree_builder_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(rewrite, _BREAKOUT_RUN * count, elements=[("*", lambda _: None)]),
+        (500, 2000),
+    )
 
 
 def test_rewrite_removed_attribute_is_gone_for_the_rest_of_the_handler() -> None:
