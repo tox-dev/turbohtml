@@ -178,7 +178,6 @@ typedef struct {
 } xchild;
 
 typedef struct xchild_entry {
-    th_node *node;
     th_node *first[XSD_CHILD_KINDS]; /* the first child of each name */
     th_node *model_group;            /* the first sequence, choice or all child, whichever leads */
     xchild *particles;               /* the element, model group, group and any children, in document order */
@@ -187,27 +186,31 @@ typedef struct xchild_entry {
     size_t attr_count, attr_cap;
 } xchild_entry;
 
-/* The entry of a schema element; a node with none of these children has no entry and reads as the empty one. The
-   entries are sorted by node once xsd_cache_facets has filled them, so only validation may ask after that. */
-static const xchild_entry *xsd_child_entry(const th_schema *schema, const th_node *node) {
+/* A schema element as xsd_cache_facets classified it on its visit, so its children read the kind instead of asking
+   again. */
+typedef struct xnode {
+    int kind;         /* its XSD_CHILD_NAMES kind, or XSD_CHILD_KINDS */
+    size_t children;  /* its child entry, or XSD_NO_ENTRY */
+    struct xnode *up; /* its parent's record, NULL for the root */
+} xnode;
+
+/* The xnodes record of a schema element, whose qname schema_node_qname returned as `name`: that qname sits in the
+   element's sqnames entry, and xnodes shares the sqnames index. */
+static xnode *xsd_xnode(const th_schema *schema, const qname *name) {
+    const sqname_entry *at = (const sqname_entry *)((const char *)name - offsetof(sqname_entry, name));
+    return &schema->xnodes[at - schema->sqnames];
+}
+
+/* The entry of a schema element; a node with none of these children has no entry and reads as the empty one. Only
+   validation may ask, because xsd_cache_facets fills the entries as it walks. */
+static const xchild_entry *xsd_child_entry(const th_schema *schema, th_node *node) {
     static const xchild_entry childless = {0};
-    size_t low = 0, high = schema->child_count;
-    while (low < high) {
-        const size_t middle = low + (high - low) / 2;
-        if ((uintptr_t)schema->child_entries[middle].node < (uintptr_t)node) {
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
-    }
-    if (low < schema->child_count && schema->child_entries[low].node == node) {
-        return &schema->child_entries[low];
-    }
-    return &childless;
+    const size_t children = xsd_xnode(schema, schema_node_qname(schema, node))->children;
+    return children == XSD_NO_ENTRY ? &childless : &schema->child_entries[children];
 }
 
 /* The first XSD child of `node` of the kind XSD_CHILD_NAMES names, or NULL. */
-static th_node *xsd_child(const th_schema *schema, const th_node *node, int kind) {
+static th_node *xsd_child(const th_schema *schema, th_node *node, int kind) {
     return xsd_child_entry(schema, node)->first[kind];
 }
 
@@ -873,7 +876,7 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
     return 0;
 }
 
-static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
+static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, int kind);
 static int xsd_check_all_slot(th_schema *schema, th_node *node);
 static int xsd_record_facets(th_schema *schema, th_node *node, int content);
 static int xsd_child_kind(const qname *name);
@@ -912,25 +915,35 @@ static int xsd_check_group_model(th_schema *schema, th_node *group) {
     return 0;
 }
 
-static int xsd_cache_facets_at(th_schema *schema, th_node *node);
+static xnode *xsd_cache_facets_at(th_schema *schema, th_node *node, xnode *parent);
 
 /* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. A
-   node's own checks run as the walk enters it and an xs:group's model check as the walk leaves it. */
+   node's own checks run as the walk enters it and an xs:group's model check as the walk leaves it. The walk carries
+   the record of the current node's parent, so no node looks its parent up. */
 static int xsd_cache_facets(th_schema *schema, th_node *root) {
+    schema->xnodes = arena_alloc(&schema->mem, (size_t)schema->sqname_count * sizeof(xnode));
+    if (schema->xnodes == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                /* GCOVR_EXCL_LINE */
+    }
     th_node *node = root;
+    xnode *parent = NULL;
     while (node != NULL) {
         if (node->type == TH_NODE_ELEMENT) {
-            if (xsd_cache_facets_at(schema, node) < 0) {
+            xnode *own = xsd_cache_facets_at(schema, node, parent);
+            if (own == NULL) {
                 return -1;
             }
             if (node->first_child != NULL) {
                 node = node->first_child;
+                parent = own;
                 continue;
             }
         }
         while (node != root && node->next_sibling == NULL) {
             node = node->parent;
-            if (is_schema_el(schema, node, XSD_NS, "group") && xsd_check_group_model(schema, node) < 0) {
+            const xnode *left = parent;
+            parent = parent->up;
+            if (left->kind == XSD_GROUP && xsd_check_group_model(schema, node) < 0) {
                 return -1;
             }
         }
@@ -939,54 +952,42 @@ static int xsd_cache_facets(th_schema *schema, th_node *root) {
     return 0;
 }
 
-/* Enter each XSD child of node that validation reads under node, so the lookups and the model group walks find it.
-   The children are classified here, where their parent is known, and sorted by xsd_compile once the walk ends. */
-static int xsd_index_children(th_schema *schema, th_node *node) {
-    size_t entry = XSD_NO_ENTRY;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        const qname *name = schema_node_qname(schema, child);
-        if (!is_xsd_uri(name->uri, name->uri_len)) {
-            continue;
-        }
-        const int kind = xsd_child_kind(name);
-        const int recorded = kind != XSD_CHILD_KINDS;
-        if (recorded && xsd_record_child(schema, &entry, child, kind) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-            return -1;                                                       /* GCOVR_EXCL_LINE */
-        }
-    }
-    return 0;
-}
-
-static int xsd_cache_facets_at(th_schema *schema, th_node *node) {
+/* Classify node once and enter it under its parent, whose record the walk passes in: the walk reaches a parent before
+   its children. Returns node's record, or NULL with an exception set. */
+static xnode *xsd_cache_facets_at(th_schema *schema, th_node *node, xnode *parent) {
     const qname *name = schema_node_qname(schema, node);
     const int xsd = is_xsd_uri(name->uri, name->uri_len);
     const int kind = xsd ? xsd_child_kind(name) : XSD_CHILD_KINDS;
+    xnode *own = xsd_xnode(schema, name);
+    own->kind = kind;
+    own->children = XSD_NO_ENTRY;
+    own->up = parent;
     if (xsd) {
-        if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
-            return -1;
+        if (xsd_check_names(schema, node, name, kind) < 0) {
+            return NULL;
         }
-        const int content = u_eq_ascii(name->local, name->local_len, "simpleContent");
-        if (content || u_eq_ascii(name->local, name->local_len, "simpleType")) {
-            if (xsd_record_facets(schema, node, content) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return -1;                                      /* GCOVR_EXCL_LINE */
+        if (kind == XSD_SIMPLE_CONTENT || kind == XSD_SIMPLE_TYPE) {
+            if (xsd_record_facets(schema, node, kind == XSD_SIMPLE_CONTENT) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return NULL;                                                       /* GCOVR_EXCL_LINE */
             }
-        } else if (u_eq_ascii(name->local, name->local_len, "all")) {
+        } else if (kind == XSD_ALL) {
             if (xsd_check_all_slot(schema, node) < 0 || xsd_check_all_occurs(schema, node) < 0) {
-                return -1;
+                return NULL;
             }
             if (xsd_record_all(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return -1;                          /* GCOVR_EXCL_LINE */
+                return NULL;                        /* GCOVR_EXCL_LINE */
             }
         }
     }
-    const int indexed = kind != XSD_CHILD_KINDS && kind != XSD_SIMPLE_TYPE && kind != XSD_ANY;
-    if (indexed && xsd_index_children(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;                                         /* GCOVR_EXCL_LINE */
+    /* only the root, an xs:schema whose kind is XSD_CHILD_KINDS, has no parent record */
+    if (kind == XSD_CHILD_KINDS || parent->kind == XSD_CHILD_KINDS || parent->kind == XSD_SIMPLE_TYPE ||
+        parent->kind == XSD_ANY) {
+        return own;
     }
-    return 0;
+    if (xsd_record_child(schema, &parent->children, node, kind) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        return NULL;                                                   /* GCOVR_EXCL_LINE */
+    }
+    return own;
 }
 
 static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind);
@@ -1026,25 +1027,28 @@ static int xsd_check_all_slot(th_schema *schema, th_node *node) {
 
 /* A dangling reference or an unenforced identity constraint would let validation accept documents the schema forbids,
    so both are compile errors, as in libxml2 (src-resolve), Xerces and xmlschema. */
-static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len) {
-    if (u_eq_ascii(local, local_len, "unique") || u_eq_ascii(local, local_len, "key") ||
-        u_eq_ascii(local, local_len, "keyref")) {
-        char buffer[32];
-        PyErr_Format(PyExc_ValueError,
-                     "identity constraint xs:%s is not supported; remove it or enforce it outside the schema",
-                     name_utf8(local, local_len, buffer, sizeof(buffer)));
-        return -1;
-    }
-    if (u_eq_ascii(local, local_len, "element")) {
+static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, int kind) {
+    if (kind == XSD_CHILD_KINDS) {
+        const Py_UCS4 *local = name->local;
+        const Py_ssize_t local_len = name->local_len;
+        if (u_eq_ascii(local, local_len, "unique") || u_eq_ascii(local, local_len, "key") ||
+            u_eq_ascii(local, local_len, "keyref")) {
+            char buffer[32];
+            PyErr_Format(PyExc_ValueError,
+                         "identity constraint xs:%s is not supported; remove it or enforce it outside the schema",
+                         name_utf8(local, local_len, buffer, sizeof(buffer)));
+            return -1;
+        }
+    } else if (kind == XSD_ELEMENT) {
         if (xsd_require_ref(schema, node, &schema->elements, "element") < 0 || xsd_require_type(schema, node, 1) < 0) {
             return -1;
         }
-    } else if (u_eq_ascii(local, local_len, "attribute")) {
+    } else if (kind == XSD_ATTRIBUTE) {
         if (xsd_require_ref(schema, node, &schema->attributes, "attribute") < 0 ||
             xsd_require_type(schema, node, 0) < 0) {
             return -1;
         }
-    } else if (u_eq_ascii(local, local_len, "group")) {
+    } else if (kind == XSD_GROUP) {
         if (xsd_require_ref(schema, node, &schema->groups, "group") < 0) {
             return -1;
         }
@@ -1052,10 +1056,10 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
             return -1;
         }
         return xsd_check_all_occurs(schema, node);
-    } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
+    } else if (kind == XSD_ATTRIBUTE_GROUP) {
         return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
-    } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
-        if (u_eq_ascii(local, local_len, "extension") && is_schema_el(schema, node->parent, XSD_NS, "complexContent")) {
+    } else if (kind == XSD_EXTENSION || kind == XSD_RESTRICTION) {
+        if (kind == XSD_EXTENSION && is_schema_el(schema, node->parent, XSD_NS, "complexContent")) {
             schema->complex_extension = 1;
         }
         return xsd_require_base(schema, node);
@@ -1200,13 +1204,43 @@ static void *xsd_grow(th_schema *schema, void *items, size_t count, size_t *cap,
 
 /* The XSD_CHILD_NAMES kind of an XSD element's local name, or XSD_CHILD_KINDS for a name validation never looks up. */
 static int xsd_child_kind(const qname *name) {
-    for (int kind = 0; kind < XSD_CHILD_KINDS; kind++) {
-        if ((Py_UCS4)(unsigned char)XSD_CHILD_NAMES[kind][0] == name->local[0] &&
-            u_eq_ascii(name->local, name->local_len, XSD_CHILD_NAMES[kind])) {
-            return kind;
-        }
+    /* the length, and where two names share one their first or second letter, leaves one candidate to compare */
+    int kind;
+    switch (name->local_len) {
+    case 3:
+        kind = name->local[1] == 'l' ? XSD_ALL : XSD_ANY;
+        break;
+    case 5:
+        kind = XSD_GROUP;
+        break;
+    case 6:
+        kind = XSD_CHOICE;
+        break;
+    case 7:
+        kind = XSD_ELEMENT;
+        break;
+    case 8:
+        kind = XSD_SEQUENCE;
+        break;
+    case 9:
+        kind = name->local[0] == 'e' ? XSD_EXTENSION : XSD_ATTRIBUTE;
+        break;
+    case 10:
+        kind = XSD_SIMPLE_TYPE;
+        break;
+    case 11:
+        kind = name->local[0] == 'c' ? XSD_COMPLEX_TYPE : XSD_RESTRICTION;
+        break;
+    case 13:
+        kind = XSD_SIMPLE_CONTENT;
+        break;
+    case 14:
+        kind = name->local[0] == 'c' ? XSD_COMPLEX_CONTENT : XSD_ATTRIBUTE_GROUP;
+        break;
+    default:
+        return XSD_CHILD_KINDS;
     }
-    return XSD_CHILD_KINDS;
+    return u_eq_ascii(name->local, name->local_len, XSD_CHILD_NAMES[kind]) ? kind : XSD_CHILD_KINDS;
 }
 
 static int xsd_push_child(th_schema *schema, xchild **items, size_t *count, size_t *cap, th_node *child, int kind) {
@@ -1233,7 +1267,6 @@ static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int
         schema->child_entries = entries;
         *slot = schema->child_count++;
         memset(&entries[*slot], 0, sizeof(xchild_entry));
-        entries[*slot].node = child->parent;
     }
     xchild_entry *entry = &schema->child_entries[*slot];
     if (entry->first[kind] == NULL) {
@@ -1251,12 +1284,6 @@ static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int
         return xsd_push_child(schema, &entry->particles, &entry->particle_count, &entry->particle_cap, child, kind);
     }
     return 0;
-}
-
-static int xsd_child_order(const void *left, const void *right) {
-    const uintptr_t left_node = (uintptr_t)((const xchild_entry *)left)->node;
-    const uintptr_t right_node = (uintptr_t)((const xchild_entry *)right)->node;
-    return (left_node > right_node) - (left_node < right_node);
 }
 
 static int xsd_facet_order(const void *left, const void *right) {
@@ -2034,8 +2061,6 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
 
     Py_ssize_t type_len = 0;
     const Py_UCS4 *type = xsd_attr(tree, decl, "type", &type_len);
-    th_node *inline_complex = xsd_child(schema, decl, XSD_COMPLEX_TYPE);
-    th_node *inline_simple = xsd_child(schema, decl, XSD_SIMPLE_TYPE);
     if (type != NULL) {
         const Py_UCS4 *local, *prefix, *uri;
         Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
@@ -2058,12 +2083,15 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
             xsd_validate_simple(ctx, instance, is_xsd_ns ? xsd_builtin_id(local, local_len) : DT_STRING, simple, text,
                                 text_len);
         }
-    } else if (inline_complex != NULL) {
-        xsd_validate_complex(ctx, instance, inline_complex, frame);
-    } else if (inline_simple != NULL) {
+        return;
+    }
+    const xchild_entry *inline_types = xsd_child_entry(schema, decl);
+    if (inline_types->first[XSD_COMPLEX_TYPE] != NULL) {
+        xsd_validate_complex(ctx, instance, inline_types->first[XSD_COMPLEX_TYPE], frame);
+    } else if (inline_types->first[XSD_SIMPLE_TYPE] != NULL) {
         Py_ssize_t text_len = 0;
         const Py_UCS4 *text = element_text(ctx, instance, &text_len);
-        xsd_validate_simple(ctx, instance, DT_STRING, inline_simple, text, text_len);
+        xsd_validate_simple(ctx, instance, DT_STRING, inline_types->first[XSD_SIMPLE_TYPE], text, text_len);
     }
 }
 
@@ -2181,9 +2209,6 @@ static int xsd_compile(th_schema *schema) {
             PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
         return 0;
-    }
-    if (schema->child_count > 1) {
-        qsort(schema->child_entries, schema->child_count, sizeof(xchild_entry), xsd_child_order);
     }
     if (xsd_check_chains(schema, CHAIN_GROUP) < 0 || xsd_check_chains(schema, CHAIN_ATTRGROUP) < 0 ||
         xsd_check_chains(schema, CHAIN_TYPE) < 0 || xsd_check_expansion(schema) < 0 ||

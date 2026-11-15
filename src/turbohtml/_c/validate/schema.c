@@ -737,9 +737,11 @@ typedef struct th_schema {
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
-    /* the children XSD validation asks a schema element for, sorted by node pointer for xsd_child_entry */
+    /* the children XSD validation asks a schema element for, one entry per parent that has any */
     struct xchild_entry *child_entries;
     size_t child_count, child_cap;
+    /* per sqnames entry of an XSD schema, at the same index: what xsd_cache_facets classified the element as */
+    struct xnode *xnodes;
     /* the xmlns declarations in scope on the instance walk of one validate() call */
     nsscope ns;
     int complex_extension; /* a complexContent extension exists, so the compile-time xs:all extension check has work to
