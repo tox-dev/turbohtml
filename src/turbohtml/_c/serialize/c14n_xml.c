@@ -341,34 +341,6 @@ static Py_ssize_t c14n_xml_prefix_intern(c14n_xml_scope *scope, const char *name
     return scope->prefixes_len - 1;
 }
 
-static int c14n_xml_absolute_uri(const Py_UCS4 *uri, Py_ssize_t len) {
-    if (len == 0) {
-        return 1;
-    }
-    if (len >= 4 && uri[0] == 'u' && uri[1] == 'r' && uri[2] == 'n' && uri[3] == ':') {
-        return 1;
-    }
-    if (len >= 5 && uri[0] == 'h' && uri[1] == 't' && uri[2] == 't' && uri[3] == 'p' &&
-        (uri[4] == ':' || (len >= 6 && uri[4] == 's' && uri[5] == ':'))) {
-        return 1;
-    }
-    Py_UCS4 first = uri[0] | 0x20;
-    if (first < 'a' || first > 'z') {
-        return 0;
-    }
-    for (Py_ssize_t index = 1; index < len; index++) {
-        Py_UCS4 character = uri[index] | 0x20;
-        if (character == ':') {
-            return 1;
-        }
-        if ((character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '+' &&
-            character != '-' && character != '.') {
-            return 0;
-        }
-    }
-    return 0;
-}
-
 /* Enter the xmlns declarations `element` carries. The apex's ancestors are entered innermost first,
    so `inherited` keeps only the prefixes nothing nearer has bound; the walk never pops those. */
 static int c14n_xml_scope_declare(c14n_xml_scope *scope, th_tree *tree, const th_node *element, int inherited) {
@@ -544,7 +516,7 @@ static int c14n_xml_ns_render(c14n_xml_uris *uris, const c14n_xml_ns *namespace,
 }
 
 static int c14n_xml_relative_uri(const c14n_xml_ns *namespace) {
-    if (c14n_xml_absolute_uri(namespace->uri, namespace->uri_len)) {
+    if (c14n_absolute_uri(namespace->uri, namespace->uri_len)) {
         return 0;
     }
     PyErr_SetString(PyExc_ValueError, "relative namespace URI cannot be canonicalized");
@@ -733,7 +705,15 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
     if (ns_count > 1) {
         qsort(namespaces, (size_t)ns_count, sizeof(c14n_xml_ns), c14n_xml_ns_cmp);
     }
+    Py_ssize_t clone_start = ser_clone_start(out, node);
+    /* a clone that cannot declare a prefix writes no attribute, so none uses an undeclared one */
+    int clone_full = 0;
     for (Py_ssize_t index = 0; index < ns_count; index++) {
+        if (clone_start >= 0 &&
+            !ser_clone_attr_fits(out, clone_start, namespaces[index].prefix_len + namespaces[index].uri_len)) {
+            clone_full = 1;
+            break;
+        }
         sbuf_puts(out, " xmlns");
         if (namespaces[index].prefix_len > 0) {
             sbuf_putc(out, ':');
@@ -826,12 +806,18 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
         qsort(attrs, (size_t)count, sizeof(c14n_xml_attr), c14n_xml_attr_cmp);
     }
     for (Py_ssize_t index = 0; index < count; index++) {
+        Py_ssize_t cost = attrs[index].name_len + attrs[index].value_len;
+        if (clone_start >= 0 && (clone_full || !ser_clone_attr_fits(out, clone_start, cost))) {
+            break;
+        }
+        TH_WORK_STEPS_ADD(cost);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
         c14n_put_attr(out, attrs[index].value, attrs[index].value_len);
         sbuf_putc(out, '"');
     }
+    ser_clone_settle(out, clone_start);
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
@@ -972,7 +958,7 @@ static void c14n_xml_document(sbuf *out, th_tree *tree, th_node *doc, const th_c
 }
 
 Py_UCS4 *th_node_canonicalize_xml(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
         c14n_xml_document(&out, tree, node, opts);

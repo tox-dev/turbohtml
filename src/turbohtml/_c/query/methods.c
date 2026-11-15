@@ -1674,7 +1674,7 @@ static PyObject *xpath_extension_context(PyObject *element) {
 
 /* xp_extension_fn: resolve `name` against the (None, name) extension keys and run
    the callable over the marshaled context and arguments. */
-static int xpath_call_extension(void *vctx, th_node *context_node, const Py_UCS4 *name, Py_ssize_t name_len,
+static int xpath_call_extension(void *vctx, xp_item item, const Py_UCS4 *name, Py_ssize_t name_len,
                                 const xp_result *args, int argc, xp_result *out) {
     xpath_ext_ctx *ec = vctx;
     typedef struct {
@@ -1687,7 +1687,7 @@ static int xpath_call_extension(void *vctx, th_node *context_node, const Py_UCS4
         return -1;                     /* GCOVR_EXCL_LINE */
     }
     int status = -1;
-    PyObject *element = xpath_owned_node(ec, context_node);
+    PyObject *element = xpath_owned_node(ec, item.node);
     PyObject *func = NULL;
     PyObject *call_args = NULL;
     if (element == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -2411,6 +2411,31 @@ TH_NODE_API(, PyObject *, node_css_closest, (PyObject * self, PyObject *arg), (s
     return node_wrap(state_of(self), ((NodeObject *)self)->handle, found);
 }
 
+/* The nearest inclusive ancestor of scope that matches a :dir() selector, under one context for the whole walk so
+   the ancestors below a dir=auto element share its answers. The context binds a legend table on its first dir=auto
+   read, unless a :disabled-family pseudo-class reads one from the start. */
+static TH_NOINLINE th_node *closest_sharing_dir(th_node *scope, const sel_compiled *compiled) {
+    sel_memo legend_memo = {0};
+    sel_ctx ctx = {compiled->tree,
+                   scope,
+                   compiled->quirks,
+                   NULL,
+                   NULL,
+                   NULL,
+                   NULL,
+                   compiled->reads_legend ? &legend_memo : NULL,
+                   NULL};
+    th_node *found = NULL;
+    for (th_node *node = scope; node != NULL; node = node->parent) {
+        if (node->type == TH_NODE_ELEMENT && selector_matches_c(node, compiled, &ctx)) {
+            found = node;
+            break;
+        }
+    }
+    sel_memo_free(&legend_memo);
+    return found;
+}
+
 int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
     if (check_selector_arg(arg) < 0) {
         return -1;
@@ -2429,10 +2454,14 @@ retry:;
     } else {
         /* closest() scopes :scope to the element it was invoked on */
         th_node *scope = ((NodeObject *)self)->node;
-        for (th_node *node = scope; node != NULL; node = node->parent) {
-            if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, scope)) {
-                *found = node;
-                break;
+        if (compiled->reads_dir) {
+            *found = closest_sharing_dir(scope, compiled);
+        } else {
+            for (th_node *node = scope; node != NULL; node = node->parent) {
+                if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, scope)) {
+                    *found = node;
+                    break;
+                }
             }
         }
     }

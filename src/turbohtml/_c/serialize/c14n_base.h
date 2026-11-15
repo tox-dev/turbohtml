@@ -5,6 +5,35 @@
 #include "serialize/internal.h"
 #include "url/url.h"
 
+/* Whether a namespace URI is absolute: an empty one, a urn: or http(s): one, or one with a scheme before its colon. */
+static int c14n_absolute_uri(const Py_UCS4 *uri, Py_ssize_t len) {
+    if (len == 0) {
+        return 1;
+    }
+    if (len >= 4 && uri[0] == 'u' && uri[1] == 'r' && uri[2] == 'n' && uri[3] == ':') {
+        return 1;
+    }
+    if (len >= 5 && uri[0] == 'h' && uri[1] == 't' && uri[2] == 't' && uri[3] == 'p' &&
+        (uri[4] == ':' || (len >= 6 && uri[4] == 's' && uri[5] == ':'))) {
+        return 1;
+    }
+    Py_UCS4 first = uri[0] | 0x20;
+    if (first < 'a' || first > 'z') {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < len; index++) {
+        Py_UCS4 character = uri[index] | 0x20;
+        if (character == ':') {
+            return 1;
+        }
+        if ((character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '+' &&
+            character != '-' && character != '.') {
+            return 0;
+        }
+    }
+    return 0;
+}
+
 static const th_node_attr *c14n_base_attribute(th_tree *tree, const th_node *node) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         Py_ssize_t length;

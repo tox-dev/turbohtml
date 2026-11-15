@@ -134,6 +134,9 @@ struct th_node {
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
     uint8_t attr_values_shared;
+    /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
+       exact-sized; nothing reads it once the tree is built. */
+    uint8_t text_capacity_shift;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -428,15 +431,18 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator);
 const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize_t count, th_node *child,
                                 th_node *run_first, th_node *run_last);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
-/* The shared attribute values (th_node.attr_values_shared) a run of deep copies from one tree into another has copied
-   so far, keyed by their address in the source arena, so that a value the source elements share is copied once and
-   shared by the copies. th_tree_copy_node and th_tree_adopt_copy keep one per call. A caller that copies sibling
-   subtrees one by one zero-initializes one, hands it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing
-   call of the run, all between the same two trees, and releases it with th_copy_memo_free. */
+/* The shared attribute values (th_node.attr_values_shared) a deep copy into one tree has copied so far, keyed by the
+   source tree's identity and the value's address in its arena, so that a value the source elements share is copied
+   once and shared by the copies. th_tree_copy_node keeps one per call. A caller that copies sibling subtrees one by
+   one zero-initializes one and passes it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing call, and
+   releases it with th_copy_memo_free. A memo that outlives a call (the destination handle's) sets source before each
+   copy to an identity no other source has had: a freed source's addresses can come back in a later tree, and only the
+   identity tells them apart. */
 typedef struct {
     struct th_copied_value *entries; /* open addressing; a NULL source address marks a free entry */
     size_t capacity;
     size_t count;
+    uint64_t source; /* the identity of the tree the copies are made from */
 } th_copy_memo;
 th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 static inline void th_copy_memo_free(th_copy_memo *memo) {
@@ -444,9 +450,8 @@ static inline void th_copy_memo_free(th_copy_memo *memo) {
 }
 int th_tree_has_shadows(const th_tree *tree);
 th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root);
-/* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
-   also take dest's naming rules, see convert_element_kind. */
-th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);
+/* A deep copy for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements also
+   take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 /* How many nodes the tree's arena has ever held, linked or not: an upper bound on what adopting all of it copies. */
 uint32_t th_tree_node_count(const th_tree *tree);
@@ -456,8 +461,9 @@ th_tree *th_tree_copy_document(th_tree *src);
    XML flag and quirks mode, for rebuilding a pickled document or fragment. NULL on allocation failure. */
 th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks);
 /* Make document, a parentless node of tree, the root th_tree_document returns, or leave the tree without one when it
-   is NULL: rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that tree
-   when the fragment turns out to be a template's contents. */
+   is NULL: a Document copied into an empty tree is recorded this way (the parsers and th_tree_copy_document set it
+   themselves), rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that
+   tree when the fragment turns out to be a template's contents. */
 void th_tree_set_document(th_tree *tree, th_node *document);
 
 /* Whether two subtrees are structurally equal: same node type, and for an element the
@@ -704,6 +710,11 @@ typedef struct {
     Py_ssize_t base;    /* code points of copies granted before any other output funds them */
 } th_xml_ns_spend;
 
+/* The attribute characters parser clones may write before other output funds more. The tree builder reopens an
+   unclosed formatting element in every block after it, attributes and all, so every writer of a clone starts from this
+   allowance. */
+#define TH_CLONE_ALLOWANCE 256
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -741,13 +752,15 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
-   indentation depth, the xlink walk and the inherited namespace declarations charged
-   so far. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}}. */
+   indentation depth, the xlink walk, the inherited namespace declarations charged
+   so far and the clone credit the earlier chunks left. Start it at
+   {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0}. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
     th_xml_ns_spend xml_ns;
+    Py_ssize_t clone_credit; /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from

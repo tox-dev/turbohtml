@@ -11,6 +11,7 @@ from bench.operations import INPUTS
 
 import turbohtml
 from turbohtml import Element, Node, _html, parse  # ruff:ignore[import-private-name]  # the native entry takes any list
+from turbohtml.clean import linkify_node
 from turbohtml.query import Query, SelectorSyntaxError
 
 if TYPE_CHECKING:
@@ -685,6 +686,68 @@ def test_path_for_last_sibling_before_any_other_path(kind: str) -> None:
     assert _path(document.select("li")[-1], kind) == _expected(kind, 3, 3)
 
 
+@pytest.mark.parametrize(
+    ("kind", "prefix", "steps"),
+    [
+        pytest.param(
+            "css",
+            "html > body > ul > ",
+            [
+                "x-a:nth-of-type(1)",
+                "li:nth-of-type(1)",
+                "x-b",
+                "x-a:nth-of-type(2)",
+                "li:nth-of-type(2)",
+                "x-c",
+                "li:nth-of-type(3)",
+            ],
+            id="css",
+        ),
+        pytest.param(
+            "xpath",
+            "/html/body/ul/",
+            ["x-a[1]", "li[1]", "x-b", "x-a[2]", "li[2]", "x-c", "li[3]"],
+            id="xpath",
+        ),
+    ],
+)
+@pytest.mark.parametrize("order", ["sorted", "reversed"])
+def test_paths_among_siblings_of_other_types(kind: str, prefix: str, steps: list[str], order: str) -> None:
+    document: Final[Document] = parse(
+        "<ul><x-a>1</x-a><li>2</li>text<x-b>3</x-b><x-a>4</x-a><li>5</li><x-c>6</x-c><li>7</li></ul>"
+    )
+    nodes: Final[list[Element]] = document.select("ul > *")
+    paths: Final[dict[Element, str]] = {node: _path(node, kind) for node in _reorder(nodes, order)}
+    assert [paths[node] for node in nodes] == [prefix + step for step in steps]
+
+
+def _reorder(nodes: list[Element], order: str) -> list[Element]:
+    if order == "reversed":
+        return nodes[::-1]
+    return nodes[::2] + nodes[1::2] if order == "shuffled" else nodes
+
+
+@pytest.mark.parametrize(
+    ("kind", "prefix"),
+    [pytest.param("css", "html > body > ", id="css"), pytest.param("xpath", "/html/body/", id="xpath")],
+)
+def test_paths_for_siblings_with_distinct_tag_names(kind: str, prefix: str) -> None:
+    names: Final[list[str]] = [f"x-{index}" for index in range(300)]
+    document: Final[Document] = parse("".join(f"<{name}></{name}>" for name in names))
+    assert [_path(node, kind) for node in document.select("body > *")] == [prefix + name for name in names]
+
+
+@pytest.mark.parametrize("kind", [pytest.param("css", id="css"), pytest.param("xpath", id="xpath")])
+def test_paths_for_distinct_siblings_stay_linear(kind: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(_path_each_sibling, count, kind), (500, 2000))
+
+
+def _path_each_sibling(count: int, kind: str) -> None:
+    document: Final[Document] = parse("".join(f"<x-{index}></x-{index}>" for index in range(count)))
+    for node in document.select("body > *"):
+        _path(node, kind)
+
+
 def test_css_path_after_duplicate_id_removal() -> None:
     document: Final[Document] = parse('<p id="same">one</p><p id="same">two</p>')
     nodes: Final[list[Element]] = document.select("p")
@@ -747,12 +810,6 @@ def test_find_root_order_after_mutation() -> None:
 def test_find_nested_list_items_reports_each_match_once(count: int, order: str) -> None:
     nodes: Final = turbohtml.parse_xml(f"<ul>{'<li><ol>' * count}<b></b>{'</ol></li>' * count}</ul>").select("li")
     assert _tags(Query(_reorder(nodes, order)).find("li, b")) == ["li"] * (count - 1) + ["b"]
-
-
-def _reorder(nodes: list[Element], order: str) -> list[Element]:
-    if order == "reversed":
-        return nodes[::-1]
-    return nodes[::2] + nodes[1::2] if order == "shuffled" else nodes
 
 
 @pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
@@ -972,3 +1029,16 @@ def test_pyquery_closest_benchmark_rejects_duplicate_results() -> None:
     pyquery: Final = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
     with pytest.raises(NotImplementedError, match="duplicate ancestors"):
         pyquery.OPERATIONS["query-closest"][0](INPUTS["query-closest"]()[0][1])
+
+
+def test_paths_and_index_follow_linkify_node() -> None:
+    document: Final[Document] = parse("<body><div><a href=q>k</a> http://e.com</div>")
+    assert [element.css_path() for element in document.find_all("a")] == ["html > body > div > a"]
+    linkify_node(document.select("div")[0])
+    first, second = document.find_all("a")  # the index lists the anchor linkify inserted
+    assert [first.css_path(), second.css_path()] == [
+        "html > body > div > a:nth-of-type(1)",
+        "html > body > div > a:nth-of-type(2)",
+    ]
+    assert [first.xpath_path(), second.xpath_path()] == ["/html/body/div/a[1]", "/html/body/div/a[2]"]
+    assert document.select(second.css_path()) == [second]

@@ -19,6 +19,7 @@ import pytest
 
 from turbohtml import (
     Canonical,
+    CData,
     Comment,
     Element,
     Formatter,
@@ -1271,6 +1272,25 @@ def test_round_trip_reparses_to_same_html() -> None:
 def test_xml_serialize_makes_a_comment_well_formed() -> None:
     # XML forbids `--` inside a comment and holds no C0 control, so serialize(xml) spaces the one and drops the other
     assert Element("doc", children=[Comment("a--b\x01")]).serialize(_XML) == "<doc><!--a- -b--></doc>"
+
+
+@pytest.mark.parametrize(
+    ("text", "content", "decoded"),
+    [
+        pytest.param("a\x01b", "ab", "ab", id="c0-control"),
+        pytest.param("a\ufffeb", "ab", "ab", id="noncharacter-fffe"),
+        pytest.param("a\uffffb", "ab", "ab", id="noncharacter-ffff"),
+        pytest.param("a\ud800b", "ab", "ab", id="lone-surrogate"),
+        pytest.param("]]\x01>", "]]]]><![CDATA[>", "]]>", id="drop-joins-closing-brackets"),
+        pytest.param("a]\x01]>b", "a]]]]><![CDATA[>b", "a]]>b", id="drop-joins-brackets-across-gap"),
+        pytest.param("]\x01>", "]>", "]>", id="drop-keeps-a-single-bracket"),
+        pytest.param("\x01]]>", "]]]]><![CDATA[>", "]]>", id="leading-drop"),
+    ],
+)
+def test_serialize_xml_cdata_drops_characters_xml_cannot_hold(text: str, content: str, decoded: str) -> None:
+    out = Element("p", children=[CData(text)]).serialize(_XML)
+    assert out == f"<p><![CDATA[{content}]]></p>"
+    assert ET.fromstring(out).text == decoded  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own output, parsed to assert the dropped characters are the only change
 
 
 @pytest.mark.parametrize(

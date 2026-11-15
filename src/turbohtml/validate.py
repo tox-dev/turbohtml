@@ -149,8 +149,9 @@ class RelaxNG(_Schema):
 
     :raises ValueError: when the schema is malformed or breaks a RELAX NG restriction (a nameless ``<ref>``, a cycle
         that never crosses an ``element``, overlapping ``interleave`` branches), the interleave check exceeds its work
-        limit, the schema references a file without a ``base_url``, or a reference escapes ``include_root``, carries a
-        fragment, loops, loads the wrong kind of pattern, or overrides a component the included grammar lacks.
+        limit, the schema references a file without a ``base_url``, follows more than 1,024 references or reads more
+        than 8 MiB through them, or a reference escapes ``include_root``, carries a fragment, loops, loads the wrong
+        kind of pattern, or overrides a component the included grammar lacks.
     :raises OSError: when a referenced file cannot be read.
     """
 

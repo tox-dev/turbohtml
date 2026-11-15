@@ -117,8 +117,6 @@ struct th_tree {
     Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
-    th_node *merged_text_node;
-    size_t merged_text_capacity;
     Py_ssize_t afe_stack_hint;
     uint64_t *afe_hashes;
     size_t afe_hash_count, afe_hash_capacity;
@@ -149,8 +147,9 @@ struct th_tree {
     int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
     int xml;                /* parsed under XML rules: tag and attribute names are case-sensitive */
     int has_xml_ns;
+    int has_prefix_decl; /* an attribute name xmlns:P was ever interned; canonicalization renders such declarations */
     int can_span;        /* input is borrowed and outlives the tree: text nodes may be
-                            zero-copy spans into it instead of materialized copies */
+                             zero-copy spans into it instead of materialized copies */
     int track_positions; /* record each element's source line/col in trailing node slots */
     int track_locations; /* record each element's granular source spans (implies track_positions) */
     int kind;            /* borrowed input storage */

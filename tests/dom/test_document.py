@@ -8,6 +8,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fixed argv, ge
 import sys
 import textwrap
 import threading
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -36,6 +37,9 @@ from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from traced_bytes import PeakBytes
+    from work_steps import WorkSteps
 
 # Each fixture exercises a different resumable corner of the tree builder: text and
 # attributes, rawtext (script/style/title/textarea) whose content can split across a
@@ -933,6 +937,29 @@ def test_parser_text_coalescing_keeps_fostered_text_before_table() -> None:
     assert [node.text for node in root.children] == ["x" * 40, "cell" * 40]
 
 
+def test_parser_text_coalescing_alternates_between_two_nodes() -> None:
+    # an ignored end tag ends each run: "ok" is foster-parented before the table while the space stays inside it
+    root: Final = parse(f"<div><table>{'ok</th> </th>' * 40}</table></div>").find("div")
+    assert root is not None
+    assert [node.text for node in root.children] == ["ok" * 40, " " * 40]
+
+
+def test_parser_text_coalescing_between_two_nodes_peak_memory_is_bounded(peak_bytes: PeakBytes) -> None:
+    # a text node that loses its spare capacity to the other node copies its whole text on every append
+    script: Final = (
+        "import sys, tracemalloc\nfrom turbohtml import parse\n"
+        "source = '<table>' + sys.argv[1] * int(sys.argv[2])\n"
+        "tracemalloc.start()\nparse(source)\nprint(tracemalloc.get_traced_memory()[1])\n"
+    )
+    shape: Final = "ok</th> </th>"
+    count: Final = 4000
+    assert peak_bytes(script, (shape, str(count))) < 64 * len(shape) * count
+
+
+def test_parser_text_coalescing_between_two_nodes_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(parse, f"<table>{'ok</th> </th>' * n}"), (500, 2000))
+
+
 def test_independent_parsers_in_parallel_each_build_correctly() -> None:
     document: Final = f"<html><body>{''.join(f'<div><p>x{index}</p></div>' for index in range(200))}</body></html>"
     expected: Final = parse(document).html
@@ -999,6 +1026,26 @@ def test_duplicated_document_keeps_quirks_mode_selector_matching(duplicate: Call
     clone = duplicate(parse(_QUIRKS))
     assert isinstance(clone, Document)
     assert [node.html for node in clone.select(".foo")] == ['<p class="Foo">x<table></table></p>']
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        pytest.param(_roundtrip, id="pickle"),
+        pytest.param(copy.copy, id="copy"),
+        pytest.param(copy.deepcopy, id="deepcopy"),
+    ],
+)
+def test_duplicated_document_answers_whole_document_readers(duplicate: Callable[[Node], Node]) -> None:
+    # structured_data snapshots the document from the node the tree records as its document, which a copy left unset
+    document = parse(
+        '<p itemscope itemref="cost"><b itemprop="label">Gadget</b></p><i id="cost" itemprop="total">9</i>'
+    )
+    clone = duplicate(document)
+    assert isinstance(clone, Document)
+    assert clone.microdata() == document.microdata()
+    assert clone.microdata()[0].properties == {"label": ["Gadget"], "total": ["9"]}
+    assert clone.structured_data() == document.structured_data()
 
 
 def test_pickled_document_keeps_adjacent_text_nodes() -> None:

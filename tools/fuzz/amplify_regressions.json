@@ -1093,5 +1093,45 @@
       "left": "if(q){b();throw 0}else{c:;",
       "right": "}"
     }
+  },
+  {
+    "name": "dir-auto-text-walk",
+    "source": "https://github.com/tox-dev/turbohtml/blob/3f4ab87f3de181645050c33ac858eeb0467dcc9f/src/turbohtml/_c/css/select/selector.c#L1818-L1837",
+    "targets": [
+      "select_tree"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "<section dir=auto>",
+      "left": "<i>a</i>"
+    }
+  },
+  {
+    "name": "node-paths-only-of-type",
+    "source": "https://github.com/tox-dev/turbohtml/issues/1722",
+    "targets": [
+      "node_paths"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "sandwich",
+      "head": "<div>",
+      "left": "<p>",
+      "middle": "</div>",
+      "right": "<p>"
+    }
+  },
+  {
+    "name": "node-paths-distinct-types",
+    "source": "https://github.com/tox-dev/turbohtml/issues/1722",
+    "targets": [
+      "node_paths"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "<x{n}></x{n}>",
+      "counter": true
+    }
   }
 ]

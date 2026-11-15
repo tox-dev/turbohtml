@@ -325,7 +325,7 @@ static int match_set_add(match_set *set, const th_node *node, Py_ssize_t attr) {
     return 0;
 }
 
-static int match_set_has(const match_set *set, const th_node *node, Py_ssize_t attr) {
+XSLT_FORCEINLINE static int match_set_has(const match_set *set, const th_node *node, Py_ssize_t attr) {
     if (set->cap == 0) {
         return 0;
     }
@@ -359,10 +359,11 @@ typedef struct {
     Py_ssize_t cap;
 } nodevec;
 
-/* order is the node's index in the key's match list, which build_key walks in document order. */
+/* order is the item's index in the key's match list, which build_key walks in document order. An element and its
+   attribute share node, so order, not node, tells two items apart. */
 static int nodevec_push(nodevec *vec, th_node *node, Py_ssize_t order) {
-    /* build_key processes each source node's values together in document order. */
-    if (vec->len > 0 && vec->slots[vec->len - 1].node == node) {
+    /* build_key processes each source item's values together in document order. */
+    if (vec->len > 0 && vec->slots[vec->len - 1].order == order) {
         return 0;
     }
     if (vec->len == vec->cap) {
@@ -581,11 +582,17 @@ static TH_NOINLINE nodevec *strmap_bucket_slow(strmap *map, const Py_UCS4 *str, 
 /* Return the node-vector for a key string, creating the slot (copying str) if absent. On str_hash no entry is seated
    past TH_FAST_PROBE_LIMIT slots from its home, which bounds every walk that ends at an entry.
    NULL on allocation failure. */
-static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+XSLT_FORCEINLINE static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
     if (map->count >= map->fast) {
         return strmap_bucket_slow(map, str, str_len);
     }
     return strmap_bucket_walk(map, str, str_len, str_hash(str, str_len) & (map->cap - 1));
+}
+
+/* strmap_bucket for the rare callers, out of line so their call sites do not count against inlining it into the
+   hot ones. */
+static TH_NOINLINE nodevec *strmap_bucket_outlined(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    return strmap_bucket(map, str, str_len);
 }
 
 static void strmap_free(strmap *map) {
@@ -761,8 +768,36 @@ typedef struct {
     xp_program *match_prog;
     xp_program *use_prog;
     strmap table;
+    /* The attr of each match index whose item is an attribute or namespace node, -1 for the others; NULL while every
+       match is a node itself, so a key over elements keeps two-word slots and reads no attr. */
+    Py_ssize_t *attrs;
     int built;
 } xslt_key;
+
+/* The attr of the item a key slot names: its node itself (-1) unless the key matched attribute or namespace nodes. */
+static inline Py_ssize_t key_attr(const xslt_key *key, const nodeslot *entry) {
+    return key->attrs == NULL ? -1 : key->attrs[entry->order];
+}
+
+/* Append the items of one key bucket. A key over nodes alone takes a loop that reads no attrs. */
+static int key_append(const xslt_key *key, const nodevec *bucket, xp_nodeset *out) {
+    const Py_ssize_t *attrs = key->attrs;
+    if (attrs == NULL) {
+        for (Py_ssize_t slot = 0; slot < bucket->len; slot++) {
+            if (ns_append(out, bucket->slots[slot].node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                          /* GCOVR_EXCL_LINE */
+            }
+        }
+        return 0;
+    }
+    for (Py_ssize_t slot = 0; slot < bucket->len; slot++) {
+        const nodeslot *entry = &bucket->slots[slot];
+        if (ns_append(out, entry->node, attrs[entry->order]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                              /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
 
 typedef struct {
     Py_UCS4 *name;
@@ -1449,39 +1484,60 @@ static double default_priority(const Py_UCS4 *src, Py_ssize_t len) {
     return 0;
 }
 
-/* Compile one pattern alternative as an absolute XPath expression whose result set
-   equals the nodes the pattern matches: a relative pattern gains a leading
-   "//" (descendant-or-self), an already-anchored one (/, //, id(, key() ) is used
-   verbatim. Returns the program, or NULL with eng->error / eng->py_error set. */
+/* Whether a pattern alternative is already anchored at the document root: a leading "/", or an id() or key() call. */
+static int pattern_anchored(const Py_UCS4 *pattern, Py_ssize_t trimmed) {
+    if (trimmed > 0 && pattern[0] == '/') {
+        return 1;
+    }
+    if (trimmed < 3) {
+        return 0;
+    }
+    Py_ssize_t probe = -1;
+    if (ucs4_has_prefix(pattern, trimmed, "id")) {
+        probe = 2;
+    } else if (ucs4_has_prefix(pattern, trimmed, "key")) {
+        probe = 3;
+    }
+    while (probe >= 0 && probe < trimmed && ucs4_is_ws(pattern[probe])) {
+        probe++;
+    }
+    return probe >= 0 && probe < trimmed && pattern[probe] == '(';
+}
+
+/* Compile a pattern as an absolute XPath expression whose result set equals the nodes the pattern matches. Each
+   top-level alternative is anchored on its own: a relative alternative gains a leading "//" (descendant-or-self), an
+   already-anchored one (/, //, id(, key() ) is used verbatim. Anchoring the whole union would leave every alternative
+   after the first relative to the root, so `doc | @*` would lose its attributes. Returns the program, or NULL with
+   eng->error / eng->py_error set. */
 static xp_program *compile_pattern_new(engine *eng, const Py_UCS4 *src, Py_ssize_t len) {
-    Py_ssize_t start;
-    Py_ssize_t trimmed;
-    trim(src, len, &start, &trimmed);
-    const Py_UCS4 *pattern = src + start;
+    Py_ssize_t starts[64];
+    Py_ssize_t lengths[64];
+    int alternatives = split_union(src, len, starts, lengths, 64);
+    if (alternatives < 0) { /* GCOVR_EXCL_BR_LINE: the same limit parse_template applies to its alternatives */
+        fail(eng, "xslt: match pattern has too many alternatives"); /* GCOVR_EXCL_LINE */
+        return NULL;                                                /* GCOVR_EXCL_LINE */
+    }
     xb expr = {0};
-    int anchored = trimmed > 0 && pattern[0] == '/';
-    if (!anchored && trimmed >= 3) {
-        /* id(...)/... and key(...)/... are already document-anchored function calls. */
-        Py_ssize_t probe = -1;
-        if (ucs4_has_prefix(pattern, trimmed, "id")) {
-            probe = 2;
-        } else if (ucs4_has_prefix(pattern, trimmed, "key")) {
-            probe = 3;
+    for (int index = 0; index < alternatives; index++) {
+        Py_ssize_t start;
+        Py_ssize_t trimmed;
+        trim(src + starts[index], lengths[index], &start, &trimmed);
+        const Py_UCS4 *pattern = src + starts[index] + start;
+        if (index > 0 && xb_add_ascii(&expr, " | ") < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&expr);                                /* GCOVR_EXCL_LINE */
+            fail(eng, "out of memory");                    /* GCOVR_EXCL_LINE */
+            return NULL;                                   /* GCOVR_EXCL_LINE */
         }
-        while (probe >= 0 && probe < trimmed && ucs4_is_ws(pattern[probe])) {
-            probe++;
+        if (!pattern_anchored(pattern, trimmed) && xb_add_ascii(&expr, "//") < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&expr);                                                         /* GCOVR_EXCL_LINE */
+            fail(eng, "out of memory");                                             /* GCOVR_EXCL_LINE */
+            return NULL;                                                            /* GCOVR_EXCL_LINE */
         }
-        anchored = probe >= 0 && probe < trimmed && pattern[probe] == '(';
-    }
-    if (!anchored && xb_add_ascii(&expr, "//") < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        xb_free(&expr);                               /* GCOVR_EXCL_LINE */
-        fail(eng, "out of memory");                   /* GCOVR_EXCL_LINE */
-        return NULL;                                  /* GCOVR_EXCL_LINE */
-    }
-    if (xb_add(&expr, pattern, trimmed) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        xb_free(&expr);                        /* GCOVR_EXCL_LINE */
-        fail(eng, "out of memory");            /* GCOVR_EXCL_LINE */
-        return NULL;                           /* GCOVR_EXCL_LINE */
+        if (xb_add(&expr, pattern, trimmed) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&expr);                        /* GCOVR_EXCL_LINE */
+            fail(eng, "out of memory");            /* GCOVR_EXCL_LINE */
+            return NULL;                           /* GCOVR_EXCL_LINE */
+        }
     }
     char errbuf[256];
     xp_program *prog = xp_compile(expr.data, expr.len, errbuf, sizeof(errbuf), PyExc_ValueError);
@@ -1700,14 +1756,13 @@ TH_NOINLINE static int item_id_suffix(char *buffer, size_t size, Py_ssize_t attr
 /* The XPath-engine extension hook: dispatch the XSLT-only functions. Returns 0 when
    handled (out filled), -2 when the name is not an XSLT function (the engine then
    reports an unknown function), -1 on a Python/allocation error. */
-static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name, Py_ssize_t name_len,
-                          const xp_result *args, int argc, xp_result *out) {
+static int xslt_extension(void *vctx, xp_item context, const Py_UCS4 *name, Py_ssize_t name_len, const xp_result *args,
+                          int argc, xp_result *out) {
     engine *eng = vctx;
-    (void)context_node;
     memset(out, 0, sizeof(*out));
     if (ucs4_ascii_eq(name, name_len, "current")) {
         out->kind = XP_NODESET;
-        int rc = ns_push(&out->nodes, eng->cur_node, xp_is_attribute(eng->cur_attr) ? eng->cur_attr : -1);
+        int rc = ns_push(&out->nodes, eng->cur_node, eng->cur_attr);
         if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1; /* GCOVR_EXCL_LINE */
         }
@@ -1756,16 +1811,11 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         }
         const nodevec *bucket = strmap_lookup(&key->table, value, value_len);
         PyMem_Free(value);
-        for (Py_ssize_t slot = 0; bucket != NULL && slot < bucket->len; slot++) {
-            if (ns_push(&out->nodes, bucket->slots[slot].node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                                /* GCOVR_EXCL_LINE */
-            }
-        }
-        return 0;
+        return bucket == NULL ? 0 : key_append(key, bucket, &out->nodes);
     }
     if (ucs4_ascii_eq(name, name_len, "generate-id")) {
-        const th_node *target = eng->cur_node;
-        Py_ssize_t attr = eng->cur_attr;
+        const th_node *target = context.node;
+        Py_ssize_t attr = context.attr;
         if (argc >= 1) {
             if (args[0].kind != XP_NODESET) {
                 PyErr_SetString(PyExc_TypeError, "xslt: generate-id() wants a node-set");
@@ -1912,22 +1962,24 @@ static int key_union(engine *eng, xslt_key *key, const xp_nodeset *members, xp_n
             continue;
         }
         for (Py_ssize_t slot = 0; slot < bucket->len; slot++) {
-            th_node *node = bucket->slots[slot].node;
-            if (match_set_has(&taken, node, -1)) {
+            const nodeslot *entry = &bucket->slots[slot];
+            const Py_ssize_t attr = key_attr(key, entry);
+            if (match_set_has(&taken, entry->node, attr)) {
                 continue;
             }
-            if (match_set_add(&taken, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                goto done;                             /* GCOVR_EXCL_LINE */
+            if (match_set_add(&taken, entry->node, attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                goto done;                                      /* GCOVR_EXCL_LINE */
             }
-            if (nodevec_push(&ordered, node, bucket->slots[slot].order) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                goto done;                                                     /* GCOVR_EXCL_LINE */
+            if (nodevec_push(&ordered, entry->node, entry->order) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                goto done;                                               /* GCOVR_EXCL_LINE */
             }
         }
     }
     qsort(ordered.slots, (size_t)ordered.len, sizeof(nodeslot), nodeslot_order_cmp);
     for (Py_ssize_t slot = 0; slot < ordered.len; slot++) {
-        if (ns_push(out, ordered.slots[slot].node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            goto done;                                        /* GCOVR_EXCL_LINE */
+        const nodeslot *entry = &ordered.slots[slot];
+        if (ns_append(out, entry->node, key_attr(key, entry)) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            goto done;                                               /* GCOVR_EXCL_LINE */
         }
     }
     rc = 0;
@@ -1938,10 +1990,10 @@ done:
     return rc;
 }
 
-/* Evaluate a compiled program against the current node with the current scope and
-   the XSLT extension functions. Returns the xp_eval status; fills *out on success.
-   condition is set when the caller only converts *out to a boolean (xp_eval_condition_at). */
-static int eval_program_as(engine *eng, const xp_program *prog, th_node *context, Py_ssize_t pos, Py_ssize_t size,
+/* Evaluate a compiled program against a context item with the current scope and the XSLT extension functions.
+   Returns the xp_eval status; fills *out on success. condition is set when the caller only converts *out to a
+   boolean (xp_eval_condition_at). */
+static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *context, Py_ssize_t pos, Py_ssize_t size,
                            xp_result *out, int condition) {
     xp_binding storage[16];
     xp_binding *bindings = storage;
@@ -1978,12 +2030,138 @@ static int eval_program_as(engine *eng, const xp_program *prog, th_node *context
     return status;
 }
 
-static int eval_program(engine *eng, const xp_program *prog, th_node *context, Py_ssize_t pos, Py_ssize_t size,
+static int eval_program(engine *eng, const xp_program *prog, const xp_item *context, Py_ssize_t pos, Py_ssize_t size,
                         xp_result *out) {
     return eval_program_as(eng, prog, context, pos, size, out, 0);
 }
 
 /* ---- key tables ----------------------------------------------------------- */
+
+/* Whether every item the expression at index selects is a node itself, never an attribute or namespace node: each
+   union alternative is a location path whose last step that is not on the self axis is on neither of those axes. */
+static int pattern_selects_nodes_only(const xp_program *prog, int32_t index) {
+    const xn *expr = &prog->nodes[index];
+    if (expr->kind == XN_UNION) {
+        return pattern_selects_nodes_only(prog, expr->first) && pattern_selects_nodes_only(prog, expr->second);
+    }
+    if (expr->kind != XN_PATH || expr->second >= 0) {
+        return 0;
+    }
+    uint8_t axis = AX_SELF;
+    for (int32_t step = expr->first; step >= 0; step = prog->nodes[step].next) {
+        if (prog->nodes[step].axis != AX_SELF) {
+            axis = prog->nodes[step].axis;
+        }
+    }
+    return axis != AX_ATTRIBUTE && axis != AX_NAMESPACE;
+}
+
+/* Record that match index `index` of a key is the attribute or namespace node `attr`. The first such match
+   allocates the attrs of every index, so a key whose matches are all nodes themselves never pays for them. */
+static TH_NOINLINE int key_record_attr(xslt_key *key, Py_ssize_t matches, Py_ssize_t index, Py_ssize_t attr) {
+    if (key->attrs == NULL) {
+        key->attrs = PyMem_Malloc((size_t)matches * sizeof(Py_ssize_t));
+        if (key->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();     /* GCOVR_EXCL_LINE */
+            return -1;            /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t slot = 0; slot < matches; slot++) {
+            key->attrs[slot] = -1;
+        }
+    }
+    key->attrs[index] = attr;
+    return 0;
+}
+
+/* fill_key for a key whose match can select attribute or namespace nodes: each item is indexed under its own
+   values, and the attrs of the matches are recorded for key() to hand back. Frees *matched. */
+static TH_NOINLINE int fill_key_items(engine *eng, xslt_key *key, xp_result *matched, int direct_attribute,
+                                      uint32_t use_atom) {
+    for (Py_ssize_t index = 0; index < matched->nodes.len; index++) {
+        th_node *node = matched->nodes.items[index].node;
+        Py_ssize_t attr = matched->nodes.items[index].attr;
+        if (attr != -1) {
+            if (key_record_attr(key, matched->nodes.len, index, attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                xp_result_free(matched);                                     /* GCOVR_EXCL_LINE */
+                return -1;                                                   /* GCOVR_EXCL_LINE */
+            }
+        } else if (direct_attribute) {
+            th_node_attr *attributes;
+            Py_ssize_t count = th_node_attributes(node, &attributes);
+            for (Py_ssize_t slot = 0; slot < count; slot++) {
+                if (attributes[slot].name_atom != use_atom) {
+                    continue;
+                }
+                const Py_UCS4 empty = 0;
+                const Py_UCS4 *value = attributes[slot].value == NULL ? &empty : attributes[slot].value;
+                Py_ssize_t value_len = attributes[slot].value == NULL ? 0 : attributes[slot].value_len;
+                nodevec *bucket = strmap_bucket_outlined(&key->table, value, value_len);
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    xp_result_free(matched);                                   /* GCOVR_EXCL_LINE */
+                    return -1;                                                 /* GCOVR_EXCL_LINE */
+                }
+                break;
+            }
+            continue;
+        }
+        xp_result used;
+        int use_status = eval_program(eng, key->use_prog, &(xp_item){node, attr}, 1, 1, &used);
+        if (use_status < 0) {
+            xp_result_free(matched);
+            return -1;
+        }
+        int rc = 0;
+        if (used.kind == XP_NODESET) {
+            for (Py_ssize_t slot = 0; slot < used.nodes.len; slot++) {
+                xp_item item = used.nodes.items[slot];
+                Py_ssize_t value_len = 0;
+                Py_UCS4 *owned = NULL;
+                const Py_UCS4 *value;
+                if (xp_is_attribute(item.attr)) {
+                    const th_node_attr *attribute = xp_item_attribute(eng->src_tree, item);
+                    value = attribute->value;
+                    value_len = value == NULL ? 0 : attribute->value_len;
+                } else {
+                    owned = item_string(eng->src_tree, item, &value_len);
+                    if (owned == NULL) { /* GCOVR_EXCL_START: alloc */
+                        rc = -1;
+                        break;
+                    } /* GCOVR_EXCL_STOP */
+                    value = owned;
+                }
+                Py_UCS4 empty = 0;
+                if (value == NULL) {
+                    value = &empty;
+                }
+                nodevec *bucket = strmap_bucket_outlined(&key->table, value, value_len);
+                PyMem_Free(owned);
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_START: alloc */
+                    rc = -1;
+                    break;
+                } /* GCOVR_EXCL_STOP */
+            }
+        } else {
+            Py_ssize_t value_len = 0;
+            Py_UCS4 *value = to_string(eng->src_tree, &used, &value_len);
+            if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+                rc = -1;         /* GCOVR_EXCL_LINE */
+            } else {             /* GCOVR_EXCL_LINE */
+                nodevec *bucket = strmap_bucket_outlined(&key->table, value, value_len);
+                PyMem_Free(value);
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    rc = -1;                                                   /* GCOVR_EXCL_LINE */
+                } /* GCOVR_EXCL_LINE */
+            }
+        }
+        xp_result_free(&used);
+        if (rc < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
+            xp_result_free(matched); /* GCOVR_EXCL_LINE */
+            return -1;               /* GCOVR_EXCL_LINE */
+        }
+    }
+    xp_result_free(matched);
+    return 0;
+}
 
 /* Populate one key's string->node table: for every source node the key match
    pattern selects, evaluate the use expression and index the node under each
@@ -2001,8 +2179,8 @@ static int fill_key(engine *eng, xslt_key *key) {
     if (status == 1) {
         status = xml ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
                                           callback ? pattern_name_test : NULL, &scope, &matched, &feature)
-                     : xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, eng->src_root, 1, 1, NULL, NULL, NULL,
-                                  NULL, &matched, &feature);
+                     : xp_eval_at(key->match_prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1,
+                                  NULL, NULL, NULL, NULL, &matched, &feature);
     }
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
@@ -2010,6 +2188,11 @@ static int fill_key(engine *eng, xslt_key *key) {
     }
     uint32_t use_atom;
     int direct_attribute = xp_single_attribute_atom(key->use_prog, eng->src_tree, &use_atom);
+    /* A separate loop, so a key over elements, the common case, runs the loop it ran before attributes could
+       match: the attr test per item kept the compiler from hoisting direct_attribute out of it. */
+    if (!pattern_selects_nodes_only(key->match_prog, key->match_prog->root)) {
+        return fill_key_items(eng, key, &matched, direct_attribute, use_atom);
+    }
     for (Py_ssize_t index = 0; index < matched.nodes.len; index++) {
         th_node *node = matched.nodes.items[index].node;
         if (direct_attribute) {
@@ -2032,7 +2215,7 @@ static int fill_key(engine *eng, xslt_key *key) {
             continue;
         }
         xp_result used;
-        int use_status = eval_program(eng, key->use_prog, node, 1, 1, &used);
+        int use_status = eval_program(eng, key->use_prog, &(xp_item){node, -1}, 1, 1, &used);
         if (use_status < 0) {
             xp_result_free(&matched);
             return -1;
@@ -2155,8 +2338,8 @@ TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
                      ? xp_eval_pattern_at(rule->prog, eng->src_tree, eng->src_root, xslt_extension, eng,
                                           pattern_callback_needed(eng, rule->prog) ? pattern_name_test : NULL, &scope,
                                           &matched, &feature)
-                     : xp_eval_at(rule->prog, eng->src_tree, eng->src_root, eng->src_root, 1, 1, NULL, NULL,
-                                  xslt_extension, eng, &matched, &feature);
+                     : xp_eval_at(rule->prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
+                                  NULL, xslt_extension, eng, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {   /* GCOVR_EXCL_BR_LINE: pattern evaluation sets an exception only on allocation */
             if (feature == NULL) { /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
@@ -2480,7 +2663,8 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
             }
             /* GCOVR_EXCL_STOP */
             xp_result value;
-            int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
+            int status =
+                eval_program(eng, prog, &(xp_item){eng->cur_node, eng->cur_attr}, eng->ctx_pos, eng->ctx_size, &value);
             if (status < 0) {
                 xb_free(&buffer);
                 fail_py(eng);
@@ -2566,7 +2750,7 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
-    int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
+    int status = eval_program(eng, prog, &(xp_item){eng->cur_node, eng->cur_attr}, eng->ctx_pos, eng->ctx_size, &value);
     if (status < 0) {
         return fail_py(eng);
     }
@@ -2634,7 +2818,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
         }
     }
     xp_result value;
-    int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
+    int status = eval_program(eng, prog, &(xp_item){eng->cur_node, eng->cur_attr}, eng->ctx_pos, eng->ctx_size, &value);
     if (status < 0) {
         return fail_py(eng);
     }
@@ -3218,7 +3402,8 @@ static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
-    int status = eval_program_as(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value, 1);
+    int status =
+        eval_program_as(eng, prog, &(xp_item){eng->cur_node, eng->cur_attr}, eng->ctx_pos, eng->ctx_size, &value, 1);
     if (status < 0) {
         return fail_py(eng);
     }
@@ -3397,7 +3582,7 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
                 continue;
             }
             xp_result value;
-            int status = eval_program(eng, specs[spec].prog, set->items[index].node, index + 1, set->len, &value);
+            int status = eval_program(eng, specs[spec].prog, &set->items[index], index + 1, set->len, &value);
             if (status < 0) {
                 /* Freeing already-computed keys only runs when a later key fails after
                    an earlier one succeeded, which a test cannot force deterministically. */
@@ -3702,8 +3887,8 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
                          ? xp_eval_pattern_at(prog, eng->src_tree, eng->src_root, xslt_extension, eng,
                                               pattern_callback_needed(eng, prog) ? pattern_name_test : NULL, &scope,
                                               &matched, &feature)
-                         : xp_eval_at(prog, eng->src_tree, eng->src_root, eng->src_root, 1, 1, NULL, NULL,
-                                      xslt_extension, eng, &matched, &feature);
+                         : xp_eval_at(prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
+                                      NULL, xslt_extension, eng, &matched, &feature);
         if (status < 0) {
             if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
@@ -4013,6 +4198,9 @@ static int number_index_extend(engine *eng, const th_node *target) {
     xslt_number_index *index = &eng->number_index;
     if (index->positions.count == 0) {
         index->next = eng->src_root;
+        /* A node remembered while there was no index is not in it, and number_name expects every element it is asked
+           about to be: forget the node, so the next default count extends the index up to it. */
+        eng->current_number_node = NULL;
     }
     if (th_node_map_find(&index->positions, target) != 0) {
         return 0;
@@ -4237,10 +4425,10 @@ static th_node *doc_next(th_node *node) {
     return NULL; /* GCOVR_EXCL_LINE */
 }
 
-static long unindexed_any_number(const engine *eng, const match_set *count_matches, int have_count,
+static long unindexed_any_number(const engine *eng, th_node *start, const match_set *count_matches, int have_count,
                                  const match_set *from_matches, int have_from) {
     long counter = 0;
-    for (th_node *node = eng->cur_node;;) {
+    for (th_node *node = start;;) {
         TH_WORK_STEP();
         if (number_counts(eng, count_matches, have_count, node)) {
             counter++;
@@ -4495,7 +4683,7 @@ static long level_number(engine *eng, xslt_number_site *site, const match_set *c
 /* level="any" with the default count, back to the nearest match of from_pattern when there is one. The walk keeps
    a tally per expanded name, not the tally of the name numbered last: a document that alternates two numbered
    names would otherwise restart it at every node. */
-static int default_any_number(engine *eng, xslt_number_site *site, int have_from, long *out) {
+static int default_any_number(engine *eng, th_node *target, xslt_number_site *site, int have_from, long *out) {
     xslt_number_walk *walk = &site->any;
     const int indexed = eng->number_index.positions.count != 0;
     /* Names resolved before the namespace index existed do not compare with the ones resolved through it. */
@@ -4503,7 +4691,7 @@ static int default_any_number(engine *eng, xslt_number_site *site, int have_from
         number_walk_free(walk);
         *walk = (xslt_number_walk){.indexed = indexed};
     }
-    Py_ssize_t position = th_node_map_find(&walk->positions, eng->cur_node);
+    Py_ssize_t position = th_node_map_find(&walk->positions, target);
     if (position != 0) {
         *out = (long)position;
         return 0;
@@ -4511,7 +4699,7 @@ static int default_any_number(engine *eng, xslt_number_site *site, int have_from
     /* One numbering call does not amortize a document index. */
     if (!walk->repeated) {
         walk->repeated = 1;
-        *out = unindexed_any_number(eng, NULL, 0, &site->from_match.matched, have_from);
+        *out = unindexed_any_number(eng, target, NULL, 0, &site->from_match.matched, have_from);
         return 0;
     }
     th_node *node = walk->last == NULL ? eng->src_root : doc_next(walk->last);
@@ -4527,7 +4715,7 @@ static int default_any_number(engine *eng, xslt_number_site *site, int have_from
             return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         /* GCOVR_EXCL_BR_STOP */
-        if (node == eng->cur_node) {
+        if (node == target) {
             walk->last = node;
             *out = number;
             return 0;
@@ -4535,19 +4723,20 @@ static int default_any_number(engine *eng, xslt_number_site *site, int have_from
     }
 }
 
-static int explicit_any_number(engine *eng, xslt_number_site *site, int have_from, long *out) {
+static int explicit_any_number(engine *eng, th_node *target, xslt_number_site *site, int have_from, long *out) {
     xslt_number_prefix *cache = &site->explicit_any;
     if (cache->last == NULL) {
-        cache->value = unindexed_any_number(eng, &site->count_match.matched, 1, &site->from_match.matched, have_from);
-        cache->last = eng->cur_node;
+        cache->value =
+            unindexed_any_number(eng, target, &site->count_match.matched, 1, &site->from_match.matched, have_from);
+        cache->last = target;
         *out = cache->value;
         return 0;
     }
-    if (cache->last == eng->cur_node) {
+    if (cache->last == target) {
         *out = cache->value;
         return 0;
     }
-    Py_ssize_t position = th_node_map_find(&cache->positions, eng->cur_node);
+    Py_ssize_t position = th_node_map_find(&cache->positions, target);
     if (position != 0) {
         *out = (long)(position - 1);
         return 0;
@@ -4567,7 +4756,7 @@ static int explicit_any_number(engine *eng, xslt_number_site *site, int have_fro
             PyErr_NoMemory();                                               /* GCOVR_EXCL_LINE */
             return fail_py(eng);                                            /* GCOVR_EXCL_LINE */
         }
-        if (node == eng->cur_node) {
+        if (node == target) {
             cache->last = node;
             cache->value = counter;
             *out = counter;
@@ -4698,27 +4887,28 @@ static void number_site_free(xslt_number_site *site) {
     PyMem_Free(site->count_siblings.counts.entries);
 }
 
-/* level="any": how many counted nodes precede the current one in document order, back to the nearest from match. */
-static int number_any(engine *eng, xslt_number_site *site, const match_set *count_matches, int have_count,
-                      const match_set *from_matches, int have_from, long *counter) {
+/* level="any": how many counted nodes precede the target in document order, back to the nearest from match. */
+static int number_any(engine *eng, th_node *target, xslt_number_site *site, const match_set *count_matches,
+                      int have_count, const match_set *from_matches, int have_from, long *counter) {
     if (!have_from || from_matches == &site->from_match.matched) {
         if (!have_count) {
-            return default_any_number(eng, site, have_from, counter);
+            return default_any_number(eng, target, site, have_from, counter);
         }
         if (count_matches == &site->count_match.matched) {
-            return explicit_any_number(eng, site, have_from, counter);
+            return explicit_any_number(eng, target, site, have_from, counter);
         }
     }
-    *counter = unindexed_any_number(eng, count_matches, have_count, from_matches, have_from);
+    *counter = unindexed_any_number(eng, target, count_matches, have_count, from_matches, have_from);
     return 0;
 }
 
 /* level="multiple": one number per counted ancestor-or-self, outermost first, bounded by the nearest from ancestor. */
-static int number_multiple(engine *eng, xslt_number_site *site, const match_set *count_matches, int have_count,
-                           const match_set *from_matches, int have_from, long *values, Py_ssize_t *nvalues) {
+static int number_multiple(engine *eng, xslt_number_site *site, th_node *start, const match_set *count_matches,
+                           int have_count, const match_set *from_matches, int have_from, long *values,
+                           Py_ssize_t *nvalues) {
     th_node *chain[64];
     Py_ssize_t depth = 0;
-    for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
+    for (th_node *node = start; node != NULL; node = node->parent) {
         /* A count chain deeper than the fixed buffer cannot arise from a real document. */
         if (depth == 64) { /* GCOVR_EXCL_BR_LINE: overflow guard for the chain buffer */
             break;         /* GCOVR_EXCL_LINE */
@@ -4742,9 +4932,9 @@ static int number_multiple(engine *eng, xslt_number_site *site, const match_set 
 
 /* level="single" (the default): the nearest ancestor-or-self that matches count, bounded by the nearest from
    ancestor, or NULL when there is none. */
-static th_node *number_single(engine *eng, const match_set *count_matches, int have_count,
+static th_node *number_single(engine *eng, th_node *start, const match_set *count_matches, int have_count,
                               const match_set *from_matches, int have_from) {
-    for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
+    for (th_node *node = start; node != NULL; node = node->parent) {
         if (have_from && match_set_has(from_matches, node, -1)) {
             return NULL;
         }
@@ -4753,6 +4943,57 @@ static th_node *number_single(engine *eng, const match_set *count_matches, int h
         }
     }
     return NULL;
+}
+
+/* The numbers for an instruction whose context item is an attribute or namespace node. Such a node has no siblings,
+   and the preceding axis holds no attribute or namespace nodes, so the item counts itself and the walks resume at its
+   owner element. A default count matches only nodes of the item's own type, which no element is, so it never walks. */
+static int number_attribute(engine *eng, xslt_number_site *site, const match_set *count_matches, int have_count,
+                            const match_set *from_matches, int have_from, int any, int multiple, long *values,
+                            Py_ssize_t *nvalues) {
+    th_node *owner = eng->cur_node;
+    const int self_from = have_from && match_set_has(from_matches, owner, eng->cur_attr);
+    const int self_counts = !have_count || match_set_has(count_matches, owner, eng->cur_attr);
+    if (any) {
+        long counter = self_counts;
+        if (have_count && !self_from) {
+            long walked = 0;
+            const int status =
+                number_any(eng, owner, site, count_matches, have_count, from_matches, have_from, &walked);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;    /* GCOVR_EXCL_LINE */
+            }
+            counter += walked;
+        }
+        values[(*nvalues)++] = counter;
+        return 0;
+    }
+    if (self_from) {
+        return 0;
+    }
+    if (multiple) {
+        if (have_count && number_multiple(eng, site, owner, count_matches, have_count, from_matches, have_from, values,
+                                          nvalues) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                    /* GCOVR_EXCL_LINE */
+        }
+        if (self_counts) {
+            values[(*nvalues)++] = 1;
+        }
+        return 0;
+    }
+    if (self_counts) {
+        values[(*nvalues)++] = 1;
+        return 0;
+    }
+    th_node *target = number_single(eng, owner, count_matches, have_count, from_matches, have_from);
+    if (target != NULL) {
+        const long value = level_number(eng, site, count_matches, have_count, target);
+        if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;   /* GCOVR_EXCL_LINE */
+        }
+        values[(*nvalues)++] = value;
+    }
+    return 0;
 }
 
 /* The numbers xsl:number counts from the source tree when it has no value attribute, per its count, from and level
@@ -4790,6 +5031,22 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
             return -1;
         }
     }
+    Py_ssize_t level_len = 0;
+    const Py_UCS4 *level = number_attr(eng, instruction, eng->number_attrs.level, "level", &level_len);
+    const int any = level != NULL && ucs4_ascii_eq(level, level_len, "any");
+    const int multiple = level != NULL && ucs4_ascii_eq(level, level_len, "multiple");
+    if (xp_is_attribute(eng->cur_attr)) {
+        const int status = number_attribute(eng, site, count_matches, have_count, from_matches, have_from, any,
+                                            multiple, values, nvalues);
+        if (status < 0) {               /* GCOVR_EXCL_BR_LINE: allocation failure */
+            match_set_free(&count_set); /* GCOVR_EXCL_LINE */
+            match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
+            return -1;                  /* GCOVR_EXCL_LINE */
+        }
+        match_set_free(&count_set);
+        match_set_free(&from_set);
+        return 0;
+    }
     if (!have_count && eng->current_number_node != eng->cur_node) {
         if (remember_number_node(eng) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             match_set_free(&from_set);       /* GCOVR_EXCL_LINE */
@@ -4797,24 +5054,22 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
             return fail_py(eng);             /* GCOVR_EXCL_LINE */
         }
     }
-    Py_ssize_t level_len = 0;
-    const Py_UCS4 *level = number_attr(eng, instruction, eng->number_attrs.level, "level", &level_len);
-    if (level != NULL && ucs4_ascii_eq(level, level_len, "any")) {
+    if (any) {
         long counter = 0;
-        int status = number_any(eng, site, count_matches, have_count, from_matches, have_from, &counter);
+        int status = number_any(eng, eng->cur_node, site, count_matches, have_count, from_matches, have_from, &counter);
         if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;    /* GCOVR_EXCL_LINE */
         }
         values[(*nvalues)++] = counter;
-    } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
-        if (number_multiple(eng, site, count_matches, have_count, from_matches, have_from, values, nvalues) <
-            0) {                        /* GCOVR_EXCL_BR_LINE: allocation failure */
-            match_set_free(&count_set); /* GCOVR_EXCL_LINE */
-            match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
-            return -1;                  /* GCOVR_EXCL_LINE */
+    } else if (multiple) {
+        if (number_multiple(eng, site, eng->cur_node, count_matches, have_count, from_matches, have_from, values,
+                            nvalues) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            match_set_free(&count_set);     /* GCOVR_EXCL_LINE */
+            match_set_free(&from_set);      /* GCOVR_EXCL_LINE */
+            return -1;                      /* GCOVR_EXCL_LINE */
         }
     } else {
-        th_node *target = number_single(eng, count_matches, have_count, from_matches, have_from);
+        th_node *target = number_single(eng, eng->cur_node, count_matches, have_count, from_matches, have_from);
         if (target != NULL) {
             const long value = level_number(eng, site, count_matches, have_count, target);
             if (value < 0) {                /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -4845,7 +5100,8 @@ TH_NOINLINE static int do_number(engine *eng, th_node *instruction, th_node *out
             return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         xp_result result;
-        int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &result);
+        int status =
+            eval_program(eng, prog, &(xp_item){eng->cur_node, eng->cur_attr}, eng->ctx_pos, eng->ctx_size, &result);
         if (status < 0) {
             return fail_py(eng);
         }
@@ -4857,8 +5113,6 @@ TH_NOINLINE static int do_number(engine *eng, th_node *instruction, th_node *out
             return emit_out_of_range_value(eng, instruction, out_parent, value, rounded);
         }
         values[nvalues++] = (long)rounded;
-    } else if (xp_is_attribute(eng->cur_attr)) {
-        values[nvalues++] = 1;
     } else if (count_numbers(eng, instruction, values, &nvalues) < 0) {
         return -1;
     }
@@ -4894,7 +5148,8 @@ XSLT_FORCEINLINE static int eval_select(engine *eng, const Py_UCS4 *select, Py_s
         } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
-    int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, out_value);
+    int status =
+        eval_program(eng, prog, &(xp_item){eng->cur_node, eng->cur_attr}, eng->ctx_pos, eng->ctx_size, out_value);
     if (status < 0) {
         return fail_py(eng);
     }
@@ -6633,6 +6888,7 @@ static void engine_clear(engine *eng) {
     PyMem_Free(eng->rules);
     for (Py_ssize_t index = 0; index < eng->nkeys; index++) {
         strmap_free(&eng->keys[index].table);
+        PyMem_Free(eng->keys[index].attrs);
     }
     PyMem_Free(eng->keys);
     if (eng->owns_model) {
@@ -6766,6 +7022,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
         eng->keys_cap = model->nkeys;
         for (Py_ssize_t index = 0; index < model->nkeys; index++) {
             memset(&eng->keys[index].table, 0, sizeof(strmap));
+            eng->keys[index].attrs = NULL;
             eng->keys[index].built = 0;
         }
     }
@@ -6803,7 +7060,7 @@ static int bind_globals(engine *eng, PyObject *params) {
                     return fail_py(eng);
                 }
                 xp_result value;
-                int status = eval_program(eng, prog, eng->src_root, 1, 1, &value);
+                int status = eval_program(eng, prog, &(xp_item){eng->src_root, -1}, 1, 1, &value);
                 xp_free(prog);
                 if (status < 0) {
                     return fail_py(eng);
