@@ -902,7 +902,9 @@ static int id_cache_index(struct th_tree *tree, xp_id_cache *cache, struct th_no
 #define XP_ID_INDEX_MIN_NODES 256
 
 static int id_position_order(const void *left, const void *right) {
-    return *(const size_t *)left < *(const size_t *)right ? -1 : 1;
+    const size_t first = *(const size_t *)left;
+    const size_t second = *(const size_t *)right;
+    return (first > second) - (first < second);
 }
 
 /* Append to found, in document order, the indexed element each token names. */

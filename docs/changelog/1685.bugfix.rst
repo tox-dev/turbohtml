@@ -1,0 +1,2 @@
+Base URL, meta refresh and link extraction now skip ``<base>`` and refresh ``<meta>`` inside ``<template>``, and SVG or
+MathML ``base`` and ``meta`` elements, as browsers do.

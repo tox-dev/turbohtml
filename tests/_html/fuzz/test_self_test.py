@@ -677,6 +677,7 @@ _BOUNDED_RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_BOUNDED_RELAXNG)
 @pytest.mark.parametrize(
     ("call", "setup"),
     [
+        pytest.param(lambda _: XMLSchema(_BOUNDED_XSD), lambda: None, id="xsd-compile"),
         pytest.param(_BOUNDED_XSD_SCHEMA.validate, lambda: parse_xml(f"<v>{_LONG_NUMBER}</v>"), id="xsd-validate"),
         pytest.param(lambda _: RelaxNG(_BOUNDED_RELAXNG), lambda: None, id="relaxng-compile"),
         pytest.param(
@@ -685,6 +686,86 @@ _BOUNDED_RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_BOUNDED_RELAXNG)
     ],
 )
 def test_schema_long_number_allocation_failure_raises_memory_error(
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
+) -> None:
+    assert set(alloc_sweep(call, setup)) == {"MemoryError"}
+
+
+_NAMESPACE_DECLARATIONS: Final[str] = "".join(f' xmlns:p{index}="urn:p{index}"' for index in range(40))
+# the ancestors carry more attributes than the attribute scope walks inline, so each prefix lookup takes the arena path
+_XSD_PLAIN: Final[str] = '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="r"/></xs:schema>'
+_XSD_PREFIXED: Final[str] = (
+    f'<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:p3"{_NAMESPACE_DECLARATIONS}>'
+    '<xs:element name="r" type="p3:D"/>'
+    '<xs:complexType name="B"><xs:sequence><xs:element name="a" type="xs:string"/></xs:sequence></xs:complexType>'
+    '<xs:complexType name="D"><xs:complexContent><xs:extension base="p3:B"><xs:sequence>'
+    '<xs:element name="b" type="xs:int" minOccurs="0"/></xs:sequence></xs:extension></xs:complexContent>'
+    "</xs:complexType></xs:schema>"
+)
+_RELAXNG_PREFIXED: Final[str] = (
+    f'<grammar xmlns="http://relaxng.org/ns/structure/1.0"{_NAMESPACE_DECLARATIONS}>'
+    '<start><element name="p3:r"><element name="p5:a"><empty/></element></element></start></grammar>'
+)
+# the pattern parser reports a syntax error after the class range whose allocation failed, so the error must not hide it
+_BAD_PATTERN: Final[str] = "[a-cz-y][q-]x"
+_XSD_BAD_PATTERN: Final[str] = (
+    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="P"><xs:restriction base="xs:string">'
+    f'<xs:pattern value="{_BAD_PATTERN}"/></xs:restriction></xs:simpleType><xs:element name="r" type="P"/></xs:schema>'
+)
+_RELAXNG_BAD_PATTERN: Final[str] = (
+    '<grammar xmlns="http://relaxng.org/ns/structure/1.0" '
+    'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><start><element name="r">'
+    f'<data type="string"><param name="pattern">{_BAD_PATTERN}</param></data></element></start></grammar>'
+)
+# two crossed chains of groups: a validation merges past the choice limit within eight places
+_CROSSED_CHAINS: Final[str] = "".join(
+    f'<define name="d{index}"><group><ref name="d{index + 1}"/><ref name="e{index + 1}"/></group></define>'
+    f'<define name="e{index}"><group><ref name="e{index + 1}"/><ref name="d{index + 1}"/></group></define>'
+    for index in range(8)
+)
+_CHOICE_LIMIT: Final[str] = (
+    '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><element name="r"><ref name="d0"/></element></start>'
+    f"{_CROSSED_CHAINS}"
+    '<define name="d8"><optional><element name="v"><empty/></element></optional></define>'
+    '<define name="e8"><optional><element name="v"><empty/></element></optional></define></grammar>'
+)
+
+
+def _compile_ignoring_error(schema: Callable[[str], object], source: str) -> None:
+    # the malformed pattern raises the same ValueError with or without an injected failure, so the sweep needs a result
+    with contextlib.suppress(ValueError):
+        schema(source)
+
+
+def _validate_ignoring_limit(schema: RelaxNG, document: turbohtml.Document) -> None:
+    # the choice limit ends the validation with the same ValueError with or without an injected failure
+    with contextlib.suppress(ValueError):
+        schema.validate(document)
+
+
+@pytest.mark.fuzz_build
+@pytest.mark.parametrize(
+    ("call", "setup"),
+    [
+        pytest.param(lambda _: XMLSchema(_XSD_PLAIN), lambda: None, id="xsd-compile-plain"),
+        pytest.param(lambda _: XMLSchema(_XSD_PREFIXED), lambda: None, id="xsd-compile-prefixed"),
+        pytest.param(
+            lambda _: _compile_ignoring_error(XMLSchema, _XSD_BAD_PATTERN), lambda: None, id="xsd-compile-pattern"
+        ),
+        pytest.param(lambda _: RelaxNG(_RELAXNG_PREFIXED), lambda: None, id="relaxng-compile-prefixed"),
+        pytest.param(
+            lambda _: _compile_ignoring_error(RelaxNG, _RELAXNG_BAD_PATTERN),
+            lambda: None,
+            id="relaxng-compile-pattern",
+        ),
+        pytest.param(
+            lambda pair: _validate_ignoring_limit(*pair),
+            lambda: (RelaxNG(_CHOICE_LIMIT), parse_xml("<r><v/><v/><v/></r>")),
+            id="relaxng-validate-choice-limit",
+        ),
+    ],
+)
+def test_schema_allocation_failure_raises_memory_error(
     alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}

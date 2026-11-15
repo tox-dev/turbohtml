@@ -407,10 +407,13 @@ static int32_t xr_class_new(xr_parser *parser, int categories, int fold) {
     return parser->class_count++;
 }
 
+/* Ranges with equal lo order by hi: a tie that compared both ways would leave qsort's result to the libc. */
 static int xr_range_order(const void *left, const void *right) {
     const xr_range *first = left;
     const xr_range *second = right;
-    return (first->lo > second->lo) - (first->lo < second->lo);
+    const uint64_t first_key = ((uint64_t)first->lo << 32) | first->hi;
+    const uint64_t second_key = ((uint64_t)second->lo << 32) | second->hi;
+    return (first_key > second_key) - (first_key < second_key);
 }
 
 /* Sort and merge the class's ranges for binary search, then precompute the ASCII answers so the common case is one bit

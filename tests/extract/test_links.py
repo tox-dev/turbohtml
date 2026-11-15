@@ -206,6 +206,15 @@ def test_external_only_follows_a_same_scheme_base_href_ending_in_colon() -> None
     assert extract_links(html, "https://good.example/news/today", external_only=True) == expected
 
 
+def test_external_only_ignores_a_base_inside_template_contents() -> None:
+    # a browser takes its base from the live <base>, not the inert one in <template>, so /login leaves the site
+    html: Final = (
+        '<template><base href="http://good.example/"></template>'
+        '<base href="http://evil.example/"><a href="/login">x</a>'
+    )
+    assert extract_links(html, "http://good.example/page", external_only=True) == {"http://evil.example/login"}
+
+
 def test_external_only_requires_a_base() -> None:
     with pytest.raises(ValueError, match="external_only requires a base_url"):
         extract_links('<a href="https://a.example/">x</a>', external_only=True)
@@ -722,6 +731,7 @@ def test_srcset_url_boundaries(value: str, expected: list[str]) -> None:
         pytest.param('<meta http-equiv="refresh" content="5">', id="no-url-keyword"),
         pytest.param('<meta name="x" content="url=y">', id="not-refresh"),
         pytest.param('<meta http-equiv="refresh">', id="no-content"),
+        pytest.param('<template><meta http-equiv="refresh" content="5;url=x"></template>', id="inside-template"),
     ],
 )
 def test_meta_without_refresh_url_has_no_link(markup: str) -> None:
