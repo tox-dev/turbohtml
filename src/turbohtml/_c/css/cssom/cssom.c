@@ -1735,7 +1735,8 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
 static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count, th_tree *tree,
                                int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
     css_slot slots[NUM_PROPS] = {0};
-    sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL};
+    /* the cache's table doubles as the legend memo: first-legend answers key apart from the :has() ones */
+    sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->has_memo};
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];

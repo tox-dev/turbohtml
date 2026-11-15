@@ -994,7 +994,7 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         Py_ssize_t raw_len = 0;
         const Py_UCS4 *raw = element_text_raw(tree, node, &raw_len);
         node_pat->value_ws = dt_default_ws(node_pat->datatype_id);
-        node_pat->value = dt_normalize_ws(&schema->mem, node_pat->value_ws, raw, raw_len, &node_pat->value_len);
+        node_pat->value = dt_normalize_ws_arena(&schema->mem, node_pat->value_ws, raw, raw_len, &node_pat->value_len);
         return node_pat;
     }
     if (is_schema_el(schema, node, RNG_NS, "ref")) {
@@ -1127,7 +1127,7 @@ static RNG_FORCEINLINE int rng_nullable_step(th_schema *schema, pattern *p) {
 
 static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t norm_len = 0;
-    const Py_UCS4 *norm = dt_normalize_ws(&schema->mem, facets->ws, value, len, &norm_len);
+    const Py_UCS4 *norm = dt_normalize_ws(schema, facets->ws, value, len, &norm_len);
     if (!dt_check_lexical(datatype_id, norm, norm_len)) {
         return 0;
     }

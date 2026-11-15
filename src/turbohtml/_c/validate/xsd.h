@@ -345,52 +345,193 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
 
 static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl);
 
+/* One element particle of an xs:all group. */
+typedef struct {
+    edecl want;
+    int required; /* set on the first member of a name only: whether a valid instance has to contain that name */
+} xall_member;
+
+/* The element names of an xs:all group. Validation looks every child up by name, and a walk of the group per child cost
+   particles x children; a sorted table, unlike a hashed one, cannot be flooded by a choice of names. */
+typedef struct xall_entry {
+    th_node *node;
+    xall_member *members;   /* every element particle, in document order */
+    xall_member **by_name;  /* the first member of each name, the one a child matches, sorted by name */
+    xall_member **required; /* those of by_name a valid instance contains, in document order */
+    Py_ssize_t name_count, required_count;
+} xall_entry;
+
+static int xsd_text_order(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
+    if (left_len != right_len) {
+        return left_len < right_len ? -1 : 1;
+    }
+    return left_len == 0 ? 0 : memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4));
+}
+
+/* A total order whose ties are exactly the names qname_eq calls equal. */
+static int edecl_order(const edecl *left, const edecl *right) {
+    int order = xsd_text_order(left->local, left->local_len, right->local, right->local_len);
+    return order != 0 ? order : xsd_text_order(left->uri, left->uri_len, right->uri, right->uri_len);
+}
+
+static int xsd_member_order(const void *left, const void *right) {
+    const xall_member *left_member = *(const xall_member *const *)left;
+    const xall_member *right_member = *(const xall_member *const *)right;
+    return (left_member > right_member) - (left_member < right_member);
+}
+
+/* Members of one name sort in document order, so the first of them leads its run. */
+static int xsd_member_name_order(const void *left, const void *right) {
+    const xall_member *left_member = *(const xall_member *const *)left;
+    const xall_member *right_member = *(const xall_member *const *)right;
+    int order = edecl_order(&left_member->want, &right_member->want);
+    return order != 0 ? order : xsd_member_order(left, right);
+}
+
+static TH_NOINLINE int xsd_record_all(th_schema *schema, th_node *all) {
+    if (schema->all_count == schema->all_cap) {
+        size_t capacity, bytes;
+        const int fits = th_grow_cap(schema->all_count + 1, schema->all_cap, 8, sizeof(xall_entry), &capacity, &bytes);
+        if (!fits) {   /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        xall_entry *entries = arena_alloc(&schema->mem, bytes);
+        if (entries == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+        if (schema->all_count > 0) {
+            memcpy(entries, schema->all_entries, schema->all_count * sizeof(xall_entry));
+        }
+        schema->all_entries = entries;
+        schema->all_cap = capacity;
+    }
+    xall_entry *group = &schema->all_entries[schema->all_count++];
+    size_t count = 0;
+    for (th_node *particle = all->first_child; particle != NULL; particle = particle->next_sibling) {
+        count += (size_t)is_schema_el(schema, particle, XSD_NS, "element");
+    }
+    group->node = all;
+    group->name_count = group->required_count = 0;
+    group->members = arena_alloc(&schema->mem, (count + 1) * sizeof(xall_member));
+    group->by_name = arena_alloc(&schema->mem, (count + 1) * sizeof(xall_member *));
+    group->required = arena_alloc(&schema->mem, (count + 1) * sizeof(xall_member *));
+    /* GCOVR_EXCL_BR_START: arena OOM is unforceable */
+    if (group->members == NULL || group->by_name == NULL || group->required == NULL) {
+        /* GCOVR_EXCL_BR_STOP */
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    count = 0;
+    for (th_node *particle = all->first_child; particle != NULL; particle = particle->next_sibling) {
+        if (!is_schema_el(schema, particle, XSD_NS, "element")) {
+            continue;
+        }
+        xall_member *member = &group->members[count];
+        xsd_element_name(schema, particle, &member->want);
+        member->required = xsd_occurs_min(schema->tree, particle) != 0;
+        group->by_name[count++] = member;
+    }
+    qsort(group->by_name, count, sizeof(xall_member *), xsd_member_name_order);
+    /* a child matches the first declaration of its name, so a later one only adds its minOccurs to the first */
+    for (size_t index = 0; index < count; index++) {
+        xall_member *member = group->by_name[index];
+        xall_member *first = index > 0 ? group->by_name[group->name_count - 1] : NULL;
+        if (first != NULL && edecl_order(&first->want, &member->want) == 0) {
+            first->required |= member->required;
+            member->required = 0;
+        } else {
+            group->by_name[group->name_count++] = member;
+        }
+    }
+    for (size_t index = 0; index < count; index++) {
+        if (group->members[index].required) {
+            group->required[group->required_count++] = &group->members[index];
+        }
+    }
+    return 0;
+}
+
+static int xsd_all_order(const void *left, const void *right) {
+    const uintptr_t left_node = (uintptr_t)((const xall_entry *)left)->node;
+    const uintptr_t right_node = (uintptr_t)((const xall_entry *)right)->node;
+    return (left_node > right_node) - (left_node < right_node);
+}
+
+/* xsd_cache_facets records every xs:all element of the schema, so the search always hits. */
+static const xall_entry *xsd_cached_all(const th_schema *schema, const th_node *all) {
+    size_t low = 0, high = schema->all_count;
+    while (low < high) {
+        const size_t middle = low + (high - low) / 2;
+        if ((uintptr_t)schema->all_entries[middle].node < (uintptr_t)all) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return &schema->all_entries[low];
+}
+
+/* The member of the group that expects `name`, or NULL. */
+static const xall_member *xsd_all_find(const xall_entry *group, const qname *name) {
+    const edecl want = {name->uri, name->uri_len, name->local, name->local_len, NULL};
+    Py_ssize_t low = 0, high = group->name_count;
+    while (low < high) {
+        const Py_ssize_t middle = low + (high - low) / 2;
+        if (edecl_order(&group->by_name[middle]->want, &want) < 0) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    if (low == group->name_count || !qname_eq(name, &group->by_name[low]->want)) {
+        return NULL;
+    }
+    return group->by_name[low];
+}
+
 /* Validate an `all` group: each child element matches a distinct particle by name,
    with its per-particle occurs honored and order ignored. */
 static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_ssize_t nchildren) {
     th_schema *schema = ctx->schema;
-    th_tree *tree = schema->tree;
     th_tree *inst = ctx->tree;
+    const xall_entry *group = xsd_cached_all(schema, all);
+    /* the member each child matched, sorted below to tell which required members no child did */
+    const xall_member **seen = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
+    if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;         /* GCOVR_EXCL_LINE */
+    }
+    size_t seen_count = 0;
     for (Py_ssize_t index = 0; index < nchildren; index++) {
+        TH_WORK_STEP();
         qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
-        th_node *matched = NULL;
-        for (th_node *particle = all->first_child; particle != NULL; particle = particle->next_sibling) {
-            if (!is_schema_el(schema, particle, XSD_NS, "element")) {
-                continue;
-            }
-            edecl want;
-            xsd_element_name(schema, particle, &want);
-            if (qname_eq(&name, &want)) {
-                matched = particle;
-                break;
-            }
-        }
+        const xall_member *matched = xsd_all_find(group, &name);
         if (matched == NULL) {
             char buffer[256];
             report(ctx, children[index], "structure", "element '%s' is not allowed here",
                    name_utf8(children[index]->text, children[index]->text_len, buffer, sizeof(buffer)));
         } else {
-            edecl want;
-            xsd_element_name(schema, matched, &want);
-            xsd_validate_element(ctx, children[index], want.decl);
+            seen[seen_count++] = matched;
+            xsd_validate_element(ctx, children[index], matched->want.decl);
         }
     }
-    for (th_node *particle = all->first_child; particle != NULL; particle = particle->next_sibling) {
-        if (!is_schema_el(schema, particle, XSD_NS, "element") || xsd_occurs_min(tree, particle) == 0) {
+    qsort(seen, seen_count, sizeof(xall_member *), xsd_member_order);
+    Py_ssize_t present = 0;
+    for (size_t index = 0; index < seen_count; index++) {
+        if (index == 0 || seen[index] != seen[index - 1]) {
+            present += seen[index]->required;
+        }
+    }
+    if (present == group->required_count) {
+        return;
+    }
+    for (Py_ssize_t index = 0; index < group->required_count; index++) {
+        TH_WORK_STEP();
+        const xall_member *member = group->required[index];
+        if (bsearch(&member, seen, seen_count, sizeof(xall_member *), xsd_member_order) != NULL) {
             continue;
         }
-        edecl want;
-        xsd_element_name(schema, particle, &want);
-        int present = 0;
-        for (Py_ssize_t index = 0; index < nchildren && !present; index++) {
-            qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
-            present = qname_eq(&name, &want);
-        }
-        if (!present) {
-            char buffer[256];
-            report(ctx, all, "structure", "required element '%s' is missing",
-                   name_utf8(want.local, want.local_len, buffer, sizeof(buffer)));
-        }
+        char buffer[256];
+        report(ctx, all, "structure", "required element '%s' is missing",
+               name_utf8(member->want.local, member->want.local_len, buffer, sizeof(buffer)));
     }
 }
 
@@ -477,6 +618,10 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
         if (u_eq_ascii(name->local, name->local_len, "simpleType")) {
             if (xsd_record_facets(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
                 return -1;                             /* GCOVR_EXCL_LINE */
+            }
+        } else if (u_eq_ascii(name->local, name->local_len, "all")) {
+            if (xsd_record_all(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;                          /* GCOVR_EXCL_LINE */
             }
         }
     }
@@ -676,7 +821,7 @@ static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_n
         facets = &builtin;
     }
     Py_ssize_t norm_len = 0;
-    const Py_UCS4 *norm = dt_normalize_ws(&schema->mem, facets->ws, value, len, &norm_len);
+    const Py_UCS4 *norm = dt_normalize_ws(schema, facets->ws, value, len, &norm_len);
     if (!dt_check_lexical(facets->base_id, norm, norm_len)) {
         char buffer[128];
         report(ctx, node, "datatype", "value '%s' is not a valid %s", name_utf8(norm, norm_len, buffer, sizeof(buffer)),
@@ -1261,6 +1406,9 @@ static int xsd_compile(th_schema *schema) {
     }
     if (schema->facet_count > 1) {
         qsort(schema->facet_entries, schema->facet_count, sizeof(xfacet_entry), xsd_facet_order);
+    }
+    if (schema->all_count > 1) {
+        qsort(schema->all_entries, schema->all_count, sizeof(xall_entry), xsd_all_order);
     }
     return 1;
 }
