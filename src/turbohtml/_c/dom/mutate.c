@@ -492,9 +492,9 @@ static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char 
 /* Replaces the value of a present name, or appends it. Kept apart from th_node_attr_append rather than inlined into
    both: a shared store would hold the duplicate and index branches, which the appender never takes. With borrow the
    slot takes value itself, a buffer of this tree's arena that is already another element's attribute value, rather
-   than a copy. Inlined into node_attr_write and th_node_attr_set_shared, so each caller folds its own borrow flag. */
-static TH_ALWAYS_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                            const Py_UCS4 *value, Py_ssize_t value_len, int has_value, int borrow) {
+   than a copy. */
+static TH_NOINLINE int node_attr_write(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value, int borrow) {
     uint32_t atom = node_attr_begin(tree, node, name, name_len);
     Py_UCS4 *owned = borrow ? (Py_UCS4 *)value : NULL;
     if (has_value && !borrow) {
@@ -555,19 +555,14 @@ static TH_ALWAYS_INLINE int node_attr_store(th_tree *tree, th_node *node, const 
     return 0;
 }
 
-static TH_NOINLINE int node_attr_write(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 0);
-}
-
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len, int has_value) {
-    return node_attr_write(tree, node, name, name_len, value, value_len, has_value);
+    return node_attr_write(tree, node, name, name_len, value, value_len, has_value, 0);
 }
 
 int th_node_attr_set_shared(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                             Py_ssize_t value_len) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, 1, 1);
+    return node_attr_write(tree, node, name, name_len, value, value_len, 1, 1);
 }
 
 /* out of line: inlined into the XML parser's attribute loop it cost that loop more than the call. The XML parser is the
