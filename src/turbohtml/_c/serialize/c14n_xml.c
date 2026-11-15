@@ -412,7 +412,7 @@ static int c14n_xml_scope_uses(c14n_xml_scope *scope, th_tree *tree, const th_no
         if (c14n_xml_scope_use(scope, node, "", 0, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
             return -1;                                       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-    } else if (colon > 0) {
+    } else { /* a written name is a QName, so a colon in it is never first */
         if (colon * 4 > scope->tag_prefix_cap) {
             char *grown = PyMem_Realloc(scope->tag_prefix, (size_t)colon * 4);
             if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
