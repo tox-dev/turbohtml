@@ -12,6 +12,7 @@ from bench.operations import INPUTS
 from turbohtml.clean import JSMinify, minify_js
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from types import ModuleType
 
     from work_steps import WorkSteps
@@ -1429,7 +1430,7 @@ def test_guard_chain_nesting_cap_spans_nested_functions(opening: str, closing: s
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
-def test_guard_chain_past_the_cap_preserves_behavior() -> None:
+def test_guard_chain_past_the_cap_preserves_behavior(tmp_path: Path) -> None:
     guards: Final = "".join(
         f"if(x==={index})return g({index});if(!(x!=={index + 1}))return-{index};" for index in range(0, 2000, 2)
     )
@@ -1437,7 +1438,16 @@ def test_guard_chain_past_the_cap_preserves_behavior() -> None:
     source: Final = f"function g(v){{return v+1}}function f(x){{{guards}return g(-2)}}{calls}"
     minified: Final = minify_js(source)
     assert 0 < minified.count("if(") < 2000  # some guards folded, the rest stayed statements
-    assert _run(minified) == _run(source)
+    script: Final = tmp_path / "guard_chain.js"
+    assert _run_file(script, minified) == _run_file(script, source)
+
+
+def _run_file(script: Path, code: str) -> str:
+    assert _NODE is not None  # the callers are skipped when node is unavailable
+    # a script past the Windows command-line limit (32767 characters) cannot go through `node -e`
+    script.write_text(code, encoding="utf-8")
+    result = subprocess.run([_NODE, str(script)], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true] - fixed argv, test-written script
+    return result.stdout + result.stderr
 
 
 def test_logical_groups_do_not_join_past_the_nesting_cap() -> None:
