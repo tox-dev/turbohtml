@@ -551,7 +551,10 @@ typedef struct th_schema {
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
-    struct rpattern *regex_patterns;
+    /* every pattern facet and RELAX NG pattern param in document order, and the distinct ones sorted by text for
+       regex_full_match to search */
+    struct rpattern *regex_patterns, **regex_sorted;
+    size_t regex_count, regex_cap, regex_distinct;
     size_t regex_max_states;        /* states in the largest compiled pattern, sizing the match buffers */
     struct rscratch *regex_scratch; /* match buffers of one validate() call, built on its first pattern check */
     struct xfacet_entry *facet_entries;
