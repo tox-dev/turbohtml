@@ -68,12 +68,15 @@ struct nsnode {
     uint64_t id;     /* creation order, so table probes depend on the input and not on the heap address */
 };
 
+typedef struct rng_route rng_route;
+
 struct pattern {
     int type;
     int nullable;
     pattern *p1, *p2;
     /* A choice built during validation is a node of a binary trie over its leaves' creation numbers (see trie_union)
-       and keeps its trie fields where the patterns that name or match text keep theirs. */
+       and keeps its trie fields where the patterns that name or match text keep theirs. A group, choice or interleave
+       that a container join made, or that derives from one, keeps its route where data keeps its facets. */
     union {
         nameclass *nc;
         pattern *leaf; /* choice: one of its leaves, whose number carries the bits all of them share */
@@ -82,11 +85,27 @@ struct pattern {
         int def_index;
         int bit; /* choice: the highest bit in which a leaf number of p1 differs from one of p2 */
     };
-    int datatype_id;
-    int value_ws;
+    union {
+        struct {
+            int datatype_id;
+            int value_ws;
+        };
+        struct {
+            int lo, mid; /* route only: the operands under p1 are [lo, mid), under p2 [mid, hi) */
+        };
+    };
     uint32_t seq; /* creation number within the compile or the validation, so a trie's shape follows the input alone */
-    facetset *facets;
-    const Py_UCS4 *value;
+    union {
+        facetset *facets;
+        const rng_route *route; /* group, choice, interleave: the container join that made it, or NULL */
+    };
+    union {
+        const Py_UCS4 *value;
+        struct {
+            int hi;
+            int derived; /* route only: a derivative made it, so it holds no more than those operands do */
+        };
+    };
     union {
         Py_ssize_t value_len;
         Py_ssize_t leaves; /* choice: how many leaves it holds; 0 until a merge first reads it */
@@ -279,8 +298,22 @@ static void memo_reset(patmemo *memo) {
     memo->count = 0;
 }
 
-/* An event that stays within its free steps never reads the memo, so the memo is emptied only when it is needed. */
-static void memo_begin_event(th_schema *schema) {
+/* Steps one event may take before the rest of the validation routes derivatives (see rng_routing). Below it every
+   event costs a bounded number of steps, so validation stays linear in the events without the index. */
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+#define RNG_ROUTE_STEPS 0
+#else
+#define RNG_ROUTE_STEPS 64
+#endif
+
+static RNG_NOINLINE void rng_routing_event(th_schema *schema, pattern *root);
+
+/* An event that stays within its free steps never reads the memo, so the memo is emptied only when it is needed.
+   `root` is the pattern the event derives. */
+static void memo_begin_event(th_schema *schema, pattern *root) {
+    if (schema->memo_free - schema->memo_budget > RNG_ROUTE_STEPS) {
+        rng_routing_event(schema, root);
+    }
     schema->memo_budget = schema->memo_free;
     schema->event_work = 0;
 }
@@ -418,25 +451,48 @@ typedef pattern *(*pat_join_fn)(th_schema *schema, pattern *p1, pattern *p2);
    single node whose tail it shares with the choice it grew from. */
 #define RNG_CHAIN_JOIN 8
 
-/* Join `len` operands of one associative operator, in order: a few as a left-leaning chain, more as a balanced tree.
-   The derivatives recurse once per pattern level, so a chain as deep as a long operand list would let a wide container
-   or a choice with many live alternatives overflow the stack. Overwrites `parts`. */
-static pattern *pat_fold(th_schema *schema, pat_join_fn join, pattern **parts, Py_ssize_t len) {
-    if (len <= RNG_CHAIN_JOIN) {
-        pattern *joined = parts[0];
-        for (Py_ssize_t index = 1; index < len; index++) {
-            joined = join(schema, joined, parts[index]);
-        }
-        return joined;
+/* The operands of one container's join, in order. Every node the join makes records the operands each side holds, so a
+   derivative can skip a side that cannot match the event, and a derivative of the node keeps the record. */
+struct rng_route {
+    const pattern *root;
+    int type;  /* P_GROUP, P_CHOICE or P_INTERLEAVE */
+    int id;    /* the slot of the route's state in a validation's rng_routing */
+    int count; /* operands; a NULL one was absorbed by the join */
+    pattern *operands[];
+};
+
+/* Records on `node` the operand ranges of its sides, unless the join absorbed an operand or the node is shared and
+   already routed. */
+static pattern *route_note(pattern *node, const pattern *p1, const pattern *p2, const rng_route *route, int lo, int mid,
+                           int hi) {
+    if (node->p1 == p1 && node->p2 == p2 && node->route == NULL) {
+        node->route = route;
+        node->lo = lo;
+        node->mid = mid;
+        node->hi = hi;
     }
+    return node;
+}
+
+/* Join `len` operands of one route, more than RNG_CHAIN_JOIN, in order as a balanced tree. The derivatives recurse
+   once per pattern level, so a chain as deep as a long operand list would let a wide container overflow the stack.
+   `bounds[index]` is the first operand `parts[index]` holds and `bounds[len]` the route's count; both arrays are
+   overwritten. */
+static pattern *pat_fold(th_schema *schema, pat_join_fn join, pattern **parts, Py_ssize_t len, const rng_route *route,
+                         int *bounds) {
     while (len > 1) {
         Py_ssize_t out = 0;
         for (Py_ssize_t index = 0; index + 1 < len; index += 2) {
-            parts[out++] = join(schema, parts[index], parts[index + 1]);
+            pattern *node = join(schema, parts[index], parts[index + 1]);
+            parts[out] = route_note(node, parts[index], parts[index + 1], route, bounds[index], bounds[index + 1],
+                                    bounds[index + 2]);
+            bounds[out++] = bounds[index];
         }
         if (len & 1) {
+            bounds[out] = bounds[len - 1];
             parts[out++] = parts[len - 1];
         }
+        bounds[out] = bounds[len];
         len = out;
     }
     return parts[0];
@@ -465,6 +521,18 @@ static RNG_FORCEINLINE uint64_t trie_key(const pattern *p) {
 
 static RNG_FORCEINLINE Py_ssize_t trie_size(const pattern *p) {
     return p->type == P_CHOICE ? p->leaves : 1;
+}
+
+/* A <choice> joins its operands in order, also when validation builds a define, so its nodes can record their
+   operands. The derivatives still build every other choice as a trie. */
+static pattern *pat_choice_join(th_schema *schema, pattern *p1, pattern *p2) {
+    if (p1->type == P_NOTALLOWED) {
+        return p2;
+    }
+    if (p2->type == P_NOTALLOWED) {
+        return p1;
+    }
+    return pat_binary(schema, P_CHOICE, p1, p2);
 }
 
 /* Joins two tries whose leaves differ above both of their split bits. A two-leaf choice the hot path in pat_choice
@@ -907,47 +975,83 @@ static nameclass *rng_attr_known_class(const th_schema *schema, const th_node *n
 static void rng_check_href(th_node *node);
 static int rng_check_interleave_node(th_schema *schema, th_node *interleave);
 
-/* Join the pattern elements from `first` on into one pattern (`none` when there are none). The first few join as they
-   are built, with no buffer; a wide container makes that chain the first operand of a balanced join of the rest. */
-static pattern *rng_build_joined(th_schema *schema, th_node *first, pat_join_fn join, pattern *none) {
-    pattern *joined = none;
+static rng_route *route_new(th_schema *schema, Py_ssize_t count, int type) {
+    rng_route *route = arena_alloc(&schema->mem, sizeof(*route) + (size_t)count * sizeof(pattern *));
+    if (route == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    route->root = NULL;
+    route->type = type;
+    route->id = schema->route_count++;
+    route->count = (int)count;
+    return route;
+}
+
+/* Join a route's operands as a left-leaning chain, or, past twice RNG_CHAIN_JOIN, the first RNG_CHAIN_JOIN as a chain
+   and the rest as a balanced join with that chain as its first operand. */
+static pattern *route_fold(th_schema *schema, pat_join_fn join, rng_route *route) {
+    pattern *const *operands = route->operands;
+    int count = route->count;
+    int chain = count < 2 * RNG_CHAIN_JOIN ? count : RNG_CHAIN_JOIN;
+    pattern *joined = operands[0];
+    for (int index = 1; index < chain; index++) {
+        joined = route_note(join(schema, joined, operands[index]), joined, operands[index], route, 0, index, index + 1);
+    }
+    if (chain < count) {
+        Py_ssize_t len = count - chain + 1;
+        pattern **parts = arena_alloc(&schema->mem, (size_t)len * sizeof(pattern *));
+        int *bounds = arena_alloc(&schema->mem, (size_t)(len + 1) * sizeof(int));
+        if (parts == NULL || bounds == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return schema->p_notallowed;       /* GCOVR_EXCL_LINE */
+        }
+        parts[0] = joined;
+        bounds[0] = 0;
+        for (Py_ssize_t index = 1; index < len; index++) {
+            parts[index] = operands[chain + index - 1];
+            bounds[index] = chain + (int)index - 1;
+        }
+        bounds[len] = count;
+        joined = pat_fold(schema, join, parts, len, route, bounds);
+    }
+    route->root = joined;
+    return joined;
+}
+
+/* Join the pattern elements from `first` on into one pattern (`none` when there are none). */
+static pattern *rng_build_joined(th_schema *schema, th_node *first, pat_join_fn join, int type, pattern *none) {
     Py_ssize_t count = 0;
-    th_node *rest = first;
-    for (; rest != NULL && count < RNG_CHAIN_JOIN; rest = rest->next_sibling) {
-        if (rest->type == TH_NODE_ELEMENT) {
-            joined = join(schema, joined, rng_build(schema, rest));
+    th_node *only = NULL;
+    for (th_node *child = first; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            only = child;
             count++;
         }
     }
-    Py_ssize_t wide = 0;
-    for (th_node *child = rest; child != NULL; child = child->next_sibling) {
-        wide += child->type == TH_NODE_ELEMENT;
+    if (count < 2) {
+        return only == NULL ? none : rng_build(schema, only);
     }
-    if (wide == 0) {
-        return joined;
-    }
-    pattern **parts = arena_alloc(&schema->mem, (size_t)(wide + 1) * sizeof(pattern *));
-    if (parts == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+    rng_route *route = route_new(schema, count, type);
+    if (route == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return schema->p_notallowed; /* GCOVR_EXCL_LINE */
     }
-    Py_ssize_t len = 0;
-    parts[len++] = joined;
-    for (; rest != NULL; rest = rest->next_sibling) {
-        if (rest->type == TH_NODE_ELEMENT) {
-            parts[len++] = rng_build(schema, rest);
+    Py_ssize_t index = 0;
+    for (th_node *child = first; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            route->operands[index++] = rng_build(schema, child);
         }
     }
-    return pat_fold(schema, join, parts, len);
+    return route_fold(schema, join, route);
 }
 
 /* Group the pattern children of a container into a single pattern (Empty when none). `skip`, when set, is the name
    class an element or attribute names itself by: its first element child. */
 static pattern *rng_build_children(th_schema *schema, th_node *node, th_node *skip) {
-    return rng_build_joined(schema, skip == NULL ? node->first_child : skip->next_sibling, pat_group, schema->p_empty);
+    return rng_build_joined(schema, skip == NULL ? node->first_child : skip->next_sibling, pat_group, P_GROUP,
+                            schema->p_empty);
 }
 
 static pattern *rng_build_choice_children(th_schema *schema, th_node *node) {
-    return rng_build_joined(schema, node->first_child, pat_choice, schema->p_notallowed);
+    return rng_build_joined(schema, node->first_child, pat_choice_join, P_CHOICE, schema->p_notallowed);
 }
 
 static pattern *rng_build(th_schema *schema, th_node *node) {
@@ -1017,7 +1121,7 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         if (schema->intern == NULL && rng_check_interleave_node(schema, node) < 0) {
             return schema->p_notallowed;
         }
-        return rng_build_joined(schema, node->first_child, pat_interleave, schema->p_empty);
+        return rng_build_joined(schema, node->first_child, pat_interleave, P_INTERLEAVE, schema->p_empty);
     }
     if (is_schema_el(schema, node, RNG_NS, "optional")) {
         return pat_choice(schema, rng_build_children(schema, node, NULL), schema->p_empty);
@@ -1134,18 +1238,17 @@ static pattern *rng_combine(th_schema *schema, const def_entry *entry) {
     for (const def_part *extra = entry->extra; extra != NULL; extra = extra->next) {
         count++;
     }
-    pattern **parts = arena_alloc(&schema->mem, (size_t)count * sizeof(pattern *));
-    if (parts == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+    rng_route *route = route_new(schema, count, P_CHOICE);
+    if (route == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return schema->p_notallowed; /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t len = 0;
-    pat_join_fn join = pat_choice;
     th_node *define = entry->first;
     def_part *part = entry->extra;
     for (;;) {
-        parts[len++] = rng_build_children(schema, define, NULL);
+        route->operands[len++] = rng_build_children(schema, define, NULL);
         if (rng_combines_by_interleave(schema, define)) {
-            join = pat_interleave;
+            route->type = P_INTERLEAVE;
         }
         if (part == NULL) {
             break;
@@ -1153,7 +1256,7 @@ static pattern *rng_combine(th_schema *schema, const def_entry *entry) {
         define = part->node;
         part = part->next;
     }
-    return pat_fold(schema, join, parts, len);
+    return route_fold(schema, route->type == P_INTERLEAVE ? pat_interleave : pat_choice_join, route);
 }
 
 static int rng_combines_by_interleave(th_schema *schema, th_node *component) {
@@ -1162,6 +1265,44 @@ static int rng_combines_by_interleave(th_schema *schema, th_node *component) {
 }
 
 /* ---- derivatives ---- */
+
+#define RNG_JOIN_TYPES ((1u << P_CHOICE) | (1u << P_GROUP) | (1u << P_INTERLEAVE))
+
+/* Whether a step takes the group, choice or interleave `p` through its route: only once rng_routing_event started
+   routing, so a validation whose events stay small pays one test of a NULL pointer per join. */
+static RNG_FORCEINLINE int rng_routed(const th_schema *schema, const pattern *p) {
+    return schema->routing != NULL && p->route != NULL;
+}
+
+/* Gives `node`, the join of `p1` and `p2` by the operator of `src`, each a side of `src` or derived from one, the
+   operand ranges of `src` when it has them: a derivative of a side matches nothing the side could not. A join that
+   absorbed a side, or a shared node already routed, stays as it is. */
+static RNG_FORCEINLINE pattern *route_inherit(pattern *node, const pattern *src, const pattern *p1, const pattern *p2) {
+    if (src->route != NULL && node->p1 == p1 && node->p2 == p2 && node->route == NULL) {
+        node->route = src->route;
+        node->lo = src->lo;
+        node->mid = src->mid;
+        node->hi = src->hi;
+        node->derived = 1;
+    }
+    return node;
+}
+
+/* A join by the operator of the routed `src` that keeps its ranges; a choice keeps its sides in order for that, as a
+   container's choice does. */
+static pattern *route_join(th_schema *schema, const pattern *src, pattern *p1, pattern *p2) {
+    pattern *node = src->type == P_GROUP        ? pat_group(schema, p1, p2)
+                    : src->type == P_INTERLEAVE ? pat_interleave(schema, p1, p2)
+                                                : pat_choice_join(schema, p1, p2);
+    return route_inherit(node, src, p1, p2);
+}
+
+static RNG_NOINLINE int route_nullable(th_schema *schema, pattern *p);
+static RNG_NOINLINE pattern *route_text(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
+static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qname *name);
+static RNG_NOINLINE pattern *route_att(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                       Py_ssize_t len);
+static RNG_NOINLINE pattern *route_close(th_schema *schema, pattern *p);
 
 static RNG_FORCEINLINE int rng_nullable_step(th_schema *schema, pattern *p);
 
@@ -1194,9 +1335,15 @@ static RNG_NOINLINE int rng_nullable_walk(th_schema *schema, pattern *p) {
 static RNG_FORCEINLINE int rng_nullable_step(th_schema *schema, pattern *p) {
     switch (p->type) {
     case P_CHOICE:
+        if (rng_routed(schema, p)) {
+            return route_nullable(schema, p);
+        }
         return rng_nullable(schema, p->p1) || rng_nullable(schema, p->p2);
     case P_GROUP:
     case P_INTERLEAVE:
+        if (rng_routed(schema, p)) {
+            return route_nullable(schema, p);
+        }
         return rng_nullable(schema, p->p1) && rng_nullable(schema, p->p2);
     case P_ONEMORE:
         return rng_nullable(schema, p->p1);
@@ -1362,6 +1509,9 @@ static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const
             spent += steps - schema->memo_budget;
             work += schema->event_work;
             tokens++;
+            if (steps - schema->memo_budget > RNG_ROUTE_STEPS && schema->routing == NULL) { /* a token is an event */
+                rng_routing_event(schema, derived);
+            }
             if (schema->memo_budget < 0) {
                 steps = 0;
             }
@@ -1382,11 +1532,20 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
                                                     Py_ssize_t len) {
     switch (p->type) {
     case P_CHOICE:
+        if (rng_routed(schema, p)) {
+            return route_text(schema, p, value, len);
+        }
         return pat_choice(schema, rng_text_deriv(schema, p->p1, value, len), rng_text_deriv(schema, p->p2, value, len));
     case P_INTERLEAVE:
+        if (rng_routed(schema, p)) {
+            return route_text(schema, p, value, len);
+        }
         return pat_choice(schema, pat_interleave(schema, rng_text_deriv(schema, p->p1, value, len), p->p2),
                           pat_interleave(schema, p->p1, rng_text_deriv(schema, p->p2, value, len)));
     case P_GROUP: {
+        if (rng_routed(schema, p)) {
+            return route_text(schema, p, value, len);
+        }
         pattern *left = pat_group(schema, rng_text_deriv(schema, p->p1, value, len), p->p2);
         if (rng_nullable(schema, p->p1)) {
             return pat_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
@@ -1451,10 +1610,16 @@ static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern 
 static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name) {
     switch (p->type) {
     case P_CHOICE:
+        if (rng_routed(schema, p)) {
+            return route_open(schema, p, name);
+        }
         return pat_choice(schema, rng_start_tag_open(schema, p->p1, name), rng_start_tag_open(schema, p->p2, name));
     case P_ELEMENT:
         return nc_contains(p->nc, name) ? pat_after(schema, p->p1, schema->p_empty) : schema->p_notallowed;
     case P_INTERLEAVE:
+        if (rng_routed(schema, p)) {
+            return route_open(schema, p, name);
+        }
         return pat_choice(schema, rng_apply_after_interleave_left(schema, p, name),
                           rng_apply_after_interleave_right(schema, p, name));
     case P_ONEMORE: {
@@ -1462,6 +1627,9 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, patte
         return rng_apply_after(schema, derived, pat_choice(schema, p, schema->p_empty), 0);
     }
     case P_GROUP: {
+        if (rng_routed(schema, p)) {
+            return route_open(schema, p, name);
+        }
         pattern *left = rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 0);
         if (rng_nullable(schema, p->p1)) {
             return pat_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
@@ -1540,12 +1708,21 @@ static RNG_FORCEINLINE pattern *rng_att_deriv_step(th_schema *schema, pattern *p
                                                    const Py_UCS4 *value, Py_ssize_t len) {
     switch (p->type) {
     case P_CHOICE:
+        if (rng_routed(schema, p)) {
+            return route_att(schema, p, name, value, len);
+        }
         return pat_choice(schema, rng_att_deriv(schema, p->p1, name, value, len),
                           rng_att_deriv(schema, p->p2, name, value, len));
     case P_GROUP:
+        if (rng_routed(schema, p)) {
+            return route_att(schema, p, name, value, len);
+        }
         return pat_choice(schema, pat_group(schema, rng_att_deriv(schema, p->p1, name, value, len), p->p2),
                           pat_group(schema, p->p1, rng_att_deriv(schema, p->p2, name, value, len)));
     case P_INTERLEAVE:
+        if (rng_routed(schema, p)) {
+            return route_att(schema, p, name, value, len);
+        }
         return pat_choice(schema, pat_interleave(schema, rng_att_deriv(schema, p->p1, name, value, len), p->p2),
                           pat_interleave(schema, p->p1, rng_att_deriv(schema, p->p2, name, value, len)));
     case P_AFTER:
@@ -1582,14 +1759,43 @@ static RNG_NOINLINE pattern *rng_start_tag_close_walk(th_schema *schema, pattern
     return rng_start_tag_close_memo(schema, p);
 }
 
+/* Before routing starts a routed join closes as a plain one would, yet stays itself when neither side changed and keeps
+   its ranges otherwise. A closed content model is the pattern its element's events derive, so a copy that no route
+   holds would leave each of them a walk of the whole model. */
+static RNG_FORCEINLINE int rng_close_kept(const pattern *p, const pattern *left, const pattern *right) {
+    return p->route != NULL && left == p->p1 && right == p->p2;
+}
+
+/* A routed choice keeps its sides in order, as a container's choice does, so the closed one can keep its ranges. */
+static RNG_NOINLINE pattern *rng_close_choice(th_schema *schema, pattern *p) {
+    pattern *left = rng_start_tag_close(schema, p->p1);
+    pattern *right = rng_start_tag_close(schema, p->p2);
+    return rng_close_kept(p, left, right) ? p : route_inherit(pat_choice_join(schema, left, right), p, left, right);
+}
+
 static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, pattern *p) {
     switch (p->type) {
     case P_CHOICE:
+        if (p->route != NULL) {
+            return schema->routing != NULL ? route_close(schema, p) : rng_close_choice(schema, p);
+        }
         return pat_choice(schema, rng_start_tag_close(schema, p->p1), rng_start_tag_close(schema, p->p2));
-    case P_GROUP:
-        return pat_group(schema, rng_start_tag_close(schema, p->p1), rng_start_tag_close(schema, p->p2));
-    case P_INTERLEAVE:
-        return pat_interleave(schema, rng_start_tag_close(schema, p->p1), rng_start_tag_close(schema, p->p2));
+    case P_GROUP: {
+        if (rng_routed(schema, p)) {
+            return route_close(schema, p);
+        }
+        pattern *left = rng_start_tag_close(schema, p->p1);
+        pattern *right = rng_start_tag_close(schema, p->p2);
+        return rng_close_kept(p, left, right) ? p : route_inherit(pat_group(schema, left, right), p, left, right);
+    }
+    case P_INTERLEAVE: {
+        if (rng_routed(schema, p)) {
+            return route_close(schema, p);
+        }
+        pattern *left = rng_start_tag_close(schema, p->p1);
+        pattern *right = rng_start_tag_close(schema, p->p2);
+        return rng_close_kept(p, left, right) ? p : route_inherit(pat_interleave(schema, left, right), p, left, right);
+    }
     case P_ONEMORE:
         return pat_onemore(schema, rng_start_tag_close(schema, p->p1));
     case P_AFTER:
@@ -1665,6 +1871,808 @@ static RNG_NOINLINE pattern *rng_start_tag_close_memo(th_schema *schema, pattern
     return derived;
 }
 
+/* ---- routing ----
+
+   A derivative walks both sides of every group, choice and interleave, so an event costs as much as the content model
+   it meets is wide, and a document whose many children each meet a wide container costs the product of the two. Once
+   an event takes more than RNG_ROUTE_STEPS steps, the validation indexes the operands of each container join it walks
+   by what they match outside any element: element and attribute names, values, and text. A routed node then derives
+   only the sides whose operands can match the event, so an event descends one path through a wide container, and the
+   group and interleave nodes a derivative makes from a routed node keep its ranges.
+
+   Operands, defines, and whole routes are units. A key (a name or a value) lists the units whose top level holds it,
+   and a unit lists its parents, the units whose top level holds it in turn. The units above an event's key are the
+   operands it can reach; the walk up from the key runs once per event. */
+
+/* Key kinds: a name, a namespace an <nsName> names (the name's kind + ROUTE_NAMESPACE), and a value, whose kind adds
+   its whitespace mode. */
+enum { ROUTE_NONE = -1, ROUTE_ELEMENT, ROUTE_ATTRIBUTE, ROUTE_NAMESPACE, ROUTE_VALUE = 4 };
+
+/* The prefix counts a route keeps over its operands: operands with an element or attribute whose name class is an
+   <anyName>, with text, data or a list, with any attribute, and nullable operands. */
+enum { ROUTE_ANY_ELEMENT, ROUTE_ANY_ATTRIBUTE, ROUTE_TEXT, ROUTE_ATTRIBUTES, ROUTE_NULLABLE, ROUTE_COLUMNS };
+
+typedef struct route_state route_state;
+typedef struct route_unit route_unit;
+
+struct route_unit {
+    route_state *owner;   /* the route this unit is an operand of; NULL for a define or a route */
+    int index;            /* the operand's position in its route */
+    size_t stamp;         /* the walk up that last reached the unit */
+    route_unit **parents; /* a define's or a route's holders; an operand's parent is its route */
+    Py_ssize_t parent_len, parent_cap;
+};
+
+struct route_state {
+    route_unit self;   /* the route as a unit */
+    route_unit *units; /* one per operand */
+    int *counts;       /* (count + 1) * ROUTE_COLUMNS prefix sums */
+    int bits;          /* 1 << column for every column an operand counts in, the nullable one aside */
+    int nullable;      /* the join's nullability */
+    int *marks;        /* the operands the last walk up reached */
+    Py_ssize_t mark_len, mark_cap;
+    size_t mark_stamp; /* the walk up the marks belong to */
+    int marks_sorted;
+};
+
+typedef struct route_define {
+    route_unit unit;
+    int bits;
+    int nullable;
+    int scanned;
+} route_define;
+
+typedef struct route_key {
+    uint64_t hash;
+    int kind;
+    const Py_UCS4 *uri, *local; /* a value keeps its normalized text in `local` */
+    Py_ssize_t uri_len, local_len;
+    route_unit **units; /* NULL marks a free slot */
+    Py_ssize_t len, cap;
+} route_key;
+
+/* An event's key. Names and text are arena or tree pointers that never move or get reused within a validation, so
+   equal bytes are the same key. Every field is as wide as a pointer, so the struct holds no padding to compare. */
+typedef struct route_event {
+    Py_ssize_t kind; /* ROUTE_NONE for no event */
+    const Py_UCS4 *uri, *local;
+    Py_ssize_t uri_len, local_len;
+} route_event;
+
+typedef struct rng_routing {
+    route_state **states; /* by route id, built on the first routed visit */
+    Py_ssize_t state_cap;
+    route_define *defines; /* by define index */
+    route_key *keys;       /* open addressed */
+    size_t key_cap, key_len;
+    int value_ws;      /* 1 << mode for each whitespace mode some value operand uses */
+    size_t stamp;      /* walks up taken */
+    route_event reach; /* the event the marks belong to; a new route or define adds units, which drops it */
+    route_unit **work;
+    Py_ssize_t work_len, work_cap;
+    /* Start tag close takes no name, so its derivative of a routed node holds across events: an element's content
+       model closes once, and an instance whose attributes derived part of it closes only that part. */
+    struct route_closed *closed; /* open addressed by node */
+    size_t closed_cap, closed_len;
+    /* The derivatives taken before routing started joined plainly; the first event after it adopts the joins of its
+       pattern into their routes (see route_adopt). A list token that starts routing leaves the text's pattern to the
+       next event. */
+    int adopt;
+    struct route_pair *pairs; /* open addressed: the nodes adoption visited, and the operand positions it looked up */
+    size_t pair_cap, pair_len;
+} rng_routing;
+
+typedef struct route_closed {
+    const pattern *node; /* NULL marks a free slot */
+    pattern *closed;
+} route_closed;
+
+static void rng_routing_start(th_schema *schema) {
+    rng_routing *routing = arena_alloc(&schema->mem, sizeof(*routing));
+    route_define *defines = arena_alloc(&schema->mem, (size_t)(schema->defines.len + 1) * sizeof(route_define));
+    if (routing == NULL || defines == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                               /* GCOVR_EXCL_LINE: validate() raises MemoryError */
+    }
+    memset(routing, 0, sizeof(*routing));
+    routing->reach.kind = ROUTE_NONE;
+    routing->adopt = 1;
+    memset(defines, 0, (size_t)(schema->defines.len + 1) * sizeof(route_define));
+    routing->defines = defines;
+    schema->routing = routing;
+}
+
+/* Appends `unit` to an arena array, doubling it when full. */
+static int route_units_push(th_schema *schema, route_unit ***items, Py_ssize_t *len, Py_ssize_t *cap,
+                            route_unit *unit) {
+    if (*len == *cap) {
+        Py_ssize_t grown = *cap == 0 ? 4 : *cap * 2;
+        route_unit **fresh = arena_alloc(&schema->mem, (size_t)grown * sizeof(route_unit *));
+        if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        if (*len > 0) {
+            memcpy(fresh, *items, (size_t)*len * sizeof(route_unit *));
+        }
+        *items = fresh;
+        *cap = grown;
+    }
+    (*items)[(*len)++] = unit;
+    return 0;
+}
+
+static int route_parent_add(th_schema *schema, route_unit *child, route_unit *parent) {
+    return route_units_push(schema, &child->parents, &child->parent_len, &child->parent_cap, parent);
+}
+
+static uint64_t route_key_hash(int kind, const Py_UCS4 *uri, Py_ssize_t uri_len, const Py_UCS4 *local,
+                               Py_ssize_t local_len) {
+    return (def_hash(uri, uri_len) * UINT64_C(0x9E3779B97F4A7C15) ^ def_hash(local, local_len)) +
+           (uint64_t)kind * UINT64_C(0xC2B2AE3D27D4EB4F);
+}
+
+/* The slot that holds the key, or the free slot it would take. */
+static route_key *route_key_slot(const rng_routing *routing, uint64_t hash, int kind, const Py_UCS4 *uri,
+                                 Py_ssize_t uri_len, const Py_UCS4 *local, Py_ssize_t local_len) {
+    size_t slot = (size_t)(hash ^ (hash >> 32)) & (routing->key_cap - 1);
+    for (;; slot = (slot + 1) & (routing->key_cap - 1)) {
+        route_key *key = &routing->keys[slot];
+        if (key->units == NULL || (key->kind == kind && u_eq_u(key->local, key->local_len, local, local_len) &&
+                                   u_eq_u(key->uri, key->uri_len, uri, uri_len))) {
+            return key;
+        }
+    }
+}
+
+static int route_keys_grow(th_schema *schema) {
+    rng_routing *routing = schema->routing;
+    size_t cap = routing->key_cap == 0 ? 64 : routing->key_cap * 2;
+    route_key *keys = arena_alloc(&schema->mem, cap * sizeof(route_key));
+    if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    memset(keys, 0, cap * sizeof(route_key));
+    route_key *old = routing->keys;
+    size_t old_cap = routing->key_cap;
+    routing->keys = keys;
+    routing->key_cap = cap;
+    for (size_t index = 0; index < old_cap; index++) {
+        if (old[index].units != NULL) {
+            *route_key_slot(routing, old[index].hash, old[index].kind, old[index].uri, old[index].uri_len,
+                            old[index].local, old[index].local_len) = old[index];
+        }
+    }
+    return 0;
+}
+
+static int route_key_add(th_schema *schema, route_unit *unit, int kind, const Py_UCS4 *uri, Py_ssize_t uri_len,
+                         const Py_UCS4 *local, Py_ssize_t local_len) {
+    rng_routing *routing = schema->routing;
+    if (routing->key_len * 2 >= routing->key_cap && route_keys_grow(schema) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        return -1;                                                                 /* GCOVR_EXCL_LINE */
+    }
+    uint64_t hash = route_key_hash(kind, uri, uri_len, local, local_len);
+    route_key *key = route_key_slot(routing, hash, kind, uri, uri_len, local, local_len);
+    if (key->units == NULL) {
+        *key = (route_key){hash, kind, uri, local, uri_len, local_len, NULL, 0, 0};
+        routing->key_len++;
+    } else if (key->units[key->len - 1] == unit) {
+        return 0;
+    }
+    return route_units_push(schema, &key->units, &key->len, &key->cap, unit);
+}
+
+static route_state *route_state_get(th_schema *schema, const rng_route *route);
+
+/* Adds the names and namespaces of `nc` to the unit's keys, or the column of an <anyName>. An <except> only narrows its
+   class, so the class it narrows stands for it. */
+static int route_scan_names(th_schema *schema, route_unit *unit, int *bits, const nameclass *nc, int kind) {
+    for (; nc->type == NC_CHOICE; nc = nc->a) {
+        if (route_scan_names(schema, unit, bits, nc->b, kind) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;                                               /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (nc->type == NC_NAME) {
+        return route_key_add(schema, unit, kind, nc->uri, nc->uri_len, nc->local, nc->local_len);
+    }
+    if (nc->type == NC_EXCEPT) {
+        nc = nc->a;
+    }
+    if (nc->type == NC_NS) {
+        return route_key_add(schema, unit, kind + ROUTE_NAMESPACE, nc->uri, nc->uri_len, EMPTY_UCS4, 0);
+    }
+    *bits |= 1 << (kind == ROUTE_ELEMENT ? ROUTE_ANY_ELEMENT : ROUTE_ANY_ATTRIBUTE);
+    return 0;
+}
+
+static int route_scan(th_schema *schema, route_unit *unit, int *bits, pattern *p);
+
+static int route_scan_define(th_schema *schema, route_unit *unit, int *bits, int index) {
+    route_define *define = &schema->routing->defines[index];
+    if (!define->scanned) {
+        int define_bits = 0;
+        int nullable = route_scan(schema, &define->unit, &define_bits, rng_resolve(schema, index));
+        if (nullable < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        define->bits = define_bits;
+        define->nullable = nullable;
+        define->scanned = 1;
+        schema->routing->reach.kind = ROUTE_NONE;
+    }
+    if (route_parent_add(schema, &define->unit, unit) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                                           /* GCOVR_EXCL_LINE */
+    }
+    *bits |= define->bits;
+    return define->nullable;
+}
+
+/* Records under `unit` what `p` matches outside any element, and returns whether `p` is nullable (-1 when out of
+   memory). A ref or another route's join is a unit of its own, scanned once and linked to `unit` as a parent. The 4.19
+   check rules out a ref cycle that no element breaks, so the recursion ends. */
+static int route_scan(th_schema *schema, route_unit *unit, int *bits, pattern *p) {
+    TH_WORK_STEP();
+    switch (p->type) {
+    case P_TEXT:
+        *bits |= 1 << ROUTE_TEXT;
+        return 1;
+    case P_DATA:
+    case P_LIST:
+        *bits |= 1 << ROUTE_TEXT;
+        return 0;
+    case P_VALUE:
+        schema->routing->value_ws |= 1 << p->value_ws;
+        return route_key_add(schema, unit, ROUTE_VALUE + p->value_ws, EMPTY_UCS4, 0, p->value, p->value_len);
+    case P_ELEMENT:
+        return route_scan_names(schema, unit, bits, p->nc, ROUTE_ELEMENT);
+    case P_ATTRIBUTE:
+        *bits |= 1 << ROUTE_ATTRIBUTES;
+        return route_scan_names(schema, unit, bits, p->nc, ROUTE_ATTRIBUTE);
+    case P_ONEMORE:
+        return route_scan(schema, unit, bits, p->p1);
+    case P_REF:
+        return route_scan_define(schema, unit, bits, p->def_index);
+    case P_CHOICE:
+    case P_GROUP:
+    case P_INTERLEAVE: {
+        if (p->route != NULL && p == p->route->root) {
+            route_state *state = route_state_get(schema, p->route);
+            if (state == NULL || route_parent_add(schema, &state->self, unit) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+                return -1;                                                           /* GCOVR_EXCL_LINE */
+            }
+            *bits |= state->bits;
+            return state->nullable;
+        }
+        int first = route_scan(schema, unit, bits, p->p1);
+        int second = route_scan(schema, unit, bits, p->p2);
+        if (first < 0 || second < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                 /* GCOVR_EXCL_LINE */
+        }
+        return p->type == P_CHOICE ? first | second : first & second;
+    }
+    default: /* P_EMPTY or P_NOTALLOWED; a static pattern holds no After */
+        return p->nullable;
+    }
+}
+
+static RNG_NOINLINE route_state *route_state_build(th_schema *schema, const rng_route *route) {
+    rng_routing *routing = schema->routing;
+    if (route->id >= routing->state_cap) {
+        Py_ssize_t cap = routing->state_cap == 0 ? 64 : routing->state_cap * 2;
+        if (cap <= route->id) {
+            cap = (Py_ssize_t)route->id + 1;
+        }
+        route_state **states = arena_alloc(&schema->mem, (size_t)cap * sizeof(route_state *));
+        if (states == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        memset(states, 0, (size_t)cap * sizeof(route_state *));
+        if (routing->state_cap > 0) {
+            memcpy(states, routing->states, (size_t)routing->state_cap * sizeof(route_state *));
+        }
+        routing->states = states;
+        routing->state_cap = cap;
+    }
+    int count = route->count;
+    route_state *state = arena_alloc(&schema->mem, sizeof(*state));
+    route_unit *units = arena_alloc(&schema->mem, (size_t)count * sizeof(route_unit));
+    int *counts = arena_alloc(&schema->mem, (size_t)(count + 1) * ROUTE_COLUMNS * sizeof(int));
+    if (state == NULL || units == NULL || counts == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;                                        /* GCOVR_EXCL_LINE */
+    }
+    memset(state, 0, sizeof(*state));
+    memset(units, 0, (size_t)count * sizeof(route_unit));
+    memset(counts, 0, ROUTE_COLUMNS * sizeof(int));
+    state->units = units;
+    state->counts = counts;
+    int choice = route->type == P_CHOICE;
+    int joined = !choice;
+    for (int index = 0; index < count; index++) {
+        units[index].owner = state;
+        units[index].index = index;
+        int bits = 0;
+        int nullable = route_scan(schema, &units[index], &bits, route->operands[index]);
+        if (nullable < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return NULL;    /* GCOVR_EXCL_LINE */
+        }
+        state->bits |= bits;
+        bits |= nullable << ROUTE_NULLABLE;
+        joined = choice ? joined | nullable : joined & nullable;
+        for (int column = 0; column < ROUTE_COLUMNS; column++) {
+            counts[(index + 1) * ROUTE_COLUMNS + column] =
+                counts[index * ROUTE_COLUMNS + column] + ((bits >> column) & 1);
+        }
+    }
+    state->nullable = joined;
+    routing->states[route->id] = state;
+    routing->reach.kind = ROUTE_NONE;
+    return state;
+}
+
+static route_state *route_state_get(th_schema *schema, const rng_route *route) {
+    rng_routing *routing = schema->routing;
+    if (route->id < routing->state_cap && routing->states[route->id] != NULL) {
+        return routing->states[route->id];
+    }
+    return route_state_build(schema, route);
+}
+
+static int route_visit(th_schema *schema, route_unit *unit) {
+    rng_routing *routing = schema->routing;
+    if (unit->stamp == routing->stamp) {
+        return 0;
+    }
+    unit->stamp = routing->stamp;
+    return route_units_push(schema, &routing->work, &routing->work_len, &routing->work_cap, unit);
+}
+
+static int route_visit_key(th_schema *schema, int kind, const Py_UCS4 *uri, Py_ssize_t uri_len, const Py_UCS4 *local,
+                           Py_ssize_t local_len) {
+    rng_routing *routing = schema->routing;
+    if (routing->key_cap == 0) {
+        return 0;
+    }
+    const route_key *key = route_key_slot(routing, route_key_hash(kind, uri, uri_len, local, local_len), kind, uri,
+                                          uri_len, local, local_len);
+    for (Py_ssize_t index = 0; index < key->len; index++) {
+        if (route_visit(schema, key->units[index]) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+static int route_mark(th_schema *schema, route_state *state, int index) {
+    if (state->mark_stamp != schema->routing->stamp) {
+        state->mark_stamp = schema->routing->stamp;
+        state->mark_len = 0;
+        state->marks_sorted = 1;
+    }
+    if (state->mark_len == state->mark_cap) {
+        Py_ssize_t grown = state->mark_cap == 0 ? 4 : state->mark_cap * 2;
+        int *marks = arena_alloc(&schema->mem, (size_t)grown * sizeof(int));
+        if (marks == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        if (state->mark_len > 0) {
+            memcpy(marks, state->marks, (size_t)state->mark_len * sizeof(int));
+        }
+        state->marks = marks;
+        state->mark_cap = grown;
+    }
+    if (state->mark_len > 0 && state->marks[state->mark_len - 1] > index) {
+        state->marks_sorted = 0;
+    }
+    state->marks[state->mark_len++] = index;
+    return 0;
+}
+
+/* Marks the operands the event's key reaches: the units that hold it, and every unit above them. */
+static int route_reach(th_schema *schema, int kind, const Py_UCS4 *uri, Py_ssize_t uri_len, const Py_UCS4 *local,
+                       Py_ssize_t local_len) {
+    rng_routing *routing = schema->routing;
+    const route_event event = {kind, uri, local, uri_len, local_len};
+    if (memcmp(&event, &routing->reach, sizeof(event)) == 0) {
+        return 0;
+    }
+    routing->stamp++;
+    routing->work_len = 0;
+    if (kind == ROUTE_VALUE) {
+        for (int ws = 0; ws < 3; ws++) {
+            if ((routing->value_ws >> ws) & 1) {
+                Py_ssize_t norm_len = 0;
+                const Py_UCS4 *norm = dt_normalize_ws(schema, ws, local, local_len, &norm_len);
+                int visited = route_visit_key(schema, ROUTE_VALUE + ws, EMPTY_UCS4, 0, norm, norm_len);
+                if (visited < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                    return -1;     /* GCOVR_EXCL_LINE */
+                }
+            }
+        }
+    } else if (route_visit_key(schema, kind, uri, uri_len, local, local_len) < 0 || /* GCOVR_EXCL_BR_LINE: OOM */
+               route_visit_key(schema, kind + ROUTE_NAMESPACE, uri, uri_len, EMPTY_UCS4, 0) < 0) {
+        return -1; /* GCOVR_EXCL_LINE: arena OOM is unforceable */
+    }
+    while (routing->work_len > 0) {
+        TH_WORK_STEP();
+        route_unit *unit = routing->work[--routing->work_len];
+        if (unit->owner != NULL) {
+            if (route_mark(schema, unit->owner, unit->index) < 0 || /* GCOVR_EXCL_BR_LINE: arena OOM */
+                route_visit(schema, &unit->owner->self) < 0) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            continue;
+        }
+        for (Py_ssize_t index = 0; index < unit->parent_len; index++) {
+            if (route_visit(schema, unit->parents[index]) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;                                       /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    routing->reach = event;
+    return 0;
+}
+
+static int route_int_cmp(const void *left, const void *right) {
+    int left_int = *(const int *)left;
+    int right_int = *(const int *)right;
+    return (left_int > right_int) - (left_int < right_int);
+}
+
+/* Whether an operand in [lo, hi) counts in `column`, or, with `marked`, the last walk up reached one there. */
+static int route_holds(const th_schema *schema, route_state *state, int column, int lo, int hi, int marked) {
+    const int *counts = state->counts;
+    if (counts[hi * ROUTE_COLUMNS + column] != counts[lo * ROUTE_COLUMNS + column]) {
+        return 1;
+    }
+    if (!marked || state->mark_stamp != schema->routing->stamp) {
+        return 0;
+    }
+    if (!state->marks_sorted) {
+        qsort(state->marks, (size_t)state->mark_len, sizeof(int), route_int_cmp);
+        state->marks_sorted = 1;
+    }
+    Py_ssize_t low = 0, high = state->mark_len;
+    while (low < high) {
+        Py_ssize_t middle = low + (high - low) / 2;
+        if (state->marks[middle] < lo) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low < state->mark_len && state->marks[low] < hi;
+}
+
+/* The state of a routed node's route, and the walk up for the event's key when `kind` is not -1; NULL when out of
+   memory, which validate() reports. */
+static route_state *route_enter(th_schema *schema, const pattern *p, int kind, const Py_UCS4 *uri, Py_ssize_t uri_len,
+                                const Py_UCS4 *local, Py_ssize_t local_len) {
+    route_state *state = route_state_get(schema, p->route);
+    if (state == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    if (kind == ROUTE_NONE) {
+        return state;
+    }
+    if (route_reach(schema, kind, uri, uri_len, local, local_len) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        return NULL;                                                     /* GCOVR_EXCL_LINE */
+    }
+    return state;
+}
+
+/* applyAfter for the routed group or interleave `src`, whose side `other` stays and whose other side derived to
+   `derived`: each After tail joins `other` on the side it came from, keeping the ranges of `src`. */
+static pattern *route_apply_after(th_schema *schema, pattern *derived, const pattern *src, pattern *other,
+                                  int other_on_right) {
+    if (derived->type == P_AFTER) {
+        pattern *combined =
+            other_on_right ? route_join(schema, src, derived->p2, other) : route_join(schema, src, other, derived->p2);
+        return pat_after(schema, derived->p1, combined);
+    }
+    if (derived->type == P_CHOICE) {
+        return pat_choice(schema, route_apply_after(schema, derived->p1, src, other, other_on_right),
+                          route_apply_after(schema, derived->p2, src, other, other_on_right));
+    }
+    return schema->p_notallowed;
+}
+
+/* A derived node holds fewer than its operands, so it answers from its sides. */
+static RNG_NOINLINE int route_nullable(th_schema *schema, pattern *p) {
+    if (p->derived) {
+        if (p->type == P_CHOICE) {
+            return rng_nullable(schema, p->p1) || rng_nullable(schema, p->p2);
+        }
+        return rng_nullable(schema, p->p1) && rng_nullable(schema, p->p2);
+    }
+    route_state *state = route_enter(schema, p, ROUTE_NONE, NULL, 0, NULL, 0);
+    if (state == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return 0;        /* GCOVR_EXCL_LINE */
+    }
+    int nullable =
+        state->counts[p->hi * ROUTE_COLUMNS + ROUTE_NULLABLE] - state->counts[p->lo * ROUTE_COLUMNS + ROUTE_NULLABLE];
+    return p->type == P_CHOICE ? nullable > 0 : nullable == p->hi - p->lo;
+}
+
+static RNG_NOINLINE pattern *route_text(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+    route_state *state = route_enter(schema, p, ROUTE_VALUE, NULL, 0, value, len);
+    pattern *none = schema->p_notallowed;
+    if (state == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return none;     /* GCOVR_EXCL_LINE */
+    }
+    int left = route_holds(schema, state, ROUTE_TEXT, p->lo, p->mid, 1);
+    int right = route_holds(schema, state, ROUTE_TEXT, p->mid, p->hi, 1);
+    if (p->type == P_CHOICE) {
+        return pat_choice(schema, left ? rng_text_deriv(schema, p->p1, value, len) : none,
+                          right ? rng_text_deriv(schema, p->p2, value, len) : none);
+    }
+    pattern *first = left ? route_join(schema, p, rng_text_deriv(schema, p->p1, value, len), p->p2) : none;
+    if (!right) {
+        return first;
+    }
+    if (p->type == P_INTERLEAVE) {
+        return pat_choice(schema, first, route_join(schema, p, p->p1, rng_text_deriv(schema, p->p2, value, len)));
+    }
+    return rng_nullable(schema, p->p1) ? pat_choice(schema, first, rng_text_deriv(schema, p->p2, value, len)) : first;
+}
+
+static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qname *name) {
+    route_state *state = route_enter(schema, p, ROUTE_ELEMENT, name->uri, name->uri_len, name->local, name->local_len);
+    pattern *none = schema->p_notallowed;
+    if (state == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return none;     /* GCOVR_EXCL_LINE */
+    }
+    int left = route_holds(schema, state, ROUTE_ANY_ELEMENT, p->lo, p->mid, 1);
+    int right = route_holds(schema, state, ROUTE_ANY_ELEMENT, p->mid, p->hi, 1);
+    switch (p->type) {
+    case P_CHOICE:
+        return pat_choice(schema, left ? rng_start_tag_open(schema, p->p1, name) : none,
+                          right ? rng_start_tag_open(schema, p->p2, name) : none);
+    case P_INTERLEAVE:
+        return pat_choice(
+            schema, left ? route_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p, p->p2, 1) : none,
+            right ? route_apply_after(schema, rng_start_tag_open(schema, p->p2, name), p, p->p1, 0) : none);
+    default: { /* P_GROUP */
+        pattern *first = left ? route_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p, p->p2, 1) : none;
+        if (right && rng_nullable(schema, p->p1)) {
+            return pat_choice(schema, first, rng_start_tag_open(schema, p->p2, name));
+        }
+        return first;
+    }
+    }
+}
+
+static RNG_NOINLINE pattern *route_att(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                       Py_ssize_t len) {
+    route_state *state =
+        route_enter(schema, p, ROUTE_ATTRIBUTE, name->uri, name->uri_len, name->local, name->local_len);
+    pattern *none = schema->p_notallowed;
+    if (state == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return none;     /* GCOVR_EXCL_LINE */
+    }
+    int left = route_holds(schema, state, ROUTE_ANY_ATTRIBUTE, p->lo, p->mid, 1);
+    int right = route_holds(schema, state, ROUTE_ANY_ATTRIBUTE, p->mid, p->hi, 1);
+    if (p->type == P_CHOICE) {
+        return pat_choice(schema, left ? rng_att_deriv(schema, p->p1, name, value, len) : none,
+                          right ? rng_att_deriv(schema, p->p2, name, value, len) : none);
+    }
+    return pat_choice(schema,
+                      left ? route_join(schema, p, rng_att_deriv(schema, p->p1, name, value, len), p->p2) : none,
+                      right ? route_join(schema, p, p->p1, rng_att_deriv(schema, p->p2, name, value, len)) : none);
+}
+
+static route_closed *route_closed_slot(const rng_routing *routing, const pattern *node) {
+    uint64_t hash = pat_key_hash(0, (pattern *)node, NULL);
+    size_t slot = (size_t)(hash >> 32) & (routing->closed_cap - 1);
+    while (routing->closed[slot].node != NULL && routing->closed[slot].node != node) {
+        slot = (slot + 1) & (routing->closed_cap - 1);
+    }
+    return &routing->closed[slot];
+}
+
+static void route_closed_add(th_schema *schema, const pattern *node, pattern *closed) {
+    rng_routing *routing = schema->routing;
+    if (routing->closed_len * 2 >= routing->closed_cap) {
+        size_t cap = routing->closed_cap == 0 ? 64 : routing->closed_cap * 2;
+        route_closed *slots = arena_alloc(&schema->mem, cap * sizeof(route_closed));
+        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;          /* GCOVR_EXCL_LINE: without the entry the node closes again, which costs time */
+        }
+        memset(slots, 0, cap * sizeof(route_closed));
+        route_closed *old = routing->closed;
+        size_t old_cap = routing->closed_cap;
+        routing->closed = slots;
+        routing->closed_cap = cap;
+        for (size_t index = 0; index < old_cap; index++) {
+            if (old[index].node != NULL) {
+                *route_closed_slot(routing, old[index].node) = old[index];
+            }
+        }
+    }
+    *route_closed_slot(routing, node) = (route_closed){node, closed};
+    routing->closed_len++;
+}
+
+/* A side with no attribute closes to itself: the derivative only drops attributes the start tag left unmatched. */
+static RNG_NOINLINE pattern *route_close(th_schema *schema, pattern *p) {
+    route_state *state = route_enter(schema, p, ROUTE_NONE, NULL, 0, NULL, 0);
+    if (state == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+    }
+    int left = route_holds(schema, state, ROUTE_ATTRIBUTES, p->lo, p->mid, 0);
+    int right = route_holds(schema, state, ROUTE_ATTRIBUTES, p->mid, p->hi, 0);
+    if (!left && !right) {
+        return p;
+    }
+    rng_routing *routing = schema->routing;
+    if (routing->closed_cap > 0) {
+        const route_closed *found = route_closed_slot(routing, p);
+        if (found->node != NULL) {
+            return found->closed;
+        }
+    }
+    pattern *closed = route_join(schema, p, left ? rng_start_tag_close(schema, p->p1) : p->p1,
+                                 right ? rng_start_tag_close(schema, p->p2) : p->p2);
+    route_closed_add(schema, p, closed);
+    return closed;
+}
+
+/* Adoption keys an entry by a node, with no `sub`, holding the route the node last failed to join; or by a route and
+   one of its operands, holding the operand's position, with no `sub` once the route's operands are in. */
+typedef struct route_pair {
+    const void *key; /* NULL marks a free slot */
+    const void *sub;
+    uintptr_t value;
+} route_pair;
+
+static route_pair *route_pair_slot(const rng_routing *routing, const void *key, const void *sub) {
+    uint64_t hash = pat_key_hash(0, (pattern *)key, (pattern *)sub);
+    size_t slot = (size_t)(hash >> 32) & (routing->pair_cap - 1);
+    while (routing->pairs[slot].key != NULL && (routing->pairs[slot].key != key || routing->pairs[slot].sub != sub)) {
+        slot = (slot + 1) & (routing->pair_cap - 1);
+    }
+    return &routing->pairs[slot];
+}
+
+/* The entry for `key` and `sub`, added with `value` when missing; NULL when out of memory. */
+static route_pair *route_pair_get(th_schema *schema, const void *key, const void *sub, uintptr_t value) {
+    rng_routing *routing = schema->routing;
+    if (routing->pair_len * 2 >= routing->pair_cap) {
+        size_t cap = routing->pair_cap == 0 ? 64 : routing->pair_cap * 2;
+        route_pair *slots = arena_alloc(&schema->mem, cap * sizeof(route_pair));
+        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return NULL;     /* GCOVR_EXCL_LINE */
+        }
+        memset(slots, 0, cap * sizeof(route_pair));
+        route_pair *old = routing->pairs;
+        size_t old_cap = routing->pair_cap;
+        routing->pairs = slots;
+        routing->pair_cap = cap;
+        for (size_t index = 0; index < old_cap; index++) {
+            if (old[index].key != NULL) {
+                *route_pair_slot(routing, old[index].key, old[index].sub) = old[index];
+            }
+        }
+    }
+    route_pair *slot = route_pair_slot(routing, key, sub);
+    if (slot->key == NULL) {
+        *slot = (route_pair){key, sub, value};
+        routing->pair_len++;
+    }
+    return slot;
+}
+
+/* The position of `operand` among the operands of `route`, the first when it repeats; -1 when it is none of them. */
+static int route_operand_index(th_schema *schema, const rng_route *route, const pattern *operand) {
+    size_t before = schema->routing->pair_len;
+    if (route_pair_get(schema, route, NULL, 0) == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                                        /* GCOVR_EXCL_LINE */
+    }
+    if (schema->routing->pair_len != before) {
+        for (int index = route->count - 1; index >= 0; index--) {
+            route_pair *entry = route_pair_get(schema, route, route->operands[index], 0);
+            if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;       /* GCOVR_EXCL_LINE */
+            }
+            entry->value = (uintptr_t)index;
+        }
+    }
+    const route_pair *found = route_pair_slot(schema->routing, route, operand);
+    return found->key == NULL ? -1 : (int)found->value;
+}
+
+typedef struct route_span {
+    const rng_route *route; /* NULL when the side holds no known operands */
+    int lo, hi;
+} route_span;
+
+static int route_place(th_schema *schema, pattern *p, const rng_route *hint);
+
+/* The operands a side holds: its own when it is routed, or those of `hint`, as an operand or as a plain join of them.
+ */
+static route_span route_side(th_schema *schema, pattern *side, const rng_route *hint) {
+    if ((RNG_JOIN_TYPES >> side->type) & 1) {
+        if (side->route == NULL && hint != NULL) {
+            route_place(schema, side, hint);
+        }
+        if (side->route != NULL && (hint == NULL || side->route == hint)) {
+            return (route_span){side->route, side->lo, side->hi};
+        }
+    }
+    int index = hint == NULL ? -1 : route_operand_index(schema, hint, side);
+    return (route_span){index < 0 ? NULL : hint, index, index + 1};
+}
+
+/* Routes the plain join `p` when its sides hold operands of one route, in order. The ranges say what the sides hold,
+   whatever operator joins them and wherever the join came from, so a routed derivative of it skips only sides that
+   cannot match. With a `hint`, the sides must hold operands of that route; a node that failed one keeps it so it is
+   not tried again. */
+static int route_place(th_schema *schema, pattern *p, const rng_route *hint) {
+    TH_WORK_STEP();
+    const route_pair *seen = route_pair_get(schema, p, NULL, 0);
+    if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return 0;       /* GCOVR_EXCL_LINE */
+    }
+    if (hint != NULL && seen->value == (uintptr_t)hint) {
+        return 0;
+    }
+    route_span left = route_side(schema, p->p1, hint);
+    route_span right = route_side(schema, p->p2, hint != NULL ? hint : left.route);
+    if (left.route == NULL && right.route != NULL && hint == NULL) {
+        left = route_side(schema, p->p1, right.route);
+    }
+    if (left.route == NULL || right.route == NULL || left.hi > right.lo) {
+        route_pair *failed = route_pair_get(schema, p, NULL, 0);
+        if (failed != NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            failed->value = (uintptr_t)hint;
+        }
+        return 0;
+    }
+    p->route = left.route;
+    p->lo = left.lo;
+    p->mid = right.lo;
+    p->hi = right.hi;
+    p->derived = 1;
+    return 1;
+}
+
+/* Routes the plain joins under `p`, children first, so a join whose sides got routed can be routed in turn. Only the
+   nodes derivatives build are walked: a routed node, an element or a reference holds schema patterns, already routed.
+   */
+static void route_adopt(th_schema *schema, pattern *p) {
+    if (p->type != P_AFTER && p->type != P_ONEMORE && !(((RNG_JOIN_TYPES >> p->type) & 1) && p->route == NULL)) {
+        return;
+    }
+    size_t before = schema->routing->pair_len;
+    if (route_pair_get(schema, p, NULL, 0) == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                                       /* GCOVR_EXCL_LINE */
+    }
+    if (schema->routing->pair_len == before) {
+        return;
+    }
+    TH_WORK_STEP();
+    route_adopt(schema, p->p1);
+    if (p->type == P_ONEMORE) {
+        return;
+    }
+    route_adopt(schema, p->p2);
+    if (p->type != P_AFTER) {
+        route_place(schema, p, NULL);
+    }
+}
+
+/* An event past RNG_ROUTE_STEPS starts routing, and the first one after that adopts its pattern. */
+static RNG_NOINLINE void rng_routing_event(th_schema *schema, pattern *root) {
+    if (schema->routing == NULL) {
+        rng_routing_start(schema);
+        if (schema->routing == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (schema->routing->adopt) {
+        route_adopt(schema, root);
+        schema->routing->adopt = schema->memo == schema->token_memo;
+    }
+}
+
 static pattern *rng_end_tag_deriv(th_schema *schema, pattern *p) {
     if (p->type == P_CHOICE) {
         return pat_choice(schema, rng_end_tag_deriv(schema, p->p1), rng_end_tag_deriv(schema, p->p2));
@@ -1691,13 +2699,13 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
         }
     }
     if (element_children == 0 && text_children == 0) {
-        memo_begin_event(schema);
+        memo_begin_event(schema, p);
         return pat_choice(schema, p, rng_text_walk(schema, p, EMPTY_UCS4, 0));
     }
     if (element_children == 0) {
         Py_ssize_t len = 0;
         const Py_UCS4 *text = element_text(ctx, element, &len);
-        memo_begin_event(schema);
+        memo_begin_event(schema, p);
         pattern *derived = rng_text_walk(schema, p, text, len);
         return rng_is_whitespace(text, len) ? pat_choice(schema, p, derived) : derived;
     }
@@ -1714,7 +2722,7 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
                 return schema->p_notallowed; /* GCOVR_EXCL_LINE */
             }
             if (!rng_is_whitespace(text, len)) {
-                memo_begin_event(schema);
+                memo_begin_event(schema, current);
                 current = rng_text_walk(schema, current, text, len);
             }
         }
@@ -1722,18 +2730,27 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
     return current;
 }
 
+static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *element);
+
 /* Derive the pattern over one child element, localizing any failure to it. */
 static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
+    Py_ssize_t mark = ns_scope_enter(ctx->schema, ctx->tree, element);
+    pattern *ended = rng_child_element_scoped(ctx, p, element);
+    ns_scope_leave(ctx->schema, mark);
+    return ended;
+}
+
+static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *element) {
     th_schema *schema = ctx->schema;
     th_tree *tree = ctx->tree;
-    qname name = node_qname(tree, element, element->text, element->text_len, 0);
+    qname name = node_qname_scoped(schema, element->text, element->text_len, 0);
     Py_ssize_t mark = ctx->path.len;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
         PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
         return schema->p_notallowed;                             /* GCOVR_EXCL_LINE */
     }
-    memo_begin_event(schema);
+    memo_begin_event(schema, p);
     pattern *opened = rng_start_tag_open_walk(schema, p, &name);
     if (opened->type == P_NOTALLOWED) {
         char buffer[256];
@@ -1754,15 +2771,15 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
             continue;          /* GCOVR_EXCL_LINE */
         }
         Py_ssize_t nlen = utf8_to_ucs4(abytes, alen, scratch);
-        qname aname = node_qname(tree, element, scratch, nlen, 1);
+        qname aname = node_qname_scoped(schema, scratch, nlen, 1);
         const Py_UCS4 *value = element->attrs[index].value;
         if (value == NULL) {    /* GCOVR_EXCL_BR_LINE: an XML attribute always has a value */
             value = EMPTY_UCS4; /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE: llvm miscredits the closing brace of the unexecuted guard */
-        memo_begin_event(schema);
+        memo_begin_event(schema, after_attrs);
         after_attrs = rng_att_walk(schema, after_attrs, &aname, value, element->attrs[index].value_len);
     }
-    memo_begin_event(schema);
+    memo_begin_event(schema, after_attrs);
     pattern *closed = rng_start_tag_close_walk(schema, after_attrs);
     Py_ssize_t before = ctx->error_count;
     pattern *content = rng_children_deriv(ctx, closed, element);
@@ -3483,6 +4500,7 @@ static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t 
 
 static void rng_validate_root(valctx *ctx, th_node *root) {
     th_schema *schema = ctx->schema;
+    ns_scope_enter_ancestors(schema, ctx->tree, root);
     patintern *intern = arena_alloc(&schema->mem, sizeof(*intern));
     if (intern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         ctx->failed = 1;  /* GCOVR_EXCL_LINE */
@@ -3501,6 +4519,7 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
                         : (Py_ssize_t)schema->pattern_count * 2 > MEMO_FREE_STEPS
                             ? (Py_ssize_t)schema->pattern_count * 2
                             : MEMO_FREE_STEPS;
+    schema->memo_budget = schema->memo_free; /* no event ran yet, so none took steps */
     Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
     if (!rng_nullable(schema, result) && ctx->error_count == before) {

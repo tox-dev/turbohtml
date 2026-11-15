@@ -1248,7 +1248,7 @@ static th_node *view_element_at(HandleObject *handle, th_node *parent, Py_ssize_
     const struct view_cursor *cursor = view_cursor_find(handle, parent);
     th_node *node;
     Py_ssize_t at;
-    if (cursor != NULL && cursor->forward == forward && cursor->child->parent == parent &&
+    if (cursor != NULL && cursor->forward == forward &&
         (cursor->skip > skip ? cursor->skip - skip : skip - cursor->skip) < skip) {
         node = cursor->child;
         at = cursor->skip;

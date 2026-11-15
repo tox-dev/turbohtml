@@ -3937,8 +3937,11 @@ static void md_list_number_before(md_ctx *ctx, th_node *container, th_node *targ
 
 static void md_render_root_item(md_ctx *ctx, th_node *node) {
     th_node *list = node->parent;
+    /* an item is never a wrapper, even around an item the parser foster-parented into it: the list
+       renders and counts that item and looks for none inside, so climbing through it would name a list
+       whose scan cannot reach node */
     while (list != NULL && list->atom != TH_TAG_UL && list->atom != TH_TAG_OL && list->atom != TH_TAG_MENU &&
-           md_is_item_wrapper(list)) {
+           list->atom != TH_TAG_LI && md_is_item_wrapper(list)) {
         list = list->parent;
     }
     int in_list = list != NULL && list->ns == TH_NS_HTML &&
@@ -3981,8 +3984,8 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_break_end = ctx->break_end;
     table->saved_space = ctx->space_pending;
     table->saved_drop = ctx->drop_space;
-    ctx->out = (sbuf){NULL, 0, 0, 0};
-    ctx->prefix = (sbuf){NULL, 0, 0, 0};
+    ctx->out = (sbuf){NULL, 0, 0, 0, 0};
+    ctx->prefix = (sbuf){NULL, 0, 0, 0, 0};
     Py_ssize_t outer = ctx->marker_count;
     ctx->marker_base = outer;
     ctx->pending = NULL;
@@ -5059,7 +5062,7 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.marker_cap = MD_INLINE_MARKERS;
     ctx.break_end = -1;
     /* a few short targets repeat in clones before any rendered text funds the budget */
-    ctx.clone_budget = 256;
+    ctx.clone_budget = TH_CLONE_ALLOWANCE;
     /* Let a few deep runs reopen in full before source text has to fund them. */
     ctx.tags_left = 256;
     ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);

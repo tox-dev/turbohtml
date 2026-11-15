@@ -210,59 +210,6 @@ static int is_html_integration(const th_node *node) {
     return node->html_integration;
 }
 
-/* HTML start tags that break out of foreign content back into HTML parsing. */
-static int is_foreign_breakout(uint16_t atom) {
-    switch (atom) {
-    case TH_TAG_B:
-    case TH_TAG_BIG:
-    case TH_TAG_BLOCKQUOTE:
-    case TH_TAG_BODY:
-    case TH_TAG_BR:
-    case TH_TAG_CENTER:
-    case TH_TAG_CODE:
-    case TH_TAG_DD:
-    case TH_TAG_DIV:
-    case TH_TAG_DL:
-    case TH_TAG_DT:
-    case TH_TAG_EM:
-    case TH_TAG_EMBED:
-    case TH_TAG_H1:
-    case TH_TAG_H2:
-    case TH_TAG_H3:
-    case TH_TAG_H4:
-    case TH_TAG_H5:
-    case TH_TAG_H6:
-    case TH_TAG_HEAD:
-    case TH_TAG_HR:
-    case TH_TAG_I:
-    case TH_TAG_IMG:
-    case TH_TAG_LI:
-    case TH_TAG_LISTING:
-    case TH_TAG_MENU:
-    case TH_TAG_META:
-    case TH_TAG_NOBR:
-    case TH_TAG_OL:
-    case TH_TAG_P:
-    case TH_TAG_PRE:
-    case TH_TAG_RUBY:
-    case TH_TAG_S:
-    case TH_TAG_SMALL:
-    case TH_TAG_SPAN:
-    case TH_TAG_STRONG:
-    case TH_TAG_STRIKE:
-    case TH_TAG_SUB:
-    case TH_TAG_SUP:
-    case TH_TAG_TABLE:
-    case TH_TAG_TT:
-    case TH_TAG_U:
-    case TH_TAG_UL:
-    case TH_TAG_VAR:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
 /* The case-folding buffer for an SVG element name; names longer than this skip
    the mixed-case adjustment (every adjusted SVG name is well under the cap). */
 #define MAX_SVG_NAME 64
@@ -327,17 +274,6 @@ static th_node *insert_foreign(th_tree *tree, th_token *token, uint8_t ns) {
         }
     }
     return node;
-}
-
-static int token_has_attr(const th_token *token, const char *name) {
-    Py_ssize_t nlen = (Py_ssize_t)strlen(name);
-    for (Py_ssize_t index = 0; index < token->attr_count; index++) {
-        const th_buf *aname = &token->attrs[index].name;
-        if (aname->len == nlen && aname->kind == PyUnicode_1BYTE_KIND && memcmp(aname->data, name, (size_t)nlen) == 0) {
-            return 1;
-        }
-    }
-    return 0;
 }
 
 static void pop_foreign_elements(th_tree *tree) {

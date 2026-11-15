@@ -258,13 +258,55 @@ def test_formatting_run_past_depth_cap_does_not_amplify(entry: Callable[[str], i
 
 @pytest.mark.parametrize(
     ("blocks", "expected"),
-    [pytest.param(510, 100, id="stack-full"), pytest.param(450, 160, id="stack-fills-midway")],
+    [pytest.param(510, 100, id="stack-full"), pytest.param(450, 116, id="stack-fills-midway")],
 )
 @pytest.mark.parametrize("entry", [pytest.param(_parse_count, id="parse"), pytest.param(_stream_count, id="stream")])
 def test_reconstruction_at_depth_cap_does_not_amplify(entry: Callable[[str], int], blocks: int, expected: int) -> None:
-    # a reconstruction clone the depth cap refuses must leave the list, or every later reconstruction clones it again
+    # a reconstruction clone the depth cap refuses must leave the list, or every later reconstruction clones it again;
+    # with room left on the stack the first <br> reopens only the innermost 16
     formatting = "".join(f"<b c{index}>" for index in range(100))
     assert entry(f"<p>{formatting}</p>{'<div>' * blocks}{'<br>' * 50}") == expected
+
+
+@pytest.mark.parametrize(
+    ("count", "reopened"),
+    [
+        pytest.param(3, 3, id="under-bound"),
+        pytest.param(16, 16, id="at-bound"),
+        pytest.param(17, 16, id="just-past-bound"),
+        pytest.param(400, 16, id="far-past-bound"),
+    ],
+)
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(_parse_count, id="parse"),
+        pytest.param(_fragment_count, id="fragment"),
+        pytest.param(_stream_count, id="stream"),
+    ],
+)
+def test_reconstruction_reopens_a_bounded_run(entry: Callable[[str], int], count: int, reopened: int) -> None:
+    # every <p> closes the distinct <b> run, and the text after it reopened the whole run: formatting tags x paragraphs
+    # nodes, where Noah's Ark only drops the repeats
+    formatting = "".join(f"<b c{index}>" for index in range(count))
+    assert entry(f"<p>{formatting}{'<p>x' * 50}") == count + reopened * 50
+
+
+def test_reconstruction_past_bound_keeps_the_innermost_run() -> None:
+    formatting = "".join(f"<b c{index}>" for index in range(20))
+    first, second, third = parse(f"<p><i>{formatting}one<p>two<p>three").select("p")
+    assert [next(iter(bold.attrs)) for bold in first.select("b")] == [f"c{index}" for index in range(20)]
+    for paragraph in (second, third):
+        assert paragraph.select("i") == []
+        assert [next(iter(bold.attrs)) for bold in paragraph.select("b")] == [f"c{index}" for index in range(4, 20)]
+
+
+def test_reconstruction_past_bound_keeps_an_open_element_listed() -> None:
+    # only entries that left the stack are forgotten: the open <a> stays listed, so the next <a> still closes it
+    formatting = "".join(f"<b c{index}>" for index in range(20))
+    document = parse(f"<a href=1><p>{formatting}</p>x<a href=2>y")
+    assert [anchor.attrs["href"] for anchor in document.select("a")] == ["1", "2"]
+    assert document.select("a a") == []
 
 
 @pytest.mark.parametrize(
