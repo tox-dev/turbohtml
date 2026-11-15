@@ -1729,6 +1729,24 @@ def test_break_inside_raw_emphasis_survives_round_trip() -> None:
             "a  \n|**xy**|",
             id="converted-emphasis-ignores-an-outer-break",
         ),
+        pytest.param(
+            "<p><b>x<br><u>y<br>z</u></b>w</p>",
+            Markdown(converters={"u": lambda _element, _content: ""}),
+            "**x**  \nw",
+            id="converted-break-leaves-the-outer-break",
+        ),
+        pytest.param(
+            "<blockquote><ul><li><ul><li>x<br><span></span></li></ul></li></ul></blockquote><p><b>b</b>c</p>",
+            Markdown(converters={"u": lambda _element, content: content}),
+            "> - \n>   - x  \n>\n\n**b**c",
+            id="break-on-a-trimmed-quote-line-is-forgotten",
+        ),
+        pytest.param(
+            "<b><i><blockquote>.<br><sub></sub></blockquote></i></b>x",
+            Markdown(converters={"u": lambda _element, content: content}),
+            "> **<em>.</em>**\n\n\\\nx",
+            id="break-moved-behind-a-close-is-forgotten",
+        ),
     ],
 )
 def test_break_before_emphasis_close(html: str, options: Markdown, expected: str) -> None:
@@ -2677,6 +2695,18 @@ def test_inner_content_as_long_as_outer_break_is_kept() -> None:
     # the outer "a  \n" break ends at the same length as the hook's own "abcd", in another buffer
     out = parse("<p>a<br><i>abcd</i></p>").to_markdown(Markdown(converters={"i": lambda _e, content: f"[{content}]"}))
     assert out == "a  \n[abcd]"
+
+
+def test_inner_break_is_forgotten_with_its_buffer() -> None:
+    paragraph = parse("<p><i>abc<br></i><em>x</em>y</p>").select("p")[0]
+    assert paragraph.to_markdown(Markdown(converters={"i": lambda _e, content: content})) == "abc *x*y"
+
+
+def test_cell_after_converted_break_keeps_its_text() -> None:
+    out = parse("<p><i>abc<br>x</i></p><table><tr><td><b>abcd</b></td></tr></table>").to_markdown(
+        Markdown(converters={"i": lambda _e, content: content})
+    )
+    assert out == "abc  \nx\n\n| **abcd** |\n| --- |"
 
 
 def test_inner_trailing_marker_space_is_trimmed() -> None:
