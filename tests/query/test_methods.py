@@ -696,6 +696,7 @@ def test_prune_detached_subtree_keeps_removed_references() -> None:
         pytest.param(lambda node: node.strip_tags("[fresh]").inner_html, "hit<i>miss</i>", id="strip-tags"),
         pytest.param(lambda node: str(len(Query([node, Element("aside")]).find("[fresh]"))), "1", id="query-find"),
         pytest.param(lambda node: str(len(Query(node).filter("[fresh]"))), "1", id="query-filter"),
+        pytest.param(lambda node: Query(node).closest("[fresh]")[0].tag, "main", id="query-closest"),
     ],
 )
 def test_selector_eviction_refreshes_mutated_owner(

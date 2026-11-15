@@ -14,6 +14,7 @@
 #include "js/internal.h"
 
 #include "core/fuzzing.h"
+#include "core/work_steps.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,12 @@ typedef struct {
     const Py_UCS4 *str;
     Py_ssize_t len;
 } jm_name;
+
+typedef struct {
+    Py_ssize_t start;
+    Py_ssize_t outer;
+    int arrow;
+} jm_paren;
 
 typedef struct {
     jm_lexer lx;
@@ -35,6 +42,9 @@ typedef struct {
     jm_name *names;    /* scratch for a parameter list's bound names, sorted to find a repeated one */
     size_t names_len;
     size_t names_cap;
+    jm_paren *parens; /* arrow-head answers for nested `(` that a lookahead matched, sorted by start */
+    size_t parens_len;
+    size_t parens_cap;
     char *errbuf;
     size_t errlen;
 } P;
@@ -1086,6 +1096,85 @@ static int32_t parse_cond(P *parser, int no_in) {
     return parser->err ? -1 : node;
 }
 
+/* Index of the first cached `(` at or past start. */
+static size_t paren_index(const P *parser, Py_ssize_t start) {
+    size_t low = 0;
+    size_t high = parser->parens_len;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2;
+        if (parser->parens[middle].start < start) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low;
+}
+
+/* Cache a `(` nested in the group at outer, to be answered by that group's scan. A failed allocation marks the
+   program failed, which jm_parse reports. */
+static int paren_push(P *parser, Py_ssize_t start, Py_ssize_t outer) {
+    if (parser->parens_len == parser->parens_cap) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap(parser->parens_len + 1, parser->parens_cap, 8, sizeof(jm_paren), &cap, &bytes);
+        if (!grew) {                  /* GCOVR_EXCL_BR_LINE: a size_t overflow needs more groups than memory holds */
+            parser->prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return 0;                 /* GCOVR_EXCL_LINE */
+        }
+        jm_paren *grown = jm_realloc(parser->parens, bytes);
+        if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            parser->prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return 0;                 /* GCOVR_EXCL_LINE */
+        }
+        parser->parens = grown;
+        parser->parens_cap = cap;
+    }
+    parser->parens[parser->parens_len++] = (jm_paren){start, outer, 0};
+    return 1;
+}
+
+/* Whether the `(` at the cursor heads an arrow: its matching `)` is followed by `=>`. The scan caches the groups nested
+   in it, so the parser reads their answers back when it reaches them instead of matching each level again. A nest of
+   n groups then costs one pass over its tokens, not one pass per level. */
+static TH_NOINLINE int paren_is_arrow_head(P *parser) {
+    Py_ssize_t start = parser->lx.start;
+    size_t cached = paren_index(parser, start);
+    if (cached < parser->parens_len && parser->parens[cached].start == start) {
+        return parser->parens[cached].arrow;
+    }
+    parser->parens_len = cached; /* the scan appends in source order, so groups cached past start are dropped */
+    int depth = 0;
+    Py_ssize_t innermost = -1;
+    do {
+        TH_WORK_STEP();
+        if (at(parser, JT_LPAREN)) {
+            depth++;
+            if (depth > 1) {
+                Py_ssize_t open = parser->lx.start;
+                if (!paren_push(parser, open, innermost)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    return 0;                               /* GCOVR_EXCL_LINE */
+                }
+                innermost = open;
+            }
+            advance(parser);
+        } else if (at(parser, JT_RPAREN)) {
+            depth--;
+            advance(parser);
+            if (depth > 0) {
+                size_t index = paren_index(parser, innermost);
+                parser->parens[index].arrow = at(parser, JT_ARROW);
+                innermost = parser->parens[index].outer;
+            }
+        } else if (at(parser, JT_EOF) || at(parser, JT_ERROR)) {
+            return 0;
+        } else {
+            advance(parser);
+        }
+    } while (depth > 0);
+    return at(parser, JT_ARROW);
+}
+
 /* Peek whether the next tokens form an arrow head (`x =>` or `( ... ) =>`, each
    optionally prefixed `async`). Restores the lexer before returning. */
 static int looks_like_arrow(P *parser) {
@@ -1102,19 +1191,7 @@ static int looks_like_arrow(P *parser) {
         advance(parser);
         result = at(parser, JT_ARROW);
     } else if (at(parser, JT_LPAREN)) {
-        int depth = 0;
-        do {
-            if (at(parser, JT_LPAREN)) {
-                depth++;
-            } else if (at(parser, JT_RPAREN)) {
-                depth--;
-            } else if (at(parser, JT_EOF) || at(parser, JT_ERROR)) {
-                reset(parser, save);
-                return 0;
-            }
-            advance(parser);
-        } while (depth > 0);
-        result = at(parser, JT_ARROW);
+        result = paren_is_arrow_head(parser);
     }
     reset(parser, save);
     return result;
@@ -2066,6 +2143,9 @@ jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbu
     prog->comment_count = parser.lx.comment_count; /* commit the run scanned on the real parse path */
     if (parser.names != NULL) {                    /* still NULL when no parameter list needed a check */
         jm_free(parser.names);
+    }
+    if (parser.parens != NULL) { /* still NULL when no group nested in another was scanned */
+        jm_free(parser.parens);
     }
 
     if (parser.err || prog->failed) { /* GCOVR_EXCL_BR_LINE: prog->failed is only set on allocation failure */

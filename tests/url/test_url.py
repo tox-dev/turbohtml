@@ -88,6 +88,34 @@ def test_base_url_scheme_only_reference(href: str, fallback: str, expected: str)
 
 
 @pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("https://other.test:", "https://site.org/a#old", "https://other.test/", id="empty-port"),
+        pytest.param("HTTPS://other.test:", "https://site.org/a", "https://other.test/", id="uppercase-scheme"),
+        pytest.param("http://other.test:", "http://site.org/a", "http://other.test/", id="http"),
+        pytest.param("https://u:p@other.test:", "https://site.org/a", "https://u:p@other.test/", id="credentials"),
+        pytest.param("https://other.test:", "https://other.test:8443/a", "https://other.test/", id="base-port"),
+        pytest.param("https:///other.test:", "https://site.org/a", "https://other.test/", id="extra-slashes"),
+        pytest.param("https://other.test/a:", "https://site.org/a", "https://other.test/a:", id="path-colon"),
+        pytest.param("https://other.test/?q=:", "https://site.org/a", "https://other.test/?q=:", id="query-colon"),
+        pytest.param("https://other.test/#:", "https://site.org/a", "https://other.test/#:", id="fragment-colon"),
+        pytest.param("https:xy:", "https://site.org/a?x#old", "https://site.org/xy:", id="relative-path-colon"),
+        pytest.param("https:d/e:", "https://site.org/a", "https://site.org/d/e:", id="relative-segments-colon"),
+        pytest.param("https:?r=:", "https://site.org/a?x#old", "https://site.org/a?r=:", id="relative-query-colon"),
+        pytest.param("https:#k:", "https://site.org/a?x#old", "https://site.org/a?x#k:", id="relative-fragment-colon"),
+    ],
+)
+def test_base_url_trailing_colon_is_not_scheme_only(href: str, fallback: str, expected: str) -> None:
+    # only the scheme's own colon ending the reference makes it scheme-only; a browser keeps everything before any other
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+def test_meta_refresh_keeps_same_scheme_target_ending_in_colon() -> None:
+    html = '<meta http-equiv="refresh" content="0;url=https://other.test/landing#:">'
+    assert parse(html).meta_refresh("https://site.org/a") == (0.0, "https://other.test/landing#:")
+
+
+@pytest.mark.parametrize(
     ("href", "expected"),
     [
         pytest.param("p", "https://example.org/dir/p", id="relative-segment"),

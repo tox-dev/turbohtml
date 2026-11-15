@@ -288,11 +288,13 @@ static th_node *rng_load_reference(rng_loader *loader, th_node *reference, PyObj
         return NULL;
     }
     PyObject *path = th_resource_resolve(located);
-    Py_DECREF(located);
-    if (path == NULL) {
-        return NULL;
+    if (path == NULL) {     /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
+        Py_DECREF(located); /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
     }
-    if (th_resource_check_root(&loader->policy, path) < 0) {
+    int confined = th_resource_check_root(&loader->policy, path, located);
+    Py_DECREF(located);
+    if (confined < 0) {
         Py_DECREF(path);
         return NULL;
     }

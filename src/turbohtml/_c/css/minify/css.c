@@ -170,7 +170,7 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
     for (Py_ssize_t pos = 4; open_url && pos < len; pos++) {
         css_char character = text[pos];
         if (character == '\\') {
-            pos++;
+            pos = css_scan_quoted_escape(text, pos, len) - 1;
         } else if (quote != 0) {
             quote = character == quote || css_quoted_stop[character] == CSS_QUOTED_NEWLINE ? 0 : quote;
         } else if ((character == '"' || character == '\'') && quoted_argument) {

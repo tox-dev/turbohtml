@@ -15,6 +15,9 @@
 
 #include <stddef.h>
 #include <string.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 /* One aligned slot, so a short input opens several blocks and walks the doubling path. */
@@ -474,12 +477,21 @@ static inline void node_append(th_node *parent, th_node *child) {
     node_append_inline(parent, child);
 }
 
+/* th_tree_unlinks. Process-wide and atomic, since the unlink sites hold no tree, and trees of other threads and
+   interpreters unlink concurrently. */
+extern uint64_t th_unlinks;
+
 /* Detach a node from its current parent (the adoption agency re-parents). */
 static inline void node_remove(th_node *child) {
     th_node *parent = child->parent;
     if (parent == NULL) {
         return;
     }
+#if defined(_MSC_VER)
+    _InterlockedIncrement64((volatile __int64 *)&th_unlinks);
+#else
+    __atomic_fetch_add(&th_unlinks, 1, __ATOMIC_RELAXED);
+#endif
     if (child->prev_sibling != NULL) {
         child->prev_sibling->next_sibling = child->next_sibling;
     } else {
