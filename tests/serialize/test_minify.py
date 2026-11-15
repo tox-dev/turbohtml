@@ -506,6 +506,11 @@ def _adopted(xml: str) -> str:
         pytest.param("<ul><li><xmp><b/></xmp></li></ul>", "<ul><li><xmp><b></b></xmp></li></ul>", id="raw-text"),
         pytest.param("<ul><li><br><b/></br></li></ul>", "<ul><li><br></li></ul>", id="void"),
         pytest.param("<ul><li><xmp><b/>x</xmp></li></ul>", "<ul><li><xmp><b></b>x</xmp></ul>", id="not-trailing"),
+        pytest.param(
+            "<ul><li><xmp><span><b/></span></xmp></li></ul>",
+            "<ul><li><xmp><span><b></b></span></xmp></li></ul>",
+            id="raw-text-under-element",
+        ),
     ],
 )
 def test_omit_end_tag_over_child_the_walk_does_not_descend_into(source: str, expected: str) -> None:
