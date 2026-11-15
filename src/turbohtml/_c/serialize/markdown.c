@@ -3106,6 +3106,9 @@ static int md_element_lead(md_ctx *ctx, th_node *node, uint16_t atom) {
     if (atom == TH_TAG_A && th_node_attr_find(ctx->tree, node, "href", 4) >= 0) {
         return MD_LEAD_INLINE; /* the brackets are written even around nothing */
     }
+    if (atom == TH_TAG_Q && ctx->opt->quote_open[0] != '\0' && !md_tag_filtered(ctx->opt, atom)) {
+        return MD_LEAD_INLINE; /* the opening mark is written before whatever the quote holds, a block included */
+    }
     if (md_is_code_span(atom)) {
         return md_code_writes_text(ctx, node) ? MD_LEAD_INLINE : MD_LEAD_NOTHING;
     }
@@ -4934,6 +4937,11 @@ static void md_leave(md_ctx *ctx) {
         break;
     }
     case MD_LEAVE_QUOTE:
+        if (ctx->block_ended && ctx->opt->quote_close[0] != '\0') {
+            /* after an inner block the mark opens the next one, since on that block's last line it would spoil
+               a closing fence; only then, because a space owed after inline content belongs outside the mark */
+            md_before_visible(ctx);
+        }
         md_puts8(&ctx->out, ctx->opt->quote_close);
         break;
     case MD_LEAVE_LINK:
