@@ -7,6 +7,7 @@
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "dom/tree.h"
+#include "dom/tree_internal.h"
 #include "query/xpath/internal.h"
 #include "query/xpath/regex.h"
 #include "query/xpath/xpath.h"
@@ -297,15 +298,17 @@ typedef struct {
     void *name_test_ctx;
     const Py_UCS4 *qualified;
     Py_ssize_t qualified_len;
+    int strict_no_ns;
     int first;    /* the step only has to find a node: eval_first_step */
     int unsorted; /* the contexts come from a path's filter base, in whatever order it gave them */
     /* one walk from one node with no predicate: a reverse axis hands its nodes back in document order, so the path
        needs no sort; any other step keeps the proximity order the sort or the predicates expect */
     int document_order;
-    /* an XML tree's name test resolves the names in scope (xml_name_test): the tree, the evaluation's memo slot, and
-       the URI the test prefix binds */
-    struct th_tree *tree;
-    xp_caches **caches;
+    /* an XML tree with namespace declarations compares the namespace and local name ids of its index (ns_index), with
+       the ids the step's name resolves to once */
+    struct xp_ns_index *ns_index;
+    uint32_t want_local_id;
+    uint32_t want_ns_id;
     const Py_UCS4 *uri;
     Py_ssize_t uri_len;
 } step_match;
@@ -322,9 +325,523 @@ static int ucs4_eq_ascii(const Py_UCS4 *text, Py_ssize_t text_len, const char *a
     return 1;
 }
 
+/* XML name tests. An unprefixed test matches only an element or attribute in no namespace, and a prefixed one matches a
+   name whose own prefix binds the test's URI, as XPath 1.0 defines them. A tree that never held an xmlns declaration
+   puts every name in no namespace, so its tests keep the plain compare. Any other XML tree carries a namespace index:
+   each element and attribute records interned ids for its namespace and local name, filled lazily by one pass over the
+   tree and rebuilt after a mutation, so a name test compares integers per node. */
+
+static const Py_UCS4 xp_xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w', 'w', 'w', '.', 'w',
+                                     '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
+                                     '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
+#define XP_XML_URI_LEN ((Py_ssize_t)(sizeof(xp_xml_uri) / sizeof(xp_xml_uri[0])))
+#define XP_XML_URI_UTF8 "http://www.w3.org/XML/1998/namespace"
+
+#define NS_NONE 0u                     /* no namespace */
+#define NS_UNBOUND (UINT32_MAX - 1)    /* a prefix no declaration binds, or a foreign element */
+#define NS_IMPOSSIBLE (UINT32_MAX - 2) /* a test whose URI is empty: nothing matches it */
+#define NS_UNSET UINT32_MAX            /* a slot the index has not filled */
+
+typedef struct {
+    uint32_t ns;         /* interned namespace id, NS_NONE or NS_UNBOUND */
+    uint32_t local;      /* interned local name id, NS_UNSET while unfilled */
+    uint32_t attrs;      /* base of this element's attribute pairs */
+    uint32_t attr_count; /* how many attribute pairs follow base */
+} ns_slot;
+
+typedef struct {
+    uint32_t ns;
+    uint32_t local;
+} ns_pair;
+
+typedef struct {
+    uint32_t atom;     /* the declaration attribute's atom */
+    uint32_t previous; /* the id it bound before this element, NS_UNSET if none */
+} ns_undo;
+
+typedef struct {
+    char *bytes;
+    Py_ssize_t len;
+    uint32_t hash;
+} ns_string;
+
+/* The namespace index of one tree, owned by the tree and freed with it. slots are by node creation sequence; an element
+   the index has not visited keeps NS_UNSET there, so a node added since the last fill is filled on first use. The
+   strings table interns UTF-8 names and URIs to ids that stay valid for the tree's lifetime. */
+struct xp_ns_index {
+    struct th_tree *tree;
+    uint64_t attr_version;
+    uint64_t unlinks;
+    ns_slot *slots;
+    size_t slot_capacity;
+    ns_pair *pairs;
+    size_t pair_count;
+    size_t pair_capacity;
+    ns_string *strings;
+    size_t string_count;
+    size_t string_capacity;
+    uint32_t *buckets;
+    size_t bucket_capacity;
+    uint32_t *latest; /* by declaration atom: the id bound by the nearest open declaration, NS_UNSET if none */
+    size_t latest_capacity;
+    ns_undo *undo;
+    size_t undo_count;
+    size_t undo_capacity;
+    size_t *marks; /* undo_count when each open element was entered */
+    size_t mark_count;
+    size_t mark_capacity;
+    char *scratch;
+    size_t scratch_capacity;
+    char *decls;
+    size_t decls_capacity;
+    uint32_t default_atom;
+    uint32_t xml_id;
+};
+
+static Py_ssize_t xml_utf8(const Py_UCS4 *src, Py_ssize_t len, char *out) {
+    Py_ssize_t pos = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = src[index];
+        if (ch < 0x80) {
+            out[pos++] = (char)ch;
+        } else if (ch < 0x800) {
+            out[pos++] = (char)(0xC0 | (ch >> 6));
+            out[pos++] = (char)(0x80 | (ch & 0x3F));
+        } else if (ch < 0x10000) {
+            out[pos++] = (char)(0xE0 | (ch >> 12));
+            out[pos++] = (char)(0x80 | ((ch >> 6) & 0x3F));
+            out[pos++] = (char)(0x80 | (ch & 0x3F));
+        } else {
+            out[pos++] = (char)(0xF0 | (ch >> 18));
+            out[pos++] = (char)(0x80 | ((ch >> 12) & 0x3F));
+            out[pos++] = (char)(0x80 | ((ch >> 6) & 0x3F));
+            out[pos++] = (char)(0x80 | (ch & 0x3F));
+        }
+    }
+    return pos;
+}
+
+static char *ns_scratch(struct xp_ns_index *index, size_t needed) {
+    if (needed > index->scratch_capacity) {
+        char *grown = PyMem_Realloc(index->scratch, needed);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;     /* GCOVR_EXCL_LINE */
+        }
+        index->scratch = grown;
+        index->scratch_capacity = needed;
+    }
+    return index->scratch;
+}
+
+static uint32_t ns_hash(const char *bytes, Py_ssize_t len) {
+    uint32_t hash = 2166136261u;
+    for (Py_ssize_t at = 0; at < len; at++) {
+        hash = (hash ^ (unsigned char)bytes[at]) * 16777619u;
+    }
+    return hash;
+}
+
+static int ns_rehash(struct xp_ns_index *index, size_t capacity) {
+    uint32_t *buckets = PyMem_Calloc(capacity, sizeof(uint32_t));
+    if (buckets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    for (size_t id = 0; id < index->string_count; id++) {
+        size_t slot = index->strings[id].hash & (capacity - 1);
+        while (buckets[slot] != 0) {
+            slot = (slot + 1) & (capacity - 1);
+        }
+        buckets[slot] = (uint32_t)(id + 1);
+    }
+    PyMem_Free(index->buckets);
+    index->buckets = buckets;
+    index->bucket_capacity = capacity;
+    return 0;
+}
+
+/* The id of a UTF-8 name, interned on first use; 0 out of memory. Ids start at 1, so 0 is never a real id. */
+static uint32_t ns_intern(struct xp_ns_index *index, const char *bytes, Py_ssize_t len) {
+    uint32_t hash = ns_hash(bytes, len);
+    if ((index->string_count + 1) * 2 > index->bucket_capacity) {
+        size_t capacity = index->bucket_capacity == 0 ? 16 : index->bucket_capacity * 2;
+        if (ns_rehash(index, capacity) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return 0;                         /* GCOVR_EXCL_LINE */
+        }
+    }
+    size_t mask = index->bucket_capacity - 1;
+    size_t slot = hash & mask;
+    while (index->buckets[slot] != 0) {
+        const ns_string *known = &index->strings[index->buckets[slot] - 1];
+        if (known->hash == hash && known->len == len && memcmp(known->bytes, bytes, (size_t)len) == 0) {
+            return index->buckets[slot];
+        }
+        slot = (slot + 1) & mask;
+    }
+    if (index->string_count == index->string_capacity) {
+        size_t capacity = index->string_capacity == 0 ? 16 : index->string_capacity * 2;
+        ns_string *grown = PyMem_Realloc(index->strings, capacity * sizeof(ns_string));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return 0;        /* GCOVR_EXCL_LINE */
+        }
+        index->strings = grown;
+        index->string_capacity = capacity;
+    }
+    char *copy = PyMem_Malloc((size_t)len);
+    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return 0;       /* GCOVR_EXCL_LINE */
+    }
+    memcpy(copy, bytes, (size_t)len);
+    index->strings[index->string_count] = (ns_string){copy, len, hash};
+    index->string_count++;
+    index->buckets[slot] = (uint32_t)index->string_count;
+    return (uint32_t)index->string_count;
+}
+
+/* The id of a code point name, interned as its UTF-8 bytes; 0 out of memory. */
+static uint32_t ns_intern_ucs4(struct xp_ns_index *index, const Py_UCS4 *text, Py_ssize_t len) {
+    char *bytes = ns_scratch(index, (size_t)len * 4 + 1);
+    if (bytes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return 0;        /* GCOVR_EXCL_LINE */
+    }
+    return ns_intern(index, bytes, xml_utf8(text, len, bytes));
+}
+
+static int ns_reserve_slots(struct xp_ns_index *index, size_t needed) {
+    if (needed <= index->slot_capacity) {
+        return 0;
+    }
+    size_t capacity = needed * 2;
+    ns_slot *grown = PyMem_Realloc(index->slots, capacity * sizeof(ns_slot));
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    for (size_t at = index->slot_capacity; at < capacity; at++) {
+        grown[at] = (ns_slot){.ns = NS_NONE, .local = NS_UNSET};
+    }
+    index->slots = grown;
+    index->slot_capacity = capacity;
+    return 0;
+}
+
+static int ns_reserve_pairs(struct xp_ns_index *index, size_t needed) {
+    if (needed <= index->pair_capacity) {
+        return 0;
+    }
+    size_t capacity = needed * 2;
+    ns_pair *grown = PyMem_Realloc(index->pairs, capacity * sizeof(ns_pair));
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    index->pairs = grown;
+    index->pair_capacity = capacity;
+    return 0;
+}
+
+static uint32_t ns_latest(const struct xp_ns_index *index, uint32_t atom) {
+    if (atom == UINT32_MAX || atom >= index->latest_capacity) {
+        return NS_UNSET;
+    }
+    return index->latest[atom];
+}
+
+static int ns_bind(struct xp_ns_index *index, uint32_t atom, uint32_t id) {
+    if (atom >= index->latest_capacity) {
+        size_t capacity = (size_t)atom * 2 + 16;
+        uint32_t *grown = PyMem_Realloc(index->latest, capacity * sizeof(uint32_t));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        for (size_t at = index->latest_capacity; at < capacity; at++) {
+            grown[at] = NS_UNSET;
+        }
+        index->latest = grown;
+        index->latest_capacity = capacity;
+    }
+    if (index->undo_count == index->undo_capacity) {
+        size_t capacity = index->undo_capacity == 0 ? 16 : index->undo_capacity * 2;
+        ns_undo *grown = PyMem_Realloc(index->undo, capacity * sizeof(ns_undo));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        index->undo = grown;
+        index->undo_capacity = capacity;
+    }
+    index->undo[index->undo_count++] = (ns_undo){atom, index->latest[atom]};
+    index->latest[atom] = id;
+    return 0;
+}
+
+static void ns_undo_to(struct xp_ns_index *index, size_t mark) {
+    while (index->undo_count > mark) {
+        const ns_undo *entry = &index->undo[--index->undo_count];
+        index->latest[entry->atom] = entry->previous;
+    }
+}
+
+static int ns_open(struct xp_ns_index *index) {
+    if (index->mark_count == index->mark_capacity) {
+        size_t capacity = index->mark_capacity == 0 ? 16 : index->mark_capacity * 2;
+        size_t *grown = PyMem_Realloc(index->marks, capacity * sizeof(size_t));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        index->marks = grown;
+        index->mark_capacity = capacity;
+    }
+    index->marks[index->mark_count++] = index->undo_count;
+    return 0;
+}
+
+static void ns_close(struct xp_ns_index *index) {
+    ns_undo_to(index, index->marks[--index->mark_count]);
+}
+
+static int ns_is_declaration(const char *name, Py_ssize_t len) {
+    return (len == 5 && memcmp(name, "xmlns", 5) == 0) || (len > 6 && memcmp(name, "xmlns:", 6) == 0);
+}
+
+static uint32_t ns_default_id(const struct xp_ns_index *index) {
+    uint32_t bound = ns_latest(index, index->default_atom);
+    return bound == NS_UNSET ? NS_NONE : bound;
+}
+
+/* The id a prefix binds in scope: xml by definition, else the nearest open declaration, NS_UNBOUND when none. */
+static int ns_prefixed_id(struct xp_ns_index *index, struct th_tree *tree, const char *prefix, Py_ssize_t prefix_len,
+                          uint32_t *id) {
+    if (prefix_len == 3 && memcmp(prefix, "xml", 3) == 0) {
+        *id = index->xml_id;
+        return 0;
+    }
+    static const char xmlns_colon[6] = {'x', 'm', 'l', 'n', 's', ':'};
+    size_t needed = (size_t)prefix_len + 6;
+    if (needed > index->decls_capacity) {
+        char *grown = PyMem_Realloc(index->decls, needed);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        index->decls = grown;
+        index->decls_capacity = needed;
+    }
+    memcpy(index->decls, xmlns_colon, sizeof(xmlns_colon));
+    memcpy(index->decls + 6, prefix, (size_t)prefix_len);
+    uint32_t bound = ns_latest(index, th_attr_lookup(tree, index->decls, (Py_ssize_t)needed));
+    *id = bound == NS_UNSET ? NS_UNBOUND : bound;
+    return 0;
+}
+
+/* Binds the declarations of one element, then fills its slot and attribute pairs unless an earlier fill did. */
+static int ns_enter(struct xp_ns_index *index, struct th_tree *tree, struct th_node *node) {
+    th_node_attr *attrs;
+    Py_ssize_t count = th_node_attributes(node, &attrs);
+    for (Py_ssize_t at = 0; at < count; at++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, attrs[at].name_atom, &name_len);
+        if (!ns_is_declaration(name, name_len)) {
+            continue;
+        }
+        uint32_t id = NS_NONE;
+        if (attrs[at].value_len > 0) {
+            id = ns_intern_ucs4(index, attrs[at].value, attrs[at].value_len);
+            if (id == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+        }
+        if (ns_bind(index, attrs[at].name_atom, id) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                     /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (node->seq < index->slot_capacity && index->slots[node->seq].local != NS_UNSET) {
+        return 0;
+    }
+    if (ns_reserve_slots(index, (size_t)node->seq + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                            /* GCOVR_EXCL_LINE */
+    }
+    ns_slot *slot = &index->slots[node->seq];
+    char *qname = ns_scratch(index, (size_t)node->text_len * 4 + 1);
+    if (qname == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t qname_len = xml_utf8(node->text, node->text_len, qname);
+    const char *colon = memchr(qname, ':', (size_t)qname_len);
+    const char *local = colon == NULL ? qname : colon + 1;
+    Py_ssize_t local_len = qname_len - (local - qname);
+    uint32_t ns = NS_NONE;
+    if (colon == NULL) {
+        ns = ns_default_id(index);
+    } else if (ns_prefixed_id(index, tree, qname, colon - qname, &ns) <
+               0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;  /* GCOVR_EXCL_LINE */
+    }
+    uint32_t local_id = ns_intern(index, local, local_len);
+    if (local_id == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    if (ns_reserve_pairs(index, index->pair_count + (size_t)count) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                        /* GCOVR_EXCL_LINE */
+    }
+    uint32_t base = (uint32_t)index->pair_count;
+    for (Py_ssize_t at = 0; at < count; at++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, attrs[at].name_atom, &name_len);
+        const char *attr_colon = memchr(name, ':', (size_t)name_len);
+        const char *attr_local = name;
+        Py_ssize_t attr_local_len = name_len;
+        ns_pair pair = {NS_NONE, 0};
+        if (attr_colon != NULL) {
+            attr_local = attr_colon + 1;
+            attr_local_len = name_len - (attr_local - name);
+            if (ns_prefixed_id(index, tree, name, attr_colon - name, &pair.ns) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                                            /* GCOVR_EXCL_LINE */
+            }
+        }
+        pair.local = ns_intern(index, attr_local, attr_local_len);
+        if (pair.local == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+        index->pairs[index->pair_count++] = pair;
+    }
+    slot->ns = ns;
+    slot->local = local_id;
+    slot->attrs = base;
+    slot->attr_count = (uint32_t)count;
+    return 0;
+}
+
+/* One pass over the subtree at top, binding declarations on the way down and undoing them on the way up. */
+static int ns_walk(struct xp_ns_index *index, struct th_tree *tree, struct th_node *top) {
+    struct th_node *node = top;
+    for (;;) {
+        TH_WORK_STEP();
+        if (node->type == TH_NODE_ELEMENT) {
+            if (ns_open(index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;            /* GCOVR_EXCL_LINE */
+            }
+            if (ns_enter(index, tree, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                         /* GCOVR_EXCL_LINE */
+            }
+        }
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        for (;;) {
+            if (node->type == TH_NODE_ELEMENT) {
+                ns_close(index);
+            }
+            if (node == top) {
+                return 0;
+            }
+            if (node->next_sibling != NULL) {
+                node = node->next_sibling;
+                break;
+            }
+            node = node->parent;
+        }
+    }
+}
+
+static int ns_fill(struct xp_ns_index *index, struct th_tree *tree, struct th_node *top) {
+    index->default_atom = th_attr_lookup(tree, "xmlns", 5);
+    index->mark_count = 0;
+    index->undo_count = 0;
+    int status = ns_walk(index, tree, top);
+    ns_undo_to(index, 0);
+    index->mark_count = 0;
+    return status;
+}
+
+/* A node the index has not filled: fill the whole tree below its top, which every later node under that top reuses. */
+static TH_NOINLINE int ns_ensure(struct xp_ns_index *index, struct th_node *node) {
+    struct th_node *top = node;
+    while (top->parent != NULL) {
+        top = top->parent;
+    }
+    if (ns_fill(index, index->tree, top) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                              /* GCOVR_EXCL_LINE */
+    }
+    return node->seq < index->slot_capacity ? 0 : -1; /* GCOVR_EXCL_LINE: a walk reaches every node below its top */
+}
+
+static XP_STEP_INLINE int ns_element_matches(const step_match *match, struct th_node *node) {
+    struct xp_ns_index *index = match->ns_index;
+    if (node->seq >= index->slot_capacity || index->slots[node->seq].local == NS_UNSET) {
+        if (ns_ensure(index, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    const ns_slot *slot = &index->slots[node->seq];
+    return slot->local == match->want_local_id && slot->ns == match->want_ns_id;
+}
+
+static int ns_attribute_matches(const step_match *match, struct th_node *node, Py_ssize_t attr) {
+    struct xp_ns_index *index = match->ns_index;
+    if (node->seq >= index->slot_capacity || index->slots[node->seq].local == NS_UNSET) {
+        if (ns_ensure(index, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    const ns_slot *slot = &index->slots[node->seq];
+    if ((size_t)attr >= slot->attr_count) {
+        return 0;
+    }
+    const ns_pair *pair = &index->pairs[slot->attrs + (size_t)attr];
+    return pair->local == match->want_local_id && pair->ns == match->want_ns_id;
+}
+
+/* The namespace index of tree, created on first use and brought up to date: a mutation since the last fill empties
+   its slots (lazily refilled) and its attribute pairs. NULL out of memory. */
+struct xp_ns_index *xp_ns_index_for(struct th_tree *tree) {
+    struct xp_ns_index *index = tree->ns_index;
+    if (index == NULL) {
+        index = PyMem_Calloc(1, sizeof(struct xp_ns_index));
+        if (index == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;     /* GCOVR_EXCL_LINE */
+        }
+        index->tree = tree;
+        tree->ns_index = index;
+        index->xml_id = ns_intern(index, XP_XML_URI_UTF8, (Py_ssize_t)sizeof(XP_XML_URI_UTF8) - 1);
+        if (index->xml_id == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;          /* GCOVR_EXCL_LINE */
+        }
+    }
+    uint64_t attr_version = th_tree_attr_version(tree);
+    uint64_t unlinks = th_tree_unlinks();
+    if (index->attr_version != attr_version || index->unlinks != unlinks) {
+        for (size_t at = 0; at < index->slot_capacity; at++) {
+            index->slots[at].local = NS_UNSET;
+        }
+        index->pair_count = 0;
+        index->attr_version = attr_version;
+        index->unlinks = unlinks;
+    }
+    return index;
+}
+
+void xp_ns_index_free(struct xp_ns_index *index) {
+    if (index == NULL) {
+        return;
+    }
+    for (size_t id = 0; id < index->string_count; id++) {
+        PyMem_Free(index->strings[id].bytes);
+    }
+    PyMem_Free(index->strings);
+    PyMem_Free(index->buckets);
+    PyMem_Free(index->slots);
+    PyMem_Free(index->pairs);
+    PyMem_Free(index->latest);
+    PyMem_Free(index->undo);
+    PyMem_Free(index->marks);
+    PyMem_Free(index->scratch);
+    PyMem_Free(index->decls);
+    PyMem_Free(index);
+}
+
 static XP_STEP_INLINE int element_name_matches(struct th_node *node, const step_match *match) {
     if (match->name_test != NULL) {
         return match->name_test(match->name_test_ctx, node, -1, match->qualified, match->qualified_len);
+    }
+    if (match->ns_index != NULL) {
+        return ns_element_matches(match, node);
     }
     /* An HTML element with a builtin atom is spelled as that atom, so the atoms decide.
        Every other element compares its spelling: an XML tree interns every element as
@@ -336,6 +853,9 @@ static XP_STEP_INLINE int element_name_matches(struct th_node *node, const step_
         }
     } else if (node->text_len != match->local_len ||
                memcmp(node->text, match->local, (size_t)match->local_len * sizeof(Py_UCS4)) != 0) {
+        return 0;
+    }
+    if (match->strict_no_ns && node->ns != TH_NS_HTML) {
         return 0;
     }
     if (!match->has_ns) {
@@ -445,6 +965,12 @@ static XP_STEP_INLINE int apply_step(xp_nodeset *out, struct th_node *ctx, enum 
             if (step->test == NT_NAME && match->name_test != NULL) {
                 hit = match->name_test(match->name_test_ctx, ctx, index, match->qualified, match->qualified_len);
                 if (hit < 0) { /* GCOVR_EXCL_BR_LINE: prefix resolution ran before the walk; only OOM remains */
+                    return -1; /* GCOVR_EXCL_LINE */
+                }
+            }
+            if (step->test == NT_NAME && match->ns_index != NULL) {
+                hit = ns_attribute_matches(match, ctx, index);
+                if (hit < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                     return -1; /* GCOVR_EXCL_LINE */
                 }
             }
@@ -984,15 +1510,12 @@ static void root_store(addr_map *roots, const struct th_node *node, struct th_no
    numbered together the first time two of them need ordering, so a set that keeps meeting one long sibling list walks
    it once per evaluation. The roots map holds the root a deep climb reached for each node it passed (climb_memoized),
    as of `unlinks`. langs is the evaluation's lang() memo when its caller passes none (xp_lang_memoized). */
-typedef struct xml_names xml_names;
-
 struct xp_caches {
     xr_cache regex;
     addr_map positions;
     addr_map roots;
     uint64_t unlinks;
     xp_lang_memo *langs;
-    xml_names *xml;
 };
 
 static xp_caches *caches_get(xp_caches **caches) {
@@ -2041,6 +2564,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, int32_t s
                 ctx->before_python,
                 ctx->name_test,
                 ctx->name_test_ctx,
+                ctx->strict_no_ns,
                 ctx->root,
                 ctx->langs,
 #ifdef TH_OPERATION_LIMIT
@@ -2079,299 +2603,6 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, int32_t s
    when the bound URI names no namespace an HTML tree's elements live in, e.g. a custom
    or the XML URI). Returns 0, or -1 when the prefix has no binding. The XML prefix is
    implicitly bound even without a mapping, matching lxml. */
-/* XML name tests. An unprefixed test matches only an element or attribute in no namespace, and a prefixed one matches a
-   name whose own prefix is declared to the test's URI, as XPath 1.0 defines them. The memo below climbs each node once
-   per declaration atom, so a name test over a deep tree stays linear. */
-static const Py_UCS4 xp_xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w', 'w', 'w', '.', 'w',
-                                     '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
-                                     '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
-#define XP_XML_URI_LEN ((Py_ssize_t)(sizeof(xp_xml_uri) / sizeof(xp_xml_uri[0])))
-
-struct xml_names {
-    addr_map *scopes; /* by declaration attribute atom: node -> the declaration in scope there (xml_declaration) */
-    size_t capacity;
-    uint64_t attr_version;
-    uint64_t unlinks;
-    char *names;
-    size_t names_capacity;
-    char *decls;
-    size_t decls_capacity;
-};
-
-static Py_ssize_t xml_utf8(const Py_UCS4 *src, Py_ssize_t len, char *out) {
-    Py_ssize_t pos = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 ch = src[index];
-        if (ch < 0x80) {
-            out[pos++] = (char)ch;
-        } else if (ch < 0x800) {
-            out[pos++] = (char)(0xC0 | (ch >> 6));
-            out[pos++] = (char)(0x80 | (ch & 0x3F));
-        } else if (ch < 0x10000) {
-            out[pos++] = (char)(0xE0 | (ch >> 12));
-            out[pos++] = (char)(0x80 | ((ch >> 6) & 0x3F));
-            out[pos++] = (char)(0x80 | (ch & 0x3F));
-        } else {
-            out[pos++] = (char)(0xF0 | (ch >> 18));
-            out[pos++] = (char)(0x80 | ((ch >> 12) & 0x3F));
-            out[pos++] = (char)(0x80 | ((ch >> 6) & 0x3F));
-            out[pos++] = (char)(0x80 | (ch & 0x3F));
-        }
-    }
-    return pos;
-}
-
-static char *xml_buffer(char **buffer, size_t *capacity, size_t needed) {
-    if (needed > *capacity) {
-        char *grown = PyMem_Realloc(*buffer, needed);
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return NULL;     /* GCOVR_EXCL_LINE */
-        }
-        *buffer = grown;
-        *capacity = needed;
-    }
-    return *buffer;
-}
-
-static Py_ssize_t qname_colon(const Py_UCS4 *name, Py_ssize_t len) {
-    for (Py_ssize_t index = 0; index < len; index++) {
-        if (name[index] == ':') {
-            return index;
-        }
-    }
-    return -1;
-}
-
-static int ucs4_same(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
-    return left_len == right_len && memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
-}
-
-static int declaration_known(const addr_map *declared, const struct th_node *node) {
-    return declared->capacity != 0 && declared->entries[addr_slot(declared, node)].node == node;
-}
-
-/* The memo of the declaration atom, indexed by atom as XSLT indexes its bindings, so a lookup needs no probe. */
-static addr_map *xml_scope_for(xml_names *names, uint32_t atom) {
-    if (atom >= names->capacity) {
-        size_t capacity = 2 * ((size_t)atom + 1);
-        addr_map *grown = PyMem_Calloc(capacity, sizeof(addr_map));
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return NULL;     /* GCOVR_EXCL_LINE */
-        }
-        for (size_t index = 0; index < names->capacity; index++) {
-            grown[index] = names->scopes[index];
-        }
-        PyMem_Free(names->scopes);
-        names->scopes = grown;
-        names->capacity = capacity;
-    }
-    return &names->scopes[atom];
-}
-
-/* The names memo for the tree at caches, allocated on first use and emptied once the tree changed (an attribute was
-   written or a node left its parent), since the memoized declarations are read off the tree. NULL out of memory. */
-static xml_names *xml_names_get(struct th_tree *tree, xp_caches **caches) {
-    xp_caches *owner = caches_get(caches);
-    if (owner == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;     /* GCOVR_EXCL_LINE */
-    }
-    if (owner->xml == NULL) {
-        owner->xml = PyMem_Calloc(1, sizeof(xml_names));
-        if (owner->xml == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return NULL;          /* GCOVR_EXCL_LINE */
-        }
-    }
-    xml_names *names = owner->xml;
-    uint64_t attr_version = th_tree_attr_version(tree);
-    uint64_t unlinks = th_tree_unlinks();
-    if (names->attr_version != attr_version || names->unlinks != unlinks) {
-        for (size_t index = 0; index < names->capacity; index++) {
-            PyMem_Free(names->scopes[index].entries);
-            names->scopes[index] = (addr_map){0};
-        }
-        names->attr_version = attr_version;
-        names->unlinks = unlinks;
-    }
-    return names;
-}
-
-static void xml_names_free(xml_names *names) {
-    if (names == NULL) {
-        return;
-    }
-    for (size_t index = 0; index < names->capacity; index++) {
-        PyMem_Free(names->scopes[index].entries);
-    }
-    PyMem_Free(names->scopes);
-    PyMem_Free(names->names);
-    PyMem_Free(names->decls);
-    PyMem_Free(names);
-}
-
-/* The xmlns declaration named by atom that is in scope at node: the nearest ancestor-or-self element carrying it, or
-   NULL. Each climb stops at a node an earlier climb answered for. Returns -1 out of memory. */
-static int xml_declaration(xml_names *names, struct th_node *node, uint32_t atom, const th_node_attr **declared) {
-    addr_map *memo = xml_scope_for(names, atom);
-    if (memo == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;      /* GCOVR_EXCL_LINE */
-    }
-    const th_node_attr *found = NULL;
-    struct th_node *walked = node;
-    int memoized = 0;
-    for (;;) {
-        TH_WORK_STEP();
-        if (declaration_known(memo, walked)) {
-            found = known_declaration(memo, walked);
-            memoized = 1;
-            break;
-        }
-        if (walked->type == TH_NODE_ELEMENT) {
-            th_node_attr *attrs;
-            Py_ssize_t count = th_node_attributes(walked, &attrs);
-            for (Py_ssize_t index = 0; index < count && found == NULL; index++) {
-                if (attrs[index].name_atom == atom) {
-                    found = &attrs[index];
-                }
-            }
-            if (found != NULL) {
-                break;
-            }
-        }
-        if (walked->parent == NULL) {
-            break;
-        }
-        walked = walked->parent;
-    }
-    for (struct th_node *stored = node; stored != walked; stored = stored->parent) {
-        declaration_store(memo, stored, found);
-    }
-    if (!memoized) {
-        declaration_store(memo, walked, found);
-    }
-    *declared = found;
-    return 0;
-}
-
-/* The URI prefix binds at node: xml by definition, the default namespace for an empty prefix, else the nearest
-   xmlns:prefix declaration in scope. Returns 1 with the URI (empty for xmlns=""), 0 when nothing binds it, -1 out of
-   memory. */
-static int xml_prefix_uri(xml_names *names, struct th_tree *tree, struct th_node *node, const char *prefix,
-                          Py_ssize_t prefix_len, const Py_UCS4 **uri, Py_ssize_t *uri_len) {
-    if (prefix_len == 3 && memcmp(prefix, "xml", 3) == 0) {
-        *uri = xp_xml_uri;
-        *uri_len = XP_XML_URI_LEN;
-        return 1;
-    }
-    uint32_t atom;
-    if (prefix_len == 0) {
-        atom = th_attr_lookup(tree, "xmlns", 5);
-    } else {
-        char *decl = xml_buffer(&names->decls, &names->decls_capacity, (size_t)prefix_len + 6);
-        if (decl == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;      /* GCOVR_EXCL_LINE */
-        }
-        static const char xmlns_colon[6] = {'x', 'm', 'l', 'n', 's', ':'};
-        memcpy(decl, xmlns_colon, sizeof(xmlns_colon));
-        memcpy(decl + 6, prefix, (size_t)prefix_len);
-        atom = th_attr_lookup(tree, decl, prefix_len + 6);
-    }
-    if (atom == UINT32_MAX) {
-        return 0;
-    }
-    const th_node_attr *declared;
-    if (xml_declaration(names, node, atom, &declared) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                                           /* GCOVR_EXCL_LINE */
-    }
-    if (declared == NULL) {
-        return 0;
-    }
-    *uri = declared->value;
-    *uri_len = declared->value_len;
-    return 1;
-}
-
-static int xml_attribute_matches(const step_match *match, struct th_node *node, Py_ssize_t attr) {
-    th_node_attr *attrs;
-    th_node_attributes(node, &attrs);
-    Py_ssize_t name_len;
-    const char *name = th_attr_name(match->tree, attrs[attr].name_atom, &name_len);
-    const char *colon = memchr(name, ':', (size_t)name_len);
-    Py_ssize_t prefix_len = colon == NULL ? 0 : colon - name;
-    const char *local = colon == NULL ? name : colon + 1;
-    Py_ssize_t local_len = name_len - (local - name);
-    xml_names *names = xml_names_get(match->tree, match->caches);
-    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;       /* GCOVR_EXCL_LINE */
-    }
-    char *wanted = xml_buffer(&names->names, &names->names_capacity, (size_t)match->local_len * 4);
-    if (wanted == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;        /* GCOVR_EXCL_LINE */
-    }
-    Py_ssize_t wanted_len = xml_utf8(match->local, match->local_len, wanted);
-    if (local_len != wanted_len || memcmp(local, wanted, (size_t)wanted_len) != 0) {
-        return 0;
-    }
-    if (prefix_len == 0) {
-        return !match->has_ns;
-    }
-    if (!match->has_ns) {
-        return 0;
-    }
-    const Py_UCS4 *uri;
-    Py_ssize_t uri_len;
-    int bound = xml_prefix_uri(names, match->tree, node, name, prefix_len, &uri, &uri_len);
-    if (bound < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;   /* GCOVR_EXCL_LINE */
-    }
-    return bound == 1 && ucs4_same(uri, uri_len, match->uri, match->uri_len);
-}
-
-/* The name test an XML tree's step runs in place of the atom compare. The match is its context: the step lives as long
-   as its evaluation, and match->caches outlives both the eval and the pattern walk. */
-static int xml_name_test(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
-                         Py_ssize_t name_len) {
-    const step_match *match = context;
-    (void)name;
-    (void)name_len;
-    if (attr >= 0) {
-        return xml_attribute_matches(match, node, attr);
-    }
-    if (node->ns != TH_NS_HTML) {
-        return 0;
-    }
-    Py_ssize_t colon = qname_colon(node->text, node->text_len);
-    Py_ssize_t local_at = colon + 1;
-    if (!ucs4_same(node->text + local_at, node->text_len - local_at, match->local, match->local_len)) {
-        return 0;
-    }
-    if (!match->has_ns && colon >= 0) {
-        return 0;
-    }
-    xml_names *names = xml_names_get(match->tree, match->caches);
-    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;       /* GCOVR_EXCL_LINE */
-    }
-    char *prefix = NULL;
-    Py_ssize_t prefix_len = 0;
-    if (colon >= 0) {
-        prefix = xml_buffer(&names->names, &names->names_capacity, (size_t)colon * 4);
-        if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;        /* GCOVR_EXCL_LINE */
-        }
-        prefix_len = xml_utf8(node->text, colon, prefix);
-    }
-    const Py_UCS4 *uri;
-    Py_ssize_t uri_len;
-    int bound = xml_prefix_uri(names, match->tree, node, prefix, prefix_len, &uri, &uri_len);
-    if (bound < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;   /* GCOVR_EXCL_LINE */
-    }
-    if (!match->has_ns) {
-        return bound == 0 || uri_len == 0;
-    }
-    return bound == 1 && uri_len > 0 && ucs4_same(uri, uri_len, match->uri, match->uri_len);
-}
-
 static int resolve_step_ns(xp_ctx *ctx, const Py_UCS4 *prefix, Py_ssize_t prefix_len, step_match *match) {
     const Py_UCS4 *uri = NULL;
     Py_ssize_t uri_len = 0;
@@ -2439,14 +2670,9 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
     match->qualified_len = step->str_len;
     match->name_test = ctx->name_test;
     match->name_test_ctx = ctx->name_test_ctx;
+    match->strict_no_ns = ctx->strict_no_ns && step->prefix_len == 0; /* GCOVR_EXCL_BR_LINE: prefixes use callback */
     if (step->test != NT_NAME) {
         return 0;
-    }
-    if (ctx->name_test == NULL && th_tree_is_xml(ctx->tree)) {
-        match->name_test = xml_name_test;
-        match->name_test_ctx = match;
-        match->tree = ctx->tree;
-        match->caches = ctx->caches;
     }
     if (step->prefix_len > 0) {
         match->has_ns = 1;
@@ -2458,6 +2684,26 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
         }
         if (ctx->name_test != NULL && ctx->name_test(ctx->name_test_ctx, NULL, -1, step->str, step->str_len) < 0) {
             return -1;
+        }
+    }
+    if (ctx->name_test == NULL && th_tree_has_xml_ns(ctx->tree)) {
+        match->ns_index = xp_ns_index_for(ctx->tree);
+        if (match->ns_index == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                 /* GCOVR_EXCL_LINE */
+        }
+        match->want_local_id = ns_intern_ucs4(match->ns_index, match->local, match->local_len);
+        if (match->want_local_id == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                   /* GCOVR_EXCL_LINE */
+        }
+        if (!match->has_ns) {
+            match->want_ns_id = NS_NONE;
+        } else if (match->uri_len == 0) {
+            match->want_ns_id = NS_IMPOSSIBLE;
+        } else {
+            match->want_ns_id = ns_intern_ucs4(match->ns_index, match->uri, match->uri_len);
+            if (match->want_ns_id == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                /* GCOVR_EXCL_LINE */
+            }
         }
     }
     if (step->axis == AX_ATTRIBUTE && match->xml_ns) {
@@ -4451,7 +4697,6 @@ static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
     PyMem_Free(caches->positions.entries);
     PyMem_Free(caches->roots.entries);
     xp_lang_memo_free(caches->langs);
-    xml_names_free(caches->xml);
     PyMem_Free(caches);
 }
 
@@ -4467,8 +4712,8 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *
 #endif
     xp_root root = {known_root, 0, known_root != NULL, ids, {NULL, NULL}};
     xp_ctx ctx = {
-        tree,        context->node, context->attr, pos,  size, feature, vars,  namespaces, extension, extension_ctx,
-        0,           &caches,       NULL,          NULL, NULL, NULL,    &root, langs,
+        tree,        context->node, context->attr, pos,  size, feature, vars, namespaces, extension, extension_ctx,
+        0,           &caches,       NULL,          NULL, NULL, NULL,    0,    &root,      langs,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -4508,8 +4753,25 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
 #endif
     xp_root root = {0};
     xp_ctx ctx = {
-        tree,          context, -1,      1,    1,    feature,   NULL,          NULL,  extension,
-        extension_ctx, 0,       &caches, NULL, NULL, name_test, name_test_ctx, &root, NULL,
+        tree,
+        context,
+        -1,
+        1,
+        1,
+        feature,
+        NULL,
+        NULL,
+        extension,
+        extension_ctx,
+        0,
+        &caches,
+        NULL,
+        NULL,
+        name_test,
+        name_test_ctx,
+        name_test == NULL && th_tree_is_xml(tree),
+        &root,
+        NULL,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
@@ -4749,6 +5011,7 @@ static xp_ctx walk_context(xp_pattern_walk *walk, xp_item item, xp_extension_fn 
         NULL,
         walk->name_test,
         walk->name_test_ctx,
+        0,
         &walk->root,
         NULL,
 #ifdef TH_OPERATION_LIMIT
@@ -4833,8 +5096,8 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
 #endif
     xp_root root = {0};
     xp_ctx ctx = {
-        tree,        context,       -1,   1,    1,     feature, vars, namespaces, extension, extension_ctx, 0, &caches,
-        &live,       before_python, NULL, NULL, &root, NULL,
+        tree,        context,       -1,   1,    1, feature, vars, namespaces, extension, extension_ctx, 0, &caches,
+        &live,       before_python, NULL, NULL, 0, &root,   NULL,
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif

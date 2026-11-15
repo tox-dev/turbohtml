@@ -355,13 +355,25 @@ static Py_UCS4 *xt_detach(xt_ctx *ctx, Py_ssize_t mark, Py_ssize_t *out_len) {
     return copy;
 }
 
+/* The lowercased type name as a string literal. A safe name needs no quoting or escaping, so it is written straight
+   into the output; a folding literal would stage every name in a temporary buffer first. */
+static void xt_type_literal(xt_ctx *ctx, const sel_simple *simple) {
+    if (xt_safe_name(simple->name, simple->name_len)) {
+        xt_char(&ctx->out, '\'');
+        xt_slice(&ctx->out, simple->name, simple->name_len, 1);
+        xt_char(&ctx->out, '\'');
+        return;
+    }
+    xt_value_literal(ctx, simple->name, simple->name_len, 1, 0, 0);
+}
+
 /* Emit the of-type sibling node test for the compound: *[name() = '...'] over its type simple's name. Returns 0
    (with the error set) for a compound with no type selector, whose element type the translation cannot know. */
 static int xt_of_type_test(xt_ctx *ctx, const sel_compound *compound) {
     const sel_simple *named = xt_type_simple(compound);
     if (named != NULL) {
         xt_text(&ctx->out, "*[name() = ");
-        xt_value_literal(ctx, named->name, named->name_len, 1, 0, 0);
+        xt_type_literal(ctx, named);
         xt_char(&ctx->out, ']');
         return 1;
     }
@@ -668,7 +680,7 @@ static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
         return 0;
     case 'e':
         xt_text(&ctx->out, "name() = ");
-        xt_value_literal(ctx, simple->name, simple->name_len, 1, 0, 0);
+        xt_type_literal(ctx, simple);
         return 1;
     case '#':
         xt_text(&ctx->out, "@id = ");
@@ -847,7 +859,42 @@ static void xt_condition_alts(xt_ctx *ctx, const sel_complex *alts, int count) {
 }
 
 /* Emit one location step: the node test plus the compound's bracketed conditions. */
+/* A step that is a lone safe type name, the common selector, is written as one reserve: its name is ASCII, so the fold
+   is a range check, and the step matches what the general path below writes. Returns 0 when the step is not one. */
+static int xt_lone_type_step(xt_ctx *ctx, const sel_compound *compound) {
+    if (compound->count != 1 || compound->simples[0].kind != 'e') {
+        return 0;
+    }
+    const sel_simple *simple = &compound->simples[0];
+    if (!xt_safe_name(simple->name, simple->name_len)) {
+        return 0;
+    }
+    static const char head[] = "*[name() = '";
+    const Py_ssize_t head_len = (Py_ssize_t)sizeof(head) - 1;
+    xt_reserve(&ctx->out, head_len + simple->name_len + 2);
+    if (ctx->out.failed) {
+        return 1;
+    }
+    Py_UCS4 *out = ctx->out.data + ctx->out.len;
+    for (Py_ssize_t index = 0; index < head_len; index++) {
+        out[index] = (Py_UCS4)(unsigned char)head[index];
+    }
+    out += head_len;
+    for (Py_ssize_t index = 0; index < simple->name_len; index++) {
+        Py_UCS4 ch = simple->name[index];
+        out[index] = ch >= 'A' && ch <= 'Z' ? ch + ('a' - 'A') : ch;
+    }
+    out += simple->name_len;
+    out[0] = '\'';
+    out[1] = ']';
+    ctx->out.len += head_len + simple->name_len + 2;
+    return 1;
+}
+
 static void xt_step(xt_ctx *ctx, const sel_compound *compound) {
+    if (xt_lone_type_step(ctx, compound)) {
+        return;
+    }
     xt_char(&ctx->out, '*');
     Py_ssize_t mark = ctx->out.len;
     xt_char(&ctx->out, '[');

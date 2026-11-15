@@ -1577,21 +1577,36 @@ def test_xml_name_test_resolves_many_prefixes() -> None:
     assert tags(document.xpath(expr, namespaces=namespaces)) == [f"p{index}:x" for index in range(count)]
 
 
-def test_xml_name_test_skips_a_foreign_element_moved_into_an_xml_tree() -> None:
-    document = parse_xml("<r/>")
+def test_xml_name_test_matches_a_foreign_element_moved_into_a_namespaced_xml_tree() -> None:
+    # a foreign element carries no declaration of its own, so it is in no namespace here, as a plain XML tree has it
+    document = parse_xml('<r xmlns:q="urn:q"/>')
     svg = parse("<svg><rect/></svg>").select_one("svg")
     assert svg is not None
     one(document, "/r").append(svg)
-    assert document.xpath("//rect") == []
-    assert document.xpath("//svg") == []
+    assert tags(document.xpath("//rect")) == ["rect"]
+    assert tags(document.xpath("//svg")) == ["svg"]
 
 
-def test_xml_name_test_keeps_its_memos_when_the_declaration_table_grows() -> None:
+def test_xml_name_test_resolves_a_prefix_declared_after_many_attributes() -> None:
     # the second declaration's atom is interned after hundreds of attribute names, past the table the first one sized
     attributes = " ".join(f'a{index}="1"' for index in range(600))
     document = parse_xml(f'<r xmlns:p0="urn:0" {attributes} xmlns:late="urn:l"><p0:x><late:y/></p0:x></r>')
     result = document.xpath("//p0:x/late:y", namespaces={"p0": "urn:0", "late": "urn:l"})
     assert tags(result) == ["late:y"]
+
+
+def test_xml_name_test_follows_mutations_between_evaluations() -> None:
+    document = parse_xml("<r><s><e1/></s></r>")
+    root = one(document, "/r")
+    scope = one(document, "/r/s")
+    moved = one(document, "//e1")
+    assert tags(document.xpath("//e1")) == ["e1"]
+    scope.attrs["xmlns"] = "urn:a"
+    assert document.xpath("//e1") == []
+    assert tags(document.xpath("//a:e1", namespaces={"a": "urn:a"})) == ["e1"]
+    root.append(moved)
+    assert tags(document.xpath("//e1")) == ["e1"]
+    assert document.xpath("//a:e1", namespaces={"a": "urn:a"}) == []
 
 
 def test_xml_name_test_reads_the_tree_after_a_callback_edits_it() -> None:
