@@ -3015,10 +3015,25 @@ static int relocate_subtree(PyObject *dest_handle, PyObject *source_handle, th_n
     return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 1);
 }
 
+/* The attribute values one call has copied while importing a run of nodes (th_copy_memo), so that siblings moved in
+   together keep sharing a value their source elements share. The memo holds addresses in the source arena, so the run
+   owns a reference to the handle of the tree it was filled from, which keeps that arena alive; a node from another
+   tree starts the memo afresh. */
+typedef struct {
+    th_copy_memo memo;
+    PyObject *source;
+} import_run;
+
+static void import_run_free(import_run *run) {
+    th_copy_memo_free(&run->memo);
+    Py_XDECREF(run->source);
+}
+
 /* Taking the source lock can suspend the destination's critical section, so callers
-   must recheck destination tree state after importing. */
-static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
+   must recheck destination tree state after importing. run is the caller's import_run, or NULL for a single import. */
+static th_node *import_node(PyObject *dest_handle, NodeObject *child, import_run *run) {
     th_tree *dest_tree = ((HandleObject *)dest_handle)->tree;
+    PyObject *previous_source = NULL;
 #ifdef Py_GIL_DISABLED
     node_guard guard;
     node_guard_begin_with_handle(&guard, dest_handle, child);
@@ -3028,7 +3043,17 @@ static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
 #endif
     th_node *copy;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
-    copy = th_tree_adopt_copy(dest_tree, tree_of((PyObject *)child), child->node);
+    if (run == NULL) {
+        copy = th_tree_adopt_copy(dest_tree, tree_of((PyObject *)child), child->node);
+    } else {
+        if (run->source != source_handle) {
+            th_copy_memo_free(&run->memo);
+            run->memo = (th_copy_memo){0};
+            previous_source = run->source; /* released below, outside the critical section */
+            run->source = Py_NewRef(source_handle);
+        }
+        copy = th_tree_adopt_copy_sharing(dest_tree, tree_of((PyObject *)child), child->node, &run->memo);
+    }
     if (copy != NULL && /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         relocate_subtree(dest_handle, source_handle, child->node, copy) == 0) {
         handle_drop_index(source_handle);
@@ -3041,6 +3066,7 @@ static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
 #else
     Py_DECREF(source_handle);
 #endif
+    Py_XDECREF(previous_source);
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -3072,16 +3098,18 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
     th_node *copy;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
     copy = th_tree_make_fragment(dest_tree);
+    th_copy_memo memo = {0}; /* one for all the children, so attribute values they share are copied once */
     /* copy is NULL only on allocation failure */
     for (th_node *child = fragment->node->first_child; copy != NULL && child != NULL; /* GCOVR_EXCL_BR_LINE */
          child = child->next_sibling) {
-        th_node *child_copy = th_tree_adopt_copy(dest_tree, tree_of((PyObject *)fragment), child);
+        th_node *child_copy = th_tree_adopt_copy_sharing(dest_tree, tree_of((PyObject *)fragment), child, &memo);
         if (child_copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             copy = NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
             break;                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(copy, child_copy);
     }
+    th_copy_memo_free(&memo);
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         handle_drop_index(source_handle);
         for (th_node *child_copy = copy->first_child; child_copy != NULL; child_copy = child_copy->next_sibling) {
@@ -3114,7 +3142,7 @@ static th_node *adopt_into(PyObject *handle, th_node *dest_parent, PyObject *wra
     NodeObject *child = (NodeObject *)wrapper_obj;
     th_tree *dest_tree = ((HandleObject *)handle)->tree;
     if (!node_owned_by(child, handle)) {
-        return import_node(handle, child);
+        return import_node(handle, child, NULL);
     }
     if (th_node_contains(dest_tree, child->node, dest_parent)) {
         PyErr_SetString(PyExc_ValueError, "cannot insert a node into its own subtree");
@@ -3137,7 +3165,7 @@ th_node *adopt_child(NodeObject *anchor, th_node *dest_parent, PyObject *child_o
     return adopt_into(anchor->handle, dest_parent, child_obj);
 }
 
-int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
+static int import_foreign_node_in_run(PyObject *dest_handle, PyObject **slot, import_run *run) {
     module_state *state = state_of(dest_handle);
     PyObject *node = *slot;
     if (!PyObject_TypeCheck(node, (PyTypeObject *)state->node_type) ||
@@ -3151,10 +3179,14 @@ int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_SETREF(*slot, local);
-    } else if (import_node(dest_handle, (NodeObject *)node) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-        return -1;                                                     /* GCOVR_EXCL_LINE: OOM path */
+    } else if (import_node(dest_handle, (NodeObject *)node, run) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        return -1;                                                          /* GCOVR_EXCL_LINE: OOM path */
     }
     return 1;
+}
+
+int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
+    return import_foreign_node_in_run(dest_handle, slot, NULL);
 }
 
 /* import_foreign_node for every item of list, replacing an imported fragment by its local copy. Returns how many it
@@ -3162,13 +3194,15 @@ int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
    which PyPy's C-API layer does not expose. */
 static Py_ssize_t import_foreign_list(PyObject *dest_handle, PyObject *list) {
     Py_ssize_t imported = 0;
+    import_run run = {{0}, NULL}; /* one for the whole list, so values the moved siblings share are copied once */
     for (Py_ssize_t index = 0; index < PyList_GET_SIZE(list); index++) {
         PyObject *item = PyList_GET_ITEM(list, index);
         PyObject *slot = Py_NewRef(item);
-        int status = import_foreign_node(dest_handle, &slot);
-        if (status < 0) {    /* GCOVR_EXCL_BR_LINE: OOM only */
-            Py_DECREF(slot); /* GCOVR_EXCL_LINE */
-            return -1;       /* GCOVR_EXCL_LINE */
+        int status = import_foreign_node_in_run(dest_handle, &slot, &run);
+        if (status < 0) {          /* GCOVR_EXCL_BR_LINE: OOM only */
+            Py_DECREF(slot);       /* GCOVR_EXCL_LINE */
+            import_run_free(&run); /* GCOVR_EXCL_LINE */
+            return -1;             /* GCOVR_EXCL_LINE */
         }
         if (slot != item) {
             PyList_SetItem(list, index, slot);
@@ -3177,6 +3211,7 @@ static Py_ssize_t import_foreign_list(PyObject *dest_handle, PyObject *list) {
         }
         imported += status;
     }
+    import_run_free(&run);
     return imported;
 }
 
@@ -3311,8 +3346,8 @@ static int append_one(PyObject *self, th_node *parent, PyObject *item) {
     int fresh = 0;
     while (!node_owned_by(child, handle)) {
         uint64_t version = ((HandleObject *)handle)->mutation_version;
-        if (import_node(handle, child) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-            return -1;                            /* GCOVR_EXCL_LINE: OOM path */
+        if (import_node(handle, child, NULL) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+            return -1;                                  /* GCOVR_EXCL_LINE: OOM path */
         }
         /* the import bumps the version once; a further bump means another thread edited this tree while the import
            gave its lock up, and that edit can have linked the copy */
@@ -4334,11 +4369,13 @@ static int splice_fragment(th_tree *dest, th_tree *fragment, th_node *parent, th
                            enum th_adjacency position) {
     th_node *first_ref = position == TH_ADJ_AFTERBEGIN ? target->first_child : NULL;
     th_node *cursor = target;
+    th_copy_memo memo = {0}; /* one for all the top-level nodes, so attribute values they share are copied once */
     for (th_node *child = th_tree_document(fragment)->first_child; child != NULL;) {
         th_node *next = child->next_sibling;
-        th_node *copy = th_tree_copy_node(dest, fragment, child);
-        if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_node *copy = th_tree_copy_node_sharing(dest, fragment, child, &memo);
+        if (copy == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            th_copy_memo_free(&memo); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         switch (position) { /* GCOVR_EXCL_BR_LINE: the enum is exhaustive; the implicit default is unreachable */
         case TH_ADJ_BEFOREBEGIN:
@@ -4357,6 +4394,7 @@ static int splice_fragment(th_tree *dest, th_tree *fragment, th_node *parent, th
         }
         child = next;
     }
+    th_copy_memo_free(&memo);
     return 0;
 }
 

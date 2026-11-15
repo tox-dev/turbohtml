@@ -6530,14 +6530,17 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
             return -1;                      /* GCOVR_EXCL_LINE */
         }
         eng->src_root = th_tree_document(eng->source_snapshot);
+        th_copy_memo memo = {0}; /* one for all the top-level nodes, so attribute values they share are copied once */
         for (th_node *child = root->type == TH_NODE_CONTENT ? root->first_child : root; child != NULL;
              child = child->next_sibling) {
-            th_node *copy = th_tree_copy_node(eng->source_snapshot, src_tree, child);
-            if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-                return -1;      /* GCOVR_EXCL_LINE */
+            th_node *copy = th_tree_copy_node_sharing(eng->source_snapshot, src_tree, child, &memo);
+            if (copy == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+                th_copy_memo_free(&memo); /* GCOVR_EXCL_LINE */
+                return -1;                /* GCOVR_EXCL_LINE */
             }
             th_node_append_child(eng->src_root, copy);
         }
+        th_copy_memo_free(&memo);
         eng->src_tree = eng->source_snapshot;
     }
     if (model->nrules > 0) {
