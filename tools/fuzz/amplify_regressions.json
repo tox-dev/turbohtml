@@ -984,5 +984,33 @@
       "right": "none ",
       "tail": "}"
     }
+  },
+  {
+    "name": "whatwg-reopened-link-target",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<p>a<a href='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
+    }
+  },
+  {
+    "name": "whatwg-reopened-attribute-in-raw-table",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<table><tr><td colspan=2><p>a<b title='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
+    }
   }
 ]
