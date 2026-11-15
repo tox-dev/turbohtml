@@ -1781,3 +1781,40 @@ def test_process_existing_anchor_with_many_attributes_stays_linear(template: str
         ),
         (1000, 4000),
     )
+
+
+def test_linkify_node_unwrap_keeps_iter_elements_safe() -> None:
+    document = parse('<div><a href="https://links.example/">x</a></div><p>tail</p>')
+    config = Linkify(callbacks=[lambda _link: None], process_existing=True)
+    seen: list[str] = []
+    for element in document.iter_elements():
+        seen.append(element.tag)
+        if element.tag == "div":
+            linkify_node(element, config)
+    assert seen == ["html", "head", "body", "div", "a"]  # the walk follows the unwrapped anchor, as Element.unwrap does
+    assert document.html == "<html><head></head><body><div>x</div><p>tail</p></body></html>"
+
+
+def test_linkify_node_replaced_text_keeps_iter_elements_safe() -> None:
+    def rename(link: LinkCandidate) -> LinkCandidate:
+        link.text = "renamed"
+        return link
+
+    document = parse('<div><a href="https://links.example/"><b>x</b></a></div><p>tail</p>')
+    seen: list[str] = []
+    for element in document.iter_elements():
+        seen.append(element.tag)
+        if element.tag == "a":
+            linkify_node(document, Linkify(callbacks=[rename], process_existing=True))
+    assert seen == ["html", "head", "body", "div", "a", "b"]  # the walk follows the replaced child out of the tree
+    assert [anchor.html for anchor in document.find_all("a")] == ['<a href="https://links.example/">renamed</a>']
+
+
+def test_linkify_node_refreshes_element_index() -> None:
+    document = parse("<p>see a.dev</p>")
+    assert document.find_all("a") == []  # builds the whole-tree index
+    linkify_node(document)
+    assert [anchor.attrs["href"] for anchor in document.find_all("a")] == ["http://a.dev"]
+    linkify_node(document, Linkify(callbacks=[lambda _link: None], process_existing=True))
+    assert document.find_all("a") == []
+    assert document.select("* > a") == []

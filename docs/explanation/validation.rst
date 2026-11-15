@@ -25,8 +25,9 @@ repetition needs no backtracking, and resolving each leaf to a built-in datatype
 restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, so ``targetNamespace`` and
 ``elementFormDefault="qualified"`` validate correctly. The compiler resolves each reference up front and raises
 :class:`ValueError` for a ``ref``, ``type``, or ``base`` that names no component, for a cycle through ``group``,
-``attributeGroup``, or complex-type derivation, for an identity constraint the validator does not enforce, and for an
-``xs:all`` group outside a complex type's content model, and for an ``xs:all`` that occurs more than once. A schema with
+``attributeGroup``, or complex-type derivation, for an identity constraint the validator does not enforce, for an
+``xs:all`` group outside a complex type's content model, for an ``xs:all`` that occurs more than once, and for an
+``xs:group`` whose ``xs:all``, ``xs:sequence``, or ``xs:choice`` declares ``minOccurs`` or ``maxOccurs``. A schema with
 such a gap fails to compile, so it cannot accept a document it was written to reject.
 
 **RELAX NG** is a pattern algebra -- ``element``, ``attribute``, ``group``, ``choice``, ``interleave``, ``oneOrMore``,

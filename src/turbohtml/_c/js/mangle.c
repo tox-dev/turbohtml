@@ -362,11 +362,17 @@ static void declare(M *mangler, int32_t scope, const Py_UCS4 *name, Py_ssize_t l
     if (slot->val >= 0 && mangler->prog->syms[slot->val].scope == scope) {
         return; /* a re-declaration (var x; var x) reuses the same-scope symbol */
     }
+    int32_t outer = slot->val;
     int32_t sym = jm_sym_new(mangler->prog, name, len, scope, decl);
     if (sym < 0) {           /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         mangler->failed = 1; /* GCOVR_EXCL_LINE */
         return;              /* GCOVR_EXCL_LINE */
     }
+    /* past a block or catch binding, inherit the function-scope binding that one shadows */
+    if (outer >= 0 && mangler->prog->scopes[mangler->prog->syms[outer].scope].kind != 1) {
+        outer = mangler->prog->syms[outer].shadowed_var;
+    }
+    mangler->prog->syms[sym].shadowed_var = outer;
     push(mangler, &mangler->visible, name, len, sym);
 }
 
@@ -518,18 +524,14 @@ static TH_FORCEINLINE void walk(M *mangler, int32_t idx, int32_t scope, int bind
 
 /* A `var` in a catch block may name the catch parameter (Annex B.3.4): it binds the enclosing function's var while
    its initializer assigns the parameter, so the statement declares one binding and writes another. Pin both: they
-   keep the one spelling the statement gives them, and no pass drops a statement the var needs. */
+   keep the one spelling the statement gives them, and no pass drops a statement the var needs. The var is the
+   function-scope binding the parameter shadows, recorded when the parameter was declared: searching the function's
+   bindings for it here would cost a pass over all of them for every declarator. */
 static void pin_catch_redeclaration(jm_program *prog, int32_t param) {
     prog->syms[param].pinned = 1;
-    int32_t scope = prog->syms[param].scope;
-    while (prog->scopes[scope].kind != 1) {
-        scope = prog->scopes[scope].parent;
-    }
-    for (int32_t sym = prog->scopes[scope].first_sym; sym >= 0; sym = prog->syms[sym].scope_next) {
-        if (name_eq(prog->syms[sym].name, prog->syms[sym].name_len, prog->syms[param].name,
-                    prog->syms[param].name_len)) {
-            prog->syms[sym].pinned = 1;
-        }
+    int32_t var = prog->syms[param].shadowed_var;
+    if (var >= 0) { /* GCOVR_EXCL_BR_LINE: hoisting declared the var first unless an allocation failed */
+        prog->syms[var].pinned = 1;
     }
 }
 
@@ -566,13 +568,15 @@ static void pin_catch_redeclarations(jm_program *prog, int32_t idx) {
 
 /* A sloppy function with a simple parameter list maps `arguments[i]` onto its i-th parameter
    (§10.4.4), so reading `arguments` reads every parameter and writing through it writes them. Count
-   both on each parameter, so no pass drops an assignment to one as a dead store. */
-static void alias_parameters(M *mangler) {
+   both on each parameter, once per read, so no pass drops an assignment to one as a dead store. Finding the
+   parameters is a pass over the function's bindings, so the callers batch the reads instead of making a pass for
+   each one. */
+static void alias_parameters(M *mangler, int32_t reads) {
     for (int32_t sym = mangler->prog->scopes[mangler->args_scope].first_sym; sym >= 0;
          sym = mangler->prog->syms[sym].scope_next) {
         if (mangler->prog->syms[sym].decl == 3) {
-            mangler->prog->syms[sym].refs++;
-            mangler->prog->syms[sym].writes++;
+            mangler->prog->syms[sym].refs += reads;
+            mangler->prog->syms[sym].writes += reads;
             mangler->prog->syms[sym].ref_scope = -1;
         }
     }
@@ -654,6 +658,10 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
     hoist_vars(mangler, body_stmts, scope);
     hoist_block(mangler, body_stmts, scope);
     walk_chain(mangler, body_stmts, scope, 0);
+    /* one pass counts every `arguments` read after the first; an arrow's belong to the enclosing function */
+    if (mangler->args_scope == scope && mangler->prog->scopes[scope].args_reads > 1) {
+        alias_parameters(mangler, mangler->prog->scopes[scope].args_reads - 1);
+    }
     mangler->args_scope = outer_args;
     mangler->fn_scope = own_scope;
     undo_to(mangler, mark);
@@ -699,7 +707,11 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
             } /* bind == 1: a declaration target, neither read nor write */
         } else {
             if (mangler->args_scope >= 0 && word_is(node->str, node->str_len, "arguments")) {
-                alias_parameters(mangler);
+                /* count the first read at once, so that what follows sees the parameters as read, and leave
+                   the others for walk_function to count in one pass */
+                if (mangler->prog->scopes[mangler->args_scope].args_reads++ == 0) {
+                    alias_parameters(mangler, 1);
+                }
             }
             hslot *slot = htab_slot(&mangler->frees, node->str, node->str_len, 1); /* a global / free name */
             if (slot != NULL) { /* GCOVR_EXCL_BR_LINE: the false branch is an allocation failure */

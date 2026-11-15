@@ -223,6 +223,7 @@ struct th_tokenizer {
     int resolve_references; /* fold references into text (1) or split them into
                                TH_CHARREF tokens (0) */
     int capture_source;     /* record the verbatim source span of markup tokens */
+    Py_ssize_t cdata_off;   /* input index of the open CDATA section's "<![CDATA[", under capture_source */
     int capture_attributes; /* retain tag attributes for emitted tokens */
     int capture_locations;  /* stamp the granular tag/attribute source spans */
     int building;           /* a markup token is mid-construction, so its source
@@ -589,6 +590,15 @@ void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssiz
     self->input.cap = 0;
     self->input.kind = kind;
     self->input_borrowed = 1;
+}
+
+void th_tok_seek(th_tokenizer *self, Py_ssize_t pos, Py_ssize_t line, Py_ssize_t col) {
+    self->pos = pos;
+    self->line = line;
+    self->col = col;
+    self->mark_pos = pos;
+    self->mark_line = line;
+    self->mark_col = col;
 }
 
 int th_tok_failed(const th_tokenizer *self) {
@@ -1075,6 +1085,27 @@ static void pi_temp_to_comment(th_tokenizer *self) {
         push(self, &self->tok.text, buf_read(&self->temp, index));
     }
     self->eof_code = NULL;
+}
+
+/* Queue the CDATA section that just ended as one text token spanning its source, delimiters included. Only under
+   capture_source, where the run before the section was flushed as it opened: a consumer copying tokens out verbatim
+   would otherwise write the section's text bare, and its "<" would turn into markup. An empty section still yields a
+   token, to carry its source. */
+static void flush_cdata(th_tokenizer *self) {
+    th_token *rec = &self->text_record;
+    text_materialize(self);
+    flush_text(self);
+    if (self->queue_len == 0) {
+        token_reset(rec);
+        rec->kind = TH_TEXT;
+        buf_reset(&rec->text);
+        rec->line = self->line;
+        rec->col = self->col;
+        enqueue(self, rec);
+    }
+    rec->src_off = self->cdata_off;
+    rec->src_span = self->pos - self->cdata_off;
+    rec->has_source = 1;
 }
 
 /* Queue a TH_CHARREF token for an unresolved reference: the resolved code points

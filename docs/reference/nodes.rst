@@ -10,7 +10,8 @@ shape), so there is no text/tail split.
 
 Use :meth:`Node.iter_elements` to stream matching elements from a large tree. The iterator finds its next match before
 each yield; when an edit moves that node, traversal follows its new tree. The same holds when ``set_text``, the ``text``
-setter, ``field_value``, or :meth:`ShadowRoot.set_inner_html` replaces the children holding that node.
+setter, ``field_value``, :meth:`ShadowRoot.set_inner_html`, or :func:`~turbohtml.clean.linkify_node` replaces the
+children holding that node.
 
 .. autoclass:: Node
     :members:
