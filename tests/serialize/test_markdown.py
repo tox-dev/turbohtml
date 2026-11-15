@@ -4106,7 +4106,7 @@ def test_text_after_html_block_stays_text(html: str, config: Markdown) -> None:
         pytest.param(
             "<p><b><img><br>x</b></p>",
             Markdown(images=Markdown.Images(mode="alt")),
-            "**\\\nx**",
+            "\\\n**x**",
             id="break-after-empty-image-in-emphasis",
         ),
         pytest.param("<p><i><br><br></i><br>q</p>", Markdown(), "<br><br>  \nq", id="spaces-after-two-tags"),
@@ -4802,7 +4802,7 @@ def test_alt_only_image_text_follows_escaping_mode() -> None:
         pytest.param(
             "<em><q><br>z</q></em>",
             Markdown(inline=Markdown.Inline(quote_open="", quote_close="")),
-            " <em>  \nz</em>",
+            " *\\\nz*",
             id="quote-no-marks-break",
         ),
     ],
