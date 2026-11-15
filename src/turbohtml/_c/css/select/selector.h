@@ -103,6 +103,7 @@ typedef struct {
     uint16_t left_atom;
     int quirks;         /* the tree was parsed in quirks mode: class/ID match case-insensitively */
     int has_relational; /* the selector contains a :has() somewhere: a match may want the subtree memo */
+    int nests_has;      /* a :has() sits inside another :has(): a single match wants the sibling table */
     int reads_legend;   /* a :disabled, :enabled, :read-only or :read-write somewhere: a match wants the legend memo */
     int reads_dir;      /* a :dir() somewhere: a walk over many nodes wants one context for its dir=auto answers */
     th_tree *tree;      /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
