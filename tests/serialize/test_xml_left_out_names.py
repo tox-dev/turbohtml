@@ -86,6 +86,11 @@ _HTML_CASES: Final[tuple[pytest.ParameterSet, ...]] = (
         id="mathml-under-mathml",
     ),
     pytest.param(
+        lambda: _body("<d<><x-y>t</x-y></d<>"),
+        [("body", []), ("x-y", [])],
+        id="custom-element-under-left-out-element",
+    ),
+    pytest.param(
         lambda: _body("<svg><d< xmlns:xlink='urn:other'><a xlink:href='u'>t</a></d<></svg>"),
         [("body", []), (f"{_SVG}svg", []), (f"{_SVG}a", [_XLINK_HREF])],
         id="xlink-under-left-out-element",
