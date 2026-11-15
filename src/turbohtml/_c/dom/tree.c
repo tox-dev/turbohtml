@@ -2526,8 +2526,15 @@ static int afe_on_stack(th_tree *tree, th_node *node) {
     return tree->afe_stack_hint >= 0;
 }
 
+/* The most active formatting elements one reconstruction reopens: the entries nearest the end of the list, the ones
+   that apply most closely to what follows. The standard reopens every entry that has left the stack, and below
+   TH_MAX_TREE_DEPTH nothing else bounds the run, so unclosed start tags that differ (Noah's Ark drops only the
+   repeats) cost each later block one clone apiece: entries x blocks nodes. Real markup leaves a handful open across
+   a block. */
+#define TH_MAX_RECONSTRUCTED_FORMATTING 16
+
 /* Reconstruct the active formatting elements (re-open any that fell off the
-   stack of open elements) per the spec. */
+   stack of open elements) per the spec, up to TH_MAX_RECONSTRUCTED_FORMATTING of them. */
 static void reconstruct_afe(th_tree *tree) {
     if (tree->afe_len == 0) {
         return;
@@ -2542,6 +2549,20 @@ static void reconstruct_afe(th_tree *tree) {
             index++;
             break;
         }
+    }
+    Py_ssize_t excess = tree->afe_len - index - TH_MAX_RECONSTRUCTED_FORMATTING;
+    if (excess > 0) {
+        /* An entry passed over but left listed would be reopened by a later pass, and the list would outgrow the
+           stack, so the outermost ones leave the list. Every entry from index on is off the stack, so no open
+           element loses its entry. */
+        for (Py_ssize_t dropped = index; dropped < index + excess; dropped++) {
+            tree->afe[dropped]->afe_listed = 0;
+        }
+        memmove(&tree->afe[index], &tree->afe[index + excess],
+                (size_t)TH_MAX_RECONSTRUCTED_FORMATTING * sizeof(th_node *));
+        uint64_t *keys = afe_keys(tree);
+        memmove(&keys[index], &keys[index + excess], (size_t)TH_MAX_RECONSTRUCTED_FORMATTING * sizeof(uint64_t));
+        tree->afe_len -= excess;
     }
     for (; index < tree->afe_len; index++) {
         if (tree->open_len >= TH_MAX_TREE_DEPTH) {
