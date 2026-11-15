@@ -194,6 +194,14 @@ def test_external_only_attributes_backslash_authority_to_the_real_host() -> None
     assert extract_links(html, "http://good.example/", external_only=True) == {"http://evil.example/@good.example/"}
 
 
+def test_external_only_follows_a_same_scheme_base_href_ending_in_colon() -> None:
+    # an empty port makes the base name other.test, so a browser sends the page's relative links there
+    html: Final = '<base href="https://other.test:"><a href="/login">x</a><a href="reset">y</a>'
+    expected: Final = {"https://other.test/login", "https://other.test/reset"}
+    assert extract_links(html, "https://good.example/news/today") == expected
+    assert extract_links(html, "https://good.example/news/today", external_only=True) == expected
+
+
 def test_external_only_requires_a_base() -> None:
     with pytest.raises(ValueError, match="external_only requires a base_url"):
         extract_links('<a href="https://a.example/">x</a>', external_only=True)

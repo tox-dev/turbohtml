@@ -378,10 +378,14 @@ static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *parti
 
 /* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
 static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
-                             posset *out) {
+                             posset *out, int in_all) {
     posset_clear(out);
     int min = xsd_occurs_min(schema->tree, particle);
     int max = xsd_occurs_max(schema->tree, particle);
+    if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
+        min = min == 0 ? 0 : 1;
+        max = max == 0 ? 0 : 1;
+    }
     if (max < 0) {
         xsd_match_unbounded(schema, inst, particle, children, in, min, out);
     } else {
@@ -430,7 +434,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
                 continue;
             }
-            xsd_match_occurs(schema, inst, child, children, in, &branch);
+            xsd_match_occurs(schema, inst, child, children, in, &branch, 0);
             posset_or(out, &branch);
         }
         posset_free(schema, &branch);
@@ -443,11 +447,12 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         return;                                      /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
+    const int in_all = is_schema_el(schema, particle, XSD_NS, "all");
     for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
         if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
             continue;
         }
-        xsd_match_occurs(schema, inst, child, children, &cur, &next);
+        xsd_match_occurs(schema, inst, child, children, &cur, &next, in_all);
         posset spare = cur;
         cur = next;
         next = spare;
@@ -536,7 +541,7 @@ static TH_NOINLINE int xsd_record_all(th_schema *schema, th_node *all) {
     }
     count = 0;
     for (th_node *particle = all->first_child; particle != NULL; particle = particle->next_sibling) {
-        if (!is_schema_el(schema, particle, XSD_NS, "element")) {
+        if (!is_schema_el(schema, particle, XSD_NS, "element") || xsd_occurs_max(schema->tree, particle) == 0) {
             continue;
         }
         xall_member *member = &group->members[count];
@@ -602,36 +607,64 @@ static const xall_member *xsd_all_find(const xall_entry *group, const qname *nam
     return group->by_name[low];
 }
 
-/* Validate an `all` group: each child element matches a distinct particle by name,
-   with its per-particle occurs honored and order ignored. */
+/* One child of the instance that names a member of an xs:all group, with the child's position among the children. */
+typedef struct {
+    const xall_member *member;
+    Py_ssize_t child;
+} xall_hit;
+
+static int xsd_hit_order(const void *left, const void *right) {
+    const xall_hit *left_hit = left;
+    const xall_hit *right_hit = right;
+    const int by_member = (left_hit->member > right_hit->member) - (left_hit->member < right_hit->member);
+    return by_member != 0 ? by_member : (left_hit->child > right_hit->child) - (left_hit->child < right_hit->child);
+}
+
+static int xsd_hit_member_order(const void *left, const void *right) {
+    const xall_member *left_member = ((const xall_hit *)left)->member;
+    const xall_member *right_member = ((const xall_hit *)right)->member;
+    return (left_member > right_member) - (left_member < right_member);
+}
+
+/* Validate an `all` group: each child element matches the member it names and order is ignored. Each member occurs at
+   most once (XML Schema Part 1 limits an xs:all particle to maxOccurs 0 or 1), so a second child naming it is reported
+   and not validated. */
 static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_ssize_t nchildren) {
     th_schema *schema = ctx->schema;
     th_tree *inst = ctx->tree;
     const xall_entry *group = xsd_cached_all(schema, all);
-    /* the member each child matched, sorted below to tell which required members no child did */
-    const xall_member **seen = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
-    if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;         /* GCOVR_EXCL_LINE */
+    /* the member each child is validated against, NULL for a child that names none or repeats a member */
+    const xall_member **matched = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
+    xall_hit *hits = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_hit));
+    if (matched == NULL || hits == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                            /* GCOVR_EXCL_LINE */
     }
-    size_t seen_count = 0;
+    size_t hit_count = 0;
     for (Py_ssize_t index = 0; index < nchildren; index++) {
         TH_WORK_STEP();
         qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
-        const xall_member *matched = xsd_all_find(group, &name);
-        if (matched == NULL) {
+        matched[index] = xsd_all_find(group, &name);
+        if (matched[index] != NULL) {
+            hits[hit_count++] = (xall_hit){matched[index], index};
+        }
+    }
+    qsort(hits, hit_count, sizeof(xall_hit), xsd_hit_order);
+    Py_ssize_t present = 0;
+    for (size_t index = 0; index < hit_count; index++) {
+        if (index > 0 && hits[index].member == hits[index - 1].member) {
+            matched[hits[index].child] = NULL;
+        } else {
+            present += hits[index].member->required;
+        }
+    }
+    for (Py_ssize_t index = 0; index < nchildren; index++) {
+        TH_WORK_STEP();
+        if (matched[index] == NULL) {
             char buffer[256];
             report(ctx, children[index], "structure", "element '%s' is not allowed here",
                    name_utf8(children[index]->text, children[index]->text_len, buffer, sizeof(buffer)));
         } else {
-            seen[seen_count++] = matched;
-            xsd_validate_element(ctx, children[index], matched->want.decl);
-        }
-    }
-    qsort(seen, seen_count, sizeof(xall_member *), xsd_member_order);
-    Py_ssize_t present = 0;
-    for (size_t index = 0; index < seen_count; index++) {
-        if (index == 0 || seen[index] != seen[index - 1]) {
-            present += seen[index]->required;
+            xsd_validate_element(ctx, children[index], matched[index]->want.decl);
         }
     }
     if (present == group->required_count) {
@@ -640,7 +673,8 @@ static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_s
     for (Py_ssize_t index = 0; index < group->required_count; index++) {
         TH_WORK_STEP();
         const xall_member *member = group->required[index];
-        if (bsearch(&member, seen, seen_count, sizeof(xall_member *), xsd_member_order) != NULL) {
+        const xall_hit probe = {member, 0};
+        if (bsearch(&probe, hits, hit_count, sizeof(xall_hit), xsd_hit_member_order) != NULL) {
             continue;
         }
         char buffer[256];
@@ -1421,14 +1455,14 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         if (after_base.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return;                      /* GCOVR_EXCL_LINE */
         }
-        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base);
+        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base, 0);
         if (model != NULL) {
-            xsd_match_occurs(schema, inst, model, children, &after_base, &end);
+            xsd_match_occurs(schema, inst, model, children, &after_base, &end, 0);
         } else {
             posset_copy(&end, &after_base);
         }
     } else {
-        xsd_match_occurs(schema, inst, model, children, &start, &end);
+        xsd_match_occurs(schema, inst, model, children, &start, &end, 0);
     }
 
     if (!end.member[nchildren]) {

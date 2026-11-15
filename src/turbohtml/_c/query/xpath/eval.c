@@ -358,26 +358,6 @@ struct th_node *document_next(struct th_node *node) {
     return node->next_sibling;
 }
 
-struct th_node *tree_root(xp_ctx *ctx) {
-    xp_root *root = ctx->root;
-    if (root->node != NULL && (root->fixed || !root->mixed)) {
-        return root->node;
-    }
-    struct th_node *document = th_tree_document(ctx->tree);
-    struct th_node *node = ctx->node;
-    while (node != document && node->parent != NULL) {
-        TH_WORK_STEP();
-        node = node->parent;
-    }
-    /* A parsed fragment's root is where `/` stops, yet the parent axis goes on to the document node above it, which
-       is its own root: that one tree has two. */
-    root->mixed |= document != NULL && document->parent != NULL;
-    if (!root->mixed) {
-        root->node = node;
-    }
-    return node;
-}
-
 /* Pre-order predecessor over the whole tree, or NULL before the first node. */
 static struct th_node *document_previous(struct th_node *node) {
     if (node->prev_sibling == NULL) {
@@ -750,7 +730,10 @@ static TH_NOINLINE int climb_ancestors(xp_nodeset *out, const xn *step, const st
    the mix below spreads the low bits the allocator leaves zero. */
 typedef struct {
     const struct th_node *node;
-    Py_ssize_t value;
+    union {
+        Py_ssize_t value;     /* a sibling position */
+        struct th_node *root; /* a memoized root (root_store) */
+    };
 } addr_entry;
 
 typedef struct {
@@ -799,17 +782,35 @@ static int addr_map_insert(addr_map *map, const struct th_node *node, Py_ssize_t
         PyMem_Free(map->entries);
         *map = grown;
     }
-    map->entries[addr_slot(map, node)] = (addr_entry){node, value};
+    map->entries[addr_slot(map, node)] = (addr_entry){node, {value}};
     map->count++;
     return 0;
 }
 
+static struct th_node *known_root(const addr_map *roots, const struct th_node *node) {
+    return roots->capacity == 0 ? NULL : roots->entries[addr_slot(roots, node)].root;
+}
+
+/* Point node at root in the roots map, replacing any root it held. Out of memory, node stays out of the map, which
+   costs later climbs the steps it would have saved. */
+static void root_store(addr_map *roots, const struct th_node *node, struct th_node *root) {
+    if (known_root(roots, node) == NULL) {
+        if (addr_map_insert(roots, node, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return;                                /* GCOVR_EXCL_LINE */
+        }
+    }
+    roots->entries[addr_slot(roots, node)].root = root;
+}
+
 /* The positions map holds the sibling positions the evaluation has numbered, keyed by child. A parent's children are
    numbered together the first time two of them need ordering, so a set that keeps meeting one long sibling list walks
-   it once per evaluation. */
+   it once per evaluation. The roots map holds the root a deep climb reached for each node it passed (climb_memoized),
+   as of `unlinks`. */
 struct xp_caches {
     xr_cache regex;
     addr_map positions;
+    addr_map roots;
+    uint64_t unlinks;
 };
 
 static xp_caches *caches_get(xp_caches **caches) {
@@ -837,6 +838,78 @@ TH_NOINLINE void xp_order_forget(xp_caches *caches) {
 
 static Py_ssize_t known_position(xp_caches *const *caches, struct th_node *node) {
     return *caches == NULL ? 0 : addr_map_find(&(*caches)->positions, node);
+}
+
+/* Ancestors a root climb passes before it consults the root memo, so the memo stays off the path of ordinary depths. */
+#define XP_ROOT_CLIMB 32
+
+/* The next node a climb from node visits: the root the memo holds for it, else its parent. */
+static struct th_node *climb_step(const addr_map *roots, struct th_node *node) {
+    struct th_node *known = known_root(roots, node);
+    return known != NULL ? known : node->parent;
+}
+
+/* Climbs from `from`, a node XP_ROOT_CLIMB ancestors below the context, to the root through the root memo, then points
+   every node visited at that root. A climb through a deep tree thus walks each node about once per evaluation, however
+   many context nodes lie beneath it. A Python callback may move nodes, so the memo is kept only while no node has left
+   its parent (th_tree_unlinks); a memoized root that has since gained a parent is climbed on from. */
+static struct th_node *climb_memoized(xp_ctx *ctx, struct th_node *document, struct th_node *from) {
+    xp_caches *caches = caches_get(ctx->caches);
+    if (caches == NULL) {                                  /* GCOVR_EXCL_BR_LINE: allocation failure */
+        while (from != document && from->parent != NULL) { /* GCOVR_EXCL_LINE */
+            from = from->parent;                           /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+        return from; /* GCOVR_EXCL_LINE */
+    }
+    uint64_t unlinks = th_tree_unlinks();
+    if (caches->unlinks != unlinks) {
+        PyMem_Free(caches->roots.entries);
+        caches->roots = (addr_map){0};
+        caches->unlinks = unlinks;
+    }
+    struct th_node *top = from;
+    while (top != document && top->parent != NULL) {
+        TH_WORK_STEP();
+        top = climb_step(&caches->roots, top);
+    }
+    for (struct th_node *walked = from; walked != top;) {
+        TH_WORK_STEP();
+        struct th_node *next = climb_step(&caches->roots, walked);
+        if (next != top) {
+            root_store(&caches->roots, walked, top);
+        }
+        walked = next;
+    }
+    return top;
+}
+
+struct th_node *tree_root(xp_ctx *ctx) {
+    xp_root *root = ctx->root;
+    if (root->node != NULL && (root->fixed || !root->mixed)) {
+        return root->node;
+    }
+    struct th_node *document = th_tree_document(ctx->tree);
+    struct th_node *node = ctx->node;
+    if (root->mixed) {
+        for (int budget = XP_ROOT_CLIMB; node != document && node->parent != NULL; node = node->parent) {
+            TH_WORK_STEP();
+            if (--budget < 0) {
+                return climb_memoized(ctx, document, node);
+            }
+        }
+        return node;
+    }
+    while (node != document && node->parent != NULL) {
+        TH_WORK_STEP();
+        node = node->parent;
+    }
+    /* A parsed fragment's root is where `/` stops, yet the parent axis goes on to the document node above it, which
+       is its own root: that one tree has two. */
+    root->mixed |= document != NULL && document->parent != NULL;
+    if (!root->mixed) {
+        root->node = node;
+    }
+    return node;
 }
 
 /* The node's depth, or -1 once the walk spends *budget. */
@@ -2597,6 +2670,7 @@ TH_NOINLINE int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_r
 static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
     xr_cache_clear(&caches->regex);
     PyMem_Free(caches->positions.entries);
+    PyMem_Free(caches->roots.entries);
     PyMem_Free(caches);
 }
 

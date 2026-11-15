@@ -211,6 +211,75 @@ def test_absolute_path_in_a_predicate_over_a_deep_tree_stays_linear(expression: 
 
 
 @pytest.mark.parametrize(
+    ("expression", "extensions"),
+    [
+        pytest.param("count(//e[$other and /e/@main = @id])", None, id="variable-first"),
+        pytest.param(
+            "count(//e[$other and /e/@main = @id])",
+            {(None, "unused"): lambda _context: True},
+            id="variable-first-with-extensions",
+        ),
+        pytest.param(
+            "count(//e[unused() and /e/@main = @id])", {(None, "unused"): lambda _context: True}, id="extension-first"
+        ),
+    ],
+)
+def test_absolute_path_after_a_variable_or_extension_over_a_deep_tree_stays_linear(
+    expression: str, extensions: XPathExtensions | None, work_steps: WorkSteps
+) -> None:
+    def build(size: int) -> Callable[[], object]:
+        document: Final = parse_xml("<e>" * size + "</e>" * size)
+        root: Final = one(document, "/e")
+        return lambda: document.xpath(expression, other=[root], extensions=extensions)
+
+    work_steps.assert_linear(build, (1000, 4000))
+
+
+def test_absolute_path_from_a_deep_context_node_reaches_the_root() -> None:
+    document: Final = parse_xml(f"<r>{_deep_chain(40)}</r>")
+    assert one(document, "//e[@id='40']").xpath("name(/*)") == "r"
+
+
+def _deep_chain(depth: int) -> str:
+    return "".join(f"<e id='{number}'>" for number in range(1, depth + 1)) + "</e>" * depth
+
+
+def test_absolute_path_on_deep_nodes_from_two_roots_keeps_each_root() -> None:
+    document: Final = parse_xml(f"<r>{_deep_chain(40)}<t>{_deep_chain(40)}</t></r>")
+    detached: Final = one(document, "//t")
+    detached.extract()
+    assert document.xpath("count((//e | $other//e)[/r])", other=[detached]) == 40
+
+
+def test_absolute_path_after_a_callback_detaches_a_deep_ancestor_follows_the_new_root() -> None:
+    document: Final = parse_xml(f"<r>{_deep_chain(80)}</r>")
+    ancestor: Final = one(document, "//e[@id='2']")
+
+    def detach(context: SimpleNamespace) -> bool:
+        if context.context_node.attrs["id"] == "70":
+            ancestor.extract()
+        return True
+
+    result = document.xpath("//e[detach() and /r]/@id", extensions={(None, "detach"): detach})
+    assert result == [str(number) for number in range(1, 70)]
+
+
+def test_absolute_path_after_a_callback_attaches_a_deep_root_follows_the_new_root() -> None:
+    document: Final = parse_xml(f"<r><t>{_deep_chain(40)}</t></r>")
+    detached: Final = one(document, "//t")
+    detached.extract()
+    parent: Final = one(document, "/r")
+
+    def attach(context: SimpleNamespace) -> bool:
+        if context.context_node.attrs["id"] == "36":
+            parent.append(detached)
+        return True
+
+    result = document.xpath("$other//e[attach() and /r]/@id", other=[detached], extensions={(None, "attach"): attach})
+    assert result == [str(number) for number in range(36, 41)]
+
+
+@pytest.mark.parametrize(
     ("expression", "expected"),
     [
         pytest.param("/descendant::a", ["1", "2", "3", "4"], id="single-root-descendants"),
