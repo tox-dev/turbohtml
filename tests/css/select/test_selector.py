@@ -1815,6 +1815,22 @@ def test_ui_pseudo_coverage_cases(html: str, selector: str, ids: list[str]) -> N
             ["b"],
             id="fieldset-messy-children-legend-exempt",
         ),
+        # only the first legend is exempt, and every control below a legend shares its answer
+        pytest.param(
+            "<fieldset disabled><legend><input id=a><input id=b></legend>t<legend><input id=c><input id=d></legend>"
+            "</fieldset>",
+            "input:disabled",
+            ["c", "d"],
+            id="fieldset-later-legend-not-exempt",
+        ),
+        # each disabled fieldset up the chain is asked about the child the control sits under
+        pytest.param(
+            "<fieldset disabled><legend><fieldset disabled><legend><input id=a></legend><input id=b></fieldset>"
+            "</legend><div><legend><input id=c></legend></div></fieldset>",
+            "input:disabled",
+            ["b", "c"],
+            id="fieldset-nested-legend-chain",
+        ),
         # :lang() argument quoting and edge ranges
         pytest.param("<span lang id=x>v</span>", ":lang(en)", [], id="lang-valueless-attr"),
         pytest.param('<span lang="en" id=x>v</span>', ':lang("en")', ["x"], id="lang-double-quoted"),
@@ -1832,6 +1848,23 @@ def test_ui_pseudo_coverage_cases(html: str, selector: str, ids: list[str]) -> N
 )
 def test_pseudo_branch_coverage(html: str, selector: str, ids: list[str]) -> None:
     assert _ids(html, selector) == ids
+
+
+def test_disabled_fieldset_legend_single_match() -> None:
+    document = parse("<fieldset disabled><legend><input id=a></legend><legend><input id=b></legend></fieldset>")
+    first, later = document.select("input")
+    assert (first.matches(":enabled"), later.matches(":enabled")) == (True, False)
+
+
+# Controls beside a late legend are disabled and controls inside it are not. Finding the legend among the fieldset's
+# children once per control is quadratic in the fieldset's width; one memoized pass per legend is linear.
+def test_disabled_fieldset_late_legend_scales_linearly(work_steps: WorkSteps) -> None:
+    def build(width: int) -> Callable[[], list[Element]]:
+        document = parse(f"<fieldset disabled>{'<input>' * width}<legend>{'<input>' * width}</legend></fieldset>")
+        return lambda: document.select("input:enabled")
+
+    assert len(build(3)()) == 3
+    work_steps.assert_linear(build, (500, 2000))
 
 
 def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:
