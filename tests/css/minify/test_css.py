@@ -18,6 +18,7 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     from traced_bytes import PeakBytes
     from work_steps import WorkSteps
@@ -1413,6 +1414,55 @@ def _max_decls_per_rule(rule_count: int) -> int:
 
 
 _MAX_DECLS_PER_RULE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{([^}]*)\}")
+
+
+@pytest.mark.parametrize(
+    ("rules", "tail"),
+    [
+        pytest.param("a{--p0:0}" * 3, "}a{--p0:0}", id="short-rule-stays-apart"),
+        pytest.param("a{--q0:0}a{--q1:0}", ";--q0:0;--q1:0}", id="short-rules-add-up"),
+    ],
+)
+def test_minify_css_same_selector_merge_is_bounded_by_target_length(rules: str, tail: str) -> None:
+    # a merge re-minifies the whole target, so a rule under 1/64 of its length stays apart however often it repeats
+    body: Final = ";".join(f"--p{index}:0" for index in range(64))
+    result: Final = minify_css(f"a{{{body}}}{rules}")
+    assert (result, minify_css(result)) == (f"a{{{body}{tail}", result)
+
+
+def test_minify_css_same_selector_merge_below_the_cap_bounds_memory() -> None:
+    # a rule repeating a declaration of the body it joins never grows that body toward the cap, so each merge
+    # re-minified the whole body and kept one more copy of it in the pool until the call returned
+    # PyPy has no tracemalloc.
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    body: Final = ";".join(["b:c", *(f"p{index}:v" for index in range(1000))])
+    repeated: Final = "a{b:c}" * 3000
+    tracing.start()
+    try:
+        result: Final = minify_css(f"a{{{body}}}{repeated}")
+        peak: Final = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert (len(body) < 10 * 1024, result, peak < 16 * 1024 * 1024) == (True, f"a{{{body}}}a{{b:c}}", True), peak
+
+
+def test_minify_css_same_selector_merge_releases_its_scratch() -> None:
+    # a merge parses the whole merged body, and what that parse interned stayed in the pool until the call returned,
+    # so a run of merges into a body of nested functions held many times the source at once
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
+    value = "1px"
+    for _ in range(30):
+        value = f"min({value},2px)"
+    body: Final = ";".join(f"p{index:02d}:{value}" for index in range(12))
+    repeated: Final = f"a{{p00:{value};p01:{value}}}" * 300
+    source: Final = f"a{{{body}}}{repeated}"
+    tracing.start()
+    try:
+        result: Final = minify_css(source)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert (result.count("{"), peak < 200 * len(source), minify_css(result)) == (1, True, result), peak
 
 
 def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:
@@ -3337,6 +3387,37 @@ def test_minify_css_drops_border_default_width_with_color(value: str, expected: 
 )
 def test_minify_css_preserves_duplicate_border_colors(property_name: str, value: str, expected: str) -> None:
     assert minify_css(f"a{{{property_name}:{value}}}") == f"a{{{property_name}:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("property_name", "value", "expected"),
+    [
+        pytest.param("border", "none blurb none none", "none blurb none none", id="style"),
+        pytest.param("outline", "none auto none", "none auto none", id="outline-style"),
+        pytest.param("border", "medium blurb medium medium", "medium blurb medium medium", id="width"),
+        pytest.param("column-rule", "currentcolor solid currentcolor", "currentcolor solid currentcolor", id="color"),
+        pytest.param("border", "none medium blurb medium none", "none medium blurb medium none", id="style-and-width"),
+        pytest.param("border", "none solid medium red", "none solid red", id="lone-width-after-kept-style"),
+    ],
+)
+def test_minify_css_weighs_repeated_border_defaults_alike(property_name: str, value: str, expected: str) -> None:
+    assert minify_css(f"a{{{property_name}:{value}}}") == f"a{{{property_name}:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("property_name", "filler", "default"),
+    [
+        pytest.param("border", "blurb", "none", id="style"),
+        pytest.param("outline", "tiny", "medium", id="width"),
+        pytest.param("column-rule", "dotted", "currentcolor", id="color"),
+    ],
+)
+def test_minify_css_repeated_border_defaults_scan_in_linear_time(
+    property_name: str, filler: str, default: str, work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(minify_css, f"a{{{property_name}:{' '.join([filler] * n + [default] * n)}}}"), (1000, 4000)
+    )
 
 
 @pytest.mark.parametrize(

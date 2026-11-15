@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Final, cast
+from functools import partial
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
@@ -17,6 +18,11 @@ from turbohtml import (
     Text,
     parse_xml,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
 
 def test_returns_document_with_single_root() -> None:
@@ -782,6 +788,65 @@ def test_xml_duplicate_found_after_many_distinct(source: str) -> None:
     with pytest.raises(HTMLParseError) as error:
         parse_xml(source)
     assert error.value.error.code == "xml-duplicate-attribute"
+
+
+# A namespace URI has no length bound and stays in scope for every descendant, so reading it for each prefixed
+# attribute made the steps grow with URI length times attribute count.
+def _long_uri_many_attributes(count: int) -> str:
+    attributes = "".join(f' p:a{index}=""' for index in range(count))
+    return f'<r xmlns:p="urn:{"a" * count}"><a{attributes}/></r>'
+
+
+def _long_uri_many_elements(count: int) -> str:
+    children = '<a p:b=""/>' * count
+    return f'<r xmlns:p="urn:{"a" * count}">{children}</r>'
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(_long_uri_many_attributes, id="many-attributes"),
+        pytest.param(_long_uri_many_elements, id="many-elements"),
+    ],
+)
+def test_xml_long_namespace_uri_is_read_in_linear_steps(markup: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse_xml, markup(count)), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        pytest.param(f"urn:{'a' * 999}b", id="last-character-differs"),
+        pytest.param(f"urn:{'a' * 999}", id="shorter"),
+    ],
+)
+def test_xml_long_namespace_uris_that_differ_parse(other: str) -> None:
+    root: Final = parse_xml(f'<r xmlns:p="urn:{"a" * 1_000}" xmlns:q="{other}" p:x="1" q:x="2"/>').find("r")
+    assert root is not None
+    assert (root.attrs["p:x"], root.attrs["q:x"]) == ("1", "2")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            f'<r xmlns:p="urn:{"a" * 1_000}" xmlns:q="urn:{"a" * 1_000}" p:x="" q:x=""/>',
+            id="two-prefixes-one-long-uri",
+        ),
+        pytest.param('<r xmlns:p="u" xmlns:q="v"><a xmlns:p="v" p:x="" q:x=""/></r>', id="rebound-to-the-other-uri"),
+    ],
+)
+def test_xml_expanded_name_duplicate_follows_the_binding(source: str) -> None:
+    with pytest.raises(HTMLParseError) as error:
+        parse_xml(source)
+    assert error.value.error.code == "xml-duplicate-attribute"
+
+
+def test_xml_rebound_prefix_keeps_the_outer_uri_after_it_closes() -> None:
+    # each binding carries its own URI: p is v only inside <a>, so <b> sees the outer u again
+    element: Final = parse_xml('<r xmlns:p="u" xmlns:q="v"><a xmlns:p="v"/><b p:x="1" q:x="2"/></r>').find("b")
+    assert element is not None
+    assert (element.attrs["p:x"], element.attrs["q:x"]) == ("1", "2")
 
 
 @pytest.mark.parametrize(

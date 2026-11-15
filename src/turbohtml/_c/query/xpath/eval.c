@@ -743,12 +743,71 @@ static TH_NOINLINE int climb_ancestors(xp_nodeset *out, const xn *step, const st
     return rc;
 }
 
+/* A table keyed on the node's address. th_node_map hashes creation sequences, which a document chooses: members picked
+   by sequence can fill one stretch of the table, and every probe then walks that stretch. Addresses are not the
+   document's to choose, and MurmurHash3's finalizer spreads the low bits the allocator leaves zero. */
+typedef struct {
+    const struct th_node *node;
+    Py_ssize_t value;
+} addr_entry;
+
+typedef struct {
+    addr_entry *entries;
+    size_t capacity;
+    size_t count;
+} addr_map;
+
+static size_t addr_slot(const addr_map *map, const struct th_node *node) {
+    uint64_t hash = (uint64_t)(uintptr_t)node;
+    hash ^= hash >> 33;
+    hash *= UINT64_C(0xff51afd7ed558ccd);
+    hash ^= hash >> 33;
+    hash *= UINT64_C(0xc4ceb9fe1a85ec53);
+    hash ^= hash >> 33;
+    size_t slot = (size_t)hash & (map->capacity - 1);
+    while (map->entries[slot].node != NULL && map->entries[slot].node != node) {
+        TH_WORK_STEP();
+        slot = (slot + 1) & (map->capacity - 1);
+    }
+    return slot;
+}
+
+static Py_ssize_t addr_map_find(const addr_map *map, const struct th_node *node) {
+    return map->capacity == 0 ? 0 : map->entries[addr_slot(map, node)].value;
+}
+
+/* Values are positive indices; zero marks an absent node. Callers insert each node once. */
+static int addr_map_insert(addr_map *map, const struct th_node *node, Py_ssize_t value) {
+    if (map->count + 1 > map->capacity / 2) {
+        size_t capacity;
+        size_t bytes;
+        const int grew = th_grow_cap((map->count + 1) * 2, map->capacity, 16, sizeof(addr_entry), &capacity, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            return -1; /* GCOVR_EXCL_LINE: allocation size overflow */
+        }
+        addr_map grown = {PyMem_Calloc(1, bytes), capacity, map->count};
+        if (grown.entries == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;               /* GCOVR_EXCL_LINE */
+        }
+        for (size_t index = 0; index < map->capacity; index++) {
+            if (map->entries[index].node != NULL) {
+                grown.entries[addr_slot(&grown, map->entries[index].node)] = map->entries[index];
+            }
+        }
+        PyMem_Free(map->entries);
+        *map = grown;
+    }
+    map->entries[addr_slot(map, node)] = (addr_entry){node, value};
+    map->count++;
+    return 0;
+}
+
 /* The positions map holds the sibling positions the evaluation has numbered, keyed by child. A parent's children are
    numbered together the first time two of them need ordering, so a set that keeps meeting one long sibling list walks
    it once per evaluation. */
 struct xp_caches {
     xr_cache regex;
-    th_node_map positions;
+    addr_map positions;
 };
 
 static xp_caches *caches_get(xp_caches **caches) {
@@ -770,12 +829,12 @@ xr_cache *xp_regex_cache(xp_ctx *ctx) {
 TH_NOINLINE void xp_order_forget(xp_caches *caches) {
     if (caches != NULL && caches->positions.entries != NULL) {
         PyMem_Free(caches->positions.entries);
-        caches->positions = (th_node_map){0};
+        caches->positions = (addr_map){0};
     }
 }
 
 static Py_ssize_t known_position(xp_caches *const *caches, struct th_node *node) {
-    return *caches == NULL ? 0 : th_node_map_find(&(*caches)->positions, node);
+    return *caches == NULL ? 0 : addr_map_find(&(*caches)->positions, node);
 }
 
 /* The node's depth, or -1 once the walk spends *budget. */
@@ -945,7 +1004,7 @@ typedef struct {
     order_vertex *items;
     Py_ssize_t len;
     Py_ssize_t cap;
-    th_node_map index;
+    addr_map index;
 } order_skeleton;
 
 typedef struct {
@@ -961,8 +1020,8 @@ static int child_order(const void *pa, const void *pb) {
 
 /* One copy of the map insert for the ranking path, which only unusual sets reach. Inlined at each site, its growth
    counts against the LTO unit-growth budget and pushes unrelated hot inlines (the selector matcher's) over it. */
-static TH_NOINLINE int rank_map_insert(th_node_map *map, struct th_node *node, Py_ssize_t value) {
-    return th_node_map_insert(map, node, value);
+static TH_NOINLINE int rank_map_insert(addr_map *map, struct th_node *node, Py_ssize_t value) {
+    return addr_map_insert(map, node, value);
 }
 
 static Py_ssize_t skeleton_add(order_skeleton *skeleton, struct th_node *node) {
@@ -1000,7 +1059,7 @@ static Py_ssize_t sibling_position(xp_caches **caches, struct th_node *node) {
                 return -1;                                                /* GCOVR_EXCL_LINE */
             }
         }
-        position = th_node_map_find(&owner->positions, node);
+        position = addr_map_find(&owner->positions, node);
     }
     return position;
 }
@@ -1042,7 +1101,7 @@ static int order_children(xp_caches **caches, order_skeleton *skeleton) {
 static Py_ssize_t climb(order_skeleton *skeleton, Py_ssize_t *heads, const ranked_item *items, Py_ssize_t len) {
     Py_ssize_t active = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (th_node_map_find(&skeleton->index, items[index].item.node) == 0) {
+        if (addr_map_find(&skeleton->index, items[index].item.node) == 0) {
             heads[active] = skeleton_add(skeleton, items[index].item.node);
             if (heads[active++] < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 return -1;             /* GCOVR_EXCL_LINE */
@@ -1061,7 +1120,7 @@ static Py_ssize_t climb(order_skeleton *skeleton, Py_ssize_t *heads, const ranke
                 continue;
             }
             climbing = 1;
-            Py_ssize_t above = th_node_map_find(&skeleton->index, parent) - 1;
+            Py_ssize_t above = addr_map_find(&skeleton->index, parent) - 1;
             if (above < 0) {
                 above = skeleton_add(skeleton, parent);
                 if (above < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -1114,7 +1173,7 @@ static int rank_items(xp_caches **caches, ranked_item *items, Py_ssize_t len) {
     if (rc == 0) {                                                                /* GCOVR_EXCL_BR_LINE: alloc */
         number_skeleton(&skeleton, heads, active);
         for (Py_ssize_t index = 0; index < len; index++) {
-            const order_vertex *vertex = &skeleton.items[th_node_map_find(&skeleton.index, items[index].item.node) - 1];
+            const order_vertex *vertex = &skeleton.items[addr_map_find(&skeleton.index, items[index].item.node) - 1];
             items[index].rank = vertex->rank;
             items[index].top = vertex->top;
         }

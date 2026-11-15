@@ -66,6 +66,14 @@ def test_rewrite_rejects_non_str() -> None:
             id="checked",
         ),
         pytest.param("<a href=/1>x</a><a>y</a>", ":any-link", '<a href="/1" k="v">x</a><a>y</a>', id="any-link"),
+        # a stream keeps no earlier siblings, so it cannot tell a fieldset's first legend from a later one and
+        # every control below a disabled fieldset stays read-only
+        pytest.param(
+            "<fieldset disabled><legend><input></legend></fieldset><input>",
+            "input:read-write",
+            '<fieldset disabled><legend><input></legend></fieldset><input k="v">',
+            id="read-write-disabled-fieldset-legend",
+        ),
     ],
 )
 def test_rewrite_streamable_selectors_match(source: str, selector: str, expected: str) -> None:
