@@ -492,8 +492,10 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
 
 /* WHATWG "extract a character encoding from a meta element": the charset= token
    inside a Content-Type value. A quoted value with no closing quote yields no
-   encoding. Returns the label (into out) or NULL. */
-static const char *prescan_charset_in_content(const char *content, char *out, size_t out_cap) {
+   encoding. Returns the label as a span of content, its length in *label_len, or
+   NULL without a charset token. The label is not copied: a fixed-size copy could
+   trim to a label the whole token does not name. */
+static const char *prescan_charset_in_content(const char *content, Py_ssize_t *label_len) {
     const char *cursor = content;
     while ((cursor = strstr(cursor, "charset")) != NULL) {
         const char *after = cursor + 7;
@@ -508,13 +510,11 @@ static const char *prescan_charset_in_content(const char *content, char *out, si
         while (is_attr_space((unsigned char)*after)) {
             after++;
         }
-        size_t out_len = 0;
+        const char *start = after;
         if (*after == '"' || *after == '\'') {
             char quote = *after++;
+            start = after;
             while (*after != '\0' && *after != quote) {
-                if (out_len < out_cap - 1) {
-                    out[out_len++] = *after;
-                }
                 after++;
             }
             if (*after != quote) { /* no closing quote */
@@ -522,14 +522,11 @@ static const char *prescan_charset_in_content(const char *content, char *out, si
             }
         } else {
             while (*after != '\0' && *after != ';' && !is_attr_space((unsigned char)*after)) {
-                if (out_len < out_cap - 1) {
-                    out[out_len++] = *after;
-                }
                 after++;
             }
         }
-        out[out_len] = '\0';
-        return out_len > 0 ? out : NULL;
+        *label_len = after - start;
+        return start;
     }
     return NULL;
 }
@@ -571,7 +568,9 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
             pos += 5;
             int got_pragma = 0;
             int need_pragma = -1; /* -1 unset, 0 from a charset attr, 1 from a content attr */
-            char label[64] = {0};
+            /* looked up as each attribute is read, since the next attribute overwrites value */
+            const th_encoding_entry *charset = NULL;
+            int labeled = 0; /* the charset attribute supplied a non-empty label, whether or not it resolved */
             /* the spec builds an attribute list and skips an attribute whose name is already in it, so the first
                occurrence of each name wins and a repeated charset or http-equiv cannot override it */
             int seen_http_equiv = 0;
@@ -583,23 +582,22 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
                     got_pragma = strcmp(value, "content-type") == 0;
                 } else if (strcmp(name, "content") == 0 && !seen_content) {
                     seen_content = 1;
-                    if (label[0] == '\0' && prescan_charset_in_content(value, label, sizeof(label)) != NULL) {
+                    Py_ssize_t label_len = 0;
+                    const char *label = labeled ? NULL : prescan_charset_in_content(value, &label_len);
+                    if (label != NULL) {
+                        charset = th_encoding_lookup(label, label_len);
                         need_pragma = 1;
                     }
                 } else if (strcmp(name, "charset") == 0 && !seen_charset) {
                     seen_charset = 1;
-                    size_t copy = strlen(value);
-                    copy = copy < sizeof(label) - 1 ? copy : sizeof(label) - 1;
-                    memcpy(label, value, copy);
-                    label[copy] = '\0';
+                    charset = th_encoding_lookup(value, (Py_ssize_t)strlen(value));
+                    labeled = value[0] != '\0';
                     need_pragma = 0;
                 }
             }
-            if (need_pragma == 0 || (need_pragma == 1 && got_pragma)) {
-                const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
-                if (entry != NULL) {
-                    return th_encoding_declared(entry);
-                }
+            /* charset is only set together with need_pragma, so a resolved label needs no further test of it */
+            if (charset != NULL && (need_pragma == 0 || got_pragma)) {
+                return th_encoding_declared(charset);
             }
         } else if (pos + 2 <= len && (is_ascii_alpha(buf[pos + 1]) ||
                                       (buf[pos + 1] == '/' && pos + 2 < len && is_ascii_alpha(buf[pos + 2])))) {

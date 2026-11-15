@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 from turbohtml import parse
 from turbohtml.detect import detect
+
+_PAST_THE_PRESCAN: Final[bytes] = b"<!--" + b"x" * 1100 + b"-->"
+_CUT: Final[bytes] = b"windows-1251".ljust(63) + b"x"
+_PADDED: Final[bytes] = b" " * 80 + b"windows-1251" + b" " * 80
 
 
 @pytest.mark.parametrize(
@@ -26,6 +32,41 @@ def test_charset_beyond_the_first_bytes_of_a_content_value_is_still_found() -> N
     # the spec caps only the 1024-byte prescan window, never a single attribute value
     markup = b'<meta http-equiv=content-type content="text/html; a=' + (b"x" * 130) + b'; charset=utf-8">'
     assert parse(markup).encoding == "UTF-8"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(b'<meta charset="' + _CUT + b'">', id="charset-trailing"),
+        pytest.param(b'<meta charset="' + b"windows-1251x".rjust(64) + b'">', id="charset-leading"),
+        pytest.param(b"<meta http-equiv=content-type content=\"charset='" + _CUT + b"'\">", id="content"),
+        pytest.param(
+            _PAST_THE_PRESCAN + b"<meta http-equiv=content-type content=\"charset='" + _CUT + b"'\">",
+            id="content-past-the-prescan",
+        ),
+    ],
+)
+def test_a_value_longer_than_any_label_is_not_cut_down_to_one(markup: bytes) -> None:
+    # cut to 63 bytes and trimmed of whitespace the value would read "windows-1251"; whole, it names nothing
+    assert parse(markup).encoding == "windows-1252"
+    assert detect(markup).encoding == "windows-1252"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(b'<meta charset="' + _PADDED + b'">', id="charset"),
+        pytest.param(b"<meta http-equiv=content-type content=\"charset='" + _PADDED + b"'\">", id="content"),
+    ],
+)
+def test_whitespace_around_a_label_does_not_count_toward_its_length(markup: bytes) -> None:
+    assert parse(markup).encoding == "windows-1251"
+    assert detect(markup).encoding == "windows-1251"
+
+
+def test_whitespace_around_a_label_past_the_prescan_does_not_count_toward_its_length() -> None:
+    markup = _PAST_THE_PRESCAN + b"<meta http-equiv=content-type content=\"charset='" + _PADDED + b"'\">"
+    assert parse(markup).encoding == "windows-1251"
 
 
 @pytest.mark.parametrize(
