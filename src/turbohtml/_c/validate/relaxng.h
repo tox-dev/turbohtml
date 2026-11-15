@@ -201,10 +201,21 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
 #define MEMO_FREE_STEPS 1024
 #endif
 
-/* Leaves a choice built during validation may hold for each node of the schema, and at least the floor. A residual
+/* Leaves a choice built during validation may hold for each element of the schema, and at least the floor. A residual
    with two levels of nested ambiguity stays under it; one that doubles with each define passes it within a few. */
 #define RNG_CHOICE_PER_NODE 24
 #define RNG_CHOICE_FLOOR 256
+
+/* The schema document holds each define once, including those a grammar builds only during validation. The first
+   merge wide enough to need the limit computes it, so a validation that never builds a wide choice pays nothing. */
+static RNG_NOINLINE Py_ssize_t rng_choice_limit(th_schema *schema) {
+    if (schema->choice_limit == 0) {
+        Py_ssize_t nodes = schema_count_elements(th_tree_document(schema->tree));
+        schema->choice_limit =
+            nodes * RNG_CHOICE_PER_NODE > RNG_CHOICE_FLOOR ? nodes * RNG_CHOICE_PER_NODE : RNG_CHOICE_FLOOR;
+    }
+    return schema->choice_limit;
+}
 
 typedef struct memo_key {
     pattern *p;
@@ -397,7 +408,7 @@ static pattern *pat_choice_node(th_schema *schema, pattern *p1, pattern *p2) {
 
    The memo derives each node once per event, but a content model whose places double with each define still leaves a
    residual choice with one leaf per place. A merge is the only step that grows a choice past two leaves, so past the
-   limit it yields NotAllowed and validate() raises; a limit of 0 marks that this happened. */
+   limit it yields NotAllowed and marks the arena, and validate() raises; a limit of -1 marks that this happened. */
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t total = choice_leaf_count(p1) + choice_leaf_count(p2);
     pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
@@ -414,11 +425,13 @@ static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
             leaves[len++] = leaves[index];
         }
     }
-    if (len > schema->choice_limit) {
-        schema->choice_limit = 0;
-        return schema->p_notallowed;
-    }
     if (len > RNG_CHAIN_JOIN) {
+        /* the limit is never below RNG_CHOICE_FLOOR, so a chain of RNG_CHAIN_JOIN leaves needs no check */
+        if (len > rng_choice_limit(schema)) {
+            schema->choice_limit = -1;
+            schema->mem.no_memory = 1;
+            return schema->p_notallowed;
+        }
         return pat_fold(schema, pat_choice_node, leaves, len);
     }
     pattern *result = leaves[len - 1];
@@ -1912,7 +1925,6 @@ static RNG_NOINLINE int rng_scan_ref(th_schema *schema, th_node *ref, int depth,
 static RNG_FORCEINLINE int nodevec_push(nodevec *vec, th_node *node);
 
 static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending) {
-    schema->rng_scanned++;
     switch (rng_scan_kind(node)) {
     case RNG_SCAN_REF:
         return rng_scan_ref(schema, node, depth + 1, pending);
@@ -3027,17 +3039,8 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
                         : (Py_ssize_t)schema->pattern_count * 2 > MEMO_FREE_STEPS
                             ? (Py_ssize_t)schema->pattern_count * 2
                             : MEMO_FREE_STEPS;
-    /* A grammar builds its defines during validation, so the compiled patterns miss them; the scan visited each one. */
-    Py_ssize_t nodes = (Py_ssize_t)schema->pattern_count + schema->rng_scanned;
-    schema->choice_limit =
-        nodes * RNG_CHOICE_PER_NODE > RNG_CHOICE_FLOOR ? nodes * RNG_CHOICE_PER_NODE : RNG_CHOICE_FLOOR;
     Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
-    if (schema->choice_limit == 0) {
-        ctx->failed = 1;
-        PyErr_SetString(PyExc_ValueError, "RELAX NG content model too ambiguous to validate");
-        return;
-    }
     if (!rng_nullable(schema, result) && ctx->error_count == before) {
         report(ctx, root, "structure", "document does not match the schema");
     }

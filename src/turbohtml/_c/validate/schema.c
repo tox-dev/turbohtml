@@ -546,8 +546,8 @@ typedef struct th_schema {
     Py_ssize_t memo_free;       /* free steps an event starts with: MEMO_FREE_STEPS, or more for a larger schema */
     Py_ssize_t memo_budget; /* counts the current event's free steps down; the step that takes it below zero engages the
                                memo */
-    Py_ssize_t choice_limit; /* leaves a choice built during validation may hold; 0 once a merge ran past it */
-    Py_ssize_t rng_scanned;  /* schema nodes the reference scan visited, every reachable define counted once */
+    Py_ssize_t choice_limit; /* leaves a choice built during validation may hold: 0 until a wide merge computes it, -1
+                                once a merge ran past it */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
@@ -990,11 +990,16 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     Py_END_CRITICAL_SECTION();
     PyMem_Free(ctx.path.data);
     arena_free(&local.mem);
-    /* a derivative or pattern check that lost an allocation degraded to a mismatch, so its verdict is unknown */
+    /* a derivative or pattern check that lost an allocation, or a RELAX NG choice that ran past its limit, degraded to
+       a mismatch, so its verdict is unknown; only an arena OOM sets ctx.failed during validation */
     if (local.mem.no_memory && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-        ctx.failed = 1;                       /* GCOVR_EXCL_LINE */
-        PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
-    } /* GCOVR_EXCL_LINE: arena OOM */
+        ctx.failed = 1;
+        if (local.choice_limit < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            PyErr_SetString(PyExc_ValueError, "RELAX NG content model too ambiguous to validate");
+        } else {
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        }
+    }
     if (ctx.failed) {
         Py_DECREF(errors);
         return NULL;

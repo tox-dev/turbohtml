@@ -1665,8 +1665,8 @@ def test_rng_nested_places_below_the_limit_decide(xml: str, *, valid: bool) -> N
 @pytest.mark.parametrize(
     "schema",
     [
-        pytest.param(_nested_places(6, 4), id="many-outer-places"),
-        pytest.param(_nested_places(4, 6), id="many-inner-places"),
+        pytest.param(_nested_places(7, 4), id="many-outer-places"),
+        pytest.param(_nested_places(4, 7), id="many-inner-places"),
     ],
 )
 def test_rng_too_many_nested_places_raise(schema: str) -> None:
@@ -1676,7 +1676,7 @@ def test_rng_too_many_nested_places_raise(schema: str) -> None:
 
 def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<r><a><v/></a></r>")
-    work_steps.assert_linear(lambda n: partial(_validate_until_raised, RelaxNG(_nested_places(6, n)), document), (4, 5))
+    work_steps.assert_linear(lambda n: partial(_validate_until_raised, RelaxNG(_nested_places(6, n)), document), (5, 6))
 
 
 def _validate_until_raised(schema: RelaxNG, document: Document) -> None:
