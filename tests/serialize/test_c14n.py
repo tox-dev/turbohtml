@@ -1472,7 +1472,7 @@ def test_xml_c14n_assigned_attribute_with_unbound_prefix_and_no_declaration() ->
     ("tag", "expected"),
     [
         pytest.param("q:a", b'<r><q:a></q:a><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="unbound-prefix"),
-        pytest.param(":a", b'<r><:a></:a><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="empty-prefix"),
+        pytest.param(":a", b'<r><b><q:c xmlns:q="urn:q"></q:c></b></r>', id="empty-prefix"),
     ],
 )
 def test_xml_c14n_exclusive_inserted_element_name(tag: str, expected: bytes) -> None:
