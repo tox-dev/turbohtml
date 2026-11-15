@@ -38,9 +38,14 @@ either side -- with no backtracking. Smart constructors absorb ``notAllowed`` an
 the residual patterns, and ``choice`` drops a branch it already holds, so the residual of an ambiguous grammar stays
 bounded where it would otherwise double on each child. A shared ``define`` does not cost time that doubles with each
 reference: once an event has used its step allowance, which scales with the schema size, each shared ``define`` is
-evaluated at most once per event. The compiler enforces the specification's schema restrictions: it raises
-:class:`ValueError` for a ``<ref>`` with no name, for a reference cycle that never crosses an ``element``, and for an
-``interleave`` whose branches compete for an element name or for text.
+evaluated at most once per event. The residual still holds one alternative for each place the document so far can have
+reached, and a content model that reaches one element through many places, or nested elements that each do, multiplies
+those places. Validation therefore caps a residual at a number of alternatives that grows with the schema: at least 24
+for each element of the schema, counting each ``define`` once, and never fewer than 256. A validation that would pass
+the cap raises :class:`ValueError` instead of spending time and memory that grow exponentially with the schema. The
+compiler enforces the specification's schema restrictions: it raises :class:`ValueError` for a ``<ref>`` with no name,
+for a reference cycle that never crosses an ``element``, and for an ``interleave`` whose branches compete for an element
+name or for text.
 
 A RELAX NG schema can span files through ``include`` and ``externalRef``. The compiler resolves both as the
 specification's simplification steps describe: each ``href`` resolves against the element's base URI, the referenced
