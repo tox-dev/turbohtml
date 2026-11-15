@@ -166,6 +166,9 @@ struct th_tree {
     uint32_t *attr_slots; /* slot -> record index + 1; 0 marks an empty slot */
     uint64_t attr_version;
     uint64_t id_version;
+    /* set while the handle keeps a slot cache, cleared by a write or removal of slot=, or of name= on a <slot>: the
+       attribute edits that change slot assignment */
+    int slot_cache_valid;
     uint32_t attr_slot_mask;
     /* attr_slots while the name table is on FNV-1a; NULL while it is not built and once it has moved to
        th_name_hash for good, so the one test the lookup made for an unbuilt table also sends a keyed one

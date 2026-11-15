@@ -337,6 +337,14 @@ uint64_t th_tree_id_version(const th_tree *tree) {
     return tree->id_version;
 }
 
+int th_tree_slot_cache_valid(const th_tree *tree) {
+    return tree->slot_cache_valid;
+}
+
+void th_tree_set_slot_cache(th_tree *tree, int valid) {
+    tree->slot_cache_valid = valid;
+}
+
 int th_tree_quirks(const th_tree *tree) {
     return tree->quirks;
 }
