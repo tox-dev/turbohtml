@@ -1194,6 +1194,17 @@ def test_all_outside_complex_type_content_raises(model: str) -> None:
         XMLSchema(schema)
 
 
+def test_all_base_empty_extension_counts_each_member_once() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:all>'
+        '<xs:element name="a" minOccurs="0" maxOccurs="2"/><xs:element name="b"/></xs:all></xs:complexType>'
+        '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+        "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<r><a/><b/></r>").valid
+    assert not check(schema, "<r><a/><a/><b/></r>").valid
+
+
 def test_all_group_beside_sequence_content() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:group name="g"><xs:all><xs:element name="a"/><xs:element name="b"/></xs:all></xs:group>'

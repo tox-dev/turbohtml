@@ -383,8 +383,8 @@ static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle
     int min = xsd_occurs_min(schema->tree, particle);
     int max = xsd_occurs_max(schema->tree, particle);
     if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
-        min = min == 0 ? 0 : 1;
-        max = max == 0 ? 0 : 1;
+        min = min != 0;
+        max = max != 0;
     }
     if (max < 0) {
         xsd_match_unbounded(schema, inst, particle, children, in, min, out);
