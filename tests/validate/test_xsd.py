@@ -5,6 +5,7 @@ import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -17,6 +18,8 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult,
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -820,6 +823,135 @@ def test_all_any_order_and_missing() -> None:
     assert check(schema, "<r><x>2</x></r>").valid
     assert not check(schema, "<r><y>1</y></r>").valid  # missing required x
     assert not check(schema, "<r><x>1</x><z>2</z></r>").valid  # undeclared z
+
+
+_ALL_MEMBERS: Final[str] = (
+    f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:element name="r"><xs:complexType><xs:all>'
+    '<xs:element name="long" minOccurs="0"/>'
+    '<xs:element name="b"/>'
+    '<xs:element ref="t:a"/>'
+    '<xs:element name="a" minOccurs="0"/>'
+    '<xs:element name="b" type="xs:int"/>'
+    '<xs:element name="long"/>'
+    "</xs:all></xs:complexType></xs:element>"
+    '<xs:element name="a" type="xs:int"/></xs:schema>'
+)
+
+
+@pytest.mark.parametrize(
+    ("children", "messages"),
+    [
+        pytest.param("<long/><a>x</a><t:a>1</t:a><b>x</b>", [], id="any-order-first-declaration-of-a-name"),
+        pytest.param("<t:a>x</t:a><b/><long/>", ["value 'x' is not a valid int"], id="namespace-tells-members-apart"),
+        pytest.param(
+            "",
+            [
+                "required element 'long' is missing",
+                "required element 'b' is missing",
+                "required element 'a' is missing",
+            ],
+            id="name-declared-twice-is-required-when-either-is",
+        ),
+        pytest.param(
+            "<b/><zz/><b/>",
+            [
+                "element 'zz' is not allowed here",
+                "required element 'long' is missing",
+                "required element 'a' is missing",
+            ],
+            id="repeated-child-counts-its-member-once",
+        ),
+        pytest.param(
+            '<t:long/><a xmlns="urn:u"/><a/><long/>',
+            [
+                "element 't:long' is not allowed here",
+                "element 'a' is not allowed here",
+                "required element 'b' is missing",
+                "required element 'a' is missing",
+            ],
+            id="same-local-name-other-namespace",
+        ),
+    ],
+)
+def test_all_matches_members_by_name(children: str, messages: list[str]) -> None:
+    result = check(_ALL_MEMBERS, f'<t:r xmlns:t="urn:t">{children}</t:r>')
+    assert [error.message for error in result.errors] == messages
+
+
+def test_all_without_members_allows_no_child() -> None:
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r/>").valid
+    assert [error.message for error in check(schema, "<r><x/></r>").errors] == ["element 'x' is not allowed here"]
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="one"), pytest.param(2, id="two"), pytest.param(12, id="grown-table")]
+)
+def test_all_group_of_each_type_keeps_its_members(count: int) -> None:
+    types: Final = "".join(
+        f'<xs:complexType name="t{index}"><xs:all><xs:element name="m{index}"/></xs:all></xs:complexType>'
+        for index in range(count)
+    )
+    elements: Final = "".join(f'<xs:element name="e{index}" type="t{index}"/>' for index in range(count))
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS}>{types}<xs:element name="r"><xs:complexType><xs:sequence>{elements}</xs:sequence>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    own: Final = "".join(f"<e{index}><m{index}/></e{index}>" for index in range(count))
+    other: Final = "".join(f"<e{index}><m{index + 1}/></e{index}>" for index in range(count))
+    assert schema.validate(parse_xml(f"<r>{own}</r>")).valid
+    assert [error.message for error in schema.validate(parse_xml(f"<r>{other}</r>")).errors] == [
+        message
+        for index in range(count)
+        for message in (f"element 'm{index + 1}' is not allowed here", f"required element 'm{index}' is missing")
+    ]
+
+
+_LINEAR_SIZES: Final[tuple[int, int]] = (320, 1280)
+
+
+def test_all_children_naming_the_last_member_scale_linearly(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        last = f"<item{count - 1}/>"
+        return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{last * count}</r>"))
+
+    work_steps.assert_linear(build, _LINEAR_SIZES)
+    assert build(_LINEAR_SIZES[1])().valid
+
+
+def _all_schema(members: str) -> XMLSchema:
+    return XMLSchema(
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>{members}</xs:all>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+
+
+def _optional_members(count: int) -> str:
+    return "".join(f'<xs:element name="item{index}" minOccurs="0"/>' for index in range(count))
+
+
+def test_all_children_naming_no_member_scale_linearly(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<zz/>' * count}</r>"))
+
+    work_steps.assert_linear(build, _LINEAR_SIZES)
+    assert len(build(_LINEAR_SIZES[1])().errors) == _LINEAR_SIZES[1]
+
+
+def test_all_groups_scale_linearly(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], ValidationResult]:
+        schema = XMLSchema(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+            '<xs:element name="b" maxOccurs="unbounded"><xs:complexType><xs:all>'
+            f"{_optional_members(count)}</xs:all></xs:complexType></xs:element>"
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        return partial(schema.validate, parse_xml(f"<r>{'<b><item0/></b>' * count}</r>"))
+
+    work_steps.assert_linear(build, _LINEAR_SIZES)
+    assert build(_LINEAR_SIZES[1])().valid
 
 
 def test_named_type_and_group_ref() -> None:

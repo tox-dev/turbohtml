@@ -22,6 +22,7 @@
 #include "core/common.h"
 #include "dom/ownership.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 
@@ -556,6 +557,9 @@ typedef struct th_schema {
     struct rscratch *regex_scratch; /* match buffers of one validate() call, built on its first pattern check */
     struct xfacet_entry *facet_entries;
     size_t facet_count, facet_cap;
+    /* every xs:all group's members indexed by name, sorted by the group's node pointer */
+    struct xall_entry *all_entries;
+    size_t all_count, all_cap;
 } th_schema;
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every
