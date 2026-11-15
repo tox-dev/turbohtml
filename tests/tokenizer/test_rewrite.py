@@ -400,11 +400,12 @@ def test_rewrite_stray_end_tag_with_open_elements() -> None:
     assert rewrite("<div>a</span>b</div>", elements=[("div", _set("m", "1"))]) == '<div m="1">a</span>b</div>'
 
 
-def test_rewrite_stray_custom_end_tag_name_mismatch() -> None:
-    # </x-bar> shares the unknown-atom bucket with the open <x-foo> but its name differs,
+@pytest.mark.parametrize("stray", [pytest.param("x-bar", id="same-length"), pytest.param("x-fooo", id="longer")])
+def test_rewrite_stray_custom_end_tag_name_mismatch(stray: str) -> None:
+    # the stray end tag shares the unknown-atom bucket with the open <x-foo> but its name differs,
     # so it matches nothing and streams verbatim
-    result = rewrite("<x-foo>a</x-bar>b</x-foo>", elements=[("x-foo", _set("m", "1"))])
-    assert result == '<x-foo m="1">a</x-bar>b</x-foo>'
+    result = rewrite(f"<x-foo>a</{stray}>b</x-foo>", elements=[("x-foo", _set("m", "1"))])
+    assert result == f'<x-foo m="1">a</{stray}>b</x-foo>'
 
 
 def test_rewrite_unclosed_element_flushes_after() -> None:
@@ -1136,3 +1137,650 @@ def test_rewrite_attribute_growth_replace_and_escape() -> None:
 
     rest: Final = "".join(f' a{index}="before"' for index in range(1, 17))
     assert rewrite("<x>body</x>", elements=(("x", change),)) == f'<x a0="&quot;&amp;"{rest}>body</x>'
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # SVG/MathML content stays markup: title, style, xmp, ... are ordinary elements there
+        pytest.param("<svg><title><i>", ["svg", "title", "i"], id="svg-title"),
+        pytest.param("<svg><style><i></style>", ["svg", "style", "i"], id="svg-style"),
+        pytest.param("<svg><script><i></script>", ["svg", "script", "i"], id="svg-script"),
+        pytest.param("<svg><plaintext><i>", ["svg", "plaintext", "i"], id="svg-plaintext"),
+        pytest.param("<math><xmp><i>", ["math", "xmp", "i"], id="math-xmp"),
+        pytest.param("<svg><g><textarea><i>", ["svg", "g", "textarea", "i"], id="nested"),
+        pytest.param("<svg><svg></svg><style><i>", ["svg", "svg", "style", "i"], id="inner-svg-closed"),
+        pytest.param(
+            "<div><svg></svg><b><svg><title><i>", ["div", "svg", "b", "svg", "title", "i"], id="second-svg-under-html"
+        ),
+        # an integration point hands its start tags back to the HTML rules
+        pytest.param("<svg><foreignObject><style><i>", ["svg", "foreignobject", "style"], id="foreign-object"),
+        pytest.param("<svg><desc><xmp><i>", ["svg", "desc", "xmp"], id="desc"),
+        pytest.param("<svg><title><textarea><i>", ["svg", "title", "textarea"], id="title-point"),
+        pytest.param("<math><mi><style><i>", ["math", "mi", "style"], id="mathml-text-point"),
+        pytest.param("<math><mi><mglyph><style><i>", ["math", "mi", "mglyph", "style", "i"], id="mglyph"),
+        pytest.param("<math><mo><malignmark><style><i>", ["math", "mo", "malignmark", "style", "i"], id="malignmark"),
+        pytest.param("<math><mi><svg><style><i>", ["math", "mi", "svg", "style", "i"], id="svg-in-text-point"),
+        pytest.param("<svg><desc><math><style><i>", ["svg", "desc", "math", "style", "i"], id="math-in-desc"),
+        pytest.param("<math><annotation-xml><style><i>", ["math", "annotation-xml", "style", "i"], id="annotation-xml"),
+        pytest.param(
+            '<math><annotation-xml encoding="Text/HTML"><style><i>', ["math", "annotation-xml", "style"], id="html"
+        ),
+        pytest.param(
+            "<math><annotation-xml encoding=application/xhtml+xml><style><i>",
+            ["math", "annotation-xml", "style"],
+            id="xhtml",
+        ),
+        pytest.param(
+            "<math><annotation-xml id=a encoding=text/html><style><i>", ["math", "annotation-xml", "style"], id="second"
+        ),
+        pytest.param(
+            "<math><annotation-xml encoding=text/xml><style><i>", ["math", "annotation-xml", "style", "i"], id="xml"
+        ),
+        pytest.param(
+            "<math><annotation-xml encoding><style><i>", ["math", "annotation-xml", "style", "i"], id="bare-encoding"
+        ),
+        pytest.param(
+            "<math><annotation-xml encoding=x encoding=text/html><style><i>",
+            ["math", "annotation-xml", "style", "i"],
+            id="first-encoding-wins",
+        ),
+        pytest.param(
+            "<math><annotation-xml><svg><style><i>",
+            ["math", "annotation-xml", "svg", "style", "i"],
+            id="svg-in-annotation",
+        ),
+        pytest.param(
+            "<svg><annotation-xml encoding=text/html><style><i>",
+            ["svg", "annotation-xml", "style", "i"],
+            id="svg-annotation",
+        ),
+        # a breakout tag closes the foreign elements, so what follows is HTML again
+        pytest.param("<svg><g><p><style><i>", ["svg", "g", "p", "style"], id="breakout"),
+        pytest.param("<svg><img><style><i>", ["svg", "img", "style"], id="void-breakout"),
+        pytest.param("<svg><font color=red><style><i>", ["svg", "font", "style"], id="font-color"),
+        pytest.param("<svg><font x FACE=a><style><i>", ["svg", "font", "style"], id="font-face"),
+        pytest.param("<svg><font size=1><style><i>", ["svg", "font", "style"], id="font-size"),
+        pytest.param("<svg><font \u0101 size=1><style><i>", ["svg", "font", "style"], id="font-wide-name"),
+        pytest.param("<svg><font sized><style><i>", ["svg", "font", "style", "i"], id="font-plain"),
+        pytest.param("<svg><desc><svg><b><style><i>", ["svg", "desc", "svg", "b", "style"], id="breakout-to-point"),
+        pytest.param("<svg></p><style><i>", ["svg", "style"], id="end-p"),
+        pytest.param("<svg><g></br><style><i>", ["svg", "g", "style"], id="end-br"),
+        pytest.param("<p><svg></p><style><i>", ["p", "svg", "style"], id="end-p-closes-open-p"),
+        pytest.param("<svg><desc></p><style><i>", ["svg", "desc", "style"], id="end-p-at-point"),
+        # end tags: a foreign element closes by name, an HTML end tag stops at a scoping foreign element
+        pytest.param("<svg><g></svg><style><i>", ["svg", "g", "style"], id="end-svg"),
+        pytest.param("<svg><title></svg><style><i>", ["svg", "title", "style"], id="end-svg-from-point"),
+        pytest.param("<svg><g></x><style><i>", ["svg", "g", "style", "i"], id="stray-end"),
+        pytest.param(
+            "<svg><desc><div><body></body><title><i>", ["svg", "desc", "div", "body", "title"], id="end-unopened-body"
+        ),
+        pytest.param("<svg><x-y><g></x-y><style><i>", ["svg", "x-y", "g", "style", "i"], id="custom-end"),
+        pytest.param("<div><svg><g></div><style><i>", ["div", "svg", "g", "style"], id="html-end-closes-svg"),
+        pytest.param("<svg><title><b></title><style><i>", ["svg", "title", "b", "style"], id="point-bounds-own-end"),
+        pytest.param(
+            "<div><svg><desc><b></div></b></desc><style><i>",
+            ["div", "svg", "desc", "b", "style", "i"],
+            id="point-bounds",
+        ),
+        pytest.param(
+            "<div><math><annotation-xml><g></div><style><i>",
+            ["div", "math", "annotation-xml", "g", "style", "i"],
+            id="annotation-xml-bounds",
+        ),
+        pytest.param(
+            "<div><svg><annotation-xml></div><style><i>",
+            ["div", "svg", "annotation-xml", "style"],
+            id="svg-annotation-open",
+        ),
+        pytest.param(
+            "<table><td><svg><desc><b></td><style><i>", ["table", "td", "svg", "desc", "b", "style"], id="table-scope"
+        ),
+        pytest.param("<td><svg><td></td><style><i>", ["td", "svg", "td", "style", "i"], id="foreign-td"),
+        # the trailing slash ends a foreign element only
+        pytest.param("<svg><title/><style><i>", ["svg", "title", "style", "i"], id="self-closing-foreign"),
+        pytest.param("<svg/><style><i>", ["svg", "style"], id="self-closing-svg"),
+        pytest.param("<title/><i>", ["title"], id="self-closing-html-title"),
+        pytest.param("<script/><i></script><b>", ["script", "b"], id="self-closing-html-script"),
+        pytest.param("<b/><svg></b><style><i>", ["b", "svg", "style"], id="self-closing-html-stays-open"),
+    ],
+)
+def test_rewrite_foreign_content_tokenizes_like_a_browser(source: str, expected: list[str]) -> None:
+    assert _seen(source) == expected
+    # the tree builder agrees on which <i> is an element and which is text
+    assert len(parse(source).select("i")) == expected.count("i")
+
+
+def _seen(source: str) -> list[str]:
+    tags: list[str] = []
+    assert rewrite(source, elements=[("*", lambda element: tags.append(element.tag))]) == source
+    return tags
+
+
+def test_rewrite_removes_script_inside_svg_title() -> None:
+    def drop(element: Element) -> None:
+        element.remove()
+
+    source = "<svg><title><b><script>go()</script></b></title><style><script>x</script></style></svg>"
+    assert rewrite(source, elements=[("script", drop)]) == "<svg><title><b></b></title><style></style></svg>"
+
+
+def test_rewrite_text_in_foreign_script_is_escaped() -> None:
+    def fill(element: Element) -> None:
+        element.set_content("a<b")
+
+    # an HTML script holds raw text; an SVG one is parsed as markup, so text written into it is escaped
+    source = "<script>x</script><svg><script>x</script></svg>"
+    assert rewrite(source, elements=[("script", fill)]) == "<script>a<b</script><svg><script>a&lt;b</script></svg>"
+
+
+def test_rewrite_breakout_flushes_trailing_edits_of_closed_foreign_elements() -> None:
+    def edit(element: Element) -> None:
+        element.append("+")
+        element.after("!")
+
+    assert rewrite("<svg><g>a<p>b</p></svg>", elements=[("g", edit)]) == "<svg><g>a+!<p>b</p></svg>"
+    assert rewrite("<svg><g>a</p>b</svg>", elements=[("g", edit)]) == "<svg><g>a+!</p>b</svg>"
+
+
+def test_rewrite_breakout_ends_removed_foreign_element() -> None:
+    def drop(element: Element) -> None:
+        element.remove()
+
+    def swap(element: Element) -> None:
+        element.set_content("Q")
+        element.after("!")
+
+    # <p> is not inside the <svg> a browser builds, so it is not part of what is removed or replaced
+    assert rewrite("<svg><g>a<p>b</p></svg>c", elements=[("svg", drop)]) == "<p>b</p></svg>c"
+    assert rewrite("<svg><g>a<p>b</p></svg>c", elements=[("g", swap)]) == "<svg><g>Q!<p>b</p></svg>c"
+    assert rewrite("<svg><g><a>x<p>b</p>", elements=[("g", drop), ("a", swap)]) == "<svg><p>b</p>"
+
+
+def _remove(element: Element) -> None:
+    element.remove()
+
+
+def _replace_with_text(element: Element) -> None:
+    element.replace("img src=x")
+
+
+def _strip_font(element: Element) -> None:
+    for name in ("color", "face", "size"):
+        element.remove_attribute(name)
+
+
+_TITLE: Final[str] = "<title><script>run()</script></title>"
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "handler", "expected"),
+    [
+        # a breakout start tag ends the open <svg>/<math>; dropped, it leaves their end tags in its place
+        pytest.param(f"<svg><font color=red>{_TITLE}</font>", "font", _unwrap, f"<svg></svg>{_TITLE}", id="unwrap"),
+        pytest.param(f"<svg><img src=a>{_TITLE}", "img", _remove, f"<svg></svg>{_TITLE}", id="remove-void"),
+        pytest.param(
+            f"<math><b></b>{_TITLE}", "b", _replace_with_text, f"<math></math>img src=x{_TITLE}", id="replace"
+        ),
+        pytest.param(
+            f"<svg><g><svg><a><p>{_TITLE}", "p", _unwrap, f"<svg><g><svg><a></a></svg></g></svg>{_TITLE}", id="nested"
+        ),
+        pytest.param(
+            f"<svg><desc><svg><g><p>{_TITLE}", "p", _unwrap, f"<svg><desc><svg><g></g></svg>{_TITLE}", id="to-point"
+        ),
+        # a <font> breaks out only while it keeps color, face or size
+        pytest.param(
+            f"<svg><font color=a id=b size=1>{_TITLE}",
+            "font",
+            _strip_font,
+            f'<svg></svg><font id="b">{_TITLE}',
+            id="font-stripped",
+        ),
+        pytest.param(
+            f"<svg><font size=1>{_TITLE}",
+            "font",
+            _set("color", "a"),
+            f'<svg><font size="1" color="a">{_TITLE}',
+            id="font-kept",
+        ),
+        pytest.param(f"<svg><b>{_TITLE}", "b", _set("id", "a"), f'<svg><b id="a">{_TITLE}', id="edited"),
+        # a dropped end tag leaves the end tags of the foreign elements it closed
+        pytest.param(f"<p><svg><g></p>{_TITLE}", "p", _unwrap, f"<svg><g></g></svg>{_TITLE}", id="end-p"),
+        pytest.param(
+            f"<div><math><mrow></div>{_TITLE}", "div", _unwrap, f"<math><mrow></mrow></math>{_TITLE}", id="end-html"
+        ),
+        pytest.param(
+            f"<table><td><i><svg><desc><b></td></b></desc>{_TITLE}",
+            "td",
+            _unwrap,
+            f"<table><i><svg><desc><b></b></desc></svg></b></desc>{_TITLE}",
+            id="end-through-point",
+        ),
+        pytest.param(f"<div/><svg></div>{_TITLE}", "div", _unwrap, f"<svg></svg>{_TITLE}", id="end-html-slash"),
+        pytest.param(f"<div><svg></div>{_TITLE}", "div", _remove, _TITLE, id="end-of-removed"),
+    ],
+)
+def test_rewrite_dropped_tag_still_ends_foreign_content(
+    source: str, selector: str, handler: Callable[[Element], None], expected: str
+) -> None:
+    result = rewrite(source, elements=[(selector, handler), ("script", _remove)])
+    assert result == expected
+    # the <title> text was no script in the input, so no handler saw it, and it is none in the output
+    assert not parse(source, scripting=True).select("script")
+    assert not parse(result, scripting=True).select("script")
+
+
+def test_rewrite_dropped_breakout_ends_foreign_elements_in_place() -> None:
+    def mark(element: Element) -> None:
+        element.append(f"[{element.tag}")
+        element.after(f"{element.tag}]")
+
+    def drop(element: Element) -> None:
+        element.before("^")
+        element.remove()
+
+    def fill(element: Element) -> None:
+        element.set_content("Q")
+
+    # each end tag goes where its element ended: after its append(), ahead of its after() and the dropped tag's before()
+    source = "<svg><g>a<p>b</p>c"
+    assert rewrite(source, elements=[("svg, g", mark), ("p", drop)]) == "<svg><g>a[g</g>g][svg</svg>svg]^c"
+    marked = "<svg><g>a[g</g>g][svg</svg>svg]c"
+    assert rewrite("<p><svg><g>a</p>c", elements=[("svg, g", mark), ("p", _unwrap)]) == marked
+    # an element whose own start tag is not in the output gets no end tag
+    assert rewrite(source, elements=[("g", _unwrap), ("p", drop)]) == "<svg>a</svg>^c"
+    assert rewrite(source, elements=[("svg", _remove), ("p", drop)]) == "^c"
+    assert rewrite(source, elements=[("svg", fill), ("p", drop)]) == "<svg>Q</svg>^c"
+    assert rewrite(f"<div>{source}</div>d", elements=[("div", fill), ("p", drop)]) == "<div>Q</div>d"
+    assert rewrite("<div><svg><g><a>x</div>c", elements=[("g", fill), ("div", _unwrap)]) == "<svg><g>Q</g></svg>c"
+    assert rewrite("<div><svg><g>x</div>c", elements=[("g", _unwrap), ("div", _unwrap)]) == "<svg>x</svg>c"
+    # without a foreign element left open, a dropped end tag closes nothing, as before
+    assert rewrite("<div><b><i>x</div>c", elements=[("div", _unwrap)]) == "<b><i>xc"
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "expected"),
+    [
+        pytest.param('<xmp/><a title="</xmp><script>x</script>">', "script", '<xmp/><a title="</xmp>">', id="raw-text"),
+        pytest.param("<title/><b></title><i>", "i", "<title/><b></title>", id="rcdata"),
+        pytest.param("<script/><b></script><i>", "i", "<script/><b></script>", id="script"),
+        pytest.param("<div/>x</div>y", "div", "y", id="html-stays-open"),
+        pytest.param('<div class="ad"/><img src=x></div>ok', ".ad", "ok", id="html-keeps-its-content"),
+        pytest.param("<svg><input/>x</input>y</svg>", "input", "<svg>x</input>y</svg>", id="foreign-closes"),
+        pytest.param("<svg><input>x</input>y</svg>", "input", "<svg>y</svg>", id="foreign-is-not-void"),
+    ],
+)
+def test_rewrite_self_closing_slash_only_closes_foreign(source: str, selector: str, expected: str) -> None:
+    assert rewrite(source, elements=[(selector, lambda element: element.remove())]) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "tags"),
+    [
+        pytest.param("<svg><title><script>x</script></title></svg>", ["svg", "title", "script"], id="svg-title"),
+        pytest.param("<svg><style><b></style></svg>", ["svg", "style", "b"], id="svg-style-breakout"),
+        pytest.param("<svg><g><style><a></a></style></g></svg>", ["svg", "g", "style", "a"], id="svg-style"),
+        pytest.param("<math><xmp><mi></mi></xmp></math>", ["math", "xmp", "mi"], id="math-xmp"),
+        pytest.param("<svg><desc><title><b></title></desc></svg>", ["svg", "desc", "title"], id="html-in-desc"),
+        pytest.param(
+            "<svg><foreignObject><xmp><b></xmp></foreignObject>",
+            ["svg", "foreignobject", "xmp"],
+            id="html-in-foreign-object",
+        ),
+        pytest.param("<math><mi><xmp><b></xmp></mi>", ["math", "mi", "xmp"], id="math-text"),
+        pytest.param("<math><mi><mglyph><xmp><a>", ["math", "mi", "mglyph", "xmp", "a"], id="mglyph-stays-foreign"),
+        pytest.param("<math><mi><malignmark><title><b>", ["math", "mi", "malignmark", "title", "b"], id="malignmark"),
+        pytest.param("<math><annotation-xml><xmp><a>", ["math", "annotation-xml", "xmp", "a"], id="annotation"),
+        pytest.param("<math><annotation-xml><svg><title>", ["math", "annotation-xml", "svg", "title"], id="svg-in"),
+        pytest.param(
+            '<math><annotation-xml encoding="Text/HTML"><xmp><a>',
+            ["math", "annotation-xml", "xmp"],
+            id="annotation-html",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="application/xhtml+xml"><xmp><a>',
+            ["math", "annotation-xml", "xmp"],
+            id="annotation-xhtml",
+        ),
+        pytest.param(
+            "<math><annotation-xml x encoding=text/html><xmp><a>",
+            ["math", "annotation-xml", "xmp"],
+            id="annotation-second-attribute",
+        ),
+        pytest.param(
+            "<math><annotation-xml encoding=text/htmx><xmp><a>",
+            ["math", "annotation-xml", "xmp", "a"],
+            id="annotation-other-type",
+        ),
+        pytest.param(
+            "<math><annotation-xml encoding><xmp><a>",
+            ["math", "annotation-xml", "xmp", "a"],
+            id="annotation-bare-encoding",
+        ),
+    ],
+)
+def test_rewrite_raw_text_models_are_html_only(source: str, tags: list[str]) -> None:
+    assert _seen(source) == tags
+
+
+def test_rewrite_removes_a_script_in_an_svg_title() -> None:
+    strip = [("script", lambda element: element.remove())]
+    assert rewrite("<svg><title><script>x</script></title></svg>", elements=strip) == "<svg><title></title></svg>"
+
+
+@pytest.mark.parametrize(
+    ("source", "tags"),
+    [
+        pytest.param("<svg><p><title><b></title>", ["svg", "p", "title"], id="breakout-start"),
+        pytest.param("<svg><font color=red><title><b></title>", ["svg", "font", "title"], id="breakout-font"),
+        pytest.param("<svg><font face=x><title><b></title>", ["svg", "font", "title"], id="breakout-font-face"),
+        pytest.param("<svg><font size=1><title><b></title>", ["svg", "font", "title"], id="breakout-font-size"),
+        pytest.param("<svg><font><title><b></title>", ["svg", "font", "title", "b"], id="font-stays"),
+        pytest.param("<svg><font data=1><title><b>", ["svg", "font", "title", "b"], id="font-other-attribute"),
+        pytest.param("<svg><font \u015dize=1><title><b>", ["svg", "font", "title", "b"], id="font-wide-attribute"),
+        pytest.param("<svg><g></p><title><b></title>", ["svg", "g", "title"], id="breakout-end-p"),
+        pytest.param("<svg></br><title><b></title>", ["svg", "title"], id="breakout-end-br"),
+        pytest.param(
+            "<svg><desc><svg><g><p></p></desc><title><b>",
+            ["svg", "desc", "svg", "g", "p", "title", "b"],
+            id="to-integration-point",
+        ),
+        pytest.param(
+            "<math><mi><mglyph><p></p><mglyph><title><b>",
+            ["math", "mi", "mglyph", "p", "mglyph", "title", "b"],
+            id="to-text-integration-point",
+        ),
+    ],
+)
+def test_rewrite_breaks_out_of_foreign_content(source: str, tags: list[str]) -> None:
+    assert _seen(source) == tags
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a<svg><g>b<p>c</p>d", "a<svg><g>b-+<p>c</p>d", id="start-tag"),
+        pytest.param("a<svg><g>b</p>c", "a<svg><g>b-+</p>c", id="end-tag"),
+    ],
+)
+def test_rewrite_breakout_writes_the_trailing_edits_of_the_element_it_ends(source: str, expected: str) -> None:
+    def edit(element: Element) -> None:
+        element.append("-")
+        element.after("+")
+
+    assert rewrite(source, elements=[("svg", edit)]) == expected
+
+
+def test_rewrite_breakout_ends_a_removed_foreign_element() -> None:
+    strip = [("svg", lambda element: element.remove())]
+    assert rewrite("a<svg><g>b<p>c</p>d", elements=strip) == "a<p>c</p>d"
+
+
+@pytest.mark.parametrize(
+    ("source", "tags"),
+    [
+        pytest.param("<svg><g></svg><title><b></title>", ["svg", "g", "title"], id="foreign"),
+        pytest.param("<svg><desc><b></desc><title><i>", ["svg", "desc", "b", "title"], id="foreign-under-html"),
+        pytest.param("<div><svg><g></div><title><b></title>", ["div", "svg", "g", "title"], id="html"),
+        pytest.param("<svg><desc><div><svg></div><title><b>", ["svg", "desc", "div", "svg", "title"], id="html-inner"),
+        pytest.param("<div><svg><desc><svg></div><title><b>", ["div", "svg", "desc", "svg", "title", "b"], id="scoped"),
+        pytest.param(
+            "<div><math><mi></div><mglyph><title><b>",
+            ["div", "math", "mi", "mglyph", "title", "b"],
+            id="scoped-by-text-integration-point",
+        ),
+        pytest.param(
+            "<div><math><annotation-xml></div><title><b>",
+            ["div", "math", "annotation-xml", "title", "b"],
+            id="scoped-by-annotation",
+        ),
+        pytest.param("<span><div><svg></span><title><b>", ["span", "div", "svg", "title", "b"], id="special-above"),
+        pytest.param("<b><div><svg></b><title><i>", ["b", "div", "svg", "title"], id="adoption-agency"),
+        pytest.param(
+            f"<b>{'<ul>' * 7}<svg></b><title><i>",
+            ["b", *["ul"] * 7, "svg", "title"],
+            id="adoption-agency-reaches-the-top",
+        ),
+        pytest.param(
+            f"<b>{'<ul>' * 8}<svg></b><title><i>",
+            ["b", *["ul"] * 8, "svg", "title", "i"],
+            id="adoption-agency-gives-up",
+        ),
+        pytest.param("<h1><svg></h2><title><b>", ["h1", "svg", "title"], id="any-heading"),
+        pytest.param("<h1><div><svg></h2><title><b>", ["h1", "div", "svg", "title"], id="heading-below"),
+        pytest.param("<li><ul><math></li><xmp><b>", ["li", "ul", "math", "xmp", "b"], id="list-item-scope-ul"),
+        pytest.param("<li><ol><math></li><xmp><b>", ["li", "ol", "math", "xmp", "b"], id="list-item-scope-ol"),
+        pytest.param("<li><div><svg></li><title><b>", ["li", "div", "svg", "title"], id="list-item-in-scope"),
+        pytest.param("<form><svg></form><title><b>", ["form", "svg", "title", "b"], id="form-leaves-alone"),
+        pytest.param(
+            "<template><form><svg></form><title><b>",
+            ["template", "form", "svg", "title"],
+            id="form-in-template",
+        ),
+        pytest.param("<template><svg><g></template><title><b>", ["template", "svg", "g", "title"], id="template"),
+        pytest.param("<table><svg><g></table><title><b>", ["table", "svg", "g", "title"], id="table"),
+        pytest.param("<table><tr><td><svg></tr><title><b>", ["table", "tr", "td", "svg", "title"], id="row"),
+        pytest.param("<table><td><svg><desc></td><title><b>", ["table", "td", "svg", "desc", "title"], id="cell"),
+        pytest.param("<template><td><svg></td><title><b>", ["template", "td", "svg", "title"], id="template-cell"),
+        pytest.param(
+            "<table><td><svg><desc><table></td></table></desc><title><b>",
+            ["table", "td", "svg", "desc", "table", "title", "b"],
+            id="nested-table-bounds-table-scope",
+        ),
+        pytest.param(
+            "<table><template><svg></table><title><b>",
+            ["table", "template", "svg", "title", "b"],
+            id="template-bounds-table-scope",
+        ),
+        pytest.param(
+            "<table><td><span><td><svg></span><title><b>",
+            ["table", "td", "span", "td", "svg", "title", "b"],
+            id="scoped-by-cell",
+        ),
+    ],
+)
+def test_rewrite_end_tag_closes_the_foreign_elements_the_tree_builder_closes(source: str, tags: list[str]) -> None:
+    assert _seen(source) == tags
+
+
+@pytest.mark.parametrize(
+    ("source", "tags"),
+    [
+        pytest.param("<svg><desc><td></desc><title><b>", ["svg", "desc", "td", "title", "b"], id="cell"),
+        pytest.param("<svg><desc><body></desc><title><b>", ["svg", "desc", "body", "title", "b"], id="body"),
+        pytest.param("<svg><desc><head></desc><title><b>", ["svg", "desc", "head", "title", "b"], id="head"),
+        pytest.param("<svg><desc><frame></desc><title><b>", ["svg", "desc", "frame", "title", "b"], id="frame"),
+        pytest.param(
+            "<svg><desc><colgroup></desc><title><b>",
+            ["svg", "desc", "colgroup", "title", "b"],
+            id="colgroup",
+        ),
+        pytest.param("<svg><desc><image></desc><title><b>", ["svg", "desc", "image", "title", "b"], id="image"),
+        pytest.param("<math><mi><html><mglyph><title><b>", ["math", "mi", "html", "mglyph", "title", "b"], id="html"),
+        pytest.param("<svg><desc><form></desc><title><b>", ["svg", "desc", "form", "title"], id="form-is-opened"),
+        pytest.param(
+            "<form><svg><desc><form></desc><title><b>",
+            ["form", "svg", "desc", "form", "title", "b"],
+            id="nested-form",
+        ),
+        pytest.param(
+            "<template><form><svg><desc><form></desc><title><b>",
+            ["template", "form", "svg", "desc", "form", "title"],
+            id="nested-form-in-template-is-opened",
+        ),
+        pytest.param(
+            "<table><td><svg><desc><td></desc><title><b>",
+            ["table", "td", "svg", "desc", "td", "title"],
+            id="cell-in-table-is-opened",
+        ),
+        pytest.param("<td><svg></td><title><b>", ["td", "svg", "title", "b"], id="end-tag"),
+        pytest.param("<html><svg></html><title><b>", ["html", "svg", "title", "b"], id="end-tag-html"),
+        pytest.param("<span><td><svg></span><title><b>", ["span", "td", "svg", "title"], id="end-tag-below"),
+        pytest.param(
+            "<td><svg><desc><div></td></div></desc><title><b>",
+            ["td", "svg", "desc", "div", "title", "b"],
+            id="end-tag-under-html",
+        ),
+        pytest.param(
+            "<svg><desc><td><svg></td><title><b>",
+            ["svg", "desc", "td", "svg", "title", "b"],
+            id="end-tag-over-foreign",
+        ),
+        pytest.param(
+            "<svg><desc><body><div></body></desc><title><b>",
+            ["svg", "desc", "body", "div", "title"],
+            id="end-tag-leaves-the-elements-above-open",
+        ),
+        pytest.param(
+            "<svg><td><desc><td></td><title><b>",
+            ["svg", "td", "desc", "td", "title", "b"],
+            id="end-tag-closes-the-foreign-element",
+        ),
+    ],
+)
+def test_rewrite_looks_past_an_element_the_tree_builder_does_not_open(source: str, tags: list[str]) -> None:
+    assert _seen(source) == tags
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<td>x</td>y", "<td>x</td>+y", id="outermost"),
+        pytest.param("<div><td>x</td>y", "<div><td>x</td>+y", id="in-html"),
+        pytest.param("<svg><desc><td>x</td>y", "<svg><desc><td>x</td>+y", id="in-integration-point"),
+        pytest.param("<svg><desc><td><td>x</td>y", "<svg><desc><td><td>x</td>+y+", id="innermost"),
+    ],
+)
+def test_rewrite_end_tag_closes_an_element_the_tree_builder_does_not_open(source: str, expected: str) -> None:
+    assert rewrite(source, elements=[("td", lambda element: element.after("+"))]) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "tags", "texts"),
+    [
+        pytest.param("a<svg>b<![CDATA[<i>x]]>c</svg>", ["svg"], ["a", "b", "<i>x", "c"], id="section"),
+        pytest.param("<svg><![CDATA[]]><g>", ["svg", "g"], [""], id="empty"),
+        pytest.param("<svg><![CDATA[a]]b]]]><g>", ["svg", "g"], ["a]]b]"], id="brackets"),
+        pytest.param("<svg><![CDATA[<i>", ["svg"], ["<i>"], id="eof"),
+        pytest.param("<svg><![CDATA[", ["svg"], [""], id="eof-empty"),
+        pytest.param("<svg><desc><![CDATA[<i>]]>", ["svg", "desc"], ["<i>"], id="integration-point"),
+        pytest.param("<svg><desc><body><![CDATA[<i>]]>", ["svg", "desc", "body"], ["<i>"], id="past-unopened"),
+        pytest.param("<svg><desc><p><![CDATA[<i>]]>", ["svg", "desc", "p"], ["]]>"], id="html-inside"),
+        pytest.param("<p><![CDATA[<i>]]>", ["p"], ["]]>"], id="html"),
+        pytest.param(
+            "<svg><![CDATA[><desc><xmp>]]><script>x</script>",
+            ["svg", "script"],
+            ["><desc><xmp>", "x"],
+            id="markup-in-section",
+        ),
+        pytest.param(
+            "<svg><![CDATA[Ā<i>\U0001f600]]></svg>",
+            ["svg"],
+            ["Ā<i>\U0001f600"],
+            id="wide-characters",
+        ),
+    ],
+)
+def test_rewrite_cdata_section_in_foreign_content(source: str, tags: list[str], texts: list[str]) -> None:
+    seen: list[str] = []
+    assert rewrite(source, text=lambda text: seen.append(text.text)) == source
+    assert seen == texts
+    assert _seen(source) == tags
+
+
+def test_rewrite_cdata_section_text_is_escaped_when_rewritten() -> None:
+    result = rewrite("<svg><![CDATA[<B>&]]></svg>", text=lambda text: text.set_text(text.text.lower()))
+    assert result == "<svg>&lt;b&gt;&amp;</svg>"
+
+
+@pytest.mark.parametrize(
+    ("source", "selector", "expected"),
+    [
+        # a start tag that closes an open <p> closes it on the spine too, so the foreign end tags after it are seen
+        pytest.param(
+            "<svg><foreignObject><p>a<p>b</p></foreignObject></svg><p>after</p>", "svg", "<p>after</p>", id="p-p"
+        ),
+        pytest.param(
+            "<svg><foreignObject><p>a<div>b</div></foreignObject><rect/><circle/></svg>c",
+            "rect",
+            "<svg><foreignObject><p>a<div>b</div></foreignObject><circle/></svg>c",
+            id="p-div",
+        ),
+        pytest.param("<math><mtext><p>a<p>b</p></mtext></math>ok", "math", "ok", id="mathml"),
+        pytest.param("<svg><desc><p><span>a<ul></ul></desc></svg>ok", "svg", "ok", id="p-with-open-child"),
+        # a <p> that is still open keeps the integration point open, as in a browser
+        pytest.param("<svg><foreignObject><p>a</foreignObject></svg>b", "svg", "", id="p-left-open"),
+        pytest.param("<svg><desc><p><button>a<div></div></button></desc></svg>b", "svg", "", id="button-scope"),
+    ],
+)
+def test_rewrite_implied_paragraph_end_inside_integration_point(source: str, selector: str, expected: str) -> None:
+    assert rewrite(source, elements=[(selector, _remove)]) == expected
+
+
+def test_rewrite_implied_paragraph_end_outside_foreign_content_keeps_the_spine() -> None:
+    assert rewrite("<p>a<p>b</p>c", elements=[("p p", _set("x", "1"))]) == '<p>a<p x="1">b</p>c'
+
+
+def test_rewrite_dropped_tag_that_closed_a_paragraph_leaves_its_end_tag() -> None:
+    source = f"<svg><foreignObject><p><b>a<div>b</div></foreignObject>{_TITLE}</svg>"
+    expected = f"<svg><foreignObject><p><b>a</b></p></foreignObject>{_TITLE}</svg>"
+    assert rewrite(source, elements=[("div", _remove)]) == expected
+    assert _seen(expected) == _seen(source.replace("<div>b</div>", "</b></p>"))
+
+
+def test_rewrite_cell_start_tag_closes_the_cell_and_the_foreign_content_in_it() -> None:
+    source = "<table><tr><td><svg><desc><td></td></desc><title><!--</title><img src=x onerror=a()>-->"
+    assert _seen(source) == ["table", "tr", "td", "svg", "desc", "td", "title", "img"]
+    assert len(parse(source).select("img")) == 1
+    # a foreign <th> is an SVG element and closes nothing
+    assert _seen("<table><tr><td><svg><g><th>x</th><title><i>") == ["table", "tr", "td", "svg", "g", "th", "title", "i"]
+    cells: list[Element] = []
+
+    def drop_second(element: Element) -> None:
+        cells.append(element)
+        if len(cells) == 2:
+            element.remove()
+
+    # the dropped <td> ended the first cell and the <svg> in it, so their end tags stand in for it
+    dropped = rewrite("<table><tr><td><svg><desc><td>x", elements=[("td", drop_second)])
+    assert dropped == "<table><tr><td><svg><desc></desc></svg></td>"
+
+
+def test_rewrite_set_content_on_paragraph_closed_by_block_in_integration_point() -> None:
+    assert rewrite("<svg><foreignObject><p>a<div>b", elements=[("p", lambda element: element.set_content("Z"))]) == (
+        "<svg><foreignObject><p>Z<div>b"
+    )
+
+
+def test_rewrite_unwrapped_paragraph_closed_by_block_in_integration_point() -> None:
+    assert rewrite("<svg><foreignObject><p>a<div>b</div>", elements=[("p", _unwrap)]) == (
+        "<svg><foreignObject>a<div>b</div>"
+    )
+
+
+def test_rewrite_set_content_on_element_an_end_tag_leaves_unclosed() -> None:
+    assert rewrite("<b><div><svg><g>x</b>c", elements=[("g", lambda element: element.set_content("Z"))]) == (
+        "<b><div><svg><g>Z</b>c"
+    )
+
+
+def test_rewrite_nested_form_in_integration_point_is_written_unchanged() -> None:
+    source = "<form><svg><foreignObject><p><form>x"
+    assert rewrite(source, elements=[("p", lambda _: None)]) == source
+
+
+def test_rewrite_th_start_tag_closes_the_cell_and_the_foreign_content_in_it() -> None:
+    cells: list[Element] = []
+
+    def drop_second(element: Element) -> None:
+        cells.append(element)
+        if len(cells) == 2:
+            element.remove()
+
+    assert rewrite("<table><tr><th><svg><desc><th>x", elements=[("th", drop_second)]) == (
+        "<table><tr><th><svg><desc></desc></svg></th>"
+    )
+
+
+def test_parse_unclosed_cdata_section_in_foreign_content_is_text() -> None:
+    assert [element.text for element in parse("<svg><![CDATA[<i>").select("svg")] == ["<i>"]

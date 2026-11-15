@@ -79,3 +79,28 @@ forward to bytes not yet produced. Removing or replacing an element works by *su
 tokens stream past, not by deleting something already written; a nested handler inside a removed region does not run,
 because its output would be discarded anyway. This keeps every edit a forward, local decision -- the property that lets
 the whole transform run in one pass over a stream.
+
+One edit writes tags the source never had. Inside ``<svg>`` or ``<math>`` a browser ends the foreign content at an HTML
+start tag such as ``<p>``, ``<img>`` or ``<font color>``, and at the end tag of an HTML element around it, with no
+``</svg>`` in the source. When a handler removes, replaces or unwraps such a tag, the rewriter writes the end tags it
+stood for in its place, so ``<svg><font color=red><title>...`` with the ``<font>`` unwrapped becomes
+``<svg></svg><title>...`` and the markup after it is still parsed as the HTML it was.
+
+****************************************
+ Foreign content is read from the spine
+****************************************
+
+Three decisions about a tag belong to the tree, not to the tokenizer. ``<title>``, ``<style>``, ``<xmp>`` and the other
+raw-text elements switch the tokenizer to text only as HTML elements: inside ``<svg>`` or ``<math>`` the same tags hold
+markup. A trailing ``/>`` closes an SVG or MathML element and is ignored on an HTML one, so ``<div/>`` stays open and
+``<xmp/>`` still starts raw text. ``<![CDATA[`` opens a section only in foreign content. A full parse answers all three
+from its stack of open elements; the rewriter answers them from the spine, by the tree builder's foreign-content rules.
+An element is foreign under ``<svg>`` or ``<math>`` until an integration point such as ``<foreignObject>`` or ``<desc>``
+returns to HTML, and a tag such as ``<p>`` or ``<div>`` breaks out of foreign content and closes it. A CDATA section
+reaches the text handler as one node, and an untouched one is copied through verbatim.
+
+The spine is still not the tree builder's stack. Apart from a ``<p>`` inside an integration point, the rewriter does not
+imply the end tags a browser implies, rebuild formatting elements, or follow the table and frameset insertion modes, so
+markup that leans on those rules around foreign content can be read differently from a browser. A guarantee that has to
+hold against hostile markup, such as no script surviving, belongs to :func:`turbohtml.clean.sanitize`, which works on
+the parsed tree.

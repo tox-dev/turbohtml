@@ -102,8 +102,9 @@ typedef struct {
     int force_quirks;
     /* Verbatim source span: the input slice [src_off, src_off + src_span) the
        token came from. Set for a TH_CHARREF (the raw reference text) always, and
-       for a markup token when capture_source is on (the raw tag/comment/doctype
-       source). has_source gates whether Token.source resolves a string. */
+       when capture_source is on for a markup token (the raw tag/comment/doctype
+       source) and for the text of a CDATA section (the section, delimiters
+       included). has_source gates whether Token.source resolves a string. */
     Py_ssize_t src_off;
     Py_ssize_t src_span;
     int has_source;
@@ -260,7 +261,7 @@ void th_tok_switch(th_tokenizer *self, enum th_initial_state state);
 
 /* Tell the tokenizer whether <![CDATA[ opens a real CDATA section (the
    adjusted current node is a foreign element) or a bogus comment. The tree
-   builder updates this before pulling each token. */
+   builder and the streaming rewriter update this before pulling each token. */
 void th_tok_set_cdata(th_tokenizer *self, int allowed);
 
 /* Append code points read from a unicode object's storage. An allocation

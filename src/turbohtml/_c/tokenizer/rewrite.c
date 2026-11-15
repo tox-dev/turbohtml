@@ -36,9 +36,11 @@
 #define TH_NOINLINE
 #endif
 
-/* The content model a start tag switches the tokenizer into, or -1 for none. The public
+/* The content model an HTML start tag switches the tokenizer into, or -1 for none. The public
    Tokenizer applies this from its own binding; the rewriter drives the state machine
-   directly, so it repeats the rule (kept in sync with tokenizer.c's content_model_for). */
+   directly, so it repeats the rule (kept in sync with tokenizer.c's content_model_for).
+   Only an element the HTML rules insert switches: an SVG or MathML <title>, <style>,
+   <script>, ... is an ordinary element whose content stays markup (rw_start_ns). */
 static int rw_content_model(const th_buf *name) {
     if (name->kind != PyUnicode_1BYTE_KIND) {
         return -1;
@@ -184,7 +186,8 @@ static void rw_out_utf8(rw_out *out, const char *bytes, Py_ssize_t len) {
 }
 
 /* The verbatim source slice a token came from, appended untouched. Every markup token
-   carries a source span under capture_source; a text run is a borrowed input slice. */
+   carries a source span under capture_source, and so does the text of a CDATA section;
+   any other text run is a borrowed input slice. */
 static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token *token) {
     int kind;
     const char *base = th_tok_input_data(sm, &kind);
@@ -268,6 +271,11 @@ static uint16_t rw_tag_atom(const th_buf *name) {
     return th_tag_lookup((const char *)name->data, name->len);
 }
 
+#define RW_WITHIN_TABLE 1u
+#define RW_WITHIN_TEMPLATE 2u
+#define RW_WITHIN_FORM 4u
+#define RW_WITHIN_FOREIGN 8u
+
 /* One open element on the streaming spine, plus the edits its handler recorded. The
    node's only live link is its parent, so the whole stack is O(open-depth). */
 typedef struct {
@@ -275,11 +283,18 @@ typedef struct {
     int edited;               /* an attribute changed: rebuild the start tag instead of verbatim */
     int drop_content;         /* suppress this element's inner tokens */
     int drop_end_tag;         /* do not emit the element's end tag */
+    uint8_t ns;               /* the namespace the tree builder gives the element (the node stays HTML for matching) */
+    uint8_t within;           /* RW_WITHIN_*: the table, template, form or foreign elements open from here down */
+    uint8_t tracked;          /* rw_track set live, para, cell and within: not on HTML outside foreign content */
     PyObject *append_html;    /* emit just before the end tag (already escaped) */
     PyObject *after_html;     /* emit just after the end tag (already escaped) */
     int model;                /* the content model the start tag switched to, or -1 */
     int literal;              /* a handler wrote unescaped text into this raw-text element */
+    Py_ssize_t live;          /* index of the nearest element from here down the tree builder has open too, or -1 */
+    Py_ssize_t para;          /* index of the p element in button scope from here down, or -1 */
+    Py_ssize_t cell;          /* index of the td or th element in table scope from here down, or -1 */
     Py_ssize_t content_start; /* output offset where the element's content begins */
+    Py_ssize_t end_at;        /* set when popped early: output offset the element ended at, or -1 (not in the output) */
 } rw_open;
 
 typedef struct {
@@ -309,6 +324,7 @@ typedef struct {
     PyObject *handle_type;
     PyObject *append_text; /* the handled element's append_html as ordinary text, for when its tags are dropped */
     int error;             /* a Python exception is set; abort the drive */
+    int cdata;             /* the tokenizer opens a CDATA section at "<![CDATA[" (rw_sync_cdata) */
 } rw_ctx;
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
@@ -1223,19 +1239,505 @@ static void rw_call_handler(rw_ctx *ctx, PyObject *handler, PyObject *handle) {
     Py_DECREF(result);
 }
 
+/* A browser switches the tokenizer's content model only for a start tag its HTML rules process. Inside <svg> or <math>
+   the foreign-content rules insert <title>, <style>, <xmp>, <script>, ... as ordinary elements and the tokenizer stays
+   in the data state, so their content is markup; "/>" closes a start tag only there, and "<![CDATA[" opens a section
+   only there. The tree builder decides all of this from its open elements. The rewriter has only its spine, so each
+   entry records the namespace the tree builder gives the element, and the spine follows the tree-construction
+   dispatcher (kept in sync with dom/foreign.h and the in-body rules of dom/tree.c, which are private to dom/tree.c):
+   which start tags the HTML rules take, which ones break out of foreign content, which ones open no element, and
+   which end tags close a foreign element. A spine node keeps TH_NS_HTML so selectors match it as before; the
+   namespace lives on the rw_open. */
+
+static int rw_is_mathml_text_integration(const rw_open *open) {
+    if (open->ns != TH_NS_MATHML) {
+        return 0;
+    }
+    switch (open->node->atom) {
+    case TH_TAG_MI:
+    case TH_TAG_MO:
+    case TH_TAG_MN:
+    case TH_TAG_MS:
+    case TH_TAG_MTEXT:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* ASCII case-insensitive match of an attribute value against a lowercase ASCII string. */
+static int rw_value_ci_eq(const th_node_attr *attr, const char *target) {
+    return attr->value_len == (Py_ssize_t)strlen(target) && starts_with_ascii_ci(attr->value, attr->value_len, target);
+}
+
+/* Only asked of a foreign element, so one that is not SVG is MathML. */
+static int rw_is_html_integration(const rw_open *open) {
+    const th_node *node = open->node;
+    if (open->ns == TH_NS_SVG) {
+        return node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE;
+    }
+    if (node->atom == TH_TAG_ANNOTATION_XML) {
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            const th_node_attr *attr = &node->attrs[index];
+            if (attr->name_atom == TH_ATTR_ENCODING && attr->value != NULL &&
+                (rw_value_ci_eq(attr, "text/html") || rw_value_ci_eq(attr, "application/xhtml+xml"))) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Whether an open SVG/MathML element is an integration point: the HTML rules process the start tags inside it, and a
+   tag that breaks out of foreign content closes the open elements only down to it. */
+static int rw_integration_point(const rw_open *open) {
+    return rw_is_mathml_text_integration(open) || rw_is_html_integration(open);
+}
+
+/* The foreign elements that are special and bound every scope: the integration points, and annotation-xml whatever
+   its encoding (is_scope_boundary in dom/tree.c). */
+static int rw_is_foreign_boundary(const rw_open *open) {
+    if (open->ns == TH_NS_SVG) {
+        return rw_is_html_integration(open);
+    }
+    return rw_is_mathml_text_integration(open) || open->node->atom == TH_TAG_ANNOTATION_XML;
+}
+
+/* Whether an attribute name (lowercased) is one of color, face and size, which make a <font> start tag break out of
+   foreign content. */
+static int rw_font_breakout_attr(const char *name, Py_ssize_t len) {
+    static const char *const presentational[] = {"color", "face", "size"};
+    for (size_t which = 0; which < sizeof(presentational) / sizeof(presentational[0]); which++) {
+        if (len == (Py_ssize_t)strlen(presentational[which]) && memcmp(name, presentational[which], (size_t)len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether a <font> start tag still breaks out of foreign content as a handler left it: only with color, face or size,
+   so removing the last of them turns the tag into one that no longer closes the foreign elements. */
+static int rw_font_breakout(rw_ctx *ctx, const th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        Py_ssize_t len;
+        const char *name = th_attr_name(ctx->tree, node->attrs[index].name_atom, &len);
+        if (rw_font_breakout_attr(name, len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Write the end tag of an open element at `at`, which has room for the text_len + 3 code points it takes. */
+static void rw_end_tag_at(Py_UCS4 *at, const th_node *node) {
+    at[0] = '<';
+    at[1] = '/';
+    memcpy(at + 2, node->text, (size_t)node->text_len * sizeof(Py_UCS4));
+    at[node->text_len + 2] = '>';
+}
+
+/* Append the end tag of an open element. */
+static void rw_emit_end_tag(rw_out *out, const th_node *node) {
+    rw_out_reserve(out, node->text_len + 3);
+    if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    rw_end_tag_at(out->data + out->len, node);
+    out->len += node->text_len + 3;
+}
+
+/* HTML start tags that leave no element open in the tree builder although the spine keeps one: the in-body rules
+   ignore html and body (both are open already), head, frame, a table part outside a table and a form inside a form,
+   the tag after a colgroup closes it, and <image> becomes the void img. The tree builder's current node is found
+   past these. */
+static int rw_opens_nothing(uint16_t atom, unsigned within) {
+    switch (atom) {
+    case TH_TAG_HTML:
+    case TH_TAG_BODY:
+    case TH_TAG_HEAD:
+    case TH_TAG_FRAME:
+    case TH_TAG_COLGROUP:
+    case TH_TAG_IMAGE:
+        return 1;
+    case TH_TAG_CAPTION:
+    case TH_TAG_TBODY:
+    case TH_TAG_TFOOT:
+    case TH_TAG_THEAD:
+    case TH_TAG_TR:
+    case TH_TAG_TD:
+    case TH_TAG_TH:
+        return !(within & (RW_WITHIN_TABLE | RW_WITHIN_TEMPLATE));
+    case TH_TAG_FORM:
+        return (within & (RW_WITHIN_FORM | RW_WITHIN_TEMPLATE)) == RW_WITHIN_FORM;
+    default:
+        return 0;
+    }
+}
+
+static unsigned rw_within_bit(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_TABLE:
+        return RW_WITHIN_TABLE;
+    case TH_TAG_TEMPLATE:
+        return RW_WITHIN_TEMPLATE;
+    case TH_TAG_FORM:
+        return RW_WITHIN_FORM;
+    default:
+        return 0;
+    }
+}
+
+/* The tree builder's current node: the innermost open element it has open as well. Only asked while a foreign element
+   is on the spine, and that element is open in the tree builder. */
+static const rw_open *rw_current(const rw_ctx *ctx) {
+    return &ctx->stack[ctx->stack[ctx->depth - 1].live];
+}
+
+/* Whether an open element on the spine is in foreign content, which only the tracked entries record. */
+static int rw_spine_foreign(const rw_ctx *ctx) {
+    return ctx->depth > 0 && (ctx->stack[ctx->depth - 1].within & RW_WITHIN_FOREIGN);
+}
+
+/* Drop the open elements above the first `keep`: they were left unclosed, so no end tag and no trailing edit of
+   theirs is emitted. */
+static void rw_drop_unclosed(rw_ctx *ctx, Py_ssize_t keep) {
+    while (ctx->depth > keep) {
+        rw_open *open = &ctx->stack[--ctx->depth];
+        if (open->drop_content) {
+            ctx->suppress--;
+        }
+        Py_XDECREF(open->append_html);
+        Py_XDECREF(open->after_html);
+        rw_free_node(open->node);
+    }
+}
+
+/* Close the open SVG/MathML elements down to the nearest integration point or HTML element. A breakout start tag, and
+   </p> or </br>, end them in a browser with no end tag of their own, so their trailing edits are flushed here, where
+   they end. Returns how many it closed: their entries stay in the slots above the new depth, each with the output
+   offset it ended at, until the caller knows what becomes of the tag and hands them to rw_release_foreign. */
+static Py_ssize_t rw_pop_foreign(rw_ctx *ctx) {
+    Py_ssize_t closed = 0;
+    while (ctx->depth > 0) {
+        rw_open *open = &ctx->stack[ctx->depth - 1];
+        if (open->ns == TH_NS_HTML || rw_integration_point(open)) {
+            break;
+        }
+        ctx->depth--;
+        closed++;
+        if (open->drop_content) {
+            ctx->suppress--;
+        }
+        int emit = ctx->suppress == 0;
+        if (emit && open->append_html != NULL) {
+            rw_out_str(&ctx->out, open->append_html);
+        }
+        /* only an element whose start tag was written is open in the output */
+        open->end_at = emit && !open->drop_end_tag ? ctx->out.len : -1;
+        if (emit && open->after_html != NULL) {
+            rw_out_str(&ctx->out, open->after_html);
+        }
+        Py_XDECREF(open->append_html);
+        Py_XDECREF(open->after_html);
+    }
+    return closed;
+}
+
+/* Let go of the elements rw_pop_foreign and rw_pop_implied closed. The tag that closed them ends them in a browser only
+   while it is in the output: once a handler drops it they stay open there, and the <title>, <style>, <xmp>, ... after
+   it, which the tokenizer rightly read as HTML raw text, are SVG/MathML elements whose content is markup. `dropped`
+   says the tag is not written (or no longer breaks out), so each element gets the end tag the tag stood for, at the
+   offset the element ended at: ahead of its own after() content and of whatever the dropped tag's handler wrote before
+   it. */
+static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped) {
+    if (closed == 0) {
+        return;
+    }
+    rw_open *popped = ctx->stack + ctx->depth; /* outermost first, so by descending end_at */
+    rw_out *out = &ctx->out;
+    Py_ssize_t extra = 0;
+    for (Py_ssize_t index = 0; dropped && index < closed; index++) {
+        if (popped[index].end_at >= 0) {
+            extra += popped[index].node->text_len + 3;
+        }
+    }
+    rw_out_reserve(out, extra);
+    if (extra > 0 && !out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        /* one pass from the back: each stretch of output moves once, past the end tags that go in before it */
+        Py_ssize_t tail = out->len;
+        out->len += extra;
+        for (Py_ssize_t index = 0; index < closed; index++) {
+            const rw_open *open = &popped[index];
+            if (open->end_at < 0) {
+                continue;
+            }
+            memmove(out->data + open->end_at + extra, out->data + open->end_at,
+                    (size_t)(tail - open->end_at) * sizeof(Py_UCS4));
+            extra -= open->node->text_len + 3;
+            rw_end_tag_at(out->data + open->end_at + extra, open->node);
+            tail = open->end_at;
+        }
+    }
+    for (Py_ssize_t index = 0; index < closed; index++) {
+        rw_free_node(popped[index].node);
+    }
+}
+
+/* The HTML start tags whose in-body rules first close an open p element (kept in sync with dom/tree.c: the blocks of
+   is_p_closing_block, the list items, hr, form, xmp and, outside quirks mode, table). */
+static int rw_closes_p(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_ADDRESS:
+    case TH_TAG_ARTICLE:
+    case TH_TAG_ASIDE:
+    case TH_TAG_BLOCKQUOTE:
+    case TH_TAG_CENTER:
+    case TH_TAG_DETAILS:
+    case TH_TAG_DIALOG:
+    case TH_TAG_DIR:
+    case TH_TAG_DIV:
+    case TH_TAG_DL:
+    case TH_TAG_FIELDSET:
+    case TH_TAG_FIGCAPTION:
+    case TH_TAG_FIGURE:
+    case TH_TAG_FOOTER:
+    case TH_TAG_HEADER:
+    case TH_TAG_HGROUP:
+    case TH_TAG_MAIN:
+    case TH_TAG_MENU:
+    case TH_TAG_NAV:
+    case TH_TAG_OL:
+    case TH_TAG_P:
+    case TH_TAG_SEARCH:
+    case TH_TAG_SECTION:
+    case TH_TAG_SUMMARY:
+    case TH_TAG_UL:
+    case TH_TAG_H1:
+    case TH_TAG_H2:
+    case TH_TAG_H3:
+    case TH_TAG_H4:
+    case TH_TAG_H5:
+    case TH_TAG_H6:
+    case TH_TAG_PRE:
+    case TH_TAG_LISTING:
+    case TH_TAG_PLAINTEXT:
+    case TH_TAG_TABLE:
+    case TH_TAG_LI:
+    case TH_TAG_DD:
+    case TH_TAG_DT:
+    case TH_TAG_HR:
+    case TH_TAG_FORM:
+    case TH_TAG_XMP:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The start tags that close an open table cell before the table rules take them ("in cell" in dom/tree.c). */
+static int rw_closes_cell(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_CAPTION:
+    case TH_TAG_COL:
+    case TH_TAG_COLGROUP:
+    case TH_TAG_TBODY:
+    case TH_TAG_TD:
+    case TH_TAG_TFOOT:
+    case TH_TAG_TH:
+    case TH_TAG_THEAD:
+    case TH_TAG_TR:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Close the elements an HTML start tag implies the end of. The spine implies no end tags, which costs ordinary HTML
+   only selector ancestry, but around foreign content it changes how the rest of the page is read: inside an
+   integration point (<foreignObject>, <desc>, <mtext>, ...) an HTML element left on the spine makes every later
+   </foreignObject> or </svg> look ignored, as a browser ignores them while an HTML element is open there, and a table
+   cell left open keeps the <svg> inside it open past the next <td>. So two implied ends are followed where a foreign
+   element is involved: a p in button scope that sits above a foreign element, and a table cell with a foreign element
+   open inside it, each with whatever is open above it. Like rw_pop_foreign, the entries stay in the slots above the
+   new depth for rw_release_foreign, which gives them end tags when the tag that closed them is dropped; as elsewhere
+   for elements left unclosed, their trailing edits are not written. Returns how many it closed. */
+static Py_ssize_t rw_pop_implied(rw_ctx *ctx, uint16_t atom) {
+    if (!rw_spine_foreign(ctx)) {
+        return 0;
+    }
+    const rw_open *top = &ctx->stack[ctx->depth - 1];
+    Py_ssize_t keep = -1;
+    if (rw_closes_cell(atom) && top->cell >= 0) {
+        keep = top->cell;
+    } else if (rw_closes_p(atom) && top->para >= 0 && !rw_opens_nothing(atom, top->within)) {
+        keep = top->para;
+    }
+    if (keep < 0) {
+        return 0;
+    }
+    Py_ssize_t closed = ctx->depth - keep;
+    while (ctx->depth > keep) {
+        rw_open *open = &ctx->stack[--ctx->depth];
+        if (open->drop_content) {
+            ctx->suppress--;
+        }
+        open->end_at = ctx->suppress == 0 && !open->drop_end_tag ? ctx->out.len : -1;
+        Py_XDECREF(open->append_html);
+        Py_XDECREF(open->after_html);
+    }
+    return closed;
+}
+
+/* Set the tree builder bookkeeping of the element at `index` from the entry below it. Only foreign content reads it, so
+   rw_handle_element leaves an HTML element outside foreign content untracked until a foreign start tag needs it. */
+static void rw_track(rw_open *open, const rw_open *below, Py_ssize_t index) {
+    open->tracked = 1;
+    open->live = index;
+    open->within = below != NULL ? below->within : 0;
+    open->para = below != NULL ? below->para : -1;
+    open->cell = below != NULL ? below->cell : -1;
+    if (open->ns != TH_NS_HTML) {
+        open->within |= RW_WITHIN_FOREIGN;
+        if (rw_is_foreign_boundary(open)) {
+            open->para = -1; /* an integration point bounds button scope */
+        }
+        return;
+    }
+    uint16_t atom = open->node->atom;
+    if (rw_opens_nothing(atom, open->within)) {
+        open->live = below != NULL ? below->live : -1;
+    } else if (atom == TH_TAG_P) {
+        open->para = index;
+    } else if ((open->node->tag_flags & TH_TAG_SCOPING) || atom == TH_TAG_BUTTON) {
+        open->para = -1;
+    }
+    if (open->live == index && (atom == TH_TAG_TD || atom == TH_TAG_TH)) {
+        open->cell = index;
+    } else if (open->live == index && (atom == TH_TAG_TABLE || atom == TH_TAG_TEMPLATE)) {
+        open->cell = -1; /* these bound table scope */
+    }
+    open->within |= rw_within_bit(atom);
+}
+
+/* Track the untracked elements at the top of the spine, once a foreign start tag needs their bookkeeping. */
+static void rw_backfill(rw_ctx *ctx) {
+    Py_ssize_t first = ctx->depth;
+    while (first > 0 && !ctx->stack[first - 1].tracked) {
+        first--;
+    }
+    for (Py_ssize_t index = first; index < ctx->depth; index++) {
+        rw_track(&ctx->stack[index], index > 0 ? &ctx->stack[index - 1] : NULL, index);
+    }
+}
+
+/* Whether the tree builder's current node is a foreign element, which needs a foreign element on the spine. */
+static int rw_in_foreign_content(const rw_ctx *ctx) {
+    if (!rw_spine_foreign(ctx)) {
+        return 0;
+    }
+    return rw_current(ctx)->ns != TH_NS_HTML;
+}
+
+static uint8_t rw_plain_ns(uint16_t atom) {
+    if (atom == TH_TAG_SVG) {
+        return TH_NS_SVG;
+    }
+    return atom == TH_TAG_MATH ? TH_NS_MATHML : TH_NS_HTML;
+}
+
+/* The namespace the tree builder inserts a start tag's element in. The HTML rules take the tag when the tree
+   builder's current node is an HTML element or an integration point for it; otherwise the foreign-content rules do,
+   which either keep the element in that namespace or, for a breakout tag, close the foreign elements and hand it to
+   the HTML rules; *closed is how many that were (see rw_pop_foreign). */
+static uint8_t rw_start_ns(rw_ctx *ctx, const th_token *token, uint16_t atom, Py_ssize_t *closed) {
+    const rw_open *current = rw_current(ctx);
+    if (current->ns != TH_NS_HTML) {
+        int html_rules =
+            (rw_is_mathml_text_integration(current) && atom != TH_TAG_MGLYPH && atom != TH_TAG_MALIGNMARK) ||
+            (current->ns == TH_NS_MATHML && current->node->atom == TH_TAG_ANNOTATION_XML && atom == TH_TAG_SVG) ||
+            rw_is_html_integration(current);
+        if (!html_rules) {
+            int breakout = is_foreign_breakout(atom) ||
+                           (atom == TH_TAG_FONT && (token_has_attr(token, "color") || token_has_attr(token, "face") ||
+                                                    token_has_attr(token, "size")));
+            if (!breakout) {
+                return current->ns;
+            }
+            *closed = rw_pop_foreign(ctx);
+        }
+    }
+    return rw_plain_ns(atom);
+}
+
+/* "<![CDATA[" opens a section only while the tree builder's current node is foreign, which only a tag the
+   foreign-content rules read can change. */
+static TH_NOINLINE void rw_sync_cdata(rw_ctx *ctx) {
+    int cdata = rw_in_foreign_content(ctx);
+    if (cdata != ctx->cdata) {
+        th_tok_set_cdata(ctx->sm, cdata);
+        ctx->cdata = cdata;
+    }
+}
+
+/* The namespace of a start tag the foreign-content rules read: one while a foreign element is on the spine, or one
+   that opens one. A breakout tag first closes the open foreign elements, and an HTML tag the elements it implies the
+   end of; *closed is how many that were (see rw_release_foreign). */
+static TH_NOINLINE uint8_t rw_foreign_start(rw_ctx *ctx, const th_token *token, uint16_t atom, Py_ssize_t *closed) {
+    uint8_t ns = rw_spine_foreign(ctx) ? rw_start_ns(ctx, token, atom, closed) : rw_plain_ns(atom);
+    if (ns == TH_NS_HTML) {
+        *closed += rw_pop_implied(ctx, atom);
+    } else if (ctx->depth > 0 && !ctx->stack[ctx->depth - 1].tracked) {
+        rw_backfill(ctx);
+    }
+    return ns;
+}
+
+/* Track the element a start tag the foreign-content rules read opens, when it is foreign or sits in foreign content. */
+static TH_NOINLINE void rw_track_start(const rw_ctx *ctx, rw_open *open) {
+    const rw_open *below = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
+    if (open->ns != TH_NS_HTML || (below != NULL && (below->within & RW_WITHIN_FOREIGN))) {
+        rw_track(open, below, ctx->depth);
+    }
+}
+
+/* Let go of the elements a start tag closed once its handlers ran: a handler that removed the tag, or took the last
+   color, face or size off a <font>, left nothing in the output to close them. */
+static TH_NOINLINE void rw_release_start(rw_ctx *ctx, Py_ssize_t closed, const rw_handle *handle, const rw_open *open) {
+    int dropped = handle != NULL && handle->removed;
+    if (open->edited && open->node->atom == TH_TAG_FONT && !rw_font_breakout(ctx, open->node)) {
+        dropped = 1;
+    }
+    rw_release_foreign(ctx, closed, dropped);
+}
+
 static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
-    int suppressed = ctx->suppress > 0;
     uint16_t atom = rw_tag_atom(&token->name);
-    int self_terminating = token->self_closing || th_tag_is_void(atom);
+    Py_ssize_t closed = 0;
+    uint8_t ns = TH_NS_HTML;
+    /* ordinary HTML outside <svg> and <math> skips the foreign-content rules with this one test */
+    int foreign = rw_spine_foreign(ctx) || atom == TH_TAG_SVG || atom == TH_TAG_MATH;
+    if (foreign) {
+        ns = rw_foreign_start(ctx, token, atom, &closed);
+    }
+    int suppressed = ctx->suppress > 0;
+    /* the trailing slash ends only an SVG/MathML element, and only an HTML element is void: on an HTML start tag a
+       browser ignores the slash, so <title/> and <script/> still open their element and switch the content model,
+       and an SVG <input> or <link> stays open until its end tag */
+    int self_terminating = ns == TH_NS_HTML ? th_tag_is_void(atom) : token->self_closing;
     th_node *parent = ctx->depth > 0 ? ctx->stack[ctx->depth - 1].node : ctx->document;
     th_node *node = rw_make_node(ctx, token, atom, parent);
-    if (node == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;           /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (node == NULL) {                     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        rw_release_foreign(ctx, closed, 0); /* GCOVR_EXCL_LINE: allocation-failure path */
+        ctx->error = 1;                     /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
-    rw_open open = {.node = node, .model = rw_content_model(&token->name)};
+    /* the raw-text content models belong to the HTML elements: a foreign <title> or <style> holds markup */
+    rw_open open = {.node = node, .model = ns == TH_NS_HTML ? rw_content_model(&token->name) : -1, .ns = ns};
+    if (foreign) {
+        rw_track_start(ctx, &open);
+    }
     rw_handle *handle = NULL;
     for (Py_ssize_t index = 0; index < ctx->rule_count && !suppressed && !ctx->error; index++) {
         if (!selector_matches(node, ctx->rules[index].compiled, NULL)) {
@@ -1250,6 +1752,10 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
             handle->open = &open;
         }
         rw_call_handler(ctx, ctx->rules[index].handler, (PyObject *)handle);
+    }
+
+    if (closed > 0) {
+        rw_release_start(ctx, closed, handle, &open);
     }
 
     if (ctx->error) {
@@ -1313,6 +1819,9 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
             Py_DECREF(handle);
         }
         rw_free_node(node);
+        if (foreign) {
+            rw_sync_cdata(ctx);
+        }
         return;
     }
 
@@ -1326,7 +1835,7 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
            so it never nests deeper than the guard (its end tag streams as a stray) */
         Py_XDECREF(open.append_html);
         rw_free_node(node);
-        return;
+        return; /* at the limit nothing was popped either, so the CDATA state stands */
     }
     if (ctx->depth == ctx->stack_cap) {
         size_t cap;
@@ -1358,6 +1867,9 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
             ctx->suppress = -1;
         }
         th_tok_switch(ctx->sm, (enum th_initial_state)open.model);
+    }
+    if (foreign) {
+        rw_sync_cdata(ctx);
     }
 }
 
@@ -1396,40 +1908,231 @@ static int rw_raw_content_closes_early(rw_ctx *ctx, const rw_open *element) {
     return 0;
 }
 
-static void rw_handle_end(rw_ctx *ctx, const th_token *token) {
-    uint16_t atom = rw_tag_atom(&token->name);
-    /* find the matching open element, top-down; a known tag matches by atom, an
-       unknown (custom) tag by its lowercased name */
-    Py_ssize_t match = -1;
-    for (Py_ssize_t index = ctx->depth - 1; index >= 0; index--) {
-        th_node *node = ctx->stack[index].node;
-        if (node->atom != atom) {
-            continue;
-        }
-        int same = 1;
-        if (atom == TH_TAG_UNKNOWN) {
-            same = node->text_len == token->name.len;
-            for (Py_ssize_t pos = 0; same && pos < node->text_len; pos++) {
-                same = node->text[pos] == PyUnicode_READ(token->name.kind, token->name.data, pos);
+static int rw_is_heading(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_H1:
+    case TH_TAG_H2:
+    case TH_TAG_H3:
+    case TH_TAG_H4:
+    case TH_TAG_H5:
+    case TH_TAG_H6:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int rw_has_table_scope(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_TABLE:
+    case TH_TAG_CAPTION:
+    case TH_TAG_TBODY:
+    case TH_TAG_TFOOT:
+    case TH_TAG_THEAD:
+    case TH_TAG_TR:
+    case TH_TAG_TD:
+    case TH_TAG_TH:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The adoption agency in dom/tree.c moves past one special element a round and gives up after this many. */
+#define RW_ADOPTION_ROUNDS 8
+
+/* An HTML end tag whose element, stack[match], has foreign elements open above it: how many open elements stay once
+   the tree builder's in-body rules have run, since they decide whether those foreign elements are still open.
+   match + 1 closes the element as usual, ctx->depth leaves the end tag ignored, and a value in between is a
+   formatting end tag the adoption agency stopped at a special element: everything above that element closes. */
+static Py_ssize_t rw_end_keep(const rw_ctx *ctx, uint16_t atom, Py_ssize_t match) {
+    if (ctx->stack[match].live != match) {
+        return ctx->depth; /* the tree builder has no such element open */
+    }
+    if (atom == TH_TAG_TEMPLATE) {
+        return match + 1; /* closes whatever is open inside it */
+    }
+    if (atom == TH_TAG_FORM && !(ctx->stack[ctx->depth - 1].within & RW_WITHIN_TEMPLATE)) {
+        return ctx->depth; /* without a template open, </form> takes its own element off the stack and no other */
+    }
+    if (rw_has_table_scope(atom)) {
+        /* a nested table or a template bounds table scope, an integration point does not */
+        for (Py_ssize_t index = match + 1; index < ctx->depth; index++) {
+            const rw_open *open = &ctx->stack[index];
+            if (open->ns == TH_NS_HTML && (open->node->atom == TH_TAG_TABLE || open->node->atom == TH_TAG_TEMPLATE)) {
+                return ctx->depth;
             }
         }
-        if (same) {
+        return match + 1;
+    }
+    uint8_t flags = th_tag_flags(atom);
+    Py_ssize_t special = match;
+    int blocks = 0;
+    for (Py_ssize_t index = match + 1; index < ctx->depth; index++) {
+        const rw_open *open = &ctx->stack[index];
+        uint16_t between = open->node->atom;
+        unsigned category = open->node->tag_flags;
+        if (open->ns != TH_NS_HTML) {
+            category = rw_is_foreign_boundary(open) ? TH_TAG_SPECIAL | TH_TAG_SCOPING : 0;
+        } else if (open->live != index) {
+            category = 0; /* not open in the tree builder */
+        } else if (atom == TH_TAG_LI && (between == TH_TAG_OL || between == TH_TAG_UL)) {
+            category |= TH_TAG_SCOPING; /* list item scope */
+        }
+        if (category & TH_TAG_SCOPING) {
+            return ctx->depth; /* the element is not in scope */
+        }
+        if (category & TH_TAG_SPECIAL) {
+            special = index;
+            blocks++;
+        }
+    }
+    if (special == match || (flags & TH_TAG_SPECIAL)) {
+        return match + 1; /* a special element closes when it is in scope, any other when nothing special is above */
+    }
+    /* the adoption agency needs a round more than there are special elements to reach what is open above the last */
+    return (flags & TH_TAG_FORMATTING) && blocks < RW_ADOPTION_ROUNDS ? special + 1 : ctx->depth;
+}
+
+/* Whether an end tag names an open element: a known tag matches by atom, an unknown (custom) tag by its lowercased
+   name. */
+static int rw_end_names(const th_node *node, const th_token *token, uint16_t atom) {
+    if (node->atom != atom) {
+        return 0;
+    }
+    if (atom != TH_TAG_UNKNOWN) {
+        return 1;
+    }
+    if (node->text_len != token->name.len) {
+        return 0;
+    }
+    for (Py_ssize_t pos = 0; pos < node->text_len; pos++) {
+        if (node->text[pos] != PyUnicode_READ(token->name.kind, token->name.data, pos)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The open element an end tag closes while a foreign element is on the spine, or -1 once the tag is handled in full
+   (the tree builder ignores it). While the tree builder's current node is foreign the foreign-content rules apply:
+   </p> and </br> break out, any other end tag closes the nearest foreign element of that name, and the HTML rules
+   take over at the first HTML element below. *end_from is where the open elements above the match start to get end
+   tags of their own. */
+static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, const th_token *token, uint16_t atom, Py_ssize_t *end_from) {
+    int foreign = rw_in_foreign_content(ctx);
+    Py_ssize_t closed = 0;
+    if (foreign && (atom == TH_TAG_P || atom == TH_TAG_BR)) {
+        closed = rw_pop_foreign(ctx);
+        foreign = 0;
+    }
+    Py_ssize_t match = -1;
+    Py_ssize_t unopened = -1;
+    int over_foreign = 0;
+    for (Py_ssize_t index = ctx->depth - 1; index >= 0; index--) {
+        const rw_open *open = &ctx->stack[index];
+        int same = rw_end_names(open->node, token, atom);
+        if (open->ns != TH_NS_HTML) {
+            if (foreign && same) {
+                match = index;
+                over_foreign = 0;
+                break;
+            }
+            over_foreign = 1;
+            continue;
+        }
+        if (open->live != index) {
+            /* the tree builder never opened this element: the foreign rules walk past it, and its end tag closes it
+               on the spine only where that closes nothing the tree builder has open */
+            if (foreign) {
+                if (same && unopened < 0 && !over_foreign) {
+                    unopened = index;
+                }
+                continue;
+            }
+            if (same && open->live >= 0 && ctx->stack[open->live].ns != TH_NS_HTML) {
+                break;
+            }
+        }
+        foreign = 0;
+        /* </h1> to </h6> each close whichever heading is open; only tracked where it closes a foreign element */
+        if (same || (over_foreign && rw_is_heading(atom) && rw_is_heading(open->node->atom))) {
             match = index;
             break;
         }
     }
-    if (match < 0) {
-        /* a stray end tag with no open match: emit it verbatim */
+    if (match < 0 && unopened >= 0) {
+        match = unopened;
+        over_foreign = 0;
+    }
+    /* an HTML end tag whose element has foreign elements open above it closes them only where the in-body rules
+       let it reach its element */
+    Py_ssize_t keep = match + 1;
+    if (match >= 0 && over_foreign) {
+        keep = rw_end_keep(ctx, atom, match);
+    }
+    int closes = match >= 0 && keep == match + 1;
+    /* the end tag is dropped with the element a handler removed or unwrapped, and then closes nothing in the output */
+    int dropped = closes && ctx->stack[match].drop_end_tag;
+    rw_release_foreign(ctx, closed, dropped);
+    if (!closes) {
+        if (match >= 0) {
+            rw_drop_unclosed(ctx, keep);
+        }
         if (ctx->suppress <= 0) {
             rw_emit_verbatim(&ctx->out, ctx->sm, token);
         }
-        return;
+        rw_sync_cdata(ctx);
+        return -1;
     }
-    /* pop the intermediate unclosed elements (no synthetic end tags), then the match */
+    /* Dropped, the end tag closes none of the elements above its match, and an SVG/MathML element left open would turn
+       the raw text after it into markup (see rw_release_foreign), so the elements down to the outermost foreign one
+       are ended here. That takes in the HTML elements above it: while one of them is open, the integration point
+       holding it ignores the end tags of the elements around it. */
+    for (Py_ssize_t index = match + 1; dropped && index < ctx->depth; index++) {
+        if (ctx->stack[index].ns != TH_NS_HTML) {
+            *end_from = index;
+            break;
+        }
+    }
+    return match;
+}
+
+static void rw_handle_end(rw_ctx *ctx, const th_token *token) {
+    uint16_t atom = rw_tag_atom(&token->name);
+    int foreign = rw_spine_foreign(ctx);
+    Py_ssize_t end_from = ctx->depth;
+    Py_ssize_t match = -1;
+    if (foreign) {
+        match = rw_foreign_end(ctx, token, atom, &end_from);
+        if (match < 0) {
+            return;
+        }
+    } else {
+        /* find the matching open element, top-down */
+        for (Py_ssize_t index = ctx->depth - 1; index >= 0; index--) {
+            if (rw_end_names(ctx->stack[index].node, token, atom)) {
+                match = index;
+                break;
+            }
+        }
+        if (match < 0) {
+            /* a stray end tag with no open match: emit it verbatim */
+            if (ctx->suppress <= 0) {
+                rw_emit_verbatim(&ctx->out, ctx->sm, token);
+            }
+            return;
+        }
+    }
+    /* pop the intermediate unclosed elements, then the match: the end tag being handled closes them in a browser too,
+       so they get no end tags of their own, except from end_from up (see rw_foreign_end) */
     for (Py_ssize_t index = ctx->depth - 1; index > match; index--) {
         rw_open *open = &ctx->stack[index];
         if (open->drop_content) {
             ctx->suppress--;
+        }
+        if (index >= end_from && ctx->suppress == 0 && !open->drop_end_tag) {
+            rw_emit_end_tag(&ctx->out, open->node);
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
@@ -1461,6 +2164,9 @@ static void rw_handle_end(rw_ctx *ctx, const th_token *token) {
     Py_XDECREF(closing->after_html);
     rw_free_node(closing->node);
     ctx->depth = match;
+    if (foreign) {
+        rw_sync_cdata(ctx);
+    }
 }
 
 /* Without the tags of a raw-text or RCDATA element, a browser reads the `<` and bare `&` of its text as markup, so an
