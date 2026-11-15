@@ -1606,6 +1606,10 @@ TH_NODE_API(static, int, apply_existing,
     int status = 0;
     Py_BEGIN_CRITICAL_SECTION(handle);
     (void)turbohtml_node_borrow(module, target, &tree, &anchor);
+    if (result->vetoed || replace_text) {
+        /* both unlink elements: drop the element index and bump mutation_version so a live walk re-checks its node */
+        handle_drop_index(handle);
+    }
     if (result->vetoed) {
         unwrap_anchor(tree, anchor);
     } else {
@@ -1759,6 +1763,7 @@ TH_NODE_API(static, int, apply_text,
         if (status == 0 && node->parent != NULL) { /* GCOVR_EXCL_BR_LINE: fragment child allocation */
             th_node *parent = node->parent;
             th_tree_note_deepened(tree);
+            handle_drop_index(handle); /* the new anchors belong in the element index */
             /* no iterator can point into the fragment this call built, so its children move without the steps */
             while (fragment->first_child != NULL) {
                 th_node *child = fragment->first_child;
