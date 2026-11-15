@@ -1049,6 +1049,7 @@ static Py_ssize_t ns_find_bytes(const nsscope *scope, const char *prefix, Py_ssi
     }
     size_t mask = scope->slot_cap - 1;
     for (size_t slot = (size_t)ns_hash_bytes(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
+        TH_WORK_STEP();
         const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
         if (binding->prefix_len == len && (len == 0 || memcmp(binding->prefix, prefix, (size_t)len) == 0)) {
             return scope->slots[slot] - 1;
@@ -1063,6 +1064,7 @@ static Py_ssize_t ns_find_units(const nsscope *scope, const Py_UCS4 *prefix, Py_
     }
     size_t mask = scope->slot_cap - 1;
     for (size_t slot = (size_t)named_hash(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
+        TH_WORK_STEP();
         const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
         if (u_eq_utf8(prefix, len, binding->prefix, binding->prefix_len)) {
             return scope->slots[slot] - 1;
@@ -1111,6 +1113,7 @@ static Py_ssize_t ns_scope_enter(th_schema *schema, th_tree *tree, th_node *elem
     nsscope *scope = &schema->ns;
     Py_ssize_t mark = scope->undo_count;
     for (Py_ssize_t position = element->attr_count - 1; position >= 0; position--) {
+        TH_WORK_STEP();
         Py_ssize_t alen = 0;
         const char *abytes = th_attr_name(tree, element->attrs[position].name_atom, &alen);
         if (!is_xmlns_decl(abytes, alen) || alen == 6) {
