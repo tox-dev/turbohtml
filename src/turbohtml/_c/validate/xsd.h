@@ -46,8 +46,80 @@ static int xsd_is_particle(const th_schema *schema, th_node *node, const char *c
 static const char *const XSD_MODEL_GROUPS[] = {"sequence", "choice", "all"};
 static const char *const XSD_PARTICLES[] = {"element", "sequence", "choice", "all", "group"};
 
-static const Py_UCS4 *xsd_attr(th_tree *tree, th_node *node, const char *name, Py_ssize_t *out_len) {
-    const th_node_attr *attr = attr_exact(tree, node, name, (Py_ssize_t)strlen(name));
+/* Validation reads every property of a declaration (ref, name, type, use, minOccurs, ...) from the attributes of a
+   schema element, again for each instance element that meets the declaration. A schema element may carry any number
+   of attributes: namespace declarations, annotations from other namespaces, names XSD gives no meaning. Scanning them
+   made each read cost the length of the list, so xsd_compile sorts every list this long by name, once, and
+   xsd_attr_find binary-searches it. A shorter list is scanned, in the order it was written. */
+#define XSD_MIN_SORTED_ATTRS 16
+
+typedef struct {
+    const char *name;
+    Py_ssize_t name_len;
+    th_node_attr attr;
+} xattr_key;
+
+/* Names are compared bytewise and shorter-first on a tie, the order memcmp gives UTF-8 names; they need not be
+   NUL-terminated. */
+static int xsd_name_order(const char *left, Py_ssize_t left_len, const char *right, Py_ssize_t right_len) {
+    const int order = memcmp(left, right, (size_t)(left_len < right_len ? left_len : right_len));
+    return order != 0 ? order : (left_len > right_len) - (left_len < right_len);
+}
+
+static int xsd_attr_key_order(const void *left, const void *right) {
+    const xattr_key *a = left, *b = right;
+    return xsd_name_order(a->name, a->name_len, b->name, b->name_len);
+}
+
+/* qsort hands its comparator no tree to read a name atom with, so each list is sorted through the names copied into
+   xattr_key. The schema tree is private to the schema and XML allows a name once per element, so the order of a list
+   carries no meaning; this runs before anything keeps a pointer into one. */
+static void xsd_sort_attrs(th_schema *schema) {
+    for (th_node *node = schema->root; node != NULL; node = preorder_next(node, schema->root)) {
+        if (node->type != TH_NODE_ELEMENT || node->attr_count < XSD_MIN_SORTED_ATTRS) {
+            continue;
+        }
+        xattr_key *keys = arena_alloc(&schema->mem, (size_t)node->attr_count * sizeof(xattr_key));
+        if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return;         /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            keys[index].attr = node->attrs[index];
+            keys[index].name = th_attr_name(schema->tree, node->attrs[index].name_atom, &keys[index].name_len);
+        }
+        qsort(keys, (size_t)node->attr_count, sizeof(xattr_key), xsd_attr_key_order);
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            node->attrs[index] = keys[index].attr;
+        }
+    }
+}
+
+/* The attribute called `name` in a list xsd_sort_attrs has sorted, or NULL. */
+static TH_NOINLINE const th_node_attr *xsd_attr_find(th_tree *tree, const th_node *node, const char *name,
+                                                     Py_ssize_t name_len) {
+    Py_ssize_t low = 0, high = node->attr_count;
+    while (low < high) {
+        const Py_ssize_t middle = low + (high - low) / 2;
+        Py_ssize_t len = 0;
+        const char *bytes = th_attr_name(tree, node->attrs[middle].name_atom, &len);
+        const int order = xsd_name_order(bytes, len, name, name_len);
+        if (order == 0) {
+            return &node->attrs[middle];
+        }
+        if (order < 0) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return NULL;
+}
+
+/* inline, so that the scan of a short list stays specialized for the literal name of each call */
+static inline const Py_UCS4 *xsd_attr(th_tree *tree, th_node *node, const char *name, Py_ssize_t *out_len) {
+    const Py_ssize_t name_len = (Py_ssize_t)strlen(name);
+    const th_node_attr *attr = node->attr_count < XSD_MIN_SORTED_ATTRS ? attr_exact(tree, node, name, name_len)
+                                                                       : xsd_attr_find(tree, node, name, name_len);
     if (attr == NULL) {
         return NULL;
     }
@@ -756,10 +828,9 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
     Py_ssize_t base_len = 0;
     const Py_UCS4 *base = xsd_attr(tree, derivation, "base", &base_len);
     if (base != NULL) {
-        const Py_UCS4 *local, *prefix, *uri;
-        Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-        split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-        resolve_ns(tree, derivation, prefix, prefix_len, &uri, &uri_len);
+        const qname written = schema_node_entry(schema, derivation)->base;
+        const Py_UCS4 *local = written.local, *uri = written.uri;
+        Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
         if (is_xsd_uri(uri, uri_len)) {
             entry->base_id = xsd_builtin_id(local, local_len);
         } else {
@@ -781,7 +852,7 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
         if (facet->type != TH_NODE_ELEMENT) {
             continue;
         }
-        qname name = node_qname(tree, facet, facet->text, facet->text_len);
+        const qname name = schema_node_entry(schema, facet)->name;
         if (name.uri == NULL || !u_eq_ascii(name.uri, name.uri_len, XSD_NS)) {
             continue;
         }
@@ -960,10 +1031,9 @@ static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex)
     if (type == NULL) {
         return 0;
     }
-    const Py_UCS4 *local, *prefix, *uri;
-    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-    split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
+    const qname written = schema_node_entry(schema, node)->type;
+    const Py_UCS4 *local = written.local, *uri = written.uri;
+    Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
     if (is_xsd_uri(uri, uri_len)) {
         if (xsd_is_builtin_type(local, local_len)) {
             return 0;
@@ -1000,10 +1070,9 @@ static int xsd_require_base(th_schema *schema, th_node *node) {
     if (base == NULL) {
         return 0;
     }
-    const Py_UCS4 *local, *prefix, *uri;
-    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
+    const qname written = schema_node_entry(schema, node)->base;
+    const Py_UCS4 *local = written.local, *uri = written.uri;
+    Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
     if (is_xsd_uri(uri, uri_len)) {
         return 0;
     }
@@ -1338,10 +1407,9 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
     th_node *inline_type = first_schema_child(schema, effective, XSD_NS, "simpleType");
     if (type != NULL) {
         th_node *named = NULL;
-        const Py_UCS4 *local, *prefix, *uri;
-        Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-        split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-        resolve_ns(tree, effective, prefix, prefix_len, &uri, &uri_len);
+        const qname written = schema_node_entry(schema, effective)->type;
+        const Py_UCS4 *local = written.local, *uri = written.uri;
+        Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
         int base_id = DT_STRING;
         if (is_xsd_uri(uri, uri_len)) {
             base_id = xsd_builtin_id(local, local_len);
@@ -1411,10 +1479,9 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 Py_ssize_t base_len = 0;
                 const Py_UCS4 *base = xsd_attr(tree, derivation, "base", &base_len);
                 if (base != NULL) {
-                    const Py_UCS4 *local, *prefix, *uri;
-                    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-                    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-                    resolve_ns(tree, derivation, prefix, prefix_len, &uri, &uri_len);
+                    const qname written = schema_node_entry(schema, derivation)->base;
+                    const Py_UCS4 *local = written.local;
+                    Py_ssize_t local_len = written.local_len;
                     th_node *base_type = named_find(&schema->complex_types, local, local_len);
                     if (base_type != NULL) {
                         xsd_collect_attrs(ctx, instance, base_type, declared, attrs);
@@ -1724,10 +1791,9 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
     th_node *inline_complex = first_schema_child(schema, decl, XSD_NS, "complexType");
     th_node *inline_simple = first_schema_child(schema, decl, XSD_NS, "simpleType");
     if (type != NULL) {
-        const Py_UCS4 *local, *prefix, *uri;
-        Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-        split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-        resolve_ns(tree, decl, prefix, prefix_len, &uri, &uri_len);
+        const qname written = schema_node_entry(schema, decl)->type;
+        const Py_UCS4 *local = written.local, *uri = written.uri;
+        Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
         int is_xsd_ns = is_xsd_uri(uri, uri_len);
         th_node *complex = is_xsd_ns ? NULL : named_find(&schema->complex_types, local, local_len);
         if (complex != NULL) {
@@ -1815,6 +1881,7 @@ static int xsd_compile(th_schema *schema) {
         PyErr_SetString(PyExc_ValueError, "root element is not an xs:schema");
         return 0;
     }
+    xsd_sort_attrs(schema);
     Py_ssize_t ns_len = 0;
     const Py_UCS4 *ns = xsd_attr(tree, schema->root, "targetNamespace", &ns_len);
     schema->target_ns = ns;

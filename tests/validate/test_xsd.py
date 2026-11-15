@@ -1716,6 +1716,138 @@ def test_attribute_group_and_ref() -> None:
     assert not check(schema, "<r/>").valid
 
 
+@pytest.mark.parametrize("namespaces", [pytest.param(False, id="attributes"), pytest.param(True, id="namespaces")])
+@pytest.mark.parametrize("count", [pytest.param(0, id="none"), pytest.param(3, id="few"), pytest.param(40, id="many")])
+def test_declaration_is_read_among_ignored_attributes(count: int, *, namespaces: bool) -> None:
+    extra: Final = _ignored_attributes(count, namespaces=namespaces)
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"{extra}>'
+        f'<xs:element{extra} name="r"><xs:complexType{extra}><xs:sequence{extra}>'
+        f'<xs:element{extra} name="item" type="t:int" minOccurs="0" maxOccurs="unbounded"/>'
+        f'</xs:sequence><xs:attribute{extra} name="a" type="t:int" use="required" fixed="7"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    documents: Final = [
+        '<r a="7"/>',
+        '<r a="7"><item>1</item></r>',
+        "<r><item>1</item></r>",
+        '<r a="8"/>',
+        '<r a="7"><item>x</item></r>',
+        '<r a="7"><other/></r>',
+    ]
+    assert [schema.is_valid(parse_xml(document)) for document in documents] == [True, True, False, False, False, False]
+
+
+def _ignored_attributes(count: int, *, namespaces: bool = False) -> str:
+    # names that share a prefix with the properties XSD reads, so a sorted list must order them apart from those
+    near_misses: Final = (
+        "name2",
+        "names",
+        "ref2",
+        "refs",
+        "typ",
+        "types",
+        "use2",
+        "uses",
+        "fixed2",
+        "value",
+        "values",
+        "a",
+    )
+    names: Final = [*near_misses, *(f"z{index}" for index in range(count))][:count]
+    if namespaces:
+        return "".join(f' xmlns:{name}="urn:{name}"' for name in names)
+    return "".join(f' {name}="0"' for name in names)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="a" xmlns:xs="urn:other"/><xs:element name="v" type="xs:int"/>'
+            "</xs:schema>",
+            id="sibling-after-a-shadowing-element",
+        ),
+        pytest.param(
+            '<schema xmlns="http://www.w3.org/2001/XMLSchema"><element name="v" type="int"/></schema>',
+            id="default-namespace",
+        ),
+    ],
+)
+def test_qname_prefix_resolves_in_its_scope(schema: str) -> None:
+    checked: Final = XMLSchema(schema)
+    assert checked.is_valid(parse_xml("<v>1</v>"))
+    assert not checked.is_valid(parse_xml("<v>x</v>"))
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema">'
+            '<xs:element name="v" type="t:int" xmlns:t="urn:other"/></xs:schema>',
+            id="shadowed-on-the-declaration",
+        ),
+        pytest.param(f'<xs:schema {_XS}><xs:element name="v" type="q:int"/></xs:schema>', id="unbound-prefix"),
+    ],
+)
+def test_qname_prefix_out_of_scope_does_not_resolve(schema: str) -> None:
+    with pytest.raises(ValueError, match="does not resolve"):
+        XMLSchema(schema)
+
+
+def test_declaration_properties_scale_linearly(work_steps: WorkSteps) -> None:
+    def validation(count: int) -> Callable[[], object]:
+        schema: Final = XMLSchema(_declaration_schema(count))
+        return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
+
+    work_steps.assert_linear(validation, (250, 1000))
+
+
+def _declaration_schema(count: int) -> str:
+    return (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+        f'<xs:attribute{_ignored_attributes(count)} name="x" type="xs:int"/>'
+        "</xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+
+
+def test_namespace_declarations_scale_linearly(work_steps: WorkSteps) -> None:
+    def validation(count: int) -> Callable[[], object]:
+        declarations: Final = _ignored_attributes(count, namespaces=True)
+        schema: Final = XMLSchema(
+            f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"><xs:element name="r"><xs:complexType>'
+            '<xs:sequence><xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+            f'<xs:attribute{declarations} name="x" type="t:int"/>'
+            "</xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
+
+    work_steps.assert_linear(validation, (250, 1000))
+
+
+def test_facet_names_compile_linearly(work_steps: WorkSteps) -> None:
+    def compilation(count: int) -> Callable[[], object]:
+        facets: Final = "".join(f'<xs:enumeration value="v{index}"/>' for index in range(count))
+        return partial(
+            XMLSchema,
+            f'<xs:schema {_XS}><xs:simpleType name="t"><xs:restriction{_ignored_attributes(count)} base="xs:string">'
+            f"{facets}</xs:restriction></xs:simpleType></xs:schema>",
+        )
+
+    work_steps.assert_linear(compilation, (250, 1000))
+
+
+def test_schema_namespace_scope_compiles_linearly(work_steps: WorkSteps) -> None:
+    def compilation(count: int) -> Callable[[], object]:
+        declarations: Final = _ignored_attributes(count, namespaces=True)
+        elements: Final = "".join(f'<xs:element name="e{index}"/>' for index in range(count))
+        return partial(XMLSchema, f"<xs:schema {_XS}{declarations}>{elements}</xs:schema>")
+
+    work_steps.assert_linear(compilation, (250, 1000))
+
+
 def test_complex_content_extension() -> None:
     schema = (
         f"<xs:schema {_XS}>"
