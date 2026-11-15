@@ -1484,22 +1484,16 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         }
     }
 
-    if (model == NULL && schema->all_inherited) {
-        th_node *inherited = xsd_inherited_model(schema, ctype);
-        if (inherited != NULL && is_schema_el(schema, inherited, XSD_NS, "all")) {
-            xsd_validate_all(ctx, inherited, children, nchildren);
-            return;
-        }
-    }
+    th_node *content = model == NULL && schema->all_inherited ? xsd_nearest_model(schema, ctype) : model;
     th_node *all = NULL;
-    if (model != NULL && is_schema_el(schema, model, XSD_NS, "all")) {
-        all = model;
-    } else if (model != NULL && schema->named_all && is_schema_el(schema, model, XSD_NS, "group")) {
-        all = xsd_group_all(schema, model);
+    if (content != NULL && is_schema_el(schema, content, XSD_NS, "all")) {
+        all = content;
+    } else if (content != NULL && schema->named_all && is_schema_el(schema, content, XSD_NS, "group")) {
+        all = xsd_group_all(schema, content);
     }
     if (all != NULL) {
         const int optional_group =
-            is_schema_el(schema, model, XSD_NS, "group") && xsd_occurs_min(schema->tree, model) == 0;
+            is_schema_el(schema, content, XSD_NS, "group") && xsd_occurs_min(schema->tree, content) == 0;
         if (nchildren > 0 || !optional_group) {
             xsd_validate_all(ctx, all, children, nchildren);
         }

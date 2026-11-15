@@ -1343,6 +1343,28 @@ def test_all_base_extended_without_particles_matches_members(schema: str, childr
 
 
 @pytest.mark.parametrize(
+    ("occurs", "children", "messages"),
+    [
+        pytest.param(' minOccurs="0"', "", [], id="optional-empty"),
+        pytest.param(' minOccurs="0"', "<a/><b/>", [], id="optional-filled"),
+        pytest.param(
+            "",
+            "",
+            ["required element 'a' is missing", "required element 'b' is missing"],
+            id="required-empty",
+        ),
+        pytest.param("", "<b/><a/>", [], id="required-filled"),
+    ],
+)
+def test_all_base_group_reference_occurrence_applies(occurs: str, children: str, messages: list[str]) -> None:
+    base = (
+        f'<xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+        f'<xs:complexType name="base"><xs:group ref="g"{occurs}/></xs:complexType>'
+    )
+    assert [error.message for error in check(_extension_schema(base, ""), f"<r>{children}</r>").errors] == messages
+
+
+@pytest.mark.parametrize(
     "schema",
     [
         pytest.param(_extension_schema(_ALL_BASE, f"<xs:all>{_AB}</xs:all>"), id="all-direct-base"),
