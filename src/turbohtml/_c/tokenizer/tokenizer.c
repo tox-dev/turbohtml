@@ -503,13 +503,50 @@ static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_toke
     return 0;
 }
 
+/* Follow a tag inside an SVG element that is no integration point in place where that is all it takes, the shape of an
+   inline SVG document: a start tag that does not break out opens an SVG element, and the end tag of the innermost
+   element closes it. The machine stays set for foreign content until the last foreign element closes. A caller who
+   asked for no attributes takes the full rules, which hide those captured for them. Returns 1 when the tag needs
+   tk_follow_rules. */
+static inline int tk_follow_svg(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
+    const tk_open *top = &self->open[self->depth - 1]; /* a foreign element is open */
+    uint64_t key = record->name_key;
+    if (top->ns != TH_NS_SVG || top->html_point || key == 0 || !self->capture_attributes) {
+        return 1;
+    }
+    if (record->kind == TH_END_TAG) {
+        if (top->key != key) {
+            return 1;
+        }
+        self->foreign--;
+        self->names_len = top->name;
+        self->depth--;
+        if (self->foreign == 0 || self->open[self->depth - 1].ns == TH_NS_HTML) {
+            tk_sync(self, sm);
+        }
+        return 0;
+    }
+    uint16_t atom = record->atom;
+    if ((TK_START[atom] & TK_BREAKOUT) != 0 || atom == TH_TAG_FONT || self->depth == self->open_cap) {
+        return 1;
+    }
+    if (!record->self_closing) {
+        uint8_t point = (TK_START[atom] & TK_SVG_POINT) != 0;
+        uint8_t in_table = top->in_table;
+        self->open[self->depth++] = (tk_open){
+            key, self->names_len, atom, TH_NS_SVG, point, point ? TH_TAG_SPECIAL | TH_TAG_SCOPING : 0, in_table};
+        self->foreign++;
+    }
+    return 0;
+}
+
 /* Follow a tag outside foreign content in place where that is all it takes: a start tag that opens an element with a
    packed name pushes it, a void element and the other start tags a browser leaves no element open for push nothing,
    and the end tag of the innermost element pops it. Returns 1 when the tag needs tk_follow_rules. Inlined at both call
    sites: it runs for every tag the Tokenizer hands over. */
 static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
     if (self->foreign != 0) {
-        return 1;
+        return tk_follow_svg(self, sm, record);
     }
     uint64_t key = record->name_key;
     if (record->kind == TH_END_TAG) {
