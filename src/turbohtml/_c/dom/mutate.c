@@ -786,6 +786,7 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator) {
     }
 }
 
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 static int is_inclusive_ancestor_of(const th_node *ancestor, const th_node *node) {
     for (const th_node *walk = node; walk != NULL; walk = walk->parent) {
         if (walk == ancestor) {
@@ -794,6 +795,7 @@ static int is_inclusive_ancestor_of(const th_node *ancestor, const th_node *node
     }
     return 0;
 }
+#endif
 
 /* Whether removed is an inclusive ancestor of node but not of root, the removals the steps below act on. node sits
    inside root (the steps below keep it there, and th_tree_verify counts an iterator that breaks this), so the climb
@@ -967,7 +969,8 @@ void th_tree_verify(th_tree *tree, th_node *start, Py_ssize_t (*visit)(void *con
         }
         node = node->next_sibling;
     }
-    /* the DOM NodeIterator pre-removing steps keep both pointers inside root across removals from a reachable tree */
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    /* the DOM NodeIterator pre-removing steps keep both pointers inside root; only the fuzz escape hook breaks that */
     for (Py_ssize_t index = 0; index < tree->node_iterator_count; index++) {
         const th_node_iterator *iterator = tree->node_iterators[index];
         found->iterators += !is_inclusive_ancestor_of(iterator->root, iterator->reference);
@@ -975,6 +978,7 @@ void th_tree_verify(th_tree *tree, th_node *start, Py_ssize_t (*visit)(void *con
             found->iterators += !is_inclusive_ancestor_of(iterator->root, iterator->candidate);
         }
     }
+#endif
     /* every write that bumps id_version bumps attr_version with it (node_attr_begin, th_node_attr_del) */
     found->versions = tree->id_version > tree->attr_version;
 }
