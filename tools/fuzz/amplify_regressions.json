@@ -1167,5 +1167,16 @@
       "left": "<x{n}></x{n}>",
       "counter": true
     }
+  },
+  {
+    "name": "whatwg-emphasis-around-empty-quote",
+    "source": "https://html.spec.whatwg.org/multipage/text-level-semantics.html#the-q-element",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "<em><q></q></em>"
+    }
   }
 ]
