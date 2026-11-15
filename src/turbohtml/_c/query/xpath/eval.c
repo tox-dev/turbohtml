@@ -297,7 +297,8 @@ typedef struct {
     const Py_UCS4 *qualified;
     Py_ssize_t qualified_len;
     int strict_no_ns;
-    int first; /* the step only has to find a node: eval_first_step */
+    int first;    /* the step only has to find a node: eval_first_step */
+    int unsorted; /* the contexts come from a path's filter base, in whatever order it gave them */
     /* one walk from one node with no predicate: a reverse axis hands its nodes back in document order, so the path
        needs no sort; any other step keeps the proximity order the sort or the predicates expect */
     int document_order;
@@ -704,36 +705,195 @@ static TH_NOINLINE int eval_first_step(const xn *step, const step_match *match, 
     return 0;
 }
 
-/* An ancestor step from several contexts without predicates. Their chains merge, so a climb stops at the first node an
-   earlier climb passed and each ancestor is emitted once, not once per context below it: on a deep tree that is the
-   depth instead of its square. Returns 1 when done, -1 on allocation failure, or 0 with out emptied when a context is
-   an attribute or the climbs end at two parentless tops; the caller then walks every context as before, so a set that
-   spans trees reaches the sort exactly as it always has. */
-static TH_NOINLINE int climb_ancestors(xp_nodeset *out, const xn *step, const step_match *match,
-                                       const xp_nodeset *contexts) {
-    th_node_map passed = {0};
-    struct th_node *top = NULL;
-    int rc = 1;
-    for (Py_ssize_t index = 0; rc == 1 && index < contexts->len; index++) {
-        xp_item item = contexts->items[index];
-        struct th_node *node = step->axis == AX_ANCESTOR_OR_SELF ? item.node : item.node->parent;
-        rc = item.attr == -1;
-        for (; rc == 1 && node != NULL && th_node_map_find(&passed, node) == 0; node = node->parent) {
-            TH_WORK_STEP();
-            if (th_node_map_insert(&passed, node, 1) < 0 ||  /* GCOVR_EXCL_BR_LINE: allocation failure */
-                emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                rc = -1;                                     /* GCOVR_EXCL_LINE */
-            } else if (node->parent == NULL) {
-                rc = top == NULL; /* a top the climbs met before is in passed, so this is a second tree */
-                top = node;
+/* A node's address through MurmurHash3's 64-bit finalizer: the key of the evaluator's node tables. core/node_map.h
+   hashes the creation sequence instead, and a document chooses which sequences a node-set holds, so members picked to
+   share one stretch of such a table make every probe a walk of the whole run. It does not choose where the allocator
+   put the tree. */
+static uint64_t node_address_hash(const struct th_node *node) {
+    uint64_t key = (uint64_t)(uintptr_t)node;
+    key ^= key >> 33;
+    key *= UINT64_C(0xFF51AFD7ED558CCD);
+    key ^= key >> 33;
+    key *= UINT64_C(0xC4CEB9FE1A85EC53);
+    key ^= key >> 33;
+    return key;
+}
+
+/* The nodes one step's walks have passed, open addressed and at most half full. */
+typedef struct {
+    const struct th_node **slots;
+    size_t capacity;
+    size_t count;
+} xp_seen;
+
+static size_t seen_slot(const xp_seen *seen, const struct th_node *node) {
+    size_t slot = (size_t)node_address_hash(node) & (seen->capacity - 1);
+    while (seen->slots[slot] != NULL && seen->slots[slot] != node) {
+        slot = (slot + 1) & (seen->capacity - 1);
+    }
+    return slot;
+}
+
+static int seen_has(const xp_seen *seen, const struct th_node *node) {
+    return seen->capacity != 0 && seen->slots[seen_slot(seen, node)] != NULL;
+}
+
+/* Add a node that seen_has just reported absent. */
+static int seen_add(xp_seen *seen, const struct th_node *node) {
+    if ((seen->count + 1) * 2 > seen->capacity) {
+        xp_seen grown = {NULL, seen->capacity == 0 ? 64 : seen->capacity * 2, seen->count};
+        grown.slots = PyMem_Calloc(grown.capacity, sizeof(*grown.slots));
+        if (grown.slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;             /* GCOVR_EXCL_LINE */
+        }
+        for (size_t index = 0; index < seen->capacity; index++) {
+            if (seen->slots[index] != NULL) {
+                grown.slots[seen_slot(&grown, seen->slots[index])] = seen->slots[index];
+            }
+        }
+        PyMem_Free(seen->slots);
+        *seen = grown;
+    }
+    seen->slots[seen_slot(seen, node)] = node;
+    seen->count++;
+    return 0;
+}
+
+/* The next node along an axis that follows a single link of the tree. */
+static struct th_node *axis_link(const struct th_node *node, enum xp_axis axis) {
+    switch (axis) {
+    case AX_FOLLOWING_SIBLING:
+        return node->next_sibling;
+    case AX_PRECEDING_SIBLING:
+        return node->prev_sibling;
+    default: /* AX_ANCESTOR, AX_ANCESTOR_OR_SELF */
+        return node->parent;
+    }
+}
+
+/* An ancestor or sibling axis for one of several contexts. Each walk follows its link to the end, so this one stops at
+   the first node an earlier context's walk passed: everything beyond it is in out already. */
+static int apply_linked_step(xp_nodeset *out, xp_item item, const xn *step, const step_match *match, xp_seen *seen) {
+    int ancestors = step->axis == AX_ANCESTOR || step->axis == AX_ANCESTOR_OR_SELF;
+    struct th_node *node = item.node;
+    Py_ssize_t from = out->len;
+    if (item.attr != -1) {
+        /* as in apply_owned_step: no siblings, and the owner element is the nearest ancestor */
+        if (!ancestors) {
+            return 0;
+        }
+    } else if (step->axis != AX_ANCESTOR_OR_SELF) {
+        node = axis_link(node, step->axis);
+    }
+    for (; node != NULL && !seen_has(seen, node); node = axis_link(node, step->axis)) {
+        if (seen_add(seen, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                  /* GCOVR_EXCL_LINE */
+        }
+        if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                   /* GCOVR_EXCL_LINE */
+        }
+    }
+    /* No predicate reads the proximity order, so a backward run is left in document order, the attribute after its
+       owner: sort_unique then has nothing to reorder when the contexts came in that order too. */
+    if (step->axis != AX_FOLLOWING_SIBLING) {
+        reverse_items(out, from);
+    }
+    if (item.attr != -1 && step->axis == AX_ANCESTOR_OR_SELF && step->test == NT_NODE) {
+        return ns_push(out, item.node, item.attr);
+    }
+    return 0;
+}
+
+/* Drop from the items one context or walk just added, [from, set->len), the nodes an earlier one already contributed,
+   and remember the rest. An attribute or namespace node is its context's own and leads them, so it neither repeats
+   nor moves. */
+static int drop_repeats(xp_nodeset *set, Py_ssize_t from, xp_seen *seen) {
+    Py_ssize_t write_pos = from;
+    for (Py_ssize_t read_pos = from; read_pos < set->len; read_pos++) {
+        xp_item item = set->items[read_pos];
+        if (item.attr == -1) {
+            if (seen_has(seen, item.node)) {
+                continue;
+            }
+            if (seen_add(seen, item.node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                       /* GCOVR_EXCL_LINE */
+            }
+        }
+        set->items[write_pos++] = item;
+    }
+    set->len = write_pos;
+    return 0;
+}
+
+/* The following or preceding axis for several contexts at once. Each walk runs to an end of the document, so it also
+   yields every node that a context it passes on the way would. Contexts in document order let one walk pass all the
+   others. One that no walk passed (an extension function can return them unordered, and a variable can hold nodes of
+   several trees) gets a walk of its own, less the nodes an earlier walk yielded. */
+static int apply_document_step(xp_nodeset *out, const xn *step, const step_match *match, const xp_nodeset *contexts,
+                               xp_seen *seen) {
+    const xp_item *items = contexts->items;
+    if (step->axis == AX_PRECEDING) {
+        Py_ssize_t left = contexts->len;
+        while (left > 0) {
+            /* backward from the last context left; the axis leaves out the context and its ancestors, and the walk
+               meets those nearest first, so the next one due is the only node to test against */
+            Py_ssize_t from = out->len;
+            struct th_node *skip = items[left - 1].node;
+            for (struct th_node *node = skip; node != NULL; node = document_previous(node)) {
+                while (left > 0 && items[left - 1].node == node) {
+                    left--;
+                }
+                if (node == skip) {
+                    skip = node->parent;
+                } else if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                                          /* GCOVR_EXCL_LINE */
+                }
+            }
+            reverse_items(out, from); /* into document order, which sort_unique keeps without sorting */
+            if (left > 0 || seen->count > 0) {
+                if (drop_repeats(out, from, seen) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                           /* GCOVR_EXCL_LINE */
+                }
+            }
+        }
+        return 0;
+    }
+    Py_ssize_t index = 0;
+    while (index < contexts->len) {
+        xp_item item = items[index++];
+        /* a context inside this one ends no later, so its walk covers this one's */
+        struct th_node *inner = index < contexts->len && item.attr == -1 ? items[index].node : NULL;
+        while (inner != NULL && inner != item.node) {
+            inner = inner->parent;
+        }
+        if (inner != NULL) {
+            continue;
+        }
+        /* after the whole subtree of a node; after the owner element of an attribute or namespace node, as for the
+           owner's other ones */
+        while (index < contexts->len && items[index].node == item.node) {
+            index++;
+        }
+        Py_ssize_t from = out->len;
+        struct th_node *node = item.attr == -1 ? NULL : document_next(item.node);
+        for (struct th_node *up = item.node; item.attr == -1 && up != NULL && node == NULL; up = up->parent) {
+            node = up->next_sibling;
+        }
+        for (; node != NULL; node = document_next(node)) {
+            while (index < contexts->len && items[index].node == node) {
+                index++;
+            }
+            if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+        if (index < contexts->len || seen->count > 0) {
+            if (drop_repeats(out, from, seen) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                           /* GCOVR_EXCL_LINE */
             }
         }
     }
-    PyMem_Free(passed.entries);
-    if (rc == 0) {
-        out->len = 0;
-    }
-    return rc;
+    return 0;
 }
 
 /* A table keyed on the node's address. th_node_map starts its probe from the creation sequence, which the document
@@ -755,13 +915,7 @@ typedef struct {
 } addr_map;
 
 static size_t addr_slot(const addr_map *map, const struct th_node *node) {
-    uint64_t hash = (uint64_t)(uintptr_t)node;
-    hash ^= hash >> 33;
-    hash *= UINT64_C(0xff51afd7ed558ccd);
-    hash ^= hash >> 33;
-    hash *= UINT64_C(0xc4ceb9fe1a85ec53);
-    hash ^= hash >> 33;
-    size_t slot = (size_t)hash & (map->capacity - 1);
+    size_t slot = (size_t)node_address_hash(node) & (map->capacity - 1);
     while (map->entries[slot].node != NULL && map->entries[slot].node != node) {
         TH_WORK_STEP();
         slot = (slot + 1) & (map->capacity - 1);
@@ -797,6 +951,15 @@ static int addr_map_insert(addr_map *map, const struct th_node *node, Py_ssize_t
     map->entries[addr_slot(map, node)] = (addr_entry){node, {value}};
     map->count++;
     return 0;
+}
+
+/* Point node at value, adding it when the map does not hold it yet. */
+static int addr_map_set(addr_map *map, const struct th_node *node, Py_ssize_t value) {
+    if (map->capacity != 0 && map->entries[addr_slot(map, node)].node == node) {
+        map->entries[addr_slot(map, node)].value = value;
+        return 0;
+    }
+    return addr_map_insert(map, node, value);
 }
 
 static struct th_node *known_root(const addr_map *roots, const struct th_node *node) {
@@ -1822,10 +1985,12 @@ double to_number(struct th_tree *tree, const xp_result *value) {
     return number;
 }
 
-/* Apply each predicate in the XN_PRED chain to set, in place, in proximity order. held is the depth the caller's
-   frames weigh beneath the predicate on top of the level its own expression counts. */
-static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set, int held) {
-    for (int32_t pr = pred_head; pr >= 0; pr = prog->nodes[pr].next) {
+/* Apply each predicate in the XN_PRED chain from pred_head up to stop (-1 for the whole chain) to set, in place, in
+   proximity order. held is the depth the caller's frames weigh beneath the predicate on top of the level its own
+   expression counts. */
+static int apply_predicates(const xp_program *prog, int32_t pred_head, int32_t stop, xp_ctx *ctx, xp_nodeset *set,
+                            int held) {
+    for (int32_t pr = pred_head; pr != stop; pr = prog->nodes[pr].next) {
         int32_t expr = prog->nodes[pr].first;
         const xn *predicate = &prog->nodes[expr];
         static const Py_UCS4 last[] = {'l', 'a', 's', 't'};
@@ -2005,7 +2170,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
 static int eval_path_step(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
                           xp_nodeset *current, xp_nodeset *following);
 static int eval_path_step_inner(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
-                                xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted);
+                                xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted, xp_seen *seen);
 
 static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out, xp_nodeset *current,
                            xp_nodeset *following, int exists) {
@@ -2060,6 +2225,7 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
            apply_step hands a reverse axis back in document order for it. */
         int single_walk = contexts->len == 1 && contexts->items[0].attr == -1 && step->first < 0;
         match.document_order = single_walk;
+        match.unsorted = si == root->first && root->second >= 0;
         int stepped = eval_path_step(prog, step, &match, ctx, contexts, following);
         if (stepped < 0) {
             xp_nodeset_free(current);
@@ -2083,38 +2249,1189 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
 
 static int eval_path_step(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
                           xp_nodeset *current, xp_nodeset *following) {
+    xp_seen seen = {0};
+    int rc;
     if (ctx->live == NULL) {
-        return eval_path_step_inner(prog, step, match, ctx, current, following, NULL);
+        rc = eval_path_step_inner(prog, step, match, ctx, current, following, NULL, &seen);
+    } else {
+        xp_nodeset accepted = {0};
+        xp_live_frame frame = {.sets = {current}, .append = &accepted};
+        xp_live_enter(ctx, &frame);
+        rc = eval_path_step_inner(prog, step, match, ctx, current, following, &accepted, &seen);
+        xp_live_leave(ctx, &frame);
     }
-    xp_nodeset accepted = {0};
-    xp_live_frame frame = {.sets = {current}, .append = &accepted};
-    xp_live_enter(ctx, &frame);
-    int rc = eval_path_step_inner(prog, step, match, ctx, current, following, &accepted);
-    xp_live_leave(ctx, &frame);
+    PyMem_Free(seen.slots);
+    return rc;
+}
+
+/* The predicates from first to the end of a step's chain, applied to the nodes [before, following->len) it just
+   appended. */
+static int filter_slice(const xp_program *prog, int32_t first, xp_ctx *ctx, xp_nodeset *following, Py_ssize_t before,
+                        xp_nodeset *accepted) {
+    xp_nodeset slice = {following->items == NULL ? NULL : following->items + before, following->len - before, 0,
+                        following->snapshots};
+    int rc;
+    if (accepted != NULL) {
+        *accepted = *following;
+        accepted->len = before;
+        xp_live_frame frame = {.sets = {&slice}};
+        xp_live_enter(ctx, &frame);
+        rc = apply_predicates(prog, first, -1, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+        xp_live_leave(ctx, &frame);
+    } else {
+        rc = apply_predicates(prog, first, -1, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+    }
+    if (rc < 0) {
+        return rc;
+    }
+    following->len = before + slice.len;
+    return 0;
+}
+
+/* A step with a positional predicate from several contexts. Along the axes other than child, attribute, self, parent
+   and namespace, the contexts' axes are stretches of walks they share: suffixes of a sibling list or of the document,
+   prefixes of a sibling list, nested subtrees, root paths, or the document before a context less its root path. A
+   predicate reads a position as an offset into its context's stretch, so the step walks once, works out from each
+   stretch's length which positions survive, and marks them, instead of walking and testing the stretch once per
+   context, which is quadratic on a long list or a deep path. The offsets cover predicates that test the node before
+   and after the ones that test the position, and position tests that offset_formula (parser.c) accepts. Any other
+   chain is evaluated per context over its stretch, for at most XP_EACH_LIMIT nodes. */
+#define XP_EACH_LIMIT 10000000
+#define XP_VIEW_NONE (-1) /* the context reaches no node along the axis */
+#define XP_VIEW_SELF (-2) /* the context reaches only itself: an attribute's descendant-or-self::node() */
+
+typedef struct {
+    Py_ssize_t lo;
+    Py_ssize_t hi;
+} xp_span;
+
+/* Positions from 1, as sorted runs that neither overlap nor touch. */
+typedef struct {
+    xp_span *items;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+} xp_spans;
+
+/* Append the run [lo, hi], which starts no earlier than the last one, merging the two when they meet. */
+static int spans_add(xp_spans *spans, Py_ssize_t lo, Py_ssize_t hi) {
+    if (lo > hi) {
+        return 0;
+    }
+    if (spans->len > 0 && spans->items[spans->len - 1].hi >= lo - 1) {
+        if (spans->items[spans->len - 1].hi < hi) {
+            spans->items[spans->len - 1].hi = hi;
+        }
+        return 0;
+    }
+    if (spans->len == spans->cap) {
+        Py_ssize_t cap = spans->cap == 0 ? 4 : spans->cap * 2;
+        xp_span *grown = PyMem_Realloc(spans->items, (size_t)cap * sizeof(xp_span));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        spans->items = grown;
+        spans->cap = cap;
+    }
+    spans->items[spans->len++] = (xp_span){lo, hi};
+    return 0;
+}
+
+static Py_ssize_t spans_count(const xp_spans *spans) {
+    Py_ssize_t count = 0;
+    for (Py_ssize_t index = 0; index < spans->len; index++) {
+        count += spans->items[index].hi - spans->items[index].lo + 1;
+    }
+    return count;
+}
+
+/* out gets the positions in both left and right, or with both unset in either. */
+static int spans_merge(const xp_spans *left, const xp_spans *right, int both, xp_spans *out) {
+    Py_ssize_t li = 0;
+    Py_ssize_t ri = 0;
+    while (both ? li < left->len && ri < right->len : li < left->len || ri < right->len) {
+        xp_span span;
+        if (both) {
+            xp_span one = left->items[li];
+            xp_span other = right->items[ri];
+            span = (xp_span){one.lo > other.lo ? one.lo : other.lo, one.hi < other.hi ? one.hi : other.hi};
+            if (one.hi < other.hi) {
+                li++;
+            } else {
+                ri++;
+            }
+        } else {
+            int from_left = ri == right->len || (li < left->len && left->items[li].lo <= right->items[ri].lo);
+            span = from_left ? left->items[li++] : right->items[ri++];
+        }
+        if (spans_add(out, span.lo, span.hi) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                              /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+static int spans_invert(const xp_spans *spans, Py_ssize_t size, xp_spans *out) {
+    Py_ssize_t next = 1;
+    for (Py_ssize_t index = 0; index < spans->len; index++) {
+        if (spans_add(out, next, spans->items[index].lo - 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                              /* GCOVR_EXCL_LINE */
+        }
+        next = spans->items[index].hi + 1;
+    }
+    return spans_add(out, next, size);
+}
+
+/* out gets the members of outer at the positions inner counts among them. */
+static int spans_within(const xp_spans *outer, const xp_spans *inner, xp_spans *out) {
+    Py_ssize_t at = 0;
+    Py_ssize_t before = 0; /* members of outer's runs ahead of at */
+    for (Py_ssize_t index = 0; index < inner->len; index++) {
+        Py_ssize_t lo = inner->items[index].lo;
+        Py_ssize_t hi = inner->items[index].hi;
+        while (lo <= hi) { /* inner counts no further than outer holds, so a run is left while lo is */
+            xp_span span = outer->items[at];
+            Py_ssize_t past = before + span.hi - span.lo + 1;
+            if (lo <= past) {
+                Py_ssize_t end = hi < past ? hi : past;
+                Py_ssize_t shift = span.lo - before - 1;
+                if (spans_add(out, lo + shift, end + shift) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                                     /* GCOVR_EXCL_LINE */
+                }
+                lo = end + 1;
+            }
+            if (lo > past) {
+                before = past;
+                at++;
+            }
+        }
+    }
+    return 0;
+}
+
+/* One operation between position() and the comparison it feeds. */
+typedef struct {
+    uint8_t kind;  /* XN_ADD, XN_SUB, XN_MUL, XN_DIV or XN_NEG */
+    uint8_t right; /* position() is in the right operand */
+    double operand;
+} xp_hop;
+
+/* The value the chain gives at position, computed as the evaluator does; hops[0] is the outermost operation. */
+static double hops_apply(const xp_hop *hops, int count, Py_ssize_t position) {
+    double value = (double)position;
+    for (int index = count - 1; index >= 0; index--) {
+        double operand = hops[index].operand;
+        switch (hops[index].kind) {
+        case XN_ADD:
+            value = value + operand;
+            break;
+        case XN_SUB:
+            value = hops[index].right ? operand - value : value - operand;
+            break;
+        case XN_MUL:
+            value = value * operand;
+            break;
+        case XN_DIV:
+            value = value / operand;
+            break;
+        default: /* XN_NEG */
+            value = -value;
+            break;
+        }
+    }
+    return value;
+}
+
+static int number_passes(double value, int op, double bound) {
+    switch (op) {
+    case XN_LT:
+        return value < bound;
+    case XN_LE:
+        return value <= bound;
+    case XN_GT:
+        return value > bound;
+    default: /* XN_GE */
+        return value >= bound;
+    }
+}
+
+/* The first position in [1, size] from which the chain's value passes op against bound, or size + 1. */
+static Py_ssize_t first_passing(const xp_hop *hops, int count, Py_ssize_t size, int op, double bound) {
+    Py_ssize_t low = 1;
+    Py_ssize_t high = size + 1;
+    while (low < high) {
+        TH_WORK_STEP();
+        Py_ssize_t middle = low + (high - low) / 2;
+        if (number_passes(hops_apply(hops, count, middle), op, bound)) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    return low;
+}
+
+/* The positions whose chain value compares to bound under op. The value only rises or only falls with the position,
+   so the positions below, equal to and above bound are three runs, which two searches find. */
+static int compare_spans(const xp_hop *hops, int count, Py_ssize_t size, int op, double bound, xp_spans *out) {
+    if (isnan(bound)) {
+        return op == XN_NE ? spans_add(out, 1, size) : 0;
+    }
+    int rising = hops_apply(hops, count, 1) <= hops_apply(hops, count, size);
+    Py_ssize_t below_end = first_passing(hops, count, size, rising ? XN_GE : XN_LT, bound);
+    Py_ssize_t above_end = first_passing(hops, count, size, rising ? XN_GT : XN_LE, bound);
+    Py_ssize_t equal_lo = rising ? below_end : above_end;
+    Py_ssize_t equal_hi = (rising ? above_end : below_end) - 1;
+    switch (op) {
+    case XN_EQ:
+        return spans_add(out, equal_lo, equal_hi);
+    case XN_NE:
+        if (spans_add(out, 1, equal_lo - 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                             /* GCOVR_EXCL_LINE */
+        }
+        return spans_add(out, equal_hi + 1, size);
+    case XN_LT:
+        return rising ? spans_add(out, 1, below_end - 1) : spans_add(out, below_end, size);
+    case XN_LE:
+        return rising ? spans_add(out, 1, above_end - 1) : spans_add(out, above_end, size);
+    case XN_GT:
+        return rising ? spans_add(out, above_end, size) : spans_add(out, 1, above_end - 1);
+    default: /* XN_GE */
+        return rising ? spans_add(out, below_end, size) : spans_add(out, 1, below_end - 1);
+    }
+}
+
+/* A part of a position test that reads neither the node nor the position. An error answers 1 instead, which sends the
+   step to the per-context evaluation: it raises the error only where evaluating every node would have. */
+static int fixed_value(const xp_program *prog, int32_t index, xp_ctx *pctx, int condition, xp_result *value) {
+    int rc = condition ? eval_condition(prog, index, pctx, value) : eval_expr(prog, index, pctx, value);
+    if (rc < 0) {
+        PyErr_Clear();
+        return 1;
+    }
+    return 0;
+}
+
+/* Collect the operations of a position chain (position_chain in parser.c) from its top down to position(). A chain
+   whose operand is not finite, or whose factor or divisor is zero, can turn back or yield NaN: that answers 1. */
+static int collect_hops(const xp_program *prog, int32_t index, xp_ctx *pctx, xp_hop *hops, int *count) {
+    *count = 0;
+    for (const xn *node = &prog->nodes[index]; node->kind != XN_FUNC;) {
+        if (node->kind == XN_NEG) {
+            hops[(*count)++] = (xp_hop){XN_NEG, 0, 0.0};
+            node = &prog->nodes[node->first];
+            continue;
+        }
+        int right = !prog->nodes[node->first].positional;
+        xp_result value;
+        int rc = fixed_value(prog, right ? node->first : node->second, pctx, 0, &value);
+        if (rc != 0) {
+            return rc;
+        }
+        double operand = to_number(pctx->tree, &value);
+        xp_result_free(&value);
+        if (!isfinite(operand) || ((node->kind == XN_MUL || node->kind == XN_DIV) && operand == 0)) {
+            return 1;
+        }
+        hops[(*count)++] = (xp_hop){(uint8_t)node->kind, (uint8_t)right, operand};
+        node = &prog->nodes[right ? node->second : node->first];
+    }
+    return 0;
+}
+
+/* The positions among pctx->size nodes that a position test (offset_formula in parser.c) keeps: 0, 1 when it needs
+   the per-context evaluation after all, or a negative error. top is set for the predicate's own expression, where a
+   number selects the position equal to it. */
+static int formula_spans(const xp_program *prog, int32_t index, xp_ctx *pctx, int top, xp_spans *out) {
+    const xn *node = &prog->nodes[index];
+    Py_ssize_t size = pctx->size;
+    if (!node->positional) {
+        xp_result value;
+        int rc = fixed_value(prog, index, pctx, 1, &value);
+        if (rc != 0) {
+            return rc;
+        }
+        int numeric = top && value.kind == XP_NUMBER;
+        double position = numeric ? value.number : 0;
+        int keep = !numeric && to_boolean(pctx->tree, &value);
+        xp_result_free(&value);
+        if (numeric) {
+            return position >= 1 && position <= (double)size && floor(position) == position
+                       ? spans_add(out, (Py_ssize_t)position, (Py_ssize_t)position)
+                       : 0;
+        }
+        return keep ? spans_add(out, 1, size) : 0;
+    }
+    if (node->kind == XN_AND || node->kind == XN_OR) {
+        xp_spans left = {0};
+        xp_spans right = {0};
+        int rc = formula_spans(prog, node->first, pctx, 0, &left);
+        if (rc == 0) {
+            rc = formula_spans(prog, node->second, pctx, 0, &right);
+        }
+        if (rc == 0) {
+            rc = spans_merge(&left, &right, node->kind == XN_AND, out);
+        }
+        PyMem_Free(left.items);
+        PyMem_Free(right.items);
+        return rc;
+    }
+    if (node->kind == XN_FUNC) {
+        if (node->str[0] != 'n') { /* boolean() rather than not() */
+            return formula_spans(prog, node->first, pctx, 0, out);
+        }
+        xp_spans inner = {0};
+        int rc = formula_spans(prog, node->first, pctx, 0, &inner);
+        if (rc == 0) {
+            rc = spans_invert(&inner, size, out);
+        }
+        PyMem_Free(inner.items);
+        return rc;
+    }
+    int left = prog->nodes[node->first].positional;
+    xp_result value;
+    int rc = fixed_value(prog, left ? node->second : node->first, pctx, 0, &value);
+    if (rc != 0) {
+        return rc;
+    }
+    /* a node-set compares member by member, and a boolean makes = and != compare truth values */
+    int scalar = value.kind == XP_NUMBER || value.kind == XP_STRING ||
+                 (value.kind == XP_BOOLEAN && node->kind != XN_EQ && node->kind != XN_NE);
+    double bound = scalar ? to_number(pctx->tree, &value) : 0;
+    xp_result_free(&value);
+    if (!scalar) {
+        return 1;
+    }
+    xp_hop hops[XP_OFFSET_DEPTH + 1];
+    int count;
+    rc = collect_hops(prog, left ? node->first : node->second, pctx, hops, &count);
+    if (rc != 0) {
+        return rc;
+    }
+    int op = node->kind;
+    if (!left) { /* bound op chain is chain op' bound */
+        op = op == XN_LT ? XN_GT : op == XN_LE ? XN_GE : op == XN_GT ? XN_LT : op == XN_GE ? XN_LE : op;
+    }
+    return compare_spans(hops, count, size, op, bound, out);
+}
+
+typedef struct {
+    const xp_program *prog;
+    const xn *step;
+    const step_match *match;
+    xp_ctx *ctx;
+    xp_nodeset *following;
+    xp_nodeset *accepted;
+    xp_seen *seen;
+    int32_t tests;    /* the first predicate that reads the position */
+    int32_t trailing; /* the first predicate after those, or -1 */
+    int each;         /* evaluate every predicate per context, over the context's stretch */
+    size_t spent;     /* nodes handed to that evaluation */
+} xp_overlap;
+
+static int overlap_charge(xp_overlap *state, Py_ssize_t nodes) {
+    state->spent += (size_t)nodes;
+    if (state->spent <= XP_EACH_LIMIT) {
+        return 0;
+    }
+    *state->ctx->feature = "a positional predicate from several context nodes reached more than 10,000,000 nodes";
+    return -3;
+}
+
+/* The positions among size nodes that the step's position tests keep, as runs into out. node is any node of the
+   stretch: the tests read neither it nor the position outside position(). */
+static int view_positions(const xp_overlap *state, struct th_node *node, Py_ssize_t size, xp_spans *out) {
+    xp_ctx pctx = *state->ctx;
+    pctx.node = node;
+    pctx.attr = -1;
+    pctx.pos = 1;
+    /* the parts of a test run below its operators; charging the deepest any can sit keeps an expression that would
+       nest past the limit from evaluating here, and the per-context evaluation then raises as it should */
+    pctx.depth += XP_HELD_DEPTH + XP_PREDICATE_DEPTH + 2 * XP_OFFSET_DEPTH;
+    Py_ssize_t spent = growth_spent(pctx.caches);
+    out->len = 0;
+    int rc = spans_add(out, 1, size);
+    for (int32_t pr = state->tests; rc == 0 && pr != state->trailing && out->len > 0;
+         pr = state->prog->nodes[pr].next) {
+        xp_spans kept = {0};
+        xp_spans within = {0};
+        pctx.size = spans_count(out);
+        rc = formula_spans(state->prog, state->prog->nodes[pr].first, &pctx, 1, &kept);
+        if (rc == 0) {
+            rc = spans_within(out, &kept, &within);
+        }
+        PyMem_Free(kept.items);
+        PyMem_Free(out->items);
+        *out = within;
+    }
+    growth_restore(pctx.caches, spent);
+    return rc;
+}
+
+/* The per-context evaluation of the stretch the context just appended at before: every predicate, as over
+   apply_step's output, then only the nodes no earlier context kept. */
+static int each_filter(xp_overlap *state, Py_ssize_t before) {
+    xp_nodeset *following = state->following;
+    int rc = overlap_charge(state, following->len - before);
+#ifdef TH_OPERATION_LIMIT
+    if (rc == 0 && xp_charge(state->ctx, 1 + (size_t)(following->len - before)) < 0) {
+        rc = -3;
+    }
+#endif
+    if (rc == 0) {
+        rc = filter_slice(state->prog, state->step->first, state->ctx, following, before, state->accepted);
+    }
+    if (rc == 0 && drop_repeats(following, before, state->seen) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        rc = -1;                                                       /* GCOVR_EXCL_LINE */
+    }
+    return rc;
+}
+
+/* Whether item passes the node test and, unless the evaluation is per context, the predicates ahead of the position
+   tests: 1 or 0, or a negative error. */
+static int judge_item(const xp_overlap *state, xp_item item) {
+    TH_WORK_STEP();
+    int matched = item.attr == -1 ? node_test_matches(item.node, state->step, state->match) : 1;
+    if (matched <= 0 || state->each || state->tests == state->step->first) {
+        return matched;
+    }
+    xp_nodeset one = {&item, 1, 1, 0};
+    int rc = apply_predicates(state->prog, state->step->first, state->tests, state->ctx, &one,
+                              XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+    return rc < 0 ? rc : (int)one.len;
+}
+
+/* Clear the flag in keep of each node of seq that the predicates ahead of the position tests reject. */
+static int filter_flagged(const xp_overlap *state, xp_nodeset *seq, uint8_t *keep) {
+    xp_nodeset tested = {0};
+    int rc = 0;
+    for (Py_ssize_t index = 0; rc == 0 && index < seq->len; index++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        if (keep[index]) {
+            rc = ns_append(&tested, seq->items[index].node, -1);
+        }
+    }
+    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        rc = apply_predicates(state->prog, state->step->first, state->tests, state->ctx, &tested,
+                              XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+    }
+    Py_ssize_t passed = 0;
+    for (Py_ssize_t index = 0; rc == 0 && index < seq->len; index++) {
+        if (keep[index]) {
+            keep[index] = passed < tested.len && tested.items[passed].node == seq->items[index].node;
+            passed += keep[index];
+        }
+    }
+    PyMem_Free(tested.items);
+    return rc;
+}
+
+/* Entries of a stack, bottom first, with the runs of positions marked on them: a run [lo, hi] counts once in
+   starts[lo] and in ends[hi], and the entry popped off the top hands what still covers the one beneath it on (acc). */
+typedef struct {
+    Py_ssize_t *items;
+    Py_ssize_t *acc;
+    Py_ssize_t *starts;
+    Py_ssize_t *ends;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+} xp_marks;
+
+static int marks_push(xp_marks *marks, Py_ssize_t value) {
+    if (marks->len == marks->cap) {
+        Py_ssize_t cap = marks->cap == 0 ? 16 : marks->cap * 2;
+        Py_ssize_t **arrays[] = {&marks->items, &marks->acc, &marks->starts, &marks->ends};
+        for (size_t index = 0; index < sizeof(arrays) / sizeof(arrays[0]); index++) {
+            Py_ssize_t *grown = PyMem_Realloc(*arrays[index], (size_t)cap * sizeof(Py_ssize_t));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;       /* GCOVR_EXCL_LINE */
+            }
+            *arrays[index] = grown;
+        }
+        marks->cap = cap;
+    }
+    marks->items[marks->len] = value;
+    marks->acc[marks->len] = marks->starts[marks->len] = marks->ends[marks->len] = 0;
+    marks->len++;
+    return 0;
+}
+
+/* Pop the top entry, answering how many runs cover it. */
+static Py_ssize_t marks_pop(xp_marks *marks) {
+    Py_ssize_t top = --marks->len;
+    Py_ssize_t cover = marks->acc[top] + marks->ends[top];
+    if (top > 0) {
+        marks->acc[top - 1] += cover - marks->starts[top];
+    }
+    return cover;
+}
+
+/* How many entries hold at most value; the entries ascend. */
+static Py_ssize_t marks_upto(const xp_marks *marks, Py_ssize_t value) {
+    Py_ssize_t low = 0;
+    Py_ssize_t high = marks->len;
+    while (low < high) {
+        TH_WORK_STEP();
+        Py_ssize_t middle = low + (high - low) / 2;
+        if (marks->items[middle] <= value) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low;
+}
+
+static void marks_free(xp_marks *marks) {
+    PyMem_Free(marks->items);
+    PyMem_Free(marks->acc);
+    PyMem_Free(marks->starts);
+    PyMem_Free(marks->ends);
+}
+
+/* Advance a preorder walk from node: into its first child, else to the next sibling of node or of its nearest
+   ancestor that has one. climbed counts the nodes whose subtree ended on the way, node first. The walk ends (NULL) at
+   the end of the tree, or once bound's subtree ends when bound is set. */
+static struct th_node *preorder_advance(struct th_node *node, const struct th_node *bound, Py_ssize_t *climbed) {
+    *climbed = 0;
+    if (node->first_child != NULL) {
+        return node->first_child;
+    }
+    for (;;) {
+        (*climbed)++;
+        if (node == bound) {
+            return NULL;
+        }
+        if (node->next_sibling != NULL) {
+            return node->next_sibling;
+        }
+        node = node->parent;
+        if (node == NULL) {
+            return NULL;
+        }
+    }
+}
+
+/* The stretches of a sibling, following or descendant step: context index's axis is seq[lo, hi), in document order;
+   a preceding-sibling step reads it backward. */
+typedef struct {
+    xp_nodeset seq;
+    Py_ssize_t *lo;
+    Py_ssize_t *hi;
+} xp_ranges;
+
+#define XP_VIEW_LEAD (-3) /* sibling axes: the first context of its list, which walks it */
+#define XP_VIEW_WAIT (-4) /* sibling axes: a later context of a list, which the first one's walk meets */
+
+/* One walk of a sibling list from (or, backward, up to) its first context, which meets the list's other contexts in
+   document order. */
+static int sibling_ranges(xp_overlap *state, const xp_nodeset *contexts, xp_ranges *ranges) {
+    int forward = state->step->axis == AX_FOLLOWING_SIBLING;
+    Py_ssize_t count = contexts->len;
+    xp_nodeset *seq = &ranges->seq;
+    Py_ssize_t *next = PyMem_Malloc((size_t)count * sizeof(Py_ssize_t));
+    addr_map tails = {0};
+    int rc = next == NULL ? -1 : 0;                                 /* GCOVR_EXCL_BR_LINE: allocation failure */
+    for (Py_ssize_t index = 0; rc == 0 && index < count; index++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        xp_item item = contexts->items[index];
+        struct th_node *parent = item.node->parent;
+        next[index] = -1;
+        /* an attribute, namespace or parentless node has no siblings */
+        ranges->lo[index] = item.attr != -1 || parent == NULL ? XP_VIEW_NONE : XP_VIEW_LEAD;
+        if (ranges->lo[index] == XP_VIEW_LEAD) {
+            Py_ssize_t tail = addr_map_find(&tails, parent);
+            if (tail != 0) {
+                next[tail - 1] = index;
+                ranges->lo[index] = XP_VIEW_WAIT;
+            }
+            rc = addr_map_set(&tails, parent, index + 1);
+        }
+    }
+    for (Py_ssize_t index = 0; rc == 0 && index < count; index++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        struct th_node *own = contexts->items[index].node;
+        Py_ssize_t start = seq->len;
+        Py_ssize_t member = next[index];
+        if (ranges->lo[index] == XP_VIEW_LEAD) {
+            if (forward) {
+                ranges->lo[index] = start;
+                for (struct th_node *node = own->next_sibling; rc == 0 && node != NULL; /* GCOVR_EXCL_BR_LINE */
+                     node = node->next_sibling) {
+                    rc = emit_if_match(seq, node, state->step, state->match);
+                    if (member >= 0 && contexts->items[member].node == node) {
+                        ranges->lo[member] = seq->len;
+                        member = next[member];
+                    }
+                }
+            } else {
+                member = index;
+                /* the walk meets every context of the list, so it ends at the last one */
+                for (struct th_node *node = own->parent->first_child; rc == 0 && member >= 0; /* GCOVR_EXCL_BR_LINE */
+                     node = node->next_sibling) {
+                    if (contexts->items[member].node == node) {
+                        ranges->lo[member] = start;
+                        ranges->hi[member] = seq->len;
+                        member = next[member];
+                    }
+                    if (member >= 0) {
+                        rc = emit_if_match(seq, node, state->step, state->match);
+                    }
+                }
+            }
+            for (Py_ssize_t met = index; forward && met != member; met = next[met]) {
+                ranges->hi[met] = seq->len;
+            }
+        }
+    }
+    PyMem_Free(next);
+    PyMem_Free(tails.entries);
+    return rc;
+}
+
+/* Preorder walks for following and descendant steps. A following walk starts at the first context left and runs to
+   the end of its tree; each context's stretch starts where its subtree ends, or, for an attribute or namespace node,
+   after its owner element. A descendant walk covers the subtree of the first context left, and each context inside
+   it takes its own subtree. The contexts are sorted, so each tree takes one walk. */
+static int tree_ranges(xp_overlap *state, const xp_nodeset *contexts, xp_ranges *ranges) {
+    const xn *step = state->step;
+    int following = step->axis == AX_FOLLOWING;
+    int self = step->axis == AX_DESCENDANT_OR_SELF;
+    Py_ssize_t only = self && step->test == NT_NODE ? XP_VIEW_SELF : XP_VIEW_NONE; /* an attribute's stretch */
+    Py_ssize_t count = contexts->len;
+    xp_nodeset *seq = &ranges->seq;
+    xp_marks open = {0};
+    int rc = 0;
+    for (Py_ssize_t index = 0; rc == 0 && index < count;) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        if (!following && contexts->items[index].attr != -1) {
+            ranges->lo[index++] = only;
+            continue;
+        }
+        Py_ssize_t first = index;
+        struct th_node *root = contexts->items[index].node;
+        for (struct th_node *node = root; rc == 0 && node != NULL;) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            TH_WORK_STEP();
+            int matched = node_test_matches(node, step, state->match);
+            if (index < count && contexts->items[index].node == node && contexts->items[index].attr == -1) {
+                ranges->lo[index] = seq->len + (!self && matched > 0);
+                rc = marks_push(&open, index++);
+            }
+            if (matched < 0) { /* GCOVR_EXCL_BR_LINE: the name test resolved its prefix up front; allocation */
+                rc = -1;       /* GCOVR_EXCL_LINE */
+            } else if (matched > 0 && rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = ns_append(seq, node, -1);
+            }
+            /* the node's attribute and namespace items */
+            while (index < count && contexts->items[index].node == node) {
+                ranges->lo[index++] = following ? seq->len : only;
+            }
+            Py_ssize_t climbed;
+            struct th_node *advance = preorder_advance(node, following ? NULL : root, &climbed);
+            for (; climbed > 0; climbed--, node = node->parent) {
+                if (open.len > 0 && contexts->items[open.items[open.len - 1]].node == node) {
+                    Py_ssize_t closed = open.items[--open.len];
+                    *(following ? &ranges->lo[closed] : &ranges->hi[closed]) = seq->len;
+                }
+            }
+            node = advance;
+        }
+        for (Py_ssize_t walked = first; following && walked < index; walked++) {
+            ranges->hi[walked] = seq->len;
+        }
+    }
+    marks_free(&open);
+    return rc;
+}
+
+/* Turn the stretches into the step's result: per context, or by marking the positions each stretch keeps. */
+static int range_views(xp_overlap *state, const xp_nodeset *contexts, xp_ranges *ranges, xp_nodeset *found) {
+    int backward = state->step->axis == AX_PRECEDING_SIBLING;
+    xp_nodeset *seq = &ranges->seq;
+    Py_ssize_t count = contexts->len;
+    int rc = 0;
+    if (state->each) {
+        xp_live_frame frame = {.sets = {seq}};
+        xp_live_enter(state->ctx, &frame);
+        for (Py_ssize_t index = 0; rc == 0 && index < count; index++) {
+            Py_ssize_t lo = ranges->lo[index];
+            Py_ssize_t before = state->following->len;
+            if (lo == XP_VIEW_SELF) {
+                rc = ns_push(state->following, contexts->items[index].node, contexts->items[index].attr);
+            }
+            for (Py_ssize_t at = lo; rc == 0 && at >= 0 && at < ranges->hi[index]; at++) { /* GCOVR_EXCL_BR_LINE */
+                Py_ssize_t pick = backward ? ranges->hi[index] - 1 - (at - lo) : at;
+                rc = ns_append(state->following, seq->items[pick].node, -1);
+            }
+            if (rc == 0 && lo != XP_VIEW_NONE) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = each_filter(state, before);
+            }
+        }
+        xp_live_leave(state->ctx, &frame);
+        return rc;
+    }
+    Py_ssize_t *marks = PyMem_Calloc((size_t)seq->len + 1, sizeof(Py_ssize_t));
+    rc = marks == NULL ? -1 : 0;                         /* GCOVR_EXCL_BR_LINE: allocation failure */
+    if (rc == 0 && state->tests != state->step->first) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        /* the predicates ahead of the position tests run once on each node some stretch holds, and the stretches
+           shrink to the nodes they keep */
+        uint8_t *keep = PyMem_Malloc((size_t)seq->len + 1);
+        rc = keep == NULL ? -1 : 0;                                     /* GCOVR_EXCL_BR_LINE: allocation failure */
+        for (Py_ssize_t index = 0; rc == 0 && index < count; index++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            if (ranges->lo[index] >= 0) {
+                marks[ranges->lo[index]]++;
+                marks[ranges->hi[index]]--;
+            }
+        }
+        Py_ssize_t open = 0;
+        for (Py_ssize_t at = 0; rc == 0 && at < seq->len; at++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            open += marks[at];
+            keep[at] = open > 0;
+        }
+        if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rc = filter_flagged(state, seq, keep);
+        }
+        Py_ssize_t write = 0;
+        for (Py_ssize_t at = 0; rc == 0 && at <= seq->len; at++) {
+            marks[at] = write; /* now where the node at `at` moves to */
+            if (at < seq->len && keep[at]) {
+                seq->items[write++] = seq->items[at];
+            }
+        }
+        for (Py_ssize_t index = 0; rc == 0 && index < count; index++) {
+            if (ranges->lo[index] >= 0) {
+                ranges->lo[index] = marks[ranges->lo[index]];
+                ranges->hi[index] = marks[ranges->hi[index]];
+            }
+        }
+        if (rc == 0) {
+            memset(marks, 0, ((size_t)seq->len + 1) * sizeof(Py_ssize_t));
+            seq->len = write;
+        }
+        PyMem_Free(keep);
+    }
+    xp_spans spans = {0};
+    for (Py_ssize_t index = 0; rc == 0 && index < count; index++) {
+        xp_item item = contexts->items[index];
+        Py_ssize_t lo = ranges->lo[index];
+        Py_ssize_t hi = ranges->hi[index];
+        Py_ssize_t size = lo == XP_VIEW_SELF ? judge_item(state, item) : lo >= 0 ? hi - lo : 0;
+        if (size < 0) {
+            rc = (int)size;
+        } else if (size > 0) {
+            rc = view_positions(state, lo == XP_VIEW_SELF ? item.node : seq->items[lo].node, size, &spans);
+        }
+        for (Py_ssize_t run = 0; rc == 0 && size > 0 && run < spans.len; run++) {
+            xp_span span = spans.items[run];
+            if (lo == XP_VIEW_SELF) {
+                rc = ns_push(found, item.node, item.attr);
+            } else if (backward) {
+                marks[hi - span.hi]++;
+                marks[hi - span.lo + 1]--;
+            } else {
+                marks[lo + span.lo - 1]++;
+                marks[lo + span.hi]--;
+            }
+        }
+    }
+    Py_ssize_t open = 0;
+    for (Py_ssize_t at = 0; rc == 0 && at < seq->len; at++) {
+        open += marks[at];
+        if (open > 0) {
+            rc = ns_append(found, seq->items[at].node, -1);
+        }
+    }
+    PyMem_Free(spans.items);
+    PyMem_Free(marks);
+    return rc;
+}
+
+/* An ancestor step. The contexts come in document order, so the path from the root to each one shares its top with
+   the path to the one before: a climb stops at the first node on that path, which then drops what lies below, and a
+   node it drops is below no later context. Each path node is tested once, when it first falls in a stretch; the
+   tested ones that pass (kept) carry the runs the position tests mark, until they leave the path. */
+static int chain_views(xp_overlap *state, const xp_nodeset *contexts, xp_nodeset *found) {
+    const xn *step = state->step;
+    xp_nodeset path = {0};
+    xp_nodeset climb = {0};
+    addr_map where = {0}; /* node -> its index on path + 1, or 0 once off it */
+    xp_marks kept = {0};  /* path indices */
+    xp_spans spans = {0};
+    Py_ssize_t judged = 0; /* path[0, judged) are tested */
+    xp_live_frame frame = {.sets = {&path}};
+    int rc = 0;
+    if (state->each) {
+        xp_live_enter(state->ctx, &frame);
+    }
+    for (Py_ssize_t index = 0; rc == 0 && index < contexts->len; index++) {
+        xp_item item = contexts->items[index];
+        Py_ssize_t stay = 0;
+        climb.len = 0;
+        for (struct th_node *node = item.node; rc == 0 && node != NULL; /* GCOVR_EXCL_BR_LINE: allocation failure */
+             node = node->parent) {
+            TH_WORK_STEP();
+            stay = addr_map_find(&where, node);
+            if (stay > 0) {
+                break;
+            }
+            rc = ns_append(&climb, node, -1);
+        }
+        while (rc == 0 && path.len > stay) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            path.len--;
+            where.entries[addr_slot(&where, path.items[path.len].node)].value = 0;
+            /* only the offsets mark runs, so a per-context evaluation pops none that cover */
+            if (kept.len > 0 && kept.items[kept.len - 1] == path.len && marks_pop(&kept) > 0) {
+                rc = ns_append(found, path.items[path.len].node, -1);
+            }
+        }
+        judged = judged < path.len ? judged : path.len;
+        for (Py_ssize_t up = climb.len - 1; rc == 0 && up >= 0; up--) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rc = ns_append(&path, climb.items[up].node, -1);
+            if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = addr_map_set(&where, climb.items[up].node, path.len);
+            }
+        }
+        /* a Python call pins a frame's sets once per activation, so the changed path takes a fresh one */
+        xp_live_leave(state->ctx, &frame);
+        xp_live_enter(state->ctx, &frame);
+        /* an ancestor step leaves the context node itself out of its stretch */
+        Py_ssize_t limit = step->axis == AX_ANCESTOR && item.attr == -1 ? path.len - 1 : path.len;
+        for (; rc == 0 && judged < limit; judged++) {
+            rc = judge_item(state, path.items[judged]);
+            if (rc > 0) {
+                rc = marks_push(&kept, judged);
+            }
+        }
+        /* an attribute or namespace node is its own nearest ancestor-or-self, ahead of its owner element */
+        int own = step->axis == AX_ANCESTOR_OR_SELF && item.attr != -1 && step->test == NT_NODE;
+        if (rc == 0 && state->each) {
+            Py_ssize_t before = state->following->len;
+            if (own) {
+                rc = ns_push(state->following, item.node, item.attr);
+            }
+            for (Py_ssize_t at = kept.len - 1; rc == 0 && at >= 0; at--) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = ns_append(state->following, path.items[kept.items[at]].node, -1);
+            }
+            if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = each_filter(state, before);
+            }
+            continue;
+        }
+        if (rc == 0 && own) {
+            own = judge_item(state, item);
+            rc = own < 0 ? own : 0;
+        }
+        Py_ssize_t size = own + kept.len;
+        if (rc == 0 && size > 0) {
+            rc = view_positions(state, item.node, size, &spans);
+        }
+        for (Py_ssize_t run = 0; rc == 0 && size > 0 && run < spans.len; run++) {
+            Py_ssize_t lo = spans.items[run].lo;
+            Py_ssize_t hi = spans.items[run].hi;
+            if (own && lo == 1) {
+                rc = ns_push(found, item.node, item.attr);
+                lo++;
+            }
+            if (lo <= hi) { /* proximity counts from the context up, the stack from the root down */
+                kept.starts[kept.len - (hi - own)]++;
+                kept.ends[kept.len - (lo - own)]++;
+            }
+        }
+    }
+    while (rc == 0 && kept.len > 0) {
+        Py_ssize_t top = kept.items[kept.len - 1];
+        if (marks_pop(&kept) > 0) {
+            rc = ns_append(found, path.items[top].node, -1);
+        }
+    }
+    if (state->each) {
+        xp_live_leave(state->ctx, &frame);
+    }
+    PyMem_Free(spans.items);
+    marks_free(&kept);
+    PyMem_Free(where.entries);
+    PyMem_Free(climb.items);
+    PyMem_Free(path.items);
+    return rc;
+}
+
+/* The smallest index d below at whose node is the k-th of the stretch, counting from the document's start: kept
+   counts the nodes ahead of each index, less those on the context's own root path. */
+static Py_ssize_t nth_preceding(const Py_ssize_t *ahead, const xp_marks *path, Py_ssize_t at, Py_ssize_t k) {
+    Py_ssize_t low = 0;
+    Py_ssize_t high = at - 1;
+    while (low < high) {
+        TH_WORK_STEP();
+        Py_ssize_t middle = low + (high - low) / 2;
+        if (ahead[middle + 1] - marks_upto(path, middle) >= k) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    return low;
+}
+
+/* A preceding step. One preorder walk from the root to the last context records the nodes passing the node test
+   (seq) and where each context comes; a node falls in some stretch exactly when a context comes after its subtree
+   ended. A second walk then keeps the root path of each context: its stretch is everything before it that is kept,
+   less the kept nodes on that path, so a run of positions is a range of seq less a range of the path. */
+static int preceding_views(xp_overlap *state, const xp_nodeset *contexts, xp_nodeset *found) {
+    const xn *step = state->step;
+    Py_ssize_t count = contexts->len;
+    Py_ssize_t *at = PyMem_Malloc((size_t)count * sizeof(Py_ssize_t)); /* each context's place in seq */
+    xp_nodeset seq = {0};
+    xp_marks ended = {0}; /* per seq index: how many contexts came before its subtree ended */
+    xp_marks open = {0};  /* the open nodes of a walk: their seq index, or -1 */
+    xp_marks path = {0};  /* the kept nodes on the current root path, by seq index */
+    xp_spans spans = {0};
+    uint8_t *keep = NULL;
+    Py_ssize_t *ahead = NULL;
+    Py_ssize_t *marks = NULL;
+    xp_live_frame frame = {.sets = {&seq}};
+    int rc = at == NULL ? -1 : 0;                           /* GCOVR_EXCL_BR_LINE: allocation failure */
+    for (Py_ssize_t index = 0; rc == 0 && index < count;) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_ssize_t first = index;
+        struct th_node *root = contexts->items[index].node;
+        while (root->parent != NULL) {
+            TH_WORK_STEP();
+            root = root->parent;
+        }
+        seq.len = ended.len = open.len = 0;
+        for (struct th_node *node = root; rc == 0 && node != NULL;) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            while (index < count && contexts->items[index].node == node) {
+                at[index++] = seq.len;
+            }
+            if (index == count) {
+                break;
+            }
+            TH_WORK_STEP();
+            int matched = node_test_matches(node, step, state->match);
+            /* the name test resolved its prefix up front, so only allocation fails here */
+            rc = matched < 0 ? -1 : marks_push(&open, matched > 0 ? seq.len : -1); /* GCOVR_EXCL_BR_LINE */
+            if (rc == 0 && matched > 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = ns_append(&seq, node, -1);
+                if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    rc = marks_push(&ended, PY_SSIZE_T_MAX);
+                }
+            }
+            Py_ssize_t climbed;
+            struct th_node *advance = preorder_advance(node, NULL, &climbed);
+            for (; rc == 0 && climbed > 0; climbed--) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                Py_ssize_t closed = open.items[--open.len];
+                if (closed >= 0) {
+                    ended.items[closed] = index - first;
+                }
+            }
+            node = advance;
+        }
+        PyMem_Free(keep);
+        PyMem_Free(ahead);
+        PyMem_Free(marks);
+        keep = PyMem_Malloc((size_t)seq.len + 1);
+        ahead = PyMem_Malloc(((size_t)seq.len + 1) * sizeof(Py_ssize_t));
+        marks = PyMem_Calloc((size_t)seq.len + 2, sizeof(Py_ssize_t));
+        if (rc == 0 && (keep == NULL || ahead == NULL || marks == NULL)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rc = -1;                                                       /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t d = 0; rc == 0 && d < seq.len; d++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            keep[d] = ended.items[d] < index - first;
+            ended.items[d] = 0; /* from here on: the runs that cover the node but not its context's stretch */
+        }
+        if (rc == 0 && !state->each && state->tests != step->first) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rc = filter_flagged(state, &seq, keep);
+        }
+        for (Py_ssize_t d = 0; rc == 0 && d <= seq.len; d++) {
+            ahead[d] = d == 0 ? 0 : ahead[d - 1] + keep[d - 1];
+        }
+        if (state->each) {
+            xp_live_enter(state->ctx, &frame);
+        }
+        Py_ssize_t next = 0; /* the seq index the second walk reaches next */
+        open.len = path.len = 0;
+        /* the walk meets every context of the tree, so it ends at the last one */
+        for (struct th_node *node = root; rc == 0;) {
+            for (; rc == 0 && first < index && contexts->items[first].node == node; first++) {
+                Py_ssize_t context = first;
+                xp_item item = contexts->items[context];
+                Py_ssize_t size = ahead[at[context]] - path.len;
+                if (state->each) {
+                    Py_ssize_t before = state->following->len;
+                    Py_ssize_t skip = path.len - 1;
+                    for (Py_ssize_t d = at[context] - 1; rc == 0 && d >= 0; d--) { /* GCOVR_EXCL_BR_LINE: allocation */
+                        if (skip >= 0 && path.items[skip] == d) {
+                            skip--;
+                        } else if (keep[d]) {
+                            rc = ns_append(state->following, seq.items[d].node, -1);
+                        }
+                    }
+                    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                        rc = each_filter(state, before);
+                    }
+                    continue;
+                }
+                if (size > 0) {
+                    rc = view_positions(state, item.node, size, &spans);
+                }
+                for (Py_ssize_t run = 0; rc == 0 && size > 0 && run < spans.len; run++) {
+                    /* proximity counts back from the context, seq forward from the root */
+                    Py_ssize_t lo = nth_preceding(ahead, &path, at[context], size - spans.items[run].hi + 1);
+                    Py_ssize_t hi = nth_preceding(ahead, &path, at[context], size - spans.items[run].lo + 1);
+                    marks[lo]++;
+                    marks[hi + 1]--;
+                    Py_ssize_t below = marks_upto(&path, lo - 1);
+                    Py_ssize_t above = marks_upto(&path, hi) - 1;
+                    if (below <= above) { /* the context's own ancestors in that range are not in its stretch */
+                        path.starts[below]++;
+                        path.ends[above]++;
+                    }
+                }
+            }
+            if (first == index) {
+                break;
+            }
+            Py_ssize_t here = next < seq.len && seq.items[next].node == node ? next++ : -1;
+            rc = marks_push(&open, here);
+            if (rc == 0 && here >= 0 && keep[here]) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = marks_push(&path, here);
+            }
+            Py_ssize_t climbed;
+            struct th_node *advance = preorder_advance(node, NULL, &climbed);
+            for (; rc == 0 && climbed > 0; climbed--) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                Py_ssize_t closed = open.items[--open.len];
+                if (closed >= 0 && keep[closed]) {
+                    ended.items[closed] = marks_pop(&path);
+                }
+            }
+            node = advance;
+        }
+        if (state->each) {
+            xp_live_leave(state->ctx, &frame);
+        }
+        Py_ssize_t cover = 0;
+        for (Py_ssize_t d = 0; rc == 0 && !state->each && d < seq.len; d++) {
+            cover += marks[d];
+            if (keep[d] && cover - ended.items[d] > 0) {
+                rc = ns_append(found, seq.items[d].node, -1);
+            }
+        }
+    }
+    PyMem_Free(keep);
+    PyMem_Free(ahead);
+    PyMem_Free(marks);
+    PyMem_Free(spans.items);
+    marks_free(&path);
+    marks_free(&open);
+    marks_free(&ended);
+    PyMem_Free(seq.items);
+    PyMem_Free(at);
+    return rc;
+}
+
+static int overlap_views(xp_overlap *state, const xp_nodeset *contexts, xp_nodeset *found) {
+    switch (state->step->axis) {
+    case AX_ANCESTOR:
+    case AX_ANCESTOR_OR_SELF:
+        return chain_views(state, contexts, found);
+    case AX_PRECEDING:
+        return preceding_views(state, contexts, found);
+    default: {
+        xp_ranges ranges = {{0},
+                            PyMem_Calloc((size_t)contexts->len, sizeof(Py_ssize_t)),
+                            PyMem_Calloc((size_t)contexts->len, sizeof(Py_ssize_t))};
+        int rc = ranges.lo == NULL || ranges.hi == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure */
+        if (rc == 0) {                                            /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rc = state->step->axis == AX_FOLLOWING_SIBLING || state->step->axis == AX_PRECEDING_SIBLING
+                     ? sibling_ranges(state, contexts, &ranges)
+                     : tree_ranges(state, contexts, &ranges);
+        }
+        if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            rc = range_views(state, contexts, &ranges, found);
+        }
+        PyMem_Free(ranges.seq.items);
+        PyMem_Free(ranges.lo);
+        PyMem_Free(ranges.hi);
+        return rc;
+    }
+    }
+}
+
+static TH_NOINLINE int eval_positional_overlap(const xp_program *prog, const xn *step, const step_match *match,
+                                               xp_ctx *ctx, xp_nodeset *current, xp_nodeset *following,
+                                               xp_nodeset *accepted, xp_seen *seen) {
+    /* the walks follow the contexts in document order, which only a path's first step can lack */
+    if (match->unsorted && sort_unique(ctx->caches, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    xp_overlap state = {.prog = prog,
+                        .step = step,
+                        .match = match,
+                        .ctx = ctx,
+                        .following = following,
+                        .accepted = accepted,
+                        .seen = seen,
+                        .tests = step->first,
+                        .trailing = -1,
+                        .each = !step->offsets || ctx->live != NULL};
+    while (!prog->nodes[state.tests].positional) {
+        state.tests = prog->nodes[state.tests].next;
+    }
+    for (state.trailing = state.tests; state.trailing >= 0 && prog->nodes[state.trailing].positional;) {
+        state.trailing = prog->nodes[state.trailing].next;
+    }
+    xp_nodeset found = {0};
+    int rc = overlap_views(&state, current, &found);
+    if (rc == 1) {
+        xp_nodeset_free(&found);
+        found = (xp_nodeset){0};
+        state.each = 1;
+        state.spent = 0;
+        rc = overlap_views(&state, current, &found);
+    }
+    if (rc == 0 && !state.each) {
+        xp_nodeset swap = *following;
+        *following = found;
+        found = swap;
+        if (state.trailing >= 0) {
+            rc = filter_slice(prog, state.trailing, ctx, following, 0, accepted);
+        }
+    }
+    xp_nodeset_free(&found);
+#ifdef TH_OPERATION_LIMIT
+    if (rc == 0 && xp_charge(ctx, (size_t)(current->len + following->len)) < 0) {
+        rc = -3;
+    }
+#endif
     return rc;
 }
 
 static int eval_path_step_inner(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
-                                xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted) {
+                                xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted, xp_seen *seen) {
+    /* Along the remaining axes several contexts reach the same nodes, and appending those once per context is
+       quadratic in time and memory. The contexts share their walks: with no positional predicate each predicate then
+       runs once per node, and a positional one reads offsets into the shared walks (eval_positional_overlap). */
+    int overlap = current->len > 1 && step->axis != AX_CHILD && step->axis != AX_ATTRIBUTE && step->axis != AX_SELF &&
+                  step->axis != AX_PARENT && step->axis != AX_NAMESPACE;
+    if (overlap && step->positional) {
+        return eval_positional_overlap(prog, step, match, ctx, current, following, accepted, seen);
+    }
     /* Mark covered contexts during the subtree walk: checking ancestry per context is quadratic on deep trees. */
-    int skip_nested =
-        current->len > 1 && step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
+    int skip_nested = overlap && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
     Py_ssize_t covered = 0;
     if (match->first && !skip_nested) { /* nested contexts keep the one walk that covers them all */
         return eval_first_step(step, match, ctx, current, following);
     }
-    if (current->len > 1 && step->first < 0 && (step->axis == AX_ANCESTOR || step->axis == AX_ANCESTOR_OR_SELF)) {
-        int climbed = climb_ancestors(following, step, match, current);
-        if (climbed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;     /* GCOVR_EXCL_LINE */
+    if (overlap && (step->axis == AX_FOLLOWING || step->axis == AX_PRECEDING)) {
+        if (apply_document_step(following, step, match, current, seen) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                        /* GCOVR_EXCL_LINE */
         }
-        if (climbed) {
+        if (step->first >= 0) {
+            int rc = filter_slice(prog, step->first, ctx, following, 0, accepted);
+            if (rc < 0) {
+                return rc;
+            }
+        }
 #ifdef TH_OPERATION_LIMIT
-            return xp_charge(ctx, (size_t)(current->len + following->len));
-#else
-            return 0;
-#endif
+        if (xp_charge(ctx, (size_t)(current->len + following->len)) < 0) {
+            return -3;
         }
+#endif
+        return 0;
     }
     for (Py_ssize_t index = 0; index < current->len; index++) {
         Py_ssize_t before = following->len;
@@ -2126,6 +3443,8 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
             }
             covered = index + 1;
             stepped = apply_descendant_step(following, item.node, step, match, current, &covered);
+        } else if (overlap && !skip_nested) {
+            stepped = apply_linked_step(following, item, step, match, seen);
         } else {
             stepped = item.attr == -1 ? apply_step(following, item.node, step->axis, step, match, ctx)
                                       : apply_owned_step(following, item, step, match);
@@ -2139,23 +3458,10 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
         }
 #endif
         if (step->first >= 0) {
-            xp_nodeset slice = {following->items == NULL ? NULL : following->items + before, following->len - before, 0,
-                                following->snapshots};
-            int rc;
-            if (accepted != NULL) {
-                *accepted = *following;
-                accepted->len = before;
-                xp_live_frame frame = {.sets = {&slice}};
-                xp_live_enter(ctx, &frame);
-                rc = apply_predicates(prog, step->first, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
-                xp_live_leave(ctx, &frame);
-            } else {
-                rc = apply_predicates(prog, step->first, ctx, &slice, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
-            }
+            int rc = filter_slice(prog, step->first, ctx, following, before, accepted);
             if (rc < 0) {
                 return rc;
             }
-            following->len = before + slice.len;
         }
     }
     return 0;
@@ -2679,7 +3985,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
                 frame = (xp_live_frame){.results = &primary, .result_count = 1};
                 xp_live_enter(ctx, &frame);
             }
-            rc = apply_predicates(prog, expr->second, ctx, &primary.nodes, XP_PREDICATE_DEPTH);
+            rc = apply_predicates(prog, expr->second, -1, ctx, &primary.nodes, XP_PREDICATE_DEPTH);
             xp_live_leave(ctx, &frame);
         }
         if (rc < 0) {
@@ -3004,8 +4310,9 @@ static int walk_run(const xp_program *prog, const xp_walk_level *at, xp_ctx *ctx
         xp_nodeset_free(out);                                                   /* GCOVR_EXCL_LINE */
         return -1;                                                              /* GCOVR_EXCL_LINE */
     }
-    int rc =
-        at->step->first < 0 ? 0 : apply_predicates(prog, at->step->first, ctx, out, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+    int rc = at->step->first < 0
+                 ? 0
+                 : apply_predicates(prog, at->step->first, -1, ctx, out, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
     if (rc < 0) {
         xp_nodeset_free(out);
     }

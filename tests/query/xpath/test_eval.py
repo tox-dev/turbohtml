@@ -19,7 +19,7 @@ from turbohtml.query import XPathDepthError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
-    from types import SimpleNamespace
+    from types import ModuleType, SimpleNamespace
 
     from work_steps import WorkSteps
 
@@ -491,6 +491,416 @@ def test_preceding_axis_proximity_order_in_predicate(doc: turbohtml.Node) -> Non
 def test_results_are_deduplicated(doc: turbohtml.Node) -> None:
     # both spans share the same ancestor div, which must appear once
     assert tags(doc.xpath("//span/ancestor::div")) == ["div"]
+
+
+_SHARED_HTML: Final[str] = (
+    '<div id="a" n="1"><p id="b" n="2" m="3">t<b id="c">u</b><!--c--><b id="d" n="4"><i id="e"></i></b></p>'
+    '<p id="f"><b id="g"></b></p></div><div id="h"><b id="i" n="5"></b><b id="j"></b></div>'
+)
+
+
+@pytest.mark.parametrize("predicate", ["", "[1 = 1]", "[1]", "[last()]", "[@n]", "[not(@m)]"])
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "ancestor",
+        "ancestor-or-self",
+        "following",
+        "preceding",
+        "following-sibling",
+        "preceding-sibling",
+        "descendant",
+        "descendant-or-self",
+    ],
+)
+@pytest.mark.parametrize("contexts", ["//b", "//*", "(//p | //i)", "unordered(//*)", "unordered(//b)"])
+def test_step_from_several_contexts_is_the_union_of_each(contexts: str, axis: str, predicate: str) -> None:
+    # several contexts reach the same nodes along these axes; each is kept once, whatever order the contexts come in
+    document: Final = parse(_SHARED_HTML)
+    step: Final = f"{axis}::*{predicate}"
+    order: Final = {node: position for position, node in enumerate(node_list(document.xpath("//*")))}
+    each: Final = {
+        node
+        for context in node_list(document.xpath(contexts, extensions={(None, "unordered"): _unordered}))
+        if isinstance(context, Element)
+        for node in node_list(context.xpath(step))
+    }
+    found: Final = document.xpath(f"{contexts}/{step}", extensions={(None, "unordered"): _unordered})
+    assert found == sorted(each, key=order.__getitem__)
+
+
+def _unordered(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
+    return [*reversed(nodes), nodes[0]]
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        pytest.param("//@n/ancestor::*", ["html", "body", "a", "b", "d", "h", "i"], id="ancestor"),
+        pytest.param("//@*/ancestor::*[1 = 1]", ["html", "body", *"abcdefghij"], id="ancestor-predicate"),
+        pytest.param(
+            "//p/@*/ancestor-or-self::node()",
+            ["#document", "html", "body", "a", "b", "b", "2", "3", "f", "f"],
+            id="ancestor-or-self-keeps-each-attribute",
+        ),
+        pytest.param(
+            "//p/@*/ancestor-or-self::node()[position() < 3]",
+            ["b", "b", "2", "3", "f", "f"],
+            id="ancestor-or-self-predicate",
+        ),
+        pytest.param("//@m/following::* | //@n/following::*", [*"bcdefghij"], id="following"),
+        pytest.param("//p/@*/following::b", [*"cdgij"], id="following-of-one-owner"),
+        pytest.param("//@n/following::*[1 = 1]", [*"bcdefghij"], id="following-predicate"),
+        pytest.param("//@*/preceding::*", ["head", *"abcdefgi"], id="preceding"),
+        pytest.param("//@n/preceding::*[1]", ["head", "c", "g"], id="preceding-predicate"),
+        pytest.param("//@*/following-sibling::node()", [], id="following-sibling-is-empty"),
+        pytest.param("//@*/preceding-sibling::node()", [], id="preceding-sibling-is-empty"),
+        pytest.param(
+            "//p/@*/ancestor-or-self::node()[position() mod 2 = 1]",
+            ["html", "a", "b", "2", "3", "f"],
+            id="ancestor-or-self-per-context",
+        ),
+        pytest.param(
+            "//p/@*/ancestor-or-self::node()[position() > 1][position() < 3]",
+            ["a", "b", "f"],
+            id="ancestor-or-self-past-the-attribute",
+        ),
+        pytest.param("//p/@*/descendant-or-self::node()[1]", ["b", "2", "3", "f"], id="descendant-or-self"),
+        pytest.param(
+            "//p/@*/descendant-or-self::node()[position() mod 2 = 1]",
+            ["b", "2", "3", "f"],
+            id="descendant-or-self-per-context",
+        ),
+        pytest.param(
+            "//p/@*/descendant-or-self::node()[. != '2'][1]", ["b", "3", "f"], id="descendant-or-self-filtered"
+        ),
+    ],
+)
+def test_step_from_several_attribute_contexts(expr: str, expected: list[str]) -> None:
+    result: Final = parse(_SHARED_HTML).xpath(expr)
+    assert [_label(node) for node in node_list(result)] == expected
+
+
+def _label(node: turbohtml.Node | str | float) -> str:
+    if isinstance(node, str):
+        return node
+    if isinstance(node, Element):
+        return str(node.attrs.get("id") or node.tag)
+    return "#document"
+
+
+@pytest.mark.parametrize(
+    ("depth", "expression", "count"),
+    [
+        pytest.param(1, "//b/following::b", 999, id="following"),
+        pytest.param(1, "//b/preceding::b", 999, id="preceding"),
+        pytest.param(1, "//b/following-sibling::b", 999, id="following-sibling"),
+        pytest.param(1, "//b/preceding-sibling::b", 999, id="preceding-sibling"),
+        pytest.param(1, "//@x/following::b", 999, id="following-of-attributes"),
+        pytest.param(200, "//b/ancestor::div", 200, id="ancestor"),
+        pytest.param(200, "//b/ancestor-or-self::*", 1202, id="ancestor-or-self"),
+        pytest.param(200, "//@x/ancestor::div", 200, id="ancestor-of-attributes"),
+        pytest.param(1, "//b/following-sibling::b[@x]", 999, id="following-sibling-predicate"),
+        pytest.param(1, "//b/preceding::b[@x]", 999, id="preceding-predicate"),
+        pytest.param(200, "//div//b[@x]", 1000, id="descendant-predicate"),
+    ],
+)
+def test_step_from_many_contexts_holds_each_node_once(depth: int, expression: str, count: int) -> None:
+    # each context appended its whole axis and the sort dropped the repeats afterwards: 1000 siblings held 8 MB of
+    # (node, attribute) pairs for following::b, and 200 levels 4 MB for ancestor::div; PyPy ships no tracemalloc
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    document: Final = parse("<div>" * depth + '<b x="1"></b>' * 1000 + "</div>" * depth)
+    tracing.start()
+    try:
+        found: Final = node_list(document.xpath(expression))
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert len(found) == count
+    assert peak < 1_000_000, f"{expression} peaked at {peak} bytes"
+
+
+@pytest.mark.parametrize("axis", ["following", "preceding"])
+def test_step_from_unordered_contexts_holds_each_node_once(axis: str) -> None:
+    # an extension function hands the contexts over in reverse, so no walk passes the next one and each context gets a
+    # walk of its own; the nodes a walk repeats are dropped as it ends instead of held until the sort (8 MB here)
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    document: Final = parse(f"<div>{'<b></b>' * 1000}</div>")
+    tracing.start()
+    try:
+        found: Final = node_list(
+            document.xpath(f"unordered(//b)/{axis}::b", extensions={(None, "unordered"): _unordered})
+        )
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert len(found) == 999
+    assert peak < 1_000_000, f"{axis} peaked at {peak} bytes"
+
+
+def test_error_in_a_predicate_of_a_shared_document_step_propagates() -> None:
+    document: Final = parse("<div><b></b><b></b><b></b></div>")
+    with pytest.raises(ValueError, match="unbound variable"):
+        document.xpath("//b/following::b[@x = $missing]")
+
+
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [pytest.param(1, [1, 2], id="first"), pytest.param(2, [2], id="second")],
+)
+def test_variable_predicate_selects_by_position_for_each_context(number: int, expected: list[int]) -> None:
+    document: Final = parse("<ul><li></li><li></li><li></li></ul>")
+    items: Final = node_list(document.xpath("//li"))
+    assert document.xpath("//li/following-sibling::li[$n]", n=number) == [items[index] for index in expected]
+
+
+@pytest.mark.parametrize("predicate", ["$n", "two()", "number($n)"])
+def test_number_predicate_selects_by_position_within_each_parent(predicate: str) -> None:
+    document: Final = parse("<ul><li></li><li></li></ul><ul><li></li><li></li></ul>")
+    items: Final = node_list(document.xpath("//li"))
+    found: Final = document.xpath(f"//li[{predicate}]", n=2, extensions={(None, "two"): lambda _context: 2})
+    assert found == [items[1], items[3]]
+
+
+_NESTED_HTML: Final[str] = (
+    '<div k="1"><b k="0">t<b k="2"><i></i>u<b></b></b><i k="1"></i></b><i k="2"><b k="1"></b></i></div>'
+    '<div><b><i k="0"><b k="2"></b></i></b>v<b k="1"></b><i></i></div>'
+)
+
+
+@pytest.mark.parametrize(
+    "predicates",
+    [
+        "[2]",
+        "[last()]",
+        "[last() - 1]",
+        "[$n]",
+        "[$half]",
+        "[position() > 1]",
+        "[position() <= last() - 1]",
+        "[2 < position()]",
+        "[last() - position() < 2]",
+        "[-position() > -3]",
+        "[position() * 2 > last()]",
+        "[position() div 2 <= 1.5]",
+        "[position() + 1 = last()]",
+        "[position() != 2]",
+        "[position() = 2 or position() = last()]",
+        "[not(position() = 1)]",
+        "[boolean(position() > 2) and position() < 5]",
+        "[position() = '2']",
+        "[position() > true()]",
+        "[position() * 0 = 0]",
+        "[position() = $n]",
+        "[position() < $none]",
+        "[position() < count(//b)]",
+        "[position() mod 2 = 0]",
+        "[position() < @k + 2]",
+        "[@k and position() = 1]",
+        "[@k][position() > 1]",
+        "[@k = '1'][2]",
+        "[position() > 1][@k]",
+        "[1][position() = 1][not(@k)]",
+        "[position() < 3][last()]",
+        "[@k][last()][@k != '0']",
+        "[position() = 1 or position() = 3 or position() = 5 or position() = 7 or position() = 9]",
+        "[(position() < 3 or position() > 5) and position() < 7]",
+        "[position() < 2 or position() > 3 and position() < 5]",
+        "[position() = 1 or position() > 3][position() > 1]",
+        "[5 - position() > 2]",
+        "[position() < number('x')]",
+        "[position() != number('x')]",
+        "[position() > 'x']",
+        "[position() >= 2]",
+        "[-position() >= -2]",
+        "[-position() <= -2]",
+        "[-position() < -2]",
+        "[-position() = -2]",
+        "[-position() != -2]",
+        "[3 > position()]",
+        "[3 >= position()]",
+        "[3 <= position()]",
+        "[position() + $none > 1]",
+        "[position() div 0 > 1]",
+        "[position() > $none]",
+        "[position() = true()]",
+        "[boolean(position() = 2)]",
+        "[1.5]",
+        "[0]",
+        "[$n + 1]",
+        "[$s]",
+        "[$flag]",
+        "[position() > lang('en')]",
+        "[position() + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 > 11]",
+        "[position() > 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 - 9]",
+        "[not(not(not(not(not(not(not(not(not(position() = 1)))))))))]",
+        "[position() > 3 or position() = 1]",
+        "[position() < 2 and position() < 5]",
+        "[position() - 1 > 1]",
+        "[position() > 1 and 2]",
+        "[position() > 1 and 0]",
+        "[position() > $none or position() = 1]",
+        "[not(position() > $none)]",
+        "[position() != true()]",
+        "[2 = position()]",
+        "[2 != position()]",
+        "[position() > 50][2]",
+        "[position() > string-length()]",
+        "[(position() > 1) = true()]",
+        "[position() + count(.) > 2]",
+        "[2 div position() > 1]",
+        "[1 + string-length() > position()]",
+        "[position() > 1 and string-length()]",
+        "[1][@k][last()]",
+        "[position() > position()]",
+        "[position() > 1 and position()]",
+        "[1 > position() + count(.)]",
+    ],
+)
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "ancestor",
+        "ancestor-or-self",
+        "following",
+        "preceding",
+        "following-sibling",
+        "preceding-sibling",
+        "descendant",
+        "descendant-or-self",
+    ],
+)
+@pytest.mark.parametrize("test", ["*", "b"])
+@pytest.mark.parametrize(
+    "contexts",
+    ["//b", "//*", "(//i | //b)", "//@k", "(//i/@k | //b)", "//text()", "//b/ancestor-or-self::node()", "$v", "$v/@k"],
+)
+def test_positional_step_from_several_contexts_is_the_union_of_each(
+    contexts: str, test: str, axis: str, predicates: str
+) -> None:
+    # contexts sharing a stretch of the axis count positions along their own view of it, as each would alone
+    document: Final = parse(_NESTED_HTML)
+    order: Final = {node: position for position, node in enumerate(node_list(document.xpath("//node()")))}
+    picked: Final = [*element_list(document.xpath("//b"))[1:4], *element_list(document.xpath("//i"))[:2]]
+
+    def run(expression: str) -> XPathResult:
+        return document.xpath(expression, n=2, half=1.5, s="x", flag=True, none=[], v=picked)
+
+    step: Final = f"{axis}::{test}{predicates}"
+    count: Final = run(f"count({contexts})")
+    assert isinstance(count, float)
+    each: Final = {
+        node for index in range(1, int(count) + 1) for node in node_list(run(f"({contexts})[{index}]/{step}"))
+    }
+    assert run(f"{contexts}/{step}") == sorted(each, key=order.__getitem__)
+
+
+def element_list(result: XPathResult) -> list[Element]:
+    # The element node-set an expression is expected to return.
+    return [element for element in node_list(result) if isinstance(element, Element)]
+
+
+@pytest.mark.parametrize(
+    "step", ["following::*[1]", "preceding-sibling::*[last()]", "ancestor::*[position() mod 2 = 1]", "descendant::i[1]"]
+)
+def test_positional_step_from_unordered_contexts(step: str) -> None:
+    # an extension function hands the contexts over in reverse with a repeat; the step sorts them before it walks
+    document: Final = parse(_NESTED_HTML)
+    result: Final = document.xpath(f"unordered(//b)/{step}", extensions={(None, "unordered"): _unordered})
+    assert result == document.xpath(f"//b/{step}")
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "ancestor::d[1]",
+        "ancestor::*[2]",
+        "following::*[1]",
+        "preceding::*[1]",
+        "preceding::d[last()]",
+        "descendant::e[1]",
+    ],
+)
+def test_positional_step_from_a_detached_subtree_and_its_document(step: str) -> None:
+    # the contexts span two trees, which share no walk; the order between the trees is unspecified
+    document: Final = parse_xml("<r><d><d><e/></d></d><d><e/></d><x><d><d><e/></d></d><d><e/></d></x></r>")
+    detached: Final = node_list(document.xpath("//x"))[0]
+    assert isinstance(detached, Element)
+    detached.extract()
+    inside: Final = element_list(detached.xpath(".//e | .//d"))
+    outside: Final = element_list(document.xpath("//e | //d"))
+    mixed: Final = [node for pair in zip(outside, inside, strict=True) for node in pair]
+    each: Final = {node for context in mixed for node in node_list(context.xpath(step))}
+    assert set(node_list(document.xpath(f"$v/{step}", v=mixed))) == each
+
+
+@pytest.mark.parametrize(
+    "predicates",
+    [
+        "[position() > $missing]",
+        "[position() > 1 or $missing]",
+        "[position() + $missing > 1]",
+        "[$missing]",
+        "[position() mod 2 = $missing]",
+        "[@k = $missing][position() > 1]",
+        "[1][@k = $missing]",
+    ],
+)
+@pytest.mark.parametrize(
+    "step",
+    [
+        "following::*",
+        "preceding::*",
+        "following-sibling::*",
+        "preceding-sibling::*",
+        "ancestor::*",
+        "ancestor-or-self::node()",
+        "descendant::*",
+        "descendant-or-self::node()",
+    ],
+)
+@pytest.mark.parametrize("contexts", ["//b", "(//i/@k | //b)"])
+def test_positional_step_with_an_unbound_variable_raises(contexts: str, step: str, predicates: str) -> None:
+    with pytest.raises(ValueError, match="unbound variable"):
+        parse(_NESTED_HTML).xpath(f"{contexts}/{step}{predicates}")
+
+
+@pytest.mark.parametrize(
+    ("predicate", "message"),
+    [
+        pytest.param("position() > 1 and not()", r"not\(\) takes 1 argument, got 0", id="not-without-argument"),
+        pytest.param("position() > 1 and not(1, 2)", r"not\(\) takes 1 argument, got 2", id="not-with-two"),
+        pytest.param("position() > concat(1)", r"concat\(\) takes at least 2 arguments", id="concat-with-one"),
+    ],
+)
+def test_positional_step_with_a_wrong_argument_count_raises(predicate: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        parse(_NESTED_HTML).xpath(f"//b/following::*[{predicate}]")
+
+
+@pytest.mark.parametrize("predicates", ["[. = $missing][1]", "[position() mod 2 = $missing]"])
+@pytest.mark.parametrize("step", ["descendant-or-self::node()", "ancestor-or-self::node()"])
+def test_positional_self_step_from_attributes_with_an_unbound_variable_raises(step: str, predicates: str) -> None:
+    with pytest.raises(ValueError, match="unbound variable"):
+        parse(_NESTED_HTML).xpath(f"//@k/{step}{predicates}")
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("//c/following-sibling::c[position() mod 2 = 0]", id="following-sibling"),
+        pytest.param("//c/preceding::c[position() mod 2 = 0]", id="preceding"),
+        pytest.param("//c/following::c[position() < last() and position() mod 2 = 0]", id="following"),
+    ],
+)
+def test_position_test_from_many_contexts_stops_at_the_node_limit(expression: str) -> None:
+    # a position test with no closed form for the shared stretch reads each context's axis on its own, up to a limit
+    with pytest.raises(ValueError, match="reached more than 10,000,000 nodes"):
+        _siblings(5000).xpath(expression)
+
+
+def test_position_test_from_many_contexts_below_the_node_limit() -> None:
+    assert len(node_list(_siblings(2000).xpath("//c/following-sibling::c[position() mod 2 = 0]"))) == 1998
 
 
 def test_context_relative(doc: turbohtml.Node) -> None:
@@ -1260,11 +1670,6 @@ def test_variable_node_set_in_document_order(build: Callable[[], Document], pick
     assert XPath("$v")(document, v=nodes) == _in_document_order(document, nodes)
 
 
-def element_list(result: XPathResult) -> list[Element]:
-    # The element node-set an expression is expected to return.
-    return [element for element in node_list(result) if isinstance(element, Element)]
-
-
 def _in_document_order(document: turbohtml.Node, nodes: Iterable[turbohtml.Node]) -> list[turbohtml.Node]:
     position: Final = {node: index for index, node in enumerate(document.descendants)}
     return sorted(set(nodes), key=position.__getitem__)
@@ -1425,6 +1830,55 @@ def test_union_after_a_callback_reorders_the_tree() -> None:
     ],
 )
 def test_document_order_grows_linearly(
+    build: Callable[[int], Document], expression: str, work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda size: partial(build(size).xpath, expression), (1000, 4000))
+
+
+@pytest.mark.parametrize(
+    ("build", "expression"),
+    [
+        pytest.param(_siblings, "//c/following-sibling::c[@k]", id="following-sibling"),
+        pytest.param(_siblings, "//c/preceding-sibling::c[@k]", id="preceding-sibling"),
+        pytest.param(_siblings, "//c/following::c[@k]", id="following"),
+        pytest.param(_siblings, "//c/preceding::c[@k]", id="preceding"),
+        pytest.param(_chain, "//e/ancestor::d[@k]", id="ancestor"),
+        pytest.param(_chain, "//d//d[@k]", id="descendant"),
+        pytest.param(_chain, "//e/ancestor::d[not(@z)][@k = '1' or @k]", id="ancestor-boolean-predicates"),
+    ],
+)
+def test_predicate_from_many_contexts_grows_linearly(
+    build: Callable[[int], Document], expression: str, work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda size: partial(build(size).xpath, expression), (1000, 4000))
+
+
+def _comb(depth: int) -> Document:
+    # each level opens with a leaf, so every context's preceding axis meets one leaf per level above it
+    opened: Final = "".join(f'<d k="{index % 3}"><f/>' for index in range(1, depth + 1))
+    return parse_xml(f"<r>{opened}{'</d>' * depth}</r>")
+
+
+# Each context counts positions along its own stretch of the axis; contexts whose stretches overlap share one walk and
+# the predicate's offsets are read off it, so the counted steps grow with the axis length instead of its square.
+@pytest.mark.parametrize(
+    ("build", "expression"),
+    [
+        pytest.param(_siblings, "//c/following-sibling::c[position() > 1]", id="following-sibling"),
+        pytest.param(_siblings, "//c/following-sibling::c[last()]", id="following-sibling-last"),
+        pytest.param(_siblings, "//c/preceding-sibling::c[position() < last()]", id="preceding-sibling"),
+        pytest.param(_siblings, "//c/following::c[2]", id="following"),
+        pytest.param(_siblings, "//c/preceding::c[position() > 2]", id="preceding"),
+        pytest.param(_siblings, "//c/following-sibling::c[@k > 2][position() > 1]", id="filter-then-position"),
+        pytest.param(_chain, "//d/ancestor::d[position() > 1]", id="ancestor"),
+        pytest.param(_chain, "//e/ancestor-or-self::*[last() - 1]", id="ancestor-or-self"),
+        pytest.param(_chain, "//d/descendant::d[position() > 1]", id="descendant"),
+        pytest.param(_chain, "//d/descendant-or-self::e[last()]", id="descendant-or-self"),
+        pytest.param(_comb, "//d/preceding::f[position() > 1]", id="preceding-leaves"),
+        pytest.param(_comb, "//f/preceding::d[1]", id="preceding-levels"),
+    ],
+)
+def test_positional_predicate_from_many_contexts_grows_linearly(
     build: Callable[[int], Document], expression: str, work_steps: WorkSteps
 ) -> None:
     work_steps.assert_linear(lambda size: partial(build(size).xpath, expression), (1000, 4000))
@@ -1638,10 +2092,6 @@ def test_sets_share_a_later_node() -> None:
 def test_union_orders_extension_results(expression: str, selector: str) -> None:
     document: Final[Document] = parse(f"<ul>{''.join(f'<li>{index}</li>' for index in range(100))}</ul>")
     assert document.xpath(expression, extensions={(None, "unordered"): _unordered}) == document.select(selector)
-
-
-def _unordered(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
-    return [*reversed(nodes), nodes[0]]
 
 
 @pytest.mark.parametrize(
