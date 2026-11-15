@@ -1516,8 +1516,7 @@ TH_NODE_API(static, PyObject *, node_to_annotated_text, (PyObject * self, PyObje
 PyDoc_STRVAR(links_doc, "links()\n--\n\n"
                         "Find every link in this node and its subtree. Beyond <a href>, this finds the\n"
                         "URLs hidden in srcset/ping/archive lists, a <meta http-equiv=refresh>\n"
-                        "redirect outside <template> contents, and CSS url()/@import in a style attribute or a\n"
-                        "<style> sheet.\n"
+                        "redirect, and CSS url()/@import in a style attribute or a <style> sheet.\n"
                         "A srcset candidate whose descriptors a browser rejects is skipped.\n\n"
                         ":returns: the Link records in document order.");
 

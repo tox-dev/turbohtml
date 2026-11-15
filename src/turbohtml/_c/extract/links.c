@@ -943,17 +943,8 @@ static scanner_fn scanner_for_attr(uint16_t atom, const char *name, Py_ssize_t l
     return NULL;
 }
 
-/* Does an HTML <meta> declare http-equiv=refresh (the only meta whose content carries a URL)? A template's contents are
-   inert and an SVG or MathML element named meta is not a meta, so neither redirects a browser. */
+/* Does <meta> declare http-equiv=refresh (the only meta whose content carries a URL)? */
 static int is_meta_refresh(link_walk *walk, th_node *element) {
-    if (element->ns != TH_NS_HTML) {
-        return 0;
-    }
-    for (th_node *ancestor = element->parent; ancestor != NULL; ancestor = ancestor->parent) {
-        if (ancestor->type == TH_NODE_CONTENT) {
-            return 0;
-        }
-    }
     Py_ssize_t len = 0;
     const Py_UCS4 *equiv = attr_value(walk, element, "http-equiv", 10, &len);
     return equiv != NULL && value_imatch(equiv, len, "refresh", 7);
