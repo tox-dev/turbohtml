@@ -341,6 +341,55 @@ def test_find_without_warm_index_empty_bucket() -> None:
     assert document.find("p") is None
 
 
+@pytest.mark.parametrize(
+    ("victim", "expected"),
+    [
+        pytest.param("c", (["d"], ["a", "b", "d"]), id="later-candidate"),
+        pytest.param("a", ([], ["a"]), id="current-candidate"),
+    ],
+)
+@pytest.mark.parametrize("requery", [pytest.param(False, id="index-dropped"), pytest.param(True, id="index-rebuilt")])
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param(lambda origin, filter_: [origin.find("p", id=filter_)], id="find"),
+        pytest.param(lambda origin, filter_: origin.find_all("p", id=filter_), id="find-all"),
+    ],
+)
+@pytest.mark.parametrize(
+    "scope",
+    [
+        pytest.param(lambda document: document, id="indexed"),
+        pytest.param(lambda document: _el(document.find("section")), id="subtree"),
+    ],
+)
+def test_tag_filter_edits_tree(
+    victim: str,
+    expected: tuple[list[str], list[str]],
+    search: Callable[[Document | Element, Callable[[str | None], bool]], list[Element | None]],
+    scope: Callable[[Document], Document | Element],
+    *,
+    requery: bool,
+) -> None:
+    document: Final = parse("<section><p id='a'></p><p id='b'></p><p id='c'></p><p id='d'></p></section>")
+    document.find_all("p")
+    origin: Final = scope(document)
+    seen: Final[list[str | None]] = []
+
+    def last(value: str | None) -> bool:
+        seen.append(value)
+        if len(seen) == 1:
+            target: Final = document.find(id=victim)
+            assert target is not None
+            target.extract()  # a structural edit drops the element index a document-wide query is reading
+            if requery:
+                document.find_all("p")  # and this rebuilds it, smaller, under that query
+        return value == "d"
+
+    matches: Final = search(origin, last)
+    assert ([element.attrs["id"] for element in matches if element is not None], seen) == expected
+
+
 def test_find_on_warm_subtree() -> None:
     document = parse("<section><p id='inside'/></section><p id='outside'/>")
     document.find_all("p")
