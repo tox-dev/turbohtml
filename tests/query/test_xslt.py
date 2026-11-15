@@ -2775,7 +2775,6 @@ def _run_computed_name(instruction: str, name: str) -> str:
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        pytest.param("p:q", '<r><p:q a="1">e</p:q></r>', id="qname"),
         pytest.param("é", '<r><é a="1">e</é></r>', id="non-ascii"),
     ],
 )
@@ -3445,8 +3444,130 @@ def test_transform_literal_in_matching_default_namespace_is_not_undeclared() -> 
 
 def test_transform_element_namespace_expression_error_under_default_namespace_raises() -> None:
     body = '<xsl:template match="n"><xsl:element name="x" namespace="{key(\'k\', \'v\')}"/></xsl:template>'
-    with pytest.raises(ValueError, match="bad expression in attribute value template"):
+    with pytest.raises(ValueError, match="undeclared key"):
         _run("<r><n/></r>", _XHTML_ROOT + body, method="xml")
+
+
+@pytest.mark.parametrize(
+    ("body", "source", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="x" namespace="urn:a"/></xsl:template>',
+            "<r/>",
+            '<x xmlns="urn:a"/>',
+            id="literal-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="x" namespace="{//ns}"/></xsl:template>',
+            "<r><ns>urn:b</ns></r>",
+            '<x xmlns="urn:b"/>',
+            id="avt-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="p:x" namespace="urn:c"/></xsl:template>',
+            "<r/>",
+            '<p:x xmlns:p="urn:c"/>',
+            id="prefixed-literal-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="p:x" namespace="{//ns}"/></xsl:template>',
+            "<r><ns>urn:d</ns></r>",
+            '<p:x xmlns:p="urn:d"/>',
+            id="prefixed-avt-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="p:x" namespace=""/></xsl:template>',
+            "<r/>",
+            "<x/>",
+            id="prefixed-empty-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="xml:x" namespace="urn:a"/></xsl:template>',
+            "<r/>",
+            '<ns_1:x xmlns:ns_1="urn:a"/>',
+            id="reserved-prefix",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="xml:x"/></xsl:template>',
+            "<r/>",
+            "<xml:x/>",
+            id="xml-prefix-without-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="x" namespace="http://www.w3.org/XML/1998/namespace"/>'
+            "</xsl:template>",
+            "<r/>",
+            "<xml:x/>",
+            id="xml-namespace",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><out xmlns:p="urn:a"><xsl:element name="p:x" namespace="urn:b"/></out>'
+            "</xsl:template>",
+            "<r/>",
+            '<out xmlns:p="urn:a"><p:x xmlns:p="urn:b"/></out>',
+            id="prefix-rebound-under-output-ancestor",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><out xmlns="urn:a"><xsl:element name="x" namespace="urn:a"/></out></xsl:template>',
+            "<r/>",
+            '<out xmlns="urn:a"><x/></out>',
+            id="default-already-bound-by-ancestor",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><out xmlns:p="urn:a"><xsl:element name="p:x" namespace="urn:a"/></out>'
+            "</xsl:template>",
+            "<r/>",
+            '<out xmlns:p="urn:a"><p:x/></out>',
+            id="prefix-already-bound-by-ancestor",
+        ),
+    ],
+)
+def test_transform_xsl_element_namespace_is_declared(body: str, source: str, expected: str) -> None:
+    assert _run(source, body, method="xml") == expected
+
+
+@pytest.mark.parametrize(
+    ("declare", "name", "expected"),
+    [
+        pytest.param('xmlns="urn:d"', "x", '<x xmlns="urn:d"/>', id="stylesheet-default"),
+        pytest.param('xmlns:p="urn:e"', "p:x", '<p:x xmlns:p="urn:e"/>', id="stylesheet-prefix"),
+    ],
+)
+def test_transform_xsl_element_without_namespace_uses_stylesheet_binding(
+    declare: str, name: str, expected: str
+) -> None:
+    body = f'<xsl:template match="/"><xsl:element name="{name}"/></xsl:template>'
+    assert transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>")) == expected
+
+
+def test_transform_xsl_element_name_with_undeclared_prefix_raises() -> None:
+    body = '<xsl:template match="/"><xsl:element name="q:x"/></xsl:template>'
+    with pytest.raises(ValueError, match="undeclared prefix"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_xsl_element_namespace_child_literal_is_undeclared() -> None:
+    body = '<xsl:template match="/"><xsl:element name="x" namespace="urn:a"><y/></xsl:element></xsl:template>'
+    assert _run("<r/>", body, method="xml") == '<x xmlns="urn:a"><y xmlns=""/></x>'
+
+
+def test_transform_xsl_element_namespace_child_literal_redeclares_rebound_prefix() -> None:
+    body = '<xsl:template match="/"><xsl:element name="p:x" namespace="urn:b"><p:y/></xsl:element></xsl:template>'
+    sheet = _sheet(body, method="xml", declare='xmlns:p="urn:a"')
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == '<p:x xmlns:p="urn:b"><p:y xmlns:p="urn:a"/></p:x>'
+
+
+def test_transform_xsl_element_namespace_applies_attribute_sets() -> None:
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="k">v</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><xsl:element name="x" namespace="urn:a" use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _run("<r/>", body, method="xml") == '<x xmlns="urn:a" k="v"/>'
+
+
+def test_transform_xsl_element_namespace_declares_nothing_in_html() -> None:
+    body = '<xsl:template match="/"><xsl:element name="x" namespace="urn:a"/></xsl:template>'
+    assert _run("<r/>", body, method="html") == "<x></x>"
 
 
 def test_transform_copy_of_no_namespace_element_declaring_empty_default_declares_once() -> None:

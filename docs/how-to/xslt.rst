@@ -102,6 +102,11 @@ or for a processing instruction a PITarget (not ``xml`` in any case). An attribu
 an attribute with a ``namespace`` may use the ``xmlns`` prefix. The transform leaves out a node with any other name and
 keeps an element's content in its place.
 
+An ``xsl:element`` puts the element in the namespace its ``namespace`` attribute gives and declares that namespace in
+the output; the prefix of its name is only a hint. Without a ``namespace`` attribute, the element takes the namespace
+the stylesheet binds to the name's prefix, or to the default namespace when the name has no prefix, and a prefix the
+stylesheet does not declare raises :exc:`ValueError`.
+
 *********************
  Import a stylesheet
 *********************
