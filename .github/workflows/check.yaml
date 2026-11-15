@@ -126,9 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: "ubuntu-24.04", arch: "x64"}
-          - {os: "ubuntu-24.04-arm", arch: "arm64"}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","arch":"x64"}]' || '[{"os":"ubuntu-24.04","arch":"x64"},{"os":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -187,7 +185,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tox_env: ["type", "docs", "pkg_meta", "atheris"]
+        tox_env: ${{ fromJSON(github.event_name == 'pull_request' && '["type", "docs"]' || '["type", "docs", "pkg_meta", "atheris"]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -201,8 +199,9 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: 🧪 Run ${{ matrix.tox_env }}
-        run: uvx --with tox-uv tox run -e ${{ matrix.tox_env }}
+        run: uvx --with tox-uv tox run -e "$TOX_ENV"
         env:
+          TOX_ENV: ${{ matrix.tox_env }}
           UV_PYTHON_PREFERENCE: only-managed
   conformance:
     name: 🧪 conformance
@@ -252,11 +251,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: "ubuntu-24.04", cc: "gcc", label: "gcc · Linux x64"}
-          - {os: "ubuntu-24.04", cc: "clang", label: "clang · Linux x64"}
-          - {os: "ubuntu-24.04-arm", cc: "gcc", label: "gcc · Linux arm64"}
-          - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","cc":"gcc","label":"gcc · Linux x64"}]' || '[{"os":"ubuntu-24.04","cc":"gcc","label":"gcc · Linux x64"},{"os":"ubuntu-24.04","cc":"clang","label":"clang · Linux x64"},{"os":"ubuntu-24.04-arm","cc":"gcc","label":"gcc · Linux arm64"},{"os":"macos-15","cc":"clang","label":"clang · macOS arm64"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -330,9 +325,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: "ubuntu-24.04", arch: "x64"}
-          - {os: "ubuntu-24.04-arm", arch: "arm64"}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","arch":"x64"}]' || '[{"os":"ubuntu-24.04","arch":"x64"},{"os":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -430,3 +423,11 @@ jobs:
         uses: tox-dev/github-workflows/required-checks@6.8.0
         with:
           needs: ${{ toJSON(needs) }}
+          allow-skipped: |
+            ${{ github.event_name == 'pull_request' && 'hooks' || '' }}
+            ${{ github.event_name == 'pull_request' && 'release' || '' }}
+            ${{ github.event_name == 'pull_request' && 'pypy' || '' }}
+            ${{ github.event_name == 'pull_request' && 'scalar' || '' }}
+            ${{ github.event_name == 'pull_request' && 'preprocess-identity' || '' }}
+            ${{ github.event_name == 'pull_request' && 'warnings-msvc' || '' }}
+            ${{ github.event_name == 'pull_request' && 'tsan' || '' }}
