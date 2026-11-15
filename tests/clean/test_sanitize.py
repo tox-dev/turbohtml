@@ -4999,6 +4999,152 @@ def test_control_characters_are_dropped_from_xml() -> None:
     _well_formed(out)
 
 
+_EITHER_FORM: Final[Policy] = Policy(
+    tags=frozenset({"p", "a", "style", "meta", "img", "video"}),
+    attributes={
+        "p": frozenset({"style", "title"}),
+        "a": frozenset({"href"}),
+        "meta": frozenset({"content", "http-equiv"}),
+        "img": frozenset({"srcset"}),
+        "video": frozenset({"src", "poster"}),
+    },
+    css_properties=frozenset({"color", "font-family", "background-image", "width"}),
+    media_hosts=frozenset({"media.example"}),
+    strip_comments=False,
+    strip_template_markers=True,
+)
+
+
+@pytest.mark.parametrize(
+    ("html", "as_html", "as_xml"),
+    [
+        pytest.param(
+            '<p style=\'font-family:"q\\\x1f\\";width:1px;margin:0;"\'>x</p>',
+            '<p style="font-family:&quot;q\\\\&quot;; width:1px">x</p>',
+            '<p style="font-family:&quot;q\\\\&quot;; width:1px">x</p>',
+            id="css-string-closed-by-drop",
+        ),
+        pytest.param(
+            '<p style="color:red;background-image:u\x02rl(javascript:void(0))">x</p>',
+            '<p style="color:red">x</p>',
+            '<p style="color:red">x</p>',
+            id="css-url-joined",
+        ),
+        pytest.param(
+            f'<p style=\'font-family:"q\\\x1f\\";{"color:red;" * 6}x:1;"\'>x</p>',
+            f'<p style="font-family:&quot;q\\\\&quot;{"; color:red" * 6}">x</p>',
+            f'<p style="font-family:&quot;q\\\\&quot;{"; color:red" * 6}">x</p>',
+            id="css-rescrub-same-length",
+        ),
+        pytest.param('<p style="width:expre\ufffession(1)">x</p>', "<p>x</p>", "<p>x</p>", id="css-expression-joined"),
+        pytest.param(
+            "<style>i{background-image:u\x1erl(javascript:void(0));color:blue}</style>",
+            "<style>i{color:blue;}</style>",
+            "<style>i{color:blue;}</style>",
+            id="stylesheet-url-joined",
+        ),
+        pytest.param("<p>${\x02x}</p>", "<p> </p>", "<p> </p>", id="template-text"),
+        pytest.param("<p>${x}a$\x02</p>", "<p> a$\x02</p>", "<p> a$</p>", id="template-opener-at-end"),
+        pytest.param("<p>&lt;\x02% x %\x02&gt;</p>", "<p> </p>", "<p> </p>", id="template-text-angle"),
+        pytest.param(
+            '<p title="{\x1f{ y }\x1f}">z</p>', '<p title=" ">z</p>', '<p title=" ">z</p>', id="template-attr"
+        ),
+        pytest.param(
+            '<meta http-equiv="Re\x1fFresh" content="1; URL=javascript:void(0)">',
+            '<meta http-equiv="Re\x1fFresh">',
+            '<meta http-equiv="ReFresh"/>',
+            id="refresh-joined",
+        ),
+        pytest.param(
+            '<meta http-equiv="refreshed" content="1; URL=/next">',
+            '<meta http-equiv="refreshed" content="1; URL=/next">',
+            '<meta http-equiv="refreshed" content="1; URL=/next"/>',
+            id="not-refresh",
+        ),
+        pytest.param('<a href="https:/\uffff/[x">y</a>', "<a>y</a>", "<a>y</a>", id="href-authority-joined"),
+        pytest.param('<img srcset="https:/\uffff/[x 1x">', "<img>", "<img/>", id="srcset-authority-joined"),
+        pytest.param(
+            '<video src="https://media.example/clip\x02.mp4" poster="/still.png"></video>',
+            '<video src="https://media.example/clip\x02.mp4" poster="/still.png"></video>',
+            '<video src="https://media.example/clip.mp4" poster="/still.png"/>',
+            id="media-host-kept",
+        ),
+        pytest.param(
+            '<p style="color:gr\x02een" title="t\x02u">v\x02w</p>',
+            '<p style="color:gr\x02een" title="t\x02u">v\x02w</p>',
+            '<p style="color:green" title="tu">vw</p>',
+            id="harmless-kept",
+        ),
+    ],
+)
+def test_checks_judge_the_form_each_serializer_writes(html: str, as_html: str, as_xml: str) -> None:
+    # the XML serializer drops what XML cannot hold, joining its neighbors, so a value must pass in both forms
+    node = sanitize_node(parse_fragment(html), _EITHER_FORM)
+    assert (sanitize(html, _EITHER_FORM), node.inner_html) == (as_html, as_html)
+    assert (sanitize(html, replace(_EITHER_FORM, xml=True)), node.inner_xml) == (as_xml, as_xml)
+    _well_formed(as_xml)
+
+
+def test_html_output_keeps_the_characters_xml_drops() -> None:
+    html = '<p style="color:gr\x02een" title="t\x02u">{\x02x}</p>'
+    assert sanitize(html, _EITHER_FORM) == html
+
+
+@pytest.mark.parametrize(
+    ("policy", "html", "expected"),
+    [
+        pytest.param(
+            replace(_EITHER_FORM, attribute_predicate=lambda _tag, _name, value: "secret" not in value),
+            '<p title="sec\x1fret">a</p><p title="sec\x1fond">b</p>',
+            '<p>a</p><p title="sec\x1fond">b</p>',
+            id="attribute-predicate",
+        ),
+        pytest.param(
+            replace(_EITHER_FORM, attribute_values={"p": {"title": frozenset({"one\x01two"})}}),
+            '<p title="one\x01two">a</p>',
+            "<p>a</p>",
+            id="attribute-values",
+        ),
+        pytest.param(
+            Policy(
+                tags=frozenset({"button"}),
+                custom_element_check=lambda name: name != "x-blocked",
+                allow_customized_builtins=True,
+            ),
+            '<button is="x-bl\x01ocked">a</button><button is="x-op\x01en">b</button>',
+            '<button>a</button><button is="x-op\x01en">b</button>',
+            id="customized-builtin",
+        ),
+        pytest.param(
+            replace(_EITHER_FORM, attribute_filter=lambda _tag, _name, value: value.replace("?", "\x1f")),
+            '<p title="$?{x}">a</p>',
+            '<p title=" ">a</p>',
+            id="attribute-filter",
+        ),
+        pytest.param(
+            replace(
+                _EITHER_FORM, set_attributes={"p": {"style": "background-image:u\x02rl(javascript:void(0));color:red"}}
+            ),
+            "<p>a</p>",
+            '<p style="color:red">a</p>',
+            id="set-attributes",
+        ),
+    ],
+)
+def test_policy_values_are_judged_in_the_xml_form(policy: Policy, html: str, expected: str) -> None:
+    assert sanitize(html, policy) == expected
+
+
+def test_attribute_predicate_raising_on_the_xml_form_propagates() -> None:
+    def predicate(_tag: str, _name: str, value: str) -> bool:
+        if "\x01" not in value:
+            raise ValueError(value)
+        return True
+
+    with pytest.raises(ValueError, match=r"^ab$"):
+        sanitize('<p title="a\x01b">c</p>', replace(_EITHER_FORM, attribute_predicate=predicate))
+
+
 def test_kept_comment_is_neutralized_for_xml() -> None:
     out = sanitize("<p>a</p><!-- c--d- -->", Policy(tags=frozenset({"p"}), strip_comments=False, xml=True))
     assert out == "<p>a</p><!-- c- -d- -->"

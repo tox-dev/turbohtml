@@ -15,6 +15,10 @@ if TYPE_CHECKING:
     from turbohtml import Node
 
 _XLINK: Final[str] = 'xmlns:xlink="http://www.w3.org/1999/xlink"'
+# More unused declarations than a scope keeps inline, so the subtree is read the way a wide scope is.
+_PADDING: Final[str] = " ".join(
+    f'xmlns:{prefix}="urn:pad"' for prefix in ("a0", "a1", "a2", "a3", "z0", "z1", "z2", "z3", "z4")
+)
 
 
 @pytest.mark.parametrize(
@@ -95,11 +99,37 @@ _XLINK: Final[str] = 'xmlns:xlink="http://www.w3.org/1999/xlink"'
             '<child xmlns:p="urn:p" a="v" p:b="v"/>',
             id="plain-and-prefixed-attributes",
         ),
+        ('<root xmlns:p="urn:p"><child a="v" p:b="v"/></root>', '<child xmlns:p="urn:p" a="v" p:b="v"/>'),
+        ('<root xmlns:pp="urn:unused"><p:child xmlns:p="urn:p"/></root>', '<p:child xmlns:p="urn:p"/>'),
+        ('<root xmlns:p="urn:unused"><pp:child xmlns:pp="urn:pp"/></root>', '<pp:child xmlns:pp="urn:pp"/>'),
+        ('<root xmlns:q="urn:unused"><p:child xmlns:p="urn:p"/></root>', '<p:child xmlns:p="urn:p"/>'),
+        ('<root xmlns:p="urn:unused"><q:child xmlns:q="urn:q"/></root>', '<q:child xmlns:q="urn:q"/>'),
+        (
+            '<root xmlns:a="urn:a" xmlns:b="urn:b" xmlns:c="urn:c" xmlns:d="urn:d"><d:child a:x="v" c:y="v"/></root>',
+            '<d:child xmlns:a="urn:a" xmlns:c="urn:c" xmlns:d="urn:d" a:x="v" c:y="v"/>',
+        ),
+        (
+            '<top xmlns:p="urn:far" xmlns:q="urn:q"><root xmlns:p="urn:near"><q:child p:x="v"/></root></top>',
+            '<q:child xmlns:p="urn:near" xmlns:q="urn:q" p:x="v"/>',
+        ),
+        (
+            (
+                '<top xmlns:a="urn:far" xmlns:b="urn:b" xmlns:c="urn:c" xmlns:d="urn:d" xmlns:e="urn:e" '
+                'xmlns:f="urn:f" xmlns:g="urn:g" xmlns:h="urn:h">'
+                '<root xmlns:a="urn:near"><b:child a:x="v"/></root></top>'
+            ),
+            '<b:child xmlns:a="urn:near" xmlns:b="urn:b" a:x="v"/>',
+        ),
     ],
 )
-def test_xml_subtree_inherits_namespace_bindings(xml: str, expected: str) -> None:
-    node = parse_xml(xml).select("*")[-1]
+@pytest.mark.parametrize("padding", [pytest.param("", id="narrow"), pytest.param(_PADDING, id="wide")])
+def test_xml_subtree_inherits_namespace_bindings(xml: str, expected: str, padding: str) -> None:
+    node = _parse(xml, padding).select("*")[-1]
     assert node.serialize(Html(xml=True)) == expected
+
+
+def _parse(xml: str, padding: str) -> Node:
+    return parse_xml(f"<pad {padding}>{xml}</pad>")
 
 
 @pytest.mark.parametrize(
@@ -130,10 +160,23 @@ def test_xml_subtree_inherits_namespace_bindings(xml: str, expected: str) -> Non
             '<child><p:nested xmlns:p="urn:new"/></child>',
             id="rebound-on-descendant",
         ),
+        (
+            '<root xmlns:p="urn:old"><child><wrap xmlns:p="urn:new"><p:a/></wrap><p:b/></child></root>',
+            '<child xmlns:p="urn:old"><wrap xmlns:p="urn:new"><p:a/></wrap><p:b/></child>',
+        ),
+        (
+            '<root xmlns="urn:a"><child><wrap xmlns=""><a><b/></a></wrap>text</child></root>',
+            '<child xmlns="urn:a"><wrap xmlns=""><a><b/></a></wrap>text</child>',
+        ),
+        (
+            '<root xmlns:p="urn:p" xmlns:u="urn:u"><child><p:a xmlns:u="urn:own">text</p:a><p:b/></child></root>',
+            '<child xmlns:p="urn:p"><p:a xmlns:u="urn:own">text</p:a><p:b/></child>',
+        ),
     ],
 )
-def test_xml_subtree_descendants_use_inherited_bindings(xml: str, expected: str) -> None:
-    node = parse_xml(xml).select("*")[1]
+@pytest.mark.parametrize("padding", [pytest.param("", id="narrow"), pytest.param(_PADDING, id="wide")])
+def test_xml_subtree_descendants_use_inherited_bindings(xml: str, expected: str, padding: str) -> None:
+    node = _parse(xml, padding).select("*")[2]
     assert node.serialize(Html(xml=True)) == expected
 
 
@@ -145,6 +188,76 @@ def test_xml_inner_serialization_inherits_namespace_bindings() -> None:
 def test_xml_inner_option_inherits_namespace_bindings() -> None:
     root = parse_xml('<root xmlns="urn:a"><child/><other/></root>').select("root")[0]
     assert root.serialize(Html(xml=True), inner=True) == '<child xmlns="urn:a"/><other xmlns="urn:a"/>'
+
+
+@pytest.mark.parametrize("padding", [pytest.param("", id="narrow"), pytest.param(_PADDING, id="wide")])
+def test_xml_inner_serialization_resolves_each_child_against_the_same_scope(padding: str) -> None:
+    root = _parse(
+        '<top xmlns="urn:far" xmlns:q="urn:q"><root xmlns="urn:a" xmlns:p="urn:p">'
+        '<q:one p:x="v"/><two xmlns:p="urn:own"><p:three/></two><p:four/>text<q:five xmlns=""><six/></q:five>'
+        "</root></top>",
+        padding,
+    ).select("root")[0]
+    assert root.inner_xml == (
+        '<q:one xmlns:p="urn:p" xmlns:q="urn:q" p:x="v"/><two xmlns="urn:a" xmlns:p="urn:own"><p:three/></two>'
+        '<p:four xmlns:p="urn:p"/>text<q:five xmlns:q="urn:q" xmlns=""><six/></q:five>'
+    )
+
+
+@pytest.mark.parametrize("padding", [pytest.param("", id="narrow"), pytest.param(_PADDING, id="wide")])
+def test_xml_subtree_name_with_an_empty_prefix_uses_no_inherited_binding(padding: str) -> None:
+    document = _parse('<root xmlns="urn:a" xmlns:p="urn:p"><p:child><nested/></p:child></root>', padding)
+    child = document.select("*")[2]
+    document.select("*")[3].tag = ":nested"
+    child.attrs[":attr"] = "v"
+    assert child.serialize(Html(xml=True)) == '<p:child xmlns:p="urn:p"/>'
+
+
+@pytest.mark.parametrize("padding", [pytest.param("", id="narrow"), pytest.param(_PADDING, id="wide")])
+def test_xml_children_of_a_left_out_element_inherit_its_declarations(padding: str) -> None:
+    document = _parse(
+        '<root xmlns="urn:root" xmlns:p="urn:p" xmlns:q="urn:q">'
+        '<run xmlns="urn:run" xmlns:p="urn:run-p" xmlns:r="urn:r"><p:a/><q:b/><c/></run></root>',
+        padding,
+    )
+    run = document.select("*")[2]
+    run.tag = "x:y:z"
+    run.attrs["xmlns:s"] = ""
+    copied = 'xmlns="urn:run" xmlns:p="urn:run-p" xmlns:r="urn:r"'
+    expected = f'<p:a {copied}/><q:b {copied} xmlns:q="urn:q"/><c {copied}/>'
+    assert document.select("*")[1].inner_xml == expected
+    assert run.serialize(Html(xml=True)) == expected
+
+
+@pytest.mark.parametrize("count", [pytest.param(3, id="narrow"), pytest.param(9, id="wide")])
+def test_xml_subtree_stops_reading_once_every_inherited_binding_is_used(count: int) -> None:
+    prefixes = [f"p{index}" for index in range(count)]
+    declarations = " ".join(f'xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    attributes = " ".join(f'{prefix}:x="v"' for prefix in prefixes[:-1])
+    child = parse_xml(
+        f"<root {declarations}><child><one {attributes}/><{prefixes[-1]}:two><three/></{prefixes[-1]}:two><four/>"
+        "</child></root>"
+    ).select("child")[0]
+    assert child.serialize(Html(xml=True)) == (
+        f"<child {declarations}><one {attributes}/><{prefixes[-1]}:two><three/></{prefixes[-1]}:two><four/></child>"
+    )
+
+
+@pytest.mark.parametrize("padding", [pytest.param("", id="narrow"), pytest.param(_PADDING, id="wide")])
+def test_xml_inherited_declaration_with_a_colon_in_its_prefix_is_not_copied(padding: str) -> None:
+    document = _parse("<root><child><nested/></child></root>", padding)
+    document.select("root")[0].attrs["xmlns:a:b"] = "urn:ab"
+    document.select("nested")[0].attrs["a:b:c"] = "v"
+    assert document.select("child")[0].serialize(Html(xml=True)) == "<child><nested/></child>"
+
+
+def test_xml_inherited_bindings_serialize_in_linear_time(work_steps: WorkSteps) -> None:
+    def build(depth: int) -> Callable[[], object]:
+        ancestors = "".join(f'<a xmlns:ns{index}="urn:t{index}">' for index in range(depth))
+        content = parse_xml(f"<r>{ancestors}<content>{'<leaf/>' * depth}</content>{'</a>' * depth}</r>")
+        return partial(content.select("content")[0].serialize, Html(xml=True), inner=True)
+
+    work_steps.assert_linear(build, (500, 2000))
 
 
 def test_xml_pretty_subtree_inherits_namespace_bindings() -> None:
@@ -160,6 +273,15 @@ def test_xml_chunked_subtree_inherits_namespace_bindings() -> None:
 def test_xml_chunked_inner_inherits_namespace_bindings() -> None:
     root = parse_xml('<root xmlns="urn:a"><child/></root>').select("root")[0]
     assert "".join(root.serialize_iter(Html(xml=True), inner=True)) == '<child xmlns="urn:a"/>'
+
+
+def test_xml_chunk_that_gathers_a_wide_scope_runs_as_long_as_the_scope() -> None:
+    count: Final = 12_000
+    declarations: Final = " ".join(f'xmlns:ns{index}="urn:t{index}"' for index in range(count))
+    root = parse_xml(f"<r {declarations}>{'<item/>' * count}</r>").select("r")[0]
+    chunks = list(root.serialize_iter(Html(xml=True), inner=True))
+    assert min(len(chunk) for chunk in chunks[:-1]) > count
+    assert "".join(chunks) == "<item/>" * count
 
 
 def test_xml_nested_xlink_uses_inherited_binding() -> None:

@@ -1352,7 +1352,9 @@ static Py_UCS4 *inner_xml(th_tree *tree, th_node *node, th_xml_ns_spend *spend, 
     sbuf out = {NULL, 0, 0, 0, 0};
     th_serialize_opts opts = ser_xml_opts;
     th_xml_xlink_walk xlink = {NULL, NULL};
-    opts.xml_boundary = spend != NULL && th_tree_is_xml(tree) ? node : NULL;
+    th_xml_ns_scope scope;
+    ser_xml_ns_scope_init(&scope, node);
+    opts.xml_scope = spend != NULL && th_tree_is_xml(tree) ? &scope : NULL;
     opts.xml_xlink = th_tree_is_xml(tree) ? &xlink : NULL;
     opts.xml_ns_spend = spend;
     th_xml_unwrap unwrap = {.spend = {0, 0, TH_XML_NS_BASE}};
@@ -1361,6 +1363,7 @@ static Py_UCS4 *inner_xml(th_tree *tree, th_node *node, th_xml_ns_spend *spend, 
         serialize_compact(&out, tree, child, &opts);
     }
     th_xml_unwrap_free(&unwrap);
+    ser_xml_ns_scope_free(&scope);
     return sbuf_finish(&out, out_len);
 }
 
@@ -1391,7 +1394,9 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
     th_xml_xlink_walk xlink = {NULL, NULL};
     th_xml_ns_spend spend = {0, 0, TH_XML_NS_BASE};
     th_xml_unwrap unwrap = {.spend = {0, 0, TH_XML_NS_BASE}};
-    context.xml_boundary = opts->xml && th_tree_is_xml(tree) ? (opts->inner ? node : node->parent) : NULL;
+    th_xml_ns_scope scope;
+    ser_xml_ns_scope_init(&scope, opts->inner ? node : node->parent);
+    context.xml_scope = opts->xml && th_tree_is_xml(tree) ? &scope : NULL;
     context.xml_xlink = th_tree_is_xml(tree) ? &xlink : NULL;
     context.xml_ns_spend = opts->inner ? &spend : NULL; /* the one copy a whole subtree carries multiplies nothing */
     context.xml_unwrap = &unwrap;
@@ -1404,6 +1409,7 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
         serialize_pretty(&out, tree, node, &pretty, 0);
     }
     th_xml_unwrap_free(&unwrap);
+    ser_xml_ns_scope_free(&scope);
     return sbuf_finish(&out, out_len);
 }
 
@@ -1413,11 +1419,21 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
    bounded to roughly one chunk, which is the point: no full-size string is built. */
 #define TH_SERIALIZE_CHUNK 8192
 
+/* The tree may be edited between chunks, so each chunk gathers the namespace scope it needs afresh rather than the
+   cursor carrying one that points into the tree. A scope larger than a chunk would then cost more to gather than the
+   chunk costs to write, every chunk, so a chunk that gathered one runs on until it holds as many code points as the
+   gather walked ancestors and attributes. */
+static int chunk_has_room(const sbuf *out, const th_xml_ns_scope *scope) {
+    return out->len < TH_SERIALIZE_CHUNK || out->len < scope->walked;
+}
+
 Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
                                  Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, cursor->clone_credit}; /* the earlier chunks still fund clone attributes */
     th_serialize_opts context = *opts;
-    context.xml_boundary = opts->xml && th_tree_is_xml(tree) ? (opts->inner ? root : root->parent) : NULL;
+    th_xml_ns_scope scope;
+    ser_xml_ns_scope_init(&scope, opts->inner ? root : root->parent);
+    context.xml_scope = opts->xml && th_tree_is_xml(tree) ? &scope : NULL;
     context.xml_xlink = th_tree_is_xml(tree) ? &cursor->xlink : NULL; /* kept across chunks, like the resume node */
     context.xml_ns_spend = opts->inner ? &cursor->xml_ns : NULL;
     context.xml_unwrap = &cursor->unwrap;
@@ -1427,17 +1443,18 @@ Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serializ
        every chunk (a node straddling the limit still forces at most one more grow) */
     sbuf_reserve(&out, TH_SERIALIZE_CHUNK);
     if (indent == NULL || inner_preserves_text(tree, root, opts)) {
-        while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
+        while (cursor->node != NULL && chunk_has_room(&out, &scope)) {
             cursor->node = serialize_compact_step(&out, tree, cursor->node, root, opts, NULL);
         }
     } else {
         ser_opts pretty = {opts, indent, indent_len};
-        while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
+        while (cursor->node != NULL && chunk_has_room(&out, &scope)) {
             cursor->node = serialize_pretty_step(&out, tree, cursor->node, root, &pretty, &cursor->depth);
         }
     }
     cursor->xml_ns.flushed += out.len;
     cursor->unwrap.spend.flushed += out.len;
     cursor->clone_credit = out.clone_credit + out.len;
+    ser_xml_ns_scope_free(&scope);
     return sbuf_finish(&out, out_len);
 }

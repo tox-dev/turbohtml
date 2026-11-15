@@ -52,10 +52,12 @@ the same options and scope; do not mutate a tree while its iterator is live. The
 well-formed XML handling. This addition does not change XML settings or minification semantics.
 
 Inner XML output of a ``parse_xml`` tree repeats on each child the namespace declarations it uses from the ancestors, so
-every child reads on its own. The rest of the output funds those copies, 32 characters of declaration for each character
-written otherwise on top of a 65,536-character base. ``inner_xml``, ``serialize``, ``encode`` and ``serialize_iter``
-raise :exc:`ValueError` when a long namespace name above many short children would outgrow that, and an iterator that
-raised is finished. Serialize the element itself to write each declaration once.
+every child reads on its own. A declaration whose prefix holds a colon is never copied, since no name can use it, and a
+child written in place of an element left out for its name also carries every declaration that element makes. The rest
+of the output funds those copies, 32 characters of declaration for each character written otherwise on top of a
+65,536-character base. ``inner_xml``, ``serialize``, ``encode`` and ``serialize_iter`` raise :exc:`ValueError` when a
+long namespace name above many short children would outgrow that, and an iterator that raised is finished. Serialize the
+element itself to write each declaration once.
 
 Turn a tree back into markup or text. Each renderer takes one configuration object: :meth:`Node.serialize` and
 :meth:`Node.encode` produce HTML under an :class:`Html` config (a :class:`Formatter` picks the escape policy, an
