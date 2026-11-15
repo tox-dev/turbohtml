@@ -263,8 +263,9 @@ static inline int c14n_first_stop_lane(const Py_UCS4 *low, const Py_UCS4 *high, 
     return -1;
 }
 
-/* The first stop at or after index, or len, with the block layout of sbuf_find_special. */
-static inline Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
+/* The first stop at or after index, or len, with the block layout of sbuf_find_special. Kept out of line: inlined
+   into a writer loop that calls the allocator, the vector constants are rebuilt and spilled on every run. */
+TH_NOINLINE static Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
     while (index + SBUF_SCAN_STEP <= len) {
         unsigned bits = c14n_block_candidate_bits(&text[index], &text[index + 4]);
         if (bits != 0) {
