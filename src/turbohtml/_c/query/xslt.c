@@ -910,11 +910,26 @@ typedef struct {
 
 /* The state one xsl:number instruction keeps across its calls. Each instruction has its own patterns, so instructions
    that alternate over one run each keep their matches and walk instead of restarting the other's. */
+/* The sibling count a level number last answered for, so the next sibling counts from it. */
+typedef struct {
+    const th_node *node;
+    long value;
+} xslt_number_memo;
+
+/* The count of each node of a sibling run, keyed by node. indexed records whether default names were resolved through
+   number_index when the counts were filled. */
+typedef struct {
+    th_node_map counts;
+    int indexed;
+} xslt_number_siblings;
+
 typedef struct {
     xslt_number_match count_match;
     xslt_number_match from_match;
     xslt_number_prefix explicit_any;
     xslt_number_walk any;
+    xslt_number_memo count_memo;
+    xslt_number_siblings count_siblings;
 } xslt_number_site;
 
 typedef struct {
@@ -1044,12 +1059,12 @@ typedef struct engine {
     int number_namespaces;
     xslt_number_index number_index;
 
-    /* Reuse sibling counts to avoid quadratic scans during repeated numbering. */
-    const th_node *number_memo_node;
-    long number_memo_value;
-    const th_node *number_memo_instruction;
-    int number_memo_has_count;
+    /* Reuse sibling counts to avoid quadratic scans during repeated numbering. Default counts depend on expanded names,
+       so every default count instruction shares this memo and the counts of its sibling run; a counted pattern keeps
+       its own in its site. */
+    xslt_number_memo number_memo;
     xslt_number_name number_memo_name;
+    xslt_number_siblings default_siblings;
 
     const char *error;
     int py_error;
@@ -4210,41 +4225,6 @@ static int number_counts(const engine *eng, const match_set *count_set, int have
     return number_counts_name(eng, node);
 }
 
-/* Default counts depend on expanded names, so different instructions can share them. */
-static int number_memo_applies(const engine *eng, const th_node *instruction, int have_count) {
-    if (have_count != eng->number_memo_has_count) {
-        return 0;
-    }
-    if (have_count) {
-        return eng->number_memo_instruction == instruction;
-    }
-    return number_names_equal(&eng->number_memo_name, &eng->current_number_name);
-}
-
-static long level_number(engine *eng, const th_node *instruction, const match_set *count_set, int have_count,
-                         th_node *node) {
-    if (!have_count && node == eng->number_memo_node && !eng->number_memo_has_count) {
-        return eng->number_memo_value;
-    }
-    long count = 1;
-    th_node *prev = node->prev_sibling;
-    if (prev != NULL && prev == eng->number_memo_node && number_memo_applies(eng, instruction, have_count)) {
-        count = eng->number_memo_value + 1;
-    } else {
-        for (; prev != NULL; prev = prev->prev_sibling) {
-            if (number_counts(eng, count_set, have_count, prev)) {
-                count++;
-            }
-        }
-    }
-    eng->number_memo_node = node;
-    eng->number_memo_value = count;
-    eng->number_memo_instruction = instruction;
-    eng->number_memo_has_count = have_count;
-    eng->number_memo_name = eng->current_number_name;
-    return count;
-}
-
 /* The next node in document order after node (pre-order), or NULL at the end. The level="any"
    walk always reaches the current node first, so the ascent never runs off the tree's end. */
 static th_node *doc_next(th_node *node) {
@@ -4386,6 +4366,123 @@ static long number_walk_step(engine *eng, xslt_number_walk *walk, const th_node 
         tally->count = 0;
     }
     return ++tally->count;
+}
+
+/* Index an element of a sibling run before its default name is read, as remember_number_node does for the current node. */
+static int number_index_child(engine *eng, th_node *node) {
+    if (node->type == TH_NODE_ELEMENT && th_tree_is_xml(eng->src_tree) &&
+        (number_has_namespaces(eng) || eng->number_index.positions.count != 0 ||
+         number_local_name(eng, node).name != node->text)) {
+        return number_index_extend(eng, node);
+    }
+    return 0;
+}
+
+/* Count every node of the sibling run that node belongs to in one pass, so a run whose counted nodes alternate with
+   others is not rescanned at each of them. Returns the count of node, or -1 with an error set. */
+static long number_fill_siblings(engine *eng, xslt_number_siblings *siblings, const match_set *count_set,
+                                 int have_count, th_node *node) {
+    th_node *first = node;
+    while (first->prev_sibling != NULL) {
+        first = first->prev_sibling;
+    }
+    xslt_number_walk tallies = {0};
+    long seen = 0;
+    int failed = 0;
+    for (th_node *child = first; child != NULL && !failed; child = child->next_sibling) {
+        TH_WORK_STEP();
+        long ordinal;
+        if (have_count) {
+            ordinal = seen + 1;
+            seen += number_counts(eng, count_set, 1, child);
+        } else {
+            if (number_index_child(eng, child) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                failed = 1;                          /* GCOVR_EXCL_LINE */
+                break;                               /* GCOVR_EXCL_LINE */
+            }
+            const xslt_number_name name = number_default_name(eng, child);
+            if (tallies.tally_count == tallies.tally_capacity / 2 &&
+                number_tallies_grow(&tallies) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                failed = 1;                          /* GCOVR_EXCL_LINE */
+                break;                               /* GCOVR_EXCL_LINE */
+            }
+            const uint32_t hash = number_name_hash(tallies.seed, &name);
+            xslt_number_tally *tally = number_tally_slot(tallies.tallies, tallies.tally_capacity, hash, &name);
+            if (tally->count == 0) {
+                tally->name = name;
+                tally->hash = hash;
+                tallies.tally_count++;
+            }
+            ordinal = ++tally->count;
+        }
+        if (th_node_map_insert(&siblings->counts, child, (Py_ssize_t)ordinal) < 0) { /* GCOVR_EXCL_BR_LINE */
+            failed = 1;                                                              /* GCOVR_EXCL_LINE */
+        }
+    }
+    number_walk_free(&tallies);
+    if (failed) {
+        PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
+        return fail_py(eng); /* GCOVR_EXCL_LINE */
+    }
+    return th_node_map_find(&siblings->counts, node);
+}
+
+/* The count of node in its sibling run, filled once per run. Default counts are dropped when the number index changes,
+   since names resolved through it do not compare with names resolved without it. */
+static long sibling_count(engine *eng, xslt_number_siblings *siblings, const match_set *count_set, int have_count,
+                          th_node *node) {
+    if (!have_count) {
+        const int indexed = eng->number_index.positions.count != 0;
+        if (siblings->indexed != indexed) {
+            PyMem_Free(siblings->counts.entries);
+            *siblings = (xslt_number_siblings){.indexed = indexed};
+        }
+    }
+    const Py_ssize_t position = th_node_map_find(&siblings->counts, node);
+    if (position != 0) {
+        return position;
+    }
+    return number_fill_siblings(eng, siblings, count_set, have_count, node);
+}
+
+/* The count of node among the counted nodes before it in its sibling run, scanned back to the start of the run. A
+   counted pattern that depends on the current node is rebuilt for each number, so no answer is kept for it. */
+static long scan_siblings(const engine *eng, const match_set *count_set, int have_count, th_node *node) {
+    long count = 1;
+    for (th_node *prev = node->prev_sibling; prev != NULL; prev = prev->prev_sibling) {
+        TH_WORK_STEP();
+        count += number_counts(eng, count_set, have_count, prev);
+    }
+    return count;
+}
+
+static long level_number(engine *eng, xslt_number_site *site, const match_set *count_set, int have_count,
+                         th_node *node) {
+    if (have_count && count_set != &site->count_match.matched) {
+        return scan_siblings(eng, count_set, have_count, node);
+    }
+    xslt_number_memo *memo = have_count ? &site->count_memo : &eng->number_memo;
+    if (!have_count && node == memo->node) {
+        return memo->value;
+    }
+    long count;
+    th_node *prev = node->prev_sibling;
+    if (prev != NULL && prev == memo->node &&
+        (have_count || number_names_equal(&eng->number_memo_name, &eng->current_number_name))) {
+        count = memo->value + 1;
+    } else {
+        count = sibling_count(eng, have_count ? &site->count_siblings : &eng->default_siblings, count_set, have_count,
+                              node);
+        if (count < 0) {
+            return -1;
+        }
+    }
+    memo->node = node;
+    memo->value = count;
+    if (!have_count) {
+        eng->number_memo_name = eng->current_number_name;
+    }
+    return count;
 }
 
 /* level="any" with the default count, back to the nearest match of from_pattern when there is one. The walk keeps
@@ -4591,6 +4688,7 @@ static void number_site_free(xslt_number_site *site) {
     match_set_free(&site->from_match.matched);
     PyMem_Free(site->explicit_any.positions.entries);
     number_walk_free(&site->any);
+    PyMem_Free(site->count_siblings.counts.entries);
 }
 
 /* level="any": how many counted nodes precede the current one in document order, back to the nearest from match. */
@@ -4609,8 +4707,8 @@ static int number_any(engine *eng, xslt_number_site *site, const match_set *coun
 }
 
 /* level="multiple": one number per counted ancestor-or-self, outermost first, bounded by the nearest from ancestor. */
-static void number_multiple(engine *eng, th_node *instruction, const match_set *count_matches, int have_count,
-                            const match_set *from_matches, int have_from, long *values, Py_ssize_t *nvalues) {
+static int number_multiple(engine *eng, xslt_number_site *site, const match_set *count_matches, int have_count,
+                           const match_set *from_matches, int have_from, long *values, Py_ssize_t *nvalues) {
     th_node *chain[64];
     Py_ssize_t depth = 0;
     for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
@@ -4626,8 +4724,13 @@ static void number_multiple(engine *eng, th_node *instruction, const match_set *
         }
     }
     for (Py_ssize_t index = depth - 1; index >= 0; index--) {
-        values[(*nvalues)++] = level_number(eng, instruction, count_matches, have_count, chain[index]);
+        const long value = level_number(eng, site, count_matches, have_count, chain[index]);
+        if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;   /* GCOVR_EXCL_LINE */
+        }
+        values[(*nvalues)++] = value;
     }
+    return 0;
 }
 
 /* level="single" (the default): the nearest ancestor-or-self that matches count, bounded by the nearest from
@@ -4697,11 +4800,21 @@ static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssi
         }
         values[(*nvalues)++] = counter;
     } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
-        number_multiple(eng, instruction, count_matches, have_count, from_matches, have_from, values, nvalues);
+        if (number_multiple(eng, site, count_matches, have_count, from_matches, have_from, values, nvalues) < 0) {
+            match_set_free(&count_set); /* GCOVR_EXCL_LINE */
+            match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
+            return -1;                  /* GCOVR_EXCL_LINE */
+        }
     } else {
         th_node *target = number_single(eng, count_matches, have_count, from_matches, have_from);
         if (target != NULL) {
-            values[(*nvalues)++] = level_number(eng, instruction, count_matches, have_count, target);
+            const long value = level_number(eng, site, count_matches, have_count, target);
+            if (value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                match_set_free(&count_set); /* GCOVR_EXCL_LINE */
+                match_set_free(&from_set);  /* GCOVR_EXCL_LINE */
+                return -1;                  /* GCOVR_EXCL_LINE */
+            }
+            values[(*nvalues)++] = value;
         }
     }
     match_set_free(&count_set);
@@ -6499,6 +6612,7 @@ static void engine_clear(engine *eng) {
     }
     PyMem_Free(eng->number_sites.list);
     PyMem_Free(eng->number_sites.index.entries);
+    PyMem_Free(eng->default_siblings.counts.entries);
     PyMem_Free(eng->number_index.positions.entries);
     PyMem_Free(eng->number_index.names);
     PyMem_Free(eng->number_index.bindings);
@@ -6596,8 +6710,8 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->number_namespaces = -1;
     eng->current_number_node = NULL;
     eng->number_index = (xslt_number_index){0};
-    eng->number_memo_node = NULL;
-    eng->number_memo_instruction = NULL;
+    eng->number_memo = (xslt_number_memo){0};
+    eng->default_siblings = (xslt_number_siblings){0};
     th_node *root = src_node;
     while (root->parent != NULL) {
         root = root->parent;
