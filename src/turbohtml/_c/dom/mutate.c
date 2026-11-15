@@ -622,6 +622,43 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
     return 0;
 }
 
+/* Remove the [from, to) code-point run from a node's character data without copying the text that stays: the arena
+   keeps every buffer until the tree is freed, so a copy per edit grows with the number of edits. A run at either end
+   narrows the node's view of its buffer; a run in the middle closes up in place once the node owns its buffer, which
+   costs one copy on the first such edit. Returns 0, or -1 with MemoryError set on allocation failure. */
+int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
+    const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
+    if (old == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        PyErr_NoMemory();                    /* GCOVR_EXCL_LINE: allocation failure */
+        return -1;                           /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    th_mo_char_data_changed(tree, node, old, node->text_len);
+    Py_ssize_t remaining = node->text_len - to;
+    if (remaining == 0) {
+        node->text_len = from;
+    } else if (from == 0) {
+        node->text += to;
+        node->text_len = remaining;
+    } else {
+        if (!node->text_exclusive) {
+            Py_UCS4 *owned = arena_alloc(tree, (from + remaining) * (Py_ssize_t)sizeof(Py_UCS4));
+            if (owned == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            memcpy(owned, old, (size_t)from * sizeof(Py_UCS4));
+            node->text = owned;
+            node->text_exclusive = 1;
+        }
+        memmove(node->text + from, old + to, (size_t)remaining * sizeof(Py_UCS4));
+        node->text_len = from + remaining;
+    }
+    if (node->text_len == 0) {
+        node->text = (Py_UCS4 *)th_empty_text;
+    }
+    return 0;
+}
+
 /* Remove the attribute with this name, shifting the rest down. Returns 1 when one
    was removed, 0 when the element had no such attribute. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {

@@ -1145,6 +1145,126 @@ def test_transform_rebound_xslt_prefix_is_literal() -> None:
     assert "<xsl:value-of" in _run("<r/>", body, method="xml")
 
 
+def test_transform_compile_restores_xslt_prefix_after_rebinding_element() -> None:
+    literal = '<out xmlns:xsl="urn:literal"><xsl:value-of select="1 +"/></out>'
+    assert "<xsl:value-of" in _run("<r/>", _match_root(literal), method="xml")
+    with pytest.raises(ValueError, match="bad value-of select"):
+        Transform(_sheet(_match_root(f'{literal}<xsl:value-of select="1 +"/>')))
+
+
+def _match_root(body: str) -> str:
+    return f'<xsl:template match="/">{body}</xsl:template>'
+
+
+def test_transform_compile_resolves_attribute_prefix_per_element() -> None:
+    directive = '<out xmlns:t="http://www.w3.org/1999/XSL/Transform" t:note="{1 +}"/>'
+    assert _collapse(_run("<r/>", _match_root(directive), method="xml")) == "<out/>"
+    literal = '<out xmlns:t="urn:literal" t:note="{1 +}"/>'
+    with pytest.raises(ValueError, match="bad expression in attribute value template"):
+        Transform(_sheet(_match_root(f"{directive}{literal}")))
+
+
+_REBOUND_XSLT_PREFIX: Final[str] = '<z xmlns:xsl="urn:other"/>'
+
+
+def test_transform_compile_sibling_default_namespace_does_not_reach_later_elements() -> None:
+    body = _REBOUND_XSLT_PREFIX + _match_root('<p xmlns="urn:x"/><a>x</a>')
+    assert _collapse(_run("<r/>", body, method="xml")) == '<p xmlns="urn:x"/><a>x</a>'
+
+
+def test_transform_compile_keeps_wide_prefix_literal() -> None:
+    literal = '<Ā:out xmlns:Ā="urn:literal" note="{1 +}"/>'
+    with pytest.raises(ValueError, match="bad expression in attribute value template"):
+        Transform(_sheet(_REBOUND_XSLT_PREFIX + _match_root(literal)))
+
+
+@pytest.mark.parametrize(
+    "declare",
+    [
+        pytest.param("", id="root-prefix"),
+        pytest.param(' xmlns:t="http://www.w3.org/1999/XSL/Transform"', id="descendant-prefix"),
+    ],
+)
+def test_transform_compile_resolves_deeply_nested_elements(declare: str) -> None:
+    depth = 20_000
+    opened, closed = f"<a{declare}>{'<a>' * depth}", f"{'</a>' * depth}</a>"
+    Transform(_sheet(_match_root(opened + closed)))
+    broken = '<xsl:value-of select="1 +"/>'
+    with pytest.raises(ValueError, match="bad value-of select"):
+        Transform(_sheet(_match_root(opened + broken + closed)))
+
+
+def test_transform_compile_nested_elements_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda depth: partial(Transform, _sheet(_match_root("<a>" * depth + "</a>" * depth)), allow_imports=False),
+        (500, 2_000),
+    )
+
+
+def test_transform_compile_below_many_attributes_stays_linear(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], object]:
+        attributes = "".join(f' a{index}=""' for index in range(count))
+        body = _match_root(f"<a{attributes}>{'<b/>' * (5 * count)}</a>")
+        return partial(Transform, _sheet(body), allow_imports=False)
+
+    work_steps.assert_linear(build, (400, 1_600))
+
+
+def test_transform_compile_top_level_children_stays_linear_under_rebinding(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], object]:
+        attributes = "".join(f' a{index}=""' for index in range(count))
+        templates = "".join(f'<xsl:template name="t{index}"/>' for index in range(count))
+        sheet = parse_xml(
+            f'<xsl:stylesheet version="1.0"{attributes} xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            f'{templates}<z xmlns:xsl="urn:other"/></xsl:stylesheet>'
+        )
+        return partial(Transform, sheet, allow_imports=False)
+
+    work_steps.assert_linear(build, (500, 2_000))
+
+
+def test_transform_import_classification_stays_linear(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], object]:
+        attributes = "".join(f' a{index}=""' for index in range(count))
+        imports = '<q:import href="x.xsl"/>' * count
+        sheet = parse_xml(
+            f'<xsl:stylesheet version="1.0"{attributes} xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
+            f' xmlns:q="urn:q">{imports}</xsl:stylesheet>'
+        )
+        return partial(Transform, sheet, allow_imports=False)
+
+    work_steps.assert_linear(build, (500, 2_000))
+
+
+def test_transform_import_inside_a_wrapper_uses_the_declared_prefix() -> None:
+    wrapper = parse_xml(
+        '<w xmlns:x="http://www.w3.org/1999/XSL/Transform">'
+        '<x:stylesheet version="1.0"><x:import href="a.xsl"/></x:stylesheet></w>'
+    ).root
+    assert isinstance(wrapper, Element)
+    with pytest.raises(ValueError, match="xsl:import is disabled"):
+        Transform(wrapper.children[0], allow_imports=False)
+
+
+def test_transform_instantiation_under_rebinding_stays_linear(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], object]:
+        attributes = "".join(f' a{index}=""' for index in range(count))
+        children = '<xsl:value-of select="1"/>' * count
+        stylesheet = Transform(_sheet(_match_root(f'<out{attributes}><z xmlns:xsl="urn:other"/>{children}</out>')))
+        return partial(stylesheet, parse_xml("<r/>"))
+
+    work_steps.assert_linear(build, (500, 2_000))
+
+
+def test_transform_literal_attributes_under_rebinding_stays_linear(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], object]:
+        attributes = "".join(f' q:a{index}=""' for index in range(count))
+        body = _match_root(f'<out{attributes} xmlns:q="urn:q"><z xmlns:xsl="urn:other"/></out>')
+        return partial(Transform(_sheet(body)), parse_xml("<r/>"))
+
+    work_steps.assert_linear(build, (500, 2_000))
+
+
 def test_transform_unqualified_import_is_literal() -> None:
     body = '<import/><xsl:template match="/">ok</xsl:template>'
     assert _run("<r/>", body) == "ok"

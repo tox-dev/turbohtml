@@ -223,7 +223,8 @@ class Markdown:  # simplint: ignore[too-many-attributes]  # each field is a publ
         Document-level layout: line breaks, block spacing, trimming, and transliteration.
 
         :param line_break: render a hard break as trailing ``spaces`` or a ``backslash``.
-        :param block_spacing: a ``double`` blank line between blocks, or a ``single`` newline.
+        :param block_spacing: a ``double`` blank line between blocks, or a ``single`` newline. A blank line still
+            follows raw HTML, which a reader would otherwise keep reading as HTML.
         :param trim: trim document edges: ``strip``, ``lstrip``, ``rstrip``, or ``none``.
         :param transliterate: fold common non-ASCII typography in prose to ASCII.
         """

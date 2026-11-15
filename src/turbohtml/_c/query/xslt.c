@@ -912,6 +912,16 @@ typedef struct {
     th_node *next;
 } xslt_number_index;
 
+/* XSLT-namespace marks of a stylesheet tree, so a classification is a lookup, not an ancestor climb. slots maps an
+   element that is in the XSLT namespace, or has an attribute that is, to 1 plus its offset in flags: one byte for
+   the element, then one per attribute. */
+typedef struct {
+    th_node_map slots;
+    uint8_t *flags;
+    size_t flag_count;
+    size_t flag_capacity;
+} xslt_marks;
+
 typedef struct {
     th_node_map positions;
     th_node *last;
@@ -1043,6 +1053,7 @@ typedef struct engine {
     Py_UCS4 *xsl_prefix;
     Py_ssize_t xsl_prefix_len;
     int xsl_ns_dynamic;
+    int xsl_marked; /* the xslt_marks classify the trees: dynamic, or some root does not bind the XSLT prefix itself */
     const Py_UCS4 *exclude_prefixes; /* aliases the stylesheet root's exclude-result-prefixes value */
     Py_ssize_t exclude_prefixes_len;
     const Py_UCS4 *cdata_elements; /* aliases xsl:output cdata-section-elements (space-separated QNames) */
@@ -1094,6 +1105,7 @@ typedef struct engine {
     uint32_t default_namespace_atom;
     int number_namespaces;
     xslt_number_index number_index;
+    xslt_marks marks;
 
     /* Reuse sibling counts to avoid quadratic scans during repeated numbering. Default counts depend on expanded names,
        so every default count instruction shares this memo and the counts of its sibling run; a counted pattern keeps
@@ -1268,23 +1280,14 @@ static const Py_UCS4 *qname_local(const th_node *node, Py_ssize_t *local_len, Py
     return node->text;
 }
 
-static int node_prefix_is_xsl(th_tree *tree, const th_node *node, Py_ssize_t prefix_len) {
-    for (const th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
-        for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
-            const th_node_attr *attr = &ancestor->attrs[index];
-            Py_ssize_t name_len = 0;
-            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-            int matches = prefix_len == 0 ? name_len == 5 && memcmp(name, "xmlns", 5) == 0
-                                          : name_len == prefix_len + 6 && memcmp(name, "xmlns:", 6) == 0;
-            for (Py_ssize_t offset = 0; matches && offset < prefix_len; offset++) {
-                matches = (Py_UCS4)(unsigned char)name[offset + 6] == node->text[offset];
-            }
-            if (matches) {
-                return ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS);
-            }
-        }
-    }
-    return 0;
+static int marks_element_is_xsl(const xslt_marks *marks, const th_node *node) {
+    Py_ssize_t slot = th_node_map_find(&marks->slots, node);
+    return slot != 0 && marks->flags[slot - 1] != 0;
+}
+
+static int marks_attr_is_xsl(const xslt_marks *marks, const th_node *node, Py_ssize_t index) {
+    Py_ssize_t slot = th_node_map_find(&marks->slots, node);
+    return slot != 0 && marks->flags[slot + index] != 0;
 }
 
 static int is_xsl_fast(const engine *eng, const th_node *node, const char *local) {
@@ -1308,7 +1311,7 @@ static int is_xsl_dynamic(const engine *eng, const th_node *node, const char *lo
     Py_ssize_t local_len;
     Py_ssize_t prefix_len;
     const Py_UCS4 *name = qname_local(node, &local_len, &prefix_len);
-    return ucs4_ascii_eq(name, local_len, local) && node_prefix_is_xsl(eng->sheet_tree, node, prefix_len);
+    return ucs4_ascii_eq(name, local_len, local) && marks_element_is_xsl(&eng->marks, node);
 }
 
 static int is_xsl(const engine *eng, const th_node *node, const char *local) {
@@ -1324,10 +1327,7 @@ static int is_any_xsl_fast(const engine *eng, const th_node *node) {
 }
 
 static int is_any_xsl_dynamic(const engine *eng, const th_node *node) {
-    Py_ssize_t local_len;
-    Py_ssize_t prefix_len;
-    (void)qname_local(node, &local_len, &prefix_len);
-    return node_prefix_is_xsl(eng->sheet_tree, node, prefix_len);
+    return marks_element_is_xsl(&eng->marks, node);
 }
 
 static const Py_UCS4 *attribute_value(const th_node_attr *attr, Py_ssize_t *out_len) {
@@ -3977,14 +3977,8 @@ static int pattern_callback_needed(engine *eng, const xp_program *prog) {
     return number_has_namespaces(eng) || !xp_pattern_is_static(prog);
 }
 
-static int number_namespace_atom(engine *eng, const th_node *node, const xslt_number_name *name, uint32_t *atom) {
-    Py_ssize_t prefix_len = name->name == node->text ? 0 : name->name - node->text - 1;
-    if (prefix_len == 0) {
-        *atom = eng->default_namespace_atom;
-        return 0;
-    }
-    xslt_number_index *index = &eng->number_index;
-    size_t needed = (size_t)prefix_len * 4 + 7;
+/* Size the scratch that spells an "xmlns:prefix" declaration name for an atom lookup. */
+static int number_prefix_reserve(xslt_number_index *index, size_t needed) {
     if (needed > index->prefix_capacity) {
         size_t capacity;
         size_t bytes;
@@ -4000,6 +3994,19 @@ static int number_namespace_atom(engine *eng, const th_node *node, const xslt_nu
         index->prefix = grown;
         index->prefix_capacity = capacity;
         memcpy(index->prefix, "xmlns:", 6);
+    }
+    return 0;
+}
+
+static int number_namespace_atom(engine *eng, const th_node *node, const xslt_number_name *name, uint32_t *atom) {
+    Py_ssize_t prefix_len = name->name == node->text ? 0 : name->name - node->text - 1;
+    if (prefix_len == 0) {
+        *atom = eng->default_namespace_atom;
+        return 0;
+    }
+    xslt_number_index *index = &eng->number_index;
+    if (number_prefix_reserve(index, (size_t)prefix_len * 4 + 7) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                      /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t length = write_utf8(node->text, prefix_len, index->prefix + 6);
     *atom = th_attr_lookup(eng->src_tree, index->prefix, length + 6);
@@ -4084,12 +4091,11 @@ static int number_uri_id(xslt_number_index *index, const Py_UCS4 *text, Py_ssize
     return 0;
 }
 
-static int number_namespace_enter(engine *eng, const th_node *node) {
-    xslt_number_index *index = &eng->number_index;
+static int number_namespace_enter(xslt_number_index *index, th_tree *tree, const th_node *node) {
     for (Py_ssize_t offset = 0; offset < node->attr_count; offset++) {
         const th_node_attr *attr = &node->attrs[offset];
         Py_ssize_t length;
-        const char *name = th_attr_name(eng->src_tree, attr->name_atom, &length);
+        const char *name = th_attr_name(tree, attr->name_atom, &length);
         if (length < 5 || memcmp(name, "xmlns", 5) != 0 || (length != 5 && name[5] != ':')) {
             continue;
         }
@@ -4141,10 +4147,17 @@ static const Py_UCS4 number_xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w',
                                          '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
                                          '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
 
+static void number_namespace_leave(xslt_number_index *index, const th_node *node) {
+    while (index->scope_count != 0 && index->scope[index->scope_count - 1].node == node) {
+        const xslt_number_scope *scope = &index->scope[--index->scope_count];
+        index->bindings[scope->atom] = scope->previous;
+    }
+}
+
 static int number_index_add(engine *eng, const th_node *node) {
     xslt_number_index *index = &eng->number_index;
-    if (number_namespace_enter(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                               /* GCOVR_EXCL_LINE */
+    if (number_namespace_enter(index, eng->src_tree, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                /* GCOVR_EXCL_LINE */
     }
     xslt_number_name name = number_local_name(eng, node);
     if (node->ns != TH_NS_HTML) {
@@ -4219,10 +4232,7 @@ static int number_index_extend(engine *eng, const th_node *target) {
             index->next = node->first_child;
         } else {
             for (;;) {
-                while (index->scope_count != 0 && index->scope[index->scope_count - 1].node == node) {
-                    const xslt_number_scope *scope = &index->scope[--index->scope_count];
-                    index->bindings[scope->atom] = scope->previous;
-                }
+                number_namespace_leave(index, node);
                 if (node->next_sibling != NULL || node->parent == NULL) {
                     index->next = node->next_sibling;
                     break;
@@ -5737,29 +5747,15 @@ static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_nod
     return 0;
 }
 
-/* Whether attribute name `name` carries the stylesheet's XSLT-namespace prefix, i.e. it is an
+/* Whether attribute `index` of node carries the stylesheet's XSLT-namespace prefix, i.e. it is an
    XSLT directive (xsl:exclude-result-prefixes, xsl:use-attribute-sets, ...) placed on a literal
    result element, which the spec strips from the output rather than copying. */
-static int is_xsl_attr(const engine *eng, const th_node *node, const char *name, Py_ssize_t name_len) {
+static int is_xsl_attr(const engine *eng, const th_node *node, Py_ssize_t index) {
     if (eng->xsl_ns_dynamic) {
-        const char *colon = memchr(name, ':', (size_t)name_len);
-        if (colon == NULL) {
-            return 0;
-        }
-        Py_ssize_t prefix_len = colon - name;
-        for (const th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
-            for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
-                const th_node_attr *attr = &ancestor->attrs[index];
-                Py_ssize_t decl_len = 0;
-                const char *decl = th_attr_name(eng->sheet_tree, attr->name_atom, &decl_len);
-                if (decl_len == prefix_len + 6 && memcmp(decl, "xmlns:", 6) == 0 &&
-                    memcmp(decl + 6, name, (size_t)prefix_len) == 0) {
-                    return ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS);
-                }
-            }
-        }
-        return 0;
+        return marks_attr_is_xsl(&eng->marks, node, index);
     }
+    Py_ssize_t name_len = 0;
+    const char *name = th_attr_name(eng->sheet_tree, node->attrs[index].name_atom, &name_len);
     Py_ssize_t prefix_len = eng->xsl_prefix_len;
     if (name_len <= prefix_len || name[prefix_len] != ':') {
         return 0;
@@ -5781,7 +5777,7 @@ static const Py_UCS4 *xsl_prefixed_attr(const engine *eng, const th_node *node, 
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
             Py_ssize_t name_len = 0;
             const char *name = th_attr_name(eng->sheet_tree, node->attrs[index].name_atom, &name_len);
-            if (!is_xsl_attr(eng, node, name, name_len)) {
+            if (!is_xsl_attr(eng, node, index)) {
                 continue;
             }
             Py_ssize_t offset = eng->xsl_prefix_len + 1;
@@ -5800,7 +5796,7 @@ static const Py_UCS4 *xsl_prefixed_attr(const engine *eng, const th_node *node, 
             memcmp(colon + 1, local, (size_t)local_len) != 0) {
             continue;
         }
-        if (is_xsl_attr(eng, node, name, name_len)) {
+        if (is_xsl_attr(eng, node, index)) {
             *out_len = node->attrs[index].value_len;
             return node->attrs[index].value;
         }
@@ -5825,6 +5821,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
         return -1;
     }
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        TH_WORK_STEP();
         const th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
@@ -5835,7 +5832,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
         if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
             continue;
         }
-        if (is_xsl_attr(eng, element, name, name_len)) {
+        if (is_xsl_attr(eng, element, index)) {
             continue;
         }
         Py_UCS4 *resolved;
@@ -6152,6 +6149,7 @@ static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
     int rc = 0;
     if (eng->xsl_ns_dynamic) {
         for (th_node *child = body->first_child; child != NULL && rc == 0; child = child->next_sibling) {
+            TH_WORK_STEP();
             if (is_xsl_dynamic(eng, child, "param") || is_xsl_dynamic(eng, child, "sort")) {
                 continue;
             }
@@ -6599,6 +6597,143 @@ static void parse_output(engine *eng, th_node *element) {
     }
 }
 
+static int marks_declares_xsl(const xslt_number_index *scope, th_tree *tree, const char *key, Py_ssize_t len) {
+    uint32_t atom = th_attr_lookup(tree, key, len);
+    if (atom >= scope->binding_capacity) {
+        return 0;
+    }
+    const th_node_attr *attr = scope->bindings[atom].attr;
+    return attr != NULL && ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS);
+}
+
+/* Whether the element's own prefix binds the XSLT namespace. A declared name is UTF-8, so a prefix code point above
+   0xFF never matches one; each lower code point is compared as one byte. */
+static int marks_element_flag(xslt_number_index *scope, th_tree *tree, const th_node *element) {
+    Py_ssize_t local_len;
+    Py_ssize_t prefix_len;
+    (void)qname_local(element, &local_len, &prefix_len);
+    if (number_prefix_reserve(scope, (size_t)prefix_len + 6) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < prefix_len; index++) {
+        if (element->text[index] > 0xFF) {
+            return 0;
+        }
+        scope->prefix[index + 6] = (char)element->text[index];
+    }
+    return marks_declares_xsl(scope, tree, scope->prefix, prefix_len == 0 ? 5 : prefix_len + 6);
+}
+
+static int marks_attr_flag(xslt_number_index *scope, th_tree *tree, const th_node_attr *attr) {
+    Py_ssize_t name_len = 0;
+    const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+    const char *colon = memchr(name, ':', (size_t)name_len);
+    if (colon == NULL) {
+        return 0;
+    }
+    Py_ssize_t prefix_len = colon - name;
+    if (number_prefix_reserve(scope, (size_t)prefix_len + 6) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    memcpy(scope->prefix + 6, name, (size_t)prefix_len);
+    return marks_declares_xsl(scope, tree, scope->prefix, prefix_len + 6);
+}
+
+static int marks_record(xslt_marks *marks, xslt_number_index *scope, th_tree *tree, const th_node *element) {
+    int element_xsl = marks_element_flag(scope, tree, element);
+    if (element_xsl < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    size_t needed = (size_t)element->attr_count + 1;
+    if (marks->flag_count + needed > marks->flag_capacity) {
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation failure */
+        if (!th_grow_cap(marks->flag_count + needed, marks->flag_capacity, 64, sizeof(*marks->flags), &capacity,
+                         &bytes)) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        uint8_t *grown = PyMem_Realloc(marks->flags, bytes);
+        if (grown == NULL) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        marks->flags = grown;
+        marks->flag_capacity = capacity;
+    }
+    size_t offset = marks->flag_count;
+    uint8_t any = (uint8_t)element_xsl;
+    marks->flags[offset] = any;
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        int attr_xsl = marks_attr_flag(scope, tree, &element->attrs[index]);
+        if (attr_xsl < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        marks->flags[offset + 1 + index] = (uint8_t)attr_xsl;
+        any |= (uint8_t)attr_xsl;
+    }
+    if (any == 0) {
+        return 0;
+    }
+    marks->flag_count += needed;
+    return th_node_map_insert(&marks->slots, element, (Py_ssize_t)offset + 1); /* GCOVR_EXCL_LINE */
+}
+
+/* A root nested in a larger document inherits its ancestors' declarations, which are in scope for its whole subtree. */
+static int marks_enter_ancestors(xslt_number_index *scope, th_tree *tree, th_node *root) {
+    size_t depth = 0;
+    for (const th_node *ancestor = root->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        depth++;
+    }
+    if (depth == 0) {
+        return 0;
+    }
+    const th_node **chain = PyMem_Malloc(depth * sizeof(*chain));
+    if (chain == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    size_t index = 0;
+    for (const th_node *ancestor = root->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        chain[index++] = ancestor;
+    }
+    int status = 0;
+    while (index-- > 0 && status == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        status = number_namespace_enter(scope, tree, chain[index]);
+    }
+    PyMem_Free(chain);
+    return status;
+}
+
+/* Mark every element and attribute of root's subtree that is in the XSLT namespace. */
+static int marks_build(xslt_marks *marks, th_tree *tree, th_node *root) {
+    xslt_number_index scope = {0};
+    int status = marks_enter_ancestors(&scope, tree, root);
+    for (th_node *node = root; node != NULL && status == 0;) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        TH_WORK_STEP();
+        if (node->type == TH_NODE_ELEMENT) {
+            status = number_namespace_enter(&scope, tree, node);
+            if (status == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                status = marks_record(marks, &scope, tree, node);
+            }
+        }
+        th_node *next = preorder_next(node, root);
+        for (th_node *closed = node; next != NULL && closed != next->parent; closed = closed->parent) {
+            number_namespace_leave(&scope, closed);
+        }
+        node = next;
+    }
+    PyMem_Free(scope.bindings);
+    PyMem_Free(scope.scope);
+    PyMem_Free(scope.uris);
+    PyMem_Free(scope.prefix);
+    return status;
+}
+
+static void marks_free(xslt_marks *marks) {
+    PyMem_Free(marks->slots.entries);
+    PyMem_Free(marks->flags);
+}
+
 /* Resolve the namespace spelling used by the principal stylesheet root, falling
    back to any XSLT binding for a simplified stylesheet and then to "xsl". */
 static int resolve_xsl_prefix(engine *eng, th_node *root) {
@@ -6915,6 +7050,7 @@ static void engine_clear(engine *eng) {
         PyMem_Free(eng->spaces);
         PyMem_Free(eng->aliases);
         PyMem_Free(eng->xsl_prefix);
+        marks_free(&eng->marks);
         for (size_t index = 0; index < eng->expression_cap; index++) {
             if (eng->expressions[index].program != NULL) {
                 xp_free(eng->expressions[index].program);
@@ -7148,6 +7284,27 @@ static int analyze_root(engine *eng, th_node *sheet_root, int *position) {
     return 0;
 }
 
+/* Whether the root declares the XSLT prefix bound to the XSLT namespace. Then the prefix comparison of is_any_xsl_fast
+   classifies every element the way its ancestor climb does, so the marks are not needed. */
+static int root_binds_xsl_prefix(const engine *eng, const th_node *root) {
+    for (Py_ssize_t index = 0; index < root->attr_count; index++) {
+        const th_node_attr *attr = &root->attrs[index];
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
+        if (name_len != eng->xsl_prefix_len + 6 || memcmp(name, "xmlns:", 6) != 0) {
+            continue;
+        }
+        int matches = 1;
+        for (Py_ssize_t offset = 0; matches && offset < eng->xsl_prefix_len; offset++) {
+            matches = (Py_UCS4)(unsigned char)name[offset + 6] == eng->xsl_prefix[offset];
+        }
+        if (matches) {
+            return ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS);
+        }
+    }
+    return 0;
+}
+
 /* Analyze the stylesheet: resolve the XSLT prefix and walk the top-level declarations of every
    imported stylesheet (lowest precedence first) then the principal stylesheet (highest). Returns
    0, or -1 with eng->error / eng->py_error set. */
@@ -7158,6 +7315,18 @@ static int analyze(engine *eng, th_node *sheet_root, th_node **imports, Py_ssize
     eng->xsl_ns_dynamic = eng->xsl_prefix_len == 0 || stylesheet_has_dynamic_namespace(eng, sheet_root);
     for (Py_ssize_t index = 0; !eng->xsl_ns_dynamic && index < nimports; index++) {
         eng->xsl_ns_dynamic = stylesheet_has_dynamic_namespace(eng, imports[index]);
+    }
+    eng->xsl_marked = eng->xsl_ns_dynamic || !root_binds_xsl_prefix(eng, sheet_root);
+    for (Py_ssize_t index = 0; !eng->xsl_marked && index < nimports; index++) {
+        eng->xsl_marked = !root_binds_xsl_prefix(eng, imports[index]);
+    }
+    if (eng->xsl_marked && marks_build(&eng->marks, eng->sheet_tree, sheet_root) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                                      /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; eng->xsl_marked && index < nimports; index++) {
+        if (marks_build(&eng->marks, eng->sheet_tree, imports[index]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                       /* GCOVR_EXCL_LINE */
+        }
     }
     /* A document element that is not xsl:stylesheet/xsl:transform is a simplified stylesheet
        (section 2.3): a literal result element carrying xsl:version whose whole content is the
@@ -7441,7 +7610,7 @@ static int precompile_literal_attributes(engine *eng, th_node *element) {
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
         if ((name_len == 5 && memcmp(name, "xmlns", 5) == 0) || (name_len >= 6 && memcmp(name, "xmlns:", 6) == 0) ||
-            is_xsl_attr(eng, element, name, name_len)) {
+            is_xsl_attr(eng, element, index)) {
             continue;
         }
         if (precompile_avt(eng, attr->value, attr->value_len) < 0) {
@@ -7451,11 +7620,8 @@ static int precompile_literal_attributes(engine *eng, th_node *element) {
     return 0;
 }
 
-static int node_is_xsl(engine *eng, th_node *node) {
-    Py_ssize_t local_len;
-    Py_ssize_t prefix_len;
-    (void)qname_local(node, &local_len, &prefix_len);
-    return node_prefix_is_xsl(eng->sheet_tree, node, prefix_len);
+static int node_is_xsl(const engine *eng, const th_node *node) {
+    return eng->xsl_marked ? marks_element_is_xsl(&eng->marks, node) : is_any_xsl_fast(eng, node);
 }
 
 static int precompile_stylesheet(engine *eng, th_node *root) {
@@ -7463,6 +7629,7 @@ static int precompile_stylesheet(engine *eng, th_node *root) {
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
+        TH_WORK_STEP();
 #ifdef TH_OPERATION_LIMIT
         if (charge_operation(eng, "compiling the stylesheet") < 0) {
             return -1;
@@ -7565,6 +7732,8 @@ TH_NODE_API(static, PyObject *, stylesheet_import_hrefs,
     PyObject *handle = turbohtml_node_handle(stylesheet);
     (void)handle;
     int error = 0;
+    xslt_marks marks = {0};
+    int marked = 0;
     Py_BEGIN_CRITICAL_SECTION(handle);
     th_node *root = stylesheet_root(node);
     if (root != NULL) {
@@ -7575,7 +7744,18 @@ TH_NODE_API(static, PyObject *, stylesheet_import_hrefs,
             Py_ssize_t local_len;
             Py_ssize_t prefix_len;
             const Py_UCS4 *local = qname_local(child, &local_len, &prefix_len);
-            if (!ucs4_ascii_eq(local, local_len, "import") || !node_prefix_is_xsl(tree, child, prefix_len)) {
+            if (!ucs4_ascii_eq(local, local_len, "import")) {
+                continue;
+            }
+            if (!marked) {
+                if (marks_build(&marks, tree, root) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    PyErr_NoMemory();                      /* GCOVR_EXCL_LINE */
+                    error = 1;                             /* GCOVR_EXCL_LINE */
+                    break;                                 /* GCOVR_EXCL_LINE */
+                }
+                marked = 1;
+            }
+            if (!marks_element_is_xsl(&marks, child)) {
                 continue;
             }
             if (!allow_imports) {
@@ -7606,6 +7786,7 @@ TH_NODE_API(static, PyObject *, stylesheet_import_hrefs,
         }
     }
     Py_END_CRITICAL_SECTION();
+    marks_free(&marks);
     if (error) {
         Py_DECREF(hrefs);
         return NULL;
