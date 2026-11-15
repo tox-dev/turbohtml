@@ -23,10 +23,11 @@ violations still make it invalid but are not listed. Each segment of :attr:`Vali
 characters of an element name and ends a longer one with a horizontal ellipsis (U+2026).
 
 Schema compilation raises :class:`ValueError` for an ``xs:pattern`` facet or RELAX NG ``pattern`` parameter that nests
-groups deeper than 250 levels, needs more than 2,000,000 automaton states, or has a ``{n,m}`` quantifier with ``n``
-above ``m``. The message names the limit and the offset where the pattern reaches it; flatten the nested groups, lower
-the repeat counts, or split the pattern into several ``pattern`` facets to stay within the limits. Matching a value
-takes time linear in its length.
+groups deeper than 250 levels or has a ``{n,m}`` quantifier with ``n`` above ``m``, and for a schema whose patterns need
+more than 2,000,000 automaton states between them. The message names the limit and, for the first two, the offset where
+the pattern reaches it; flatten the nested groups or lower the repeat counts to stay within the limits. The state limit
+is the schema's, not each pattern's, because a schema keeps every pattern it compiled: splitting a pattern into several
+does not get around it, and patterns with the same text count once. Matching a value takes time linear in its length.
 
 One :meth:`~XMLSchema.validate`, ``is_valid`` or ``assert_valid`` call has a budget for the automaton steps its
 ``xs:pattern`` and RELAX NG ``pattern`` checks take: 100,000,000, plus, for each character matched, 1,000 and twice the

@@ -647,6 +647,7 @@ typedef struct th_schema {
        regex_full_match to search */
     struct rpattern *regex_patterns, **regex_sorted;
     size_t regex_count, regex_cap, regex_distinct;
+    size_t regex_states;            /* states in all compiled patterns, drawn from the one RX_MAX_STATES budget */
     size_t regex_max_states;        /* states in the largest compiled pattern, sizing the match buffers */
     struct rscratch *regex_scratch; /* match buffers of one validate() call, built on its first pattern check */
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */

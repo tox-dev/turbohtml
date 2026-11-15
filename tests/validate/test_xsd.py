@@ -698,11 +698,7 @@ def test_regex_unmatched_bracket_raises(pattern: str, offset: int) -> None:
 _NESTING_ERROR: Final[str] = (
     "schema pattern nests groups deeper than 250 levels at offset 250; flatten the nested groups"
 )
-
-
-_STATES_ERROR: Final[str] = (
-    "schema pattern needs more than 2000000 NFA states; lower its repeat counts or split it into several patterns"
-)
+_STATES_ERROR: Final[str] = "schema pattern needs more than 2000000 NFA states; lower its repeat counts"
 
 
 @pytest.mark.parametrize(
@@ -756,6 +752,33 @@ _STATES_ERROR: Final[str] = (
 def test_regex_pattern_past_a_limit_raises(pattern: str, message: str) -> None:
     with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
+@pytest.mark.parametrize(
+    "patterns",
+    [
+        pytest.param(("a{1500000}", "b{600000}"), id="one-past-budget"),
+        pytest.param((f"a{{{2_000_000 - 1}}}", "b"), id="nothing-left"),
+        pytest.param(("a{1000000}", "a{999999}", "a{999998}"), id="counts-differ"),
+    ],
+)
+def test_regex_patterns_past_the_schema_state_budget_raise(patterns: tuple[str, ...]) -> None:
+    # the compiled automata stay in the schema arena, so the budget is shared by all patterns of a schema
+    message = "schema patterns need more than 2000000 NFA states between them; lower their repeat counts"
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        XMLSchema(restricted("".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)))
+
+
+@pytest.mark.parametrize(
+    "patterns",
+    [
+        pytest.param(("a{999999}", "b{999999}"), id="at-budget"),
+        pytest.param(("a{1000000}",) * 3, id="same-text-compiled-once"),
+    ],
+)
+def test_regex_patterns_within_the_schema_state_budget_compile(patterns: tuple[str, ...]) -> None:
+    schema = XMLSchema(restricted("".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)))
+    assert not schema.validate(parse_xml("<v>c</v>")).valid
 
 
 def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
