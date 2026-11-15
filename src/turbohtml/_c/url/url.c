@@ -1829,6 +1829,21 @@ static int url_scheme_special(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t e
     return 0;
 }
 
+int th_url_scheme_special(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    Py_UCS4 name[5];
+    Py_ssize_t size = 0;
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (is_removed(value[index])) {
+            continue;
+        }
+        if (size == 5) {
+            return 0; /* longer than every special scheme */
+        }
+        name[size++] = value[index];
+    }
+    return url_scheme_special(name, 0, size);
+}
+
 /* https://url.spec.whatwg.org/#special-authority-slashes-state */
 static int url_slash(Py_UCS4 ch, int special) {
     return ch == '/' || (special && ch == '\\');
