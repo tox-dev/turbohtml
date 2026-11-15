@@ -2429,6 +2429,24 @@ def test_extension_chain_keeps_every_base(schema: str, xml: str, valid: bool) ->
     assert xsd_ok(schema, xml) is valid
 
 
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r><a/><b/><c/></r>", True, id="sequence-group-after-base"),
+        pytest.param("<r><a/><b/></r>", False, id="sequence-group-missing"),
+    ],
+)
+def test_sequence_group_extends_base_with_content(xml: str, valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
+    sequence_group: str = '<xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+    schema = (
+        f"<xs:schema {_XS}>{_SEQUENCE_BASE}{sequence_group}"
+        '<xs:complexType name="middle"><xs:complexContent><xs:extension base="base"><xs:group ref="s"/>'
+        "</xs:extension></xs:complexContent></xs:complexType>"
+        '<xs:element name="r" type="middle"/></xs:schema>'
+    )
+    assert xsd_ok(schema, xml) is valid
+
+
 def test_simple_typed_element_with_child() -> None:
     schema = f'<xs:schema {_XS}><xs:element name="v" type="xs:int"/></xs:schema>'
     assert not xsd_ok(schema, "<v><child/></v>")
