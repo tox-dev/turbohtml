@@ -1028,6 +1028,26 @@ def test_duplicated_document_keeps_quirks_mode_selector_matching(duplicate: Call
     assert [node.html for node in clone.select(".foo")] == ['<p class="Foo">x<table></table></p>']
 
 
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        pytest.param(_roundtrip, id="pickle"),
+        pytest.param(copy.copy, id="copy"),
+        pytest.param(copy.deepcopy, id="deepcopy"),
+    ],
+)
+def test_duplicated_document_answers_whole_document_readers(duplicate: Callable[[Node], Node]) -> None:
+    # structured_data snapshots the document from the node the tree records as its document, which a copy left unset
+    document = parse(
+        '<p itemscope itemref="cost"><b itemprop="label">Gadget</b></p><i id="cost" itemprop="total">9</i>'
+    )
+    clone = duplicate(document)
+    assert isinstance(clone, Document)
+    assert clone.microdata() == document.microdata()
+    assert clone.microdata()[0].properties == {"label": ["Gadget"], "total": ["9"]}
+    assert clone.structured_data() == document.structured_data()
+
+
 def test_pickled_document_keeps_adjacent_text_nodes() -> None:
     document = parse("<p>a</p>")
     _element(document.select_one("p")).append(Text("b"))
