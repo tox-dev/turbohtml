@@ -1499,6 +1499,28 @@ typedef struct {
    one per element, so without a cap the table grows with arguments times elements. */
 #define CSS_HAS_MEMO_LIMIT ((size_t)1 << 21)
 
+/* The deep memo keeps about two answers per rule and tree node its walks pass, and the table fills to three quarters,
+   so four slots per rule and node keeps a stylesheet of any size under its cap. */
+#define CSS_DEEP_MEMO_SLOTS_PER_RULE_NODE 4
+
+/* The cap of the deep memo for a stylesheet of rules rules over a tree of nodes nodes, a power of two at least
+   CSS_HAS_MEMO_LIMIT. A product past SIZE_MAX keeps the fixed cap, so the table fills, fails, and the walks take the
+   direct path. */
+size_t th_css_deep_memo_limit(size_t rules, size_t nodes) {
+    if (rules != 0 && nodes > SIZE_MAX / CSS_DEEP_MEMO_SLOTS_PER_RULE_NODE / rules) {
+        return CSS_HAS_MEMO_LIMIT;
+    }
+    const size_t wanted = CSS_DEEP_MEMO_SLOTS_PER_RULE_NODE * rules * nodes;
+    size_t limit = CSS_HAS_MEMO_LIMIT;
+    while (limit < wanted) {
+        if (limit > SIZE_MAX / 2) {
+            return CSS_HAS_MEMO_LIMIT;
+        }
+        limit *= 2;
+    }
+    return limit;
+}
+
 /* How many consecutive levels of an ancestor chain path holds. The HTML tree builder nests no deeper than
    TH_MAX_TREE_DEPTH, so the chain of a parsed page fits whole; an XML or a built tree can be deeper. */
 #define CSS_PATH_DENSE ((Py_ssize_t)2 * TH_MAX_TREE_DEPTH)
@@ -2157,6 +2179,11 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
             return -1;       /* GCOVR_EXCL_LINE: allocation failure */
         }
         handle->css_computed = cache;
+        size_t rules = 0;
+        for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
+            rules += (size_t)sheets[sheet].rule_count;
+        }
+        cache->deep_memo.memo.limit = th_css_deep_memo_limit(rules, th_tree_node_count(handle->tree));
     }
     if (cache->path_len > 0 && cache->path[cache->path_len - 1]->node == element) {
         return css_copy_map(out, cache->path[cache->path_len - 1]->values);

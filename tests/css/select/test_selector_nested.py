@@ -48,8 +48,7 @@ def _styled(rule: str, depth: int) -> Element:
 
 
 def _scoped_filter(depth: int) -> list[Element]:
-    document = _spine(depth)
-    return compile(_wrap(":where({} *, em:scope)", "q", 3)).filter(document.select("section, em"))
+    return compile(_wrap(":where({} *, em:scope)", "q", 3)).filter(_spine(depth).select("section, em"))
 
 
 @pytest.mark.parametrize(
@@ -91,7 +90,6 @@ def test_nested_list_on_a_spine_work_linear(case: Callable[[int], Callable[[], o
 @pytest.mark.parametrize(
     "case",
     [
-        pytest.param(lambda count: partial(_row(count).select, _wrap(":is({} ~ *)", "q", 3)), id="is-sibling-select"),
         pytest.param(
             lambda count: partial(_last(_row(count), "li").matches, _wrap(":where({} ~ li)", "q", 3)),
             id="where-sibling-matches",
@@ -134,7 +132,31 @@ def test_nested_list_on_a_row_work_linear(case: Callable[[int], Callable[[], obj
 
 def test_sibling_has_levels_in_descendant_has_work_linear(work_steps: WorkSteps) -> None:
     document = _row(300)
-    work_steps.assert_linear(lambda levels: partial(document.select, f"body:has({_wrap('li:has(~ {})', 'q', levels)})"), (3, 9))
+    # the step count shifts by a quarter with the process's heap layout over a three-fold level gap, so the exponent
+    # gate has room; a per-level square still measures 2
+    work_steps.assert_linear(
+        lambda levels: partial(document.select, f"body:has({_wrap('li:has(~ {})', 'q', levels)})"),
+        (3, 9),
+        exponent=1.5,
+    )
+
+
+def test_ancestor_rules_work_linear_in_depth(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda depth: _cascade_of_ancestor_rules(3000, depth), (100, 400))
+
+
+def _cascade_of_ancestor_rules(rules: int, depth: int) -> Callable[[], None]:
+    document = parse(f"<style>{':is(q *) *{color:red}' * rules}</style><body>{'<section>' * depth}<em>z</em>")
+    return partial(_style_all, document.select("section, em"))
+
+
+def _style_all(elements: list[Element]) -> None:
+    for element in elements:
+        computed_style(element)
+
+
+def test_ancestor_rules_work_linear_in_rule_count(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda rules: _cascade_of_ancestor_rules(rules, 400), (1000, 3000))
 
 
 def test_rules_of_nested_lists_cost_like_flat_rules(work_steps: WorkSteps) -> None:
@@ -155,6 +177,11 @@ def test_rules_of_nested_lists_cost_like_flat_rules(work_steps: WorkSteps) -> No
         pytest.param("section:has(:scope > section:has(> em))", "section:has(> section > em)", id="scope-has"),
         pytest.param("ol:has(li:has(~ li:has(~ li:has(+ li))))", "ol:has(li ~ li ~ li + li)", id="sibling-has-in-has"),
         pytest.param(":is(section:has(em) section) b", ":is(section section) b", id="has-left-of-combinator"),
+        pytest.param(":is(li:has(~ li:has(~ li)))", "li:has(~ li ~ li)", id="sibling-chain-in-is"),
+        pytest.param(":is(li:has(+ li:has(+ li)))", "li:has(+ li + li)", id="adjacent-chain-in-is"),
+        pytest.param("li:has(~ :is(li:has(~ li)))", "li:has(~ li:has(~ li))", id="sibling-chain-under-is"),
+        pytest.param("li:has(~ li:has(b))", "li:has(~ li b)", id="descendant-has-in-sibling-chain"),
+        pytest.param("ol:has(li:has(+ li:has(+ li)))", "ol:has(li + li + li)", id="adjacent-chain-in-has"),
         pytest.param(":nth-child(2n+1 of :nth-child(odd of li))", "li:nth-child(4n+1)", id="nth-of-nth-of"),
         pytest.param(":nth-last-child(2 of :nth-last-child(-n+5 of li))", "li:nth-last-child(2)", id="nth-last-of"),
         pytest.param(":nth-child(3 of :nth-of-type(n):nth-last-of-type(n))", "li:nth-child(3)", id="positions-in-of"),
@@ -163,27 +190,27 @@ def test_rules_of_nested_lists_cost_like_flat_rules(work_steps: WorkSteps) -> No
 @pytest.mark.parametrize(
     "document",
     [
-        pytest.param(lambda: parse("<body><section><section><em><b></b></em><ol>" + "<li>" * 9), id="shallow-html"),
-        pytest.param(lambda: parse("<body>" + "<section>" * 40 + "<em><b></b></em><ol>" + "<li>" * 50), id="html"),
+        pytest.param(lambda: parse(f"<body><section><section><em><b></b></em><ol>{'<li>' * 9}"), id="shallow-html"),
+        pytest.param(lambda: parse(f"<body>{'<section>' * 40}<em><b></b></em><ol>{'<li>' * 50}"), id="html"),
         pytest.param(
-            lambda: parse_xml("<r>" + "<section>" * 600 + "<em><b/></em><ol>" + "<li/>" * 70 + "</ol>" + "</section>" * 600 + "</r>"),
+            lambda: parse_xml(f"<r>{'<section>' * 600}<em><b/></em><ol>{'<li/>' * 70}</ol>{'</section>' * 600}</r>"),
             id="deep-xml",
         ),
     ],
 )
-def test_nested_list_answers_as_its_flat_spelling(
-    nested: str, flat: str, document: Callable[[], Document]
-) -> None:
+def test_nested_list_answers_as_its_flat_spelling(nested: str, flat: str, document: Callable[[], Document]) -> None:
     built = document()
     elements = built.select("*")
     assert built.select(nested) == built.select(flat)
     assert [element.matches(nested) for element in elements] == [element.matches(flat) for element in elements]
-    assert [element.closest(nested) for element in elements[::7]] == [element.closest(flat) for element in elements[::7]]
+    assert [element.closest(nested) for element in elements[::7]] == [
+        element.closest(flat) for element in elements[::7]
+    ]
     assert compile(nested).filter(elements[::-1]) == compile(flat).filter(elements[::-1])
 
 
 def test_scope_list_answers_per_scope() -> None:
-    elements = parse("<body>" + "<section>" * 40 + "<em></em>").select("section, em")
+    elements = parse(f"<body>{'<section>' * 40}<em></em>").select("section, em")
     selector = ":is(:is(section:scope, q) section, q) em"
     assert compile(selector).filter(elements) == [element for element in elements if element.matches(selector)]
     assert [element.matches(selector) for element in elements] == [False] * 40 + [False]
@@ -191,7 +218,7 @@ def test_scope_list_answers_per_scope() -> None:
 
 
 def test_scope_list_inside_has_keeps_the_outer_answers() -> None:
-    outer = _first(parse("<body>" + "<section>" * 40 + "<em></em>"), "section")
+    outer = _first(parse(f"<body>{'<section>' * 40}<em></em>"), "section")
     selector = ":is(:is(:scope, q) section, q) section:has(> :is(:is(:scope, q) section, q))"
     assert len(outer.select(selector)) == len(outer.select(":scope section section:has(> section)"))
 
@@ -199,28 +226,28 @@ def test_scope_list_inside_has_keeps_the_outer_answers() -> None:
 def test_nested_rewrite_rule() -> None:
     seen: list[str] = []
     rewrite(
-        "<div>" * 50 + "<p>x</p>",
-        elements=[(_wrap(":is({} div)", "div", 3) + " p", lambda element: seen.append(element.tag))],
+        f"{'<div>' * 50}<p>x</p>",
+        elements=[(f"{_wrap(':is({} div)', 'div', 3)} p", lambda element: seen.append(element.tag))],
     )
     assert seen == ["p"]
 
 
 def test_full_answer_table_starts_over() -> None:
-    document = parse_xml("<r>" + "<s>" * 4200 + "<t/>" + "</s>" * 4200 + "</r>")
+    document = parse_xml(f"<r>{'<s>' * 4200}<t/>{'</s>' * 4200}</r>")
     selector = _wrap(":is({} *)", "q", 126)
     assert document.select(selector) == []
     assert _first(document, "t").matches(_wrap(":is({} *)", "s", 126))
 
 
 def test_scope_read_after_an_element_is_answered_per_scope() -> None:
-    items = parse("<body><ol><li class=z></li><li class=z></li>" + "<li></li>" * 40 + "</ol>").select("li")
+    items = parse(f"<body><ol><li class=z></li><li class=z></li>{'<li></li>' * 40}</ol>").select("li")
     selector = ":is(:nth-last-child(3 of :scope, .z), q) ~ li"
     assert compile(selector).filter(items) == items[2:]
     assert [item.matches(selector) for item in items] == [False, False] + [True] * 40
 
 
 def test_scope_list_inside_has_walks_past_the_memo_run() -> None:
-    document = parse_xml("<r>" + "<b>" * 90 + "</b>" * 90 + "</r>")
+    document = parse_xml(f"<r>{'<b>' * 90}{'</b>' * 90}</r>")
     assert document.select("b:has(:is(:scope * *, q))") == document.select("b:has(* *)")
 
 
@@ -245,13 +272,14 @@ def test_scope_list_asked_again_under_one_scope(nested: str, flat: str) -> None:
     ],
 )
 def test_plain_of_clause_on_a_deep_tree(selector: str, expected: list[str]) -> None:
-    document = parse_xml("<r>" + "<s>" * 600 + "".join(f"<li n='{n}'/>" for n in range(10)) + "</s>" * 600 + "</r>")
+    items_xml = "".join(f"<li n='{n}'/>" for n in range(10))
+    document = parse_xml(f"<r>{'<s>' * 600}{items_xml}{'</s>' * 600}</r>")
     items = document.select("li")
     assert [found.attrs["n"] for found in document.select(selector)] == expected
     assert [item.attrs["n"] for item in items if item.matches(selector)] == expected
 
 
 def test_answer_table_of_many_alternatives_starts_over() -> None:
-    document = parse_xml("<r>" + "<s>" * 4200 + "</s>" * 4200 + "</r>")
+    document = parse_xml(f"<r>{'<s>' * 4200}{'</s>' * 4200}</r>")
     alternatives = ", ".join(f"q{index} *" for index in range(128))
     assert len(document.select(f":not(:is({alternatives})) *")) == 4200

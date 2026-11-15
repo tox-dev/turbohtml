@@ -465,6 +465,9 @@ from ._stubs.tokenizer import (
     TokenType as TokenType,
 )
 from ._stubs.tokenizer import (
+    _deep_memo_limit_probe as _deep_memo_limit_probe,
+)
+from ._stubs.tokenizer import (
     _grow_probe as _grow_probe,
 )
 from ._stubs.tokenizer import (
