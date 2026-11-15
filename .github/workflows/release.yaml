@@ -132,7 +132,6 @@ jobs:
   source-install:
     name: 🧪 Source install - Windows ARM64
     needs: [build-constraints, sdist]
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: windows-11-arm
     steps:
       - name: 🐍 Install uv
@@ -165,7 +164,6 @@ jobs:
   wheels:
     name: 🏗️ wheels - ${{ matrix.label }}
     needs: build-constraints
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -238,7 +236,7 @@ jobs:
   wheels-gate:
     name: 🏗️ wheels - ${{ matrix.label }}
     needs: wheels
-    if: ${{ always() && github.event_name != 'pull_request' }}
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -251,7 +249,6 @@ jobs:
   wheel-metadata:
     name: 🔍 Check wheel metadata
     needs: [sdist, wheels]
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -290,9 +287,8 @@ jobs:
     steps:
       - name: 🚦 Require all jobs to succeed
         env:
-          EVENT: ${{ github.event_name }}
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: jq -e 'all(.[]; .result == "success" or (.result == "skipped" and env.EVENT == "pull_request"))' <<<"$NEEDS_JSON"
+        run: jq -e 'all(.[]; .result == "success")' <<<"$NEEDS_JSON"
   publish:
     name: 🚀 Publish ${{ matrix.artifact }}
     needs:
