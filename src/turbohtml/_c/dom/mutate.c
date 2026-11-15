@@ -675,6 +675,12 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     return 1;
 }
 
+void th_node_attrs_clear(th_tree *tree, th_node *node) {
+    tree->attr_version++;
+    tree->id_version++;
+    node->attr_count = 0;
+}
+
 uint64_t th_unlinks;
 
 uint64_t th_tree_unlinks(void) {
