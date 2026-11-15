@@ -549,6 +549,20 @@ _STALE_OPERATIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda boundary: boundary.common_ancestor_container, id="common_ancestor_container"),
 ]
 
+_STALE_COMPARISONS: Final[tuple[pytest.ParameterSet, ...]] = (
+    pytest.param(lambda boundary: boundary.compare_point(boundary.start_container, 0), id="compare_point"),
+    pytest.param(lambda boundary: boundary.is_point_in_range(boundary.start_container, 0), id="is_point_in_range"),
+    pytest.param(lambda boundary: boundary.intersects_node(boundary.start_container), id="intersects_node"),
+    pytest.param(
+        lambda boundary: boundary.compare_boundary_points(Range.END_TO_END, Range(boundary.start_container)),
+        id="compare_boundary_points",
+    ),
+    pytest.param(
+        lambda boundary: Range(boundary.start_container).compare_boundary_points(Range.END_TO_START, boundary),
+        id="compare_boundary_points-source",
+    ),
+)
+
 
 def test_insert_node_at_stale_offset_past_children() -> None:
     div = _by_id(parse("<div id=a><p>a</p><i>b</i><u>c</u></div>"), "a")
@@ -570,7 +584,7 @@ def test_stale_offset_past_text_raises(operation: Callable[[Range], object], sta
         operation(boundary)
 
 
-@pytest.mark.parametrize("operation", _STALE_OPERATIONS)
+@pytest.mark.parametrize("operation", [*_STALE_OPERATIONS, *_STALE_COMPARISONS])
 def test_boundaries_split_across_roots_raise(operation: Callable[[Range], object]) -> None:
     doc = parse("<p id=a>one<b>two</b>three</p>")
     bold = _found(doc, "b")
