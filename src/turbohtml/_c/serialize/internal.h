@@ -893,77 +893,293 @@ static inline int ser_xml_ns_binding_valid(const char *name, Py_ssize_t name_len
     return !xml_uri;
 }
 
-static inline int ser_xml_ns_shadowed(th_tree *tree, const th_node *node, const th_node *ancestor, const char *name,
-                                      Py_ssize_t len) {
-    for (const th_node *cursor = node; cursor != ancestor; cursor = cursor->parent) {
-        for (Py_ssize_t position = 0; position < cursor->attr_count; position++) {
-            Py_ssize_t previous_len;
-            const char *previous = th_attr_name(tree, cursor->attrs[position].name_atom, &previous_len);
-            if (previous_len == len && memcmp(previous, name, (size_t)len) == 0) {
-                return 1;
+/* A namespace declaration in scope where a subtree is cut out of an XML tree. */
+typedef struct {
+    const char *prefix; /* the UTF-8 bytes after "xmlns:" in the stored name; none for the default namespace */
+    Py_ssize_t prefix_len;
+    const th_node_attr *attr;
+    Py_ssize_t order;      /* nearest ancestor first, then attribute position: the order a start tag copies them in */
+    Py_ssize_t redeclared; /* declarations in force where the start tag is written that hide this one */
+    int used;              /* a wide scope: already listed for the start tag being written */
+} ser_xml_ns_binding;
+
+/* Up to this many declarations are kept in the scope itself, in the order a start tag copies them, and each one is
+   searched for in the subtree on its own, stopping at its first use. A wider scope is allocated, sorted by prefix,
+   and every name of the subtree is looked up in it once, so the work stays linear in the subtree. */
+#define SER_XML_NS_INLINE 8
+
+/* The bindings a subtree written on its own inherits. Every child of the boundary inherits the same ones, so they are
+   gathered once per serialization (per chunk of a streamed one) and each child looks the names of its subtree up in
+   them. Climbing the ancestors for every child, and searching the subtree for every declaration met on the way,
+   multiplies the three sizes. */
+struct th_xml_ns_scope {
+    const th_node *boundary;        /* parent of the subtree roots; NULL above a root that has none */
+    ser_xml_ns_binding *bindings;   /* the nearest declaration of each name */
+    ser_xml_ns_binding **used;      /* a wide scope: what the start tag being written copies */
+    ser_xml_ns_binding *default_ns; /* the binding of the default namespace, or NULL */
+    Py_ssize_t count;
+    Py_ssize_t used_count;
+    Py_ssize_t hidden; /* a wide scope: declarations on open elements of the subtree being read that hide a binding */
+    Py_ssize_t walked; /* ancestors and attributes the gather visited, its cost; 0 until it has run */
+    int sorted;        /* bindings is allocated and sorted by prefix, past SER_XML_NS_INLINE */
+    ser_xml_ns_binding inline_bindings[SER_XML_NS_INLINE];
+};
+
+static inline th_xml_ns_scope *ser_xml_ns_scope_init(th_xml_ns_scope *scope, const th_node *boundary) {
+    scope->boundary = boundary;
+    scope->default_ns = NULL;
+    scope->count = 0;
+    scope->used_count = 0;
+    scope->hidden = 0;
+    scope->walked = 0;
+    scope->sorted = 0;
+    return scope;
+}
+
+static inline void ser_xml_ns_scope_free(th_xml_ns_scope *scope) {
+    if (scope->sorted) {
+        PyMem_Free(scope->bindings);
+    }
+}
+
+static inline int ser_xml_ns_binding_cmp(const void *left_ptr, const void *right_ptr) {
+    const ser_xml_ns_binding *left = left_ptr;
+    const ser_xml_ns_binding *right = right_ptr;
+    int order = ser_name_cmp(left->prefix, left->prefix_len, right->prefix, right->prefix_len);
+    /* The nearest declaration of a prefix sorts first, which is the one that stays in scope. */
+    return order + (order == 0) * ((left->order > right->order) - (left->order < right->order));
+}
+
+static inline int ser_xml_ns_used_cmp(const void *left_ptr, const void *right_ptr) {
+    const ser_xml_ns_binding *left = *(ser_xml_ns_binding *const *)left_ptr;
+    const ser_xml_ns_binding *right = *(ser_xml_ns_binding *const *)right_ptr;
+    return (left->order > right->order) - (left->order < right->order);
+}
+
+/* The code point of the stored, well-formed UTF-8 at bytes[*position], moving *position past it. */
+static inline Py_UCS4 ser_utf8_next(const char *bytes, Py_ssize_t *position) {
+    const unsigned char *lead = (const unsigned char *)bytes + *position;
+    if (lead[0] >= 0xF0) {
+        *position += 4;
+        return (Py_UCS4)(lead[0] & 0x07) << 18 | (Py_UCS4)(lead[1] & 0x3F) << 12 | (Py_UCS4)(lead[2] & 0x3F) << 6 |
+               (lead[3] & 0x3F);
+    }
+    if (lead[0] >= 0xE0) {
+        *position += 3;
+        return (Py_UCS4)(lead[0] & 0x0F) << 12 | (Py_UCS4)(lead[1] & 0x3F) << 6 | (lead[2] & 0x3F);
+    }
+    if (lead[0] >= 0xC0) {
+        *position += 2;
+        return (Py_UCS4)(lead[0] & 0x1F) << 6 | (lead[1] & 0x3F);
+    }
+    *position += 1;
+    return lead[0];
+}
+
+/* Order a declared prefix against one spelled in code points, the start of an element name, the way ser_name_cmp
+   orders two declared prefixes: UTF-8 bytes compare in code point order. */
+static inline int ser_xml_prefix_cmp(const char *declared, Py_ssize_t declared_len, const Py_UCS4 *prefix,
+                                     Py_ssize_t prefix_len) {
+    Py_ssize_t prefix_position = 0;
+    for (Py_ssize_t position = 0; position < declared_len;) {
+        Py_UCS4 character = ser_utf8_next(declared, &position);
+        if (prefix_position == prefix_len || prefix[prefix_position] < character) {
+            return 1;
+        }
+        if (prefix[prefix_position] > character) {
+            return -1;
+        }
+        prefix_position++;
+    }
+    return prefix_position < prefix_len ? -1 : 0;
+}
+
+/* The binding in scope for a prefix, given as the UTF-8 bytes of an attribute name or, when those are NULL, as the
+   code points of an element name; NULL when no ancestor declares it. A sorted scope is bisected, an inline one read
+   in order. */
+static inline ser_xml_ns_binding *ser_xml_ns_find(const th_xml_ns_scope *scope, const char *utf8, const Py_UCS4 *ucs4,
+                                                  Py_ssize_t len) {
+    Py_ssize_t low = 0;
+    Py_ssize_t high = scope->count;
+    while (low < high) {
+        Py_ssize_t middle = scope->sorted ? low + (high - low) / 2 : low;
+        ser_xml_ns_binding *binding = &scope->bindings[middle];
+        int order = utf8 != NULL ? ser_name_cmp(binding->prefix, binding->prefix_len, utf8, len)
+                                 : ser_xml_prefix_cmp(binding->prefix, binding->prefix_len, ucs4, len);
+        if (order == 0) {
+            return binding;
+        }
+        if (order > 0 && scope->sorted) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    return NULL;
+}
+
+/* The prefix a namespace declaration binds, or NULL when name declares none a name of the subtree could use: a
+   prefix holding a colon matches nothing, since a name's prefix ends at its first colon. */
+static inline const char *ser_xml_ns_declared_prefix(const char *name, Py_ssize_t name_len, Py_ssize_t *prefix_len) {
+    if (!ser_xml_ns_name(name, name_len)) {
+        return NULL;
+    }
+    *prefix_len = name_len == 5 ? 0 : name_len - 6;
+    const char *prefix = name + name_len - *prefix_len;
+    return memchr(prefix, ':', (size_t)*prefix_len) == NULL ? prefix : NULL;
+}
+
+static inline void ser_xml_ns_add(th_xml_ns_scope *scope, const char *prefix, Py_ssize_t prefix_len,
+                                  const th_node_attr *attr) {
+    ser_xml_ns_binding *binding = &scope->bindings[scope->count];
+    binding->prefix = prefix;
+    binding->prefix_len = prefix_len;
+    binding->attr = attr;
+    binding->order = scope->count++;
+    binding->redeclared = 0;
+    binding->used = 0;
+}
+
+/* Collect the declarations on the boundary and above it, keeping the nearest of each name: that one hides the rest.
+   The first pass fills the inline bindings; only a scope that outgrows them takes a second pass into an allocation. */
+static inline void ser_xml_ns_gather(sbuf *out, th_tree *tree, th_xml_ns_scope *scope) {
+    scope->bindings = scope->inline_bindings;
+    Py_ssize_t total = 0;
+    for (const th_node *ancestor = scope->boundary; ancestor != NULL; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        scope->walked++;
+        if (ancestor->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        scope->walked += ancestor->attr_count;
+        for (Py_ssize_t position = 0; position < ancestor->attr_count; position++) {
+            Py_ssize_t name_len;
+            Py_ssize_t prefix_len;
+            const char *name = th_attr_name(tree, ancestor->attrs[position].name_atom, &name_len);
+            const char *prefix = ser_xml_ns_declared_prefix(name, name_len, &prefix_len);
+            if (prefix == NULL) {
+                continue;
             }
+            total++;
+            if (scope->count < SER_XML_NS_INLINE && ser_xml_ns_find(scope, prefix, NULL, prefix_len) == NULL) {
+                ser_xml_ns_add(scope, prefix, prefix_len, &ancestor->attrs[position]);
+            }
+        }
+    }
+    if (total > SER_XML_NS_INLINE) {
+        ser_xml_ns_binding *bindings =
+            PyMem_Malloc((size_t)total * (sizeof(ser_xml_ns_binding) + sizeof(ser_xml_ns_binding *)));
+        if (bindings == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            scope->count = 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            out->failed = 1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;             /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        scope->bindings = bindings;
+        scope->used = (ser_xml_ns_binding **)(bindings + total);
+        scope->sorted = 1;
+        scope->count = 0;
+        for (const th_node *ancestor = scope->boundary; ancestor != NULL; ancestor = ancestor->parent) {
+            for (Py_ssize_t position = 0; ancestor->type == TH_NODE_ELEMENT && position < ancestor->attr_count;
+                 position++) {
+                Py_ssize_t name_len;
+                Py_ssize_t prefix_len;
+                const char *name = th_attr_name(tree, ancestor->attrs[position].name_atom, &name_len);
+                const char *prefix = ser_xml_ns_declared_prefix(name, name_len, &prefix_len);
+                if (prefix != NULL) {
+                    ser_xml_ns_add(scope, prefix, prefix_len, &ancestor->attrs[position]);
+                }
+            }
+        }
+        qsort(bindings, (size_t)total, sizeof(ser_xml_ns_binding), ser_xml_ns_binding_cmp);
+        Py_ssize_t kept = 1;
+        for (Py_ssize_t index = 1; index < total; index++) {
+            if (ser_name_cmp(bindings[kept - 1].prefix, bindings[kept - 1].prefix_len, bindings[index].prefix,
+                             bindings[index].prefix_len) != 0) {
+                bindings[kept++] = bindings[index];
+            }
+        }
+        scope->count = kept;
+    }
+    /* Looked up as an empty element-name prefix: through the byte compare, gcc cannot tell a stored prefix length is
+       not negative and fails -Wstringop-overread. */
+    scope->default_ns = ser_xml_ns_find(scope, NULL, NULL, 0);
+}
+
+/* Whether an element name, spelled in code points, starts with prefix and a colon. */
+static inline int ser_xml_qname_uses(const Py_UCS4 *name, Py_ssize_t name_len, const char *prefix,
+                                     Py_ssize_t prefix_len) {
+    Py_ssize_t name_position = 0;
+    for (Py_ssize_t position = 0; position < prefix_len; name_position++) {
+        if (name_position == name_len || name[name_position] != ser_utf8_next(prefix, &position)) {
+            return 0;
+        }
+    }
+    return name_position < name_len && name[name_position] == ':';
+}
+
+static inline int ser_xml_name_unprefixed(const th_node *element) {
+    for (Py_ssize_t position = 0; position < element->text_len; position++) {
+        if (element->text[position] == ':') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether element's own name or one of its attribute names uses an inherited binding: an attribute never takes the
+   default namespace. */
+static inline int ser_xml_ns_element_uses(th_tree *tree, const th_node *element, const ser_xml_ns_binding *binding) {
+    Py_ssize_t prefix_len = binding->prefix_len;
+    if (prefix_len == 0) {
+        return ser_xml_name_unprefixed(element);
+    }
+    if (ser_xml_qname_uses(element->text, element->text_len, binding->prefix, prefix_len)) {
+        return 1;
+    }
+    for (Py_ssize_t position = 0; position < element->attr_count; position++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, element->attrs[position].name_atom, &name_len);
+        if (name_len > prefix_len && name[prefix_len] == ':' &&
+            memcmp(name, binding->prefix, (size_t)prefix_len) == 0) {
+            return 1;
         }
     }
     return 0;
 }
 
-static inline int ser_xml_qname_uses(const Py_UCS4 *name, Py_ssize_t name_len, const char *declaration,
-                                     Py_ssize_t declaration_len) {
-    if (declaration_len == 5) {
-        for (Py_ssize_t position = 0; position < name_len; position++) {
-            if (name[position] == ':') {
-                return 0;
+/* The nearest of node and its ancestors up to root that declares the name of an inherited binding again, or NULL
+   when none does and the binding is in force at node. */
+static inline const th_node *ser_xml_ns_redeclared_at(th_tree *tree, const th_node *node, const th_node *root,
+                                                      const ser_xml_ns_binding *binding) {
+    Py_ssize_t prefix_len = binding->prefix_len;
+    for (const th_node *cursor = node;; cursor = cursor->parent) {
+        TH_WORK_STEP();
+        for (Py_ssize_t position = 0; position < cursor->attr_count; position++) {
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, cursor->attrs[position].name_atom, &name_len);
+            if (name_len == prefix_len + (prefix_len == 0 ? 5 : 6) && ser_xml_ns_name(name, name_len) &&
+                memcmp(name + name_len - prefix_len, binding->prefix, (size_t)prefix_len) == 0) {
+                return cursor;
             }
         }
-        return 1;
-    }
-    Py_ssize_t name_position = 0;
-    for (Py_ssize_t position = 6; position < declaration_len;) {
-        unsigned char lead = (unsigned char)declaration[position++];
-        Py_UCS4 character = lead;
-        if (lead >= 0xF0) {
-            character = (Py_UCS4)(lead & 0x07) << 18 | ((unsigned char)declaration[position] & 0x3F) << 12 |
-                        ((unsigned char)declaration[position + 1] & 0x3F) << 6 |
-                        ((unsigned char)declaration[position + 2] & 0x3F);
-            position += 3;
-        } else if (lead >= 0xE0) {
-            character = (Py_UCS4)(lead & 0x0F) << 12 | ((unsigned char)declaration[position] & 0x3F) << 6 |
-                        ((unsigned char)declaration[position + 1] & 0x3F);
-            position += 2;
-        } else if (lead >= 0xC0) {
-            character = (Py_UCS4)(lead & 0x1F) << 6 | ((unsigned char)declaration[position] & 0x3F);
-            position++;
+        if (cursor == root) {
+            return NULL;
         }
-        if (name_position == name_len || name[name_position] != character) {
-            return 0;
-        }
-        name_position++;
     }
-    return name_position < name_len && name[name_position] == ':';
 }
 
-static inline int ser_xml_ns_used(th_tree *tree, const th_node *root, const char *declaration,
-                                  Py_ssize_t declaration_len) {
+/* Whether the subtree of root uses an inherited binding where no element of it declares the name again. The search
+   stops at the first use in force. A use under a declaration of the name climbs to that declaration and skips the rest
+   of its subtree, so no element is climbed through twice. */
+static inline int ser_xml_ns_used_below(th_tree *tree, const th_node *root, const ser_xml_ns_binding *binding) {
     for (const th_node *node = root;;) {
-        if (node->type == TH_NODE_ELEMENT) {
-            int used = ser_xml_qname_uses(node->text, node->text_len, declaration, declaration_len);
-            if (!used && declaration_len != 5) {
-                Py_ssize_t prefix_len = declaration_len - 6;
-                for (Py_ssize_t position = 0; position < node->attr_count; position++) {
-                    Py_ssize_t name_len;
-                    const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
-                    if (name_len > prefix_len && name[prefix_len] == ':' &&
-                        memcmp(name, declaration + 6, (size_t)prefix_len) == 0) {
-                        used = 1;
-                        break;
-                    }
-                }
-            }
-            if (used && !ser_xml_ns_shadowed(tree, node, root->parent, declaration, declaration_len)) {
+        TH_WORK_STEP();
+        if (node->type == TH_NODE_ELEMENT && ser_xml_ns_element_uses(tree, node, binding)) {
+            node = ser_xml_ns_redeclared_at(tree, node, root, binding);
+            if (node == NULL) {
                 return 1;
             }
-        }
-        if (node->first_child != NULL) {
+        } else if (node->first_child != NULL) {
             node = node->first_child;
             continue;
         }
@@ -971,54 +1187,178 @@ static inline int ser_xml_ns_used(th_tree *tree, const th_node *root, const char
             node = node->parent;
         }
         if (node == root) {
-            break;
+            return 0;
         }
         node = node->next_sibling;
     }
-    return 0;
 }
 
-/* Copy the ancestors' namespace declarations node's subtree uses onto node. When every child of the boundary gets
-   its own copy, spend is the account those copies are charged to; past its allowance the serialization fails with
-   ValueError, since output without the declarations would reparse into other namespaces. */
-static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted,
+/* In a wide scope, entering an element of the subtree that declares a name hides the inherited binding from it and
+   its descendants (delta 1); leaving it brings the binding back (delta -1). Returns whether an attribute name has a
+   colon. */
+static inline int ser_xml_ns_redeclare(th_tree *tree, th_xml_ns_scope *scope, const th_node *node, Py_ssize_t delta) {
+    int prefixed = 0;
+    for (Py_ssize_t position = 0; position < node->attr_count; position++) {
+        Py_ssize_t name_len;
+        Py_ssize_t prefix_len;
+        const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
+        prefixed |= memchr(name, ':', (size_t)name_len) != NULL;
+        const char *prefix = ser_xml_ns_declared_prefix(name, name_len, &prefix_len);
+        ser_xml_ns_binding *binding = prefix != NULL ? ser_xml_ns_find(scope, prefix, NULL, prefix_len) : NULL;
+        if (binding != NULL) {
+            binding->redeclared += delta;
+            scope->hidden += delta;
+        }
+    }
+    return prefixed;
+}
+
+static inline void ser_xml_ns_use(th_xml_ns_scope *scope, ser_xml_ns_binding *binding) {
+    if (binding != NULL && binding->redeclared == 0 && !binding->used) {
+        binding->used = 1;
+        scope->used[scope->used_count++] = binding;
+    }
+}
+
+/* Enter an element of the subtree in a wide scope: hide the bindings it declares again, then list those its names
+   rely on, the prefix of its own name, or the default namespace when that has none, and the prefix of each attribute
+   name. */
+static inline void ser_xml_ns_enter(th_tree *tree, th_xml_ns_scope *scope, const th_node *node) {
+    if (node->type != TH_NODE_ELEMENT) {
+        return;
+    }
+    int prefixed = ser_xml_ns_redeclare(tree, scope, node, 1);
+    Py_ssize_t colon = 0;
+    while (colon < node->text_len && node->text[colon] != ':') {
+        colon++;
+    }
+    if (colon == node->text_len) {
+        ser_xml_ns_use(scope, scope->default_ns);
+    } else if (colon > 0) {
+        ser_xml_ns_use(scope, ser_xml_ns_find(scope, NULL, node->text, colon));
+    }
+    for (Py_ssize_t position = 0; prefixed && position < node->attr_count; position++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
+        const char *prefix_end = memchr(name, ':', (size_t)name_len);
+        if (prefix_end != NULL && prefix_end != name) {
+            ser_xml_ns_use(scope, ser_xml_ns_find(scope, name, NULL, prefix_end - name));
+        }
+    }
+}
+
+/* Leaving an element brings back what it hid; with nothing hidden there is nothing to look up. */
+static inline void ser_xml_ns_leave(th_tree *tree, th_xml_ns_scope *scope, const th_node *node) {
+    if (scope->hidden != 0 && node->type == TH_NODE_ELEMENT) {
+        ser_xml_ns_redeclare(tree, scope, node, -1);
+    }
+}
+
+/* List in scope->used, in copy order, the bindings of a wide scope node's subtree uses: one walk looks every name
+   up, and stops once every binding is listed. */
+static inline void ser_xml_ns_list_used(th_tree *tree, th_xml_ns_scope *scope, const th_node *node) {
+    for (const th_node *cursor = node;;) {
+        TH_WORK_STEP();
+        ser_xml_ns_enter(tree, scope, cursor);
+        int complete = scope->used_count == scope->count;
+        if (!complete && cursor->first_child != NULL) {
+            cursor = cursor->first_child;
+            continue;
+        }
+        for (;;) {
+            ser_xml_ns_leave(tree, scope, cursor);
+            if (cursor == node || (!complete && cursor->next_sibling != NULL)) {
+                break;
+            }
+            cursor = cursor->parent;
+        }
+        if (cursor == node) {
+            break;
+        }
+        cursor = cursor->next_sibling;
+    }
+    qsort(scope->used, (size_t)scope->used_count, sizeof(ser_xml_ns_binding *), ser_xml_ns_used_cmp);
+}
+
+/* The declarations of the left-out run a subtree root stands in, unwrap->decls[chain] on, hide the bindings they
+   declare again (delta 1) until the root's start tag is written (delta -1). The run's own copies are written by
+   ser_xml_unwrapped_ns_decls, which skips the ones that are not valid bindings. */
+static inline void ser_xml_ns_hide_run(th_tree *tree, th_xml_ns_scope *scope, const th_xml_unwrap *unwrap,
+                                       Py_ssize_t chain, Py_ssize_t delta) {
+    for (Py_ssize_t index = chain; index < unwrap->decls_len; index++) {
+        const th_node_attr *attr = unwrap->decls[index];
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+        Py_ssize_t prefix_len = name_len == 5 ? 0 : name_len - 6;
+        ser_xml_ns_binding *binding = ser_xml_ns_binding_valid(name, name_len, attr->value, attr->value_len)
+                                          ? ser_xml_ns_find(scope, name + name_len - prefix_len, NULL, prefix_len)
+                                          : NULL;
+        if (binding != NULL) {
+            binding->redeclared += delta;
+        }
+    }
+}
+
+/* Write one inherited binding onto the start tag, charged to spend when that is set. Returns 0, with ValueError set,
+   once the copies exceed the allowance. */
+static inline int ser_xml_ns_copy(sbuf *out, th_tree *tree, const ser_xml_ns_binding *binding, th_xml_ns_spend *spend) {
+    Py_ssize_t name_len;
+    const char *name = th_attr_name(tree, binding->attr->name_atom, &name_len);
+    Py_ssize_t start = out->len;
+    if (spend != NULL && !xml_ns_copy_funded(spend->copied, spend->flushed + start,
+                                             name_len + binding->attr->value_len + 4, spend->base)) {
+        PyErr_Format(PyExc_ValueError,
+                     "the namespace declarations the children inherit exceed the allowance of %zd characters "
+                     "plus %d per character of other output; serialize the element itself to write them once",
+                     spend->base, TH_XML_NS_PER_CHAR);
+        out->failed = 1;
+        return 0;
+    }
+    sbuf_putc(out, ' ');
+    sbuf_put_utf8(out, name, name_len);
+    sbuf_puts(out, "=\"");
+    sbuf_put_xml_text(out, binding->attr->value, binding->attr->value_len, 1);
+    sbuf_putc(out, '"');
+    if (spend != NULL) {
+        spend->copied += out->len - start; /* what was written: escaping can lengthen the value */
+    }
+    return 1;
+}
+
+/* Copy onto the start tag of a subtree root the bindings its subtree uses and does not declare itself. A root that
+   stands in a left-out run, unwrap->decls[chain] on, does not copy what the run declares again. When every child of
+   the boundary gets its own copy, spend is the account those copies are charged to; past its allowance the
+   serialization fails with ValueError, since output without the declarations would reparse into other namespaces. */
+static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, th_xml_ns_scope *scope,
+                                              xml_ns_emitted emitted, const th_xml_unwrap *unwrap, Py_ssize_t chain,
                                               th_xml_ns_spend *spend) {
     if (out->failed) { /* nothing more is written, so there is no use working out what to copy */
         return;
     }
-    for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
-        if (ancestor->type != TH_NODE_ELEMENT) {
+    if (scope->walked == 0) {
+        ser_xml_ns_gather(out, tree, scope);
+    }
+    if (scope->count == 0) {
+        return;
+    }
+    ser_xml_ns_hide_run(tree, scope, unwrap, chain, 1);
+    if (scope->sorted) {
+        ser_xml_ns_list_used(tree, scope, node);
+    }
+    Py_ssize_t listed = scope->sorted ? scope->used_count : scope->count;
+    scope->used_count = 0;
+    for (Py_ssize_t index = 0; index < listed; index++) {
+        ser_xml_ns_binding *binding = scope->sorted ? scope->used[index] : &scope->bindings[index];
+        binding->used = 0;
+        if ((binding->prefix_len == 0 && emitted.default_ns) ||
+            (!scope->sorted && (binding->redeclared != 0 || !ser_xml_ns_used_below(tree, node, binding)))) {
             continue;
         }
-        for (Py_ssize_t position = 0; position < ancestor->attr_count; position++) {
-            const th_node_attr *attr = &ancestor->attrs[position];
-            Py_ssize_t name_len;
-            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-            if (!ser_xml_ns_name(name, name_len) || (name_len == 5 && emitted.default_ns) ||
-                ser_xml_ns_shadowed(tree, node, ancestor, name, name_len) ||
-                !ser_xml_ns_used(tree, node, name, name_len)) {
-                continue;
-            }
-            Py_ssize_t start = out->len;
-            if (spend != NULL && !xml_ns_copy_funded(spend->copied, spend->flushed + start,
-                                                     name_len + attr->value_len + 4, spend->base)) {
-                PyErr_Format(PyExc_ValueError,
-                             "the namespace declarations the children inherit exceed the allowance of %zd characters "
-                             "plus %d per character of other output; serialize the element itself to write them once",
-                             spend->base, TH_XML_NS_PER_CHAR);
-                out->failed = 1;
-                return;
-            }
-            sbuf_putc(out, ' ');
-            sbuf_put_utf8(out, name, name_len);
-            sbuf_puts(out, "=\"");
-            sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
-            sbuf_putc(out, '"');
-            if (spend != NULL) {
-                spend->copied += out->len - start; /* what was written: escaping can lengthen the value */
-            }
+        if (!ser_xml_ns_copy(out, tree, binding, spend)) {
+            break;
         }
     }
+    ser_xml_ns_hide_run(tree, scope, unwrap, chain, -1);
 }
 
 static inline int ser_xml_declares_xlink(th_tree *tree, const th_node *node) {
@@ -1089,16 +1429,18 @@ void ser_xml_unwrapped_ns_decls(sbuf *out, th_tree *tree, const th_node *node, x
                                 int injected_xlink, th_xml_unwrap *unwrap, Py_ssize_t chain);
 
 /* Copy onto node the namespace declarations of what its tag stands in for: the ancestors above the boundary when node
-   is written right below it, or the left-out run node is a child of. */
+   is written right below it, after those of a left-out run between the two, or the left-out run node is a child of. */
 static inline void ser_xml_copied_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted,
                                            int injected_xlink, const th_serialize_opts *opts,
                                            const th_xml_unwrap_frame *unwrapped, const th_node *parent) {
-    if (opts->xml_boundary != NULL && parent == opts->xml_boundary) {
-        ser_xml_inherited_ns_decls(out, tree, node, emitted,
-                                   unwrapped != NULL && opts->xml_ns_spend == NULL ? &opts->xml_unwrap->spend
-                                                                                   : opts->xml_ns_spend);
-    } else if (unwrapped != NULL && unwrapped->chain < opts->xml_unwrap->decls_len) {
-        ser_xml_unwrapped_ns_decls(out, tree, node, emitted, injected_xlink, opts->xml_unwrap, unwrapped->chain);
+    th_xml_unwrap *unwrap = opts->xml_unwrap;
+    if (unwrapped != NULL && unwrapped->chain < unwrap->decls_len) {
+        ser_xml_unwrapped_ns_decls(out, tree, node, emitted, injected_xlink, unwrap, unwrapped->chain);
+    }
+    if (opts->xml_scope != NULL && parent == opts->xml_scope->boundary) {
+        ser_xml_inherited_ns_decls(
+            out, tree, node, opts->xml_scope, emitted, unwrap, unwrapped != NULL ? unwrapped->chain : unwrap->decls_len,
+            unwrapped != NULL && opts->xml_ns_spend == NULL ? &unwrap->spend : opts->xml_ns_spend);
     }
 }
 
