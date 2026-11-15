@@ -1,2 +1,2 @@
-Minified ``<script>`` and ``<style>`` content inside ``<noscript>`` no longer closes that element early in browsers that
-run scripts, and ``minify`` now keeps the whole ``<noscript>`` reading the same there.
+``minify`` output now reads the same in browsers that run scripts: ``<noscript>`` content is copied from the source, and
+a page whose ``<noscript>`` content parses differently there keeps everything after it unminified.

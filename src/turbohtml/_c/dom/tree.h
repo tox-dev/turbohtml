@@ -942,14 +942,23 @@ Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serializ
 
 /* A noscript element a scripting-off parse built from a start tag that a scripting-on parse reads as raw text up to the
    first `</noscript`. Offsets index the newline-normalized source. stable says both parses agree on everything outside
-   the element and its content is the source slice [content, end): then copying that slice serves both parses. node is
-   NULL for one the depth cap kept off the stack. */
+   the element and its content is the source slice [content, end): then copying that slice serves both parses. cut says
+   the builder state at the start tag is one the minified markup before it rebuilds, so the source from start onward can
+   follow that markup verbatim. node is NULL for one the depth cap kept off the stack, which is neither. */
 typedef struct {
     th_node *node;
+    uint32_t seq;       /* the element's th_node seq, which grows in the order the spans are recorded */
     Py_ssize_t start;   /* the start tag's '<' */
     Py_ssize_t content; /* just past the start tag */
     Py_ssize_t end;     /* the closing end tag's '<', or -1 when no end tag closed it */
     int stable;
+    int cut;
+    /* the html element, and the body when open, with their attribute counts at the start tag: a later start tag that
+       adds attributes to either leaves the minified markup before a cut carrying them too early */
+    th_node *html;
+    Py_ssize_t html_attrs;
+    th_node *body;
+    Py_ssize_t body_attrs;
 } th_noscript_span;
 
 /* What th_tree_parse_noscript records: one span per noscript, in the order the parse built them. The rest is the
@@ -974,23 +983,14 @@ typedef struct {
 
 /* Parse a whole document with scripting off, as th_tree_parse with positions on, recording each noscript in track
    (zero it first; th_noscript_track_free releases it). NULL only on allocation failure. */
-th_tree *th_tree_parse_noscript(int kind, const void *data, Py_ssize_t length, int locations, th_noscript_track *track);
+th_tree *th_tree_parse_noscript(int kind, const void *data, Py_ssize_t length, th_noscript_track *track);
 void th_noscript_track_free(th_noscript_track *track);
 
-/* A source slice the minifier copies verbatim: from a noscript start tag the two scripting modes part at, to an
-   element start tag where they agree again (or the end of the source). */
-typedef struct {
-    Py_ssize_t start;
-    Py_ssize_t resume;
-} th_minify_region;
-
-/* The source a document minify reads besides its tree: every noscript span the parse recorded, and the regions copied
-   verbatim, ordered by start. */
+/* The noscript spans a document minify reads besides its tree, passed only when none is unstable or the first unstable
+   one is a cut: the walk copies each stable one's content, and the rest of the source from the cut. */
 typedef struct {
     const th_noscript_span *spans;
     Py_ssize_t span_count;
-    const th_minify_region *regions;
-    Py_ssize_t region_count;
 } th_minify_source;
 
 /* The minification transforms serialize(minify=...) toggles, each round-trip safe

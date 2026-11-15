@@ -835,25 +835,20 @@ void ser_put_html_doctype(sbuf *out, th_tree *tree, th_node *node) {
     sbuf_putc(out, '>');
 }
 
-/* The span the parse recorded for a noscript element, or NULL. Spans come in the order the parse built them, which the
-   walk mostly follows, so the search starts at the last hit. */
-static const th_noscript_span *mini_noscript_span(const th_minify_source *source, const th_node *node,
-                                                  Py_ssize_t *span_at) {
-    for (Py_ssize_t step = 0; step < source->span_count; step++) {
-        Py_ssize_t index = (*span_at + step) % source->span_count;
-        if (source->spans[index].node == node) {
-            *span_at = index;
-            return &source->spans[index];
+/* The span the parse recorded for a noscript element. The parse records one for every noscript element it builds, in
+   the order of their node sequence, so the search lands on it. */
+static const th_noscript_span *mini_noscript_span(const th_minify_source *source, const th_node *node) {
+    Py_ssize_t low = 0;
+    Py_ssize_t high = source->span_count - 1;
+    while (low < high) {
+        Py_ssize_t mid = low + (high - low) / 2;
+        if (source->spans[mid].seq < node->seq) {
+            low = mid + 1;
+        } else {
+            high = mid;
         }
     }
-    return NULL;
-}
-
-/* Whether the element's start tag sits at or past offset in the source, where a verbatim region hands back to the
-   walk. An element the parse implied has no start tag and never does. */
-static int mini_starts_from(th_tree *tree, th_node *node, Py_ssize_t offset) {
-    const th_src_loc *loc = node->type == TH_NODE_ELEMENT ? th_node_source_location(tree, node) : NULL;
-    return loc != NULL && loc->start_tag.start_offset >= offset;
+    return &source->spans[low];
 }
 
 /* Minified outer serialization. The walk is iterative like serialize_compact,
@@ -872,55 +867,26 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
        parsed plaintext element ends the document: its end tag, and every ancestor's
        after it, would reparse as literal text. EOF closes them all instead. */
     int after_plaintext = 0;
-    /* A document minify copies some noscript content and regions from the source (th_minify_source). While resume is
-       not -1 the walk is inside a copied region: it writes nothing, and descends only to find the first element whose
-       start tag sits at or past resume. */
+    /* a document minify copies noscript content, and the source from a cut onward, as the source spelled it */
     const th_minify_source *source = opts->source;
-    Py_ssize_t span_at = 0;
-    Py_ssize_t region_at = 0;
-    Py_ssize_t resume = -1;
-    /* the ascent writes no end tag after a plaintext or inside a copied region */
-    int quiet = 0;
     while (1) {
         TH_WORK_STEP();
         th_node *descend = NULL;
-        if (TH_UNLIKELY(source != NULL)) {
-            if (resume >= 0 && mini_starts_from(tree, node, resume)) {
-                resume = -1;
-                quiet = after_plaintext;
+        if (TH_UNLIKELY(source != NULL) && node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML &&
+            node->atom == TH_TAG_NOSCRIPT) {
+            const th_noscript_span *span = mini_noscript_span(source, node);
+            last_was_space = 0;
+            if (!span->stable) {
+                /* the caller passes a source only when the first unstable noscript is a cut, and the walk meets that
+                   one before any element the source starts after it */
+                sbuf_put_source(out, tree, span->start, tree->length);
+                break;
             }
-            const th_noscript_span *span =
-                resume < 0 && node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == TH_TAG_NOSCRIPT
-                    ? mini_noscript_span(source, node, &span_at)
-                    : NULL;
-            if (span != NULL && span->stable) {
-                /* the scripting-on parse reads this content as raw text, so it is copied as the source spelled it */
-                last_was_space = 0;
-                mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css,
-                              opts->minify_css_baseline);
-                sbuf_put_source(out, tree, span->content, span->end);
-                ser_close_tag(out, node);
-                goto walked;
-            }
-            /* the caller begins a region at every unstable noscript the walk reaches outside one */
-            if (span != NULL && region_at < source->region_count && source->regions[region_at].start == span->start) {
-                /* a region past every start tag runs to the end of the source */
-                resume =
-                    source->regions[region_at].resume < tree->length ? source->regions[region_at].resume : tree->length;
-                region_at++;
-                quiet = 1;
-                last_was_space = 0;
-                sbuf_put_source(out, tree, span->start, resume);
-            }
-            if (resume >= 0) {
-                /* the ascent undoes these counts as it does for a walked element */
-                if (node->type == TH_NODE_ELEMENT && node->first_child != NULL) {
-                    preserve += mini_is_preserve_atom(node);
-                    formatting += (node->tag_flags & TH_TAG_FORMATTING) != 0;
-                }
-                descend = node->first_child;
-                goto walked;
-            }
+            /* the scripting-on parse reads this content as raw text, so it is copied as the source spelled it */
+            mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css, opts->minify_css_baseline);
+            sbuf_put_source(out, tree, span->content, span->end);
+            ser_close_tag(out, node);
+            goto walked;
         }
         switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
         case TH_NODE_ELEMENT:
@@ -952,7 +918,6 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 }
                 if (node->atom == TH_TAG_PLAINTEXT) {
                     after_plaintext = 1;
-                    quiet = 1;
                 } else if (!(st->inner && node == root)) {
                     ser_end_script_double_escape(out, node, content, 0);
                     ser_close_tag(out, node);
@@ -1039,7 +1004,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 if (node->tag_flags & TH_TAG_FORMATTING) {
                     formatting--;
                 }
-                if (!quiet && !(st->inner && node == root) &&
+                if (!after_plaintext && !(st->inner && node == root) &&
                     !(opts->omit_optional_tags && node != root &&
                       ser_end_tag_omissible(tree, node, opts->strip_comments, formatting, trailing_formatting,
                                             quirks))) {

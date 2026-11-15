@@ -353,9 +353,9 @@ insignificant whitespace, omit optional tags, unquote attributes, strip comments
 :class:`~turbohtml.Minify` to turn any off.
 
 The output also reparses to the source's tree with scripting on, where a browser reads ``<noscript>`` content as raw
-text. :func:`minify` copies that content from the source, and where the two readings place the markup after a
-``<noscript>`` differently, copies the source from there to the first element both place alike. A document it cannot
-part this way comes back unchanged.
+text. :func:`minify` copies that content from the source. From a ``<noscript>`` whose content parses differently with
+scripting on, the rest of the source is copied unminified; when the markup before it cannot be minified without changing
+how that ``<noscript>`` parses, the whole document comes back unchanged.
 
 .. autofunction:: minify
 

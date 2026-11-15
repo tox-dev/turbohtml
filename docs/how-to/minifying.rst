@@ -50,11 +50,12 @@ When the input is a string rather than a built tree -- the ``minify-html`` and `
 
 A browser that runs scripts reads ``<noscript>`` content as raw text, while the parse behind the tree builds elements
 from it, so a tree alone cannot show what the minified markup means to that browser. :func:`turbohtml.clean.minify`
-works from the source string instead: it copies each ``<noscript>``'s content as the source spelled it, and when the two
-readings place the markup after a ``<noscript>`` differently, it copies the source from that ``<noscript>`` up to the
-first element both readings place alike, or to the end when none does. It keeps the result only when it reparses to the
-source's trees with scripting on and off, and otherwise returns the source unchanged. Serializing a tree with
-:class:`~turbohtml.Minify` has no source to copy and minifies ``<noscript>`` content like any other.
+works from the source string instead: it copies each ``<noscript>``'s content as the source spelled it. When a
+``<noscript>``'s content parses differently with scripting on, everything from that ``<noscript>`` to the end is copied
+unminified, and when the markup before it cannot be minified without changing how that ``<noscript>`` parses -- for
+example inside a table, a ``<template>``, or open formatting elements -- the whole document comes back unchanged.
+Serializing a tree with :class:`~turbohtml.Minify` has no source to copy and minifies ``<noscript>`` content like any
+other.
 
 .. testcode::
 

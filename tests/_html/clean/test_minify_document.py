@@ -7,17 +7,13 @@ from turbohtml._html import _minify_document
 
 
 @pytest.mark.parametrize(
-    ("layout", "regions", "message"),
+    ("html", "layout", "message"),
     [
-        pytest.param(Indent(), (), "layout must be a Minify", id="indent-layout"),
-        pytest.param(Html(), (), "layout must be an Indent, a Minify, or None", id="not-a-layout"),
-        pytest.param(Minify(), [(0, 1)], "must be tuple, not list", id="regions-list"),
-        pytest.param(Minify(), ((0,),), "exactly 2 arguments", id="short-region"),
-        pytest.param(Minify(), (("a", 1),), "cannot be interpreted as an integer", id="non-integer-region"),
+        pytest.param("<p>x", Indent(), "layout must be a Minify", id="indent-layout"),
+        pytest.param("<p>x", Html(), "layout must be an Indent, a Minify, or None", id="not-a-layout"),
+        pytest.param(b"<p>x", Minify(), "must be str", id="bytes-html"),
     ],
 )
-def test_minify_document_rejects(
-    layout: Html | Indent | Minify, regions: tuple[tuple[int | str, ...], ...] | list[tuple[int, int]], message: str
-) -> None:
+def test_minify_document_rejects(html: str | bytes, layout: Html | Indent | Minify, message: str) -> None:
     with pytest.raises(TypeError, match=message):
-        _minify_document("<p>x", layout, regions)  # ty: ignore[invalid-argument-type]  # malformed regions on purpose
+        _minify_document(html, layout)  # ty: ignore[invalid-argument-type]  # wrong types on purpose

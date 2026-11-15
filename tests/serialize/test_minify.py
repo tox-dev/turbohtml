@@ -1230,6 +1230,13 @@ _NOSCRIPT_DOCUMENTS: Final[list[pytest.ParameterSet]] = [
         "<div>x</div></table>",
         id="fostered-before-cell-past-depth-cap",
     ),
+    pytest.param("<div><form></div><p>a  b<noscript><i>c</noscript>d", id="form-pointer-closed"),
+    pytest.param("<form><p>a  b<noscript><i>c</noscript>d</form>", id="form-open"),
+    pytest.param("<svg><foreignObject><p>a  b<noscript><i>c</noscript>d</foreignObject></svg>", id="foreign-ancestor"),
+    pytest.param("<template><p>a  b<noscript><i>c</noscript>d</template>", id="template-ancestor"),
+    pytest.param("<table><tr><td>a  b<noscript><i>c</noscript>d</td></tr></table>", id="table-ancestor"),
+    pytest.param("<table><colgroup><noscript><i>c</noscript></table>", id="column-group"),
+    pytest.param("<head><noscript><noscript><i>c</noscript></head>", id="nested-in-head"),
 ]
 _NOSCRIPT_LAYOUTS: Final[list[pytest.ParameterSet]] = [
     pytest.param(Minify(), id="default"),
@@ -1261,14 +1268,19 @@ def _reparsed(markup: str, layout: Minify, *, scripting: bool) -> str:
             id="content-copied",
         ),
         pytest.param(
-            "<p>x  y</p><ul><li><noscript><p>a</noscript></ul>  <p>c  d</p>",
-            "<p>x y<ul><li><noscript><p>a</noscript></ul>  <p>c d",
-            id="copied-until-the-trees-agree",
-        ),
-        pytest.param(
             "<p>x  y</p><div><noscript><i>a</noscript></div>  <p>b  c</p>",
             "<p>x y<div><noscript><i>a</noscript></div>  <p>b  c</p>",
             id="copied-to-the-end",
+        ),
+        pytest.param(
+            "<!doctype html><head><title>t</title><noscript><img src=/p.gif></noscript><link rel=x href=y></head>",
+            "<!DOCTYPE html><title>t</title><noscript><img src=/p.gif></noscript><link rel=x href=y></head>",
+            id="copied-from-the-head",
+        ),
+        pytest.param(
+            "<p>x  y<b>z<noscript><i>a</noscript></b>",
+            "<p>x  y<b>z<noscript><i>a</noscript></b>",
+            id="unchanged-under-formatting",
         ),
     ],
 )
