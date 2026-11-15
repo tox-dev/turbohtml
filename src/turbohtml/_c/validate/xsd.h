@@ -1298,7 +1298,7 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
             const th_node_attr *candidate = &instance->attrs[attrs->slots[slot] - 1];
             Py_ssize_t length;
             const char *bytes = th_attr_name(inst, candidate->name_atom, &length);
-            if (length == name_len && u_eq_ascii(name, name_len, bytes)) {
+            if (u_eq_utf8(name, name_len, bytes, length)) {
                 present = candidate;
                 break;
             }
@@ -1308,7 +1308,7 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
     for (Py_ssize_t index = 0; attrs->slots == NULL && index < instance->attr_count; index++) {
         Py_ssize_t alen = 0;
         const char *abytes = th_attr_name(inst, instance->attrs[index].name_atom, &alen);
-        if ((Py_ssize_t)alen == name_len && u_eq_ascii(name, name_len, abytes)) {
+        if (u_eq_utf8(name, name_len, abytes, alen)) {
             present = &instance->attrs[index];
             break;
         }
@@ -1468,7 +1468,7 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
             size_t slot = (size_t)hash & (names.slot_cap - 1);
             while (names.slots[slot] != NULL) {
                 named_node *item = names.slots[slot];
-                if (item->len == alen && u_eq_ascii(item->name, item->len, abytes)) {
+                if (u_eq_utf8(item->name, item->len, abytes, alen)) {
                     known = 1;
                     break;
                 }
@@ -1476,8 +1476,7 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
             }
         }
         for (Py_ssize_t decl = 0; names.slots == NULL && decl < declared->count; decl++) {
-            if ((Py_ssize_t)alen == declared->items[decl].local_len &&
-                u_eq_ascii(declared->items[decl].local, declared->items[decl].local_len, abytes)) {
+            if (u_eq_utf8(declared->items[decl].local, declared->items[decl].local_len, abytes, alen)) {
                 known = 1;
                 break;
             }
