@@ -3046,6 +3046,11 @@ def test_minify_css_keeps_bang_comment_past_the_nesting_limit() -> None:
     assert minify_css(source).endswith("/*! deep */")
 
 
+def test_minify_css_keeps_many_bang_comments() -> None:
+    source = "".join(f"/*! {index} */a{{color:red}}" for index in range(40))
+    assert minify_css(source).count("/*!") == 40
+
+
 # A dropped space or comment must not spell a `<!--` or `-->` in a selector: a browser reads either as one token, so the
 # selector changes, and at the start of a sheet the top level skips it and the rest matches on its own.
 @pytest.mark.parametrize(
