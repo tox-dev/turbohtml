@@ -597,13 +597,17 @@ static int text_candidate(const query_t *query, th_node *node) {
    class, and attribute filters together with their collected text. node_matches runs
    the structural filters here, the same way the non-text path does inside the lock;
    only the text predicate is deferred, because it may run arbitrary Python and so
-   suspend the lock. text_candidate counts an upper bound first so the arrays are
-   sized once with no reallocation, and it never invokes a structural callable twice.
-   Writes the matched element pointers to *out_nodes and their text to *out_texts
-   (both PyMem arrays the caller always frees, with *out_count entries to DECREF in
-   out_texts) and the count to *out_count. Returns 0, or -1 with an exception set
-   when a structural filter raised; the partial snapshot is still returned for the
-   caller to release. */
+   suspend the lock. text_candidate counts the candidates first so the arrays are
+   sized once with no reallocation, and a second walk gathers them before any filter
+   runs: a structural callable can edit the tree, so the two walks must see the same
+   one, and the filters then step through the array, not the tree. An element a filter
+   adds or moves ahead is therefore not a candidate, as for the text predicate. The
+   matches compact in place, so filled never passes the read index, and no structural
+   callable is invoked twice. Writes the matched element pointers to *out_nodes and
+   their text to *out_texts (both PyMem arrays the caller always frees, with
+   *out_count entries to DECREF in out_texts) and the count to *out_count. Returns 0,
+   or -1 with an exception set when a structural filter raised; the partial snapshot
+   is still returned for the caller to release. */
 static int snapshot_text_candidates(PyObject *self, const query_t *query, th_node ***out_nodes, PyObject ***out_texts,
                                     Py_ssize_t *out_count) {
     module_state *state = state_of(self);
@@ -627,12 +631,16 @@ static int snapshot_text_candidates(PyObject *self, const query_t *query, th_nod
         if (nodes == NULL || texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced from a test */
             error = 1;                        /* GCOVR_EXCL_LINE: allocation-failure path */
         } else {                              /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+            Py_ssize_t gathered = 0;
             anchor = origin;
             for (th_node *node = axis_first(&anchor, query->axis); node != NULL;
                  node = axis_next(node, &anchor, query->axis)) {
-                if (!text_candidate(query, node)) {
-                    continue;
+                if (text_candidate(query, node)) {
+                    nodes[gathered++] = node;
                 }
+            }
+            for (Py_ssize_t index = 0; index < gathered; index++) {
+                th_node *node = nodes[index];
                 int matched = node_matches(state, node, query);
                 if (matched < 0) {
                     error = 1;
