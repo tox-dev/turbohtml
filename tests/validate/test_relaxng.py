@@ -3570,6 +3570,55 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
     assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
 
 
+def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
+    # the repeat check recurses on the C stack that is left, so it fires only once the walk above it has used most of
+    # the thread's stack; json's encoder nests one C level per depth and calls the validation from its innermost level,
+    # so sweeping the depth reaches that point on any build. Each depth validates, or raises RecursionError.
+    nest: Final = "<group>" * 60 + "<text/>" * 300 + "</group>" * 60
+    code: Final = (
+        "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
+        "data = json.load(sys.stdin)\n"
+        "for kib in range(16, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
+        "outcomes = []\n"
+        "def run():\n"
+        "    schema = RelaxNG(data['schema'])\n"
+        "    document = parse_xml(data['xml'])\n"
+        "    for depth in range(120):\n"
+        "        verdicts = []\n"
+        "        def innermost(value):\n"
+        "            try:\n"
+        "                verdicts.append('valid' if schema.validate(document).valid else 'invalid')\n"
+        "            except RecursionError:\n"
+        "                verdicts.append('RecursionError')\n"
+        "            return 'done'\n"
+        "        value = object()\n"
+        "        for _ in range(depth):\n"
+        "            value = [value]\n"
+        "        try:\n"
+        "            json.dumps(value, default=innermost)\n"
+        "            outcomes.append(f'{depth}:{verdicts[0]}')\n"
+        "        except RecursionError:\n"
+        "            outcomes.append(f'{depth}:JSONRecursionError')\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+        "print(' '.join(outcomes))\n"
+    )
+    result: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code],
+        input=json.dumps({"schema": wrap(f"<oneOrMore>{nest}</oneOrMore>"), "xml": "<doc>xy xy xy</doc>"}),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    outcomes: Final = [outcome.split(":")[1] for outcome in result.stdout.split()]
+    assert len(outcomes) == 120, result.stderr
+    assert set(outcomes) <= {"valid", "RecursionError", "JSONRecursionError"}, result.stdout
+    assert "RecursionError" in outcomes, result.stdout
+
+
 def test_rng_wide_group_in_order_scales_linearly(work_steps: WorkSteps) -> None:
     # each child's start tag looks for its pattern at the bottom of the group's join, which a chain made as deep as the
     # group is wide
