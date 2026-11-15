@@ -3219,6 +3219,20 @@ def test_xsd_group_without_ref_matches_nothing(model: str, xml: str, ok: bool) -
     assert xsd_ok(schema, xml) is ok
 
 
+@pytest.mark.parametrize("xml", ["<r><e/></r>", "<r><e><a/></e></r>"])
+def test_xsd_group_ref_without_model_group_matches_nothing_beside_a_group_all(xml: str) -> None:
+    # the group ref to an xs:all makes validation resolve every group ref content model, the empty one included
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="members"><xs:all><xs:element name="a"/></xs:all></xs:group>'
+        '<xs:group name="empty"><xs:annotation/></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="h" minOccurs="0"><xs:complexType><xs:group ref="members"/></xs:complexType></xs:element>'
+        '<xs:element name="e"><xs:complexType><xs:group ref="empty"/></xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert not xsd_ok(schema, xml)
+
+
 @pytest.mark.parametrize(
     ("type_name", "value", "ok"),
     [
