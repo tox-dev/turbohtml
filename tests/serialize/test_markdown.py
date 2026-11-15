@@ -2416,6 +2416,8 @@ def test_raw_table_respects_ignored_emphasis() -> None:
         pytest.param("<p>- not a bullet</p>", "\\- not a bullet", id="escape-line-start-dash"),
         pytest.param("<p>&gt; not a quote</p>", "\\> not a quote", id="escape-line-start-gt"),
         pytest.param("<p>+ not a bullet</p>", "\\+ not a bullet", id="escape-line-start-plus"),
+        pytest.param("<p><sub>- x</sub></p>", "\\- x", id="escape-line-start-after-empty-run"),
+        pytest.param("<p>a<br><sup>1. x</sup></p>", "a  \n1\\. x", id="escape-line-start-after-break-in-empty-run"),
         pytest.param("<p>mid - dash stays</p>", "mid - dash stays", id="no-escape-mid-line-dash"),
     ],
 )

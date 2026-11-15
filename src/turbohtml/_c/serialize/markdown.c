@@ -828,7 +828,10 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
         marker->open_len = ctx->out.len - marker->open_at;
         marker->emitted = 1;
         ctx->open_markers++;
-        ctx->line_has_content = 1;
+        /* an empty delimiter writes nothing, so the next character still starts the line */
+        if (marker->open_len > 0) {
+            ctx->line_has_content = 1;
+        }
     }
 }
 
@@ -4962,6 +4965,50 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
     }
 }
 
+/* The setext heading that has written none of its text yet, or NULL. The innermost heading is the one being written,
+   unless a converter inside it renders into a buffer of its own. */
+static md_frame *md_unstarted_setext(md_ctx *ctx) {
+    for (Py_ssize_t index = ctx->frame_count; index-- > 0;) { /* GCOVR_EXCL_BR_LINE: in_heading has a frame */
+        md_frame *frame = &ctx->frames[index];
+        if (frame->leave == MD_LEAVE_SETEXT && frame->heading.mark == ctx->out.len) {
+            return frame;
+        }
+        if (frame->leave == MD_LEAVE_SETEXT || frame->leave == MD_LEAVE_ATX || frame->leave == MD_LEAVE_CONVERT) {
+            break;
+        }
+    }
+    return NULL;
+}
+
+/* Get ready to write the inline fragment of md_render_whitespace. A line that starts with <pre is an HTML block
+   (CommonMark 4.6, start condition 1): it interrupts a paragraph and takes its whole line as raw HTML, the escaped
+   text after </pre> included. A setext heading that has written nothing is written as an ATX one, as an empty one is,
+   and a hard break just written is spelled <br> and the line goes on, as in a cell. A heading holds no hard break, and
+   a cell or converter starts with no record, so a break written to another output never matches. Converter output
+   that ends in a line feed leaves the fragment at a line start, so it is returned as a span: a span is not an HTML
+   block start. */
+static int md_before_inline_pre(md_ctx *ctx) {
+    ctx->no_wrap++;
+    md_before_visible(ctx);
+    ctx->no_wrap--;
+    if (ctx->in_heading) {
+        md_frame *heading = md_unstarted_setext(ctx);
+        if (heading != NULL) {
+            for (int index = 0; index < heading->heading.level; index++) {
+                sbuf_putc(&ctx->out, '#');
+            }
+            sbuf_putc(&ctx->out, ' ');
+            heading->heading.mark = ctx->out.len;
+            heading->leave = MD_LEAVE_ATX;
+        }
+    } else if (ctx->out.len == ctx->break_end) {
+        ctx->out.len = ctx->break_start;
+        ctx->break_end = -1; /* the record is spent: what is written next may reach its old end again */
+        sbuf_puts(&ctx->out, "<br>");
+    }
+    return ctx->out.len > 0 && ctx->out.data[ctx->out.len - 1] == '\n';
+}
+
 static int md_render_whitespace(md_ctx *ctx, th_node *node, int inherited) {
     int mode = md_css_whitespace(ctx, node, inherited);
     if (mode == TH_WS_NORMAL || is_md_skipped(node)) {
@@ -5043,8 +5090,8 @@ done:
     }
     ctx->out.failed |= text.failed;
     if (ctx->in_cell || ctx->inline_only || ctx->in_heading) {
-        md_before_visible(ctx);
-        sbuf_puts(&ctx->out, "<pre>");
+        int at_line_start = md_before_inline_pre(ctx);
+        sbuf_puts(&ctx->out, at_line_start ? "<span style=\"white-space:pre\">" : "<pre>");
         for (Py_ssize_t index = 0; index < text.len; index++) {
             Py_UCS4 character = text.data[index];
             if (is_space(character) || md_is_ascii_punct(character)) {
@@ -5055,7 +5102,7 @@ done:
                 sbuf_putc(&ctx->out, character);
             }
         }
-        sbuf_puts(&ctx->out, "</pre>");
+        sbuf_puts(&ctx->out, at_line_start ? "</span>" : "</pre>");
         ctx->line_has_content = 1;
     } else {
         static const Py_UCS4 empty_language[] = {0};
