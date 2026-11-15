@@ -3195,6 +3195,46 @@ def test_minify_css_inline_keeps_bang_comment(source: str, expected: str) -> Non
     assert minify_css_inline(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("width:calc(/*!*/-)", "width:calc(/*!*/-)", id="calc-invalid-written-once"),
+        pytest.param("7:calc(/*!*/-", "7:calc(/*!*/-)", id="calc-unclosed"),
+        pytest.param("~:calc(/*!*/+", "~:calc(/*!*/+)", id="calc-unclosed-after-plus"),
+        pytest.param("-:calc(+/*!*/b", "-:calc(+/*!*/b)", id="calc-unclosed-before-name"),
+        pytest.param("x:calc(+ /*!k*/ 1)", "x:calc(+ /*!k*/ 1)", id="calc-valid-written-once"),
+        pytest.param("x:min(/*!k*/-, 1)", "x:min(/*!k*/-, 1)", id="min-leading-argument"),
+        pytest.param("x:max(/*!k*/-, 1", "x:max(/*!k*/-, 1)", id="max-unclosed"),
+        pytest.param("x:clamp(1, /*!k*/-, 2", "x:clamp(1, /*!k*/-, 2)", id="clamp-unclosed"),
+        pytest.param("x:var(--a,calc(/*!k*/-", "x:var(--a,calc(/*!k*/-))", id="var-unclosed-calc"),
+        pytest.param("/*!a*/x:calc(/*!b*/-)", "/*!a*/x:calc(/*!b*/-)", id="leading-bang-and-calc-bang"),
+        pytest.param("x:min(1,- /*!k*/)", "/*!k*/x:min(1,- )", id="trailing-argument-bang-leads"),
+    ],
+)
+def test_minify_css_inline_bang_in_function_is_written_once(source: str, expected: str) -> None:
+    once = minify_css_inline(source)
+    assert once == expected
+    assert minify_css_inline(once) == once
+
+
+_INLINE_FUNCTION_WORDS: Final[tuple[str, ...]] = (
+    "1", "-", "+", "x", ",", "(", "*", "/", "2px", "rgb(1,2,3)", "u+", "?", ";", "b:", "calc(", "min(", "max(",
+    "clamp(", "var(--a,",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("shape", ["calc(", "min(", "max(", "clamp(", "var(--a,"])
+@pytest.mark.parametrize("seed", range(2000))
+def test_minify_css_inline_bang_in_function_is_a_fixed_point(shape: str, seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    words = [f"width:{shape}", *(rng.choice(_INLINE_FUNCTION_WORDS) for _ in range(rng.randint(0, 12)))]
+    words.extend(")" for _ in range(rng.randint(0, 3)))
+    source, count = _words_with_bangs(words, rng)
+    once = minify_css_inline(source)
+    assert minify_css_inline(once) == once, source
+    assert once.count("/*!") == count, source
+
+
 def test_minify_css_keeps_bang_comment_past_the_nesting_limit() -> None:
     source = f"{'a{' * 120}/*! deep */{'}' * 120}"
     assert minify_css(source).endswith("/*! deep */")
