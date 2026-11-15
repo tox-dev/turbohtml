@@ -21,6 +21,9 @@ from typing import Final
 
 _TAG_HASH_COEFFICIENTS: Final[tuple[int, ...]] = (845, 797, 163, 777)
 _TAG_HASH_MASK: Final[int] = 1023
+_TAG_KEY_MULTIPLIER: Final[int] = 0x81EB9B20A3A2D823
+_TAG_KEY_BITS: Final[int] = 10
+_TAG_KEY_BYTES: Final[int] = 8
 
 # Element categories the tree-construction algorithm tests against, in the HTML
 # namespace. The foreign-content insertion mode handles MathML/SVG scoping
@@ -237,6 +240,23 @@ def _tag_hash_rows(names: list[str]) -> str:
     return ", ".join(f"{index}u" for index in slots)
 
 
+def _tag_key(name: str) -> int:
+    # Pack a name of at most 8 bytes little-endian into an integer, the way the tokenizer loads it; 0 for a longer name.
+    return int.from_bytes(name.encode().ljust(_TAG_KEY_BYTES, b"\0"), "little") if len(name) <= _TAG_KEY_BYTES else 0
+
+
+def _tag_key_rows(names: list[str]) -> str:
+    slots = [0] * (1 << _TAG_KEY_BITS)
+    for index, name in enumerate(names, start=1):
+        if key := _tag_key(name):
+            slot = ((key * _TAG_KEY_MULTIPLIER) & ((1 << 64) - 1)) >> (64 - _TAG_KEY_BITS)
+            if slots[slot]:
+                msg = f"tag key hash collision between {names[slots[slot] - 1]!r} and {name!r}"
+                raise RuntimeError(msg)
+            slots[slot] = index
+    return ", ".join(f"{index}u" for index in slots)
+
+
 def generate(out_path: Path) -> None:
     # Write the generated tag-atom C header to *out_path*.
     names = sorted(_SPECIAL | _FORMATTING | _SCOPING | _RAWTEXT | _RCDATA | _FOREIGN | _EXTRA)
@@ -302,6 +322,18 @@ def generate(out_path: Path) -> None:
         f"#define TH_TAG_HASH_MASK {_TAG_HASH_MASK}u\n"
         "static const uint8_t th_tag_hash[TH_TAG_HASH_MASK + 1] = {\n"
         f"    {_tag_hash_rows(names)}\n"
+        "};\n\n"
+        "/* A second collision-free index over the names of at most 8 bytes, keyed on the name packed little-endian into\n"
+        "   a uint64: th_tag_keys[atom] is that key (0 for a longer name and for TH_TAG_UNKNOWN), and the slot is the\n"
+        "   key times TH_TAG_KEY_MULTIPLIER shifted right by TH_TAG_KEY_SHIFT. One compare of the keys verifies the\n"
+        "   spelling, so a lookup loops over no bytes. */\n"
+        f"#define TH_TAG_KEY_MULTIPLIER 0x{_TAG_KEY_MULTIPLIER:x}ull\n"
+        f"#define TH_TAG_KEY_SHIFT {64 - _TAG_KEY_BITS}u\n"
+        "static const uint64_t th_tag_keys[] = {\n"
+        f"    0ull, {', '.join(f'0x{_tag_key(name):x}ull' for name in names)}\n"
+        "};\n"
+        f"static const uint8_t th_tag_key_hash[{1 << _TAG_KEY_BITS}] = {{\n"
+        f"    {_tag_key_rows(names)}\n"
         "};\n\n"
         "static const uint32_t th_tag_wide_names[] = {\n"
         f"    {', '.join(f'{char}u' for char in wide_names)}\n"

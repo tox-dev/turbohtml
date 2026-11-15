@@ -352,6 +352,7 @@ class _StartTags(HTMLParser):
         pytest.param("<svg><g></x><style><i>", ["svg", "g", "style", "i"], id="stray-end"),
         pytest.param("<svg><x-y><g></x-y><style><i>", ["svg", "x-y", "g", "style", "i"], id="custom-end"),
         pytest.param("<x-y><svg><g></x-z></x-yy><style><i>", ["x-y", "svg", "g", "style", "i"], id="custom-stray-end"),
+        pytest.param("<div></dfn></span></dív><svg></div><style><i>", ["div", "svg", "style"], id="html-strays-keep-open"),
         pytest.param("<x-ő><svg></x-ő><style><i>", ["x-ő", "svg", "style"], id="wide-custom-end"),
         pytest.param(
             "<svg></svg></x><x-y></x-y><section><x-element></section><style><i>",
@@ -549,7 +550,7 @@ def _dispatched(tokenizer: Tokenizer, chunks: list[str]) -> list[str | None]:
 
 @pytest.mark.parametrize("read", [pytest.param(_iterated, id="iterate"), pytest.param(_dispatched, id="dispatch")])
 def test_long_stream_still_follows_open_elements(read: Callable[[Tokenizer, list[str]], list[str | None]]) -> None:
-    # a stream fed in many chunks outgrows the input kept to rebuild the open elements from, and is followed tag by tag
+    # the open elements are followed chunk by chunk, however much input came before the first <svg>
     chunks: Final = ["<div>", *["<p>words</p>"] * 10_000, "<svg><style><i></style></div><style><b>"]
     tags: Final = read(Tokenizer(), chunks)
     assert (tags[0], tags[-4:]) == ("div", ["svg", "style", "i", "style"])

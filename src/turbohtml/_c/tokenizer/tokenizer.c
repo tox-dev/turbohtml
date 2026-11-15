@@ -124,16 +124,31 @@ static void tk_switch_content(th_tokenizer *sm, uint16_t atom) {
     }
 }
 
-/* The tag's atom and its category flags, through the table's perfect hash as the tree builder interns a name: every
-   tracked tag pays this, so it is one probe and a byte compare instead of a scan of the names sharing a first letter.
- */
+/* The tag's atom and its category flags. Every tag the Tokenizer hands over pays this, so a name of at most 8 bytes,
+   nearly every tag, is loaded as one word and found through the table's packed-key index; a longer one goes through
+   the perfect hash the tree builder interns with. */
 static uint16_t tk_atom(const th_buf *name, uint8_t *flags) {
     *flags = 0;
     if (name->kind != PyUnicode_1BYTE_KIND) {
         return TH_TAG_UNKNOWN;
     }
-    const unsigned char *str = (const unsigned char *)name->data;
     Py_ssize_t len = name->len; /* a tag name has at least one character */
+    /* the word read stays inside the name's allocation, and the bytes past the name are masked off */
+    if (len <= 8 && name->cap >= 8) { /* GCOVR_EXCL_BR_LINE: only the fuzz build allocates a name below a word */
+        uint64_t key;
+        memcpy(&key, name->data, sizeof(key));
+#if !PY_LITTLE_ENDIAN
+        key = __builtin_bswap64(key);
+#endif
+        key &= ~(uint64_t)0 >> (64 - 8 * len);
+        uint8_t atom = th_tag_key_hash[(key * TH_TAG_KEY_MULTIPLIER) >> TH_TAG_KEY_SHIFT];
+        if (th_tag_keys[atom] != key) { /* a slot no name fills holds atom 0, whose key 0 no name packs to */
+            return TH_TAG_UNKNOWN;
+        }
+        *flags = th_tag_table[atom - 1].flags;
+        return atom;
+    }
+    const unsigned char *str = (const unsigned char *)name->data;
     size_t slot = ((size_t)len * TH_TAG_HASH_LENGTH + (size_t)str[0] * TH_TAG_HASH_FIRST +
                    (size_t)str[len - 1] * TH_TAG_HASH_LAST + (size_t)str[len > 1] * TH_TAG_HASH_SECOND) &
                   TH_TAG_HASH_MASK;
@@ -453,43 +468,22 @@ static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_toke
     return 0;
 }
 
-/* Whether an end tag names the innermost open element, a known one: compared by spelling, so the end tag that closes
-   what it should is not interned. */
-static int tk_names_top(const TokenizerObject *self, const th_buf *name) {
-    uint16_t atom = self->open[self->depth - 1].atom;
-    if (atom == TH_TAG_UNKNOWN || name->kind != PyUnicode_1BYTE_KIND) {
-        return 0;
-    }
-    const th_tag_entry *entry = &th_tag_table[atom - 1];
-    if (entry->name_len != name->len) {
-        return 0;
-    }
-    const unsigned char *str = (const unsigned char *)name->data;
-    for (Py_ssize_t pos = 0; pos < name->len; pos++) {
-        if (str[pos] != (unsigned char)entry->name[pos]) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /* Follow a start or end tag on the spine. While every open element is HTML, a start tag that opens a known element
-   with room on the spine is pushed in place and an end tag naming the innermost element pops it; the rest take the
+   with room on the spine is pushed in place and the end tag of the innermost known element pops it; the rest take the
    full rules. Inlined at both call sites: it runs for every tag the Tokenizer hands over. Returns -1 when the spine
    cannot grow. */
 static inline int tk_follow(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
     uint8_t flags;
+    uint16_t atom = tk_atom(&record->name, &flags);
     if (self->foreign == 0) {
         if (record->kind == TH_END_TAG) {
-            if (self->depth > 0 && tk_names_top(self, &record->name)) {
+            if (self->depth > 0 && atom != TH_TAG_UNKNOWN && self->open[self->depth - 1].atom == atom) {
                 self->depth--;
-                return 0;
+            } else {
+                tk_end_tag(self, record, atom, flags);
             }
-            uint16_t atom = tk_atom(&record->name, &flags);
-            tk_end_tag(self, record, atom, flags);
             return 0;
         }
-        uint16_t atom = tk_atom(&record->name, &flags);
         uint8_t start = TK_START[atom];
         /* the capacity doubles from a power of two up to TK_MAX_DEPTH, so room on it is room under the cap */
         if ((start & (TK_FOREIGN | TK_CHILDLESS | TK_TABLE_PART)) == 0 && atom != TH_TAG_UNKNOWN &&
@@ -508,7 +502,6 @@ static inline int tk_follow(TokenizerObject *self, th_tokenizer *sm, const th_to
         }
         return tk_track_start(self, sm, record, atom, flags);
     }
-    uint16_t atom = tk_atom(&record->name, &flags);
     if (record->kind == TH_START_TAG) {
         return tk_track_start(self, sm, record, atom, flags);
     }
