@@ -200,7 +200,8 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
                    &default_memo,
                    &memo,
                    &memo.table,
-                   &position_memo};
+                   &position_memo,
+                   &memo.table};
     if (selector_use_index(handle_obj, origin, compiled)) {
         Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
         for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -408,8 +409,8 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
                 if (!node_owned_by(candidate, handle)) {
                     break;
                 }
-                sel_ctx ctx = {compiled->tree, candidate->node,     compiled->quirks, NULL, NULL, NULL,
-                               memo,           &sibling_memo.table, &positions};
+                sel_ctx ctx = {compiled->tree,      candidate->node, compiled->quirks,   NULL, NULL, NULL, memo,
+                               &sibling_memo.table, &positions,      &sibling_memo.table};
                 int matched = selector_matches_c(candidate->node, compiled, &ctx);
                 results[index] = (unsigned char)matched;
                 matched_count += matched;
@@ -899,7 +900,8 @@ retry:;
                        &default_memo,
                        &memo,
                        &memo.table,
-                       &position_memo};
+                       &position_memo,
+                       &memo.table};
         if (selector_use_index(handle_obj, origin, compiled)) {
             Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
             for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -2388,7 +2390,7 @@ retry:;
     } else {
         th_node *node = ((NodeObject *)self)->node;
         /* matches() scopes :scope to the node being tested */
-        matched = node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, node);
+        matched = node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, node, NULL);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -2424,7 +2426,8 @@ static TH_NOINLINE th_node *closest_sharing_dir(th_node *scope, const sel_compil
                    NULL,
                    NULL,
                    compiled->reads_legend ? &legend_memo : NULL,
-                   NULL};
+                   NULL,
+                   &legend_memo};
     th_node *found = NULL;
     for (th_node *node = scope; node != NULL; node = node->parent) {
         if (node->type == TH_NODE_ELEMENT && selector_matches_c(node, compiled, &ctx)) {
@@ -2457,11 +2460,16 @@ retry:;
         if (compiled->reads_dir) {
             *found = closest_sharing_dir(scope, compiled);
         } else {
+            /* each ancestor's test reads the long values above it again */
+            sel_memo values = {0};
             for (th_node *node = scope; node != NULL; node = node->parent) {
-                if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, scope)) {
+                if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled, scope, &values)) {
                     *found = node;
                     break;
                 }
+            }
+            if (values.slots != NULL) {
+                sel_memo_free(&values);
             }
         }
     }
@@ -2589,7 +2597,8 @@ static int closest_plain(closest_call *call, PyObject *handle, sel_compiled *com
     th_node_map known = {0};
     sel_sibling_memo memo = {0};
     /* the selector compares no node with the scope */
-    sel_ctx ctx = {compiled->tree, &closest_above_element, compiled->quirks, NULL, NULL, NULL, &memo, NULL, NULL};
+    sel_ctx ctx = {compiled->tree, &closest_above_element, compiled->quirks, NULL, NULL, NULL, &memo, NULL, NULL,
+                   &memo.table};
     int memo_after = CLOSEST_MEMO_MIN_RUN; /* steps a climb takes before it asks the map */
     th_node *last = NULL;                  /* the previous climb's answer, already in the map */
     int error = 0;
@@ -2675,12 +2684,14 @@ static int closest_scoped(closest_call *call, PyObject *handle, sel_compiled *co
     const sel_simple *single = sel_single_simple(compiled);
     th_node_map known = {0};
     sel_sibling_memo memo = {0};
-    sel_ctx above = {compiled->tree, &closest_above_element, compiled->quirks, NULL, NULL, NULL, &memo, NULL, NULL};
+    /* the climbs of both kinds and the starts read the same values, whose answers hold under any scope */
+    sel_ctx above = {compiled->tree, &closest_above_element, compiled->quirks, NULL, NULL, NULL, &memo, NULL, NULL,
+                     &memo.table};
     th_node_map known_other = {0};
     sel_sibling_memo memo_other = {0};
-    sel_ctx above_other = {
-        compiled->tree, &closest_above_other, compiled->quirks, NULL, NULL, NULL, &memo_other, NULL, NULL};
-    sel_ctx own = {compiled->tree, NULL, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL};
+    sel_ctx above_other = {compiled->tree, &closest_above_other, compiled->quirks, NULL, NULL, NULL, &memo_other, NULL,
+                           NULL,           &memo.table};
+    sel_ctx own = {compiled->tree, NULL, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL, &memo.table};
     th_node_map emitted = {0};
     int memo_after = CLOSEST_MEMO_MIN_RUN;
     th_node *last = NULL; /* the previous climb's answer, already output */
@@ -2976,7 +2987,8 @@ retry:;
                        &default_memo,
                        &memo,
                        &memo.table,
-                       &position_memo};
+                       &position_memo,
+                       &memo.table};
         for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
             if (node->type != TH_NODE_ELEMENT) {
                 continue;
@@ -3087,7 +3099,8 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
                    &default_memo,
                    &memo,
                    &memo.table,
-                   &position_memo};
+                   &position_memo,
+                   &memo.table};
     int result = 0;
     for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
         if (node->type != TH_NODE_ELEMENT) {

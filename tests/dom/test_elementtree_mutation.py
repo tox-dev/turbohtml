@@ -293,3 +293,27 @@ def tree() -> ElementView:
 @pytest.fixture
 def incoming() -> ElementView:
     return fragment_fromstring("<strong>N</strong>tail")
+
+
+@pytest.mark.parametrize(
+    ("attribute", "path", "expected"),
+    [
+        pytest.param("text", "p/text()", "price: 10 EUR", id="text"),
+        pytest.param("tail", "text()", "after: 10 EUR", id="tail"),
+    ],
+)
+def test_element_tree_text_setter_keeps_one_text_node(attribute: str, path: str, expected: str) -> None:
+    tree: Final = fragment_fromstring("<div><p>price: </p>after: </div>")
+    for more in ("1", "0", " EUR"):
+        setattr(tree[0], attribute, getattr(tree[0], attribute) + more)
+    texts: Final = tree.xpath(path)
+    assert isinstance(texts, list)
+    assert [str(value) for value in texts] == [expected]  # XPath sees one text node, as lxml does
+
+
+def test_element_tree_text_setter_writes_into_the_held_text_node() -> None:
+    tree: Final = fragment_fromstring("<div>one<b></b></div>")
+    held: Final = tree.node.children[0]
+    assert isinstance(held, Text)
+    tree.text = "two"
+    assert (held.data, held.parent) == ("two", tree.node)

@@ -128,8 +128,14 @@ struct th_node {
        lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
     uint8_t reaches_selectedcontent;
     /* Tree builder state: set while the element is an entry of the list of active formatting elements. The list
-       outlives the stack of open elements, so membership is read here instead of searched. */
-    uint8_t afe_listed;
+       outlives the stack of open elements, so membership is read here instead of searched. Only the tree builder
+       and the streaming rewriter write it. */
+    uint8_t afe_listed : 1;
+    /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
+       Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
+       selectedcontent mirror reuses the option's text). The bit field shares its byte with afe_listed, which only the
+       tree builder writes, so no read path writes that byte; this keeps the node at 96 bytes. */
+    uint8_t text_exclusive : 1;
     /* An attribute value buffer of this element is also the value of another element: a clone takes its source's
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
@@ -137,16 +143,16 @@ struct th_node {
     /* Tree builder state: set once the element leaves the stack of open elements, which the streaming rewriter reads
        to follow a th_shadow. */
     uint8_t left_stack;
-    /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
-       exact-sized; nothing reads it once the tree is built. */
+    /* Character data: log2 of a capacity the buffer at text has, zero when none is known. insert_text, th_node_set_data
+       and normalize write within it in place, so a node that shares its buffer with another, or whose text no longer
+       starts at its buffer, must keep it zero. */
     uint8_t text_capacity_shift;
     /* Element: whether its name is an XML QName, worked out by the first canonicalization that needs it: 0 not yet, 1
        yes, 2 no. A rename resets it. */
     uint8_t xml_name_wellformed;
-    /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
-       Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
-       selectedcontent mirror reuses the option's text). */
-    uint8_t text_exclusive;
+    /* Valid while attr_values_shared: the seq of the element whose values the sharing started from, the same for
+       every element sharing them, so the selector memo hashes a shared value alike from each (th_node_values_seq). */
+    uint32_t values_seq;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -159,6 +165,8 @@ struct th_node {
     Py_ssize_t attr_count;
 };
 
+_Static_assert(sizeof(void *) != 8 || sizeof(th_node) == 96, "a 64-bit parsed node is 96 bytes");
+
 /* Set in attr_capacity_shift while dom/mutate.c keeps a hash index behind the attribute array. Bit 0x40 rather than
    0x80 lets th_node_attr_capacity mask it with 63, which x86-64 shifts apply for free. An indexed array has at least
    ATTR_INDEX_MIN slots, so the flag never sits on a zero shift and the zero test can read the byte unmasked. */
@@ -167,6 +175,19 @@ struct th_node {
 static inline size_t th_node_attr_capacity(const th_node *node) {
     const unsigned shift = node->attr_capacity_shift;
     return shift ? (size_t)1 << (shift & (TH_ATTR_INDEXED - 1)) : 0;
+}
+
+/* Mark src's attribute values as shared by a clone or copy, which takes values_seq from src afterwards. */
+static inline void th_node_share_values(th_node *src) {
+    if (!src->attr_values_shared) {
+        src->values_seq = src->seq;
+        src->attr_values_shared = 1;
+    }
+}
+
+/* A sequence that every element pointing at the same attribute value buffers reports alike. */
+static inline uint32_t th_node_values_seq(const th_node *node) {
+    return node->attr_values_shared ? node->values_seq : node->seq;
 }
 
 /* The next node of a pre-order walk bounded to root's subtree, or NULL once the walk is done. */

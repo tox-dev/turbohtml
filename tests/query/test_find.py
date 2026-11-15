@@ -191,6 +191,24 @@ def test_class_filter_no_match(html: str, class_filter: Filter) -> None:
 
 
 @pytest.mark.parametrize(
+    ("class_filter", "found"), [pytest.param("hit", (201, 200), id="hit"), pytest.param("x", (0, 0), id="miss")]
+)
+def test_class_shared_long_value_answers(class_filter: str, found: tuple[int, int]) -> None:
+    document: Final = _recreated_long_class(200, "hit")
+    with_text: Final = document.find_all("u", class_=class_filter, text="v")
+    assert (len(document.find_all(class_=class_filter)), len(with_text)) == found
+
+
+def _recreated_long_class(count: int, last: str = "") -> Document:
+    # every <li> re-creates the open <u>, and each copy points at the class value of the original
+    return parse(f'<ul><li><u class="{"w " * count}{last}">{"<li>v" * count}')
+
+
+def test_class_shared_long_value_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(_recreated_long_class(count).find_all, class_="hit"), (250, 1000))
+
+
+@pytest.mark.parametrize(
     "disabled_filter",
     [
         pytest.param("x", id="string"),
