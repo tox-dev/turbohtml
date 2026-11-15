@@ -786,6 +786,9 @@ void th_xml_unwrap_free(th_xml_unwrap *unwrap);
    allowance. */
 #define TH_CLONE_ALLOWANCE 256
 
+/* The namespace declarations in scope where a subtree is cut out of an XML tree (serialize/internal.h). */
+typedef struct th_xml_ns_scope th_xml_ns_scope;
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -798,13 +801,13 @@ typedef struct {
     int xml;   /* XML/XHTML syntax: self-close empty elements, XML escaping and namespace decls; drop the
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
-    const th_node *xml_boundary;
+    th_xml_ns_scope *xml_scope;    /* set by the serializer while it writes part of an XML tree, NULL otherwise */
     int markdown;                  /* a th_markdown_html context, or 0 outside Markdown */
     int *charset_missing;          /* non-NULL when charset is a placeholder no label names: a writer sets
                                     *charset_missing instead of writing it, and the caller refuses the output */
     Py_ssize_t *clone_budget;      /* Markdown: the attribute characters parser clones may still write, or NULL */
     th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
-    th_xml_ns_spend *xml_ns_spend; /* set by the serializer when xml_boundary has every child carry its own copy */
+    th_xml_ns_spend *xml_ns_spend; /* set when every xml_scope boundary child carries its own copy */
     th_xml_unwrap *xml_unwrap;     /* set by the serializer whenever xml is */
 } th_serialize_opts;
 
