@@ -1967,6 +1967,15 @@ def test_compress_keeps_immutable_binding_writes(source: str, expected: str) -> 
         pytest.param(
             "try{(function(){const k=1;k=2})()}catch(e){console.log(e.name)}", "TypeError\n", id="const-write"
         ),
+        pytest.param(
+            "function f(){return typeof v;{throw 0}g();var v=1}console.log(f())", "undefined\n", id="unreachable-var"
+        ),
+        pytest.param(
+            "function f(){{return typeof g;g=0}function g(){}}console.log(f())", "function\n", id="unreachable-function"
+        ),
+        pytest.param(
+            "try{(function(){{return k;g()}let k})()}catch(e){console.log(e.name)}", "ReferenceError\n", id="let-tdz"
+        ),
     ],
 )
 def test_fold_and_compress_preserve_behavior(source: str, expected: str, options: JSMinify) -> None:
@@ -1986,3 +1995,80 @@ def test_fold_and_compress_preserve_behavior(source: str, expected: str, options
 )
 def test_long_logical_chain_folds_in_linear_steps(link: str, work_steps: WorkSteps) -> None:
     work_steps.assert_linear(lambda n: partial(minify_js, f"x={link * n}a"), (200, 800))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # a statement list takes in a redundant block, a constant if's taken branch and the else of an if that
+        # always jumps; each is handed over before it is folded by itself, and the list folds them once
+        pytest.param("{{a();{b()}}c()}", "a(),b(),c()", id="nested-blocks"),
+        pytest.param("switch(x){case 1:{{a()}b()}}", "switch(x){case 1:a(),b()}", id="switch-clause-blocks"),
+        pytest.param("{{let a=1;b(a)}c()}", "{let a=1;b(a)}c()", id="scoped-block-kept"),
+        pytest.param("if(1){{a()}}b()", "a(),b()", id="constant-if-block"),
+        pytest.param("if(true)if(1){a()}b()", "a(),b()", id="constant-if-chain"),
+        pytest.param("if(0)a();else{{b()}}c()", "b(),c()", id="constant-if-else-block"),
+        pytest.param("for(;x;)if(1){a();b()}", "for(;x;)a(),b()", id="constant-if-loop-body"),
+        pytest.param("for(;x;)if(1)if(q)return;else a()", "for(;x;){if(q)return;a()}", id="constant-if-abrupt-body"),
+        pytest.param("if(1){throw 0}else{var v;a()}b()", "throw 0;var v;a(),b()", id="constant-if-hoisting-else"),
+        pytest.param("if(q){throw 0}else{a()}b()", "if(q)throw 0;a(),b()", id="abrupt-else-block"),
+        pytest.param("if(q){throw 0}else{}b()", "if(q)throw 0;b()", id="abrupt-else-empty"),
+        pytest.param("if(q){throw 0}else;b()", "if(q)throw 0;b()", id="abrupt-else-empty-statement"),
+        pytest.param("if(q){throw 0}else{let a=1;b(a)}c()", "if(q)throw 0;{let a=1;b(a)}c()", id="abrupt-else-scoped"),
+        pytest.param("if(q){throw 0}else{;{}}b()", "if(q)throw 0;b()", id="abrupt-else-empties"),
+        pytest.param(
+            "if(q){throw 0}else{{a()}if(r){throw 1}else{b()}}c()",
+            "if(q)throw 0;a();if(r)throw 1;b(),c()",
+            id="abrupt-else-nested",
+        ),
+        pytest.param("if(q){if(1)throw 0}else{a()}b()", "if(q)throw 0;a(),b()", id="abrupt-after-fold"),
+        pytest.param("if(q)if(r)throw 0;else throw 1;else{a()}b()", "if(q){if(r)throw 0;throw 1}a(),b()", id="abrupt"),
+        pytest.param("if(q)throw 0;else if(r)throw 1;else a();b()", "if(q)throw 0;if(r)throw 1;a(),b()", id="else-if"),
+        pytest.param("if(q){throw 0}else function f(){}", "if(q)throw 0;else function f(){}", id="else-function-kept"),
+        pytest.param("for(;;)if(q){break}else{a()}", "for(;!q;)a()", id="abrupt-else-loop-body"),
+    ],
+)
+def test_fold_hands_statements_to_enclosing_list(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # a jump cuts what follows it up to the first declaration, so the unreachable tail of a redundant block
+        # goes the same whether the block stands alone or its statements join a list that declares a name later
+        pytest.param("throw q;a();b()", "throw q", id="no-declaration"),
+        pytest.param("throw q;a();var v;b()", "throw q;var v;b()", id="up-to-var"),
+        pytest.param("function f(){return a;g();let a}", "function f(){return a;let a}", id="up-to-let"),
+        pytest.param("function f(){return;a();if(b)var x}", "function f(){return;if(b)var x}", id="up-to-nested-var"),
+        pytest.param("{throw q;a()}var v", "throw q;var v", id="block-before-var"),
+        pytest.param("{{throw q}a()}let v", "throw q;let v", id="nested-block-before-let"),
+        pytest.param("switch(x){case 1:{return;a()}let k}", "switch(x){case 1:return;let k}", id="clause-block"),
+        pytest.param("if(1){throw q;a()}function f(){}", "throw q;function f(){}", id="constant-if-before-function"),
+        pytest.param(
+            "function f(){if(q){throw 0}else{return;a()}var v}",
+            "function f(){if(q)throw 0;return;var v}",
+            id="abrupt-else-before-var",
+        ),
+        pytest.param("for(;;){continue;a();var v;b();break;c()}", "for(;;){continue;var v;b();break}", id="later-jump"),
+        pytest.param(
+            "for(;;){break;var v;{continue;a()}class C{}}", "for(;;){break;var v;continue;class C{}}", id="later-block"
+        ),
+        # the cut comes before the merges: an unreachable expression must not ride into a kept for's init
+        pytest.param("{throw q;a()}for(;;){var v}", "throw q;for(;;)var v", id="before-for-init-merge"),
+    ],
+)
+def test_fold_cuts_unreachable_up_to_declaration(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("opening", "sizes"),
+    [
+        pytest.param("{", (100, 800), id="block"),
+        pytest.param("if(1){", (50, 400), id="constant-if"),
+        pytest.param("if(q){b();throw 0}else{", (50, 400), id="abrupt-else"),
+    ],
+)
+def test_fold_folds_absorbed_statements_once(opening: str, sizes: tuple[int, int], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, opening * n + "c:;" * n + "}" * n), sizes)
