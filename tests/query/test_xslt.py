@@ -9442,3 +9442,173 @@ def test_transform_lang_per_node_grows_linearly(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda size: partial(sheet, parse_xml(f"<doc xml:lang='de'>{'<s>' * size}{'</s>' * size}</doc>")), (500, 2000)
     )
+
+
+_PREFIX_URI: Final[str] = "urn:rows"
+
+_PREFIX_SOURCE: Final[str] = '<x:list xmlns:x="urn:rows"><x:row v="1">a</x:row><x:row v="2">b</x:row></x:list>'
+
+_PREFIX_SITES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        '<xsl:template match="/"><xsl:value-of@NS@ select="count(p:list/p:row)"/></xsl:template>',
+        "text",
+        "2",
+        id="value-of",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:for-each@NS@ select="p:list/p:row"><xsl:value-of select="."/>;</xsl:for-each>'
+        "</xsl:template>",
+        "text",
+        "a;b;",
+        id="for-each",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:apply-templates@NS@ select="p:list/p:row"/></xsl:template>',
+        "text",
+        "ab",
+        id="apply-templates",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:if@NS@ test="p:list/p:row">yes</xsl:if></xsl:template>',
+        "text",
+        "yes",
+        id="if-test",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:choose><xsl:when@NS@ test="p:list/p:row">yes</xsl:when>'
+        "<xsl:otherwise>no</xsl:otherwise></xsl:choose></xsl:template>",
+        "text",
+        "yes",
+        id="choose-when",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:for-each select="*/*"><xsl:sort@NS@ select="self::p:row/@v" order="descending"/>'
+        '<xsl:value-of select="."/></xsl:for-each></xsl:template>',
+        "text",
+        "ba",
+        id="sort",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:variable@NS@ name="v" select="count(p:list/p:row)"/>'
+        '<xsl:value-of select="$v"/></xsl:template>',
+        "text",
+        "2",
+        id="variable",
+    ),
+    pytest.param(
+        '<xsl:param@NS@ name="v" select="count(p:list/p:row)"/>'
+        '<xsl:template match="/"><xsl:value-of select="$v"/></xsl:template>',
+        "text",
+        "2",
+        id="param",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:copy-of@NS@ select="p:list/p:row[2]"/></xsl:template>',
+        "text",
+        "b",
+        id="copy-of",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><xsl:number@NS@ value="count(p:list/p:row)"/></xsl:template>',
+        "text",
+        "2",
+        id="number-value",
+    ),
+    pytest.param(
+        '<xsl:key@NS@ name="k" match="*" use="self::p:row/@v"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"key('k', '2')\"/></xsl:template>",
+        "text",
+        "b",
+        id="key-use",
+    ),
+    pytest.param(
+        '<xsl:template match="/"><out@NS@ a="{count(p:list/p:row)}"/></xsl:template>',
+        "xml",
+        '<out xmlns:p="urn:rows" a="2"/>',
+        id="attribute-value-template",
+    ),
+]
+
+
+@pytest.mark.parametrize("placement", ["root", "element"])
+@pytest.mark.parametrize(("body", "method", "expected"), _PREFIX_SITES)
+def test_transform_prefixed_name_test_resolves_in_expression(
+    body: str, method: str, expected: str, placement: str
+) -> None:
+    sheet = _placed_sheet(body, method=method, placement=placement)
+    assert Transform(sheet)(turbohtml.parse_xml(_PREFIX_SOURCE)) == expected
+
+
+def _placed_sheet(body: str, *, method: str, placement: str) -> turbohtml.Document:
+    # Declare the prefix on the stylesheet root, or on the instruction marked @NS@ in body.
+    declaration = f'xmlns:p="{_PREFIX_URI}"'
+    if placement == "root":
+        return _sheet(body.replace("@NS@", ""), method=method, declare=declaration)
+    return _sheet(body.replace("@NS@", f" {declaration}"), method=method)
+
+
+def test_transform_nearer_prefix_declaration_shadows_farther() -> None:
+    source = '<r xmlns:o="urn:outer" xmlns:i="urn:inner"><i:row/><o:row/><o:row/></r>'
+    body = (
+        '<xsl:template match="/"><xsl:value-of select="count(*/p:row)"/>'
+        '<xsl:value-of xmlns:p="urn:inner" select="count(*/p:row)"/></xsl:template>'
+    )
+    sheet = _sheet(body, declare='xmlns:p="urn:outer"')
+    assert Transform(sheet)(turbohtml.parse_xml(source)) == "21"
+
+
+def test_transform_prefixed_name_test_matches_default_namespace_elements() -> None:
+    source = '<list xmlns="urn:rows"><row v="1">a</row><row v="2">b</row></list>'
+    body = '<xsl:template match="/"><xsl:value-of select="count(p:list/p:row)"/></xsl:template>'
+    sheet = _sheet(body, declare=f'xmlns:p="{_PREFIX_URI}"')
+    assert Transform(sheet)(turbohtml.parse_xml(source)) == "2"
+
+
+def test_transform_undeclared_prefix_in_expression_raises() -> None:
+    body = '<xsl:template match="/"><xsl:value-of select="count(p:list/p:row)"/></xsl:template>'
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        Transform(_sheet(body))(turbohtml.parse_xml(_PREFIX_SOURCE))
+
+
+def test_transform_prefix_declared_on_sibling_does_not_leak() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:value-of xmlns:p="urn:rows" select="count(p:list/p:row)"/>'
+        '<xsl:value-of select="count(p:list/p:row)"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        Transform(_sheet(body))(turbohtml.parse_xml(_PREFIX_SOURCE))
+
+
+@pytest.mark.parametrize("placement", ["root", "element"])
+def test_transform_prefixed_attribute_test_resolves_in_expression(placement: str) -> None:
+    body = '<xsl:template match="/"><xsl:value-of@NS@ select="string(p:list/p:row[2]/@p:v)"/></xsl:template>'
+    sheet = _placed_sheet(body, method="text", placement=placement)
+    source = '<x:list xmlns:x="urn:rows"><x:row x:v="1"/><x:row x:v="2"/></x:list>'
+    assert Transform(sheet)(turbohtml.parse_xml(source)) == "2"
+
+
+def test_transform_xml_prefix_in_expression_needs_no_declaration() -> None:
+    body = '<xsl:template match="/"><xsl:value-of select="count(*/@xml:lang)"/></xsl:template>'
+    assert Transform(_sheet(body))(turbohtml.parse_xml('<r xml:lang="en"/>')) == "1"
+
+
+def test_transform_xml_prefix_beside_declared_prefix_in_expression() -> None:
+    body = '<xsl:template match="/"><xsl:value-of select="count(p:list[@xml:lang])"/></xsl:template>'
+    sheet = _sheet(body, declare=f'xmlns:p="{_PREFIX_URI}"')
+    source = '<x:list xmlns:x="urn:rows" xml:lang="en"><x:row/></x:list>'
+    assert Transform(sheet)(turbohtml.parse_xml(source)) == "1"
+
+
+def test_transform_prefixed_name_test_on_html_source_binds_svg() -> None:
+    body = '<xsl:template match="/"><xsl:value-of select="count(//s:circle)"/></xsl:template>'
+    sheet = _sheet(body, declare='xmlns:s="http://www.w3.org/2000/svg"')
+    assert Transform(sheet)(turbohtml.parse("<svg><circle/></svg>")) == "1"
+
+
+def test_transform_distinct_prefixes_of_one_length_resolve_apart() -> None:
+    source = '<r xmlns:o="urn:one" xmlns:t="urn:two"><o:row/><t:row/><t:row/></r>'
+    body = (
+        '<xsl:template match="/"><xsl:value-of select="concat(count(*/p:row), \'-\', count(*/q:row))"/></xsl:template>'
+    )
+    sheet = _sheet(body, declare='xmlns:p="urn:one" xmlns:q="urn:two"')
+    assert Transform(sheet)(turbohtml.parse_xml(source)) == "1-2"

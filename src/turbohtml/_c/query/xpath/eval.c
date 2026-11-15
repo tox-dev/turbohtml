@@ -2153,6 +2153,10 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
         if (ctx->name_test != NULL && ctx->name_test(ctx->name_test_ctx, NULL, -1, step->str, step->str_len) < 0) {
             return -1;
         }
+        if (ctx->namespaces != NULL && ctx->namespaces->name_test != NULL) {
+            match->name_test = ctx->namespaces->name_test;
+            match->name_test_ctx = ctx->namespaces->name_test_ctx;
+        }
     }
     if (step->axis == AX_ATTRIBUTE && match->xml_ns) {
         match->attr_atom = resolve_xml_attr_atom(ctx->tree, match->local, match->local_len);
