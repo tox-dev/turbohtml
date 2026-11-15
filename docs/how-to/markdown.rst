@@ -42,9 +42,10 @@ more. Its knobs are grouped into themed sub-configs (``Markdown.Headings``, ``Ma
 field.
 
 Code fences use the first nonempty ``language-*`` class on the sole ``<code>`` child of ``<pre>``, then on ``<pre>``
-itself. Class order and ASCII whitespace between classes do not affect recognition. Whitespace around the ``<code>``
-child remains part of the code content. ``Markdown.Code(language="python")`` supplies a fallback for blocks without a
-language class; an element's class takes precedence.
+itself. Class order and ASCII whitespace between classes do not affect recognition. A class that contains a backtick is
+skipped, since a backtick fence cannot carry one in its language. Whitespace around the ``<code>`` child remains part of
+the code content. ``Markdown.Code(language="python")`` supplies a fallback for blocks without a language class; an
+element's class takes precedence. A fallback that contains a backtick is not written.
 
 Inline CSS ``white-space: pre``, ``pre-wrap`` and ``break-spaces`` exports the element's text as a preformatted block,
 preserving spaces, tabs and line breaks. ``pre-line`` keeps line breaks and collapses spaces and tabs. Descendants

@@ -783,15 +783,49 @@ static int dt_is_numeric(int id) {
     return id == DT_DECIMAL || id == DT_FLOAT || id == DT_DOUBLE || (id >= DT_INTEGER && id <= DT_UNSIGNED_BYTE);
 }
 
-static double dt_to_double(const Py_UCS4 *value, Py_ssize_t len) {
-    char buffer[64];
-    Py_ssize_t out = 0;
-    for (Py_ssize_t index = 0; index < len && out < (Py_ssize_t)sizeof(buffer) - 1; index++) {
+/* `ascii` has room for len + 1 characters. */
+static double dt_ascii_double(char *ascii, const Py_UCS4 *value, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
         /* only ever called on a numeric value that already passed its ASCII lexical check */
-        buffer[out++] = value[index] < 0x80 ? (char)value[index] : '?'; /* GCOVR_EXCL_BR_LINE */
+        ascii[index] = value[index] < 0x80 ? (char)value[index] : '?'; /* GCOVR_EXCL_BR_LINE */
     }
-    buffer[out] = 0;
-    return strtod(buffer, NULL);
+    ascii[len] = 0;
+    return strtod(ascii, NULL);
+}
+
+/* Converts the whole value. The lexical checks put no bound on a number's length, so leading zeros or a long fraction
+   can push the digits or the exponent that decide a range comparison past any fixed window. A value too long for the
+   stack buffer takes an arena copy: this is for a facet's bound, which the schema states once. */
+static double dt_to_double(arena *mem, const Py_UCS4 *value, Py_ssize_t len) {
+    char buffer[64];
+    char *ascii = buffer;
+    if (len >= (Py_ssize_t)sizeof(buffer)) {
+        ascii = arena_alloc(mem, (size_t)len + 1);
+        if (ascii == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return 0.0;      /* GCOVR_EXCL_LINE: no_memory makes the compile or validate entry raise MemoryError */
+        }
+    }
+    return dt_ascii_double(ascii, value, len);
+}
+
+/* The same for a value under validation. A long one is copied into the one buffer a validate() call keeps for this,
+   as dt_normalize_ws does: a RELAX NG text is converted once for every range-bounded <data> alternative it meets, and
+   the arena would otherwise keep a copy of it for each. */
+static double dt_value_double(th_schema *schema, const Py_UCS4 *value, Py_ssize_t len) {
+    char buffer[64];
+    if (len < (Py_ssize_t)sizeof(buffer)) {
+        return dt_ascii_double(buffer, value, len);
+    }
+    if (len >= schema->number_cap) {
+        const Py_ssize_t cap = len >= schema->number_cap * 2 ? len + 1 : schema->number_cap * 2;
+        char *grown = arena_alloc(&schema->mem, (size_t)cap);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return 0.0;      /* GCOVR_EXCL_LINE: no_memory makes the validate entry raise MemoryError */
+        }
+        schema->number_buffer = grown;
+        schema->number_cap = cap;
+    }
+    return dt_ascii_double(schema->number_buffer, value, len);
 }
 
 static int dt_is_ordered(int id) {
@@ -809,8 +843,7 @@ static int dt_cmp(double left, double right) {
 }
 
 /* The number the run of digits at `*at` writes, leaving `*at` on the character that ends the run. A year and a
-   duration's counts have no length limit and may open with any number of zeros, so the run is read whole:
-   dt_to_double converts a fixed window, and the digits that carry the magnitude can lie past it. */
+   duration's counts have no length limit and may open with any number of zeros, so the run is read whole. */
 static double dt_digit_run(const Py_UCS4 *value, Py_ssize_t *at) {
     double number = 0;
     while (is_digit(value[*at])) {
@@ -1074,43 +1107,43 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
         facets->ws = u_eq_ascii(value, value_len, "replace") ? 1 : (u_eq_ascii(value, value_len, "collapse") ? 2 : 0);
     } else if (u_eq_ascii(name, name_len, "length")) {
         facets->has_length = 1;
-        facets->length = (int)dt_to_double(value, value_len);
+        facets->length = (int)dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "minLength")) {
         facets->has_min_length = 1;
-        facets->min_length = (int)dt_to_double(value, value_len);
+        facets->min_length = (int)dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "maxLength")) {
         facets->has_max_length = 1;
-        facets->max_length = (int)dt_to_double(value, value_len);
+        facets->max_length = (int)dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "minInclusive")) {
         if (facet_range_text(mem, facets, RANGE_MIN_INCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1;                                                                  /* GCOVR_EXCL_LINE */
         }
         facets->has_min_inclusive = 1;
-        facets->min_inclusive = dt_to_double(value, value_len);
+        facets->min_inclusive = dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "maxInclusive")) {
         if (facet_range_text(mem, facets, RANGE_MAX_INCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1;                                                                  /* GCOVR_EXCL_LINE */
         }
         facets->has_max_inclusive = 1;
-        facets->max_inclusive = dt_to_double(value, value_len);
+        facets->max_inclusive = dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "minExclusive")) {
         if (facet_range_text(mem, facets, RANGE_MIN_EXCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1;                                                                  /* GCOVR_EXCL_LINE */
         }
         facets->has_min_exclusive = 1;
-        facets->min_exclusive = dt_to_double(value, value_len);
+        facets->min_exclusive = dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "maxExclusive")) {
         if (facet_range_text(mem, facets, RANGE_MAX_EXCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1;                                                                  /* GCOVR_EXCL_LINE */
         }
         facets->has_max_exclusive = 1;
-        facets->max_exclusive = dt_to_double(value, value_len);
+        facets->max_exclusive = dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "totalDigits")) {
         facets->has_total_digits = 1;
-        facets->total_digits = (int)dt_to_double(value, value_len);
+        facets->total_digits = (int)dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "fractionDigits")) {
         facets->has_fraction_digits = 1;
-        facets->fraction_digits = (int)dt_to_double(value, value_len);
+        facets->fraction_digits = (int)dt_to_double(mem, value, value_len);
     }
     return 0;
 }
@@ -1223,7 +1256,7 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
     }
     if (dt_is_numeric(facets->base_id) && (facets->has_min_inclusive || facets->has_max_inclusive ||
                                            facets->has_min_exclusive || facets->has_max_exclusive)) {
-        double number = dt_to_double(value, len);
+        double number = dt_value_double(ctx->schema, value, len);
         /* negated so an unordered NaN fails every bound: XSD excludes NaN from a bounded float or double */
         if (facets->has_min_inclusive && !(number >= facets->min_inclusive)) {
             report(ctx, node, "facet", "value is below minInclusive");

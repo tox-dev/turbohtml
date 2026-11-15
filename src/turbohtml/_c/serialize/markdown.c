@@ -4806,7 +4806,10 @@ static const Py_UCS4 *md_code_language(md_ctx *ctx, th_node *node, Py_ssize_t *l
             end++;
         }
         static const Py_UCS4 prefix[] = {'l', 'a', 'n', 'g', 'u', 'a', 'g', 'e', '-'};
-        if (end - start > 9 && memcmp(classes + start, prefix, sizeof(prefix)) == 0) {
+        /* a backtick fence's info string cannot hold a backtick (CommonMark 4.5): the line would open no code block
+           and the verbatim code text would read as Markdown, so such a token names no language */
+        if (end - start > 9 && memcmp(classes + start, prefix, sizeof(prefix)) == 0 &&
+            md_max_backtick_run(classes + start + 9, end - start - 9) == 0) {
             *length = end - start - 9;
             return classes + start + 9;
         }
@@ -4984,7 +4987,7 @@ static void md_render_pre_content(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t t
         if (lang != NULL) {
             TH_WORK_STEPS_ADD(lang_len);
             sbuf_put_run(&ctx->out, lang, lang_len);
-        } else {
+        } else if (strchr(opt->code_language, '`') == NULL) {
             md_puts8(&ctx->out, opt->code_language);
         }
         ctx->line_has_content = 1;

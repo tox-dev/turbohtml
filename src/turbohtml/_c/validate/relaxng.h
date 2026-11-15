@@ -1676,7 +1676,7 @@ static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets,
     if ((facets->has_min_inclusive || facets->has_max_inclusive || facets->has_min_exclusive ||
          facets->has_max_exclusive) &&
         dt_is_numeric(datatype_id)) {
-        double number = dt_to_double(norm, norm_len);
+        double number = dt_value_double(schema, norm, norm_len);
         if (facets->has_min_inclusive && !(number >= facets->min_inclusive)) {
             return 0;
         }

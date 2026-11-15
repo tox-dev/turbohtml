@@ -737,6 +737,18 @@ CSS_NOINLINE static void css_close_prelude_blocks(token_vec *vec, Py_ssize_t sta
    so the blocks it leaves apart stay apart on the next pass. */
 #define CSS_MAX_MEDIA_MERGE_DEPTH 8
 
+/* Encoding sniffing reads `@charset "` only from a stylesheet's first bytes (CSS Syntax 3 §3.2), and browsers drop a
+   @charset anywhere else. Rendering lowercases the name and respaces it, so a rule whose source does not open with
+   those exact bytes reads as `@charset "` in the output. css_parse_rules drops such a rule only where it would open
+   the output. A rendered prefix of `@charset "` puts the name at eight bytes, so the first token and the two tokens
+   after it cover the bytes compared. */
+static int css_unsniffed_charset(const css_buf *piece, const token_vec *vec, const css_token *at) {
+    if (piece->len < 10 || memcmp(piece->data, "@charset \"", 10) != 0) {
+        return 0;
+    }
+    return at != vec->items || vec->len < 3 || memcmp(vec->items[0].text, "@charset \"", 10) != 0;
+}
+
 /* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of the header (name,
    prelude and '{') of an @media block that may merge with a same-query sibling, or 0 for another at-rule with a
    block. */
@@ -819,6 +831,16 @@ CSS_NOINLINE static void css_skip_block(cursor *cur) {
     }
 }
 
+/* Skip the rest of a style="" item, up to the `;` that ends it or the end of the value. Out of line for the reason
+   css_skip_block is: only an item a {} block or a stray `}` invalidates reaches it. */
+CSS_NOINLINE static void css_skip_item(cursor *cur) {
+    css_read_until(cur, ";");
+}
+
+static int css_style_attr_level(const cursor *cur) {
+    return cur->style_attr && cur->vec->depth == 1;
+}
+
 /* Skip a block whose '{' the cursor has passed when a bad token invalidates it: one in its prelude [start, end), which
    no selector admits, or one inside the block when the prelude ends in ':'. Such a prelude (`color:{...}`; a custom
    property's block never gets here) is no selector either, so the block reads as a declaration value, which a bad token
@@ -866,6 +888,11 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         return;
     }
     comp_vec scratch = {NULL, 0, 0, pool->oom}; /* reused across this list's values, freed once below */
+    /* A style="" value sits in no block and holds no nested rule, so at its own level a browser reads a declaration
+       through its `;` whatever it holds, as the sanitizer and the CSSOM do: a `}` closes nothing there, and the text
+       after a {} block is the rest of the declaration that block makes invalid. Ending the item at either would set
+       that rest free as a declaration of its own, so it is dropped instead, along with an item a stray `}` cuts
+       short. */
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
@@ -873,6 +900,10 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == '}') {
+            if (css_style_attr_level(cur)) {
+                css_skip_item(cur);
+                continue;
+            }
             cur->index++;
             break;
         }
@@ -900,7 +931,11 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         }
         if (terminator && terminator->delim == '{') {
             cur->index++;
+            int attr = css_style_attr_level(cur);
             if (cur->vec->bad && css_skip_bad_nested_block(cur, segment_start, segment_end)) {
+                if (attr) {
+                    css_skip_item(cur);
+                }
                 continue;
             }
             decl_vec inner = {NULL, 0, 0, pool->oom, 0};
@@ -921,9 +956,16 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
             cbuf_free(&selector);
             cbuf_free(&body);
             decl_vec_push(decls, decl);
+            if (attr) {
+                css_skip_item(cur);
+            }
             continue;
         }
         int closed_brace = terminator && terminator->delim == '}';
+        if (closed_brace && css_style_attr_level(cur)) {
+            css_skip_item(cur);
+            continue;
+        }
         /* the '{' terminator already returned above, so a non-NULL terminator here is always ';' or '}' */
         if (terminator) {
             cur->index++;
@@ -959,8 +1001,9 @@ typedef struct {
         Py_ssize_t prev_live;
     };
     Py_ssize_t text_len;
-    int at_statement;
-    int dropped;
+    unsigned at_statement : 1;
+    unsigned dropped : 1;
+    unsigned unsniffed : 1;
 } rule_item;
 
 typedef struct {
@@ -1183,7 +1226,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     /* the merged body parses below the rule list that holds it, so it inherits that list's depth */
     token_vec tokens = {.depth = depth, .oom = pool->oom};
     css_tokenize(combined.data, combined.len, &tokens);
-    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
+    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
     Py_ssize_t scratch = pool->len;
     css_parse_declarations(pool, &inner, &decls, 0);
@@ -1902,7 +1945,7 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     /* the block parses where the first one did, so it inherits the rule list's depth */
     token_vec tokens = {.depth = cur->vec->depth, .oom = pool->oom};
     css_tokenize(run->text.data, run->text.len, &tokens);
-    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
+    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0};
     css_buf merged = {NULL, 0, 0, pool->oom};
     css_parse_at(pool, &inner, &merged, 0, 0);
     cbuf_free(&inner.media_next);
@@ -2127,6 +2170,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
                 item.text_off = pool_run(pool, piece.data, piece.len);
                 item.text_len = piece.len;
                 item.at_statement = kind < 0;
+                item.unsniffed = css_unsniffed_charset(&piece, cur->vec, token);
                 rule_vec_push(&items, item);
             }
             cbuf_free(&piece);
@@ -2171,7 +2215,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
     int delim_written = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
-        if (item->dropped) {
+        if (item->dropped || (item->unsniffed && top && out->len == 0)) {
             continue;
         }
         if (prev_at_statement && !after_stray) {

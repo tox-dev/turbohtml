@@ -5658,9 +5658,37 @@ def test_table_cells_with_th_and_comment(opts: Markdown, expected: str) -> None:
             '<pre><!--comment--><code class="language-python">one</code></pre>', "fallback", "one", id="comment-sibling"
         ),
         pytest.param("<pre><svg>one</svg></pre>", "fallback", "one", id="foreign-element"),
+        pytest.param('<pre><code class="language-p`q">one</code></pre>', "fallback", "one", id="backtick-in-code"),
+        pytest.param('<pre class="language-p`q">one</pre>', "fallback", "one", id="backtick-in-pre"),
+        pytest.param('<pre class="language-``">one</pre>', "fallback", "one", id="backtick-only"),
+        pytest.param(
+            '<pre><code class="language-p`q language-python">one</code></pre>', "python", "one", id="backtick-skipped"
+        ),
+        pytest.param(
+            '<pre class="language-ruby"><code class="language-p`q">one</code></pre>', "ruby", "one", id="backtick-pre"
+        ),
     ],
 )
 def test_code_language(source: str, language: str, content: str) -> None:
     assert (
         parse(source).to_markdown(Markdown(code=Markdown.Code(language="fallback"))) == f"```{language}\n{content}\n```"
     )
+
+
+def test_code_language_fallback_with_backtick_names_no_language() -> None:
+    assert parse("<pre>one</pre>").to_markdown(Markdown(code=Markdown.Code(language="x`y"))) == "```\none\n```"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<pre class="language-p`q">&lt;b&gt;one&lt;/b&gt;</pre>', id="pre"),
+        pytest.param('<pre><code class="language-p`q">&lt;b&gt;one&lt;/b&gt;</code></pre>', id="code"),
+        pytest.param('<pre style="white-space:pre-wrap" class="language-p`q">&lt;b&gt;one&lt;/b&gt;</pre>', id="style"),
+        pytest.param('<ul><li><pre class="language-p`q">&lt;b&gt;one&lt;/b&gt;</pre></li></ul>', id="list-item"),
+        pytest.param('<blockquote><pre class="language-p`q">&lt;b&gt;one&lt;/b&gt;</pre></blockquote>', id="quote"),
+    ],
+)
+def test_code_language_backtick_keeps_fence(source: str) -> None:
+    rendered: Final = parse(MarkdownIt("commonmark").render(parse(source).to_markdown()))
+    assert [(node.tag, node.text) for node in rendered.select("b, code")] == [("code", "<b>one</b>\n")]
