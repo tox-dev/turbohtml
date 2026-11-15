@@ -336,6 +336,9 @@ class _StartTags(HTMLParser):
         # a breakout tag closes the foreign elements, so what follows is HTML again
         pytest.param("<svg><g><p><style><i>", ["svg", "g", "p", "style"], id="breakout"),
         pytest.param("<svg><img><style><i>", ["svg", "img", "style"], id="void-breakout"),
+        pytest.param(
+            "<svg><blzzzzzzze><style><i>", ["svg", "blzzzzzzze", "style", "i"], id="near-breakout-name"
+        ),  # shares blockquote's hash slot and length
         pytest.param("<svg><font color=red><style><i>", ["svg", "font", "style"], id="font-color"),
         pytest.param("<svg><font x FACE=a><style><i>", ["svg", "font", "style"], id="font-face"),
         pytest.param("<svg><font size=1><style><i>", ["svg", "font", "style"], id="font-size"),
@@ -348,12 +351,23 @@ class _StartTags(HTMLParser):
         pytest.param("<svg><desc></p><style><i>", ["svg", "desc", "style"], id="end-p-at-point"),
         # end tags: a foreign element closes by name, an HTML end tag stops at a scoping foreign element
         pytest.param("<svg><g></svg><style><i>", ["svg", "g", "style"], id="end-svg"),
+        pytest.param("<svg><g></g x=1><style><i>", ["svg", "g", "style", "i"], id="end-tag-attributes"),
+        pytest.param(
+            "<svg><desc><b><svg></svg><style><i>", ["svg", "desc", "b", "svg", "style"], id="inner-svg-end-to-html"
+        ),
         pytest.param("<svg><title></svg><style><i>", ["svg", "title", "style"], id="end-svg-from-point"),
         pytest.param("<svg><g></x><style><i>", ["svg", "g", "style", "i"], id="stray-end"),
         pytest.param("<svg><x-y><g></x-y><style><i>", ["svg", "x-y", "g", "style", "i"], id="custom-end"),
         pytest.param("<x-y><svg><g></x-z></x-yy><style><i>", ["x-y", "svg", "g", "style", "i"], id="custom-stray-end"),
-        pytest.param("<div></dfn></span></dív><svg></div><style><i>", ["div", "svg", "style"], id="html-strays-keep-open"),
+        pytest.param(
+            "<div></dfn></span></dív><svg></div><style><i>", ["div", "svg", "style"], id="html-strays-keep-open"
+        ),
         pytest.param("<x-ő><svg></x-ő><style><i>", ["x-ő", "svg", "style"], id="wide-custom-end"),
+        pytest.param(
+            "<x-abcdefgh><svg></x-abcdefgi><style><i>", ["x-abcdefgh", "svg", "style", "i"], id="long-custom-stray-end"
+        ),
+        pytest.param("<x-abcdefgh><svg></x-a><style><i>", ["x-abcdefgh", "svg", "style", "i"], id="short-end-of-long"),
+        pytest.param("<x-a><svg></x-abcdefgh><style><i>", ["x-a", "svg", "style", "i"], id="long-end-of-short"),
         pytest.param("<x-abcdef><svg></x-abcdef><style><i>", ["x-abcdef", "svg", "style"], id="word-custom-end"),
         pytest.param(
             "<svg></svg></x><x-y></x-y><section><x-element></section><style><i>",
@@ -524,6 +538,7 @@ def test_reset_forgets_open_foreign_elements() -> None:
     [
         pytest.param("<p>" * 1500, id="omitted-end-tags"),
         pytest.param("".join(f"<x-{index}>" for index in range(1500)), id="custom-names"),
+        pytest.param("".join(f"<x-element-{index}>" for index in range(1500)), id="long-custom-names"),
         pytest.param(f"<svg>{'<g>' * 1500}", id="foreign"),
     ],
 )

@@ -70,12 +70,11 @@ static inline Py_UCS4 input_read(const th_tree *tree, Py_ssize_t index) {
     return ((const uint32_t *)tree->data)[index];
 }
 
+/* The atom and category flags of a fragment context's lowercased name, TH_TAG_UNKNOWN for an empty one. */
 static uint16_t intern_atom(const th_buf *name, uint8_t *out_flags) {
-    if (name->kind != PyUnicode_1BYTE_KIND || name->len == 0) { /* GCOVR_EXCL_BR_LINE: name is never empty */
-        *out_flags = 0;
-        return TH_TAG_UNKNOWN; /* non-ASCII / empty tag names are never atoms */
-    }
-    return th_tag_intern(name->data, name->len, name->cap, out_flags);
+    uint16_t atom = name->len == 0 ? TH_TAG_UNKNOWN : th_tag_lookup(name->data, name->len);
+    *out_flags = th_tag_flags(atom);
+    return atom;
 }
 
 /* The token's interned tag atom, cached on the token by the run loop once per

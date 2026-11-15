@@ -237,7 +237,8 @@ static int tk_integration_point(const th_token *token, uint16_t atom, uint8_t ns
     if (ns == TH_NS_SVG) {
         return (TK_START[atom] & TK_SVG_POINT) != 0;
     }
-    return (TK_START[atom] & TK_MATHML_TEXT) != 0 || (atom == TH_TAG_ANNOTATION_XML && tk_annotation_xml_is_html(token));
+    return (TK_START[atom] & TK_MATHML_TEXT) != 0 ||
+           (atom == TH_TAG_ANNOTATION_XML && tk_annotation_xml_is_html(token));
 }
 
 /* The HTML start tags that break out of foreign content; <font> does too when it carries color, face or size. */
@@ -323,10 +324,10 @@ static int tk_names_reserve(TokenizerObject *self, Py_ssize_t extra) {
     size_t cap;
     size_t bytes;
     /* GCOVR_EXCL_BR_START: a name is no longer than the input, and allocation cannot fail in a test */
-    Py_UCS4 *grown =
-        th_grow_cap((size_t)(self->names_len + extra), (size_t)self->names_cap, 64, sizeof(Py_UCS4), &cap, &bytes)
-            ? PyMem_Realloc(self->names, bytes)
-            : NULL;
+    Py_ssize_t needed = self->names_len + extra;
+    Py_UCS4 *grown = th_grow_cap((size_t)needed, (size_t)self->names_cap, 64, sizeof(Py_UCS4), &cap, &bytes)
+                         ? PyMem_Realloc(self->names, bytes)
+                         : NULL;
     if (grown == NULL) {
         return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -373,7 +374,7 @@ static int tk_push(TokenizerObject *self, const th_token *token, uint16_t atom, 
         self->open_cap = (Py_ssize_t)cap;
     }
     if (tk_names_reserve(self, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t pos = 0; pos < name_len; pos++) {
         self->names[self->names_len + pos] = buf_read(&token->name, pos);
@@ -488,7 +489,8 @@ static void tk_sync(TokenizerObject *self, th_tokenizer *sm) {
 
 /* Follow a start tag on the spine with the full rules and put `sm` in the state tree construction would before it reads
    on. Returns -1 when the spine cannot grow. */
-static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_token *record, uint16_t atom, uint8_t flags) {
+static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_token *record, uint16_t atom,
+                          uint8_t flags) {
     uint8_t ns = tk_start_namespace(self, record, atom); /* first: a breakout tag closes open foreign elements */
     /* the trailing slash ends only an SVG/MathML element: on an HTML start tag a browser ignores it, so <title/>
        and <script/> still open their element and switch */
@@ -561,9 +563,13 @@ static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const 
     if ((start & (TK_FOREIGN | TK_CHILDLESS | TK_TABLE_PART | TK_TABLE)) == 0 && key != 0 &&
         self->depth < self->open_cap) {
         uint8_t in_table = self->depth > 0 && self->open[self->depth - 1].in_table;
-        self->open[self->depth++] = (tk_open){
-            key, self->names_len, record->atom, TH_NS_HTML, 0, record->tag_flags & (TH_TAG_SPECIAL | TH_TAG_SCOPING),
-            in_table};
+        self->open[self->depth++] = (tk_open){key,
+                                              self->names_len,
+                                              record->atom,
+                                              TH_NS_HTML,
+                                              0,
+                                              record->tag_flags & (TH_TAG_SPECIAL | TH_TAG_SCOPING),
+                                              in_table};
         if ((start & TK_MODEL) != 0) {
             th_tok_switch(sm, (enum th_initial_state)(start & TK_MODEL));
         }
