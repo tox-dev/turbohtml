@@ -129,12 +129,16 @@ typedef struct {
    same for the sibling walks of the general sibling combinator and :has(~ ...). The two
    key by different objects (a relative selector, a compound), so a driver can hand one
    table to both. Owned by the driver loop, threaded read/write through sel_ctx; slots ==
-   NULL until the first insert, so a query that never stores pays nothing. */
+   NULL until the first insert, so a query that never stores pays nothing. A query's table
+   serves one selector and is freed with the query. An owner that keeps one table across
+   many selectors sets limit: every :has() argument keys its own answers, so the table
+   would otherwise grow to arguments x elements. */
 typedef struct {
     sel_memo_slot *slots;
     size_t mask; /* capacity - 1 (capacity a power of two); 0 while slots == NULL */
     size_t count;
-    int failed; /* an allocation failed while growing: fall back to the direct walk */
+    int failed;   /* growth failed or hit limit: fall back to the direct walk */
+    size_t limit; /* the largest capacity the table may grow to; 0 for no bound */
 } sel_memo;
 
 typedef struct {

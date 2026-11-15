@@ -1367,6 +1367,33 @@ def _compute_style_rounds(nodes: tuple[Element, ...], rounds: int) -> None:
 
 
 @pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param("rules", id="rules"),
+        pytest.param("selector-list", id="selector-list"),
+        pytest.param("compound", id="compound"),
+        pytest.param("arguments", id="arguments"),
+    ],
+)
+def test_computed_style_has_memo_is_bounded(shape: str, retained_bytes: RetainedBytes) -> None:
+    # every :has() argument keys one answer per element, so the memo grows with arguments times elements
+    arguments: Final = 13
+    sheet: Final = {
+        "rules": ":has(x){}" * arguments,
+        "selector-list": f"{','.join([':has(x)'] * arguments)}{{}}",
+        "compound": f"{':not(:has(x))' * arguments}{{}}",
+        "arguments": f":has({','.join(['x'] * arguments)}){{}}",
+    }[shape]
+    elements: Final = (1 << 21) // arguments + 8_192
+    document: Final = parse(f"<style>{sheet}:has(p){{color:red}}</style>{'<div>' * 28}{'<p>' * elements}")
+    root: Final = document.select_one("html")
+    assert isinstance(root, Element)
+    before: Final = retained_bytes()
+    assert computed_style(root)["color"] == "red"
+    assert retained_bytes() - before < 1 << 20
+
+
+@pytest.mark.parametrize(
     "order", [pytest.param(slice(None), id="forward"), pytest.param(slice(None, None, -1), id="reverse")]
 )
 @pytest.mark.parametrize("separator", [pytest.param("", id="adjacent"), pytest.param(" \n<!--gap-->", id="spaced")])

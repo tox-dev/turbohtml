@@ -2314,10 +2314,19 @@ static void sel_memo_insert(sel_memo *memo, const void *key, const th_node *node
     *slot = (sel_memo_slot){key, node, result};
 }
 
-/* Grow (or first-allocate) the table to the next power of two and rehash. On
-   allocation failure sets memo->failed so the matcher falls back to the direct walk. */
+/* Grow (or first-allocate) the table to the next power of two and rehash. Past limit, or on
+   allocation failure, the table is dropped for good and memo->failed sends the matcher to the
+   direct walk: restarting would refill and drop the table on every walk. */
 static void sel_memo_grow(sel_memo *memo) {
+    if (memo->failed) {
+        return;
+    }
     size_t new_cap = memo->slots == NULL ? 64 : (memo->mask + 1) * 2;
+    if (memo->limit != 0 && new_cap > memo->limit) {
+        sel_memo_free(memo);
+        memo->failed = 1;
+        return;
+    }
     sel_memo_slot *slots = PyMem_Calloc(new_cap, sizeof(sel_memo_slot));
     if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: a calloc failure cannot be forced from a test */
         memo->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2340,8 +2349,8 @@ static void sel_memo_grow(sel_memo *memo) {
 static void sel_memo_put(sel_memo *memo, const void *key, const th_node *node, int result) {
     if ((memo->count + 1) * 4 > (memo->mask + 1) * 3) {
         sel_memo_grow(memo);
-        if (memo->failed) { /* GCOVR_EXCL_BR_LINE: growth only fails on unforceable allocation failure */
-            return;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (memo->failed) {
+            return;
         }
     }
     sel_memo_insert(memo, key, node, (unsigned char)(result != 0));
