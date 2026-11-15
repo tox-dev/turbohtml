@@ -184,7 +184,7 @@ static Py_UCS4 *mini_style_attr_css(sbuf *out, const Py_UCS4 *value, Py_ssize_t 
         PyMem_Free(result); /* the declarations minified to nothing: the caller renders an empty value */
         return NULL;
     }
-    sbuf decoded = {NULL, 0, 0, 0};
+    sbuf decoded = {NULL, 0, 0, 0, 0};
     sbuf_put_utf8(&decoded, (const char *)result, css_len);
     PyMem_Free(result);
     Py_UCS4 *minified = sbuf_finish(&decoded, out_len);
@@ -204,12 +204,13 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);
     int charset_kind = opts->inject_meta ? ser_meta_charset_kind(tree, node) : 0;
+    Py_ssize_t clone_start = ser_clone_start(out, node);
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        if (!ser_clone_attr_pays(opts->clone_budget, node, name_len + attr->value_len)) {
-            continue;
+        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, name_len + attr->value_len)) {
+            break;
         }
         TH_WORK_STEPS_ADD(name_len + attr->value_len);
         sbuf_putc(out, ' ');
@@ -245,6 +246,7 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
         }
         PyMem_Free(minified);
     }
+    ser_clone_settle(out, clone_start);
     ser_attr_order_free(order, stack_order);
     sbuf_putc(out, '>');
 }
@@ -853,7 +855,6 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 out->failed = 1;                                       /* GCOVR_EXCL_LINE: allocation failure */
                 return;                                                /* GCOVR_EXCL_LINE: allocation failure */
             }
-            ser_clone_fund(st->clone_budget, node->text_len);
             if (opts->collapse_whitespace && preserve == 0) {
                 mini_put_collapsed_text(out, node->text, node->text_len, st->formatter, &last_was_space);
             } else {
@@ -915,14 +916,11 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
 
 Py_UCS4 *th_node_minify(th_tree *tree, th_node *node, const th_minify_opts *minify, const th_serialize_opts *opts,
                         Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
-    Py_ssize_t clone_budget = TH_CLONE_ALLOWANCE;
-    th_serialize_opts budgeted = *opts;
-    budgeted.clone_budget = ser_clone_budget(tree, &clone_budget);
+    sbuf out = {NULL, 0, 0, 0, 0};
     sbuf_presize_for_root(&out, tree, node);
     if (!opts->inner || node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT ||
         node->type == TH_NODE_CONTENT) {
-        serialize_minify(&out, tree, node, minify, &budgeted);
+        serialize_minify(&out, tree, node, minify, opts);
     }
     return sbuf_finish(&out, out_len);
 }

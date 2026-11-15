@@ -104,6 +104,8 @@ def _clone_language(size: int) -> str:
 
 # longer than the allowance either renderer starts with, so only a start tag or rendered text can pay for a repeat
 _LONG_TARGET: Final[str] = "u" * 300
+# a target longer than the clone allowance plus the markup around it, so only the first clone can pay for it
+_WIDE_TARGET: Final[str] = "u" * 1000
 
 
 @pytest.mark.parametrize(
@@ -198,15 +200,15 @@ def test_clone_attributes_moved_into_an_xml_tree_canonicalize_stay_linear(work_s
 
 
 def test_moved_clone_attributes_past_the_budget_are_left_out() -> None:
-    text = _xml_root_with(f"<p><a href={_LONG_TARGET}>one<p>two<p>three").canonicalize().decode()
-    assert text.count(_LONG_TARGET) == 2
+    text = _xml_root_with(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three").canonicalize().decode()
+    assert text.count(_WIDE_TARGET) == 2
     assert "three" in text
 
 
 def test_moved_clone_namespace_declarations_past_the_budget_are_left_out() -> None:
-    text = _xml_root_with(f"<p><a xmlns:y=urn:{_LONG_TARGET} href=/u>one<p>two<p>three").canonicalize().decode()
+    text = _xml_root_with(f"<p><a xmlns:y=urn:{_WIDE_TARGET} href=/u>one<p>two<p>three").canonicalize().decode()
     assert text.count("xmlns:y=") == 2
-    assert text.count("href=") == 3
+    assert text.count("href=") == 2
 
 
 def test_clone_attributes_moved_back_into_an_html_tree_stay_linear(work_steps: WorkSteps) -> None:
@@ -223,22 +225,22 @@ def _html_document_with(markup: str) -> Document:
 
 
 def test_clone_attributes_moved_back_into_an_html_tree_past_the_budget_are_left_out() -> None:
-    text = _html_document_with(f"<p><a href={_LONG_TARGET}>one<p>two<p>three").html
-    assert text.count(_LONG_TARGET) == 2
+    text = _html_document_with(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three").html
+    assert text.count(_WIDE_TARGET) == 2
     assert "three" in text
 
 
 @pytest.mark.parametrize("write", _DOCUMENT_WRITERS.values(), ids=_DOCUMENT_WRITERS.keys())
 def test_clone_attributes_past_the_budget_are_left_out(write: Callable[[Document], str]) -> None:
-    text = write(parse(f"<p><a href={_LONG_TARGET}>one<p>two<p>three"))
-    assert text.count(_LONG_TARGET) == 2
+    text = write(parse(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three"))
+    assert text.count(_WIDE_TARGET) == 2
     assert "three" in text
 
 
 @pytest.mark.parametrize("write", _STRING_WRITERS.values(), ids=_STRING_WRITERS.keys())
 def test_clone_string_writers_leave_attributes_past_the_budget_out(write: Callable[[str], str]) -> None:
-    text = write(f"<p><a href={_LONG_TARGET}>one<p>two<p>three")
-    assert text.count(_LONG_TARGET) == 2
+    text = write(f"<p><a href={_WIDE_TARGET}>one<p>two<p>three")
+    assert text.count(_WIDE_TARGET) == 2
     assert "three" in text
 
 

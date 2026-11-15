@@ -704,9 +704,9 @@ typedef struct {
     Py_ssize_t base;    /* code points of copies granted before any other output funds them */
 } th_xml_ns_spend;
 
-/* The attribute characters a clone may write before the text and start tags around it fund more. The tree builder
-   reopens an unclosed formatting element in every block after it, attributes and all, so every writer of a clone
-   starts from this allowance. */
+/* The attribute characters parser clones may write before other output funds more. The tree builder reopens an
+   unclosed formatting element in every block after it, attributes and all, so every writer of a clone starts from this
+   allowance. */
 #define TH_CLONE_ALLOWANCE 256
 
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
@@ -722,11 +722,11 @@ typedef struct {
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
     const th_node *xml_boundary;
-    int markdown;                 /* a th_markdown_html context, or 0 outside Markdown */
-    int *charset_missing;         /* non-NULL when charset is a placeholder no label names: a writer sets
-                                   *charset_missing instead of writing it, and the caller refuses the output */
-    Py_ssize_t *clone_budget;     /* the attribute characters parser clones may still write; the walk's owner sets it */
-    th_xml_xlink_walk *xml_xlink; /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
+    int markdown;                  /* a th_markdown_html context, or 0 outside Markdown */
+    int *charset_missing;          /* non-NULL when charset is a placeholder no label names: a writer sets
+                                    *charset_missing instead of writing it, and the caller refuses the output */
+    Py_ssize_t *clone_budget;      /* Markdown: the attribute characters parser clones may still write, or NULL */
+    th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
     th_xml_ns_spend *xml_ns_spend; /* set by the serializer when xml_boundary has every child carry its own copy */
 } th_serialize_opts;
 
@@ -746,15 +746,15 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
-   indentation depth, the xlink walk, the inherited namespace declarations charged so far
-   and the clone budget that spans the chunks. Start it at
-   {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, TH_CLONE_ALLOWANCE}. */
+   indentation depth, the xlink walk, the inherited namespace declarations charged
+   so far and the clone credit the earlier chunks left. Start it at
+   {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0}. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
     th_xml_ns_spend xml_ns;
-    Py_ssize_t clone_budget;
+    Py_ssize_t clone_credit; /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
 } th_ser_cursor;
 
 /* Serialize the next bounded chunk of the subtree rooted at root, resuming from
@@ -790,15 +790,13 @@ Py_UCS4 *th_node_minify(th_tree *tree, th_node *node, const th_minify_opts *mini
    bar the apex's inherited xml: attributes (1.1 excludes xml:id). exclusive selects
    Exclusive XML Canonicalization, which renders only the namespaces a subtree
    visibly uses; with_comments keeps comment nodes; inclusive is the exclusive-mode
-   InclusiveNamespaces prefix list (NULL / 0 count when unused). clone_budget is the
-   attribute allowance of parser clones, set by th_node_canonicalize. */
+   InclusiveNamespaces prefix list (NULL / 0 count when unused). */
 typedef struct {
     int version;
     int exclusive;
     int with_comments;
     const char *const *inclusive;
     Py_ssize_t inclusive_count;
-    Py_ssize_t *clone_budget;
 } th_c14n_opts;
 
 /* Canonicalize node and its complete subtree to Canonical XML under opts, as a

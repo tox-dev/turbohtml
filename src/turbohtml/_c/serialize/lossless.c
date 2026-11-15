@@ -41,6 +41,9 @@ static void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize
     out->len += len;
 }
 
+/* The WHATWG-conformant escaping the reserialized parts fall back to. */
+static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL};
+
 /* Emit a text node: its verbatim source span while it is still the zero-copy slice
    the parse left (character references and raw ampersands preserved), or the WHATWG
    escaping of its current code points once a read realized it or an edit replaced it. */
@@ -76,12 +79,11 @@ static void lossless_put_rawtext(sbuf *out, th_tree *tree, th_node *node) {
 /* Write an element's start tag: its verbatim source bytes when the parse recorded a
    location the mutation API has not since dirtied, else a canonical rebuild from the
    current attributes. */
-static void lossless_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_src_loc *loc,
-                              const th_serialize_opts *opts) {
+static void lossless_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_src_loc *loc) {
     if (loc != NULL && !loc->start_dirty) {
         sbuf_put_source(out, tree, loc->start_tag.start_offset, loc->start_tag.end_offset);
     } else {
-        ser_open_tag(out, tree, node, opts);
+        ser_open_tag(out, tree, node, &lossless_opts);
         sbuf_putc(out, '>');
     }
 }
@@ -102,12 +104,12 @@ static void lossless_close_tag(sbuf *out, th_tree *tree, th_node *node, const th
    subtree is done. Iterative -- descending through first_child, ascending through
    parent pointers -- so a tree of any depth serializes without one C stack frame per
    level, the same shape serialize_compact_step uses. */
-static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *root, const th_serialize_opts *opts) {
+static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *root) {
     th_node *descend = NULL;
     switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
     case TH_NODE_ELEMENT: {
         const th_src_loc *loc = th_node_source_location(tree, node);
-        lossless_open_tag(out, tree, node, loc, opts);
+        lossless_open_tag(out, tree, node, loc);
         if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
             break; /* void elements have no children or end tag */
         }
@@ -135,7 +137,6 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         break;
     }
     case TH_NODE_TEXT:
-        ser_clone_fund(opts->clone_budget, node->text_len);
         /* a span copies its source bytes either way, so only a realized or edited text pays the parent check */
         if (!text_is_span(node) && lossless_in_rawtext(tree, node, root)) {
             sbuf_put_ucs4(out, node->text, node->text_len);
@@ -190,15 +191,11 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
 }
 
 Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0};
-    Py_ssize_t clone_budget = TH_CLONE_ALLOWANCE;
-    /* the WHATWG-conformant escaping the reserialized parts fall back to */
-    const th_serialize_opts opts = {
-        TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 0, NULL, ser_clone_budget(tree, &clone_budget), NULL, NULL};
+    sbuf out = {NULL, 0, 0, 0, 0};
     sbuf_presize_for_root(&out, tree, node);
     th_node *cursor = node;
     while (cursor != NULL) {
-        cursor = lossless_step(&out, tree, cursor, node, &opts);
+        cursor = lossless_step(&out, tree, cursor, node);
     }
     return sbuf_finish(&out, out_len);
 }

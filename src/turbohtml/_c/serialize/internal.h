@@ -1009,35 +1009,24 @@ static inline int commonmark_attr_name_valid(const char *name, Py_ssize_t name_l
     return 1;
 }
 
-/* Whether a parser clone writes an attribute of cost characters. The tree builder reopens an unclosed formatting
-   element in every block after it, attributes and all, so a clone spends the budget its start tag and the text around
-   it fund, and an attribute the budget does not cover is left out. A start tag the source wrote funds its own
-   attributes. A NULL budget belongs to a tree without clones and writes every attribute. */
-static inline int ser_clone_attr_pays(Py_ssize_t *budget, const th_node *node, Py_ssize_t cost) {
-    if (budget == NULL) {
-        return 1;
-    }
-    if (!(node->tag_flags & TH_ELEM_IMPLIED)) {
-        *budget += cost;
-        return 1;
-    }
-    if (cost > *budget) {
-        return 0;
-    }
-    *budget -= cost;
-    return 1;
+/* The tree builder reopens an unclosed formatting element in every block after it, attributes and all. The output a
+   writer has produced funds the attributes of those clones, so a value spelled once cannot multiply the output. This is
+   where a clone's attributes start in out, or -1 for an element the source wrote, which pays for itself. */
+static inline Py_ssize_t ser_clone_start(const sbuf *out, const th_node *node) {
+    return node->tag_flags & TH_ELEM_IMPLIED ? out->len : -1;
 }
 
-/* The clone budget a writer of tree draws on: budget once the parser left a clone carrying attributes, else NULL so
-   the writers of every other tree skip the bookkeeping. */
-static inline Py_ssize_t *ser_clone_budget(const th_tree *tree, Py_ssize_t *budget) {
-    return tree->has_clones ? budget : NULL;
+/* Whether the clone whose attributes began at start fits one more of cost characters: the allowance and the output
+   fund it, less the clone attributes already written, which count once as output and once as spent. A clone stops at
+   the first attribute that does not fit, so no later one lands next to an attribute it was written after. */
+static inline int ser_clone_attr_fits(const sbuf *out, Py_ssize_t start, Py_ssize_t cost) {
+    return cost <= TH_CLONE_ALLOWANCE + out->clone_credit + out->len - 2 * (out->len - start);
 }
 
-/* Text the writer emits funds clone attributes, as Markdown prose does. */
-static inline void ser_clone_fund(Py_ssize_t *budget, Py_ssize_t len) {
-    if (budget != NULL) {
-        *budget += len;
+/* Charge the attributes the clone wrote since start; a no-op for an element the source wrote. */
+static inline void ser_clone_settle(sbuf *out, Py_ssize_t start) {
+    if (start >= 0) {
+        out->clone_credit -= 2 * (out->len - start);
     }
 }
 
@@ -1057,6 +1046,8 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);
     int charset_kind = opts->inject_meta && !opts->xml ? ser_meta_charset_kind(tree, node) : 0;
+    /* Markdown's raw HTML spends the budget its prose funds instead */
+    Py_ssize_t clone_start = opts->clone_budget == NULL ? ser_clone_start(out, node) : -1;
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
@@ -1067,8 +1058,20 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
             (opts->markdown && !commonmark_attr_name_valid(name, name_len))) {
             continue;
         }
-        if (!ser_clone_attr_pays(opts->clone_budget, node, name_len + attr->value_len)) {
-            continue;
+        if (opts->clone_budget != NULL) {
+            /* the tree builder reopens an unclosed formatting element in every block after it, attributes and all:
+               a written start tag funds one repeat of each attribute, a clone spends, and an attribute the budget
+               does not cover is left out, so a value spelled once cannot multiply Markdown's raw HTML */
+            Py_ssize_t cost = name_len + attr->value_len;
+            if (!(node->tag_flags & TH_ELEM_IMPLIED)) {
+                *opts->clone_budget += cost;
+            } else if (cost > *opts->clone_budget) {
+                continue;
+            } else {
+                *opts->clone_budget -= cost;
+            }
+        } else if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, name_len + attr->value_len)) {
+            break;
         }
         TH_WORK_STEPS_ADD(name_len + attr->value_len);
         sbuf_putc(out, ' ');
@@ -1094,6 +1097,7 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         }
         sbuf_putc(out, '"');
     }
+    ser_clone_settle(out, clone_start);
     ser_attr_order_free(order, stack_order);
 }
 

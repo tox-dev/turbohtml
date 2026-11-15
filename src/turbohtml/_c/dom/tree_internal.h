@@ -149,9 +149,6 @@ struct th_tree {
     int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
     int xml;                /* parsed under XML rules: tag and attribute names are case-sensitive */
     int has_xml_ns;
-    /* the parser reopened an element carrying attributes, or a copy brought such a clone in: only such a tree has the
-       serializers budget the attributes clones repeat, so every other tree keeps the unbudgeted writers */
-    int has_clones;
     int can_span;        /* input is borrowed and outlives the tree: text nodes may be
                             zero-copy spans into it instead of materialized copies */
     int track_positions; /* record each element's source line/col in trailing node slots */
