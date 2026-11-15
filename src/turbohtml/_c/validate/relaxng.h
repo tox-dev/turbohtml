@@ -861,27 +861,19 @@ static th_node *first_element_child(th_node *node) {
     return child;
 }
 
-static nameclass *rng_build_nameclass(th_schema *schema, th_node *node);
+/* A choice of name classes rng_build_nameclass is inside: a <choice>, the <except> of an <anyName> or <nsName>, or a
+   <choice> nested in either, whose classes continue the enclosing chain. */
+typedef struct {
+    th_node *next;       /* the next child to build */
+    nameclass *combined; /* the left-leaning chain of the classes built so far, NULL before the first */
+    nameclass *left;     /* an except's <anyName> or <nsName> class, which the choice narrows */
+    int nested;          /* a <choice> nested in a choice: its classes extend the enclosing chain */
+    int count;           /* the classes this frame has added */
+} nc_frame;
 
-static nameclass *rng_nameclass_choice_children(th_schema *schema, th_node *node) {
-    nameclass *combined = NULL;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        if (is_schema_el(schema, child, RNG_NS, "except")) {
-            continue;
-        }
-        nameclass *part = rng_build_nameclass(schema, child);
-        combined = combined == NULL ? part : nc_pair(schema, NC_CHOICE, combined, part);
-        if (combined == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-            return NULL;        /* GCOVR_EXCL_LINE */
-        }
-    }
-    return combined == NULL ? nc_new(schema, NC_ANY) : combined;
-}
-
-static nameclass *rng_build_nameclass(th_schema *schema, th_node *node) {
+/* The class `node` stands for when it has no class children to build; otherwise NULL, with `frame` opened for a
+   <choice>, or for the <except> of an <anyName> or <nsName>. */
+static nameclass *rng_nameclass_open(th_schema *schema, th_node *node, nc_frame *frame, int *opened) {
     th_tree *tree = schema->tree;
     if (node == NULL) { /* a malformed <element>/<attribute> with no name class matches any name */
         return nc_new(schema, NC_ANY);
@@ -891,14 +883,15 @@ static nameclass *rng_build_nameclass(th_schema *schema, th_node *node) {
         const Py_UCS4 *text = element_text_raw(tree, node, &len);
         return nc_from_qname(schema, node, text, len, 0);
     }
+    nameclass *left = NULL;
     if (is_schema_el(schema, node, RNG_NS, "anyName")) {
         th_node *except = first_schema_child(schema, node, RNG_NS, "except");
         if (except == NULL) {
             return nc_new(schema, NC_ANY);
         }
-        return nc_pair(schema, NC_EXCEPT, nc_new(schema, NC_ANY), rng_nameclass_choice_children(schema, except));
-    }
-    if (is_schema_el(schema, node, RNG_NS, "nsName")) {
+        left = nc_new(schema, NC_ANY);
+        node = except;
+    } else if (is_schema_el(schema, node, RNG_NS, "nsName")) {
         nameclass *nc = nc_new(schema, NC_NS);
         if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
             return NULL;  /* GCOVR_EXCL_LINE */
@@ -914,10 +907,79 @@ static nameclass *rng_build_nameclass(th_schema *schema, th_node *node) {
         if (except == NULL) {
             return nc;
         }
-        return nc_pair(schema, NC_EXCEPT, nc, rng_nameclass_choice_children(schema, except));
+        left = nc;
+        node = except;
     }
-    /* choice of name classes */
-    return rng_nameclass_choice_children(schema, node);
+    *frame = (nc_frame){node->first_child, NULL, left, 0, 0};
+    *opened = 1;
+    return NULL;
+}
+
+/* The name class of `node`, the first child of an <element> or <attribute>: a <name>, <anyName>, <nsName>, or a
+   <choice> of them joined into a left-leaning chain as long as its list of names. A <choice> nested in another
+   continues the enclosing chain rather than hanging off it as one class, so the walks along a chain's spine stay flat
+   however deep choices nest; the names and their order are the same. The choices under way sit on an explicit stack.
+   NULL when out of memory. */
+static nameclass *rng_build_nameclass(th_schema *schema, th_node *node) {
+    nc_frame local[16];
+    nc_frame *stack = local;
+    Py_ssize_t top = 0, cap = 16;
+    int opened = 0;
+    nameclass *result = rng_nameclass_open(schema, node, &stack[0], &opened);
+    top = opened;
+    while (top > 0) {
+        nc_frame *frame = &stack[top - 1];
+        th_node *child = frame->next;
+        while (child != NULL && (child->type != TH_NODE_ELEMENT || is_schema_el(schema, child, RNG_NS, "except"))) {
+            child = child->next_sibling;
+        }
+        if (child == NULL) {
+            top--;
+            if (frame->nested && frame->count > 0) {
+                stack[top - 1].combined = frame->combined;
+                stack[top - 1].count++;
+                continue;
+            }
+            if (frame->nested || frame->combined == NULL) {
+                result = nc_new(schema, NC_ANY);
+            } else {
+                result = frame->combined;
+            }
+            if (!frame->nested && frame->left != NULL) {
+                result = nc_pair(schema, NC_EXCEPT, frame->left, result);
+            }
+            if (top == 0) {
+                break;
+            }
+        } else {
+            frame->next = child->next_sibling;
+            nc_frame *grown = walk_reserve(stack, local, top, &cap, sizeof(nc_frame));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                result = NULL;   /* GCOVR_EXCL_LINE */
+                break;           /* GCOVR_EXCL_LINE */
+            }
+            stack = grown;
+            if (is_schema_el(schema, child, RNG_NS, "choice")) {
+                stack[top] = (nc_frame){child->first_child, stack[top - 1].combined, NULL, 1, 0};
+                top++;
+                continue;
+            }
+            opened = 0;
+            result = rng_nameclass_open(schema, child, &stack[top], &opened);
+            if (opened) {
+                top++;
+                continue;
+            }
+        }
+        if (result == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            break;            /* GCOVR_EXCL_LINE */
+        }
+        nc_frame *parent = &stack[top - 1];
+        parent->combined = parent->combined == NULL ? result : nc_pair(schema, NC_CHOICE, parent->combined, result);
+        parent->count++;
+    }
+    walk_release(stack, local);
+    return result;
 }
 
 static int nc_contains(const nameclass *nc, const qname *name) {
@@ -932,7 +994,7 @@ static int nc_contains(const nameclass *nc, const qname *name) {
     case NC_NS:
         return u_eq_u(nc->uri, nc->uri_len, name->uri, name->uri_len);
     case NC_CHOICE:
-        /* rng_nameclass_choice_children builds a left-leaning chain as long as the name list, so walk that spine */
+        /* rng_build_nameclass builds a left-leaning chain as long as the name list, so walk that spine */
         for (; nc->type == NC_CHOICE; nc = nc->a) {
             if (nc_contains(nc->b, name)) {
                 return 1;
@@ -1017,44 +1079,57 @@ static pattern *route_fold(th_schema *schema, pat_join_fn join, rng_route *route
     return joined;
 }
 
-/* Join the pattern elements from `first` on into one pattern (`none` when there are none). */
-static pattern *rng_build_joined(th_schema *schema, th_node *first, pat_join_fn join, int type, pattern *none) {
+/* What a container does with the pattern its children join into. */
+enum {
+    RNG_WRAP_NONE,
+    RNG_WRAP_CONTENT, /* the content of the element, attribute or list pattern `made` */
+    RNG_WRAP_OPTIONAL,
+    RNG_WRAP_ZERO_OR_MORE,
+    RNG_WRAP_ONE_OR_MORE,
+    RNG_WRAP_MIXED,
+    RNG_WRAP_DATA /* a <data>, which walks its params and builds the choice of its <except> as a container of its own */
+};
+
+/* A container rng_build is inside, with its pattern children joined so far. */
+typedef struct {
+    th_node *next;    /* the next child to build */
+    pattern *made;    /* the element, attribute, list or data pattern the container builds the content of */
+    rng_route *route; /* the operands, when two or more children join */
+    pattern *joined;  /* when fewer join: the one child's pattern, or what the container stands for without one */
+    pat_join_fn join;
+    Py_ssize_t index; /* operands filled so far */
+    int wrap;
+} rng_build_frame;
+
+/* Opens `frame` to join the pattern elements from `first` on into one pattern (`none` when there are none). */
+static void rng_build_join(th_schema *schema, rng_build_frame *frame, th_node *first, pat_join_fn join, int type,
+                           pattern *none, int wrap, pattern *made) {
     Py_ssize_t count = 0;
-    th_node *only = NULL;
     for (th_node *child = first; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT) {
-            only = child;
-            count++;
-        }
+        count += child->type == TH_NODE_ELEMENT;
     }
+    *frame = (rng_build_frame){first, made, NULL, none, join, 0, wrap};
     if (count < 2) {
-        return only == NULL ? none : rng_build(schema, only);
+        return;
     }
-    rng_route *route = route_new(schema, count, type);
-    if (route == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+    frame->route = route_new(schema, count, type);
+    if (frame->route == NULL) {               /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        frame->next = NULL;                   /* GCOVR_EXCL_LINE */
+        frame->joined = schema->p_notallowed; /* GCOVR_EXCL_LINE */
     }
-    Py_ssize_t index = 0;
-    for (th_node *child = first; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT) {
-            route->operands[index++] = rng_build(schema, child);
-        }
-    }
-    return route_fold(schema, join, route);
 }
 
-/* Group the pattern children of a container into a single pattern (Empty when none). `skip`, when set, is the name
-   class an element or attribute names itself by: its first element child. */
-static pattern *rng_build_children(th_schema *schema, th_node *node, th_node *skip) {
-    return rng_build_joined(schema, skip == NULL ? node->first_child : skip->next_sibling, pat_group, P_GROUP,
-                            schema->p_empty);
+/* Group the pattern children of a container (Empty when none). `skip`, when set, is the name class an element or
+   attribute names itself by: its first element child. */
+static void rng_build_group(th_schema *schema, rng_build_frame *frame, th_node *node, th_node *skip, int wrap,
+                            pattern *made) {
+    rng_build_join(schema, frame, skip == NULL ? node->first_child : skip->next_sibling, pat_group, P_GROUP,
+                   schema->p_empty, wrap, made);
 }
 
-static pattern *rng_build_choice_children(th_schema *schema, th_node *node) {
-    return rng_build_joined(schema, node->first_child, pat_choice_join, P_CHOICE, schema->p_notallowed);
-}
-
-static pattern *rng_build(th_schema *schema, th_node *node) {
+/* The pattern `node` stands for when it has no pattern children to build; otherwise NULL, with `frame` opened for
+   them. A pattern that fails to build stands for NotAllowed, so NULL always means an opened frame. */
+static pattern *rng_build_open(th_schema *schema, th_node *node, rng_build_frame *frame) {
     th_tree *tree = schema->tree;
     if (is_schema_el(schema, node, RNG_NS, "empty")) {
         return schema->p_empty;
@@ -1082,8 +1157,8 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         if (node_pat->nc == NULL) {      /* GCOVR_EXCL_BR_LINE: arena OOM */
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
-        node_pat->p1 = rng_build_children(schema, node, skip);
-        return node_pat;
+        rng_build_group(schema, frame, node, skip, RNG_WRAP_CONTENT, node_pat);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "attribute")) {
         pattern *node_pat = pat_new(schema, P_ATTRIBUTE);
@@ -1100,48 +1175,57 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         if (node_pat->nc == NULL) {      /* GCOVR_EXCL_BR_LINE: arena OOM */
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
-        int has_content = 0;
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
             if (child->type == TH_NODE_ELEMENT && child != skip) {
-                has_content = 1;
+                rng_build_group(schema, frame, node, skip, RNG_WRAP_CONTENT, node_pat);
+                return NULL;
             }
         }
         /* an attribute with no content pattern defaults to <text/> (RELAX NG 3.6.2) */
-        node_pat->p1 = has_content ? rng_build_children(schema, node, skip) : schema->p_text;
+        node_pat->p1 = schema->p_text;
         return node_pat;
     }
     if (is_schema_el(schema, node, RNG_NS, "group")) {
-        return rng_build_children(schema, node, NULL);
+        rng_build_group(schema, frame, node, NULL, RNG_WRAP_NONE, NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "choice")) {
-        return rng_build_choice_children(schema, node);
+        rng_build_join(schema, frame, node->first_child, pat_choice_join, P_CHOICE, schema->p_notallowed, RNG_WRAP_NONE,
+                       NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "interleave")) {
         /* compile time only: validation builds defines lazily, after the scan has checked them */
         if (schema->intern == NULL && rng_check_interleave_node(schema, node) < 0) {
             return schema->p_notallowed;
         }
-        return rng_build_joined(schema, node->first_child, pat_interleave, P_INTERLEAVE, schema->p_empty);
+        rng_build_join(schema, frame, node->first_child, pat_interleave, P_INTERLEAVE, schema->p_empty, RNG_WRAP_NONE,
+                       NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "optional")) {
-        return pat_choice(schema, rng_build_children(schema, node, NULL), schema->p_empty);
+        rng_build_group(schema, frame, node, NULL, RNG_WRAP_OPTIONAL, NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "zeroOrMore")) {
-        return pat_choice(schema, pat_onemore(schema, rng_build_children(schema, node, NULL)), schema->p_empty);
+        rng_build_group(schema, frame, node, NULL, RNG_WRAP_ZERO_OR_MORE, NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "oneOrMore")) {
-        return pat_onemore(schema, rng_build_children(schema, node, NULL));
+        rng_build_group(schema, frame, node, NULL, RNG_WRAP_ONE_OR_MORE, NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "mixed")) {
-        return pat_interleave(schema, rng_build_children(schema, node, NULL), schema->p_text);
+        rng_build_group(schema, frame, node, NULL, RNG_WRAP_MIXED, NULL);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "list")) {
         pattern *node_pat = pat_new(schema, P_LIST);
         if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
-        node_pat->p1 = rng_build_children(schema, node, NULL);
-        return node_pat;
+        rng_build_group(schema, frame, node, NULL, RNG_WRAP_CONTENT, node_pat);
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "data")) {
         pattern *node_pat = pat_new(schema, P_DATA);
@@ -1154,20 +1238,9 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
         facetset_init(facets, node_pat->datatype_id);
-        for (th_node *param = node->first_child; param != NULL; param = param->next_sibling) {
-            if (is_schema_el(schema, param, RNG_NS, "param")) {
-                const th_node_attr *pname = attr_exact(tree, param, "name", 4);
-                Py_ssize_t vlen = 0;
-                const Py_UCS4 *value = element_text_raw(tree, param, &vlen);
-                if (pname != NULL) {
-                    facet_add(&schema->mem, facets, pname->value, pname->value_len, value, vlen);
-                }
-            } else if (is_schema_el(schema, param, RNG_NS, "except")) {
-                node_pat->p1 = rng_build_choice_children(schema, param);
-            }
-        }
         node_pat->facets = facets;
-        return node_pat;
+        *frame = (rng_build_frame){node->first_child, node_pat, NULL, NULL, NULL, 0, RNG_WRAP_DATA};
+        return NULL;
     }
     if (is_schema_el(schema, node, RNG_NS, "value")) {
         pattern *node_pat = pat_new(schema, P_VALUE);
@@ -1203,6 +1276,120 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
     return schema->p_notallowed;
 }
 
+/* The next child of `frame` to build, or NULL once its children are done. A <data> adds each param's facet on the
+   way, in document order with the build of its <except>. */
+static th_node *rng_build_next(th_schema *schema, rng_build_frame *frame) {
+    th_node *child = frame->next;
+    if (frame->wrap != RNG_WRAP_DATA) {
+        while (child != NULL && child->type != TH_NODE_ELEMENT) {
+            child = child->next_sibling;
+        }
+        frame->next = child == NULL ? NULL : child->next_sibling;
+        return child;
+    }
+    for (; child != NULL; child = child->next_sibling) {
+        if (is_schema_el(schema, child, RNG_NS, "param")) {
+            const th_node_attr *pname = attr_exact(schema->tree, child, "name", 4);
+            Py_ssize_t vlen = 0;
+            const Py_UCS4 *value = element_text_raw(schema->tree, child, &vlen);
+            if (pname != NULL) {
+                facet_add(&schema->mem, frame->made->facets, pname->value, pname->value_len, value, vlen);
+            }
+        } else if (is_schema_el(schema, child, RNG_NS, "except")) {
+            frame->next = child->next_sibling;
+            return child;
+        }
+    }
+    frame->next = NULL;
+    return NULL;
+}
+
+/* The pattern a container stands for once its children are built. */
+static pattern *rng_build_close(th_schema *schema, const rng_build_frame *frame) {
+    if (frame->wrap == RNG_WRAP_DATA) {
+        return frame->made;
+    }
+    pattern *joined = frame->route != NULL ? route_fold(schema, frame->join, frame->route) : frame->joined;
+    switch (frame->wrap) {
+    case RNG_WRAP_CONTENT:
+        frame->made->p1 = joined;
+        return frame->made;
+    case RNG_WRAP_OPTIONAL:
+        return pat_choice(schema, joined, schema->p_empty);
+    case RNG_WRAP_ZERO_OR_MORE:
+        return pat_choice(schema, pat_onemore(schema, joined), schema->p_empty);
+    case RNG_WRAP_ONE_OR_MORE:
+        return pat_onemore(schema, joined);
+    case RNG_WRAP_MIXED:
+        return pat_interleave(schema, joined, schema->p_text);
+    default:
+        return joined;
+    }
+}
+
+/* Builds the pattern of `node`, or with `children` set the group of its pattern children, as a define's content is.
+   The containers under way sit on an explicit stack, so the schema's nesting costs no C stack. A failure sets an
+   exception and returns NotAllowed. */
+static pattern *rng_build_from(th_schema *schema, th_node *node, int children) {
+    rng_build_frame local[32];
+    rng_build_frame *stack = local;
+    Py_ssize_t top = 1, cap = 32;
+    pattern *result = NULL;
+    if (children) {
+        rng_build_group(schema, &stack[0], node, NULL, RNG_WRAP_NONE, NULL);
+    } else {
+        result = rng_build_open(schema, node, &stack[0]);
+        top = result == NULL;
+    }
+    while (top > 0) {
+        rng_build_frame *frame = &stack[top - 1];
+        th_node *child = rng_build_next(schema, frame);
+        if (child == NULL) {
+            result = rng_build_close(schema, frame);
+            if (--top == 0) {
+                break;
+            }
+        } else {
+            rng_build_frame *grown = walk_reserve(stack, local, top, &cap, sizeof(rng_build_frame));
+            if (grown == NULL) {               /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                result = schema->p_notallowed; /* GCOVR_EXCL_LINE */
+                break;                         /* GCOVR_EXCL_LINE */
+            }
+            stack = grown;
+            frame = &stack[top - 1];
+            if (frame->wrap == RNG_WRAP_DATA) {
+                rng_build_join(schema, &stack[top++], child->first_child, pat_choice_join, P_CHOICE,
+                               schema->p_notallowed, RNG_WRAP_NONE, NULL);
+                continue;
+            }
+            result = rng_build_open(schema, child, &stack[top]);
+            if (result == NULL) {
+                top++;
+                continue;
+            }
+        }
+        rng_build_frame *parent = &stack[top - 1];
+        if (parent->wrap == RNG_WRAP_DATA) {
+            parent->made->p1 = result;
+        } else if (parent->route != NULL) {
+            parent->route->operands[parent->index++] = result;
+        } else {
+            parent->joined = result;
+        }
+    }
+    walk_release(stack, local);
+    return result;
+}
+
+static pattern *rng_build(th_schema *schema, th_node *node) {
+    return rng_build_from(schema, node, 0);
+}
+
+/* Group the pattern children of a container into a single pattern (Empty when none). */
+static pattern *rng_build_children(th_schema *schema, th_node *node) {
+    return rng_build_from(schema, node, 1);
+}
+
 static void rng_check_href(th_node *node) {
     if (node->type != TH_NODE_ELEMENT) {
         return;
@@ -1232,7 +1419,7 @@ static pattern *rng_resolve(th_schema *schema, int def_index) {
 /* Section 4.17 merges same-named components under one operator for the name: choice unless one says interleave. */
 static pattern *rng_combine(th_schema *schema, const def_entry *entry) {
     if (entry->extra == NULL) {
-        return rng_build_children(schema, entry->first, NULL);
+        return rng_build_children(schema, entry->first);
     }
     Py_ssize_t count = 1;
     for (const def_part *extra = entry->extra; extra != NULL; extra = extra->next) {
@@ -1246,7 +1433,7 @@ static pattern *rng_combine(th_schema *schema, const def_entry *entry) {
     th_node *define = entry->first;
     def_part *part = entry->extra;
     for (;;) {
-        route->operands[len++] = rng_build_children(schema, define, NULL);
+        route->operands[len++] = rng_build_children(schema, define);
         if (rng_combines_by_interleave(schema, define)) {
             route->type = P_INTERLEAVE;
         }
@@ -2874,8 +3061,7 @@ static int rng_check_combine(th_schema *schema, def_entry *entry);
 static int rng_check_scope(th_schema *schema, th_node *element);
 
 /* An element's 7.3 check runs once its content is scanned, and only when the scan met an attribute in it: by then
-   every define it reaches is free of ref cycles and nests no deeper than TH_VALIDATE_MAX_DEPTH, which bounds the
-   check's recursion. */
+   every define it reaches is free of ref cycles, so the check's walk through them ends. */
 static int rng_scan_queue(th_schema *schema, def_entry *starts, nodevec *pending) {
     if (rng_check_combine(schema, starts) < 0 || rng_scan(schema, starts->first, 0, pending) < 0) {
         return -1;
@@ -2984,7 +3170,8 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
 /* Gather the start and define components of a grammar, looking through div (4.11, and the divs 4.7 makes of each
    include). Returns 0, or -1 with an exception set. */
 static int rng_grammar_components(th_schema *schema, th_node *container, def_entry *starts) {
-    for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
+    th_node *child = container->first_child;
+    while (child != NULL) {
         if (rng_local_is(child, "define")) {
             const th_node_attr *name = attr_exact(schema->tree, child, "name", 4);
             if (name != NULL && def_add(schema, name, child) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
@@ -2997,8 +3184,9 @@ static int rng_grammar_components(th_schema *schema, th_node *container, def_ent
                 return -1;                                 /* GCOVR_EXCL_LINE */
             }
         } else if (rng_local_is(child, "div")) {
-            if (rng_grammar_components(schema, child, starts) < 0) {
-                return -1;
+            if (child->first_child != NULL) {
+                child = child->first_child;
+                continue;
             }
         } else {
             rng_check_href(child);
@@ -3006,6 +3194,7 @@ static int rng_grammar_components(th_schema *schema, th_node *container, def_ent
                 return -1;
             }
         }
+        child = schema_walk_skip(container, child);
     }
     return 0;
 }
@@ -3034,36 +3223,39 @@ static int rng_is_reference(th_schema *schema, th_node *node) {
 static void rng_prune_annotations(th_schema *schema, th_node *container) {
     th_node *child = container->first_child;
     while (child != NULL) {
-        th_node *next = child->next_sibling;
-        if (child->type == TH_NODE_ELEMENT) {
-            qname name = schema_direct_qname(schema, child);
-            if (!u_eq_ascii(name.uri, name.uri_len, RNG_NS)) {
-                th_node_remove(child);
-            } else {
-                /* the length picks the one name to compare: include, attribute or externalRef */
-                switch (name.local_len) {
-                case 7:
-                case 11:
-                    schema->rng_references |= (u_eq_ascii(name.local, name.local_len, "include") ||
-                                               u_eq_ascii(name.local, name.local_len, "externalRef")) &&
-                                              attr_exact(schema->tree, child, "href", 4) != NULL;
-                    break;
-                case 9:
-                    schema->rng_attributes |= u_eq_ascii(name.local, 9, "attribute");
-                    break;
-                default:
-                    break;
-                }
-                rng_prune_annotations(schema, child);
-            }
+        if (child->type != TH_NODE_ELEMENT) {
+            child = schema_walk_skip(container, child);
+            continue;
         }
-        child = next;
+        qname name = schema_direct_qname(schema, child);
+        if (!u_eq_ascii(name.uri, name.uri_len, RNG_NS)) {
+            th_node *next = schema_walk_skip(container, child);
+            th_node_remove(child);
+            child = next;
+            continue;
+        }
+        /* the length picks the one name to compare: include, attribute or externalRef */
+        switch (name.local_len) {
+        case 7:
+        case 11:
+            schema->rng_references |= (u_eq_ascii(name.local, name.local_len, "include") ||
+                                       u_eq_ascii(name.local, name.local_len, "externalRef")) &&
+                                      attr_exact(schema->tree, child, "href", 4) != NULL;
+            break;
+        case 9:
+            schema->rng_attributes |= u_eq_ascii(name.local, 9, "attribute");
+            break;
+        default:
+            break;
+        }
+        child = schema_walk_next(container, child);
     }
 }
 
 /* Section 4.18 resolves names before 4.19 removes unused definitions. */
 static int rng_check_unused_refs(th_schema *schema, th_node *container) {
-    for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
+    for (th_node *child = schema_walk_next(container, container); child != NULL;
+         child = schema_walk_next(container, child)) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
@@ -3079,29 +3271,7 @@ static int rng_check_unused_refs(th_schema *schema, th_node *container) {
             }
         }
         rng_check_href(child);
-        if (PyErr_Occurred() || rng_check_unused_refs(schema, child) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending);
-
-/* Checks 4.10, 4.19 and 7.4 on reachable patterns only: an unreachable <define> is never built, so it can neither
-   crash nor blow up, and dead definitions add no compile cost. The walk follows each <ref> into its define and stops
-   at an <element>, left in `pending` for a walk of its own: a derivative descends no further either, so the level
-   `pending->peak` records, counted through every <ref>, bounds the recursion of both. A container raises it to the
-   level of its pattern children, which an empty one has none of. -1 is a failure. */
-static int rng_scan(th_schema *schema, th_node *container, int depth, nodevec *pending) {
-    for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        if (depth >= pending->peak) {
-            pending->peak = depth + 1;
-        }
-        if (rng_scan_node(schema, child, depth, pending) < 0) {
+        if (PyErr_Occurred()) {
             return -1;
         }
     }
@@ -3110,49 +3280,7 @@ static int rng_scan(th_schema *schema, th_node *container, int depth, nodevec *p
 
 enum { RNG_SCAN_OTHER, RNG_SCAN_REF, RNG_SCAN_INTERLEAVE, RNG_SCAN_ELEMENT };
 
-static RNG_FORCEINLINE int rng_scan_kind(th_node *node);
-static RNG_NOINLINE int rng_scan_ref(th_schema *schema, th_node *ref, int depth, nodevec *pending);
 static RNG_FORCEINLINE int nodevec_push(nodevec *vec, th_node *node);
-
-static RNG_FORCEINLINE int rng_local_name_is(const Py_UCS4 *name, Py_ssize_t len, const char *local,
-                                             Py_ssize_t local_len);
-
-static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending) {
-    switch (rng_scan_kind(node)) {
-    case RNG_SCAN_REF:
-        return rng_scan_ref(schema, node, depth + 1, pending);
-    case RNG_SCAN_INTERLEAVE:
-        return rng_check_interleave_node(schema, node) < 0 ? -1 : rng_scan(schema, node, depth + 1, pending);
-    case RNG_SCAN_ELEMENT:
-        return nodevec_push(pending, node);
-    default:
-        pending->attrs |= schema->rng_attributes && rng_local_name_is(node->text, node->text_len, "attribute", 9);
-        return rng_scan(schema, node, depth + 1, pending);
-    }
-}
-
-static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, nodevec *pending);
-
-static RNG_NOINLINE int rng_scan_ref(th_schema *schema, th_node *ref, int depth, nodevec *pending) {
-    const th_node_attr *name = attr_exact(schema->tree, ref, "name", 4);
-    if (name == NULL) {
-        PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
-        return -1;
-    }
-    Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
-    if (index < 0) {
-        PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> has no matching define");
-        return -1;
-    }
-    int height = rng_scan_define(schema, index, depth, pending);
-    if (height < 0) {
-        return -1;
-    }
-    if (depth + height > pending->peak) {
-        pending->peak = depth + height;
-    }
-    return 0;
-}
 
 /* Whether the local part of `name` (after its first colon, as split_prefix splits it) is `local`. Matching the end
    first leaves the colon search to the few names that end in `local` and are longer. */
@@ -3186,48 +3314,162 @@ static RNG_FORCEINLINE int rng_scan_kind(th_node *node) {
     return RNG_SCAN_OTHER;
 }
 
-/* RELAX NG 4.19: meeting a define again while its expansion is under way is a ref loop with no <element> between,
-   which libxml2 ("Detected a cycle in %s references") and jing/MSV reject too. A define expands once; a later <ref>
-   adds the nesting recorded then to its own, so a chain of defines cannot nest what the derivatives descend deeper
-   than the TH_VALIDATE_MAX_DEPTH the schema tree itself is held to. */
-static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, nodevec *pending) {
-    def_entry *entry = &schema->defines.items[def_index];
-    char buffer[256];
-    if (entry->scan_height == -2) {
-        PyErr_Format(PyExc_ValueError, "RELAX NG define '%s' references itself with no element in between",
-                     name_utf8(entry->name, entry->len, buffer, sizeof(buffer)));
-        return -1;
+/* A container the scan walks the pattern children of, or a define a ref expands, whose components are scanned in
+   turn as containers above it. */
+typedef struct {
+    th_node *next;    /* a container's next child to scan */
+    def_entry *entry; /* the define being expanded, NULL for a container */
+    def_part *part;   /* the define's next component to scan */
+    int depth;        /* the pattern level the container's children sit at */
+    int outer_peak;   /* the peak and attribute flag of the content the ref sits in, restored once the define is done */
+    int outer_attrs;
+} rng_scan_frame;
+
+/* The define a ref names, or NULL with ValueError set. */
+static RNG_NOINLINE def_entry *rng_scan_target(th_schema *schema, th_node *ref) {
+    const th_node_attr *name = attr_exact(schema->tree, ref, "name", 4);
+    if (name == NULL) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
+        return NULL;
     }
-    if (entry->scan_height == -1 && depth <= TH_VALIDATE_MAX_DEPTH) {
-        entry->scan_height = -2;
-        if (rng_check_combine(schema, entry) < 0) {
-            return -1;
-        }
-        int outer = pending->peak;
-        int outer_attrs = pending->attrs;
-        pending->peak = depth;
-        pending->attrs = 0;
-        int scanned = rng_scan(schema, entry->first, depth, pending);
-        for (def_part *part = entry->extra; scanned == 0 && part != NULL; part = part->next) {
-            scanned = rng_scan(schema, part->node, depth, pending);
-        }
-        if (scanned < 0) {
-            return -1;
-        }
-        int height = pending->peak - depth;
-        pending->peak = outer;
-        entry->scan_height = height;
-        entry->scan_attrs = pending->attrs;
-        pending->attrs = outer_attrs;
+    Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
+    if (index < 0) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> has no matching define");
+        return NULL;
     }
+    return &schema->defines.items[index];
+}
+
+/* A ref at level `depth` adds the nesting its define recorded. -1 with RecursionError set when the two together reach
+   TH_VALIDATE_MAX_DEPTH, or the define was too deep to expand at all. */
+static int rng_scan_reached(def_entry *entry, int depth, nodevec *pending) {
     if (entry->scan_height < 0 || depth + entry->scan_height > TH_VALIDATE_MAX_DEPTH) {
+        char buffer[256];
         PyErr_Format(PyExc_RecursionError,
                      "RELAX NG <ref> to '%s' nests patterns %d levels or deeper with no element in between",
                      name_utf8(entry->name, entry->len, buffer, sizeof(buffer)), TH_VALIDATE_MAX_DEPTH);
         return -1;
     }
     pending->attrs |= entry->scan_attrs;
-    return entry->scan_height;
+    if (depth + entry->scan_height > pending->peak) {
+        pending->peak = depth + entry->scan_height;
+    }
+    return 0;
+}
+
+/* Checks 4.10, 4.19 and 7.4 on reachable patterns only: an unreachable <define> is never built, so it can neither
+   crash nor blow up, and dead definitions add no compile cost. The walk follows each <ref> into its define and stops
+   at an <element>, left in `pending` for a walk of its own: a derivative descends no further either, so the level
+   `pending->peak` records, counted through every <ref>, bounds the recursion of both. A container raises it to the
+   level of its pattern children, which an empty one has none of. The containers and defines under way sit on an
+   explicit stack, so neither the schema's nesting nor a chain of refs costs C stack. -1 is a failure.
+
+   RELAX NG 4.19: meeting a define again while its expansion is under way is a ref loop with no <element> between,
+   which libxml2 ("Detected a cycle in %s references") and jing/MSV reject too. A define expands once; a later <ref>
+   adds the nesting recorded then to its own, so a chain of defines cannot nest what the derivatives descend deeper
+   than the TH_VALIDATE_MAX_DEPTH the schema tree itself is held to. */
+static int rng_scan(th_schema *schema, th_node *container, int depth, nodevec *pending) {
+    rng_scan_frame local[32];
+    rng_scan_frame *stack = local;
+    Py_ssize_t top = 1, cap = 32;
+    stack[0] = (rng_scan_frame){container->first_child, NULL, NULL, depth, 0, 0};
+    int status = -1;
+    while (top > 0) {
+        rng_scan_frame *frame = &stack[top - 1];
+        th_node *next = NULL;
+        int next_depth = frame->depth;
+        if (frame->entry != NULL) {
+            def_entry *entry = frame->entry;
+            if (frame->part != NULL) {
+                next = frame->part->node->first_child;
+                frame->part = frame->part->next;
+            } else {
+                entry->scan_height = pending->peak - frame->depth;
+                entry->scan_attrs = pending->attrs;
+                pending->peak = frame->outer_peak;
+                pending->attrs = frame->outer_attrs;
+                top--;
+                if (rng_scan_reached(entry, frame->depth, pending) < 0) {
+                    goto done;
+                }
+                continue;
+            }
+        } else {
+            th_node *child = frame->next;
+            while (child != NULL && child->type != TH_NODE_ELEMENT) {
+                child = child->next_sibling;
+            }
+            if (child == NULL) {
+                top--;
+                continue;
+            }
+            frame->next = child->next_sibling;
+            if (frame->depth >= pending->peak) {
+                pending->peak = frame->depth + 1;
+            }
+            next_depth = frame->depth + 1;
+            switch (rng_scan_kind(child)) {
+            case RNG_SCAN_REF: {
+                def_entry *entry = rng_scan_target(schema, child);
+                if (entry == NULL) {
+                    goto done;
+                }
+                if (entry->scan_height == -2) {
+                    char buffer[256];
+                    PyErr_Format(PyExc_ValueError, "RELAX NG define '%s' references itself with no element in between",
+                                 name_utf8(entry->name, entry->len, buffer, sizeof(buffer)));
+                    goto done;
+                }
+                if (entry->scan_height != -1 || next_depth > TH_VALIDATE_MAX_DEPTH) {
+                    if (rng_scan_reached(entry, next_depth, pending) < 0) {
+                        goto done;
+                    }
+                    continue;
+                }
+                entry->scan_height = -2;
+                if (rng_check_combine(schema, entry) < 0) {
+                    goto done;
+                }
+                rng_scan_frame *grown = walk_reserve(stack, local, top, &cap, sizeof(rng_scan_frame));
+                if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                    goto done;       /* GCOVR_EXCL_LINE */
+                }
+                stack = grown;
+                stack[top++] = (rng_scan_frame){NULL, entry, entry->extra, next_depth, pending->peak, pending->attrs};
+                pending->peak = next_depth;
+                pending->attrs = 0;
+                next = entry->first->first_child;
+                break;
+            }
+            case RNG_SCAN_INTERLEAVE:
+                if (rng_check_interleave_node(schema, child) < 0) {
+                    goto done;
+                }
+                next = child->first_child;
+                break;
+            case RNG_SCAN_ELEMENT:
+                if (nodevec_push(pending, child) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    goto done;                          /* GCOVR_EXCL_LINE */
+                }
+                continue;
+            default:
+                pending->attrs |=
+                    schema->rng_attributes && rng_local_name_is(child->text, child->text_len, "attribute", 9);
+                next = child->first_child;
+                break;
+            }
+        }
+        rng_scan_frame *grown = walk_reserve(stack, local, top, &cap, sizeof(rng_scan_frame));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto done;       /* GCOVR_EXCL_LINE */
+        }
+        stack = grown;
+        stack[top++] = (rng_scan_frame){next, NULL, NULL, next_depth, 0, 0};
+    }
+    status = 0;
+done:
+    walk_release(stack, local);
+    return status;
 }
 
 /* A longer queue moves to the heap, not the schema arena: it lives only as long as the scan. */
@@ -3927,9 +4169,33 @@ static int rng_names_from_choice(th_schema *schema, const nameclass *nc, nsnode 
     return status;
 }
 
+/* A pattern rng_names_walk is inside, with the names of its children united so far. */
+typedef struct {
+    th_node *node;
+    th_node *next;    /* the next child to walk */
+    th_node *current; /* the child whose names are being built */
+    th_node *last;    /* an interleave's last branch */
+    nameset set;
+    int interleave; /* the branches are checked against each other as they are folded in */
+    int keep;       /* an interleave whose last merge is kept, because the level above needs the set */
+} rng_names_frame_walk;
+
+/* Opens `frame` on an interleave's branches. */
+static void rng_names_open_interleave(th_node *interleave, int keep, rng_names_frame_walk *frame) {
+    th_node *last = NULL;
+    for (th_node *branch = interleave->first_child; branch != NULL; branch = branch->next_sibling) {
+        if (branch->type == TH_NODE_ELEMENT) {
+            last = branch;
+        }
+    }
+    *frame = (rng_names_frame_walk){interleave, interleave->first_child, NULL, last, {{NULL}, {NULL}, 0}, 1, keep};
+}
+
 /* An <element>'s content is a new level and an <attribute>'s text is not interleave text. A <ref> adds its define's
-   set, which is built once. Every node walked is charged, so a name-free group costs as much as one name. */
-static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
+   set, which is built once. Every node walked is charged, so a name-free group costs as much as one name. Fills `out`
+   and returns 0 for a node whose names need no walk of its children, opens `frame` on them and returns 1, or returns
+   -1 on failure. */
+static int rng_names_enter(th_schema *schema, th_node *node, nameset *out, rng_names_frame_walk *frame) {
     if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted while walking a node, hard to pin */
         return -1;                  /* GCOVR_EXCL_LINE */
     }
@@ -3967,43 +4233,82 @@ static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
         return rng_names_define(schema, target, out);
     }
     if (is_schema_el(schema, node, RNG_NS, "interleave")) {
-        return rng_names_interleave(schema, node, out, 1);
+        rng_names_open_interleave(node, 1, frame);
+        return 1;
     }
-    if (is_schema_el(schema, node, RNG_NS, "mixed")) { /* 4.13: an interleave of its content with <text/> */
-        out->text = 1;
-    }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        nameset next = {0};
-        if (rng_names_node(schema, child, &next) < 0 || rng_names_merge(schema, out, &next, 0, 1, 0) < 0) {
-            return -1;
-        }
-    }
-    return 0;
+    *frame = (rng_names_frame_walk){node, node->first_child, NULL, NULL, {{NULL}, {NULL}, 0}, 0, 1};
+    /* 4.13: a mixed is an interleave of its content with <text/> */
+    frame->set.text = is_schema_el(schema, node, RNG_NS, "mixed");
+    return 1;
 }
 
-/* The names of the branches of an interleave, checked against each other as they are folded in. The last branch's
-   merge is kept only when the caller needs the set, and the interleave is marked checked either way. */
+/* The names a <define> matches, or with `interleave` set the names of an interleave's branches, checked against each
+   other as they are folded in. An interleave's last merge is kept only when the caller needs the set (`keep`), and the
+   interleave is marked checked either way. The patterns under way sit on an explicit stack, so the schema's nesting
+   costs no C stack. 0, or -1 with an exception set. */
+static int rng_names_walk(th_schema *schema, th_node *node, nameset *out, int interleave, int keep) {
+    rng_names_frame_walk local[16];
+    rng_names_frame_walk *stack = local;
+    Py_ssize_t top = 1, cap = 16;
+    int status = -1;
+    if (interleave) {
+        rng_names_open_interleave(node, keep, &stack[0]);
+    } else if (rng_names_enter(schema, node, out, &stack[0]) < 0) { /* GCOVR_EXCL_BR_LINE: budget spent on a define */
+        return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    for (;;) {
+        rng_names_frame_walk *frame = &stack[top - 1];
+        th_node *child = frame->next;
+        while (child != NULL && child->type != TH_NODE_ELEMENT) {
+            child = child->next_sibling;
+        }
+        nameset next = {{NULL}, {NULL}, 0};
+        if (child == NULL) {
+            /* GCOVR_EXCL_BR_START: marking fails only on arena OOM or a spent budget */
+            if (frame->interleave && rng_mark_checked(schema, frame->node) < 0) {
+                goto done; /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            next = frame->set;
+            if (--top == 0) {
+                *out = next;
+                status = 0;
+                break;
+            }
+        } else {
+            frame->next = child->next_sibling;
+            frame->current = child;
+            rng_names_frame_walk *grown = walk_reserve(stack, local, top, &cap, sizeof(rng_names_frame_walk));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                goto done;       /* GCOVR_EXCL_LINE */
+            }
+            stack = grown;
+            const int entered = rng_names_enter(schema, child, &next, &stack[top]);
+            if (entered < 0) {
+                goto done;
+            }
+            if (entered > 0) {
+                top++;
+                continue;
+            }
+        }
+        rng_names_frame_walk *parent = &stack[top - 1];
+        const int merge_keep = !parent->interleave || parent->keep || parent->current != parent->last;
+        if (rng_names_merge(schema, &parent->set, &next, parent->interleave, merge_keep, 0) < 0) {
+            goto done;
+        }
+    }
+done:
+    walk_release(stack, local);
+    return status;
+}
+
+static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
+    return rng_names_walk(schema, node, out, 0, 1);
+}
+
 static int rng_names_interleave(th_schema *schema, th_node *interleave, nameset *out, int keep) {
-    th_node *last = NULL;
-    for (th_node *branch = interleave->first_child; branch != NULL; branch = branch->next_sibling) {
-        if (branch->type == TH_NODE_ELEMENT) {
-            last = branch;
-        }
-    }
-    for (th_node *branch = interleave->first_child; branch != NULL; branch = branch->next_sibling) {
-        if (branch->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        nameset next = {0};
-        if (rng_names_node(schema, branch, &next) < 0 ||
-            rng_names_merge(schema, out, &next, 1, keep || branch != last, 0) < 0) {
-            return -1;
-        }
-    }
-    return rng_mark_checked(schema, interleave);
+    return rng_names_walk(schema, interleave, out, 1, keep);
 }
 
 /* A define's set joins its components like rng_combine does: when any of them combines by interleave, each is checked
@@ -4037,24 +4342,26 @@ static def_entry *rng_names_ref_define(th_schema *schema, th_node *node) {
 
 /* The refs in a node's content, in the order rng_names_node reaches them. Writes them to out when out is not NULL,
    and returns the index after the last one. */
-static Py_ssize_t rng_names_refs(th_schema *schema, th_node *node, def_entry **out, Py_ssize_t index) {
-    if (is_schema_el(schema, node, RNG_NS, "element") || is_schema_el(schema, node, RNG_NS, "attribute")) {
-        return index;
-    }
-    if (is_schema_el(schema, node, RNG_NS, "ref")) {
+static Py_ssize_t rng_names_refs(th_schema *schema, th_node *root, def_entry **out, Py_ssize_t index) {
+    th_node *node = root;
+    while (node != NULL) {
+        if (node->type != TH_NODE_ELEMENT || is_schema_el(schema, node, RNG_NS, "element") ||
+            is_schema_el(schema, node, RNG_NS, "attribute")) {
+            node = schema_walk_skip(root, node);
+            continue;
+        }
+        if (!is_schema_el(schema, node, RNG_NS, "ref")) {
+            node = schema_walk_next(root, node);
+            continue;
+        }
         def_entry *target = rng_names_ref_define(schema, node);
-        if (target == NULL) {
-            return index;
+        if (target != NULL) {
+            if (out != NULL) {
+                out[index] = target;
+            }
+            index++;
         }
-        if (out != NULL) {
-            out[index] = target;
-        }
-        return index + 1;
-    }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT) {
-            index = rng_names_refs(schema, child, out, index);
-        }
+        node = schema_walk_skip(root, node);
     }
     return index;
 }
@@ -4368,104 +4675,170 @@ static int rng_attrs_merge(th_schema *schema, rng_attrs *acc, rng_attrs *next, i
     return rng_names_merge(schema, &acc->set, &next->set, joined && status == 2, 1, 1);
 }
 
-static int rng_attr_walk(th_schema *schema, th_node *node, int kind, int more, rng_attrs *out, int *bad);
+/* A pattern whose children rng_attr_scope joins the attributes of, or a define a ref builds the record of, whose
+   components are walked as patterns above it. */
+typedef struct {
+    th_node *next;     /* the pattern's next child */
+    rng_attrs acc;     /* the pattern's attributes so far */
+    int *bad;          /* where an anyName or nsName attribute outside oneOrMore is recorded */
+    def_attrs *record; /* the define's record, NULL for a pattern */
+    def_entry *entry;  /* the define */
+    def_part *part;    /* the define's next component to walk */
+    int more;          /* inside oneOrMore or zeroOrMore; for a define, where the ref sits */
+    int joined;        /* a pattern that joins its children (not a choice); for a define, one combining by interleave */
+    int stage;         /* a define: 0 while its first component is walked */
+} rng_attr_frame;
 
-/* `out` starts empty and takes the attributes of each pattern child: joined, or united under a choice. */
-static int rng_attr_children(th_schema *schema, th_node *node, int more, int joined, rng_attrs *out, int *bad) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        int kind = rng_attr_kind(child);
-        if (kind == RNG_ATTR_ELEMENT) {
-            continue;
-        }
-        rng_attrs next;
-        memset(&next, 0, sizeof(next));
-        if (rng_attr_walk(schema, child, kind, more, &next, bad) < 0 ||
-            rng_attrs_merge(schema, out, &next, joined) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-/* A define's record. Its components join the way its element names do: by interleave when any component says so. */
-static int rng_attrs_body(th_schema *schema, def_entry *entry, def_attrs *record) {
-    if (rng_attr_walk(schema, entry->first, RNG_ATTR_JOIN, 0, &record->attrs, &record->bad) < 0) {
-        return -1;
-    }
-    if (entry->extra != NULL) {
-        int joined = rng_combines_by_interleave(schema, entry->first);
-        for (def_part *part = entry->extra; part != NULL; part = part->next) {
-            joined |= rng_combines_by_interleave(schema, part->node);
-        }
-        for (def_part *part = entry->extra; part != NULL; part = part->next) {
-            rng_attrs next;
-            memset(&next, 0, sizeof(next));
-            if (rng_attr_walk(schema, part->node, RNG_ATTR_JOIN, 0, &next, &record->bad) < 0 ||
-                rng_attrs_merge(schema, &record->attrs, &next, joined) < 0) {
-                return -1;
-            }
-        }
-    }
-    record->built = 1;
-    return 0;
-}
-
-/* The scan has already rejected a ref that names no define, so a NULL target is a grammar-less schema's ref, which
-   rng_build rejects. The check runs after the scan, so the defines a ref reaches hold no cycle. */
-static int rng_attr_ref(th_schema *schema, th_node *ref, int more, rng_attrs *out, int *bad) {
-    def_entry *target = rng_names_ref_define(schema, ref);
-    if (target == NULL) {
-        return 0;
-    }
+/* The 7.3 record of a ref's define, in a side table made on first use; NULL on allocation failure. */
+static def_attrs *rng_attr_record(th_schema *schema, const def_entry *target) {
     if (schema->def_attrs_table == NULL) {
         size_t bytes = (size_t)schema->defines.len * sizeof(def_attrs);
         schema->def_attrs_table = arena_alloc(&schema->names_mem, bytes);
         if (schema->def_attrs_table == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             PyErr_NoMemory();                  /* GCOVR_EXCL_LINE */
-            return -1;                         /* GCOVR_EXCL_LINE */
+            return NULL;                       /* GCOVR_EXCL_LINE */
         }
         memset(schema->def_attrs_table, 0, bytes);
     }
-    def_attrs *record = &schema->def_attrs_table[target - schema->defines.items];
-    if (!record->built && rng_attrs_body(schema, target, record) < 0) {
-        return -1;
-    }
-    *out = record->attrs;
-    *bad |= !more && record->bad;
-    return 0;
+    return &schema->def_attrs_table[target - schema->defines.items];
 }
 
-/* `bad` records an anyName or nsName attribute outside oneOrMore. A define keeps it, and only a scope that refs the
-   define outside oneOrMore raises it. */
-static int rng_attr_walk(th_schema *schema, th_node *node, int kind, int more, rng_attrs *out, int *bad) {
-    switch (kind) {
-    case RNG_ATTR_ATTRIBUTE:
-        if (!more && attr_exact(schema->tree, node, "name", 4) == NULL) {
-            rng_attr_class *entry = rng_attr_class_of(schema, node);
-            if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-                return -1;       /* GCOVR_EXCL_LINE */
+/* The attributes the content of `element` holds, joined as an implicit group and checked as they meet, with `bad` set
+   for an anyName or nsName attribute outside oneOrMore or zeroOrMore. A define keeps that flag, and only a scope that
+   refs the define outside oneOrMore raises it. A ref takes its define's record, built once; the check runs after the
+   scan, so the defines a ref reaches hold no cycle. The patterns and defines under way sit on an explicit stack, so
+   neither the schema's nesting nor a chain of refs costs C stack. 0, or -1 with an exception set. */
+static int rng_attr_scope(th_schema *schema, th_node *element, int *bad) {
+    rng_attr_frame local[16];
+    rng_attr_frame *stack = local;
+    Py_ssize_t top = 1, cap = 16;
+    memset(&stack[0], 0, sizeof(stack[0]));
+    stack[0].next = element->first_child;
+    stack[0].bad = bad;
+    stack[0].joined = 1;
+    int status = -1;
+    for (;;) {
+        rng_attr_frame *frame = &stack[top - 1];
+        rng_attrs next;
+        memset(&next, 0, sizeof(next));
+        th_node *push = NULL;
+        int push_more = 0, push_joined = 1;
+        int *push_bad = frame->bad;
+        if (frame->record != NULL) {
+            def_attrs *record = frame->record;
+            if (frame->part == NULL) {
+                record->built = 1;
+                const int more = frame->more;
+                top--;
+                next = record->attrs;
+                *stack[top - 1].bad |= !more && record->bad;
+            } else {
+                push = frame->part->node;
+                push_bad = &record->bad;
+                frame->part = frame->part->next;
             }
-            *bad |= !nc_all_named(entry->nc);
+        } else {
+            th_node *child = frame->next;
+            int kind = RNG_ATTR_ELEMENT;
+            while (child != NULL &&
+                   (child->type != TH_NODE_ELEMENT || (kind = rng_attr_kind(child)) == RNG_ATTR_ELEMENT)) {
+                child = child->next_sibling;
+            }
+            if (child == NULL) {
+                next = frame->acc;
+                if (--top == 0) {
+                    status = 0;
+                    break;
+                }
+                rng_attr_frame *parent = &stack[top - 1];
+                if (parent->record != NULL) {
+                    if (parent->stage == 0) {
+                        def_entry *entry = parent->entry;
+                        parent->record->attrs = next;
+                        parent->stage = 1;
+                        for (def_part *part = entry->extra; part != NULL; part = part->next) {
+                            parent->joined |= rng_combines_by_interleave(schema, part->node);
+                        }
+                    } else if (rng_attrs_merge(schema, &parent->record->attrs, &next, parent->joined) < 0) {
+                        goto done;
+                    }
+                    continue;
+                }
+            } else {
+                frame->next = child->next_sibling;
+                if (kind == RNG_ATTR_ATTRIBUTE) {
+                    if (!frame->more && attr_exact(schema->tree, child, "name", 4) == NULL) {
+                        rng_attr_class *entry = rng_attr_class_of(schema, child);
+                        if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                            goto done;       /* GCOVR_EXCL_LINE */
+                        }
+                        *frame->bad |= !nc_all_named(entry->nc);
+                    }
+                    next.few[0] = child;
+                    next.count = 1;
+                } else if (kind == RNG_ATTR_REF) {
+                    /* the scan has already rejected a ref that names no define, so a NULL target is a grammar-less
+                       schema's ref, which rng_build rejects */
+                    def_entry *entry = rng_names_ref_define(schema, child);
+                    def_attrs *record = entry == NULL ? NULL : rng_attr_record(schema, entry);
+                    if (entry != NULL && record == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                        goto done;                         /* GCOVR_EXCL_LINE */
+                    }
+                    if (record != NULL && record->built) {
+                        next = record->attrs;
+                        *frame->bad |= !frame->more && record->bad;
+                    } else if (record != NULL) {
+                        rng_attr_frame *grown = walk_reserve(stack, local, top, &cap, sizeof(rng_attr_frame));
+                        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                            goto done;       /* GCOVR_EXCL_LINE */
+                        }
+                        stack = grown;
+                        memset(&stack[top], 0, sizeof(stack[top]));
+                        stack[top].record = record;
+                        stack[top].entry = entry;
+                        stack[top].part = entry->extra;
+                        stack[top].more = stack[top - 1].more;
+                        stack[top].joined = entry->extra != NULL && rng_combines_by_interleave(schema, entry->first);
+                        top++;
+                        push = entry->first;
+                        push_bad = &record->bad;
+                    }
+                } else {
+                    push = child;
+                    push_more = frame->more || kind == RNG_ATTR_REPEAT;
+                    push_joined = kind != RNG_ATTR_CHOICE;
+                }
+            }
         }
-        out->few[0] = node;
-        out->count = 1;
-        return 0;
-    case RNG_ATTR_REF:
-        return rng_attr_ref(schema, node, more, out, bad);
-    default:
-        return rng_attr_children(schema, node, more || kind == RNG_ATTR_REPEAT, kind != RNG_ATTR_CHOICE, out, bad);
+        if (push != NULL) {
+            rng_attr_frame *grown = walk_reserve(stack, local, top, &cap, sizeof(rng_attr_frame));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                goto done;       /* GCOVR_EXCL_LINE */
+            }
+            stack = grown;
+            memset(&stack[top], 0, sizeof(stack[top]));
+            stack[top].next = push->first_child;
+            stack[top].bad = push_bad;
+            stack[top].more = push_more;
+            stack[top].joined = push_joined;
+            top++;
+            continue;
+        }
+        rng_attr_frame *parent = &stack[top - 1];
+        if (rng_attrs_merge(schema, &parent->acc, &next, parent->joined) < 0) {
+            goto done;
+        }
     }
+done:
+    walk_release(stack, local);
+    return status;
 }
 
-/* The content of an element is an implicit group, so its attributes are joined and checked here. */
+/* RELAX NG 7.3 for one element: the content of an element is an implicit group, so its attributes are joined and
+   checked here. */
 static int rng_check_scope(th_schema *schema, th_node *element) {
-    rng_attrs names;
-    memset(&names, 0, sizeof(names));
     int bad = 0;
-    if (rng_attr_children(schema, element, 0, 1, &names, &bad) < 0) {
+    if (rng_attr_scope(schema, element, &bad) < 0) {
         return -1;
     }
     if (bad) {
@@ -4477,12 +4850,10 @@ static int rng_check_scope(th_schema *schema, th_node *element) {
 }
 
 /* Checks every element of a grammar-less schema, which rng_build alone reaches. */
-static int rng_check_scopes(th_schema *schema, th_node *node) {
-    if (rng_attr_kind(node) == RNG_ATTR_ELEMENT && rng_check_scope(schema, node) < 0) {
-        return -1;
-    }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && rng_check_scopes(schema, child) < 0) {
+static int rng_check_scopes(th_schema *schema, th_node *root) {
+    for (th_node *node = root; node != NULL; node = schema_walk_next(root, node)) {
+        if (node->type == TH_NODE_ELEMENT && rng_attr_kind(node) == RNG_ATTR_ELEMENT &&
+            rng_check_scope(schema, node) < 0) {
             return -1;
         }
     }

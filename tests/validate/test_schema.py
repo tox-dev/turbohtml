@@ -61,6 +61,95 @@ def test_deeply_nested_instance_fits_a_small_thread_stack(schema_type: str, sour
     assert (result.returncode, result.stdout) == (0, "True\n"), result.stderr
 
 
+_LEVELS: Final[int] = 380  # a schema nested a few levels inside the 400-level depth cap
+
+
+def _nest(open_tag: str, inner: str, close_tag: str, levels: int = _LEVELS) -> str:
+    return f"{open_tag * levels}{inner}{close_tag * levels}"
+
+
+def _xsd_group(index: int) -> str:
+    inner = '<xs:element name="x" type="xs:int"/>' if index == 9 else f'<xs:group ref="g{index + 1}"/>'
+    return f'<xs:group name="g{index}">{_nest("<xs:sequence>", inner, "</xs:sequence>")}</xs:group>'
+
+
+def _rng_define(index: int) -> str:
+    inner = '<element name="x"><text/></element>' if index == 190 else f'<ref name="d{index + 1}"/>'
+    return f'<define name="d{index}"><group>{inner}</group></define>'
+
+
+def _rng_element(content: str, name: str = ' name="r"') -> str:
+    return f'<element{name} xmlns="{_RELAXNG_NS}">{content}</element>'
+
+
+_SIMPLE_DERIVATION: Final[str] = _nest(
+    "<xs:simpleType><xs:restriction>",
+    '<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="[a-z]+"/></xs:restriction></xs:simpleType>',
+    '<xs:maxLength value="9"/></xs:restriction></xs:simpleType>',
+    _LEVELS // 2,
+)
+_PATTERN_MIX: Final[str] = _nest(
+    "<choice><interleave><oneOrMore><optional>",
+    '<attribute name="b"/>',
+    "</optional></oneOrMore></interleave></choice>",
+    _LEVELS // 4,
+)
+_NAME_CLASS_CHOICES: Final[str] = _nest("<choice><name>a</name>", "<name>b</name><choice/>", "</choice>")
+_DIV_START: Final[str] = _nest("<div>", '<start><element name="r"><ref name="d0"/></element></start>', "</div>")
+_REF_CHAIN: Final[str] = "".join(_rng_define(index) for index in range(191))
+
+
+@pytest.mark.parametrize(
+    ("schema_type", "source"),
+    [
+        pytest.param(
+            "XMLSchema",
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:group ref="g0"/></xs:complexType>'
+            f"</xs:element>{''.join(_xsd_group(index) for index in range(10))}</xs:schema>",
+            id="xsd-group-ref-chain",
+        ),
+        pytest.param(
+            "XMLSchema",
+            f'<xs:schema {_XS}><xs:element name="r">{_SIMPLE_DERIVATION}</xs:element></xs:schema>',
+            id="xsd-simple-type-derivation",
+        ),
+        pytest.param(
+            "RelaxNG",
+            _rng_element(_nest('<choice><attribute name="a"/>', '<attribute name="b"/>', "</choice>")),
+            id="relax-ng-attribute-choices",
+        ),
+        pytest.param(
+            "RelaxNG", _rng_element(f"{_NAME_CLASS_CHOICES}<text/>", name=""), id="relax-ng-name-class-choices"
+        ),
+        pytest.param("RelaxNG", _rng_element(_PATTERN_MIX), id="relax-ng-pattern-mix"),
+        pytest.param(
+            "RelaxNG",
+            f'<grammar xmlns="{_RELAXNG_NS}">{_DIV_START}{_REF_CHAIN}</grammar>',
+            id="relax-ng-div-and-ref-chain",
+        ),
+    ],
+)
+def test_deeply_nested_schema_compiles_on_a_small_thread_stack(schema_type: str, source: str) -> None:
+    # compilation walks the schema with explicit stacks, so neither its nesting nor a chain of references through it
+    # costs C stack; 128 KiB is the thread stack uv's musl CPython starts threads with
+    code = (
+        "import sys, threading\nfrom turbohtml import validate\nsource = sys.stdin.read()\n"
+        "threading.stack_size(128 * 1024)\n"
+        f"run = lambda: print(type(validate.{schema_type}(source)).__name__)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, input on stdin
+        [sys.executable, "-c", code],
+        input=source,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, f"{schema_type}\n"), result.stderr
+
+
 @pytest.mark.parametrize(
     ("schema", "document", "expected"),
     [

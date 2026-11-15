@@ -991,7 +991,7 @@ static int regex_cache_add(th_schema *schema, rpattern *pattern) {
     return 0;
 }
 
-static int regex_cache_collect(th_schema *schema, th_node *node) {
+static int regex_cache_collect_at(th_schema *schema, th_node *node) {
     if (schema->kind == 0 && is_schema_el(schema, node, XSD_NS, "pattern")) {
         const th_node_attr *value = attr_exact(schema->tree, node, "value", 5);
         if (value != NULL) {
@@ -1012,15 +1012,19 @@ static int regex_cache_collect(th_schema *schema, th_node *node) {
             }
         }
     }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT) {
-            if (regex_cache_collect(schema, child) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-                return -1;                                /* GCOVR_EXCL_LINE */
+    return 0;
+}
+
+static int regex_cache_collect(th_schema *schema, th_node *root) {
+    for (th_node *node = root; node != NULL; node = schema_walk_next(root, node)) {
+        if (node->type == TH_NODE_ELEMENT) {
+            if (regex_cache_collect_at(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;                                  /* GCOVR_EXCL_LINE */
             }
-        } else if (is_chardata(child) && child->text_len > 0) {
+        } else if (is_chardata(node) && node->text_len > 0) {
             /* Lazy definitions must not realize shared schema spans during validation. */
-            if (th_node_realize_text(schema->tree, child) == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return -1;                                           /* GCOVR_EXCL_LINE */
+            if (th_node_realize_text(schema->tree, node) == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                          /* GCOVR_EXCL_LINE */
             }
         }
     }

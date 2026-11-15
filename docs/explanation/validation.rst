@@ -76,7 +76,8 @@ derivative does not see such a grammar and cannot overflow the stack on it. Comp
 iterative tree-depth scan. A schema or instance nested 400 levels or deeper raises :class:`RecursionError` before a
 recursive grammar walk starts, including on small worker-thread stacks. Both validators then descend the instance
 recursively for a fixed number of levels and with an explicit stack of open elements below them, so the C stack a
-validation needs does not grow with how deep the document nests.
+validation needs does not grow with how deep the document nests. The compiler walks the schema the same way, so neither
+how deep a schema nests nor a chain of group, type or ``ref`` references through it grows the C stack it needs.
 
 ***********************
  What a result carries
