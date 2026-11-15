@@ -196,6 +196,26 @@ def test_text_writes_a_character_at_every_offset(filler: str, probe: str, writte
     assert outs == [f"<p>{head}{written}{tail}</p>".encode() for head, tail in placements]
 
 
+@pytest.mark.parametrize(
+    ("probe", "written"),
+    [
+        pytest.param("\x01", "", id="c0-control"),
+        pytest.param("\udc00", "", id="lone-surrogate"),
+        pytest.param("￿", "", id="noncharacter-ffff"),
+        pytest.param('"', "&quot;", id="quote"),
+        pytest.param("<", "&lt;", id="less-than"),
+        pytest.param("\t", "&#x9;", id="tab"),
+        pytest.param("\n", "&#xA;", id="newline"),
+        pytest.param(">", ">", id="greater-than"),
+        pytest.param("?", "?", id="question-mark"),
+    ],
+)
+def test_attribute_value_writes_a_character_at_every_offset(probe: str, written: str) -> None:
+    placements = [("x" * at, "x" * (length - at - 1)) for length in range(1, 12) for at in range(length)]
+    outs = [Element("p", {"title": head + probe + tail}).canonicalize() for head, tail in placements]
+    assert outs == [f'<p title="{head}{written}{tail}"></p>'.encode() for head, tail in placements]
+
+
 @pytest.mark.parametrize(("make_host", "tags"), _HOSTS)
 @pytest.mark.parametrize(
     ("value", "expected"),

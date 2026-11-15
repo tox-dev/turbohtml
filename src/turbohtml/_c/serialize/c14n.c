@@ -42,7 +42,7 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        index = c14n_find_text_stop(text, index, len);
+        index = c14n_find_stop(text, index, len, C14N_TEXT_STOPS);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
@@ -64,15 +64,13 @@ static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
 
 /* Append a c14n attribute value: & < " take references, and the three whitespace
    controls tab/newline/carriage-return become &#x9; &#xA; &#xD; so a reparse cannot
-   normalize them away; `>` and `'` stay literal. The shared stop table also stops on
-   `>`, which is written as is, and on a character XML cannot hold, which is dropped. */
+   normalize them away; `>` and `'` stay literal. A character XML cannot hold stops
+   the run and reaches no branch, so it is dropped. */
 static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && !xml_text_stop(text[index], 1)) {
-            index++;
-        }
+        index = c14n_find_stop(text, index, len, C14N_ATTR_STOPS);
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
@@ -90,8 +88,6 @@ static void c14n_put_attr(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
                 sbuf_puts(out, "&#xA;");
             } else if (character == 0x0D) {
                 sbuf_puts(out, "&#xD;");
-            } else if (character == '>') {
-                sbuf_putc(out, '>');
             }
             index++;
         }
