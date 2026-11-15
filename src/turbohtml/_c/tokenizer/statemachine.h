@@ -235,6 +235,15 @@ void th_tok_reset(th_tokenizer *self);
    survive th_tok_reset because they are configuration rather than input state. */
 void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source, int capture_attributes);
 
+/* Turn capture_attributes on or off for the tags that follow, leaving the other options alone. The public tokenizer
+   flips it between tokens: tree construction reads a start tag's attributes in foreign content, so the machine keeps
+   them there even for a caller who asked for none. */
+void th_tok_capture_attributes(th_tokenizer *self, int on);
+
+/* Keep every fed code point instead of reclaiming the consumed prefix, so the input from the start stays readable
+   through th_tok_input_data. Off by default and, like the other options, survives th_tok_reset. */
+void th_tok_retain_input(th_tokenizer *self, int on);
+
 /* Record the granular source spans parse5's sourceCodeLocationInfo exposes: each
    tag's end position (past its '>') and each attribute's name/value span. Off by
    default and, like the other options, survives th_tok_reset. When off the state
@@ -276,6 +285,9 @@ void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssiz
 
 /* The storage backing slice tokens: sets *kind, returns the base pointer. */
 const void *th_tok_input_data(const th_tokenizer *self, int *kind);
+
+/* How many code points th_tok_input_data holds. */
+Py_ssize_t th_tok_input_length(const th_tokenizer *self);
 
 /* Transfer the owned input buffer to the caller after a one-shot fed parse. */
 void *th_tok_take_input(th_tokenizer *self, int *kind, Py_ssize_t *length);
