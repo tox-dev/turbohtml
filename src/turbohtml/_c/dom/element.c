@@ -3419,6 +3419,26 @@ static void link_gathered(th_tree *tree, th_node *parent, th_node *const *nodes,
     }
 }
 
+/* The sibling that many links after node (forward) or before it, or NULL when the list ends first. An index past the
+   end walks every sibling, so the links go in fixed blocks of eight that test only for the end; that keeps the walk no
+   dearer per sibling than counting the children. */
+static inline th_node *sibling_links_away(th_node *node, Py_ssize_t links, int forward) {
+    for (; links >= 8; links -= 8) {
+        for (int link = 0; link < 8; link++) {
+            if (node == NULL) {
+                return NULL;
+            }
+            TH_WORK_STEP();
+            node = forward ? node->next_sibling : node->prev_sibling;
+        }
+    }
+    for (; links > 0 && node != NULL; links--) {
+        TH_WORK_STEP();
+        node = forward ? node->next_sibling : node->prev_sibling;
+    }
+    return node;
+}
+
 /* Insert the arguments in list into parent before ref (NULL appends), the whole call checked first (see
    gather_insert). The caller holds the critical section of handle, parent's tree, and has imported the foreign
    arguments. Returns 0, or -1 with an exception. */
@@ -3776,19 +3796,15 @@ TH_NODE_API(static, PyObject *, element_insert, (PyObject * self, PyObject *args
     Py_BEGIN_CRITICAL_SECTION(handle);
     /* the index resolves after the import, which can suspend the section */
     if (import_all(handle, list) == 0) { /* GCOVR_EXCL_BR_LINE: the import fails only on allocation failure */
-        Py_ssize_t count = 0;
-        for (th_node *walk = parent->first_child; walk != NULL; walk = walk->next_sibling) {
-            count++;
-        }
-        if (index < 0 && (index += count) < 0) {
-            index = 0;
-        }
-        th_node *ref = NULL;
-        if (index < count) {
-            ref = parent->first_child;
-            for (Py_ssize_t step = 0; step < index; step++) {
-                ref = ref->next_sibling;
+        /* walk from the end the index counts from, so an insert near either end skips the other siblings */
+        th_node *ref;
+        if (index < 0) {
+            ref = sibling_links_away(parent->last_child, -1 - index, 0);
+            if (ref == NULL) {
+                ref = parent->first_child;
             }
+        } else {
+            ref = sibling_links_away(parent->first_child, index, 1);
         }
         error = insert_gathered(handle, parent, list, ref) < 0;
     }

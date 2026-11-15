@@ -1699,6 +1699,35 @@ static PyObject *view_itertext(PyObject *self, PyObject *args, PyObject *kwargs)
     return result;
 }
 
+/* The element child that list.insert(index) places the new node before, as a new reference, or None to append. The
+   walk runs from the end the index counts from, so an insert near either end skips the other children. */
+TH_NODE_API(static, PyObject *, view_insert_anchor, (PyObject * self, Py_ssize_t index), (self, index),
+            (PyObject * self, Py_ssize_t index), ((ElementView *)self)->node, NULL) {
+    NodeObject *owner = ((ElementView *)self)->node;
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    th_node *anchor = NULL;
+    if (index < 0) {
+        for (th_node *child = owner->node->last_child; child != NULL && index < 0; child = child->prev_sibling) {
+            TH_WORK_STEP();
+            if (child->type == TH_NODE_ELEMENT) {
+                anchor = child;
+                index++;
+            }
+        }
+    } else {
+        for (anchor = owner->node->first_child; anchor != NULL; anchor = anchor->next_sibling) {
+            TH_WORK_STEP();
+            if (anchor->type == TH_NODE_ELEMENT && index-- == 0) {
+                break;
+            }
+        }
+    }
+    result = node_wrap_locked(state_of((PyObject *)owner), owner->handle, anchor);
+    Py_END_CRITICAL_SECTION();
+    return result;
+}
+
 static PyObject *view_insert(PyObject *self, PyObject *args) {
     Py_ssize_t index;
     PyObject *child;
@@ -1709,25 +1738,20 @@ static PyObject *view_insert(PyObject *self, PyObject *args) {
     if (node == NULL) {
         return NULL;
     }
-    PyObject *children = view_children(self, NULL);
-    if (children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+    PyObject *anchor = view_insert_anchor(self, index);
+    if (anchor == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
     }
-    Py_ssize_t length = PyList_GET_SIZE(children);
-    if (index < 0) {
-        index = index < -length ? 0 : length + index;
-    }
-    if (index >= length) {
-        Py_DECREF(children);
+    if (anchor == Py_None) {
+        Py_DECREF(anchor);
         return view_append(self, child);
     }
     PyObject *moving = view_moving_nodes(node);
-    NodeObject *anchor = ((ElementView *)PyList_GET_ITEM(children, index))->node;
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    int status = moving == NULL ? -1 : view_discard(node_insert_before((PyObject *)anchor, moving));
+    int status = moving == NULL ? -1 : view_discard(node_insert_before(anchor, moving));
     /* GCOVR_EXCL_BR_STOP */
     Py_XDECREF(moving);
-    Py_DECREF(children);
+    Py_DECREF(anchor);
     if (status < 0) {
         return NULL;
     }
