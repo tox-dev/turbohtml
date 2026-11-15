@@ -2674,7 +2674,7 @@ PyDoc_STRVAR(xpath_path_doc, "xpath_path()\n--\n\n"
                              "root, like lxml's getroottree().getpath(). Each step is the tag name with a\n"
                              "1-based [n] index among same-name siblings when more than one exists\n"
                              "(\"/html/body/div[2]/p[3]\"). A tag name XPath cannot write as a name test,\n"
-                             "one with a namespace prefix or a character of XPath syntax, becomes \"*[n]\",\n"
+                             "one with a namespace prefix or a character of XPath syntax, becomes ``*[n]``,\n"
                              "the position among all element siblings. Feeding the result back to xpath()\n"
                              "on the document returns exactly this element.");
 
