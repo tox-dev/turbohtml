@@ -1319,6 +1319,19 @@ def test_computed_style_has_refreshes_after_stylesheet_change() -> None:
     assert (before, computed_style(outer)["color"]) == ("blue", "red")
 
 
+def test_computed_style_first_legend_refreshes_after_insert() -> None:
+    # both rules ask whether the control's legend is the fieldset's first; the answer is kept between them and must
+    # not outlive a legend inserted in front
+    document: Final = parse(
+        "<style>input:enabled{color:red}input:disabled{color:blue}</style>"
+        "<fieldset disabled><legend><input></legend></fieldset>"
+    )
+    control: Final = document.select("input")[0]
+    before: Final = computed_style(control)["color"]
+    document.select("legend")[0].insert_before(Element("legend"))
+    assert (before, computed_style(control)["color"]) == ("red", "blue")
+
+
 @pytest.mark.parametrize(
     ("case_index", "expected"),
     [

@@ -957,6 +957,20 @@
     }
   },
   {
+    "name": "css-border-default-rescan",
+    "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/css/minify/css_render.h#L777",
+    "targets": [
+      "minify_css"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "a{border:",
+      "left": "blurb ",
+      "right": "none ",
+      "tail": "}"
+    }
+  },
+  {
     "name": "xml-inherited-xlink-scan",
     "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/serialize/internal.h#L775-L789",
     "targets": [

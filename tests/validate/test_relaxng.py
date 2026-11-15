@@ -159,6 +159,22 @@ def test_data_param_facets() -> None:
     assert not check(schema, "<s>AB</s>").valid  # pattern
 
 
+def test_data_param_repeated_patterns() -> None:
+    # equal pattern texts compile once, and each param that repeats one finds that compiled form
+    def data(*patterns: str) -> str:
+        params = "".join(f'<param name="pattern">{pattern}</param>' for pattern in patterns)
+        return f'<data type="string">{params}</data>'
+
+    schema = grammar(
+        f'<start><element name="r"><element name="s">{data("[a-c]+", "a.*", "[a-c]+", "a.*", ".{2}")}</element>'
+        f'<element name="e">{data("", "a?", "")}</element></element></start>',
+        attrs=f'datatypeLibrary="{_DT}"',
+    )
+    assert check(schema, "<r><s>ab</s><e/></r>").valid
+    assert not check(schema, "<r><s>bb</s><e/></r>").valid  # a.*
+    assert not check(schema, "<r><s>ab</s><e>a</e></r>").valid  # the empty pattern
+
+
 def test_data_param_pattern_too_complex_raises() -> None:
     pattern = f"{'(' * 50000}a{')' * 50000}"
     schema = grammar(
@@ -3120,3 +3136,54 @@ def test_rng_date_calendar_day(datatype: str, value: str, *, expected: bool) -> 
         f'<data type="{datatype}"/></element>'
     )
     assert validator.is_valid(parse_xml(f"<doc>{value}</doc>")) is expected
+
+
+_TOKEN_ALTERNATIVES: Final[str] = "<choice>{}</choice>".format('<data type="token"/>' * 200)
+_WORDS: Final[str] = " ".join(["word"] * 4_000)
+
+
+@pytest.mark.parametrize(
+    ("body", "xml"),
+    [
+        pytest.param(f'<attribute name="a">{_TOKEN_ALTERNATIVES}</attribute>', f'<doc a="{_WORDS}"/>', id="attribute"),
+        pytest.param(
+            f"<list><oneOrMore>{_TOKEN_ALTERNATIVES}</oneOrMore></list>", f"<doc>{'a ' * 10_000}</doc>", id="list"
+        ),
+    ],
+)
+def test_relaxng_normalized_values_keep_validation_memory_bounded(
+    peak_bytes: PeakBytes, tmp_path: Path, body: str, xml: str
+) -> None:
+    # every <data> normalizes the whitespace of the value it is tested against; a copy per check, kept until
+    # validation ended, grew with the number of alternatives
+    script: Final = (
+        "import sys, tracemalloc\nfrom pathlib import Path\nfrom turbohtml import parse_xml\n"
+        "from turbohtml.validate import RelaxNG\n"
+        "schema = RelaxNG(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "document = parse_xml(Path(sys.argv[2]).read_text(encoding='utf-8'))\n"
+        "tracemalloc.start()\nassert schema.validate(document).valid\nprint(tracemalloc.get_traced_memory()[1])\n"
+    )
+    schema_file: Final = tmp_path / "schema.rng"
+    schema_file.write_text(wrap(body, attrs=f'datatypeLibrary="{_DT}"'), encoding="utf-8")
+    document_file: Final = tmp_path / "document.xml"
+    document_file.write_text(xml, encoding="utf-8")
+    assert peak_bytes(script, (str(schema_file), str(document_file))) < 1_048_576
+
+
+def test_relaxng_data_normalizes_each_value_afresh() -> None:
+    # one buffer serves every normalization of a validate() call, so a value must not see what a longer one left in it
+    alternatives: Final = (
+        '<data type="token"><param name="maxLength">3</param></data>'
+        '<data type="token"><param name="pattern">[a-z]+ [a-z]+</param></data>'
+        '<data type="int"/>'
+    )
+    validator: Final = RelaxNG(
+        wrap(
+            f'<zeroOrMore><element name="e"><choice>{alternatives}</choice></element></zeroOrMore>',
+            attrs=f'datatypeLibrary="{_DT}"',
+        )
+    )
+    valid: Final = "<e>a</e><e>ab</e><e>  abcdef   ghijkl  </e><e> ab </e><e>\tx\ny\t</e><e> 12345 </e><e>  abc  </e>"
+    assert validator.validate(parse_xml(f"<doc>{valid}</doc>")).valid
+    assert not validator.validate(parse_xml(f"<doc>{valid}<e> abcd </e></doc>")).valid
+    assert not validator.validate(parse_xml(f"<doc>{valid}<e>ab cd ef</e></doc>")).valid

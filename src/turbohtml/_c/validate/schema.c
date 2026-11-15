@@ -22,6 +22,7 @@
 #include "core/common.h"
 #include "dom/ownership.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 
@@ -551,11 +552,20 @@ typedef struct th_schema {
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
-    struct rpattern *regex_patterns;
+    /* every pattern facet and RELAX NG pattern param in document order, and the distinct ones sorted by text for
+       regex_full_match to search */
+    struct rpattern *regex_patterns, **regex_sorted;
+    size_t regex_count, regex_cap, regex_distinct;
     size_t regex_max_states;        /* states in the largest compiled pattern, sizing the match buffers */
     struct rscratch *regex_scratch; /* match buffers of one validate() call, built on its first pattern check */
+    /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */
+    Py_UCS4 *ws_buffer;
+    Py_ssize_t ws_cap;
     struct xfacet_entry *facet_entries;
     size_t facet_count, facet_cap;
+    /* every xs:all group's members indexed by name, sorted by the group's node pointer */
+    struct xall_entry *all_entries;
+    size_t all_count, all_cap;
 } th_schema;
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every
@@ -966,6 +976,8 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     th_schema local = *schema;
     local.mem = (arena){0};
     local.regex_scratch = NULL;
+    local.ws_buffer = NULL;
+    local.ws_cap = 0;
     if (local.defines.len > 0) {
         const size_t bytes = (size_t)local.defines.len * sizeof(def_entry);
         local.defines.items = arena_alloc(&local.mem, bytes);

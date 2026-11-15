@@ -67,7 +67,8 @@ the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers
 Markup serialization, :attr:`Node.text`, :meth:`Node.to_markdown`, :meth:`Node.to_text`, and
 :meth:`Node.to_annotated_text` walk the tree without recursion and impose no nesting limit. The layout renderers indent
 nested lists and block quotes up to 17 nesting levels, counting two per list level and one per block quote. Deeper
-content keeps the indentation of that depth, so output stays proportional to the input.
+content keeps the indentation of that depth, so output stays proportional to the input. For the same reason an
+:class:`Indent` layout indents up to 64 nesting levels and writes deeper lines with the indentation of that depth.
 
 .. autofunction:: escape
 

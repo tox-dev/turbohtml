@@ -4,6 +4,7 @@
 
 #include "serialize/internal.h"
 
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
 #include "tokenizer/xml_names.h"
@@ -618,16 +619,23 @@ typedef struct {
     Py_ssize_t indent_len;
 } ser_opts;
 
+/* Lines past this depth keep its prefix: parse_xml nests without limit, and a prefix that grew with the depth would
+   make the output quadratic in the input. */
+#define TH_MAX_PRETTY_INDENT_LEVELS 64
+
 static void ser_newline_indent(sbuf *out, const ser_opts *opts, int depth) {
     if (depth == 0 || opts->indent_len == 0) {
         sbuf_putc(out, '\n');
         return;
     }
-    if (depth > (PY_SSIZE_T_MAX - out->len - 1) / opts->indent_len) { /* GCOVR_EXCL_BR_LINE: allocation size overflow */
-        out->failed = 1;                                              /* GCOVR_EXCL_LINE: allocation size overflow */
-        return;                                                       /* GCOVR_EXCL_LINE: allocation size overflow */
+    int levels = depth < TH_MAX_PRETTY_INDENT_LEVELS ? depth : TH_MAX_PRETTY_INDENT_LEVELS;
+    if (levels >
+        (PY_SSIZE_T_MAX - out->len - 1) / opts->indent_len) { /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+        out->failed = 1;                                      /* GCOVR_EXCL_LINE: allocation size overflow */
+        return;                                               /* GCOVR_EXCL_LINE: allocation size overflow */
     }
-    Py_ssize_t length = depth * opts->indent_len;
+    Py_ssize_t length = levels * opts->indent_len;
+    TH_WORK_STEPS_ADD(length);
     sbuf_reserve(out, length + 1);
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return;        /* GCOVR_EXCL_LINE: allocation failure */

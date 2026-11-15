@@ -428,11 +428,17 @@ th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *ro
 /* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
    also take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);
+/* How many nodes the tree's arena has ever held, linked or not: an upper bound on what adopting all of it copies. */
+uint32_t th_tree_node_count(const th_tree *tree);
 th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node);
 th_tree *th_tree_copy_document(th_tree *src);
 /* A fresh empty tree rooted at a node of type (TH_NODE_DOCUMENT, or TH_NODE_CONTENT for a fragment), with the given
    XML flag and quirks mode, for rebuilding a pickled document or fragment. NULL on allocation failure. */
 th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks);
+/* Make document, a parentless node of tree, the root th_tree_document returns, or leave the tree without one when it
+   is NULL: rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that tree
+   when the fragment turns out to be a template's contents. */
+void th_tree_set_document(th_tree *tree, th_node *document);
 
 /* Whether two subtrees are structurally equal: same node type, and for an element the
    same namespace, tag name, and attribute set (names + values, order-independent) with
