@@ -1345,6 +1345,46 @@ def test_all_each_member_once_is_valid() -> None:
     assert check(schema, "<r><b/></r>").valid
 
 
+_OPTIONAL_ALL: Final[str] = f'<xs:all minOccurs="0">{_AB}</xs:all>'
+_OPTIONAL_GROUP_REF: Final[str] = (
+    f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
+    '<xs:element name="r"><xs:complexType><xs:group ref="g" minOccurs="0"/></xs:complexType></xs:element></xs:schema>'
+)
+_OPTIONAL_EXTENDED_ALL: Final[str] = (
+    f'<xs:schema {_XS}><xs:complexType name="base">{_OPTIONAL_ALL}</xs:complexType>'
+    '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"/>'
+    "</xs:complexContent></xs:complexType></xs:element></xs:schema>"
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "children", "messages"),
+    [
+        pytest.param(_type_schema(_OPTIONAL_ALL), "<r/>", [], id="direct-empty"),
+        pytest.param(_type_schema(_OPTIONAL_ALL), "<r><b/><a/></r>", [], id="direct-all-present"),
+        pytest.param(
+            _type_schema(_OPTIONAL_ALL),
+            "<r><a/></r>",
+            ["required element 'b' is missing"],
+            id="direct-partial-still-requires-members",
+        ),
+        pytest.param(_OPTIONAL_GROUP_REF, "<r/>", [], id="group-ref-empty"),
+        pytest.param(_OPTIONAL_EXTENDED_ALL, "<r/>", [], id="extension-of-optional-all-empty"),
+        pytest.param(
+            _type_schema(
+                f'<xs:complexContent><xs:restriction base="xs:anyType">{_OPTIONAL_ALL}</xs:restriction>'
+                "</xs:complexContent>"
+            ),
+            "<r/>",
+            [],
+            id="restriction-empty",
+        ),
+    ],
+)
+def test_optional_all_accepts_empty_content(schema: str, children: str, messages: list[str]) -> None:
+    assert [error.message for error in check(schema, children).errors] == messages
+
+
 _ALL_GROUP_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
 _ALL_GROUP_DEF: Final[str] = f'<xs:group name="g"><xs:all>{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
 
