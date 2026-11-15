@@ -22,6 +22,14 @@
 #define TH_NOINLINE
 #endif
 
+/* Pins a hot URL function's entry to a cache line, so its loop padding does not shift when link-time partitioning
+   moves it. */
+#if defined(__GNUC__) || defined(__clang__)
+#define TH_LINE_ALIGNED __attribute__((aligned(64)))
+#else
+#define TH_LINE_ALIGNED
+#endif
+
 /* The coverage build compiles at -O0, where a forced copy in each caller would split gcov's branch counts. */
 #if defined(_MSC_VER)
 #define TH_JOIN_INLINE __forceinline
@@ -2054,7 +2062,7 @@ PyObject *th_url_literalize_dot_segments(PyObject *url) {
 
 /* _url_remove_dot_segments(path): resolve the "." and ".." segments of a path, in either their literal or %2E
    spelling, keeping every other segment's encoding verbatim. */
-static PyObject *remove_dot_segments(PyObject *arg, int file) {
+static TH_LINE_ALIGNED PyObject *remove_dot_segments(PyObject *arg, int file) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
     if (PyUnicode_FindChar(arg, '.', 0, len, 1) == -1 && PyUnicode_FindChar(arg, '%', 0, len, 1) == -1) {
         return Py_NewRef(arg);
@@ -2346,8 +2354,8 @@ PyObject *turbohtml_url_normalize_query(PyObject *Py_UNUSED(module), PyObject *a
     return th_url_normalize_query(query, allow, deny, strict, content, language, TH_URL_SET_QUERY);
 }
 
-PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict, PyObject *content,
-                                 PyObject *language, int set_id) {
+TH_LINE_ALIGNED PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict,
+                                                 PyObject *content, PyObject *language, int set_id) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(query);
     int kind = PyUnicode_KIND(query);
     const void *data = PyUnicode_DATA(query);
