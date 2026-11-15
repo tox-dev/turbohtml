@@ -659,13 +659,56 @@ def test_srcset_with_a_trailing_comma_and_varied_whitespace() -> None:
         pytest.param("a.png,b.png,", ["a.png,b.png"], id="internal-and-trailing-comma"),
         pytest.param(
             "hero.jpg (w,h),https://cdn.test/hero.jpg 1x",
-            ["hero.jpg", "https://cdn.test/hero.jpg"],
+            ["https://cdn.test/hero.jpg"],
             id="comma-in-parens",
         ),
-        pytest.param("a.png 1x (x,y) z,b.png 2x", ["a.png", "b.png"], id="comma-in-later-parens"),
-        pytest.param("a.png ((x),b.png 2x", ["a.png", "b.png"], id="parens-do-not-nest"),
-        pytest.param("a.png x),b.png 2x", ["a.png", "b.png"], id="stray-close-paren"),
-        pytest.param("a.png (x,b.png 2x", ["a.png"], id="unclosed-parens-run-to-the-end"),
+        pytest.param("a.png 1x (x,y) z,b.png 2x", ["b.png"], id="comma-in-later-parens"),
+        pytest.param("a.png ((x),b.png 2x", ["b.png"], id="parens-do-not-nest"),
+        pytest.param("a.png x),b.png 2x", ["b.png"], id="stray-close-paren"),
+        pytest.param("a.png (x,b.png 2x", [], id="unclosed-parens-run-to-the-end"),
+        pytest.param("a.jpg 1w 2w, b.jpg 1x", ["b.jpg"], id="duplicate-width"),
+        pytest.param("a.jpg 1x 1.5x, b.jpg 1x", ["b.jpg"], id="duplicate-density"),
+        pytest.param("a.jpg 3w 2x, b.jpg 1x", ["b.jpg"], id="width-then-density"),
+        pytest.param("a.jpg 2x 3w, b.jpg 1x", ["b.jpg"], id="density-then-width"),
+        pytest.param("a.jpg 1w 2x, b.jpg 1x", ["b.jpg"], id="width-with-density"),
+        pytest.param("a.jpg 0w, b.jpg 1x", ["b.jpg"], id="zero-width"),
+        pytest.param("a.jpg 0.0x, b.jpg 0x", ["a.jpg", "b.jpg"], id="zero-density"),
+        pytest.param("a.jpg -0x, b.jpg -0.0e5x", ["a.jpg", "b.jpg"], id="negative-zero-density"),
+        pytest.param("a.jpg -0.5x, b.jpg 1x", ["b.jpg"], id="negative-fraction-density"),
+        pytest.param("a.jpg -x, b.jpg 1x", ["b.jpg"], id="bare-sign-density"),
+        pytest.param("a.jpg .x, b.jpg 1x", ["b.jpg"], id="bare-dot-density"),
+        pytest.param("a.jpg -1x, b.jpg 1x", ["b.jpg"], id="negative-density"),
+        pytest.param("a.jpg +1x, b.jpg 1x", ["b.jpg"], id="signed-density"),
+        pytest.param("a.jpg .5x, b.jpg -.5x", ["a.jpg"], id="density-without-integer-part"),
+        pytest.param("a.jpg 5.x, b.jpg 1x", ["b.jpg"], id="density-without-fraction-digits"),
+        pytest.param("a.jpg 1ex, b.jpg 1x", ["b.jpg"], id="exponent-without-digits"),
+        pytest.param("a.jpg 1.5w, b.jpg 1x", ["b.jpg"], id="fractional-width"),
+        pytest.param("a.jpg fx, b.jpg 1x", ["b.jpg"], id="non-numeric-density"),
+        pytest.param("a.jpg x, b.jpg 1x", ["b.jpg"], id="bare-unit"),
+        pytest.param("a.jpg 2h, b.jpg 1x", ["b.jpg"], id="height-without-width"),
+        pytest.param("a.jpg 1w 2h 3h, b.jpg 1x", ["b.jpg"], id="duplicate-height"),
+        pytest.param("a.jpg 2h 1x, b.jpg 1x", ["b.jpg"], id="height-with-density"),
+        pytest.param("a.jpg 1y, b.jpg 1x", ["b.jpg"], id="unknown-unit"),
+        pytest.param("a.jpg 1X, b.jpg 1x", ["b.jpg"], id="uppercase-unit"),
+        pytest.param("a.jpg 1w 2h, b.jpg 1x", ["a.jpg", "b.jpg"], id="width-with-height"),
+        pytest.param("a.jpg\t01w\n2h, b.jpg 1x", ["a.jpg", "b.jpg"], id="integer-with-leading-zero"),
+        pytest.param("a.jpg 1.5x, b.jpg 1e2x", ["a.jpg", "b.jpg"], id="exponent-density"),
+        pytest.param("a.jpg 1E+2x, b.jpg 0.5x", ["a.jpg", "b.jpg"], id="signed-exponent-density"),
+        pytest.param("a.jpg 1e-2x, b.jpg 1x", ["a.jpg", "b.jpg"], id="negative-exponent-density"),
+        pytest.param("a.jpg 1.5e2x, b.jpg 1x", ["a.jpg", "b.jpg"], id="fraction-then-exponent-density"),
+        pytest.param("a.jpg w, b.jpg 1x", ["b.jpg"], id="bare-width-unit"),
+        pytest.param("a.jpg 0h, b.jpg 1x", ["b.jpg"], id="zero-height"),
+        pytest.param("a.jpg 1x 2h, b.jpg 1x", ["b.jpg"], id="density-then-height"),
+        pytest.param("a.jpg 1ax, b.jpg 1x", ["b.jpg"], id="density-with-trailing-letter"),
+        pytest.param("a.jpg 1.5ax, b.jpg 1x", ["b.jpg"], id="fraction-with-trailing-letter"),
+        pytest.param("a.jpg 1e2ax, b.jpg 1x", ["b.jpg"], id="exponent-with-trailing-letter"),
+        pytest.param("a.jpg 640w, b.jpg 1280w", ["a.jpg", "b.jpg"], id="widths"),
+        pytest.param("a.jpg 1x , b.jpg 2x\n", ["a.jpg", "b.jpg"], id="space-after-descriptor"),
+        pytest.param("a.jpg 2x, b.jpg 12", ["a.jpg"], id="digits-without-unit-at-the-end"),
+        pytest.param("a.jpg 12 , b.jpg 1x", ["b.jpg"], id="digits-without-unit"),
+        pytest.param("a.jpg 1xe, b.jpg 1x", ["b.jpg"], id="letter-after-unit"),
+        pytest.param("a.jpg 640w 1x, b.jpg 1x", ["b.jpg"], id="second-descriptor-after-width"),
+        pytest.param("a.jpg 0640w, b.jpg 00w", ["a.jpg"], id="width-with-leading-zero"),
     ],
 )
 def test_srcset_url_boundaries(value: str, expected: list[str]) -> None:
@@ -1108,6 +1151,11 @@ def test_rewrite_srcset_url_with_comma() -> None:
 def test_rewrite_srcset_candidate_after_parenthesised_descriptor() -> None:
     out = _rewritten('<img srcset="hero.jpg (w,h),//cdn.test/hero.jpg 1x">', lambda url: "X" if "//" in url else None)
     assert out == '<img srcset="hero.jpg (w,h),X 1x">'
+
+
+def test_rewrite_srcset_leaves_a_candidate_with_invalid_descriptors_alone() -> None:
+    out = _rewritten('<img srcset="a.jpg 1w 2w, b.jpg 2x">', lambda _url: "X")
+    assert out == '<img srcset="a.jpg 1w 2w, X 2x">'
 
 
 def test_a_shorter_replacement_shrinks_the_value() -> None:
