@@ -114,6 +114,14 @@ def test_element_tree_clear(tree: ElementView, expected: str, *, keep_tail: bool
     assert tostring(tree, encoding="unicode") == expected
 
 
+def test_element_tree_clear_removes_many_attributes_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: _attributed_element(count).clear, (1_000, 4_000))
+
+
+def _attributed_element(count: int) -> ElementView:
+    return fromstring(f"<p {' '.join(f'k{index}' for index in range(count))}></p>")
+
+
 def test_element_tree_unwrap_keeps_text(tree: ElementView) -> None:
     tree[0].drop_tag()
     assert tostring(tree, encoding="unicode") == "<div>startAone<b>B</b>two</div>"

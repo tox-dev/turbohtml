@@ -319,15 +319,24 @@ static void mark_start_dirty(th_tree *tree, th_node *node) {
 }
 
 /* A large element keeps a hash index of its attribute names, so a write that has to find its name does not rescan the
-   array: n writes onto one element cost n lookups, not n * n / 2 comparisons. The index follows the array in the same
-   arena block, and TH_ATTR_INDEXED in attr_capacity_shift marks it. Each entry is 2 * position + 1, and the second link
-   of a name with an uppercase letter also carries ATTR_INDEX_FOLDED. node_attr_find_indexed trusts the index only while
-   its count equals attr_count. Every other editor of attrs either only lowers attr_count or works on an array without
-   an index, so the index is rebuilt on the next lookup. */
+   array: n writes, reads or removals by name on one element cost n lookups, not n * n / 2 comparisons. The array and
+   the index share one arena block, and TH_ATTR_INDEXED in attr_capacity_shift marks it. The block holds a head slot,
+   the attribute slots, as many spare slots, then the index. A removal near the front advances attrs by one slot
+   instead of moving the attributes after it, and the head slot in front of attrs counts how far (node_attr_head). The
+   spare slots keep the capacity counted from an advanced attrs inside the block, so every writer checks for room as
+   on a plain array, and stays inside the block even after an editor drops TH_ATTR_INDEXED. Each entry is twice the
+   attribute's slot plus one, the slot being its position plus the head, modulo the capacity: advancing attrs leaves
+   the entries of the attributes it did not move as they are, and the at most capacity attributes still map to
+   distinct slots. The second link of a name with an uppercase letter also carries ATTR_INDEX_FOLDED, and the slot
+   records the bucket of that second link, so a removal finds the word that holds either entry by walking its chain
+   from a known bucket, without hashing the name again. node_attr_find_indexed trusts the index only while its count
+   equals attr_count. Removal keeps the two in step, every other editor of attrs either only lowers attr_count or works
+   on an array without an index, so the index is rebuilt on the next lookup. */
 #define ATTR_INDEX_MIN TH_ATTR_INDEX_MIN
 #define ATTR_INDEX_MAX ((size_t)1 << 30) /* twice a position, the flag and the 1 have to fit 32 bits */
 #define ATTR_INDEX_FOLDED 1u
 #define ATTR_INDEX_STALE UINT32_MAX
+#define ATTR_INDEX_UNLINKED UINT32_MAX /* the folded bucket of a slot whose name has no folded entry */
 
 /* The index code runs only on elements with ATTR_INDEX_MIN or more attributes, so GCC compiles it once instead of
    cloning it per call site: the clones grew the extension past LTO's unit-wide inlining limit, which then dropped
@@ -340,11 +349,63 @@ static void mark_start_dirty(th_tree *tree, th_node *node) {
 
 typedef struct {
     uint32_t count;   /* attributes indexed, or ATTR_INDEX_STALE */
-    uint32_t links[]; /* two bucket heads per array slot, then as many chain links */
+    uint32_t links[]; /* per slot: two bucket heads, then two chain links, then one folded bucket */
 } attr_index;
 
+/* How many slots removals have advanced attrs past the first attribute slot of an indexed array's block. */
+static inline uint32_t node_attr_head(const th_node *node) {
+    return node->attrs[-1].name_atom;
+}
+
 static inline attr_index *node_attr_index(const th_node *node) {
-    return (attr_index *)(node->attrs + th_node_attr_capacity(node));
+    return (attr_index *)(node->attrs - node_attr_head(node) + 2 * th_node_attr_capacity(node));
+}
+
+/* The index slot of the attribute at position. */
+static inline size_t node_attr_slot(const th_node *node, size_t position) {
+    return (node_attr_head(node) + position) & (th_node_attr_capacity(node) - 1);
+}
+
+/* The position of the attribute whose index entry is entry. */
+static inline Py_ssize_t node_attr_entry_position(const th_node *node, uint32_t entry) {
+    return (Py_ssize_t)(((entry - 1) / 2 - node_attr_head(node)) & (th_node_attr_capacity(node) - 1));
+}
+
+/* The word of links that holds entry, found by walking the chain that starts at bucket. */
+static inline uint32_t *attr_index_holder(uint32_t *links, size_t buckets, size_t bucket, uint32_t entry) {
+    uint32_t *holder = &links[bucket];
+    while (*holder != entry) {
+        holder = &links[buckets + *holder - 1];
+    }
+    return holder;
+}
+
+/* Take the entries of the attribute in slot, whose name is atom, out of their chains. */
+static inline void attr_index_unlink(uint32_t *links, size_t buckets, size_t slot, uint32_t atom, int folds) {
+    uint32_t *next = links + buckets;
+    const uint32_t entry = (uint32_t)(2 * slot + 1);
+    *attr_index_holder(links, buckets, atom & (buckets - 1), entry) = next[entry - 1];
+    if (folds && next[buckets + slot] != ATTR_INDEX_UNLINKED) {
+        *attr_index_holder(links, buckets, next[buckets + slot], entry + ATTR_INDEX_FOLDED) = next[entry];
+    }
+}
+
+/* Hand the entries of the attribute in slot, whose name is atom, to the free slot moved, keeping their chain places. */
+static inline void attr_index_move(uint32_t *links, size_t buckets, size_t slot, uint32_t atom, size_t moved,
+                                   int folds) {
+    uint32_t *next = links + buckets;
+    const uint32_t entry = (uint32_t)(2 * slot + 1);
+    const uint32_t target = (uint32_t)(2 * moved + 1);
+    *attr_index_holder(links, buckets, atom & (buckets - 1), entry) = target;
+    next[target - 1] = next[entry - 1];
+    if (folds) {
+        const uint32_t folded = next[buckets + slot];
+        next[buckets + moved] = folded;
+        if (folded != ATTR_INDEX_UNLINKED) {
+            *attr_index_holder(links, buckets, folded, entry + ATTR_INDEX_FOLDED) = target + ATTR_INDEX_FOLDED;
+            next[target] = next[entry];
+        }
+    }
 }
 
 /* The case-insensitive pass of th_node_attr_find applies to node, so the index chains folded names for it only. */
@@ -383,7 +444,8 @@ ATTR_INDEX_FN void attr_index_add(th_tree *tree, const th_node *node, attr_index
     TH_WORK_STEP();
     const size_t buckets = 2 * th_node_attr_capacity(node);
     uint32_t *next = index->links + buckets;
-    const uint32_t entry = index->count * 2 + 1;
+    const size_t slot = node_attr_slot(node, index->count);
+    const uint32_t entry = (uint32_t)(slot * 2 + 1);
     const uint32_t atom = node->attrs[index->count++].name_atom;
     next[entry - 1] = index->links[atom & (buckets - 1)];
     index->links[atom & (buckets - 1)] = entry;
@@ -392,6 +454,7 @@ ATTR_INDEX_FN void attr_index_add(th_tree *tree, const th_node *node, attr_index
         const char *name = th_attr_name(tree, atom, &name_len);
         int cased;
         const size_t bucket = attr_name_folded_hash(name, name_len, &cased) & (buckets - 1);
+        next[buckets + slot] = cased ? (uint32_t)bucket : ATTR_INDEX_UNLINKED;
         if (cased) {
             next[entry] = index->links[bucket];
             index->links[bucket] = entry + ATTR_INDEX_FOLDED;
@@ -415,7 +478,7 @@ static inline Py_ssize_t node_attr_find_exact_indexed(th_tree *tree, const th_no
     Py_ssize_t found = -1;
     for (uint32_t entry = index->links[atom & (buckets - 1)]; entry != 0; entry = next[entry - 1]) {
         TH_WORK_STEP();
-        const Py_ssize_t position = (Py_ssize_t)((entry - 1) / 2);
+        const Py_ssize_t position = node_attr_entry_position(node, entry);
         if (((entry - 1) & ATTR_INDEX_FOLDED) == 0 && node->attrs[position].name_atom == atom) {
             found = position;
         }
@@ -436,7 +499,7 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *no
     const size_t bucket = attr_name_folded_hash(name, name_len, &cased) & (buckets - 1);
     for (uint32_t entry = index->links[bucket]; entry != 0; entry = next[entry - 1]) {
         TH_WORK_STEP();
-        const Py_ssize_t position = (Py_ssize_t)((entry - 1) / 2);
+        const Py_ssize_t position = node_attr_entry_position(node, entry);
         if (((entry - 1) & ATTR_INDEX_FOLDED) != 0 &&
             attr_name_folds_to(tree, node->attrs[position].name_atom, name, name_len)) {
             found = position;
@@ -452,12 +515,13 @@ static inline int node_attr_reserve(th_tree *tree, th_node *node, int indexed) {
     size_t bytes;
     int fits = th_grow_cap((size_t)node->attr_count + 1, capacity, 2, sizeof(th_node_attr), &capacity, &bytes);
     if (indexed) {
-        const size_t slot_bytes = sizeof(th_node_attr) + 4 * sizeof(uint32_t);
+        /* per slot: the attribute, a spare slot for removals to advance attrs into, and five index words */
+        const size_t slot_bytes = 2 * sizeof(th_node_attr) + 5 * sizeof(uint32_t);
+        const size_t fixed_bytes = sizeof(th_node_attr) + sizeof(attr_index); /* the head slot and the index count */
         /* GCOVR_EXCL_BR_START: allocation-size overflow */
-        fits = fits && capacity <= ATTR_INDEX_MAX &&
-               capacity <= ((size_t)PY_SSIZE_T_MAX - sizeof(attr_index)) / slot_bytes;
+        fits = fits && capacity <= ATTR_INDEX_MAX && capacity <= ((size_t)PY_SSIZE_T_MAX - fixed_bytes) / slot_bytes;
         /* GCOVR_EXCL_BR_STOP */
-        bytes = sizeof(attr_index) + capacity * slot_bytes;
+        bytes = fixed_bytes + capacity * slot_bytes;
     }
     if (!fits || bytes > PY_SSIZE_T_MAX) { /* GCOVR_EXCL_BR_LINE: allocation-size overflow */
         PyErr_NoMemory();                  /* GCOVR_EXCL_LINE: allocation-size overflow */
@@ -466,6 +530,9 @@ static inline int node_attr_reserve(th_tree *tree, th_node *node, int indexed) {
     th_node_attr *grown = arena_alloc(tree, (Py_ssize_t)bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (indexed) {
+        grown++->name_atom = 0;
     }
     if (node->attr_count > 0) {
         memcpy(grown, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
@@ -739,14 +806,30 @@ Py_ssize_t th_node_attr_find_atom(th_tree *tree, th_node *node, uint32_t atom) {
     return node_attr_find_exact_indexed(tree, node, atom);
 }
 
-/* Remove the attribute with this name, shifting the rest down. Returns 1 when one
-   was removed, 0 when the element had no such attribute. */
+/* th_node_attr_find on an element with ATTR_INDEX_MIN or more attributes: node_attr_find_large, or -2 with no error set
+   when the index could not be allocated, so the reader falls back to scanning. */
+ATTR_INDEX_FN Py_ssize_t node_attr_find_wide(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                             uint32_t atom) {
+    const Py_ssize_t found = node_attr_find_large(tree, node, name, name_len, atom);
+    if (found < -1) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_Clear(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return found;
+}
+
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     /* Node.re(attr=...) and the XSLT lookups pass any node here; only an element has attrs and attr_count. */
     if (node->type != TH_NODE_ELEMENT) {
         return -1;
     }
     uint32_t atom = th_attr_lookup_inline(tree, name, name_len);
+    /* unlikely, so the scan small elements take keeps its code layout */
+    if (TH_UNLIKELY(node->attr_count >= ATTR_INDEX_MIN)) {
+        const Py_ssize_t found = node_attr_find_wide(tree, node, name, name_len, atom);
+        if (found >= -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return found;
+        }
+    }
     if (atom != UINT32_MAX) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
             TH_WORK_STEP();
@@ -770,12 +853,61 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
     return -1;
 }
 
-int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
-    tree->attr_version++;
-    Py_ssize_t index = th_node_attr_find(tree, node, name, name_len);
-    if (index < 0) {
-        return 0;
+/* Close the gap at index of an indexed array by moving the shorter side, the attributes before it one slot up or the
+   ones after it one slot down, so removing from either end moves nothing. A current index follows each moved
+   attribute, relinked before the move while the array still holds it at its old slot; a stale one stays stale for the
+   next lookup to rebuild. Once removals from the front have advanced attrs through every spare slot, the array moves
+   back to the start of its block instead: that many removals have passed since it last started there, so the move
+   costs each of them one step. */
+ATTR_INDEX_FN void node_attr_drop_indexed(th_tree *tree, th_node *node, Py_ssize_t index) {
+    attr_index *table = node_attr_index(node);
+    const size_t head = node_attr_head(node);
+    const Py_ssize_t after = node->attr_count - 1 - index;
+    const int lead = index < after;
+    if (lead && head == th_node_attr_capacity(node)) {
+        TH_WORK_STEPS_ADD(index + after);
+        th_node_attr *start = node->attrs - head;
+        memmove(start, node->attrs, (size_t)index * sizeof(th_node_attr));
+        memmove(start + index, node->attrs + index + 1, (size_t)after * sizeof(th_node_attr));
+        node->attrs = start;
+        start[-1].name_atom = 0;
+        table->count = ATTR_INDEX_STALE;
+        return;
     }
+    TH_WORK_STEPS_ADD(lead ? index : after);
+    if (table->count == (uint32_t)node->attr_count) {
+        uint32_t *links = table->links;
+        const size_t buckets = 2 * th_node_attr_capacity(node);
+        const th_node_attr *attrs = node->attrs;
+        const int folds = attr_index_folds(tree, node);
+        attr_index_unlink(links, buckets, node_attr_slot(node, (size_t)index), attrs[index].name_atom, folds);
+        if (lead) {
+            for (size_t position = (size_t)index; position > 0; position--) {
+                attr_index_move(links, buckets, node_attr_slot(node, position - 1), attrs[position - 1].name_atom,
+                                node_attr_slot(node, position), folds);
+            }
+        } else {
+            for (size_t position = (size_t)index + 1; position < (size_t)node->attr_count; position++) {
+                attr_index_move(links, buckets, node_attr_slot(node, position), attrs[position].name_atom,
+                                node_attr_slot(node, position - 1), folds);
+            }
+        }
+        table->count--;
+    } else {
+        table->count = ATTR_INDEX_STALE;
+    }
+    if (lead) {
+        memmove(node->attrs + 1, node->attrs, (size_t)index * sizeof(th_node_attr));
+        node->attrs++;
+        node->attrs[-1].name_atom = (uint32_t)head + 1;
+    } else {
+        memmove(node->attrs + index, node->attrs + index + 1, (size_t)after * sizeof(th_node_attr));
+    }
+}
+
+/* Drop the attribute at index, keeping the order of the rest; the caller has advanced attr_version. */
+static void node_attr_drop(th_tree *tree, th_node *node, Py_ssize_t index) {
+    TH_WORK_STEP();
     mark_start_dirty(tree, node);
     th_mo_attr_changed(tree, node, node->attrs[index].name_atom, node->attrs[index].value, node->attrs[index].value_len,
                        1);
@@ -784,11 +916,24 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
         const uint32_t atom = node->attrs[index].name_atom;
         tree->slot_cache_valid = (atom != TH_ATTR_SLOT) & ((atom != TH_ATTR_NAME) | (node->atom != TH_TAG_SLOT));
     }
-    for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
-        TH_WORK_STEP();
-        node->attrs[shift] = node->attrs[shift + 1];
+    if (node->attr_capacity_shift & TH_ATTR_INDEXED) {
+        node_attr_drop_indexed(tree, node, index);
+    } else {
+        for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
+            TH_WORK_STEP();
+            node->attrs[shift] = node->attrs[shift + 1];
+        }
     }
     node->attr_count--;
+}
+
+int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
+    tree->attr_version++;
+    Py_ssize_t index = th_node_attr_find(tree, node, name, name_len);
+    if (index < 0) {
+        return 0;
+    }
+    node_attr_drop(tree, node, index);
     return 1;
 }
 
@@ -806,6 +951,11 @@ uint64_t th_tree_unlinks(void) {
 #else
     return __atomic_load_n(&th_unlinks, __ATOMIC_RELAXED);
 #endif
+}
+
+void th_node_attr_del_at(th_tree *tree, th_node *node, Py_ssize_t index) {
+    tree->attr_version++;
+    node_attr_drop(tree, node, index);
 }
 
 void th_node_remove(th_node *child) {
