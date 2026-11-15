@@ -216,7 +216,7 @@ static int namespace_bytes_is(th_tree *tree, th_node *node, const char *prefix, 
                               const char *uri) {
     uint32_t atom;
     if (xmlns_atom(tree, prefix, NULL, prefix_len, &atom) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return 0;                                                /* GCOVR_EXCL_LINE: the record build reports it */
+        return -1;                                               /* GCOVR_EXCL_LINE: allocation failure */
     }
     const th_node_attr *attr = xmlns_attr(node, atom);
     return attr != NULL && ucs4_eq_ascii(attr->value, attr->value_len, uri);
@@ -1396,7 +1396,7 @@ static PyObject *entry_field_text(th_tree *tree, th_node *const *fields, size_t 
 }
 
 static const th_node_attr *rdf_reference_attr(th_tree *tree, th_node *node, const char *local, Py_ssize_t local_len,
-                                              int allow_unprefixed) {
+                                              int allow_unprefixed, int *error) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         const th_node_attr *attr = &node->attrs[index];
         if (attr->value == NULL) {
@@ -1404,11 +1404,25 @@ static const th_node_attr *rdf_reference_attr(th_tree *tree, th_node *node, cons
         }
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        if ((allow_unprefixed && name_len == local_len && memcmp(name, local, (size_t)local_len) == 0) ||
-            (name_len > local_len + 1 && name[name_len - local_len - 1] == ':' &&
-             memcmp(name + name_len - local_len, local, (size_t)local_len) == 0 &&
-             (!th_tree_is_xml(tree) ? name_len == local_len + 4 && memcmp(name, "rdf:", 4) == 0
-                                    : namespace_bytes_is(tree, node, name, name_len - local_len - 1, RDF_URI)))) {
+        if (allow_unprefixed && name_len == local_len && memcmp(name, local, (size_t)local_len) == 0) {
+            return attr;
+        }
+        if (name_len <= local_len + 1 || name[name_len - local_len - 1] != ':' ||
+            memcmp(name + name_len - local_len, local, (size_t)local_len) != 0) {
+            continue;
+        }
+        if (!th_tree_is_xml(tree)) {
+            if (name_len == local_len + 4 && memcmp(name, "rdf:", 4) == 0) {
+                return attr;
+            }
+            continue;
+        }
+        int bound = namespace_bytes_is(tree, node, name, name_len - local_len - 1, RDF_URI);
+        if (bound < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            *error = 1;  /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (bound) {
             return attr;
         }
     }
@@ -1417,7 +1431,11 @@ static const th_node_attr *rdf_reference_attr(th_tree *tree, th_node *node, cons
 
 static PyObject *rdf_reference(th_tree *tree, th_node *node, const char *local, Py_ssize_t local_len,
                                int allow_unprefixed) {
-    const th_node_attr *attr = rdf_reference_attr(tree, node, local, local_len, allow_unprefixed);
+    int error = 0;
+    const th_node_attr *attr = rdf_reference_attr(tree, node, local, local_len, allow_unprefixed, &error);
+    if (error) {     /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+    }
     if (attr != NULL) {
         return ucs4_trimmed(attr->value, attr->value_len);
     }
@@ -1747,7 +1765,7 @@ static PyObject *build_rdf_entries(module_state *state, th_tree *tree, th_node *
             }
         }
         if (about == NULL) {
-            about = rdf_reference_attr(tree, item, "about", 5, 0);
+            about = rdf_reference_attr(tree, item, "about", 5, 0, &error);
         }
         const th_node_attr *resource = NULL;
         if (canonical && child->attr_count == 1) {
@@ -1760,7 +1778,11 @@ static PyObject *build_rdf_entries(module_state *state, th_tree *tree, th_node *
             }
         }
         if (resource == NULL) {
-            resource = rdf_reference_attr(tree, child, "resource", 8, 1);
+            resource = rdf_reference_attr(tree, child, "resource", 8, 1, &error);
+        }
+        if (error) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
         }
         if (about == NULL || resource == NULL || !absolute_reference(about->value, about->value_len) ||
             about->value_len != resource->value_len ||
