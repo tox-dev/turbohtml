@@ -247,7 +247,7 @@ static void xt_folded_attr(xt_ctx *ctx, const char *name) {
     xt_text(&ctx->out, ", 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')");
 }
 
-static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const sel_simple *skip);
+static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound);
 static void xt_condition_alts(xt_ctx *ctx, const sel_complex *alts, int count);
 static void xt_has_path(xt_ctx *ctx, const sel_complex *rel);
 
@@ -255,22 +255,6 @@ static void xt_has_path(xt_ctx *ctx, const sel_complex *rel);
    suffices; scanning the compound for each of-type pseudo-class is quadratic in its length. */
 static const sel_simple *xt_type_simple(const sel_compound *compound) {
     return compound->simples[0].kind == 'e' ? &compound->simples[0] : NULL;
-}
-
-/* The type simple the step's node test can express: the one whose (lowercased) name
-   XPath accepts verbatim, or NULL when the test must stay '*'. */
-static const sel_simple *xt_nodetest(const sel_compound *compound) {
-    const sel_simple *simple = xt_type_simple(compound);
-    return simple != NULL && xt_safe_name(simple->name, simple->name_len) ? simple : NULL;
-}
-
-/* Emit the chosen node test: the type simple's lowercased name, or '*'. */
-static void xt_emit_nodetest(xt_ctx *ctx, const sel_simple *test) {
-    if (test != NULL) {
-        xt_slice(&ctx->out, test->name, test->name_len, 1);
-    } else {
-        xt_char(&ctx->out, '*');
-    }
 }
 
 /* The sibling axis an nth-* condition counts over: the detached axis step and, under an 'of S' list, the run of the
@@ -371,16 +355,9 @@ static Py_UCS4 *xt_detach(xt_ctx *ctx, Py_ssize_t mark, Py_ssize_t *out_len) {
     return copy;
 }
 
-/* Emit the of-type sibling node test for the compound: its type simple's name, or
-   *[name() = '...'] when XPath rejects the spelling. Returns 0 (with the error set)
-   for a compound with no type selector, whose element type the translation cannot
-   know. */
+/* Emit the of-type sibling node test for the compound: *[name() = '...'] over its type simple's name. Returns 0
+   (with the error set) for a compound with no type selector, whose element type the translation cannot know. */
 static int xt_of_type_test(xt_ctx *ctx, const sel_compound *compound) {
-    const sel_simple *test = xt_nodetest(compound);
-    if (test != NULL) {
-        xt_emit_nodetest(ctx, test);
-        return 1;
-    }
     const sel_simple *named = xt_type_simple(compound);
     if (named != NULL) {
         xt_text(&ctx->out, "*[name() = ");
@@ -682,23 +659,16 @@ static int xt_pseudo_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
     }
 }
 
-/* Emit the condition for one simple selector. Returns 0 when the simple holds on
-   every element (the universal selector and the type already used as the node test). */
-static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compound *compound, const sel_simple *skip) {
+/* Emit the condition for one simple selector. Returns 0 when the simple holds on every element (the universal
+   selector). A type compares the element's qualified name: a name test would resolve a default namespace the
+   selector never sees, and the CSS matcher compares the qualified name too. */
+static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compound *compound) {
     switch (simple->kind) {
     case '*':
         return 0;
     case 'e':
-        if (simple == skip) {
-            return 0; /* already expressed as the step's node test */
-        }
-        if (xt_safe_name(simple->name, simple->name_len)) {
-            xt_text(&ctx->out, "self::");
-            xt_slice(&ctx->out, simple->name, simple->name_len, 1);
-        } else {
-            xt_text(&ctx->out, "name() = ");
-            xt_value_literal(ctx, simple->name, simple->name_len, 1, 0, 0);
-        }
+        xt_text(&ctx->out, "name() = ");
+        xt_value_literal(ctx, simple->name, simple->name_len, 1, 0, 0);
         return 1;
     case '#':
         xt_text(&ctx->out, "@id = ");
@@ -786,9 +756,8 @@ static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
     }
 }
 
-/* Emit the compound's conditions joined by " and ", skipping the type simple already
-   expressed as the node test. Returns the number of conditions written. */
-static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const sel_simple *skip) {
+/* Emit the compound's conditions joined by " and ". Returns the number of conditions written. */
+static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound) {
     int wrote = 0;
     /* past the output limit nothing is kept, and each of-type pseudo-class would re-scan the type name */
     for (int index = 0; index < compound->count && !ctx->out.failed; index++) {
@@ -797,7 +766,7 @@ static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const se
         if (wrote) {
             xt_text(&ctx->out, " and ");
         }
-        if (!xt_simple_cond(ctx, &compound->simples[index], compound, skip)) {
+        if (!xt_simple_cond(ctx, &compound->simples[index], compound)) {
             ctx->out.len = mark; /* the simple needs no condition: drop the joiner */
         } else {
             wrote++;
@@ -812,7 +781,6 @@ static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const se
 static void xt_left_chain(xt_ctx *ctx, const sel_complex *complex, int index) {
     char combinator = complex->compounds[index].combinator;
     const sel_compound *target = &complex->compounds[index - 1];
-    const sel_simple *test = combinator == '+' ? NULL : xt_nodetest(target);
     switch (combinator) {
     case '>':
         xt_text(&ctx->out, "parent::");
@@ -830,11 +798,11 @@ static void xt_left_chain(xt_ctx *ctx, const sel_complex *complex, int index) {
         break;
     }
     if (combinator != '+') {
-        xt_emit_nodetest(ctx, test);
+        xt_char(&ctx->out, '*');
     }
     Py_ssize_t mark = ctx->out.len;
     xt_char(&ctx->out, '[');
-    int wrote = xt_compound_conds(ctx, target, test);
+    int wrote = xt_compound_conds(ctx, target);
     if (index - 1 > 0) {
         if (wrote) {
             xt_text(&ctx->out, " and ");
@@ -853,7 +821,7 @@ static void xt_left_chain(xt_ctx *ctx, const sel_complex *complex, int index) {
    its own compound's conditions plus the left-chain existence test. */
 static void xt_condition_complex(xt_ctx *ctx, const sel_complex *complex) {
     int subject = complex->count - 1;
-    int wrote = xt_compound_conds(ctx, &complex->compounds[subject], NULL);
+    int wrote = xt_compound_conds(ctx, &complex->compounds[subject]);
     if (subject > 0) {
         if (wrote) {
             xt_text(&ctx->out, " and ");
@@ -880,11 +848,10 @@ static void xt_condition_alts(xt_ctx *ctx, const sel_complex *alts, int count) {
 
 /* Emit one location step: the node test plus the compound's bracketed conditions. */
 static void xt_step(xt_ctx *ctx, const sel_compound *compound) {
-    const sel_simple *test = xt_nodetest(compound);
-    xt_emit_nodetest(ctx, test);
+    xt_char(&ctx->out, '*');
     Py_ssize_t mark = ctx->out.len;
     xt_char(&ctx->out, '[');
-    if (xt_compound_conds(ctx, compound, test) == 0) {
+    if (xt_compound_conds(ctx, compound) == 0) {
         ctx->out.len = mark;
     } else {
         xt_char(&ctx->out, ']');

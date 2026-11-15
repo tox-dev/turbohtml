@@ -128,28 +128,20 @@ typedef struct {
     Py_ssize_t uri_len;
 } xp_namespace;
 
-typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
-                               Py_ssize_t name_len);
-
-/* The prefixes a prefixed name test resolves against. name_test, when set, decides each prefixed name test against
-   the tree in place of the URI the binding gives it, for trees whose namespaces the bindings alone cannot match (an
-   XML tree's elements declare theirs); unprefixed name tests are never sent to it. */
 typedef struct {
     const xp_namespace *items;
     Py_ssize_t len;
-    xp_name_test_fn name_test;
-    void *name_test_ctx;
 } xp_namespaces;
 
-/* Resolves a prefix a program's name tests use to the namespace URI its scope binds it to. Returns 1 with *uri and
- *uri_len set, 0 when the prefix is unbound, or -1 with a Python error set. */
+/* Resolves a prefix a program's name tests use to the namespace URI its scope binds it to. Returns 1 with uri and
+   uri_len set, 0 when the prefix is unbound, or -1 with a Python error set. */
 typedef int (*xp_prefix_resolve_fn)(void *context, const Py_UCS4 *prefix, Py_ssize_t prefix_len, const Py_UCS4 **uri,
                                     Py_ssize_t *uri_len);
 
 /* Give the program the bindings for the prefixes its prefixed name tests use, resolved once through resolve and
    copied into the program, so it carries its stylesheet's namespace scope. A program with no prefixed name test, or
-   whose prefixes are all unbound, keeps none. Replaces any earlier binding. Returns 0, or -1 with a Python error set.
- */
+   whose prefixes are all unbound, keeps none. Replaces any earlier binding. Returns 0, or -1 with a Python error
+   set. */
 int xp_bind_namespaces(xp_program *prog, xp_prefix_resolve_fn resolve, void *context);
 /* The bindings xp_bind_namespaces kept, or NULL when there are none. */
 const xp_namespaces *xp_program_namespaces(const xp_program *prog);
@@ -221,6 +213,8 @@ int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                          xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature);
 
+typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
+                               Py_ssize_t name_len);
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
                        void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
                        const char **feature);

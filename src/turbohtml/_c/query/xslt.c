@@ -1204,16 +1204,6 @@ typedef struct {
     Py_ssize_t last_uri_len;
 } xslt_pattern_scope;
 
-/* The prefixes a stylesheet expression's prefixed name tests resolve against: the bindings its program carries, and
-   the URI the last name resolved to, so a name test with the same spelling does not look it up again. */
-typedef struct {
-    engine *eng;
-    const xp_namespaces *bound;
-    const Py_UCS4 *last_name;
-    const Py_UCS4 *last_uri;
-    Py_ssize_t last_uri_len;
-} xslt_expr_scope;
-
 typedef struct {
     engine *eng;
     th_node *element;
@@ -2051,8 +2041,6 @@ done:
     return rc;
 }
 
-static int expr_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len);
-
 /* Evaluate a compiled program against a context item with the current scope and the XSLT extension functions.
    Returns the xp_eval status; fills *out on success. condition is set when the caller only converts *out to a
    boolean (xp_eval_condition_at). */
@@ -2072,18 +2060,7 @@ static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *c
     if (prog->has_variables) {
         scope_bindings(eng, bindings, &vars);
     }
-    const xp_namespaces *bound = xp_program_namespaces(prog);
-    const xp_namespaces *namespaces = NULL;
-    xp_namespaces names = {0};
-    xslt_expr_scope prefixes = {0};
-    if (bound != NULL) {
-        prefixes = (xslt_expr_scope){.eng = eng, .bound = bound};
-        names = (xp_namespaces){.items = bound->items,
-                                .len = bound->len,
-                                .name_test = th_tree_is_xml(eng->src_tree) ? expr_name_test : NULL,
-                                .name_test_ctx = &prefixes};
-        namespaces = &names;
-    }
+    const xp_namespaces *namespaces = xp_program_namespaces(prog);
     const char *feature = NULL;
     int status = condition
                      ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, namespaces,
@@ -5158,58 +5135,6 @@ static int pattern_local_equals_utf8(const Py_UCS4 *local, Py_ssize_t local_len,
     return source_len == 0;
 }
 
-static int prefixed_name_matches(engine *eng, th_node *node, Py_ssize_t attr, const Py_UCS4 *local,
-                                 Py_ssize_t local_len, const Py_UCS4 *wanted_uri, Py_ssize_t wanted_uri_len) {
-    if (attr >= 0) {
-        Py_ssize_t source_len;
-        const char *source = th_attr_name(eng->src_tree, node->attrs[attr].name_atom, &source_len);
-        const char *colon = memchr(source, ':', (size_t)source_len);
-        Py_ssize_t source_prefix_len = colon == NULL ? 0 : colon - source;
-        const char *source_local = colon == NULL ? source : colon + 1;
-        if (!pattern_local_equals_utf8(local, local_len, source_local, source_len - (source_local - source))) {
-            return 0;
-        }
-        if (source_prefix_len == 0) {
-            return wanted_uri_len == 0;
-        }
-        if (source_prefix_len == 3 && memcmp(source, "xml", 3) == 0) {
-            return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_XML_NS_URI);
-        }
-        const th_node_attr *declared;
-        int resolved =
-            pattern_declaration(&eng->src_declarations, eng->src_tree, node, source, source_prefix_len, &declared);
-        if (resolved < 0) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-            return -1;        /* GCOVR_EXCL_LINE */
-        }
-        return declared != NULL && declared->value != NULL && declared->value_len == wanted_uri_len &&
-               (wanted_uri_len == 0 ||
-                memcmp(declared->value, wanted_uri, (size_t)wanted_uri_len * sizeof(Py_UCS4)) == 0);
-    }
-    xslt_number_name source = number_local_name(eng, node);
-    source.ns = node->ns;
-    if (number_has_namespaces(eng) || eng->number_index.positions.count != 0 || source.name != node->text) {
-        if (number_index_extend(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
-            return -1;                            /* GCOVR_EXCL_LINE */
-        }
-    }
-    if (eng->number_index.positions.count != 0) {
-        source = number_name(eng, node);
-    }
-    if (source.name_len != local_len || memcmp(source.name, local, (size_t)local_len * sizeof(Py_UCS4)) != 0) {
-        return 0;
-    }
-    if (source.ns == TH_NS_SVG) {
-        return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_SVG_NS_URI);
-    }
-    if (source.ns == TH_NS_MATHML) {
-        return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_MATHML_NS_URI);
-    }
-    return source.uri_len == wanted_uri_len &&
-           (wanted_uri_len == 0 || memcmp(source.uri, wanted_uri, (size_t)wanted_uri_len * sizeof(Py_UCS4)) == 0);
-}
-
 static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len) {
     xslt_pattern_scope *scope = context;
     engine *eng = scope->eng;
@@ -5261,37 +5186,54 @@ static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, cons
     if (node == NULL) {
         return 1;
     }
-    return prefixed_name_matches(eng, node, attr, local, local_len, wanted_uri, wanted_uri_len);
-}
-
-static const Py_UCS4 *expr_prefix_uri(const xp_namespaces *bound, const Py_UCS4 *prefix, Py_ssize_t prefix_len,
-                                      Py_ssize_t *uri_len) {
-    for (Py_ssize_t index = 0; index < bound->len; index++) {
-        const xp_namespace *binding = &bound->items[index];
-        if (binding->prefix_len == prefix_len &&
-            memcmp(binding->prefix, prefix, (size_t)prefix_len * sizeof(Py_UCS4)) == 0) {
-            *uri_len = binding->uri_len;
-            return binding->uri;
+    if (attr >= 0) {
+        Py_ssize_t source_len;
+        const char *source = th_attr_name(eng->src_tree, node->attrs[attr].name_atom, &source_len);
+        const char *colon = memchr(source, ':', (size_t)source_len);
+        Py_ssize_t source_prefix_len = colon == NULL ? 0 : colon - source;
+        const char *source_local = colon == NULL ? source : colon + 1;
+        if (!pattern_local_equals_utf8(local, local_len, source_local, source_len - (source_local - source))) {
+            return 0;
+        }
+        if (source_prefix_len == 0) {
+            return wanted_uri_len == 0;
+        }
+        if (source_prefix_len == 3 && memcmp(source, "xml", 3) == 0) {
+            return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_XML_NS_URI);
+        }
+        const th_node_attr *declared;
+        int resolved =
+            pattern_declaration(&eng->src_declarations, eng->src_tree, node, source, source_prefix_len, &declared);
+        if (resolved < 0) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        return declared != NULL && declared->value != NULL && declared->value_len == wanted_uri_len &&
+               (wanted_uri_len == 0 ||
+                memcmp(declared->value, wanted_uri, (size_t)wanted_uri_len * sizeof(Py_UCS4)) == 0);
+    }
+    xslt_number_name source = number_local_name(eng, node);
+    source.ns = node->ns;
+    if (number_has_namespaces(eng) || eng->number_index.positions.count != 0 || source.name != node->text) {
+        if (number_index_extend(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
+            return -1;                            /* GCOVR_EXCL_LINE */
         }
     }
-    *uri_len = sizeof(number_xml_uri) / sizeof(number_xml_uri[0]);
-    return number_xml_uri;
-}
-
-/* The name test a prefixed name of an expression takes on an XML tree. resolve_step_ns vets every prefix before the
-   test is installed, so the only prefix left unbound here is xml. */
-static int expr_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len) {
-    xslt_expr_scope *scope = context;
-    Py_ssize_t prefix_len = 0;
-    while (name[prefix_len] != ':') {
-        prefix_len++;
+    if (eng->number_index.positions.count != 0) {
+        source = number_name(eng, node);
     }
-    if (scope->last_name != name) {
-        scope->last_uri = expr_prefix_uri(scope->bound, name, prefix_len, &scope->last_uri_len);
-        scope->last_name = name;
+    if (source.name_len != local_len || memcmp(source.name, local, (size_t)local_len * sizeof(Py_UCS4)) != 0) {
+        return 0;
     }
-    return prefixed_name_matches(scope->eng, node, attr, name + prefix_len + 1, name_len - prefix_len - 1,
-                                 scope->last_uri, scope->last_uri_len);
+    if (source.ns == TH_NS_SVG) {
+        return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_SVG_NS_URI);
+    }
+    if (source.ns == TH_NS_MATHML) {
+        return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_MATHML_NS_URI);
+    }
+    return source.uri_len == wanted_uri_len &&
+           (wanted_uri_len == 0 || memcmp(source.uri, wanted_uri, (size_t)wanted_uri_len * sizeof(Py_UCS4)) == 0);
 }
 
 static int number_names_equal(const xslt_number_name *left, const xslt_number_name *right) {
