@@ -296,6 +296,9 @@ def computed_style(element: Element) -> ComputedStyle:
     ancestor chain, matches the native selector engine, and orders declarations by importance, the style attribute,
     specificity, and source order before applying inheritance and initial values.
 
+    Calls on one document reuse the ancestor styles earlier calls resolved until the document changes, so styling every
+    element costs a bounded number of cascades per element whatever order the calls come in.
+
     :param element: the element to compute the style of.
     :returns: the resolved, read-only computed style.
     """

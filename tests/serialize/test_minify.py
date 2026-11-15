@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from turbohtml import Doctype, Element, Formatter, Html, Minify, Text, parse, parse_fragment, parse_xml
-from turbohtml.clean import CSSMinify, minify
+from turbohtml.clean import CSSMinify, minify, strip_comments_node
 
 if TYPE_CHECKING:
     from work_steps import WorkSteps
@@ -687,28 +687,37 @@ def test_body_start_kept_before_comment() -> None:
     assert parse("<body><!--c-->x</body>").serialize(Html(layout=Minify(strip_comments=False))) == "<body><!--c-->x"
 
 
-_HEAD_ROUTED: Final[tuple[str, ...]] = (
-    "base",
-    "basefont",
-    "bgsound",
-    "link",
-    "meta",
-    "noframes",
-    "noscript",
-    "script",
-    "style",
-    "template",
-    "title",
+@pytest.mark.parametrize(
+    "tag",
+    [
+        pytest.param(t, id=t)
+        for t in (
+            "base",
+            "basefont",
+            "bgsound",
+            "link",
+            "meta",
+            "noframes",
+            "noscript",
+            "script",
+            "style",
+            "template",
+            "title",
+        )
+    ],
 )
-
-
-@pytest.mark.parametrize("tag", [pytest.param(t, id=t) for t in _HEAD_ROUTED])
 def test_body_start_kept_before_head_element(tag: str) -> None:
     # without the body start tag the "after head" insertion mode files the element under <head>
     source: Final = f"<body><{tag}></{tag}>x</body>"
     once: Final = parse(source).serialize(Html(layout=Minify()))
     assert once.startswith(f"<body><{tag}")
     assert parse(once).serialize(Html()) == parse(source).serialize(Html())
+
+
+def test_body_start_omitted_before_foreign_element() -> None:
+    assert (
+        parse("<body><svg><title>t</title></svg>x").serialize(Html(layout=Minify())) == "<svg><title>t</title></svg>x"
+    )
 
 
 def test_empty_element_as_root_keeps_end_tag() -> None:
@@ -1134,6 +1143,154 @@ def test_minified_script_spells_no_end_tag(source: str, expected: str) -> None:
 def test_script_that_would_not_reparse_stays_verbatim(source: str) -> None:
     # stripping the `<!--` section or the dead `-->` would let the parser end or extend the element elsewhere
     assert script(source, minify_js=JSMinify()) == f"<script>{source}</script>"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<script>x="</noscr"+"ipt><img src=x>"</script>', id="folded-string"),
+        pytest.param('<script>x="</NoScr"+"Ipt><img src=x>"</script>', id="folded-string-mixed-case"),
+        pytest.param('<style>a::before{content:"</noscr\\\nipt><img src=x>"}</style>', id="string-line-continuation"),
+    ],
+)
+def test_minified_content_under_noscript_spells_no_noscript_end_tag(source: str) -> None:
+    # a scripting browser reads the whole <noscript> as raw text, so a joined `</noscript` would end it mid-string
+    layout = Minify(minify_js=JSMinify(), minify_css=CSSMinify())
+    out = parse_fragment(f"<noscript>{source}</noscript>", "div").serialize(Html(layout=layout))
+    assert out == f"<div><noscript>{source}</noscript></div>"
+
+
+def test_content_under_noscript_is_still_minified() -> None:
+    # only the end tag closes the element: any other `<`, a `<noscript` start tag included, stays minified
+    layout = Minify(minify_js=JSMinify(), minify_css=CSSMinify())
+    source = '<script>var  a = "<noscript>" ;</script><style>a {  content : "<noscript>"  }</style>'
+    out = parse_fragment(f"<noscript>{source}</noscript>", "div").serialize(Html(layout=layout))
+    minified = '<script>var a="<noscript>"</script><style>a{content:"<noscript>"}</style>'
+    assert out == f"<div><noscript>{minified}</noscript></div>"
+
+
+_NOSCRIPT_DOCUMENTS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "<!doctype html><head><meta charset=utf-8><noscript><img src=/pixel.png width=1></noscript>"
+        "<script src=/app.js></script></head><body id=main><h1>Title</h1>",
+        id="head-image",
+    ),
+    pytest.param(
+        "<!doctype html><body><noscript><iframe src=/frame></iframe></noscript><main>x</main>", id="body-first"
+    ),
+    pytest.param(
+        '<p>a<noscript><span title="</noscript><img src=/x.png>">b</span></noscript>c', id="attribute-end-tag"
+    ),
+    pytest.param("<p>a<noscript><!-- </noscript><em>e</em> --></noscript>z", id="comment-end-tag"),
+    pytest.param("<p>a<noscript><!--</noscript/>--></noscript>z", id="slash-after-end-tag"),
+    pytest.param("<p>a<noscript><i>b</noscript>c</p><p>d</p>", id="unclosed-formatting"),
+    pytest.param("<table><tr><td><noscript><div>a</noscript>b</td></tr></table><p>c</p>", id="table-cell"),
+    pytest.param("<p><b>x</p><noscript><a href=/>y</a></noscript>z", id="reconstructed-formatting"),
+    pytest.param("<div><noscript><img src=/a.png></noscript></div><frameset><frame src=/b></frameset>", id="frameset"),
+    pytest.param("<p>a  b</p><frameset><frame></frameset>", id="frameset-without-noscript"),
+    pytest.param("<div><noscript><noscript>a</noscript>b</noscript>c</div><p>d</p>", id="nested"),
+    pytest.param("<div><noscript><p>a", id="unclosed-at-end"),
+    pytest.param("<select><noscript><option>a</option></noscript></select><noscript><b>b</b></noscript>", id="select"),
+    pytest.param("<p>a\r\n<noscript>\r\n<img src=/x.png>\r\n</noscript>\r\nb", id="crlf"),
+    pytest.param(
+        "<head>\r\n<noscript><img src=/x.png></noscript>\r\n<link rel=a href=b></head><body>c", id="crlf-head"
+    ),
+    pytest.param("<p>€<noscript>€<img alt=€></noscript><p>€", id="two-byte"),
+    pytest.param("<p>\U0001f600<noscript><i>\U0001f600</noscript><p>\U0001f600", id="four-byte"),
+    pytest.param("<table><noscript>a</noscript><tr><td>b</td></tr></table>", id="fostered"),
+    pytest.param("<template><noscript><p>a</p></noscript></template>", id="template"),
+    pytest.param("<table><tr><td><noscript>1</noscript></td></tr><noscript>2</noscript></table>", id="fostered-later"),
+    pytest.param("".join(f"<div><noscript><i>{n}</noscript></div><p>{n}</p>" for n in range(10)), id="many-parted"),
+    pytest.param(f"{'<div>' * 600}<noscript><img src=/x.png></noscript>", id="past-depth-cap"),
+    pytest.param("<p><noscript>a</noscriptx>b</noscript>", id="end-tag-name-continues"),
+    pytest.param("<p><noscript>a</nos b</noscript>", id="end-tag-prefix"),
+    pytest.param("<head><noscript><style>a { color : red }</style><link rel=x href=y></noscript></head>x", id="style"),
+    pytest.param("<b><noscript></b>x</noscript>", id="adoption-agency"),
+    pytest.param("<b><b><b><noscript><b>x</noscript>y", id="noahs-ark"),
+    pytest.param("<body><noscript><body class=x></noscript>", id="body-attributes"),
+    pytest.param("<noscript><html lang=x></noscript>", id="html-attributes"),
+    pytest.param("<table><noscript><form></noscript>", id="form-in-table"),
+    pytest.param("<svg><noscript/></svg>", id="foreign-self-closing"),
+    pytest.param("<svg><noscript>a</noscript></svg><noscript><img src=/a.png></noscript>", id="foreign"),
+    pytest.param(
+        "<p>a<noscript>  <b>s</b>  </noscript><ul><li><noscript><p>a</noscript></ul>  <p>c</p>", id="stable-first"
+    ),
+    pytest.param("<ul><li><noscript><p>a</noscript></ul>  <p>b<noscript>  <b>s</b>  </noscript>", id="stable-after"),
+    *(
+        pytest.param(f"<p>a<noscript><!-- </NoScript{after}--></noscript>b", id=f"comment-end-tag-{name}")
+        for name, after in (("space", " "), ("tab", "\t"), ("newline", "\n"), ("form-feed", "\f"), ("cr", "\r"))
+    ),
+    pytest.param(
+        "<div><noscript><!-- </noscript> --></noscript><table><tr><td><noscript><!-- </noscript> --></noscript></td>"
+        "</tr><div>x</div></table><noscript><!-- </noscript> --></noscript></div>",
+        id="fostered-before-cell",
+    ),
+    pytest.param(
+        "<div><noscript><!-- </noscript> --></noscript><table><tr><td><noscript><!-- </noscript> --></noscript></td>"
+        "</tr><div>x</div></table></div>",
+        id="fostered-before-last-cell",
+    ),
+    pytest.param(
+        f"{'<div>' * 506}<noscript><!-- </noscript> --></noscript><table><tr><td><noscript>y</noscript></td></tr>"
+        "<div>x</div></table>",
+        id="fostered-before-cell-past-depth-cap",
+    ),
+    pytest.param("<div><form></div><p>a  b<noscript><i>c</noscript>d", id="form-pointer-closed"),
+    pytest.param("<form><p>a  b<noscript><i>c</noscript>d</form>", id="form-open"),
+    pytest.param("<svg><foreignObject><p>a  b<noscript><i>c</noscript>d</foreignObject></svg>", id="foreign-ancestor"),
+    pytest.param("<template><p>a  b<noscript><i>c</noscript>d</template>", id="template-ancestor"),
+    pytest.param("<table><tr><td>a  b<noscript><i>c</noscript>d</td></tr></table>", id="table-ancestor"),
+    pytest.param("<table><colgroup><noscript><i>c</noscript></table>", id="column-group"),
+    pytest.param("<head><noscript><noscript><i>c</noscript></head>", id="nested-in-head"),
+]
+_NOSCRIPT_LAYOUTS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(Minify(), id="default"),
+    pytest.param(Minify(strip_comments=False), id="keep-comments"),
+    pytest.param(Minify(minify_js=JSMinify(), minify_css=CSSMinify()), id="js-css"),
+]
+
+
+@pytest.mark.parametrize("scripting", [pytest.param(False, id="scripting-off"), pytest.param(True, id="scripting-on")])
+@pytest.mark.parametrize("layout", _NOSCRIPT_LAYOUTS)
+@pytest.mark.parametrize("source", _NOSCRIPT_DOCUMENTS)
+def test_minify_noscript_reparses_to_the_source_tree(source: str, layout: Minify, *, scripting: bool) -> None:
+    expected = _reparsed(source, layout, scripting=scripting)
+    assert _reparsed(minify(source, layout), layout, scripting=scripting) == expected
+
+
+def _reparsed(markup: str, layout: Minify, *, scripting: bool) -> str:
+    # minifying folds whitespace and drops comments, so the trees compare in the form the layout writes them
+    document = parse(markup, scripting=scripting)
+    return (strip_comments_node(document) if layout.strip_comments else document).serialize(Html(layout=layout))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "<p>a<noscript>  <img  src=/x.png>  </noscript>  b",
+            "<p>a<noscript>  <img  src=/x.png>  </noscript> b",
+            id="content-copied",
+        ),
+        pytest.param(
+            "<p>x  y</p><div><noscript><i>a</noscript></div>  <p>b  c</p>",
+            "<p>x y<div><noscript><i>a</noscript></div>  <p>b  c</p>",
+            id="copied-to-the-end",
+        ),
+        pytest.param(
+            "<!doctype html><head><title>t</title><noscript><img src=/p.gif></noscript><link rel=x href=y></head>",
+            "<!DOCTYPE html><title>t</title><noscript><img src=/p.gif></noscript><link rel=x href=y></head>",
+            id="copied-from-the-head",
+        ),
+        pytest.param(
+            "<p>x  y<b>z<noscript><i>a</noscript></b>",
+            "<p>x  y<b>z<noscript><i>a</noscript></b>",
+            id="unchanged-under-formatting",
+        ),
+    ],
+)
+def test_minify_copies_noscript_from_the_source(source: str, expected: str) -> None:
+    assert minify(source) == expected
 
 
 def test_empty_script_is_unchanged() -> None:

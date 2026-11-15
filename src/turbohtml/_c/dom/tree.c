@@ -4987,11 +4987,150 @@ token_done:
     }
 }
 
+/* The mode the next token runs in: a fostered token ran under the in-body rules, and the table mode it came from takes
+   over again at the next token. */
+static enum mode effective_mode(const th_insert *dc) {
+    return dc->foster_pending ? dc->foster_return : dc->mode;
+}
+
+/* Whether source[from, to) spells an end tag that closes raw-text noscript content: `</noscript` in any letter case
+   followed by whitespace, '/' or '>'. */
+static int source_ends_noscript(const th_tree *tree, Py_ssize_t from, Py_ssize_t to) {
+    static const char name[] = "</noscript";
+    Py_ssize_t name_len = (Py_ssize_t)sizeof(name) - 1;
+    for (Py_ssize_t index = from; index + name_len < to; index++) {
+        TH_WORK_STEP();
+        Py_ssize_t at = 0;
+        while (at < name_len && lower_ascii(PyUnicode_READ(tree->kind, tree->data, index + at)) == (Py_UCS4)name[at]) {
+            at++;
+        }
+        Py_UCS4 next = PyUnicode_READ(tree->kind, tree->data, index + name_len);
+        if (at == name_len && (is_space(next) || next == '/' || next == '>')) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether the open elements under a just-pushed noscript leave nothing the minified markup before it could rebuild
+   differently: all HTML, and no table whose misplaced content the parser moves. An open template needs no check here:
+   its marker keeps the active formatting list non-empty, which already rules out a cut. */
+static int noscript_cut_stack(const th_tree *tree) {
+    for (Py_ssize_t index = 0; index < tree->open_len - 1; index++) {
+        const th_node *open = tree->open[index];
+        if (open->ns != TH_NS_HTML || open->atom == TH_TAG_TABLE) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Record the noscript a start tag just built, given the open-element count and node sequence from before the token.
+   The parse ignores the tag in some modes, and the depth cap keeps the element off the stack, which leaves no node to
+   record but a span that cannot be stable. The span stays open when the tag left the builder where a raw-text reading
+   does, one element deeper, so its close can be compared against the state saved here. That state is also where a cut
+   can start: no active formatting element to reconstruct, and a form pointer that the minified markup sets alike. */
+static void noscript_opened(th_tree *tree, th_insert *dc, th_noscript_track *track, Py_ssize_t start,
+                            Py_ssize_t open_before, uint32_t seq_before) {
+    th_node *top = current_node(tree);
+    int created = tree->node_seq != seq_before;
+    int pushed = created && top->seq == tree->node_seq - 1 && top->ns == TH_NS_HTML;
+    if (!pushed && !stack_at_depth_cap(tree)) {
+        return;
+    }
+    if (track->count == track->cap) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)track->count + 1, (size_t)track->cap, 4, sizeof(th_noscript_span), &cap, &bytes);
+        if (!grew) {           /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            track->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;            /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_noscript_span *grown = PyMem_Realloc(track->spans, bytes);
+        if (grown == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            track->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            return;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        track->spans = grown;
+        track->cap = (Py_ssize_t)cap;
+    }
+    th_noscript_span *span = &track->spans[track->count];
+    span->node = pushed ? top : NULL;
+    span->seq = tree->node_seq - 1;
+    span->start = start;
+    span->content = th_tok_position(dc->sm);
+    span->end = -1;
+    span->stable = 0;
+    span->cut = 0;
+    span->html = tree->open[0];
+    span->html_attrs = span->html->attr_count;
+    span->body = tree->open[1]->atom == TH_TAG_BODY ? tree->open[1] : NULL;
+    span->body_attrs = span->body != NULL ? span->body->attr_count : 0;
+    if (pushed && track->open < 0 && tree->open_len == open_before + 1) {
+        track->open = track->count;
+        track->open_len = open_before;
+        track->mode = dc->mode == M_IN_HEAD_NOSCRIPT ? M_IN_HEAD : effective_mode(dc);
+        track->afe_len = tree->afe_len;
+        track->afe_last = tree->afe_len > 0 ? tree->afe[tree->afe_len - 1] : NULL;
+        track->form = tree->form;
+        track->frameset_ok = tree->frameset_ok;
+        track->html_attrs = span->html_attrs;
+        track->body = span->body;
+        track->body_attrs = span->body_attrs;
+        span->cut = tree->afe_len == 0 && (tree->form == NULL || !tree->form->left_stack) && noscript_cut_stack(tree);
+    }
+    track->count++;
+}
+
+/* The open noscript left the stack: it is stable when the token that closed it is the first `</noscript` after its
+   start tag and the builder is back where the raw-text reading puts it -- the same open elements, active formatting
+   elements, form pointer, insertion mode and html/body attributes. A cleared frameset-ok is kept apart, since it only
+   matters to a later <frameset>. Every comparison is evaluated, so the result does not depend on which one fails. */
+static void noscript_closed(th_tree *tree, th_insert *dc, th_noscript_track *track, Py_ssize_t end) {
+    th_noscript_span *span = &track->spans[track->open];
+    if (track->frameset_ok && !tree->frameset_ok) {
+        track->frameset_span = track->open;
+    }
+    track->open = -1;
+    span->end = end;
+    th_node *afe_last = tree->afe_len > 0 ? tree->afe[tree->afe_len - 1] : NULL;
+    Py_ssize_t body_attrs = track->body != NULL ? track->body->attr_count : 0;
+    span->stable = (end >= span->content) & (tree->open_len == track->open_len) & (tree->afe_len == track->afe_len) &
+                   (afe_last == track->afe_last) & (tree->form == track->form) &
+                   ((int)effective_mode(dc) == track->mode) & (tree->open[0]->attr_count == track->html_attrs) &
+                   (body_attrs == track->body_attrs);
+    if (span->stable) {
+        span->stable = !source_ends_noscript(tree, span->content, end);
+    }
+}
+
+/* drain_token with the noscript bookkeeping around it, taken only by a parse that records spans. */
+static TH_NOINLINE void drain_tracked(th_tree *tree, th_insert *dc, th_token *tok, th_noscript_track *track) {
+    int opens = tok->kind == TH_START_TAG && tok->atom == TH_TAG_NOSCRIPT;
+    int ends = tok->kind == TH_END_TAG && tok->atom == TH_TAG_NOSCRIPT;
+    Py_ssize_t offset = tok->src_off; /* stamped on every tag token, read before drain_token reuses the token */
+    Py_ssize_t open_before = tree->open_len;
+    uint32_t seq_before = tree->node_seq;
+    if (tok->kind == TH_START_TAG && tok->atom == TH_TAG_FRAMESET && track->frameset_span >= 0) {
+        track->spans[track->frameset_span].stable = 0;
+    }
+    drain_token(tree, dc, tok);
+    if (track->open >= 0 && track->spans[track->open].node->left_stack) {
+        noscript_closed(tree, dc, track, ends ? offset : -1);
+    }
+    if (opens) {
+        /* a noscript inside an open one gets a span too, so every noscript element the walk meets has one */
+        noscript_opened(tree, dc, track, offset, open_before, seq_before);
+    }
+}
+
 /* Drive tree construction over the tokens the tokenizer can produce now,
    returning when it stalls (TH_STEP_NEED_MORE), reaches EOF (TH_STEP_DONE), or
    fails. The insertion-mode state is restored from run_state on entry and saved
-   back on exit so a later call resumes the WHATWG algorithm in place. */
-static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) {
+   back on exit so a later call resumes the WHATWG algorithm in place. A non-NULL track records noscript spans; the
+   parses without one get their own copy of the loop with no check for it. */
+static TH_TREE_INLINE void run_drain_with(th_tree *tree, th_tokenizer *sm, th_run_state *run_state,
+                                          th_noscript_track *track) {
     /* foster_return: a table mode foster-parents a stray token by processing it
        once under in-body rules and then returning to the table mode. table_origin:
        the row/section modes delegate unhandled tokens to the in-table rules without
@@ -5013,7 +5152,13 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
     while (!tree->failed /* GCOVR_EXCL_BR_LINE */ &&
            (th_tok_set_cdata(sm, tree->open_len > 0 && current_node(tree)->ns != TH_NS_HTML),
             th_tok_next(sm, &tok) == TH_STEP_TOKEN)) {
-        drain_token(tree, dc, tok);
+        /* only a noscript or frameset tag, or a token while a noscript is open, changes the record; drain_tracked reads
+           the kind, as a text token can carry a tag's stale atom */
+        if (track != NULL && (track->open >= 0 || tok->atom == TH_TAG_NOSCRIPT || tok->atom == TH_TAG_FRAMESET)) {
+            drain_tracked(tree, dc, tok, track);
+        } else {
+            drain_token(tree, dc, tok);
+        }
     }
     /* the tokenizer reports its allocation failures as TH_STEP_ERROR, which would otherwise end the drain as if the
        input had ended and return a partial tree, and a parse error the sink dropped would leave the list incomplete */
@@ -5022,6 +5167,10 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
     run_state->original_mode = dc->original_mode;
     run_state->foster_return = dc->foster_return;
     run_state->foster_pending = dc->foster_pending;
+}
+
+static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) {
+    run_drain_with(tree, sm, run_state, NULL);
 }
 
 /* Stop parsing at EOF: pop the remaining open elements, which runs the
@@ -5200,6 +5349,48 @@ th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positi
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     return tree;
+}
+
+th_tree *th_tree_parse_noscript(int kind, const void *data, Py_ssize_t length, th_noscript_track *track) {
+    th_tree *tree = tree_new_document(1, 0);
+    if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    tree->declarative_shadow = 1;
+    tree->kind = kind;
+    tree->data = data;
+    tree->length = length;
+    th_tokenizer *sm = th_tok_new();
+    if (sm == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    th_tok_set_error_sink(sm, &tree->errors);
+    int normalized = setup_input(tree, sm, kind, data, length);
+    track->open = -1;
+    track->frameset_span = -1;
+    th_run_state run_state;
+    run_state_init(&run_state, M_INITIAL);
+    run_drain_with(tree, sm, &run_state, track);
+    run_close(tree);
+    track->open = -1; /* EOF closed it, which no raw-text reading matches: it stays unstable */
+    for (Py_ssize_t index = 0; index < track->count; index++) {
+        th_noscript_span *span = &track->spans[index];
+        span->cut &= (span->html->attr_count == span->html_attrs) &
+                     (span->body == NULL || span->body->attr_count == span->body_attrs);
+    }
+    retain_normalized_source(tree, sm, normalized);
+    th_tok_free(sm);
+    finalize_document(tree);
+    if (tree->failed || track->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tree_free(tree);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return tree;
+}
+
+void th_noscript_track_free(th_noscript_track *track) {
+    PyMem_Free(track->spans);
 }
 
 /* The insertion mode a fragment starts in, given its context element's atom. */

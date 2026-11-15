@@ -16,9 +16,8 @@ from __future__ import annotations
 from typing import Final, Literal
 
 from ._jsminify import JSMinify
-from ._native import Minify, parse
+from ._native import Minify, minify_document
 from ._native import minify_js as _minify_js
-from ._render import Html
 
 _DEFAULT: Final[Minify] = Minify()
 
@@ -31,11 +30,16 @@ def minify(html: str, options: Minify | None = None) -> str:
     the start/end tags the WHATWG rules make optional, dropping redundant attribute quotes, and stripping comments. Each
     transform is round-trip safe, so the result reparses to the same tree and minifying is idempotent.
 
+    The result also reparses to the source's tree with scripting on, where ``<noscript>`` content is raw text, so that
+    content is copied from the source. When a ``<noscript>``'s content parses differently with scripting on, the
+    source from that ``<noscript>`` to the end is copied unminified; when the markup before it cannot be minified
+    without changing how that ``<noscript>`` parses, the whole document comes back unchanged.
+
     :param html: the HTML document to minify.
     :param options: which folds to apply; ``None`` engages every transform (the :class:`~turbohtml.Minify` default).
     :returns: the minified HTML.
     """
-    return parse(html).serialize(Html(layout=options if options is not None else _DEFAULT))
+    return minify_document(html, options if options is not None else _DEFAULT)
 
 
 def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["raise", "passthrough"] = "raise") -> str:
