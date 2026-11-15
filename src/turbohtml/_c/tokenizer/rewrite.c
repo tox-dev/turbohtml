@@ -66,39 +66,71 @@ static int rw_content_model(const th_buf *name) {
     return -1;
 }
 
-/* A grow-on-demand UCS4 output buffer; realized to a str once at the end. */
+/* A grow-on-demand UCS4 output buffer; realized to a str once at the end. A write past room takes rw_out_make_room,
+   which grows the buffer and settles a pending tail (rw_hold_tail). */
 typedef struct {
     Py_UCS4 *data;
     Py_ssize_t len;
     Py_ssize_t cap;
+    Py_ssize_t room;  /* cap, or len while a tail is pending, so the next write settles it */
+    Py_ssize_t tail;  /* one past the offset of the pending tail's `<`, or 0 for none */
+    Py_ssize_t moved; /* one past the offset the last settled tail ended at, which its escape moved up by 3 */
+    int rcdata;       /* the pending tail is RCDATA text */
     int failed;
 } rw_out;
 
-static void rw_out_reserve(rw_out *out, Py_ssize_t extra) {
+/* Whether the pending tail, `<` and what follows it to the end of the output, reads as the start of markup once
+   `next` is written after it. The source read it as text because what followed there ended it. */
+static int rw_tail_joins(const rw_out *out, Py_UCS4 next) {
+    Py_ssize_t len = out->len - (out->tail - 1);
+    if (!out->rcdata) {
+        return len == 2 || is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+    }
+    if (len == 1) {
+        return next == '/';
+    }
+    return is_ascii_alpha(next) || (len > 2 && (is_space(next) || next == '/' || next == '>'));
+}
+
+/* Make room for extra code points, the first of them `next`. A pending tail that `next` would join is escaped in
+   place first, while it is still the end of the output. */
+static TH_NOINLINE void rw_out_make_room(rw_out *out, Py_ssize_t extra, Py_UCS4 next) {
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (out->len + extra <= out->cap) {
-        return;
+    Py_ssize_t escape = out->tail > 0 && rw_tail_joins(out, next) ? 3 : 0;
+    Py_ssize_t need = out->len + escape + extra;
+    if (need > out->cap) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)need, (size_t)out->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: a length this large cannot be allocated to reach here */
+            out->failed = 1; /* GCOVR_EXCL_LINE: overflow-guard path */
+            return;          /* GCOVR_EXCL_LINE: overflow-guard path */
+        }
+        Py_UCS4 *grown = PyMem_Realloc(out->data, bytes);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        out->data = grown;
+        out->cap = (Py_ssize_t)cap;
     }
-    size_t cap;
-    size_t bytes;
-    int grew = th_grow_cap((size_t)(out->len + extra), (size_t)out->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
-    if (!grew) {         /* GCOVR_EXCL_BR_LINE: a length this large cannot be allocated to reach here */
-        out->failed = 1; /* GCOVR_EXCL_LINE: overflow-guard path */
-        return;          /* GCOVR_EXCL_LINE: overflow-guard path */
+    if (escape) {
+        Py_UCS4 *lt = out->data + out->tail - 1;
+        memmove(lt + 4, lt + 1, (size_t)(out->len - out->tail) * sizeof(Py_UCS4));
+        memcpy(lt, (const Py_UCS4[]){'&', 'l', 't', ';'}, 4 * sizeof(Py_UCS4));
+        out->moved = out->len + 1;
+        out->len += 3;
     }
-    Py_UCS4 *grown = PyMem_Realloc(out->data, bytes);
-    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;          /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    out->data = grown;
-    out->cap = (Py_ssize_t)cap;
+    out->tail = 0;
+    out->room = out->cap;
 }
 
 static void rw_out_char(rw_out *out, Py_UCS4 ch) {
-    rw_out_reserve(out, 1);
+    if (out->len + 1 > out->room) {
+        rw_out_make_room(out, 1, ch);
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -106,7 +138,9 @@ static void rw_out_char(rw_out *out, Py_UCS4 ch) {
 }
 
 static void rw_out_run(rw_out *out, const Py_UCS4 *run, Py_ssize_t len) {
-    rw_out_reserve(out, len);
+    if (out->len + len > out->room) {
+        rw_out_make_room(out, len, run[0]);
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -124,12 +158,14 @@ static void rw_out_ascii(rw_out *out, const char *text) {
 /* Append a str's code points at whatever storage width it uses. */
 static void rw_out_str(rw_out *out, PyObject *str) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(str);
-    rw_out_reserve(out, len);
+    int kind = PyUnicode_KIND(str);
+    const void *data = PyUnicode_DATA(str);
+    if (out->len + len > out->room) {
+        rw_out_make_room(out, len, PyUnicode_READ(kind, data, 0));
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int kind = PyUnicode_KIND(str);
-    const void *data = PyUnicode_DATA(str);
     for (Py_ssize_t index = 0; index < len; index++) {
         out->data[out->len++] = PyUnicode_READ(kind, data, index);
     }
@@ -193,7 +229,9 @@ static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token
     int kind;
     const char *base = th_tok_input_data(sm, &kind);
     if (token->is_slice) {
-        rw_out_reserve(out, token->src_len);
+        if (out->len + token->src_len > out->room) {
+            rw_out_make_room(out, token->src_len, PyUnicode_READ(kind, base, token->src_start));
+        }
         if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -203,7 +241,9 @@ static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token
         return;
     }
     if (token->has_source) {
-        rw_out_reserve(out, token->src_span);
+        if (out->len + token->src_span > out->room) {
+            rw_out_make_room(out, token->src_span, PyUnicode_READ(kind, base, token->src_off));
+        }
         if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -214,7 +254,9 @@ static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token
     }
     /* a text/comment run the tokenizer normalized (so it is neither a borrowed slice nor
        a captured span): emit its buffered code points */
-    rw_out_reserve(out, token->text.len);
+    if (out->len + token->text.len > out->room) {
+        rw_out_make_room(out, token->text.len, buf_read(&token->text, 0));
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -521,7 +563,7 @@ static PyObject *rw_escape_arg(PyObject *content, int raw) {
     if (raw) {
         return Py_NewRef(content);
     }
-    rw_out scratch = {NULL, 0, 0, 0};
+    rw_out scratch = {.data = NULL};
     rw_out_content(&scratch, content, 0);
     if (scratch.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(scratch.data); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1589,7 +1631,9 @@ static void rw_end_tag_at(Py_UCS4 *at, const th_node *node) {
 
 /* Append the end tag of an open element. */
 static void rw_emit_end_tag(rw_out *out, const th_node *node) {
-    rw_out_reserve(out, node->text_len + 3);
+    if (out->len + node->text_len + 3 > out->room) {
+        rw_out_make_room(out, node->text_len + 3, '<');
+    }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1623,18 +1667,20 @@ static th_node **rw_mirror_refs(const rw_ctx *ctx) {
 /* Feed the mirror what was written since it last read. compact lets it copy its tree, which moves the spine's
    mirrored pointers and invalidates every other pointer into it. */
 static void rw_mirror_sync(rw_ctx *ctx, int compact) {
-    if (ctx->mirrored == ctx->out.len) {
+    /* a pending tail may still be escaped, so the mirror reads it once it settles */
+    Py_ssize_t end = ctx->out.tail > 0 ? ctx->out.tail - 1 : ctx->out.len;
+    if (ctx->mirrored == end) {
         return;
     }
     Py_ssize_t count = compact ? ctx->depth : -1;
     /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
-    if (th_shadow_mirror_feed(ctx->mirror, ctx->out.data + ctx->mirrored, ctx->out.len - ctx->mirrored,
-                              rw_mirror_refs(ctx), count, sizeof(rw_open)) < 0) {
+    if (th_shadow_mirror_feed(ctx->mirror, ctx->out.data + ctx->mirrored, end - ctx->mirrored, rw_mirror_refs(ctx),
+                              count, sizeof(rw_open)) < 0) {
         ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* GCOVR_EXCL_BR_STOP */
-    ctx->mirrored = ctx->out.len;
+    ctx->mirrored = end;
 }
 
 static TH_NOINLINE void rw_mirror_start(rw_ctx *ctx) {
@@ -1797,15 +1843,20 @@ static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped, int 
             extra += popped[index].node->text_len + 3;
         }
     }
-    rw_out_reserve(out, extra);
+    if (out->len + extra > out->room) {
+        rw_out_make_room(out, extra, '<');
+    }
     if (extra > 0 && !out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         /* one pass from the back: each stretch of output moves once, past the end tags that go in before it */
         Py_ssize_t tail = out->len;
         out->len += extra;
         for (Py_ssize_t index = 0; index < closed; index++) {
-            const rw_open *open = &popped[index];
+            rw_open *open = &popped[index];
             if (open->end_at < 0) {
                 continue;
+            }
+            if (open->end_at + 1 == out->moved) { /* it ended after a tail escaped since */
+                open->end_at += 3;
             }
             memmove(out->data + open->end_at + extra, out->data + open->end_at,
                     (size_t)(tail - open->end_at) * sizeof(Py_UCS4));
@@ -2501,6 +2552,50 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
     }
 }
 
+/* Hold the tail of source text written as read for rw_out_make_room to settle: a `<` at its end, or in RCDATA an
+   end tag cut short, read as text there because what followed in the source ended it, but a handler can drop or
+   change what follows, and what it writes in its place, or the markup a dropped node exposes, would join the tail
+   into a tag. Raw text reads `<` as text whatever follows it. */
+static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, Py_ssize_t start) {
+    const rw_open *top = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
+    int rcdata = top != NULL && top->model == TH_INIT_RCDATA;
+    if (top != NULL && top->model >= 0 && !rcdata) {
+        return;
+    }
+    rw_out *out = &ctx->out;
+    Py_ssize_t lt = out->len - 1;
+    if (out->data[lt] != '<') {
+        Py_ssize_t slash = lt;
+        while (rcdata && slash > start && is_ascii_alpha(out->data[slash])) {
+            slash--;
+        }
+        if (out->data[slash] != '/' || slash == start || out->data[slash - 1] != '<') {
+            return;
+        }
+        lt = slash - 1;
+    }
+    out->tail = lt + 1;
+    out->rcdata = rcdata;
+    out->room = out->len;
+}
+
+/* Write an unedited leaf token as it was read. */
+static void rw_emit_read_leaf(rw_ctx *ctx, const th_token *token) {
+    Py_ssize_t start = ctx->out.len;
+    rw_emit_verbatim(&ctx->out, ctx->sm, token);
+    if (token->kind != TH_TEXT || token->has_source) {
+        return;
+    }
+    if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
+        return;            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS4 last = ctx->out.data[ctx->out.len - 1];
+    if (last == '<' || last == '/' ||
+        (is_ascii_alpha(last) && ctx->depth > 0 && ctx->stack[ctx->depth - 1].model == TH_INIT_RCDATA)) {
+        rw_hold_tail(ctx, start);
+    }
+}
+
 /* Without the tags of a raw-text or RCDATA element, a browser reads the `<` and bare `&` of its text as markup, so an
    unedited text run whose tags were dropped is escaped. An RCDATA character reference is written as its decoded,
    escaped text: copied as written, a reference without its semicolon would join the text after the element. */
@@ -2525,7 +2620,7 @@ static TH_NOINLINE void rw_emit_leaf(rw_ctx *ctx, const th_token *token, enum rw
         }
         rw_out_ascii(&ctx->out, "-->");
     } else {
-        rw_emit_verbatim(&ctx->out, ctx->sm, token);
+        rw_emit_read_leaf(ctx, token);
     }
 }
 
@@ -2586,7 +2681,7 @@ static inline void rw_call_leaf_handler(rw_ctx *ctx, const th_token *token, PyOb
     } else if (ctx->mirror != NULL) {
         rw_emit_leaf(ctx, token, rw_mirror_reading(ctx, token));
     } else {
-        rw_emit_verbatim(&ctx->out, ctx->sm, token);
+        rw_emit_read_leaf(ctx, token);
     }
     if (handle->after_html != NULL) {
         rw_out_str(&ctx->out, handle->after_html);
@@ -2638,7 +2733,7 @@ static void rw_handle_leaf(rw_ctx *ctx, th_token *token, PyObject *handler, enum
         return;
     }
     if (handler == NULL) {
-        rw_emit_verbatim(&ctx->out, ctx->sm, token);
+        rw_emit_read_leaf(ctx, token);
         return;
     }
     rw_call_leaf_handler(ctx, token, handler, kind, 0);
