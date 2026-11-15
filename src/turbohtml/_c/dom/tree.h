@@ -428,15 +428,18 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator);
 const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize_t count, th_node *child,
                                 th_node *run_first, th_node *run_last);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
-/* The shared attribute values (th_node.attr_values_shared) a run of deep copies from one tree into another has copied
-   so far, keyed by their address in the source arena, so that a value the source elements share is copied once and
-   shared by the copies. th_tree_copy_node and th_tree_adopt_copy keep one per call. A caller that copies sibling
-   subtrees one by one zero-initializes one, hands it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing
-   call of the run, all between the same two trees, and releases it with th_copy_memo_free. */
+/* The shared attribute values (th_node.attr_values_shared) a deep copy into one tree has copied so far, keyed by the
+   source tree's identity and the value's address in its arena, so that a value the source elements share is copied
+   once and shared by the copies. th_tree_copy_node keeps one per call. A caller that copies sibling subtrees one by
+   one zero-initializes one and passes it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing call, and
+   releases it with th_copy_memo_free. A memo that outlives a call (the destination handle's) sets source before each
+   copy to an identity no other source has had: a freed source's addresses can come back in a later tree, and only the
+   identity tells them apart. */
 typedef struct {
     struct th_copied_value *entries; /* open addressing; a NULL source address marks a free entry */
     size_t capacity;
     size_t count;
+    uint64_t source; /* the identity of the tree the copies are made from */
 } th_copy_memo;
 th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 static inline void th_copy_memo_free(th_copy_memo *memo) {
@@ -444,9 +447,8 @@ static inline void th_copy_memo_free(th_copy_memo *memo) {
 }
 int th_tree_has_shadows(const th_tree *tree);
 th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root);
-/* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
-   also take dest's naming rules, see convert_element_kind. */
-th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);
+/* A deep copy for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements also
+   take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 /* How many nodes the tree's arena has ever held, linked or not: an upper bound on what adopting all of it copies. */
 uint32_t th_tree_node_count(const th_tree *tree);

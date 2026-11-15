@@ -135,6 +135,9 @@ typedef struct {
     int css_sheets_ready;
     void *css_computed;
     uint64_t mutation_version;
+    /* The attribute values imported nodes copied into this tree, kept for the handle's life so that a later import
+       from the same source shares a value an earlier one copied (see import_node). */
+    th_copy_memo copies;
 } HandleObject;
 
 static inline size_t hash_override_slot(const th_node *node, size_t mask) {

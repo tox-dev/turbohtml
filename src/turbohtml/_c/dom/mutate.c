@@ -1248,25 +1248,30 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
 }
 
 struct th_copied_value {
+    uint64_t source;     /* the memo's source identity when the copy was made */
     const Py_UCS4 *from; /* an attribute value in the source arena */
     Py_UCS4 *to;         /* its copy in the destination arena */
     Py_ssize_t len;      /* the length copied; an empty value can sit at the address where the next value starts */
 };
 
-static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, const Py_UCS4 *from) {
-    size_t slot = (size_t)(((uint64_t)(uintptr_t)from * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (memo->capacity - 1);
-    while (memo->entries[slot].from != NULL && memo->entries[slot].from != from) {
+static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, uint64_t source, const Py_UCS4 *from,
+                                                 Py_ssize_t len) {
+    uint64_t key = (uint64_t)(uintptr_t)from ^ (source * UINT64_C(0xC2B2AE3D27D4EB4F));
+    size_t slot = (size_t)(((key * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (memo->capacity - 1));
+    struct th_copied_value *entry = &memo->entries[slot];
+    while (entry->from != NULL && !(entry->source == source && entry->from == from && entry->len == len)) {
         slot = (slot + 1) & (memo->capacity - 1);
+        entry = &memo->entries[slot];
     }
-    return &memo->entries[slot];
+    return entry;
 }
 
 static Py_UCS4 *copied_value_find(const th_copy_memo *memo, const Py_UCS4 *from, Py_ssize_t len) {
     if (memo->capacity == 0) {
         return NULL;
     }
-    const struct th_copied_value *entry = copied_value_slot(memo, from);
-    return entry->len == len ? entry->to : NULL; /* a free entry has no copy either */
+    const struct th_copied_value *entry = copied_value_slot(memo, memo->source, from, len);
+    return entry->from == NULL ? NULL : entry->to;
 }
 
 /* Remember that the value at from was copied to to; find has just missed it. Sharing only saves memory, so a memo
@@ -1275,19 +1280,22 @@ static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4
     if (memo->count >= memo->capacity / 2) {
         /* the live table bounds its capacity far below SIZE_MAX, and PyMem_Calloc refuses a byte size that wraps */
         size_t capacity = memo->capacity ? memo->capacity * 2 : 16;
-        th_copy_memo grown = {PyMem_Calloc(capacity, sizeof(*memo->entries)), capacity, memo->count};
+        th_copy_memo grown = *memo;
+        grown.entries = PyMem_Calloc(capacity, sizeof(*memo->entries));
+        grown.capacity = capacity;
         if (grown.entries == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;                  /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         for (size_t slot = 0; slot < memo->capacity; slot++) {
-            if (memo->entries[slot].from != NULL) {
-                *copied_value_slot(&grown, memo->entries[slot].from) = memo->entries[slot];
+            const struct th_copied_value *entry = &memo->entries[slot];
+            if (entry->from != NULL) {
+                *copied_value_slot(&grown, entry->source, entry->from, entry->len) = *entry;
             }
         }
         PyMem_Free(memo->entries);
         *memo = grown;
     }
-    *copied_value_slot(memo, from) = (struct th_copied_value){from, to, len};
+    *copied_value_slot(memo, memo->source, from, len) = (struct th_copied_value){memo->source, from, to, len};
     memo->count++;
 }
 
@@ -1295,8 +1303,8 @@ static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4
    builder lets every reconstruction of an unclosed formatting element point at the attribute values of its start tag
    (node_clone), so a buffer per value of every copied element costs value length x clones for an input of value
    length + clones. The copies keep shared what their sources share: in the same tree the copy points at the source's
-   value as a clone does, in another tree each value of an element that shares its values is copied once per
-   memo. A value is never written in place, so sharing is as safe in the copy as in the source. */
+   value as a clone does, in another tree each value of an element that shares its values is copied once per memo
+   and source. A value is never written in place, so sharing is as safe in the copy as in the source. */
 static Py_UCS4 *copy_attr_value(th_tree *dest, const th_tree *src, const th_node *src_node, const th_node_attr *from,
                                 th_copy_memo *memo) {
     if (dest == src) {
@@ -1535,13 +1543,6 @@ th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_no
             return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    return copy;
-}
-
-th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
-    th_copy_memo memo = {0};
-    th_node *copy = th_tree_adopt_copy_sharing(dest, src, src_node, &memo);
-    th_copy_memo_free(&memo);
     return copy;
 }
 

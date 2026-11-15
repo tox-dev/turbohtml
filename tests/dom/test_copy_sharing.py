@@ -166,3 +166,42 @@ def test_copy_keeps_an_empty_value_apart_from_the_value_stored_after_it() -> Non
     assert [dict(anchor.attrs) for anchor in clone.find_all("a")] == [
         {"first": "", "href": "/a-long-enough-value", "last": ""}
     ] * 4
+
+
+def test_repeated_moves_keep_reconstructed_values_shared() -> None:
+    # each move is its own call, so the destination must keep the value the earlier moves copied from the same source
+    page: Final = parse(_MARKUP)
+    children: Final = list(_found(page, "body").children)
+    target: Final = Element("div")
+    assert _peak(lambda: _append_each(target, children)) < _BOUND
+
+
+def _append_each(target: Element, nodes: list[Node]) -> None:
+    for node in nodes:
+        target.append(node)
+
+
+def test_repeated_moves_from_freed_sources_keep_each_value() -> None:
+    # a freed source's addresses can be reused by the next source, so an address alone cannot identify a value
+    letters: Final = "ABCDEFGHIJKLMNOPQRST"
+    target: Final = Element("div")
+    for letter in letters:
+        target.append(_found(parse(f'<p><a data-x="{letter * 40}"><p>x<p>y'), "body"))
+    assert [anchor.attrs["data-x"] for anchor in target.select("a")] == [
+        letter * 40 for letter in letters for _ in range(3)
+    ]
+
+
+def test_values_moved_one_call_at_a_time_stay_independent() -> None:
+    value: Final = "A" * 40
+    page: Final = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
+    target: Final = Element("div")
+    _append_each(target, list(_found(page, "body").children))
+    written: Final = target.select("a")
+    written[1].attrs["data-x"] = "changed"
+    del written[2].attrs["data-x"]
+    assert [dict(anchor.attrs) for anchor in target.select("a")] == [
+        {"data-x": value, "title": "t"},
+        {"data-x": "changed", "title": "t"},
+        {"title": "t"},
+    ]
