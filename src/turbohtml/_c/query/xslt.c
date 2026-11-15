@@ -938,6 +938,14 @@ typedef struct {
     size_t name_capacity;
 } xslt_declarations;
 
+/* The nearest source ancestor-or-self that declares a namespace, per node a walk has passed. */
+typedef struct {
+    th_node_map resolved;
+    th_node **found;
+    size_t found_count;
+    size_t found_capacity;
+} xslt_scope_memo;
+
 /* XSLT-namespace marks of a stylesheet tree, so a classification is a lookup, not an ancestor climb. slots maps an
    element that is in the XSLT namespace, or has an attribute that is, to 1 plus its offset in flags: one byte for
    the element, then one per attribute. */
@@ -1105,6 +1113,10 @@ typedef struct engine {
        must undeclare. */
     int default_bound;
     th_node_map src_namespaced; /* source node -> 1 when its nearest default declaration is non-empty, 2 otherwise */
+    xslt_scope_memo src_scope;
+    /* The source element whose copy is the output parent's nearest result element, when every namespace node of that
+       element is already in scope there. A copy of one of its children then checks only its own declarations. */
+    th_node *out_src;
 
     struct strip_entry *stripped; /* text nodes detached from the source by whitespace stripping */
     Py_ssize_t nstripped;
@@ -2907,13 +2919,179 @@ static int undeclare_default(engine *eng, th_node *element) {
     return 0;
 }
 
-/* Instantiate the content of a result element, with `bound` as the default-namespace state inside it. */
-static int instantiate_under(engine *eng, th_node *body, th_node *element, int bound) {
+/* Instantiate the content of a result element, with `bound` as the default-namespace state inside it and `scope` as the
+   output source for the copies inside it (see engine.out_src). */
+static int instantiate_under(engine *eng, th_node *body, th_node *element, int bound, th_node *scope) {
     int saved = eng->default_bound;
+    th_node *saved_src = eng->out_src;
     eng->default_bound = bound;
+    eng->out_src = scope;
     int rc = instantiate_body(eng, body, element);
     eng->default_bound = saved;
+    eng->out_src = saved_src;
     return rc;
+}
+
+/* Instantiate a body into a fragment root, which no copy's output parent reaches, so no output source carries into it.
+ */
+static int instantiate_detached(engine *eng, th_node *body, th_node *root) {
+    th_node *saved_src = eng->out_src;
+    eng->out_src = NULL;
+    int rc = instantiate_body(eng, body, root);
+    eng->out_src = saved_src;
+    return rc;
+}
+
+static int output_ns_in_scope(engine *eng, th_node *start, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
+                              Py_ssize_t value_len);
+static int pattern_declaration(xslt_declarations *decls, th_tree *tree, th_node *node, const char *prefix,
+                               Py_ssize_t prefix_len, const th_node_attr **declared);
+
+static int is_xmlns_name(const char *name, Py_ssize_t name_len) {
+    return (name_len == 5 && memcmp(name, "xmlns", 5) == 0) || (name_len > 6 && memcmp(name, "xmlns:", 6) == 0);
+}
+
+static int declares_namespace(th_tree *tree, const th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(tree, node->attrs[index].name_atom, &name_len);
+        if (is_xmlns_name(name, name_len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The nearest ancestor-or-self of source node `node` that declares a namespace, or NULL when none does. A walk stops at
+   a node an earlier walk answered and records its answer for the nodes it passed, so each node is climbed once per run.
+ */
+static int scope_nearest(engine *eng, th_node *node, th_node **nearest) {
+    xslt_scope_memo *memo = &eng->src_scope;
+    th_node *stop = node;
+    th_node *found = NULL;
+    Py_ssize_t cached = 0;
+    for (; stop != NULL; stop = stop->parent) {
+        TH_WORK_STEP();
+        cached = th_node_map_find(&memo->resolved, stop);
+        if (cached != 0) {
+            break;
+        }
+        if (declares_namespace(eng->src_tree, stop)) {
+            found = stop;
+            break;
+        }
+    }
+    Py_ssize_t value = cached;
+    if (cached != 0) {
+        found = memo->found[cached - 1];
+    } else {
+        if (memo->found_count == memo->found_capacity) {
+            size_t capacity;
+            size_t bytes;
+            /* GCOVR_EXCL_BR_START: allocation failure */
+            if (!th_grow_cap(memo->found_count + 1, memo->found_capacity, 16, sizeof(*memo->found), &capacity,
+                             &bytes)) {
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
+            th_node **grown = PyMem_Realloc(memo->found, bytes);
+            if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            memo->found = grown;
+            memo->found_capacity = capacity;
+        }
+        memo->found[memo->found_count++] = found;
+        value = (Py_ssize_t)memo->found_count;
+    }
+    for (th_node *walk = node; walk != stop; walk = walk->parent) {
+        if (th_node_map_insert(&memo->resolved, walk, value) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory");                      /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (cached == 0 && stop != NULL && th_node_map_insert(&memo->resolved, stop, value) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return fail(eng, "out of memory");                                                     /* GCOVR_EXCL_LINE */
+    }
+    *nearest = found;
+    return 0;
+}
+
+/* Writes source declaration `decl` onto the copy unless the output parent already binds its prefix to the same URI. */
+static int copy_namespace_node(engine *eng, th_node *out_parent, th_node *copy, const th_node_attr *decl) {
+    Py_ssize_t name_len = 0;
+    const char *name = th_attr_name(eng->src_tree, decl->name_atom, &name_len);
+    if (output_ns_in_scope(eng, out_parent, name, name_len, decl->value, decl->value_len)) {
+        return 0;
+    }
+    int rc = th_node_attr_set(eng->out_tree, copy, name, name_len, decl->value, decl->value_len, 1);
+    if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
+/* Copies the declarations of declaring node `node` that bind their prefix for source element `src`: a prefix counts
+   only at the nearest declaration, and the first default declaration seen is the nearest one. An empty binding is no
+   namespace node, and the xml prefix is always in scope. A verbatim copy already carries the element's own
+   declarations. */
+static int copy_declared(engine *eng, th_node *out_parent, th_node *copy, th_node *src, th_node *node, int verbatim,
+                         int *seen_default) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *decl = &node->attrs[index];
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(eng->src_tree, decl->name_atom, &name_len);
+        if (!is_xmlns_name(name, name_len)) {
+            continue;
+        }
+        if (name_len == 5) {
+            if (*seen_default) {
+                continue;
+            }
+            *seen_default = 1;
+        } else {
+            const th_node_attr *nearest = NULL;
+            int resolved =
+                pattern_declaration(&eng->src_declarations, eng->src_tree, src, name + 6, name_len - 6, &nearest);
+            if (resolved < 0) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
+            if (nearest != decl) {
+                continue;
+            }
+        }
+        if (decl->value_len == 0 || (name_len == 9 && memcmp(name, "xmlns:xml", 9) == 0) || (verbatim && node == src)) {
+            continue;
+        }
+        if (copy_namespace_node(eng, out_parent, copy, decl) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                              /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+/* Writes the namespace nodes of source element `src` onto its copy, which is appended to out_parent. The namespace
+   nodes of a copied element are every declaration in scope at it. When the output parent is inside the copy of the
+   source's parent, that copy's scope already holds the inherited ones, so only the element's own declarations are
+   checked; otherwise each declaring ancestor is walked. */
+static int copy_namespaces(engine *eng, th_node *out_parent, th_node *copy, th_node *src, int verbatim) {
+    int seen_default = 0;
+    if (eng->out_src != NULL && eng->out_src == src->parent) {
+        return copy_declared(eng, out_parent, copy, src, src, verbatim, &seen_default);
+    }
+    th_node *node = NULL;
+    if (scope_nearest(eng, src, &node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                            /* GCOVR_EXCL_LINE */
+    }
+    while (node != NULL) {
+        int rc = copy_declared(eng, out_parent, copy, src, node, verbatim, &seen_default);
+        if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        if (scope_nearest(eng, node->parent, &node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                     /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
 }
 
 /* Deep-copy a source subtree into the output tree, appended to out_parent. */
@@ -2935,6 +3113,11 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     th_node_append_child(out_parent, copy);
+    if (item.node->type == TH_NODE_ELEMENT && number_has_namespaces(eng)) {
+        if (copy_namespaces(eng, out_parent, copy, item.node, 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                  /* GCOVR_EXCL_LINE */
+        }
+    }
     if (eng->default_bound && item.node->type == TH_NODE_ELEMENT && xmlns_decl(eng->out_tree, copy) == NULL) {
         int no_namespace = source_in_no_namespace(eng, item.node);
         if (no_namespace < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
@@ -3016,7 +3199,7 @@ static int instantiate_string(engine *eng, th_node *body, Py_UCS4 **out_data, Py
     if (fragment == NULL) {                /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    if (instantiate_body(eng, body, fragment) < 0) {
+    if (instantiate_detached(eng, body, fragment) < 0) {
         return -1;
     }
     xb buffer = {0};
@@ -3249,7 +3432,7 @@ static int instantiate_without_element(engine *eng, th_node *instruction, th_nod
     if (holder == NULL) {                  /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    if (instantiate_body(eng, instruction, holder) < 0) {
+    if (instantiate_detached(eng, instruction, holder) < 0) {
         return -1;
     }
     while (holder->first_child != NULL) {
@@ -3320,7 +3503,7 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
         return -1;
     }
-    return instantiate_under(eng, instruction, element, bound);
+    return instantiate_under(eng, instruction, element, bound, NULL);
 }
 
 static uint32_t out_binding_hash(const th_node *element, const Py_UCS4 *uri, Py_ssize_t uri_len) {
@@ -3606,25 +3789,30 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
         th_node_append_child(out_parent, element);
+        if (number_has_namespaces(eng)) {
+            if (copy_namespaces(eng, out_parent, element, node, 0) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                                /* GCOVR_EXCL_LINE */
+            }
+        }
         int bound = eng->default_bound;
-        if (bound) {
-            int no_namespace = source_in_no_namespace(eng, node);
-            if (no_namespace < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
-                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        int namespaced = number_has_namespaces(eng) ? source_namespaced(eng, node) : 0;
+        if (namespaced < 0) {                  /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        if (namespaced) {
+            bound = 1;
+        } else if (!name_is_prefixed(node->text, node->text_len)) {
+            if (bound && undeclare_default(eng, element) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                      /* GCOVR_EXCL_LINE */
             }
-            if (no_namespace) {
-                if (undeclare_default(eng, element) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    return -1;                             /* GCOVR_EXCL_LINE */
-                }
-                bound = 0;
-            }
+            bound = 0;
         }
         Py_ssize_t use_len = 0;
         const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", 18, &use_len);
         if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
             return -1;
         }
-        return instantiate_under(eng, instruction, element, bound);
+        return instantiate_under(eng, instruction, element, bound, node);
     }
     if (node->type == TH_NODE_TEXT || node->type == TH_NODE_COMMENT || node->type == TH_NODE_PI) {
         th_node *copy = th_tree_copy_node(eng->out_tree, eng->src_tree, node);
@@ -5761,7 +5949,7 @@ static int compute_binding(engine *eng, th_node *declaration, xp_result *out_val
     if (fragment == NULL) {                /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
-    if (instantiate_under(eng, declaration, fragment, 0) < 0) {
+    if (instantiate_under(eng, declaration, fragment, 0, NULL) < 0) {
         return -1;
     }
     Py_ssize_t text_len = 0;
@@ -6484,7 +6672,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
         }
     }
     th_node_append_child(out_parent, copy);
-    return instantiate_under(eng, element, copy, bound);
+    return instantiate_under(eng, element, copy, bound, NULL);
 }
 
 /* Whether an element is an extension element: its name carries a prefix declared in the
@@ -7708,6 +7896,8 @@ static void engine_clear(engine *eng) {
     PyMem_Free(eng->out_bindings);
     PyMem_Free(eng->out_bindings_seen.entries);
     PyMem_Free(eng->src_namespaced.entries);
+    PyMem_Free(eng->src_scope.resolved.entries);
+    PyMem_Free(eng->src_scope.found);
     if (eng->out_tree != NULL) {
         th_tree_free(eng->out_tree);
     }
@@ -7753,6 +7943,8 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->ns_decls_cap = 0;
     eng->default_bound = 0;
     eng->src_namespaced = (th_node_map){0};
+    eng->src_scope = (xslt_scope_memo){0};
+    eng->out_src = NULL;
     eng->ns_counter = 0;
     eng->out_bindings = NULL;
     eng->out_bindings_cap = 0;
