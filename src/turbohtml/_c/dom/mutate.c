@@ -1258,32 +1258,30 @@ struct th_copied_value {
     uint64_t source;     /* the memo's source identity when the copy was made */
     const Py_UCS4 *from; /* an attribute value in the source arena */
     Py_UCS4 *to;         /* its copy in the destination arena */
-    Py_ssize_t len;      /* the length copied; an empty value can sit at the address where the next value starts */
 };
 
-static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, uint64_t source, const Py_UCS4 *from,
-                                                 Py_ssize_t len) {
+static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, uint64_t source, const Py_UCS4 *from) {
     uint64_t key = (uint64_t)(uintptr_t)from ^ (source * UINT64_C(0xC2B2AE3D27D4EB4F));
     size_t slot = (size_t)(((key * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (memo->capacity - 1));
     struct th_copied_value *entry = &memo->entries[slot];
-    while (entry->from != NULL && !(entry->source == source && entry->from == from && entry->len == len)) {
+    while (entry->from != NULL && !(entry->source == source && entry->from == from)) {
         slot = (slot + 1) & (memo->capacity - 1);
         entry = &memo->entries[slot];
     }
     return entry;
 }
 
-static Py_UCS4 *copied_value_find(const th_copy_memo *memo, const Py_UCS4 *from, Py_ssize_t len) {
+static Py_UCS4 *copied_value_find(const th_copy_memo *memo, const Py_UCS4 *from) {
     if (memo->capacity == 0) {
         return NULL;
     }
-    const struct th_copied_value *entry = copied_value_slot(memo, memo->source, from, len);
+    const struct th_copied_value *entry = copied_value_slot(memo, memo->source, from);
     return entry->from == NULL ? NULL : entry->to;
 }
 
 /* Remember that the value at from was copied to to; find has just missed it. Sharing only saves memory, so a memo
    that cannot grow just stops recording. */
-static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4 *to, Py_ssize_t len) {
+static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4 *to) {
     if (memo->count >= memo->capacity / 2) {
         /* the live table bounds its capacity far below SIZE_MAX, and PyMem_Calloc refuses a byte size that wraps */
         size_t capacity = memo->capacity ? memo->capacity * 2 : 16;
@@ -1296,13 +1294,13 @@ static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4
         for (size_t slot = 0; slot < memo->capacity; slot++) {
             const struct th_copied_value *entry = &memo->entries[slot];
             if (entry->from != NULL) {
-                *copied_value_slot(&grown, entry->source, entry->from, entry->len) = *entry;
+                *copied_value_slot(&grown, entry->source, entry->from) = *entry;
             }
         }
         PyMem_Free(memo->entries);
         *memo = grown;
     }
-    *copied_value_slot(memo, memo->source, from, len) = (struct th_copied_value){memo->source, from, to, len};
+    *copied_value_slot(memo, memo->source, from) = (struct th_copied_value){memo->source, from, to};
     memo->count++;
 }
 
@@ -1318,7 +1316,7 @@ static Py_UCS4 *copy_attr_value(th_tree *dest, const th_tree *src, const th_node
         return from->value;
     }
     int shareable = src_node->attr_values_shared;
-    Py_UCS4 *value = shareable ? copied_value_find(memo, from->value, from->value_len) : NULL;
+    Py_UCS4 *value = shareable ? copied_value_find(memo, from->value) : NULL;
     if (value == NULL) {
         value = arena_alloc(dest, (from->value_len ? from->value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
         if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1326,7 +1324,7 @@ static Py_UCS4 *copy_attr_value(th_tree *dest, const th_tree *src, const th_node
         }
         memcpy(value, from->value, (size_t)from->value_len * sizeof(Py_UCS4));
         if (shareable) {
-            copied_value_record(memo, from->value, value, from->value_len);
+            copied_value_record(memo, from->value, value);
         }
     }
     return value;
