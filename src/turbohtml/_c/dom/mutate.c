@@ -653,6 +653,7 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
                        1);
     tree->id_version += node->attrs[index].name_atom == TH_ATTR_ID;
     for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
+        TH_WORK_STEP();
         node->attrs[shift] = node->attrs[shift + 1];
     }
     node->attr_count--;
