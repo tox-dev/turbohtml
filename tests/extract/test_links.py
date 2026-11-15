@@ -119,6 +119,9 @@ def test_external_only_keeps_other_sites() -> None:
         pytest.param(
             "https://spam.maple-trade.com.au./", "https://maple-trade.com.au./x", id="trailing-dot-multi-suffix"
         ),
+        pytest.param(
+            "https://www.maple-trade.org../", "https://blog.maple-trade.org../x", id="repeated-trailing-dots-subdomains"
+        ),
     ],
 )
 def test_external_boundary_drops_the_href(base: str, href: str) -> None:
@@ -144,6 +147,10 @@ def test_external_boundary_drops_the_href(base: str, href: str) -> None:
             "https://www.maple-trade.org./", "https://maple-trade.org.attacker.net./x", id="trailing-dot-suffix-attack"
         ),
         pytest.param("https://www.maple-trade.org/", "https://www.maple-trade.org./x", id="trailing-dot-only-on-link"),
+        pytest.param(
+            "https://harbor.com.au../", "https://other.com.au../x", id="repeated-trailing-dots-distinct-registrants"
+        ),
+        pytest.param("https://a..com.au/", "https://b..com.au/x", id="empty-label-left-of-the-suffix"),
     ],
 )
 def test_external_boundary_keeps_the_href(base: str, href: str) -> None:
