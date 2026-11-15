@@ -784,10 +784,32 @@ static int xsd_check_all_occurs(th_schema *schema, th_node *particle) {
     return -1;
 }
 
+/* The model group of an xs:group is its whole content, so XSD 1.0 gives it no occurrence: minOccurs and maxOccurs
+   belong on the xs:group reference that uses the definition. Runs after the children, so an xs:all that occurs more
+   than once is reported first. */
+static int xsd_check_group_model(th_schema *schema, th_node *group) {
+    Py_ssize_t len = 0;
+    for (th_node *child = group->first_child; child != NULL; child = child->next_sibling) {
+        if (!xsd_is_particle(schema, child, XSD_MODEL_GROUPS, 3) ||
+            (xsd_attr(schema->tree, child, "minOccurs", &len) == NULL &&
+             xsd_attr(schema->tree, child, "maxOccurs", &len) == NULL)) {
+            continue;
+        }
+        const qname *model = schema_node_qname(schema, child);
+        char buffer[32];
+        PyErr_Format(PyExc_ValueError,
+                     "xs:%s in an xs:group cannot declare minOccurs or maxOccurs; set them on the xs:group reference",
+                     name_utf8(model->local, model->local_len, buffer, sizeof(buffer)));
+        return -1;
+    }
+    return 0;
+}
+
 /* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
 static int xsd_cache_facets(th_schema *schema, th_node *node) {
     const qname *name = schema_node_qname(schema, node);
-    if (is_xsd_uri(name->uri, name->uri_len)) {
+    const int xsd = is_xsd_uri(name->uri, name->uri_len);
+    if (xsd) {
         if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
             return -1;
         }
@@ -805,12 +827,13 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
             }
         }
     }
+    const int group = xsd && u_eq_ascii(name->local, name->local_len, "group");
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_ELEMENT && xsd_cache_facets(schema, child) < 0) {
             return -1;
         }
     }
-    return 0;
+    return group ? xsd_check_group_model(schema, node) : 0;
 }
 
 static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind);

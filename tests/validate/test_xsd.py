@@ -1428,6 +1428,46 @@ def test_all_group_occurring_once_compiles() -> None:
     assert check(schema, "<r/>").valid
 
 
+@pytest.mark.parametrize(
+    ("model", "compositor"),
+    [
+        pytest.param(f'<xs:all minOccurs="0">{_AB}</xs:all>', "all", id="all-min-occurs"),
+        pytest.param(f'<xs:all maxOccurs="1">{_AB}</xs:all>', "all", id="all-max-occurs"),
+        pytest.param('<xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence>', "sequence", id="sequence-min"),
+        pytest.param('<xs:sequence maxOccurs="2"><xs:element name="a"/></xs:sequence>', "sequence", id="sequence-max"),
+        pytest.param('<xs:choice minOccurs="0"><xs:element name="a"/></xs:choice>', "choice", id="choice-min-occurs"),
+        pytest.param(
+            '<xs:choice maxOccurs="unbounded"><xs:element name="a"/></xs:choice>', "choice", id="choice-max-occurs"
+        ),
+    ],
+)
+def test_named_group_model_occurs_raises(model: str, compositor: str) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g">{model}</xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+    )
+    message = f"xs:{compositor} in an xs:group cannot declare minOccurs or maxOccurs"
+    with pytest.raises(ValueError, match=f"^{message}; set them on the xs:group reference$"):
+        XMLSchema(schema)
+
+
+def test_unnamed_group_model_occurs_raises() -> None:
+    schema = _type_schema('<xs:group><xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence></xs:group>')
+    message = "xs:sequence in an xs:group cannot declare minOccurs or maxOccurs"
+    with pytest.raises(ValueError, match=f"^{message}; set them on the xs:group reference$"):
+        XMLSchema(schema)
+
+
+def test_named_group_nested_particle_occurs_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:sequence>'
+        '<xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence></xs:sequence></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r/>").valid
+    assert check(schema, "<r><a/></r>").valid
+
+
 def test_repeated_sequence_group_compiles() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
