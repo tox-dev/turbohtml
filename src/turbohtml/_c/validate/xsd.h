@@ -2065,6 +2065,39 @@ static th_node *xsd_frame_next(valctx *ctx, xsd_frame *frame, th_node **decl) {
     return NULL;
 }
 
+/* XSD 1.0 §3.3.4 allows a simple-typed element no attribute except these four xsi ones. */
+static int xsd_simple_attr_allowed(const qname *name) {
+    if (name->uri == NULL || !u_eq_ascii(name->uri, name->uri_len, XSI_NS)) {
+        return 0;
+    }
+    return u_eq_ascii(name->local, name->local_len, "type") || u_eq_ascii(name->local, name->local_len, "nil") ||
+           u_eq_ascii(name->local, name->local_len, "schemaLocation") ||
+           u_eq_ascii(name->local, name->local_len, "noNamespaceSchemaLocation");
+}
+
+static TH_NOINLINE void xsd_check_simple_attrs(valctx *ctx, th_node *instance) {
+    th_schema *schema = ctx->schema;
+    for (Py_ssize_t index = 0; index < instance->attr_count; index++) {
+        Py_ssize_t alen = 0;
+        const char *abytes = th_attr_name(ctx->tree, instance->attrs[index].name_atom, &alen);
+        if (is_xmlns_decl(abytes, alen)) {
+            continue;
+        }
+        Py_UCS4 *scratch = arena_alloc(&schema->mem, (size_t)(alen + 1) * sizeof(Py_UCS4));
+        if (scratch == NULL) { /* GCOVR_EXCL_BR_LINE: arena allocation failure */
+            ctx->failed = 1;   /* GCOVR_EXCL_LINE */
+            PyErr_NoMemory();  /* GCOVR_EXCL_LINE */
+            return;            /* GCOVR_EXCL_LINE */
+        }
+        Py_ssize_t nlen = utf8_to_ucs4(abytes, alen, scratch);
+        qname name = node_qname_scoped(schema, scratch, nlen, 1);
+        if (!xsd_simple_attr_allowed(&name)) {
+            report(ctx, instance, "structure", "simple-typed element must not have attributes");
+            return;
+        }
+    }
+}
+
 /* Validate one element against its declaration, queuing its child elements on the frame. */
 static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, xsd_frame *frame) {
     th_schema *schema = ctx->schema;
@@ -2096,6 +2129,9 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
             xsd_validate_complex(ctx, instance, complex, frame);
         } else {
             th_node *simple = is_xsd_ns ? NULL : named_find(&schema->simple_types, local, local_len);
+            if (instance->attr_count > 0) {
+                xsd_check_simple_attrs(ctx, instance);
+            }
             for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
                 if (child->type == TH_NODE_ELEMENT) {
                     report(ctx, child, "structure", "simple-typed element must not contain child elements");
@@ -2110,6 +2146,9 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
     } else if (inline_complex != NULL) {
         xsd_validate_complex(ctx, instance, inline_complex, frame);
     } else if (inline_simple != NULL) {
+        if (instance->attr_count > 0) {
+            xsd_check_simple_attrs(ctx, instance);
+        }
         for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
             if (child->type == TH_NODE_ELEMENT) {
                 report(ctx, child, "structure", "simple-typed element must not contain child elements");
