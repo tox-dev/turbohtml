@@ -4036,3 +4036,47 @@ def test_xsd_compile_preserves_known_builtin_names(type_name: str, value: str) -
 def test_xsd_compile_preserves_declarations(declarations: str, document: str, *, expected: bool) -> None:
     validator: Final = XMLSchema(f"<xs:schema {_XS}>{declarations}</xs:schema>")
     assert [validator.is_valid(parse_xml(document)) for _ in range(2)] == [expected, expected]
+
+
+_COUNTED_REPEAT_SCHEMA: Final[str] = (
+    f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+    '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:string">'
+    '<xs:pattern value="{pattern}"/></xs:restriction></xs:simpleType></xs:element>'
+    "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+)
+
+
+@pytest.mark.parametrize("method", ["validate", "is_valid"])
+@pytest.mark.parametrize(
+    ("pattern", "value"),
+    [
+        pytest.param("(b?){300000}", "b" * 1000, id="nullable-copies"),
+        pytest.param("(b{1,300}){1,500}", "b" * 1200, id="nested-counts"),
+        pytest.param(r"(\p{L}?){300000}", "b" * 1000, id="extended-copies"),
+    ],
+)
+def test_pattern_matching_past_the_step_budget_raises(pattern: str, value: str, *, method: str) -> None:
+    # a counted repeat keeps many automaton states live for every character; the call stops with an error instead of
+    # stepping all of them, and a cheap document validates afterwards
+    schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
+    check_document = getattr(schema, method)
+    element: Final = f"<v>{value}</v>"
+    with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
+        check_document(parse_xml(f"<r>{element}<v>b</v></r>"))
+    assert bool(check_document(parse_xml("<r><v>b</v></r>")))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "value", "valid"),
+    [
+        pytest.param("[a-z]+", "q" * 300_000, True, id="long-value"),
+        pytest.param("[a-z]+", f"{'q' * 300_000}1", False, id="long-value-mismatch"),
+        pytest.param(r"(\s*\S+\s*){1,50}", "word " * 49, True, id="counted-words"),
+        pytest.param("c{0,99999}", "c" * 4000, True, id="large-count-of-one-character"),
+        pytest.param("(ab|cd){1,500}x", f"{'abcd' * 200}x", True, id="counted-alternation"),
+    ],
+)
+def test_ordinary_patterns_fit_the_step_budget(pattern: str, value: str, *, valid: bool) -> None:
+    schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
+    element: Final = f"<v>{value}</v>"
+    assert schema.is_valid(parse_xml(f"<r>{element}{element}</r>")) is valid
