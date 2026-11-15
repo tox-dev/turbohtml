@@ -4410,6 +4410,12 @@ def test_links(html: str, opts: Markdown, expected: str) -> None:
             id="image-default-alt",
         ),
         pytest.param(
+            '<p>a<img src="i">b</p>',
+            Markdown(images=Markdown.Images(mode="alt", default_alt="img")),
+            "aimgb",
+            id="image-alt-default-alt",
+        ),
+        pytest.param(
             '<p><img src="p.png">x</p>',
             Markdown(links=Markdown.Links(base_url="http://s/")),
             "![](http://s/p.png)x",
@@ -4419,6 +4425,82 @@ def test_links(html: str, opts: Markdown, expected: str) -> None:
 )
 def test_images(html: str, opts: Markdown, expected: str) -> None:
     assert _configured_markdown(html, opts) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param('<p>a <img alt="&lt;i&gt;x&lt;/i&gt;"></p>', "a \\<i>x\\</i>", id="raw-html"),
+        pytest.param('<p><img alt="\\">&lt;b&gt;</p>', "\\\\\\<b>", id="backslash-before-escaped-text"),
+        pytest.param('<p>q<img alt="`">w<code>&lt;u&gt;</code></p>', "q\\`w`<u>`", id="backtick-before-code-span"),
+        pytest.param('<p><img alt="*a* _b_ [c](d)"></p>', "\\*a\\* \\_b\\_ \\[c\\](d)", id="emphasis-and-link"),
+        pytest.param('<p>&amp;<img alt="lt;"></p>', "\\&lt;", id="reference-finished-by-alt"),
+        pytest.param('<p><img alt="# a"></p>', "\\# a", id="line-start-heading"),
+        pytest.param('<p><img alt="1. a"></p>', "1\\. a", id="line-start-list-number"),
+        pytest.param('<p><img alt="a&#10;&#10;&gt; b"></p>', "a > b", id="line-breaks-collapse"),
+        pytest.param('<p><b><img alt=" a "></b>b</p>', "**a** b", id="edge-spaces-leave-emphasis"),
+        pytest.param('<h1><img alt="a&#10;&lt;b&gt;"></h1>', "# a \\<b>", id="heading"),
+        pytest.param('<a href="u"><img alt="a](v) [b"></a>', "[a\\](v) \\[b](u)", id="link-text"),
+        pytest.param("<p>a<img alt=pic>b</p>", "apicb", id="plain-run"),
+        pytest.param('<p>a<img alt="">b</p>', "ab", id="empty-alt"),
+        pytest.param("<p>12<img alt=x></p>", "12x", id="after-line-number"),
+        pytest.param('<p>&amp;<img alt="">lt;</p>', "\\&lt;", id="empty-alt-keeps-reference"),
+    ],
+)
+def test_alt_only_image_text_is_prose(html: str, expected: str) -> None:
+    assert parse(html).to_markdown(Markdown(images=Markdown.Images(mode="alt"))) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "opts", "expected"),
+    [
+        pytest.param(
+            '<p><img alt="aa bb cc dd"></p>',
+            Markdown(images=Markdown.Images(mode="alt"), wrapping=Markdown.Wrapping(width=5)),
+            "aa bb\ncc dd",
+            id="wrap",
+        ),
+        pytest.param(
+            '<p><img alt="café"></p>',
+            Markdown(images=Markdown.Images(mode="alt"), document=Markdown.Document(transliterate=True)),
+            "cafe",
+            id="transliterate",
+        ),
+    ],
+)
+def test_alt_only_image_text_follows_layout_options(html: str, opts: Markdown, expected: str) -> None:
+    assert parse(html).to_markdown(opts) == expected
+
+
+def test_alt_only_image_with_empty_alt_writes_nothing() -> None:
+    document = parse("<p>a<img alt=x>b</p>")
+    image = document.find("img")
+    assert image is not None
+    image.attrs["alt"] = ""
+    assert document.to_markdown(Markdown(images=Markdown.Images(mode="alt"))) == "ab"
+
+
+def test_alt_only_image_text_renders_no_markup() -> None:
+    root: Final = parse('<p>a <img alt="&lt;i&gt;x&lt;/i&gt; &lt;a href=y&gt;"></p>')
+    output: Final = root.to_markdown(Markdown(images=Markdown.Images(mode="alt")))
+    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    assert paragraph is not None
+    assert paragraph.find("i") is None
+    assert paragraph.find("a") is None
+    assert paragraph.text == "a <i>x</i> <a href=y>"
+
+
+def test_alt_only_image_text_on_detached_inline_element() -> None:
+    # the prose writer scans for what follows a trailing no-break space, past the top of a tree with no block
+    italic = parse('<p><i><img alt="y&nbsp;"></i></p>').find("i")
+    assert italic is not None
+    italic.extract()
+    assert italic.to_markdown(Markdown(images=Markdown.Images(mode="alt"))) == "y&#160;"
+
+
+def test_alt_only_image_text_follows_escaping_mode() -> None:
+    opts: Final = Markdown(images=Markdown.Images(mode="alt"), escaping=Markdown.Escaping(mode="none"))
+    assert parse('<p><img alt="[a] &lt;b&gt;"></p>').to_markdown(opts) == "[a] <b>"
 
 
 @pytest.mark.parametrize(
