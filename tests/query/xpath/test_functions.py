@@ -17,7 +17,7 @@ from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, parse, parse_xml
+from turbohtml import Document, Element, Range, Text, XPath, parse, parse_xml
 from turbohtml.clean import LinkCandidate, Linkify, linkify_node
 
 if TYPE_CHECKING:
@@ -563,8 +563,19 @@ def test_translate_character_map(source: str, target: str, text: str, expected: 
 def ids() -> turbohtml.Node:
     return turbohtml.parse(
         "<html><body><p id='a'>one</p><p id='b'>two</p><div class='x' id='c'>three</div>"
-        "<span>no id</span><i id=''>empty</i><!--note--></body></html>"
+        f"<span>no id</span><i id=''>empty</i><!--note-->{_ID_PADDING}</body></html>"
     )
+
+
+# the first id() of an evaluation walks a tree of more than 256 nodes (XP_ID_INDEX_MIN_NODES in functions.c) and the
+# next one reads an index of it, so a case runs both ways on a document padded past that size
+_ID_PADDING: Final[str] = "<br>" * 256
+_ID_LOOKUPS: Final[list[pytest.ParameterSet]] = [
+    pytest.param("{}", id="walk"),
+    pytest.param("id('-') | {}", id="index"),
+]
+# core/hash.h: the longest run of slots an FNV-1a table walks before it rehashes under the keyed hash
+_TH_FAST_PROBE_LIMIT: Final[int] = 64
 
 
 @pytest.mark.parametrize(
@@ -583,17 +594,226 @@ def ids() -> turbohtml.Node:
         pytest.param("id(//zzz)", [], id="empty-nodeset-argument"),
     ],
 )
-def test_id(ids: turbohtml.Node, expr: str, expected: list[str]) -> None:
-    assert tags(ids.xpath(expr)) == expected
+@pytest.mark.parametrize("lookup", _ID_LOOKUPS)
+def test_id(ids: turbohtml.Node, lookup: str, expr: str, expected: list[str]) -> None:
+    assert tags(ids.xpath(lookup.format(expr))) == expected
 
 
 def test_id_string_value(ids: turbohtml.Node) -> None:
     assert ids.xpath("string(id('b'))") == "two"
 
 
-def test_id_hash_collisions_keep_document_order() -> None:
-    document = turbohtml.parse("<p id=a></p><div id=ba></div><span id=q></span><i id=x></i>")
-    assert tags(document.xpath("id('a ba q a missing')")) == ["p", "div", "span"]
+@pytest.mark.parametrize("lookup", _ID_LOOKUPS)
+def test_id_hash_collisions_keep_document_order(lookup: str) -> None:
+    document = turbohtml.parse(f"<p id=a></p><div id=ba></div><span id=q></span><i id=x></i>{_ID_PADDING}")
+    assert tags(document.xpath(lookup.format("id('a ba q a missing')"))) == ["p", "div", "span"]
+
+
+@pytest.mark.parametrize("lookup", _ID_LOOKUPS)
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        pytest.param("id('a')", ["p"], id="one-id"),
+        pytest.param("id('c a')", ["p", "i"], id="interleaved-ids"),
+        pytest.param("id('a c a b c')", ["p", "div", "i"], id="repeated-tokens"),
+        pytest.param("id(//@id)", ["p", "div", "i"], id="every-id"),
+    ],
+)
+def test_id_selects_the_first_element_sharing_an_id(lookup: str, expr: str, expected: list[str]) -> None:
+    # XPath 1.0 section 5.2.1: a second element with the same ID is treated as having none
+    document = turbohtml.parse(f"<p id=a></p><div id=b></div><span id=a></span><i id=c></i><b id=a></b>{_ID_PADDING}")
+    assert tags(document.xpath(lookup.format(expr))) == expected
+
+
+def test_id_rekeyed_walk_keeps_the_first_element_sharing_an_id() -> None:
+    by_home: Final[dict[int, str]] = {}
+    for index in range(20_000):
+        by_home.setdefault(_fnv_home(f"k{index}"), f"k{index}")
+    run: Final = [by_home[home] for home in range(_TH_FAST_PROBE_LIMIT + 1)]
+    early: Final = [by_home[150], by_home[160]]
+    stray: Final = next(f"m{index}" for index in range(20_000) if _fnv_home(f"m{index}") == 0)
+    # the run tokens fill homes 0 to 64, as long a run as the fill allows, and the stray id walks all of it, so the walk
+    # starts over keyed after it has claimed the two early tokens; their second elements must stay unclaimed
+    elements: Final = "".join(f"<i id={name}></i>" for name in run)
+    document: Final = parse(
+        f"<p id={early[0]}></p><b id={early[1]}></b><q id={stray}></q><s id={early[0]}></s><u id={early[1]}></u>"
+        f"{elements}"
+    )
+    assert tags(document.xpath(f"id('{' '.join(early + run)}')")) == ["p", "b", *["i"] * len(run)]
+
+
+def _fnv_home(name: str) -> int:
+    # the slot FNV-1a gives name in the 256-slot token set that 67 tokens take
+    value = 14695981039346656037
+    for char in name:
+        value = ((value ^ ord(char)) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return value & 0xFF
+
+
+@pytest.mark.parametrize("lookup", _ID_LOOKUPS)
+def test_id_in_a_document_without_ids(lookup: str) -> None:
+    assert turbohtml.parse(f"<p id>x</p>{_ID_PADDING}").xpath(lookup.format("id('a')")) == []
+
+
+def test_id_resolves_a_reference_per_node() -> None:
+    names: Final = [f"n{index}" * (index % 3 + 1) for index in range(200)]
+    rows: Final = "".join(f'<sec id="{name}"/><xref to="none {name}"/><xref to="{name}none"/>' for name in names)
+    document: Final = parse_xml(f"<book>{rows}</book>")
+    assert len(node_list(document.xpath("//xref[id(@to)]"))) == len(names)
+    assert document.xpath("(id('') | id(//xref/@to))/@id") == names
+
+
+def test_id_follows_the_root_of_each_context_node() -> None:
+    document: Final = parse(f"<p id=x></p><i id=y></i><div><b id=x></b></div>{_ID_PADDING}")
+    detached: Final = document.xpath_one("//div")
+    assert isinstance(detached, Element)
+    detached.extract()
+    # each root is walked by its first lookup and indexed by its second, the detached one in place of the document's
+    expression: Final = (
+        "count(id('x')) + count(id('y')) + count($other[id('x')]/b) + count($other[id('y')]) + count($other[id('x')])"
+        " + count(id('y'))"
+    )
+    assert document.xpath(expression, other=[detached]) == pytest.approx(5.0)
+
+
+def _xrefs(size: int) -> str:
+    rows = "".join(f'<sec id="s{index}" k="v"/><p><xref to="s{index}"/></p>' for index in range(size))
+    return f"<book>{rows}</book>"
+
+
+def _shared_xrefs(size: int) -> str:
+    rows = '<p><xref id="s" to="s t"/></p>' * size
+    return f"<book>{rows}</book>"
+
+
+@pytest.mark.parametrize(
+    ("markup", "expression"),
+    [
+        pytest.param(_xrefs, "count(//xref[id(@to)])", id="per-node"),
+        pytest.param(_xrefs, "count(//xref[id(@to) and seen()])", id="beside-an-extension"),
+        pytest.param(_xrefs, "count(//xref[id(@to)/@k = 'v'])", id="compared"),
+        pytest.param(_xrefs, "count(//xref[upper-case(id(@to)/@k) = 'V'])", id="case-function"),
+        pytest.param(_xrefs, "count(//xref[count(set:distinct(id(@to))) = 1])", id="set-distinct"),
+        pytest.param(_shared_xrefs, "count(//xref[id(@to)])", id="one-id"),
+    ],
+)
+def test_id_per_node_grows_linearly(markup: Callable[[int], str], expression: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda size: _query(parse_xml(markup(size)), expression), (500, 2000))
+
+
+def _query(document: Document, expression: str) -> Callable[[], object]:
+    return lambda: document.xpath(expression, extensions={(None, "seen"): lambda _context: True})
+
+
+def _node(document: turbohtml.Node, path: str) -> Element:
+    found = document.xpath_one(path)
+    assert isinstance(found, Element)
+    return found
+
+
+def _first(document: turbohtml.Node) -> Element:
+    return _node(document, "//p[@n='1']")
+
+
+def _box(document: turbohtml.Node) -> Element:
+    return _node(document, "//div")
+
+
+def _section(document: turbohtml.Node) -> Element:
+    return _node(document, "//section")
+
+
+def _fresh(number: str) -> Element:
+    return Element("i", {"id": "t", "n": number})
+
+
+def _delete_first(document: turbohtml.Node) -> None:
+    span = Range(_box(document), 0)
+    span.set_end(_box(document), 1)
+    span.delete_contents()
+
+
+def _link_with_id(candidate: LinkCandidate) -> LinkCandidate:
+    candidate.attrs = {"id": "t", "n": "6" if candidate.existing else "8"}
+    return candidate
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        pytest.param(lambda document: _first(document).attrs.__setitem__("id", "u"), "2", id="attr-set"),
+        pytest.param(lambda document: _first(document).attrs.__delitem__("id"), "2", id="attr-delete"),
+        pytest.param(lambda document: _first(document).attrs.clear(), "2", id="attrs-clear"),
+        pytest.param(lambda document: _first(document).attrs.__ior__({"id": "u"}), "2", id="attrs-merge"),
+        pytest.param(lambda document: _first(document).decompose(), "2", id="decompose"),
+        pytest.param(lambda document: _first(document).extract(), "2", id="extract"),
+        pytest.param(lambda document: _first(document).unwrap(), "2", id="unwrap"),
+        pytest.param(lambda document: _first(document).replace_with(_fresh("9")), "9", id="replace-with"),
+        pytest.param(lambda document: _first(document).insert_before(_fresh("0")), "0", id="insert-before"),
+        pytest.param(lambda document: _first(document).wrap(_fresh("7")), "7", id="wrap"),
+        pytest.param(lambda document: _box(document).wrap_children(_fresh("7")), "7", id="wrap-children"),
+        pytest.param(lambda document: _box(document).insert(0, _fresh("0")), "0", id="insert"),
+        pytest.param(lambda document: _box(document).clear(), "", id="clear"),
+        pytest.param(lambda document: _box(document).set_text("x"), "", id="set-text"),
+        pytest.param(lambda document: setattr(_box(document), "text", "x"), "", id="text"),
+        pytest.param(lambda document: _box(document).set_inner_html("<b id=t n=5></b>"), "5", id="set-inner-html"),
+        pytest.param(
+            lambda document: _box(document).insert_adjacent_html("afterbegin", "<b id=t n=5></b>"),
+            "5",
+            id="insert-adjacent-html",
+        ),
+        pytest.param(
+            lambda document: _section(document).append(_node(document, "//p[@n='2']")), "2", id="move-earlier"
+        ),
+        pytest.param(lambda document: _section(document).append(_fresh("3")), "3", id="append"),
+        pytest.param(lambda document: _section(document).extend([_fresh("3")]), "3", id="extend"),
+        pytest.param(lambda document: document.remove("p[n='1']"), "2", id="remove"),
+        pytest.param(lambda document: document.strip_tags("p"), "", id="strip-tags"),
+        pytest.param(lambda document: Range(_box(document), 0).insert_node(_fresh("4")), "4", id="range-insert"),
+        pytest.param(_delete_first, "2", id="range-delete"),
+        pytest.param(
+            lambda document: linkify_node(_section(document), Linkify(callbacks=[_link_with_id])), "8", id="linkify"
+        ),
+        pytest.param(
+            lambda document: linkify_node(
+                _section(document), Linkify(callbacks=[_link_with_id], process_existing=True)
+            ),
+            "6",
+            id="linkify-existing",
+        ),
+    ],
+)
+def test_id_sees_an_edit_an_extension_makes(edit: Callable[[turbohtml.Node], object], expected: str) -> None:
+    document: Final = parse(
+        '<section><a href="http://example.com/">x</a> see http://example.org</section>'
+        f"<div><p id=t n=1>one</p><p id=t n=2>two</p></div>{_ID_PADDING}"
+    )
+
+    def change(_context: SimpleNamespace) -> str:
+        edit(document)
+        return ""
+
+    # the first lookup walks the tree and the second indexes it, which the edit between the second and third outdates
+    lookup: Final = "string(id('t')/@n)"
+    found: Final = document.xpath(
+        f"concat({lookup}, {lookup}, change(), '>', {lookup})", extensions={(None, "change"): change}
+    )
+    assert (found, document.xpath(lookup)) == (f"11>{expected}", expected)
+
+
+def test_id_sees_an_anchor_linkify_unwraps() -> None:
+    document: Final = parse(f'<a id=t n=1 href="http://example.com/">x</a><p id=t n=2></p>{_ID_PADDING}')
+    veto: Final = Linkify(callbacks=[lambda _candidate: None], process_existing=True)
+
+    def change(_context: SimpleNamespace) -> str:
+        linkify_node(document, veto)
+        return ""
+
+    lookup: Final = "string(id('t')/@n)"
+    found: Final = document.xpath(
+        f"concat({lookup}, {lookup}, change(), '>', {lookup})", extensions={(None, "change"): change}
+    )
+    assert found == "11>2"
 
 
 @pytest.fixture

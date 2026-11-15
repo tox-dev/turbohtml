@@ -7657,6 +7657,47 @@ def test_transform_pattern_source_prefix_cases(
     assert Transform(sheet)(source) == expected
 
 
+@pytest.mark.parametrize("parser", [pytest.param(parse_xml, id="xml"), pytest.param(parse_fragment, id="html")])
+def test_transform_id_resolves_a_reference_per_node(parser: Callable[[str], turbohtml.Node]) -> None:
+    body: Final = (
+        '<xsl:template match="xref">[<xsl:value-of select="id(@to)"/>:<xsl:value-of select="count(id(@to))"/>]'
+        '</xsl:template><xsl:template match="sec"/>'
+    )
+    run: Final = Transform(_sheet(body))
+    # past the 256 nodes up to which every id() walks the tree, so the second id() of the run reads an index
+    rows: Final = (
+        f'<xref to="b"></xref><xref to="a"></xref><xref to="c"></xref><xref to="b a"></xref>{"<pad></pad>" * 256}'
+    )
+    assert run(parser(f'<book><sec id="a">A</sec><sec id="b">B</sec>{rows}</book>')) == "[B:1][A:1][:0][A:2]"
+    assert run(parser(f'<book><sec id="c">C</sec><sec id="b">D</sec><sec id="c">E</sec>{rows}</book>')) == (
+        "[D:1][:0][C:1][D:1]"
+    )
+
+
+def test_transform_id_per_node_grows_linearly(work_steps: WorkSteps) -> None:
+    run: Final = Transform(_sheet('<xsl:template match="xref"><xsl:value-of select="id(@to)"/></xsl:template>'))
+
+    def book(size: int) -> str:
+        rows = "".join(f'<sec id="s{index}">x</sec><p><xref to="s{index}"/></p>' for index in range(size))
+        return f"<book>{rows}</book>"
+
+    work_steps.assert_linear(lambda size: partial(run, parse_xml(book(size))), (500, 2000))
+
+
+def test_transform_id_pattern_reads_an_index() -> None:
+    body: Final = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/s"/></xsl:template>'
+        "<xsl:template match=\"id('c b')[id('a')]\">[<xsl:value-of select=\"@n\"/>]</xsl:template>"
+        '<xsl:template match="s">-</xsl:template>'
+    )
+    # past the 256 nodes up to which every id() walks the tree, so the pattern's second id() reads an index
+    padding: Final = "<pad/>" * 256
+    source: Final = (
+        f'<r><s id="a" n="1"/><s id="b" n="2"/><s id="d" n="3"/><s id="c" n="4"/><s id="b" n="5"/>{padding}</r>'
+    )
+    assert _run(source, body) == "-[2]-[4]-"
+
+
 @pytest.mark.parametrize("prefix", [pytest.param("abc", id="short"), pytest.param("p" * 70, id="long")])
 def test_transform_pattern_attribute_prefix_rebound_beyond_climb_limit(prefix: str) -> None:
     above: Final = f'<n {prefix}:id="1">' * 150
