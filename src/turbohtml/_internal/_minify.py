@@ -13,12 +13,16 @@ inline-``<script>`` path are configured the same way.
 
 from __future__ import annotations
 
-from typing import Final, Literal
+import sys
+from typing import TYPE_CHECKING, Final, Literal
 
 from ._jsminify import JSMinify
-from ._native import Minify, parse
+from ._native import Element, Minify, minify_document, parse, strip_comments_node
 from ._native import minify_js as _minify_js
 from ._render import Html
+
+if TYPE_CHECKING:
+    from turbohtml import Document
 
 _DEFAULT: Final[Minify] = Minify()
 
@@ -31,11 +35,86 @@ def minify(html: str, options: Minify | None = None) -> str:
     the start/end tags the WHATWG rules make optional, dropping redundant attribute quotes, and stripping comments. Each
     transform is round-trip safe, so the result reparses to the same tree and minifying is idempotent.
 
+    The result also reparses to the source's tree with scripting on, where ``<noscript>`` content is raw text: that
+    content is copied from the source, as is the markup after a ``<noscript>`` the two readings place differently, up
+    to the first element both place alike. A document that cannot be parted this way comes back unchanged.
+
     :param html: the HTML document to minify.
     :param options: which folds to apply; ``None`` engages every transform (the :class:`~turbohtml.Minify` default).
     :returns: the minified HTML.
     """
-    return parse(html).serialize(Html(layout=options if options is not None else _DEFAULT))
+    layout = options if options is not None else _DEFAULT
+    minified, start = minify_document(html, layout, ())
+    return minified if minified is not None else _minify_parted(html, layout, start)
+
+
+def _minify_parted(html: str, layout: Minify, start: int) -> str:
+    # A noscript that a browser running scripts reads as raw text, while the scripting-off tree puts its markup in
+    # other places too. The tree alone cannot give both readings back, so the source is copied from the noscript's start
+    # tag to the first element both readings place alike, and the result is kept only when it reparses to the source's
+    # trees under both modes. Failing that, the copy runs to the end of the source; failing that too, the source is
+    # returned as it is.
+    config = Html(layout=layout)
+    expected = tuple(_canonical(html, config, layout, scripting=scripting) for scripting in (False, True))
+    trees = tuple(parse(html, scripting=scripting, source_locations=True) for scripting in (False, True))
+    regions: list[tuple[int, int]] = []
+    minified: str | None = None
+    max_regions = 8
+    while start >= 0 and len(regions) < max_regions:
+        regions.append((start, _resume_offset(*trees, start)))
+        minified, start = minify_document(html, layout, tuple(regions))
+    if minified is not None and _reparses_to(minified, layout, config, expected):
+        return minified
+    if not regions:
+        return html
+    tail = minify_document(html, layout, ((regions[0][0], sys.maxsize),))[0]
+    return tail if tail is not None and _reparses_to(tail, layout, config, expected) else html
+
+
+def _canonical(markup: str, config: Html, layout: Minify, *, scripting: bool) -> str:
+    # The minified form of the tree markup parses to: two trees that differ only where minifying folds give the same
+    # string. Comments go first, since a stripped one can still decide whether a neighboring end tag is omitted.
+    document = parse(markup, scripting=scripting)
+    return (strip_comments_node(document) if layout.strip_comments else document).serialize(config)
+
+
+def _resume_offset(off: Document, on: Document, start: int) -> int:
+    # The start tag offset of the first element past the scripting-on noscript's end tag that both trees build under
+    # the same ancestors, or sys.maxsize when there is none.
+    closes = [
+        location.end_tag.end_offset
+        for element in on.iter_elements()
+        if (location := element.source_location) is not None
+        and location.start_tag.start_offset == start
+        and location.end_tag is not None
+    ]
+    if not closes:
+        return sys.maxsize
+    placed = {_start_offset(element): _ancestry(element) for element in off.iter_elements()}
+    return next(
+        (
+            offset
+            for element in on.iter_elements()
+            if (offset := _start_offset(element)) >= closes[0] and placed.get(offset) == _ancestry(element)
+        ),
+        sys.maxsize,
+    )
+
+
+def _start_offset(element: Element) -> int:
+    location = element.source_location
+    return location.start_tag.start_offset if location is not None else -1
+
+
+def _ancestry(element: Element) -> tuple[str, ...]:
+    return tuple(ancestor.tag for ancestor in element.ancestors if isinstance(ancestor, Element))
+
+
+def _reparses_to(candidate: str, layout: Minify, config: Html, expected: tuple[str, ...]) -> bool:
+    return all(
+        _canonical(candidate, config, layout, scripting=scripting) == tree
+        for scripting, tree in zip((False, True), expected, strict=True)
+    )
 
 
 def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["raise", "passthrough"] = "raise") -> str:

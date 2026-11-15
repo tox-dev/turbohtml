@@ -615,6 +615,10 @@ const void *th_tok_input_data(const th_tokenizer *self, int *kind) {
     return self->input.data;
 }
 
+Py_ssize_t th_tok_position(const th_tokenizer *self) {
+    return self->pos;
+}
+
 void *th_tok_take_input(th_tokenizer *self, int *kind, Py_ssize_t *length) {
     *kind = self->input.kind;
     *length = self->input.len;

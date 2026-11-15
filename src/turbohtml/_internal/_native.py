@@ -16,6 +16,10 @@ from turbohtml._html import (  # simplint: ignore[private-import-path]  # native
     register_locations,
     register_render_configs,
     register_selector_error,
+    strip_comments_node,
+)
+from turbohtml._html import (  # simplint: ignore[private-import-path]  # native extension lives in the root package
+    _minify_document as minify_document,
 )
 
 __all__ = [
@@ -25,6 +29,7 @@ __all__ = [
     "Minify",
     "minify_css",
     "minify_css_inline",
+    "minify_document",
     "minify_js",
     "parse",
     "register_css_minify",
@@ -32,4 +37,5 @@ __all__ = [
     "register_locations",
     "register_render_configs",
     "register_selector_error",
+    "strip_comments_node",
 ]

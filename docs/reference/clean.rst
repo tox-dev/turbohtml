@@ -352,6 +352,11 @@ Phone numbers link when either entry point receives a :class:`PhoneNumbers` sett
 insignificant whitespace, omit optional tags, unquote attributes, strip comments) default on; pass a
 :class:`~turbohtml.Minify` to turn any off.
 
+The output also reparses to the source's tree with scripting on, where a browser reads ``<noscript>`` content as raw
+text. :func:`minify` copies that content from the source, and where the two readings place the markup after a
+``<noscript>`` differently, copies the source from there to the first element both place alike. A document it cannot
+part this way comes back unchanged.
+
 .. autofunction:: minify
 
 The HTML minify layout emits ``<style>`` bodies verbatim; to also minify embedded CSS, run :func:`minify_css` (below)

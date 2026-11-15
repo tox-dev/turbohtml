@@ -2327,6 +2327,7 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
         opts->minify_js_mangle = minify->minify_js_mangle;
         opts->minify_css = minify->minify_css;
         opts->minify_css_baseline = minify->minify_css_baseline;
+        opts->source = NULL;
         *mode = TH_LAYOUT_MINIFY;
         return 0;
     }
@@ -2407,6 +2408,85 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
+    return result;
+}
+
+/* The first unstable noscript span starting at or past offset, or NULL. */
+static const th_noscript_span *unstable_from(const th_noscript_track *track, Py_ssize_t offset) {
+    for (Py_ssize_t index = 0; index < track->count; index++) {
+        if (!track->spans[index].stable && track->spans[index].start >= offset) {
+            return &track->spans[index];
+        }
+    }
+    return NULL;
+}
+
+/* _minify_document(html, layout, regions): parse html with scripting off and minify the document, copying each stable
+   noscript's content from the source and each (start, resume) region verbatim. Returns (minified, -1), or (None,
+   start) when the parse found a noscript the two scripting modes part at, starting at or past the last region's resume:
+   the caller works out where the modes agree again and calls back with one more region. A start of -2 marks one the
+   depth cap kept out of the tree, which no region can begin at. */
+PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
+    PyObject *html;
+    PyObject *layout;
+    PyObject *regions_obj;
+    if (!PyArg_ParseTuple(args, "UOO!:_minify_document", &html, &layout, &PyTuple_Type, &regions_obj)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    enum th_layout_mode mode;
+    const Py_UCS4 *indent_unit = NULL;
+    Py_ssize_t indent_len = 0;
+    th_minify_opts minify_opts;
+    if (resolve_layout(state, layout, &mode, &indent_unit, &indent_len, &minify_opts) < 0) {
+        return NULL;
+    }
+    if (mode != TH_LAYOUT_MINIFY) {
+        PyErr_SetString(PyExc_TypeError, "layout must be a Minify");
+        return NULL;
+    }
+    Py_ssize_t region_count = PyTuple_GET_SIZE(regions_obj);
+    th_minify_region *regions = PyMem_Calloc((size_t)region_count + 1, sizeof(th_minify_region));
+    if (regions == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < region_count; index++) {
+        if (!PyArg_ParseTuple(PyTuple_GET_ITEM(regions_obj, index), "nn:_minify_document", &regions[index].start,
+                              &regions[index].resume)) {
+            PyMem_Free(regions);
+            return NULL;
+        }
+    }
+    th_noscript_track track = {0};
+    th_tree *tree = th_tree_parse_noscript(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html),
+                                           region_count > 0, &track);
+    if (tree == NULL) {                 /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
+        th_noscript_track_free(&track); /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(regions);            /* GCOVR_EXCL_LINE */
+        return PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+    }
+    const th_noscript_span *unstable = unstable_from(&track, region_count > 0 ? regions[region_count - 1].resume : 0);
+    PyObject *result;
+    if (unstable != NULL) {
+        result = Py_BuildValue("(On)", Py_None, unstable->node != NULL ? unstable->start : (Py_ssize_t)-2);
+    } else {
+        th_minify_source source = {track.spans, track.count, regions, region_count};
+        minify_opts.source = &source;
+        th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL};
+        Py_ssize_t out_len;
+        Py_UCS4 *data = th_node_minify(tree, th_tree_document(tree), &minify_opts, &opts, &out_len);
+        if (data == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            result = PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        } else {
+            PyObject *text = ucs4_to_str(data, out_len);
+            PyMem_Free(data);
+            /* a NULL text makes Py_BuildValue return NULL with the conversion's error kept */
+            result = Py_BuildValue("(Nn)", text, (Py_ssize_t)-1);
+        }
+    }
+    th_tree_free(tree);
+    th_noscript_track_free(&track);
+    PyMem_Free(regions);
     return result;
 }
 

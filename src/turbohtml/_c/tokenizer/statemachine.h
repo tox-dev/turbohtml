@@ -287,6 +287,9 @@ void th_tok_seek(th_tokenizer *self, Py_ssize_t pos, Py_ssize_t line, Py_ssize_t
 /* The storage backing slice tokens: sets *kind, returns the base pointer. */
 const void *th_tok_input_data(const th_tokenizer *self, int *kind);
 
+/* The input index of the next code point to read: just past the '>' of the tag token th_tok_next last returned. */
+Py_ssize_t th_tok_position(const th_tokenizer *self);
+
 /* Transfer the owned input buffer to the caller after a one-shot fed parse. */
 void *th_tok_take_input(th_tokenizer *self, int *kind, Py_ssize_t *length);
 

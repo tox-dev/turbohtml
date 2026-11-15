@@ -889,18 +889,72 @@ typedef struct {
 Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
                                  Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len);
 
+/* A noscript element a scripting-off parse built from a start tag that a scripting-on parse reads as raw text up to the
+   first `</noscript`. Offsets index the newline-normalized source. stable says both parses agree on everything outside
+   the element and its content is the source slice [content, end): then copying that slice serves both parses. node is
+   NULL for one the depth cap kept off the stack. */
+typedef struct {
+    th_node *node;
+    Py_ssize_t start;   /* the start tag's '<' */
+    Py_ssize_t content; /* just past the start tag */
+    Py_ssize_t end;     /* the closing end tag's '<', or -1 when no end tag closed it */
+    int stable;
+} th_noscript_span;
+
+/* What th_tree_parse_noscript records: one span per noscript, in the order the parse built them. The rest is the
+   builder's state while one is open, compared when it closes. */
+typedef struct {
+    th_noscript_span *spans;
+    Py_ssize_t count;
+    Py_ssize_t cap;
+    Py_ssize_t open; /* index of the span still open, -1 for none */
+    Py_ssize_t open_len;
+    Py_ssize_t afe_len;
+    th_node *afe_last;
+    th_node *form;
+    Py_ssize_t html_attrs;
+    th_node *body;
+    Py_ssize_t body_attrs;
+    int frameset_ok;
+    int mode;
+    Py_ssize_t frameset_span; /* the first span whose content cleared frameset-ok, -1 for none */
+    int failed;
+} th_noscript_track;
+
+/* Parse a whole document with scripting off, as th_tree_parse with positions on, recording each noscript in track
+   (zero it first; th_noscript_track_free releases it). NULL only on allocation failure. */
+th_tree *th_tree_parse_noscript(int kind, const void *data, Py_ssize_t length, int locations, th_noscript_track *track);
+void th_noscript_track_free(th_noscript_track *track);
+
+/* A source slice the minifier copies verbatim: from a noscript start tag the two scripting modes part at, to an
+   element start tag where they agree again (or the end of the source). */
+typedef struct {
+    Py_ssize_t start;
+    Py_ssize_t resume;
+} th_minify_region;
+
+/* The source a document minify reads besides its tree: every noscript span the parse recorded, and the regions copied
+   verbatim, ordered by start. */
+typedef struct {
+    const th_noscript_span *spans;
+    Py_ssize_t span_count;
+    const th_minify_region *regions;
+    Py_ssize_t region_count;
+} th_minify_source;
+
 /* The minification transforms serialize(minify=...) toggles, each round-trip safe
    (the minified bytes reparse to the same tree). */
 typedef struct {
-    int collapse_whitespace; /* fold ASCII-whitespace runs to a single space outside pre/textarea/listing */
-    int omit_optional_tags;  /* drop the start/end tags the WHATWG optional-tag rules allow */
-    int unquote_attributes;  /* drop redundant attribute quotes and write empty values as bare names */
-    int strip_comments;      /* skip comment nodes */
-    int minify_js;           /* minify inline <script> JavaScript (a parse failure falls back to verbatim) */
-    int minify_js_fold;      /* run the JS constant-folding / dead-code pass */
-    int minify_js_mangle;    /* run the JS identifier-renaming pass */
-    int minify_css;          /* minify <style> bodies and style="" values through the CSS minifier */
-    int minify_css_baseline; /* the CSSMinify baseline bounding the output syntax, 0 for None */
+    int collapse_whitespace;        /* fold ASCII-whitespace runs to a single space outside pre/textarea/listing */
+    int omit_optional_tags;         /* drop the start/end tags the WHATWG optional-tag rules allow */
+    int unquote_attributes;         /* drop redundant attribute quotes and write empty values as bare names */
+    int strip_comments;             /* skip comment nodes */
+    int minify_js;                  /* minify inline <script> JavaScript (a parse failure falls back to verbatim) */
+    int minify_js_fold;             /* run the JS constant-folding / dead-code pass */
+    int minify_js_mangle;           /* run the JS identifier-renaming pass */
+    int minify_css;                 /* minify <style> bodies and style="" values through the CSS minifier */
+    int minify_css_baseline;        /* the CSSMinify baseline bounding the output syntax, 0 for None */
+    const th_minify_source *source; /* NULL outside a document minify */
 } th_minify_opts;
 
 /* Serialize node and its subtree minified under minify and the output options.
