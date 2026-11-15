@@ -1178,5 +1178,18 @@
       "kind": "repeat",
       "left": "<em><q></q></em>"
     }
+  },
+  {
+    "name": "xpath-lang-ancestor-walk",
+    "source": "https://github.com/tox-dev/turbohtml/blob/bac22db1f3494e8f8cc5c9b83ef1315c88ce4c28/src/turbohtml/_c/query/xpath/functions.c#L554-L560",
+    "targets": [
+      "xpath_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "sandwich",
+      "left": "<e>",
+      "right": "</e>"
+    }
   }
 ]

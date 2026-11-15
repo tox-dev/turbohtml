@@ -972,6 +972,7 @@ typedef struct engine {
     th_tree *out_tree;
     th_tree *merged_tree; /* holds copies of the principal + imported stylesheets when importing */
     th_node *src_root;
+    xp_lang_memo *src_langs; /* lang()'s answers over the source, kept across the run's evaluations */
 
     xslt_rule *rules;
     Py_ssize_t nrules;
@@ -1986,9 +1987,9 @@ static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *c
     }
     const char *feature = NULL;
     int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
-                                                  xslt_extension, eng, out, &feature)
+                                                  xslt_extension, eng, &eng->src_langs, out, &feature)
                            : xp_eval_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
-                                        xslt_extension, eng, out, &feature);
+                                        xslt_extension, eng, &eng->src_langs, out, &feature);
     if (bindings != storage) {
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
@@ -2155,7 +2156,7 @@ static int fill_key(engine *eng, xslt_key *key) {
         status = xml ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
                                           callback ? pattern_name_test : NULL, &scope, &matched, &feature)
                      : xp_eval_at(key->match_prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1,
-                                  NULL, NULL, NULL, NULL, &matched, &feature);
+                                  NULL, NULL, NULL, NULL, &eng->src_langs, &matched, &feature);
     }
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
@@ -2314,7 +2315,7 @@ TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
                                           pattern_callback_needed(eng, rule->prog) ? pattern_name_test : NULL, &scope,
                                           &matched, &feature)
                      : xp_eval_at(rule->prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
-                                  NULL, xslt_extension, eng, &matched, &feature);
+                                  NULL, xslt_extension, eng, &eng->src_langs, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {   /* GCOVR_EXCL_BR_LINE: pattern evaluation sets an exception only on allocation */
             if (feature == NULL) { /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
@@ -3863,7 +3864,7 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
                                               pattern_callback_needed(eng, prog) ? pattern_name_test : NULL, &scope,
                                               &matched, &feature)
                          : xp_eval_at(prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
-                                      NULL, xslt_extension, eng, &matched, &feature);
+                                      NULL, xslt_extension, eng, &eng->src_langs, &matched, &feature);
         if (status < 0) {
             if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
@@ -6694,6 +6695,7 @@ static PyObject *serialize_markup(engine *eng, th_node *root) {
 /* ---- engine lifecycle ----------------------------------------------------- */
 
 static void engine_clear(engine *eng) {
+    xp_lang_memo_free(eng->src_langs);
     PyMem_Free(eng->dispatch);
     match_set_free(&eng->number_count_match.matched);
     match_set_free(&eng->number_from_match.matched);
@@ -6763,6 +6765,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->owns_model = 0;
     eng->src_tree = src_tree;
     eng->src_root = th_tree_document(src_tree);
+    eng->src_langs = NULL;
     eng->out_tree = NULL;
     eng->dispatch = NULL;
     eng->dispatch_capacity = 0;
