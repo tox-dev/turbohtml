@@ -1943,7 +1943,10 @@ static const uint8_t MD_URL[128] = {
    and takes parentheses only in balanced pairs; anything else goes in the `<...>`
    form, which takes any parenthesis but no unescaped angle bracket. Parentheses stay
    bare while they balance, so a `wiki/Foo_(bar)` URL reads as written. A backslash,
-   and a `&` that would decode as a character reference, are escaped in either form. A
+   and a `&` that would decode as a character reference, are escaped in either form.
+   So is a `<`, which the bare form would take as written: a reader that does not take
+   the link (a destination nested past its parenthesis limit, a link inside the link
+   text) reads the destination as running text, where that `<` would open raw HTML. A
    tab or line break is left out: no destination form holds a line ending (CommonMark
    6.3), and the URL parser removes every tab and newline anyway (URL Standard 4.4). */
 static void md_emit_url(md_ctx *ctx, const char *base, const Py_UCS4 *url, Py_ssize_t len) {
@@ -1978,7 +1981,7 @@ static void md_emit_url(md_ctx *ctx, const char *base, const Py_UCS4 *url, Py_ss
     for (Py_ssize_t index = 0; index < len; index++) {
         TH_WORK_STEP();
         Py_UCS4 ch = url[index];
-        int bracket = angle ? ch == '<' || ch == '>' : unbalanced && (ch == '(' || ch == ')');
+        int bracket = ch == '<' || (angle ? ch == '>' : unbalanced && (ch == '(' || ch == ')'));
         if (bracket || ch == '\\' || (ch == '&' && md_starts_reference(url, index, len))) {
             sbuf_putc(&ctx->out, '\\');
         }
@@ -2009,9 +2012,11 @@ static void md_emit_url_without_breaks(md_ctx *ctx, const char *base, const Py_U
 
 /* Write a link/image title inside its `"..."` delimiters: a `"` would close the
    title early and a `\` would escape the next character, so both are backslashed, as
-   is a `&` that would decode as a character reference. A line break is written as its
-   numeric reference, which a title decodes (CommonMark 6.3): written raw, the next line
-   could open a block (a `>` quote, a `#` heading) and end the paragraph mid-link. */
+   is a `&` that would decode as a character reference. A `<` is escaped as prose
+   escapes it: a reader that does not take the link reads the title as running text,
+   where that `<` would open raw HTML. A line break is written as its numeric
+   reference, which a title decodes (CommonMark 6.3): written raw, the next line could
+   open a block (a `>` quote, a `#` heading) and end the paragraph mid-link. */
 static void md_emit_title(md_ctx *ctx, const Py_UCS4 *title, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         TH_WORK_STEP();
@@ -2020,7 +2025,7 @@ static void md_emit_title(md_ctx *ctx, const Py_UCS4 *title, Py_ssize_t len) {
             continue;
         }
         if (title[index] == '"' || title[index] == '\\' ||
-            (title[index] == '&' && md_starts_reference(title, index, len))) {
+            ((title[index] == '<' || title[index] == '&') && md_escape_by_context(title, index, len))) {
             sbuf_putc(&ctx->out, '\\');
         }
         md_put_literal(ctx, title[index]);
