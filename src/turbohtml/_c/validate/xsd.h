@@ -405,7 +405,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (pos + 1 >= in->size) {
                 continue;
             }
-            qname name = node_qname(inst, children[pos], children[pos]->text, children[pos]->text_len, 0);
+            qname name = element_qname_scoped(schema, inst, children[pos]);
             if (qname_eq(&name, &want)) {
                 posset_add(out, pos + 1);
             }
@@ -642,7 +642,7 @@ static void xsd_validate_all(valctx *ctx, th_node *all, th_node **children, Py_s
     size_t hit_count = 0;
     for (Py_ssize_t index = 0; index < nchildren; index++) {
         TH_WORK_STEP();
-        qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
+        qname name = element_qname_scoped(schema, inst, children[index]);
         matched[index] = xsd_all_find(group, &name);
         if (matched[index] != NULL) {
             hits[hit_count++] = (xall_hit){matched[index], index};
@@ -753,7 +753,7 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
         if (facet->type != TH_NODE_ELEMENT) {
             continue;
         }
-        qname name = node_qname(tree, facet, facet->text, facet->text_len, 0);
+        qname name = node_qname(tree, facet, facet->text, facet->text_len);
         if (name.uri == NULL || !u_eq_ascii(name.uri, name.uri_len, XSD_NS)) {
             continue;
         }
@@ -1614,7 +1614,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
         xsd_collect_edecls(schema, model, &decls);
     }
     for (Py_ssize_t index = 0; index < nchildren; index++) {
-        qname name = node_qname(inst, children[index], children[index]->text, children[index]->text_len, 0);
+        qname name = element_qname_scoped(schema, inst, children[index]);
         for (Py_ssize_t decl = 0; decl < decls.count; decl++) {
             if (qname_eq(&name, &decls.items[decl])) {
                 xsd_validate_element(ctx, children[index], decls.items[decl].decl);
@@ -1626,10 +1626,18 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
 
 /* ---- element ---- */
 
+static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node *decl);
+
 static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) {
+    Py_ssize_t mark = ns_scope_enter(ctx->schema, ctx->tree, instance);
+    xsd_validate_element_scoped(ctx, instance, decl);
+    ns_scope_leave(ctx->schema, mark);
+}
+
+static void xsd_validate_element_scoped(valctx *ctx, th_node *instance, th_node *decl) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
-    qname name = node_qname(ctx->tree, instance, instance->text, instance->text_len, 0);
+    qname name = node_qname_scoped(schema, instance->text, instance->text_len, 0);
     Py_ssize_t mark = ctx->path.len;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
@@ -2019,7 +2027,8 @@ static int xsd_check_expansion(th_schema *schema) {
 
 static void xsd_validate_root(valctx *ctx, th_node *root) {
     th_schema *schema = ctx->schema;
-    qname name = node_qname(ctx->tree, root, root->text, root->text_len, 0);
+    ns_scope_enter_ancestors(schema, ctx->tree, root);
+    qname name = element_qname_scoped(schema, ctx->tree, root);
     th_node *decl = named_find(&schema->elements, name.local, name.local_len);
     if (decl == NULL) {
         report(ctx, root, "structure", "no global element declaration for the document root");
