@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import DocumentFragment, Text, parse_xml
+from turbohtml import Document, DocumentFragment, Text, parse_xml
+from turbohtml.clean import Policy, sanitize_node
 from turbohtml.validate import RelaxNG, SchemaValidationError, XMLSchema
 
 if TYPE_CHECKING:
@@ -12,7 +14,7 @@ if TYPE_CHECKING:
 
     from traced_bytes import RetainedBytes
 
-    from turbohtml import Document, Node
+    from turbohtml import Node
 
 
 _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
@@ -276,3 +278,28 @@ def test_validate_collects_errors_up_to_the_limit(
     with pytest.raises(SchemaValidationError) as raised:
         schema.assert_valid(document)
     assert raised.value.errors == result.errors
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(XMLSchema(f'<xs:schema {_XS}><xs:element name="entry" type="xs:string"/></xs:schema>'), id="xsd"),
+        pytest.param(RelaxNG(f'<element name="entry" xmlns="{_RELAXNG_NS}"><text/></element>'), id="relaxng"),
+    ],
+)
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        pytest.param(copy.copy, id="copy"),
+        pytest.param(copy.deepcopy, id="deepcopy"),
+        pytest.param(lambda document: sanitize_node(document, Policy(tags=frozenset({"entry"}))), id="sanitize-node"),
+    ],
+)
+def test_validate_accepts_a_document_built_by_copying(
+    schema: XMLSchema | RelaxNG, duplicate: Callable[[Document], Document]
+) -> None:
+    # validating a Document starts at the root element of the node its tree records as the document
+    document: Final = duplicate(parse_xml("<entry>x</entry>"))
+    assert isinstance(document, Document)
+    assert schema.validate(document).valid
+    assert schema.is_valid(document)

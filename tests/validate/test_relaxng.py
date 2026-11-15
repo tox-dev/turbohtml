@@ -358,6 +358,77 @@ def test_prefix_resolution_skips_a_decoy_attribute() -> None:
     assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
 
 
+@pytest.mark.parametrize(
+    ("schema", "xml", "expected"),
+    [
+        pytest.param(
+            grammar(
+                '<start><element name="root" ns="urn:a"><element><name ns="urn:b">c</name><empty/></element>'
+                "</element></start>"
+            ),
+            '<root xmlns="urn:a"><c xmlns="urn:b"/></root>',
+            True,
+            id="redeclared-default",
+        ),
+        pytest.param(
+            grammar(
+                '<start><element name="root" ns="urn:a"><element><name ns="urn:b">c</name><empty/></element>'
+                "</element></start>"
+            ),
+            '<root xmlns="urn:a"><c/></root>',
+            False,
+            id="redeclared-default-not-inherited",
+        ),
+        pytest.param(
+            grammar(
+                '<start><element name="root" ns="urn:a"><element name="wrap" ns=""><element name="c">'
+                "<empty/></element></element></element></start>"
+            ),
+            '<root xmlns="urn:a"><wrap xmlns=""><c/></wrap></root>',
+            True,
+            id="undeclared-default",
+        ),
+        pytest.param(
+            grammar(
+                '<start><element name="root"><element name="p:x" xmlns:p="urn:b"><empty/></element>'
+                '<element name="p:y" xmlns:p="urn:a"><empty/></element></element></start>'
+            ),
+            '<root xmlns:p="urn:a"><p:x xmlns:p="urn:b"/><p:y/></root>',
+            True,
+            id="prefix-restored-after-sibling",
+        ),
+        pytest.param(
+            grammar(
+                '<start><element name="root"><element name="p:x" xmlns:p="urn:b"><empty/></element>'
+                '<element name="p:y" xmlns:p="urn:a"><empty/></element></element></start>'
+            ),
+            '<root xmlns:p="urn:a"><p:x/><p:y xmlns:p="urn:b"/></root>',
+            False,
+            id="prefix-redeclared-after-sibling",
+        ),
+    ],
+)
+def test_namespace_declarations_scope_to_their_element(schema: str, xml: str, *, expected: bool) -> None:
+    assert check(schema, xml).valid is expected
+
+
+def test_colon_attribute_is_no_declaration() -> None:
+    # the parser rejects a bare "xmlns:", but the DOM stores one, and it must not bind the default namespace
+    document: Final = parse_xml("<root><c/></root>")
+    root: Final = document.root
+    assert root is not None
+    root.attrs["xmlns:"] = "urn:a"
+    schema: Final = grammar('<start><element name="root"><element name="c"><empty/></element></element></start>')
+    assert RelaxNG(schema).validate(document).valid
+
+
+def test_element_below_the_root_sees_declarations_above_it() -> None:
+    # validating an element on its own still resolves its name against the declaration on the document root
+    element: Final = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
+    schema: Final = grammar('<start><element name="b" ns="urn:x"><text/></element></start>')
+    assert RelaxNG(schema).validate(element).valid
+
+
 def rwrap(body: str) -> str:
     return f'<element name="doc" xmlns="{_RELAXNG_NS}">{body}</element>'
 
@@ -3619,6 +3690,43 @@ def test_rng_adopted_derivatives_decide_like_the_walk(
         schema.is_valid(parse_xml(f"<doc{attributes}>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)
     ]
     assert verdicts == [expected, expected]
+
+
+_ANY_ATTRIBUTES_AND_CHILDREN: Final[str] = (
+    f'<grammar xmlns="{_RELAXNG_NS}"><start><element name="root">'
+    "<zeroOrMore><attribute><anyName/><text/></attribute></zeroOrMore>"
+    "<zeroOrMore><element><anyName/><empty/></element></zeroOrMore></element></start></grammar>"
+)
+
+
+def _plain_attributes_and_children(count: int) -> str:
+    attrs = "".join(f' a{index}="x"' for index in range(count))
+    return f"<root{attrs}>{'<c/>' * count}</root>"
+
+
+def _prefixed_children(count: int) -> str:
+    decls = "".join(f' xmlns:p{index}="urn:p{index}"' for index in range(count))
+    return f"<root{decls}>{''.join(f'<p{index}:c/>' for index in range(count))}</root>"
+
+
+def _prefixed_attributes(count: int) -> str:
+    attrs = "".join(f' q:a{index}="x"' for index in range(count))
+    return f'<root{attrs} xmlns:q="urn:q"/>'
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param(_plain_attributes_and_children, id="plain-attributes-and-children"),
+        pytest.param(_prefixed_children, id="prefixed-children"),
+        pytest.param(_prefixed_attributes, id="prefixed-attributes"),
+    ],
+)
+def test_rng_many_attributes_and_children_scale_linearly(shape: Callable[[int], str], work_steps: WorkSteps) -> None:
+    # a child's name and a prefixed attribute's name resolve against the namespace declarations of the element that
+    # holds them, which must cost the same whatever that element's attribute count
+    validator: Final = RelaxNG(_ANY_ATTRIBUTES_AND_CHILDREN)
+    work_steps.assert_linear(lambda count: partial(validator.validate, parse_xml(shape(count))), (500, 2_000))
 
 
 def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes, tmp_path: Path) -> None:

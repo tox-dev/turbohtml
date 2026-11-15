@@ -2730,11 +2730,20 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
     return current;
 }
 
+static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *element);
+
 /* Derive the pattern over one child element, localizing any failure to it. */
 static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
+    Py_ssize_t mark = ns_scope_enter(ctx->schema, ctx->tree, element);
+    pattern *ended = rng_child_element_scoped(ctx, p, element);
+    ns_scope_leave(ctx->schema, mark);
+    return ended;
+}
+
+static pattern *rng_child_element_scoped(valctx *ctx, pattern *p, th_node *element) {
     th_schema *schema = ctx->schema;
     th_tree *tree = ctx->tree;
-    qname name = node_qname(tree, element, element->text, element->text_len, 0);
+    qname name = node_qname_scoped(schema, element->text, element->text_len, 0);
     Py_ssize_t mark = ctx->path.len;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
@@ -2762,7 +2771,7 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
             continue;          /* GCOVR_EXCL_LINE */
         }
         Py_ssize_t nlen = utf8_to_ucs4(abytes, alen, scratch);
-        qname aname = node_qname(tree, element, scratch, nlen, 1);
+        qname aname = node_qname_scoped(schema, scratch, nlen, 1);
         const Py_UCS4 *value = element->attrs[index].value;
         if (value == NULL) {    /* GCOVR_EXCL_BR_LINE: an XML attribute always has a value */
             value = EMPTY_UCS4; /* GCOVR_EXCL_LINE */
@@ -4491,6 +4500,7 @@ static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t 
 
 static void rng_validate_root(valctx *ctx, th_node *root) {
     th_schema *schema = ctx->schema;
+    ns_scope_enter_ancestors(schema, ctx->tree, root);
     patintern *intern = arena_alloc(&schema->mem, sizeof(*intern));
     if (intern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         ctx->failed = 1;  /* GCOVR_EXCL_LINE */

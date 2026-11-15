@@ -461,8 +461,9 @@ th_tree *th_tree_copy_document(th_tree *src);
    XML flag and quirks mode, for rebuilding a pickled document or fragment. NULL on allocation failure. */
 th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks);
 /* Make document, a parentless node of tree, the root th_tree_document returns, or leave the tree without one when it
-   is NULL: rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that tree
-   when the fragment turns out to be a template's contents. */
+   is NULL: a Document copied into an empty tree is recorded this way (the parsers and th_tree_copy_document set it
+   themselves), rebuilding a pickle roots a fragment in the tree its largest child was built in, and un-roots that
+   tree when the fragment turns out to be a template's contents. */
 void th_tree_set_document(th_tree *tree, th_node *document);
 
 /* Whether two subtrees are structurally equal: same node type, and for an element the

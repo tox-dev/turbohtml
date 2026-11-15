@@ -304,6 +304,22 @@ def test_escape_document_skeleton_synthesized_at_eof_is_silent() -> None:
     assert not sanitize_node(parse(""), Policy.strict()).serialize()
 
 
+def test_sanitized_document_answers_whole_document_readers() -> None:
+    # structured_data snapshots the document from the node the tree records as its document, which the sanitized copy
+    # left unset
+    policy = Policy(
+        tags=frozenset({"html", "head", "body", "p", "b", "i"}),
+        attributes={"*": frozenset({"itemscope", "itemref", "itemprop", "id"})},
+    )
+    document = sanitize_node(
+        parse('<p itemscope itemref="amount"><b itemprop="label">Gadget</b></p><i id="amount" itemprop="total">9</i>'),
+        policy,
+    )
+    assert isinstance(document, Document)
+    assert document.microdata()[0].properties == {"label": ["Gadget"], "total": ["9"]}
+    assert document.structured_data().microdata == document.microdata()
+
+
 @pytest.mark.parametrize(
     "disposition",
     [
