@@ -3134,6 +3134,13 @@ def test_a_reusable_sanitizer_offers_both_node_forms() -> None:
     )
 
 
+def test_the_node_form_gets_a_fragment_context_the_markup_could_not_touch() -> None:
+    # sanitize_node keeps the node it is given without judging it, so an <html> start tag in the untrusted markup must
+    # not have put its attributes on the context element parse_fragment returns
+    root = parse_fragment("<html hidden title=x>Nice <b>post</b>!")
+    assert sanitize_node(root).html == "<div>Nice <b>post</b>!</div>"
+
+
 @pytest.mark.parametrize(
     "entry",
     [pytest.param(sanitize_node, id="sanitize_node"), pytest.param(sanitize_report_node, id="sanitize_report_node")],
