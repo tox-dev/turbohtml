@@ -28,6 +28,12 @@ above ``m``. The message names the limit and the offset where the pattern reache
 the repeat counts, or split the pattern into several ``pattern`` facets to stay within the limits. Matching a value
 takes time linear in its length.
 
+One :meth:`~XMLSchema.validate`, ``is_valid`` or ``assert_valid`` call has a budget for the automaton steps its
+``xs:pattern`` and RELAX NG ``pattern`` checks take: 100,000,000, plus, for each character matched, 1,000 and twice the
+number of states the pattern compiles to. A counted repeat adds states without lengthening the pattern, so a call that
+keeps many of them live for every character can spend the budget; it then raises :class:`ValueError`, since the values
+left unmatched have no verdict. Lower the repeat counts to stay within it.
+
 The range facets ``minInclusive``, ``maxInclusive``, ``minExclusive`` and ``maxExclusive`` compare a number by value and
 an ``xs:date``, ``xs:dateTime``, ``xs:time`` or ``xs:duration`` by the order XSD 1.0 part 2 gives the type. Years are
 numbered as in XSD 1.1, where 0000 is 1 BCE and -0001 is 2 BCE. That order is partial: a value with a timezone and one
