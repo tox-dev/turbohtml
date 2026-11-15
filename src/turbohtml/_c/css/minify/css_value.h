@@ -1040,6 +1040,7 @@ typedef struct {
     Py_ssize_t media_body;
     css_buf media_next;
     int no_top_block;
+    int style_attr; /* the tokens are a style="" value, whose own level sits in no block and holds no nested rule */
 } cursor;
 
 static css_token *cursor_peek(cursor *cur) {

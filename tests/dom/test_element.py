@@ -2018,6 +2018,77 @@ def test_insert_clamps_out_of_range_index(index: int, text: str, expected: str) 
     assert paragraph.html == expected
 
 
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(-2, "<p><a></a>N<b></b><c></c></p>", id="second-from-end"),
+        pytest.param(-3, "<p>N<a></a><b></b><c></c></p>", id="reaches-first-child"),
+        pytest.param(-4, "<p>N<a></a><b></b><c></c></p>", id="one-past-first-child"),
+    ],
+)
+def test_insert_negative_index_counts_back_from_the_last_child(index: int, expected: str) -> None:
+    paragraph = _found(parse("<p><a></a><b></b><c></c></p>"), "p")
+    paragraph.insert(index, Text("N"))
+    assert paragraph.html == expected
+
+
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(10, id="last-child-after-a-full-block"),
+        pytest.param(11, id="end-after-a-full-block"),
+        pytest.param(14, id="past-end-in-the-remainder"),
+        pytest.param(20, id="past-end-inside-a-block"),
+        pytest.param(-11, id="first-child-after-a-full-block"),
+        pytest.param(-12, id="start-after-a-full-block"),
+        pytest.param(-15, id="before-start-in-the-remainder"),
+        pytest.param(-21, id="before-start-inside-a-block"),
+    ],
+)
+def test_insert_far_index_lands_where_list_insert_puts_it(index: int) -> None:
+    names = [f"c{position}" for position in range(11)]
+    listing = _found(parse(f"<ol>{''.join(f'<li>{name}</li>' for name in names)}</ol>"), "ol")
+    listing.insert(index, Text("N"))
+    names.insert(index, "N")
+    assert listing.html == f"<ol>{''.join(name if name == 'N' else f'<li>{name}</li>' for name in names)}</ol>"
+
+
+@pytest.mark.parametrize("index", [pytest.param(0, id="zero"), pytest.param(-1, id="negative")])
+def test_insert_into_an_empty_parent_appends(index: int) -> None:
+    paragraph = Element("p")
+    paragraph.insert(index, Text("only"))
+    assert paragraph.html == "<p>only</p>"
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(0, "<ul><li>d</li><li>c</li><li>b</li><li>a</li></ul>", id="front-reverses"),
+        pytest.param(-1, "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>", id="before-last-restores"),
+    ],
+)
+def test_insert_moving_each_child_near_either_end_orders_them(index: int, expected: str) -> None:
+    listing = _found(parse("<ul><li>a<li>b<li>c<li>d</ul>"), "ul")
+    for item in listing.children:
+        listing.insert(index, item)
+    assert listing.html == expected
+
+
+@pytest.mark.parametrize("index", [pytest.param(1, id="second"), pytest.param(-2, id="second-from-end")])
+def test_insert_near_either_end_stays_linear(index: int, work_steps: WorkSteps) -> None:
+    def move_each(size: int) -> Callable[[], object]:
+        listing = _found(parse(f"<ol>{'<li>i</li>' * size}</ol>"), "ol")
+        items = listing.children
+
+        def move_all() -> None:
+            for item in items:
+                listing.insert(index, item)
+
+        return move_all
+
+    work_steps.assert_linear(move_each, (500, 2000))
+
+
 def test_insert_moving_a_node_onto_its_own_slot_keeps_it_there() -> None:
     doc = parse("<p><a></a><b></b><c></c></p>")
     paragraph = _found(doc, "p")

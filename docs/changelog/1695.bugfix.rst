@@ -1,0 +1,2 @@
+``Element.insert()`` and ``ElementView.insert()`` no longer slow down with the number of siblings when inserting near
+either end of a long child list.
