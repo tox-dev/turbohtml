@@ -15,6 +15,13 @@ Nested Microdata and RDFa resources become nested Python records. The extractor 
 record contains more than 400 nested records, or when Microdata ``itemref`` links form a nested-item cycle. DOM wrappers
 do not count toward that limit, and the flat metadata helpers remain iterative.
 
+An item that several items name through ``itemref`` becomes a separate record under each of them, so a few elements that
+share one another in layers can ask for a record count that doubles with every layer. One call therefore builds at most
+one record for each ``itemscope`` element in the document plus 10,000 repeats of shared items, and raises
+:exc:`RecursionError` past that. A plain property that several items claim is valued at most twice, and the items share
+that value; one call hands out at most 100,000 such repeated values before it raises :exc:`RecursionError` as well. A
+page that shares nothing through ``itemref`` never meets either limit.
+
 A Microdata or RDFa property without an attribute to read takes the text of its whole subtree as its value, so text
 under several such properties is copied once for each of them. The extractor leaves out a property that heads a chain of
 more than 32 of them nested in one another, whichever records they belong to, and still reports the properties inside

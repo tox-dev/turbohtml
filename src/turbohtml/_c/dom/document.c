@@ -1438,7 +1438,8 @@ PyDoc_STRVAR(structured_data_doc,
              "    and Dublin Core are left verbatim. None (the default) returns every value verbatim.\n"
              ":raises ValueError: if base_url is not a valid absolute URL.\n"
              ":raises RecursionError: if Microdata or RDFa records nest more than 400 levels, or if\n"
-             "    Microdata itemref links form a nested-item cycle.");
+             "    Microdata itemref links form a nested-item cycle, repeat shared items more than\n"
+             "    10,000 times or repeat shared property values more than 100,000 times.");
 
 PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
                           "Parse every <script type=\"application/ld+json\"> block in the document with the\n"
@@ -1467,7 +1468,8 @@ PyDoc_STRVAR(microdata_doc,
              "    None (the default) returns every value verbatim.\n"
              ":raises ValueError: if base_url is not a valid absolute URL.\n"
              ":raises RecursionError: if records nest more than 400 levels, or if itemref links form\n"
-             "    a nested-item cycle.");
+             "    a nested-item cycle, repeat shared items more than 10,000 times or repeat shared\n"
+             "    property values more than 100,000 times.");
 
 PyDoc_STRVAR(rdfa_doc, "rdfa(base_url=None)\n--\n\n"
                        "Extract RDFa as a list of RdfaItem, one per top-level typeof resource. Each item has\n"

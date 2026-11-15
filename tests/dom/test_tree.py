@@ -2340,6 +2340,114 @@ def test_microdata_rejects_more_than_400_nested_records(method: str) -> None:
         getattr(document, method)()
 
 
+def _itemref_lattice(layers: int) -> str:
+    # one top-level item over layers of two items, where both items of a layer claim both items of the next one
+    return "<div itemscope itemref='a1 b1'></div>\n" + "".join(
+        f"<div id='{name}{layer}' itemprop='next' itemscope itemref='a{layer + 1} b{layer + 1}'></div>\n"
+        for layer in range(1, layers + 1)
+        for name in "ab"
+    )
+
+
+@pytest.mark.parametrize("method", ["microdata", "structured_data"])
+def test_microdata_rejects_itemref_graph_that_multiplies_records(method: str) -> None:
+    document = parse(_itemref_lattice(14))  # 29 itemscope elements that ask for 2**15 - 1 records
+    with pytest.raises(RecursionError, match=r"microdata\(\).*10000 repeats of items shared through itemref"):
+        getattr(document, method)()
+
+
+@pytest.mark.parametrize(
+    ("markup", "records"),
+    [
+        pytest.param(_itemref_lattice(6), 2**7 - 1, id="lattice-within-allowance"),
+        pytest.param("<div itemscope></div>\n" * 10_001, 10_001, id="unshared-past-allowance"),
+        pytest.param(
+            "<div itemscope itemref='seller'></div>\n" * 10_001 + "<div id='seller' itemprop='seller' itemscope></div>",
+            20_002,
+            id="shared-up-to-allowance",
+        ),
+    ],
+)
+def test_microdata_builds_shared_items_within_the_record_budget(markup: str, records: int) -> None:
+    assert _microdata_records(parse(markup).microdata()) == records
+
+
+def _microdata_records(items: list[MicrodataItem]) -> int:
+    pending = list(items)
+    records = 0
+    while pending:
+        records += 1
+        for values in pending.pop().properties.values():
+            pending.extend(value for value in values if isinstance(value, MicrodataItem))
+    return records
+
+
+def test_microdata_rejects_shared_items_past_the_allowance() -> None:
+    document = parse(
+        "<div itemscope itemref='seller'></div>\n" * 10_002 + "<div id='seller' itemprop='seller' itemscope></div>"
+    )
+    with pytest.raises(RecursionError, match="10000 repeats of items shared through itemref"):
+        document.microdata()
+
+
+@pytest.mark.parametrize("method", ["microdata", "structured_data"])
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"<div id=x>{'<i itemprop=a></i>' * 330}</div>{'<p itemscope itemref=x>' * 330}", id="block"),
+        pytest.param(
+            f"<div id=s itemprop=p itemscope>{'<i itemprop=a></i>' * 210}</div>{'<p itemscope itemref=s>' * 620}",
+            id="properties-of-a-shared-item",
+        ),
+        pytest.param(
+            f"<div id=x><i itemprop='{' '.join(f'n{index}' for index in range(520))}'></i></div>"
+            f"{'<p itemscope itemref=x>' * 310}",
+            id="many-names-on-one-shared-property",
+        ),
+    ],
+)
+def test_microdata_rejects_property_values_that_multiply_through_itemref(markup: str, method: str) -> None:
+    message = r"microdata\(\).*100000 repeats of property values shared through itemref"
+    with pytest.raises(RecursionError, match=message):
+        getattr(parse(markup), method)()
+
+
+def test_microdata_shares_one_value_among_the_items_that_claim_a_property() -> None:
+    block = "".join(f"<i itemprop=a{index}>v{index}</i>" for index in range(25))
+    items = parse(f"<div id=x>{block}</div>{'<p itemscope itemref=x>' * 1500}").microdata()
+    assert len(items) == 1500
+    assert all(item.properties == items[0].properties for item in items)
+    assert items[0].properties == {f"a{index}": [f"v{index}"] for index in range(25)}
+    assert items[0].properties["a0"][0] is items[1499].properties["a0"][0]
+
+
+def test_microdata_does_not_copy_a_long_shared_text_for_each_claimant() -> None:
+    tracemalloc = pytest.importorskip("tracemalloc")
+    document = parse(f"<div id=x itemprop=t>{'w' * 90_000}</div>{'<p itemscope itemref=x>' * 1_200}")
+    tracemalloc.start()
+    items = document.microdata()
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    texts = [item.properties["t"][0] for item in items]
+    assert len(texts) == 1_200
+    assert all(isinstance(text, str) and len(text) == 90_000 for text in texts)
+    assert peak < 8_000_000, f"microdata() allocated {peak} bytes"
+
+
+def test_microdata_repeated_value_keeps_the_property_left_out_for_its_depth() -> None:
+    chain = f"{'<div itemprop=p>' * 34}x{'</div>' * 34}"
+    items = parse(f"<div id=x>{chain}</div>{'<p itemscope itemref=x>' * 2}").microdata()
+    assert [item.properties for item in items] == [{"p": ["x"] * 32}] * 2
+
+
+def test_microdata_stops_a_shared_block_within_the_value_allowance(work_steps: WorkSteps) -> None:
+    document = parse(f"<div id=x>{'<i itemprop=a></i>' * 1200}</div>{'<p itemscope itemref=x>' * 1200}")
+    before = work_steps.read()
+    with pytest.raises(RecursionError, match=r"100000 repeats of property values"):
+        document.microdata()
+    assert work_steps.read() - before < 1_000_000
+
+
 @pytest.mark.parametrize("method", ["rdfa", "structured_data"])
 def test_rdfa_rejects_more_than_400_nested_records(method: str) -> None:
     document = parse(f"""<div typeof='Thing'>{"<div property='next' typeof='Thing'>" * 400}{"</div>" * 401}""")
