@@ -6326,7 +6326,7 @@ def test_number_deep_chain_answers_each_source() -> None:
     assert isinstance(root, Element)
     assert isinstance(added, Element)
     root.append(added)
-    assert first ==_numbers(range(_CHAIN_DEPTH, 0, -1))
+    assert first == _numbers(range(_CHAIN_DEPTH, 0, -1))
     assert transform(source) == f"{first}{_numbers(range(_CHAIN_DEPTH, -1, -1))}"
 
 
