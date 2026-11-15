@@ -1199,11 +1199,12 @@ def test_a_reopened_element_with_nothing_to_rewrite_is_left_alone(start_tag: str
 
 
 def test_many_reopened_elements_grow_the_shared_value_table() -> None:
-    # more distinct values than the table's first capacity, so it grows
-    elements: Final = "".join(f'<b cite="c{index}">' for index in range(20))
+    # the table starts with 16 slots and grows past half load at its ninth distinct value; the formatting list reopens
+    # at most 16 elements, so twelve distinct values fit in one run
+    elements: Final = "".join(f'<b cite="c{index}">' for index in range(12))
     root = parse_fragment(f"<p>{elements}x<p>y<p>z")
     root.resolve_links(_HTTPS)
-    assert [link.url for link in root.links()] == [f"{_HTTPS}c{index}" for index in range(20)] * 3
+    assert [link.url for link in root.links()] == [f"{_HTTPS}c{index}" for index in range(12)] * 3
 
 
 def test_resolved_clones_stay_independent() -> None:
