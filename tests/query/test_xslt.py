@@ -1078,6 +1078,43 @@ def test_transform_bad_select_expression_raises() -> None:
         _run("<r/>", '<xsl:template match="/"><xsl:value-of select="@("/></xsl:template>')
 
 
+@pytest.mark.parametrize(
+    "test",
+    [
+        pytest.param("/r/@main = @id", id="absolute"),
+        pytest.param("$main = @id and /r", id="variable-first"),
+        pytest.param("current()/@id = /r/@main", id="current-first"),
+        pytest.param("key('by-id', @id)[/r/@main = @id]", id="key-first"),
+    ],
+)
+def test_transform_absolute_path_inside_for_each_starts_at_the_source_root(test: str) -> None:
+    body: Final = (
+        '<xsl:key name="by-id" match="a" use="@id"/><xsl:variable name="main" select="/r/@main"/>'
+        '<xsl:template match="/"><xsl:for-each select="//a">'
+        f'<xsl:if test="{test}"><xsl:value-of select="count(/r//a[/r])"/></xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    source: Final = turbohtml.parse_xml("<r main='2'><a id='1'><a id='2'/></a></r>")
+    assert Transform(_sheet(body))(source) == "2"
+    inner: Final = source.xpath_one("//a/a")
+    assert isinstance(inner, Element)
+    assert Transform(_sheet(body))(inner) == "2"
+
+
+def test_transform_absolute_path_on_deep_current_nodes_stays_linear(work_steps: WorkSteps) -> None:
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="//e">'
+        '<xsl:if test="current()/@id = /e/@main">x</xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    stylesheet: Final = Transform(_sheet(body))
+
+    def build(size: int) -> Callable[[], object]:
+        return partial(stylesheet, turbohtml.parse_xml("<e>" * size + "</e>" * size))
+
+    work_steps.assert_linear(build, (1000, 4000))
+
+
 def test_transform_for_each_on_non_node_set_raises() -> None:
     with pytest.raises(ValueError, match="not a node-set"):
         _run("<r/>", '<xsl:template match="/"><xsl:for-each select="1 + 1">x</xsl:for-each></xsl:template>')
@@ -1251,6 +1288,26 @@ def test_transform_template_matching_many_nodes_grows_match_set() -> None:
         '<xsl:template match="i"><xsl:value-of select="."/>,</xsl:template>'
     )
     assert _run(f"<r>{items}</r>", body) == "".join(f"{index}," for index in range(30))
+
+
+@pytest.mark.parametrize("rules", [pytest.param(1, id="match-set"), pytest.param(16, id="dispatch-cache")])
+def test_transform_matches_crowded_source_nodes_stays_linear(rules: int, work_steps: WorkSteps) -> None:
+    unused: Final = "".join(f'<xsl:template match="unused{index}"/>' for index in range(rules - 1))
+    convert: Final = Transform(_sheet(f'{unused}<xsl:template match="a">.</xsl:template>'))
+    assert convert(parse_xml(_crowded_source_markup(40))) == "." * 40
+    work_steps.assert_linear(lambda n: partial(convert, parse_xml(_crowded_source_markup(n))), (1000, 4000))
+
+
+def _crowded_source_markup(elements: int) -> str:
+    # Comments take a creation order number without entering a match set or the dispatch cache, so the markup picks
+    # which numbers become keys and places them in the lowest eighth of the table.
+    nodes: list[str] = []
+    placed = 0
+    while placed < elements:
+        crowded = len(nodes) * 0x61C88647 % 2**32 < 2**29
+        nodes.append("<a/>" if crowded else "<!---->")
+        placed += crowded
+    return f"<r>{''.join(nodes)}</r>"
 
 
 def test_transform_key_with_many_distinct_values_grows_table() -> None:
@@ -4864,6 +4921,7 @@ _PAIR: Final[str] = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
             id="explicit-value-interleaving",
         ),
         pytest.param('<r><n id="a"/><n id="b"/></r>', "r/n/@id", _PAIR, "1:1|1:1|", id="attributes"),
+        pytest.param("<r><n/><!--c--><n/></r>", "r/node()", "<xsl:number/>", "1|1|2|", id="comment-after-element"),
     ],
 )
 def test_number_memo_criteria(
@@ -4893,6 +4951,14 @@ def test_number_memo_same_instruction_target(
         "<xsl:text>|</xsl:text></xsl:for-each></xsl:template>"
     )
     assert compiled(parse_xml(source)) == expected
+
+
+def test_number_single_counts_past_element_of_another_namespace(compile_numbers: Callable[[str], Transform]) -> None:
+    compiled: Final = compile_numbers(
+        '<xsl:template match="/"><xsl:for-each select="//div"><xsl:number/><xsl:text>|</xsl:text></xsl:for-each>'
+        "</xsl:template>"
+    )
+    assert compiled(turbohtml.parse("<body><svg></svg><div></div><div></div></body>")) == "1|2|"
 
 
 def test_number_memo_compiled_transform_reuse(compile_numbers: Callable[[str], Transform]) -> None:
@@ -5074,6 +5140,108 @@ def test_number_any_visit_order(
         "",
     )
     assert transform(parse_xml("<root><p/><p/><p/><p/></root>")) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "instructions", "expected"),
+    [
+        pytest.param(
+            f"<root>{'<item/><note/>' * 40}</root>",
+            '<xsl:number level="any"/>',
+            "".join(f"{index}|{index}|" for index in range(1, 41)),
+            id="alternating-names",
+        ),
+        pytest.param(
+            f"<root>{''.join(f'<n{index}/>' for index in range(100)) * 2}</root>",
+            '<xsl:number level="any"/>',
+            "1|" * 100 + "2|" * 100,
+            id="many-names",
+        ),
+        pytest.param(
+            "<root><section><p/><q/><p/></section><section><q/><p/><q/></section></root>",
+            '<xsl:number level="any" from="section"/>',
+            "1|1|1|2|1|1|1|2|",
+            id="from-resets-every-name",
+        ),
+        pytest.param(
+            "<root><section><p/><q/><p/></section><section><q/><p/><q/></section></root>",
+            '<xsl:number level="any"/>/<xsl:number level="any" from="section"/>',
+            "1/1|1/1|1/1|2/2|2/1|2/1|3/1|3/2|",
+            id="default-beside-from",
+        ),
+        pytest.param(
+            "<root><section><p/><q/><p/></section><section><q/><p/><q/></section></root>",
+            '<xsl:number level="any" from="section"/>/<xsl:number level="any" from="root"/>',
+            "1/1|1/1|1/1|2/2|1/2|1/2|1/3|2/3|",
+            id="two-from-patterns",
+        ),
+    ],
+)
+def test_number_any_default_count_over_interleaved_names(
+    source: str, instructions: str, expected: str, prefix_transform: Callable[[str, str], Transform]
+) -> None:
+    transform: Final = prefix_transform(
+        f'<xsl:for-each select="root//*">{instructions}<xsl:text>|</xsl:text></xsl:for-each>', ""
+    )
+    assert transform(parse_xml(source)) == expected
+
+
+def test_number_any_default_count_renumbers_once_names_carry_namespaces(
+    prefix_transform: Callable[[str, str], Transform],
+) -> None:
+    # the comments are numbered before any element name has been resolved against the namespace declarations
+    transform: Final = prefix_transform(
+        "".join(
+            f'<xsl:for-each select="{select}"><xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>'
+            for select in ("//comment()", "//*[not(*)]")
+        ),
+        "",
+    )
+    assert transform(parse_xml('<root xmlns="urn:x"><!--a--><p/><!--b--><p/><!--c--><p/></root>')) == "1|2|3|1|2|3|"
+
+
+def test_number_any_default_count_walks_past_elements_not_yet_named(
+    prefix_transform: Callable[[str, str], Transform],
+) -> None:
+    # numbering the first p resolves the element names up to it only; the comments lie beyond the q elements after it
+    transform: Final = prefix_transform(
+        "".join(
+            f'<xsl:for-each select="{select}"><xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>'
+            for select in ("//*[local-name() = 'p']", "//comment()", "//*[local-name() = 'q']")
+        ),
+        "",
+    )
+    source: Final = '<root xmlns="urn:x"><p/><!--a--><q/><q/><!--b--><q/><!--c--></root>'
+    assert transform(parse_xml(source)) == "1|1|2|3|1|2|3|"
+
+
+@pytest.mark.parametrize(
+    ("declarations", "pair"),
+    [
+        pytest.param("", "<item/><note/>", id="names"),
+        pytest.param(' xmlns:p="urn:p" xmlns:q="urn:q"', "<p:item/><q:note/>", id="prefixes"),
+    ],
+)
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        pytest.param('<xsl:number level="any"/>', id="default"),
+        pytest.param('<xsl:number level="any" from="list"/>', id="from"),
+    ],
+)
+def test_number_any_default_count_over_interleaved_names_scales_linearly(
+    declarations: str,
+    pair: str,
+    instruction: str,
+    prefix_transform: Callable[[str, str], Transform],
+    work_steps: WorkSteps,
+) -> None:
+    transform: Final = prefix_transform(
+        f'<xsl:for-each select="list/*">{instruction}<xsl:text>|</xsl:text></xsl:for-each>', ""
+    )
+    work_steps.assert_linear(
+        lambda pairs: partial(transform, parse_xml(f"<list{declarations}>{pair * pairs}</list>")), (300, 1200)
+    )
 
 
 @pytest.mark.parametrize(

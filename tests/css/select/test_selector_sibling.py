@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -9,6 +10,8 @@ from turbohtml.query import compile  # ruff:ignore[builtin-import-shadowing]  # 
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from work_steps import WorkSteps
 
 
 def _siblings(*runs: tuple[str, int], filled: Iterable[int] = ()) -> str:
@@ -392,3 +395,146 @@ def test_select_sibling_mixed_api_cache_after_selection(selector: str, expected:
         _ids([document.select_one(selector)]),
         _ids([target.closest(selector)]),
     ) == (bool(expected), expected, [first], [first])
+
+
+def _typed(tags: Iterable[str], *, filled: bool = False) -> str:
+    # past 32 siblings a position walk hands over to the position memo, which indexes the whole run; `filled` gives
+    # each eN a child, so a query leaves the run between two siblings and the one-entry nth memo loses its place
+    body = "".join(f"<{tag} id=e{index}>{'<i></i>' if filled else ''}</{tag}>" for index, tag in enumerate(tags))
+    return f"<div id=p>{body}</div>"
+
+
+_DISTINCT: Final[str] = _typed(f"x-{index}" for index in range(80))
+_CYCLE: Final[str] = _typed(("a", "b", "x-a", "x-b", "x-long", "svg")[index % 6] for index in range(78))
+_LONE: Final[str] = _typed(["a"] * 40 + ["x-lone"] + ["a"] * 40)
+# each eN holds a child of the next sibling's type, the last candidate the one-entry nth memo saw before that sibling
+_COUSINS: Final[str] = "<div id=p>{}</div>".format(
+    "".join(f"<x-{index} id=e{index}><x-{index + 1}></x-{index + 1}></x-{index}>" for index in range(50))
+)
+
+
+@pytest.mark.parametrize(
+    ("selector", "html", "expected"),
+    [
+        pytest.param(":first-of-type", _DISTINCT, _expected(range(80)), id="first-distinct"),
+        pytest.param(":last-of-type", _DISTINCT, _expected(range(80)), id="last-distinct"),
+        pytest.param(":only-of-type", _DISTINCT, _expected(range(80)), id="only-distinct"),
+        pytest.param(":nth-of-type(1)", _DISTINCT, _expected(range(80)), id="nth-distinct"),
+        pytest.param(":nth-last-of-type(2)", _DISTINCT, [], id="nth-last-distinct"),
+        pytest.param(":first-of-type", _CYCLE, _expected(range(6)), id="first-cycle"),
+        pytest.param(":last-of-type", _CYCLE, _expected(range(72, 78)), id="last-cycle"),
+        pytest.param(":only-of-type", _CYCLE, [], id="only-cycle"),
+        pytest.param(":nth-of-type(2)", _CYCLE, _expected(range(6, 12)), id="nth-cycle"),
+        pytest.param(":nth-of-type(13)", _CYCLE, _expected(range(72, 78)), id="nth-cycle-end"),
+        pytest.param(":nth-last-of-type(2)", _CYCLE, _expected(range(66, 72)), id="nth-last-cycle"),
+        pytest.param(":nth-last-of-type(13)", _CYCLE, _expected(range(6)), id="nth-last-cycle-start"),
+        pytest.param("x-long:nth-of-type(odd)", _CYCLE, _expected(range(4, 78, 12)), id="nth-cycle-typed"),
+        pytest.param(":first-of-type", _LONE, ["e0", "e40"], id="first-lone"),
+        pytest.param(":last-of-type", _LONE, ["e40", "e80"], id="last-lone"),
+        pytest.param(":only-of-type", _LONE, ["e40"], id="only-lone"),
+        pytest.param(":nth-last-of-type(41)", _LONE, ["e39"], id="nth-last-lone"),
+        pytest.param(":nth-child(40)", _typed(["p"] * 80, filled=True), ["e39"], id="nth-child-filled"),
+        pytest.param(":nth-last-child(40)", _typed(["p"] * 80, filled=True), ["e40"], id="nth-last-child-filled"),
+        pytest.param(":nth-of-type(3)", _typed(["p", "b"] * 40, filled=True), ["e4", "e5"], id="nth-of-type-filled"),
+        pytest.param(
+            ":nth-of-type(1)",
+            _COUSINS,
+            _expected(range(50)),
+            id="nth-memo-from-cousin",
+        ),
+        pytest.param(
+            ".c:nth-child(odd)",
+            _typed(["p"] * 90).replace("<p id=e0>", "<p id=e0 class=c>").replace("<p id=e44>", "<p id=e44 class=c>"),
+            ["e0", "e44"],
+            id="nth-memo-past-gap",
+        ),
+        pytest.param(":has(~ :nth-last-of-type(2))", _CYCLE, _expected(range(71)), id="inside-has"),
+        pytest.param(":last-of-type ~ :last-of-type", _CYCLE, _expected(range(73, 78)), id="either-side-of-tilde"),
+    ],
+)
+def test_select_type_position_in_long_run(selector: str, html: str, expected: list[str | None]) -> None:
+    assert _ids(parse(html).select(f"#p > {selector}")) == expected
+
+
+def test_select_type_position_text_between_siblings() -> None:
+    document = parse(_typed(f"x-{index % 2}" for index in range(80)).replace("><x-", "> <!--gap--><x-"))
+    assert [_ids(document.select(f"#p > {selector}")) for selector in (":first-of-type", ":nth-last-of-type(1)")] == [
+        ["e0", "e1"],
+        ["e78", "e79"],
+    ]
+
+
+def test_select_type_position_runs_nested_in_each_sibling() -> None:
+    # every sibling of the outer run holds a run of its own, so the memo takes many sibling lists in one query
+    inner = "".join(f"<y-{index}></y-{index}>" for index in range(40))
+    body = "".join(f"<x-{index}>{inner}</x-{index}>" for index in range(40))
+    document = parse(f"<div id=p>{body}</div>")
+    counts = [len(document.select(selector)) for selector in ("#p :only-of-type", "#p :nth-of-type(2)", "y-39")]
+    assert counts == [1640, 0, 40]
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [pytest.param(":first-of-type", id="first-of-type"), pytest.param(":nth-last-of-type(2)", id="nth-last-of-type")],
+)
+def test_select_type_position_work_linear(selector: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda size: partial(parse(_typed(f"x-{index}" for index in range(size))).select, f"#p > {selector}"),
+        (1000, 4000),
+    )
+
+
+def test_select_one_type_position_in_long_run() -> None:
+    assert _ids([parse(_CYCLE).select_one("#p > :nth-last-of-type(2)")]) == ["e66"]
+
+
+def test_remove_type_position_in_long_run() -> None:
+    document = parse(_CYCLE)
+    document.remove("#p > :last-of-type")
+    assert _ids(document.select("#p > *")) == _expected(range(72))
+
+
+def test_prune_type_position_in_long_run() -> None:
+    document = parse(_CYCLE)
+    document.prune("#p > :first-of-type")
+    assert _ids(document.select("#p > *")) == _expected(range(6))
+
+
+@pytest.mark.parametrize(
+    "order",
+    [pytest.param(slice(None), id="forward"), pytest.param(slice(None, None, -1), id="reverse")],
+)
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param(":last-of-type", _expected(range(72, 78)), id="last-of-type"),
+        pytest.param(":nth-of-type(2)", _expected(range(6, 12)), id="nth-of-type"),
+        pytest.param(":nth-last-child(3)", ["e75"], id="nth-last-child"),
+    ],
+)
+def test_matcher_filter_type_position_in_long_run(selector: str, expected: list[str | None], order: slice) -> None:
+    candidates = parse(_CYCLE).select("#p > *")[order]
+    assert set(_ids(compile(selector).filter(candidates))) == set(expected)
+
+
+@pytest.mark.parametrize(
+    ("html", "element_id", "selector", "expected"),
+    [
+        pytest.param(_DISTINCT, "e79", ":first-of-type", True, id="first-distinct"),
+        pytest.param(_DISTINCT, "e0", ":only-of-type", True, id="only-distinct"),
+        pytest.param(_LONE, "e80", ":first-of-type", False, id="first-after-lone"),
+        pytest.param(_CYCLE, "e77", ":nth-of-type(13)", True, id="nth"),
+        pytest.param(_CYCLE, "e0", ":nth-last-of-type(12)", False, id="nth-last"),
+    ],
+)
+def test_matches_type_position_in_long_run(html: str, element_id: str, selector: str, *, expected: bool) -> None:
+    assert _element(html, element_id).matches(selector) is expected
+
+
+def test_select_type_position_after_rename() -> None:
+    document = parse(_LONE)
+    before = _ids(document.select("#p > :only-of-type"))
+    first = document.select_one("#e0")
+    assert first is not None
+    first.tag = "x-lone"
+    assert (before, _ids(document.select("#p > :only-of-type"))) == (["e40"], [])

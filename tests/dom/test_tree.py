@@ -844,6 +844,24 @@ def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespa
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
+        pytest.param("<svg><forťignobject>x", "<svg><forťignobject>x</forťignobject></svg>", id="ucs2-low-byte-e"),
+        pytest.param(
+            "<svg><alt\U00010067lyph>x",
+            "<svg><alt\U00010067lyph>x</alt\U00010067lyph></svg>",
+            id="ucs4-low-byte-g",
+        ),
+        pytest.param("<svg><foreignobject>x", "<svg><foreignObject>x</foreignObject></svg>", id="ascii"),
+    ],
+)
+def test_svg_name_adjustment_skips_non_ascii_name(html: str, expected: str) -> None:
+    # a code point whose low byte spells the missing letter is not that letter: the element is no HTML integration
+    # point, so it must not serialize under the name that reparses as one
+    assert parse_fragment(html).inner_html == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
         pytest.param(
             "<!doctype html><!doctype></p>",
             "<!DOCTYPE html><html><head></head><body></body></html>",
@@ -1330,6 +1348,47 @@ def test_formatting_reconstruction_stack_changes(
 def test_formatting_reconstruction_reopens_nested_elements(source: str, expected: list[tuple[str, list[str]]]) -> None:
     root: Final = parse_fragment(source, "div")
     assert [(bold.text, [italic.text for italic in bold.find_all("i")]) for bold in root.find_all("b")] == expected
+
+
+# Each lookup for an element that is off the list walked every entry the markers left behind, once per tag. Membership
+# is a flag on the element now, so these inputs stay linear in the number of tags.
+def _cell_markers(count: int) -> str:
+    return f"<table><tr>{'<th><object></th>' * count}<th>"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(lambda count: _cell_markers(count) + "<a>" * count, id="second-a"),
+        pytest.param(
+            lambda count: f"{'<div>' * (_DEPTH_CAP - 4)}{'<p><em><a><object>' * count}<p>{'<a>' * count}",
+            id="second-a-past-depth-cap",
+        ),
+        pytest.param(
+            lambda count: _cell_markers(count) + f"<i>{'<label>' * 6}<p></i></p></i>" * count,
+            id="adoption-walks-unlisted",
+        ),
+        pytest.param(
+            lambda count: _cell_markers(count) + f"{'<b>' * 199}{'</b>' * 199}" * count,
+            id="unlisted-current",
+        ),
+        pytest.param(
+            lambda count: f"<em>{_cell_markers(count)}</table>{'<p><em></p></em>' * count}",
+            id="current-below-markers",
+        ),
+    ],
+)
+def test_formatting_list_lookup_is_linear_in_tags(source: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+
+
+def test_formatting_end_tag_keeps_current_node_listed_below_marker() -> None:
+    # the outer em is listed below the marker the cell left, so the </em> after the paragraph closes the inner one
+    body = parse("<em><table><tr><th><object></th></table><p><em></p></em>y").find("body")
+    assert body is not None
+    assert (
+        body.inner_html == "<em><table><tbody><tr><th><object></object></th></tr></tbody></table><p><em></em></p>y</em>"
+    )
 
 
 @pytest.mark.parametrize(

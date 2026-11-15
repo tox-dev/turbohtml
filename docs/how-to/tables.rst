@@ -62,3 +62,8 @@ holds it. A table nested inside two or more other tables of the same :meth:`~tur
 text toward a limit of 16,000,000 characters per call, and a call that exceeds it raises :class:`ValueError`. Tables
 nested inside at most one other table, tables that are not nested, and a single table read with
 :meth:`~turbohtml.Element.rows` or :meth:`~turbohtml.Element.records` are never counted, whatever their size.
+
+Every ``<td>`` and ``<th>`` always gets its slot in the grid. The slots that ``rowspan``, ``colspan`` and the padding to
+a rectangle add on top of those are limited to 4,000,000 per call, shared by all tables of one
+:meth:`~turbohtml.Node.tables` call; a table that needs more raises :class:`ValueError`, so a small page cannot expand
+into gigabytes of grid.

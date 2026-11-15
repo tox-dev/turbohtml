@@ -329,7 +329,7 @@ static PyObject *walker_next(PyObject *self) {
             walker->current = node->prev_sibling;
             break;
         case WALK_PRECEDING:
-            walker->current = preceding_skip(previous_element(node), walker->root);
+            walker->current = preceding_skip(previous_element(node), &walker->root);
             break;
         default: /* WALK_DESCENDANTS, and the following axis bounded by a NULL root */
             walker->current = preorder_next(node, walker->root);
@@ -914,10 +914,12 @@ TH_NODE_API(static, PyObject *, node_get_preceding, (PyObject * self, void *clos
             (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *start;
+    th_node *origin;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
-    start = preceding_skip(previous_element(node->node), node->node);
+    origin = node->node;
+    start = preceding_skip(previous_element(origin), &origin);
     Py_END_CRITICAL_SECTION();
-    return walker_new(state_of(self), node->handle, start, node->node, WALK_PRECEDING);
+    return walker_new(state_of(self), node->handle, start, origin, WALK_PRECEDING);
 }
 
 TH_NODE_API(static, PyObject *, node_get_strings, (PyObject * self, void *closure), (self, closure),
@@ -1551,7 +1553,8 @@ PyDoc_STRVAR(tables_doc, "tables()\n--\n\n"
                          "entry. The result is a list[list[list[str]]] of plain strings, with no pandas\n"
                          "dependency; pass one table to pandas.DataFrame for a frame. Raises ValueError\n"
                          "when tables nested inside two or more other tables repeat more than 16,000,000\n"
-                         "characters of cell text in one call.");
+                         "characters of cell text in one call, or when the spans and the padding of all the tables\n"
+                         "together add more than 4,000,000 cells to their grids.");
 
 TH_NODE_API(static, PyObject *, node_tables, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
@@ -2344,7 +2347,7 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
         }
     }
     th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml, inner, NULL,
-                              0, charset_missing, NULL};
+                              0, charset_missing, NULL,         NULL};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2679,7 +2682,7 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                                           int sort_attributes, int meta_charset, int xml, int inner) {
     module_state *state = state_of(self);
     th_serialize_opts opts = {
-        0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL};
+        0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, inner, NULL, 0, NULL, NULL, NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

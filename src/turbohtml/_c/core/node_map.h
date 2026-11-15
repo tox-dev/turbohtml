@@ -4,7 +4,9 @@
 #include <Python.h>
 #include <stdint.h>
 
+#include "core/hash.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/tree.h"
 
 typedef struct {
@@ -30,12 +32,37 @@ static inline size_t th_hash_slot(uint32_t hash, size_t capacity) {
     return (size_t)(((uint64_t)hash * capacity) >> 32);
 }
 
+/* The stride a probe takes once it has walked TH_FAST_PROBE_LIMIT slots one by one. Sequences come from
+   the input, so a document can number the nodes it keys into one run of home slots; the keyed mix hides
+   where each one strides to from there, and an odd stride reaches every slot of a power-of-two table. */
+static inline size_t th_node_probe_step(uint64_t key) {
+    return (size_t)th_key_mix(key) | 1;
+}
+
+/* The rest of a probe whose home slot and the slot after it are both taken. Out of line and
+   holding the walk limit, so the inlined lookup keeps the cost of a plain linear probe. */
+static TH_NOINLINE size_t th_node_map_walk(const th_node_map *map, const struct th_node *node, size_t slot) {
+    size_t step = 1;
+    for (size_t walked = 2; map->entries[slot].node != NULL && map->entries[slot].node != node; walked++) {
+        TH_WORK_STEP();
+        if (walked == TH_FAST_PROBE_LIMIT) {
+            step = th_node_probe_step(node->seq);
+        }
+        slot = (slot + step) & (map->capacity - 1);
+    }
+    return slot;
+}
+
 /* Hash the node's creation sequence, not its address, so probe counts depend on the
    input document and not on where the allocator placed the tree. */
 static inline size_t th_node_map_slot(const th_node_map *map, const struct th_node *node) {
     size_t slot = th_hash_slot(th_fibonacci_hash(node->seq), map->capacity);
-    while (map->entries[slot].node != NULL && map->entries[slot].node != node) {
+    if (map->entries[slot].node != NULL && map->entries[slot].node != node) {
+        TH_WORK_STEP();
         slot = (slot + 1) & (map->capacity - 1);
+        if (map->entries[slot].node != NULL && map->entries[slot].node != node) {
+            slot = th_node_map_walk(map, node, slot);
+        }
     }
     return slot;
 }

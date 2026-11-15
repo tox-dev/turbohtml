@@ -15,7 +15,7 @@ text (or a parsed schema document) and :class:`RelaxNG` takes RELAX NG XML synta
 :meth:`~XMLSchema.validate` returns a :class:`ValidationResult`. It is truthy when the document is valid, and its
 ``errors`` tuple holds one :class:`ValidationError` per violation -- each with a ``message``, the ``/root/child``
 document ``path`` that located it, a ``line`` (``0`` when the source carries no positions), and a coarse ``type`` of
-``"structure"``, ``"datatype"``, or ``"facet"``:
+``"structure"``, ``"datatype"``, or ``"facet"``. A document with more than 1,000 violations lists the first 1,000:
 
 .. testcode::
 

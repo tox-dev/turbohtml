@@ -154,6 +154,21 @@
     }
   },
   {
+    "name": "of-type-position-walk",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1947",
+    "targets": [
+      "select_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<div>",
+      "left": "<x{n}></x{n}>",
+      "tail": "</div>",
+      "counter": true
+    }
+  },
+  {
     "name": "cmark-backticks",
     "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L86",
     "targets": [
@@ -957,6 +972,18 @@
     }
   },
   {
+    "name": "css-merge-dropped-rule-chain",
+    "source": "tests/css/minify/test_css.py::test_minify_css_live_rule_search_scales_linearly",
+    "targets": [
+      "minify_css"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "u{k:v}w{k:v}u{m:n}w{m:n}"
+    }
+  },
+  {
     "name": "sanitize-report-attribute-drops",
     "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/clean/sanitize.c#L1916-L1917",
     "targets": [
@@ -998,6 +1025,34 @@
       "left": "<n xlink:role=\"\">",
       "right": "</n>",
       "tail": "</r>"
+    }
+  },
+  {
+    "name": "whatwg-reopened-link-target",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<p>a<a href='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
+    }
+  },
+  {
+    "name": "whatwg-reopened-attribute-in-raw-table",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<table><tr><td colspan=2><p>a<b title='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
     }
   }
 ]

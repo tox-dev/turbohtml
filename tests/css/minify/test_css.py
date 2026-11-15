@@ -1550,6 +1550,29 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
 
 
 @pytest.mark.parametrize(
+    ("group", "expected"),
+    [
+        # each u{..}w{..} pair joins into u,w{..}, which then merges into the first rule while it is the last live one
+        pytest.param("u{k:v}w{k:v}u{m:n}w{m:n}", "u,w{k:v;m:n}", id="last-live-rule-merges-back"),
+        # w{m:n} joins u{m:n} across x, and u,w{m:n} merges into the first rule: the dropped rule is the one x links to
+        pytest.param(
+            "u,w{k:v}u{m:n}x{--s:3}w{m:n}u,w{o:p}u,w{q:r}",
+            "u,w{k:v;m:n;o:p;q:r}x{--s:3}",
+            id="linked-rule-merges-back",
+        ),
+    ],
+)
+def test_minify_css_live_rule_search_unlinks_dropped_rules(group: str, expected: str) -> None:
+    assert (minify_css(group), minify_css(expected)) == (expected, expected)
+
+
+def test_minify_css_live_rule_search_scales_linearly(work_steps: WorkSteps) -> None:
+    group = "u{k:v}w{k:v}u{m:n}w{m:n}"
+    work_steps.assert_linear(lambda count: partial(minify_css, group * count), (1000, 4000))
+    assert minify_css(group * 4000) == "u,w{k:v;m:n}"
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("a{transform:rotate(0deg)}", "a{transform:rotate(0deg)}", id="keep-zero-angle-unit"),

@@ -15,6 +15,10 @@ return partial results. In a RELAX NG grammar the limit counts the levels of a `
 the next ``element``: compilation raises :class:`RecursionError` when references nest patterns 400 levels or deeper with
 no ``element`` in between.
 
+:meth:`~XMLSchema.validate` and :meth:`~XMLSchema.assert_valid` collect the first 1,000 errors of a document; further
+violations still make it invalid but are not listed. Each segment of :attr:`ValidationError.path` keeps the first 64
+characters of an element name and ends a longer one with a horizontal ellipsis (U+2026).
+
 Schema compilation raises :class:`ValueError` for an ``xs:pattern`` facet or RELAX NG ``pattern`` parameter that nests
 groups deeper than 250 levels, needs more than 2,000,000 automaton states, or has a ``{n,m}`` quantifier with ``n``
 above ``m``. The message names the limit and the offset where the pattern reaches it; flatten the nested groups, lower
@@ -52,9 +56,11 @@ Compiling an XSD schema raises :class:`ValueError` for a reference that does not
 ``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, or an extension or
 restriction ``base`` whose QName names no built-in or declared component -- and the message names the unresolved QName.
 The same error covers a reference cycle among ``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type
-derivations, and any such chain longer than 100 hops. A schema that declares an ``xs:unique``, ``xs:key``, or
-``xs:keyref`` identity constraint raises it too, because the validator does not enforce the constraint and would accept
-documents that break it. An ``xs:group`` particle without a ``ref`` compiles and matches no content.
+derivations, and any such chain longer than 100 hops. It also covers a complex type whose ``xs:group``,
+``xs:attributeGroup``, and base-type references expand to more than 20,000 particles and attribute declarations. A
+schema that declares an ``xs:unique``, ``xs:key``, or ``xs:keyref`` identity constraint raises it too, because the
+validator does not enforce the constraint and would accept documents that break it. An ``xs:group`` particle without a
+``ref`` compiles and matches no content.
 
 .. autoclass:: XMLSchema
     :members:

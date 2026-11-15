@@ -1507,6 +1507,7 @@ typedef struct {
     uint64_t attr_version;
     sel_memo has_memo;
     sel_nth_memo nth_memo;
+    sel_position_memo position_memo;
     css_computed_entry entries[2];
 } css_computed_cache;
 
@@ -1515,6 +1516,7 @@ static void css_free_computed(HandleObject *handle) {
     if (cache != NULL) {
         /* Memo keys borrow stylesheet selectors, so clear them before rebuilding sheets. */
         sel_memo_free(&cache->has_memo);
+        sel_position_memo_free(&cache->position_memo);
         css_free_map(cache->entries[0].values);
         css_free_map(cache->entries[1].values);
         PyMem_Free(cache);
@@ -1736,7 +1738,7 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
                                int quirks, const css_value *parent, css_value *out, css_computed_cache *cache) {
     css_slot slots[NUM_PROPS] = {0};
     /* the cache's table doubles as the legend memo: first-legend answers key apart from the :has() ones */
-    sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->has_memo};
+    sel_ctx ctx = {tree, element, quirks, NULL, &cache->nth_memo, NULL, NULL, &cache->has_memo, &cache->position_memo};
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
