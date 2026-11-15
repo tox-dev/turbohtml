@@ -3299,7 +3299,7 @@ static int preceding_views(xp_overlap *state, const xp_nodeset *contexts, xp_nod
                     }
                 }
             }
-            if (first == index) {
+            if (first == index || rc != 0) { /* a failed predicate ends the walk; the marks below would overwrite rc */
                 break;
             }
             Py_ssize_t here = next < seq.len && seq.items[next].node == node ? next++ : -1;

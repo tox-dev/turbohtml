@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 import threading
@@ -902,6 +903,33 @@ def test_position_test_from_many_contexts_stops_at_the_node_limit(expression: st
 
 def test_position_test_from_many_contexts_below_the_node_limit() -> None:
     assert len(node_list(_siblings(2000).xpath("//c/following-sibling::c[position() mod 2 = 0]"))) == 1998
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "following::c",
+        "following-sibling::c",
+        "preceding::c",
+        "preceding-sibling::c",
+        "ancestor::*",
+        "ancestor-or-self::*",
+        "descendant::*",
+        "descendant-or-self::*",
+    ],
+)
+@pytest.mark.parametrize(
+    "predicates",
+    [
+        "[re:test(., '[')][position() < 5]",
+        "[position() < 5][re:test(., '[')]",
+        "[position() < 5 and re:test(., '[')]",
+    ],
+)
+def test_failing_predicate_in_a_shared_walk_raises(axis: str, predicates: str) -> None:
+    # the regular expression fails to compile on each node, which the walk reports from the predicate it is in
+    with pytest.raises(re.error):
+        _siblings(12).xpath(f"//*/{axis}{predicates}")
 
 
 def test_context_relative(doc: turbohtml.Node) -> None:
