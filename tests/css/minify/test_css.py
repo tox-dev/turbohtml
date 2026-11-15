@@ -2383,6 +2383,51 @@ def test_minify_css_at_prelude_string_is_a_fixed_point(source: str, expected: st
     assert minify_css(minify_css(source)) == expected
 
 
+# encoding sniffing reads `@charset "` only from a stylesheet's first bytes (CSS Syntax 3 §3.2), and browsers drop a
+# @charset anywhere else, so a rule not opening with those exact bytes must not start the output with them
+_UNSNIFFED_CHARSET: Final[list[pytest.ParameterSet]] = [
+    pytest.param('  @charset "utf-8";a{b:c}', "a{b:c}", id="leading-space"),
+    pytest.param('\n@charset "utf-8";a{b:c}', "a{b:c}", id="leading-newline"),
+    pytest.param('/**/@charset "utf-8";a{b:c}', "a{b:c}", id="leading-comment"),
+    pytest.param('@CHARSET "utf-8";a{b:c}', "a{b:c}", id="upper-case-name"),
+    pytest.param('@charset\t"utf-8";a{b:c}', "a{b:c}", id="tab-before-string"),
+    pytest.param('@charset  "utf-8";a{b:c}', "a{b:c}", id="two-spaces-before-string"),
+    pytest.param('@charset"utf-8";a{b:c}', "a{b:c}", id="no-space-before-string"),
+    pytest.param('@charset"utf-8"', "", id="no-space-before-string-at-end"),
+    pytest.param('\n@charset "utf-8"', "", id="leading-newline-without-semicolon"),
+    pytest.param("  @charset 'x';a{b:c}", "@charset 'x';a{b:c}", id="single-quote-keeps-its-quote"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _UNSNIFFED_CHARSET)
+def test_minify_css_unsniffed_charset(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _UNSNIFFED_CHARSET)
+def test_minify_css_unsniffed_charset_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+# a @charset after other output keeps its place, as browsers ignore it there and it cannot start the output
+_CHARSET_AFTER_CONTENT: Final[list[pytest.ParameterSet]] = [
+    pytest.param('a{}@charset "utf-8";b{c:d}', 'a{}@charset "utf-8";b{c:d}', id="after-empty-rule"),
+    pytest.param('@charset "utf-8";@charset "x";a{b:c}', '@charset "utf-8";@charset "x";a{b:c}', id="second-charset"),
+    pytest.param('a{@charset "utf-8";b:c}', 'a{@charset "utf-8";b:c}', id="nested"),
+    pytest.param('@media x{@charset "utf-8";a{b:c}}', '@media x{@charset "utf-8";a{b:c}}', id="in-media"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _CHARSET_AFTER_CONTENT)
+def test_minify_css_charset_after_content(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _CHARSET_AFTER_CONTENT)
+def test_minify_css_charset_after_content_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
 # a string cut short keeps its newline (CSS Syntax 3 §4.3.5), which separates it from the next token
 @pytest.mark.parametrize(
     ("source", "expected"),
