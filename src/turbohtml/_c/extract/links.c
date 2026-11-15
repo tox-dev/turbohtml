@@ -278,7 +278,7 @@ typedef struct {
 typedef struct {
     th_tree *tree;
     module_state *state; /* the module's per-interpreter state, for the Link record type */
-    PyObject *handle;    /* the per-tree handle, held for the critical section across the walk */
+    PyObject *handle;    /* the per-tree handle, owned: it is the walk's lock and keeps the snapshot's tree alive */
     PyObject *owner;     /* the element/document the public call was made on, for wrapping enumerated nodes */
     PyObject *result;    /* list[Link] for enumerate, else NULL */
     PyObject *replace;   /* callable (str) -> str | None for rewrite, else NULL */
@@ -720,8 +720,9 @@ static PyObject *run_walk(PyObject *owner, th_tree *tree, th_node *root, PyObjec
                       .base_netloc_scheme = base_netloc_scheme};
     walk.state = PyType_GetModuleState(Py_TYPE(owner));
     /* read the handle into the struct (always, so it is covered) rather than into the macro argument, which the GIL
-       build's no-op Py_BEGIN_CRITICAL_SECTION does not evaluate */
-    walk.handle = turbohtml_node_handle(owner);
+       build's no-op Py_BEGIN_CRITICAL_SECTION does not evaluate. The reference is the walk's own: replace can move
+       owner into another tree, which drops the one owner holds, and the walk finishes on the tree it snapshotted */
+    walk.handle = Py_NewRef(turbohtml_node_handle(owner));
     int failed;
     Py_BEGIN_CRITICAL_SECTION(walk.handle); /* per-tree lock: no concurrent mutation mid-walk */
     failed = collect_subtree(&walk, root) < 0;
@@ -729,6 +730,7 @@ static PyObject *run_walk(PyObject *owner, th_tree *tree, th_node *root, PyObjec
         failed = process_element(&walk, walk.nodes[index]) < 0;
     }
     Py_END_CRITICAL_SECTION();
+    Py_DECREF(walk.handle);
     PyMem_Free(walk.spans);
     PyMem_Free(walk.nodes);
     if (failed) {

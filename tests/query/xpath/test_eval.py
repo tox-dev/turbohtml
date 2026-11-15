@@ -13,7 +13,7 @@ from weakref import finalize, ref
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_xml
+from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_fragment, parse_xml
 from turbohtml.convert import css_to_xpath
 from turbohtml.query import XPathDepthError
 
@@ -1654,6 +1654,28 @@ def test_node_set_variable_rejects_bad_node_sets(
 ) -> None:
     with pytest.raises(exc, match=match):
         variable_doc.xpath("$items", items=make_items(variable_doc))
+
+
+@pytest.mark.parametrize(
+    "evaluate",
+    [
+        pytest.param(lambda node, items: node.xpath("$items/text()", items=items), id="node-xpath"),
+        pytest.param(lambda node, items: XPath("$items/text()")(node, items=items), id="compiled"),
+    ],
+)
+def test_node_set_variable_iterable_moving_the_context_node_to_another_tree(
+    evaluate: Callable[[Element, Iterator[Element]], object],
+) -> None:
+    fragment: Final = parse_fragment("<p><a>one</a></p>")
+    host: Final = Element("div")
+
+    def anchors() -> Iterator[Element]:
+        yield from fragment.select("a")
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move drops the tree's last owner
+
+    with pytest.raises(ValueError, match="context node moved to a different tree"):
+        evaluate(fragment, anchors())
+    assert fragment.parent == host
 
 
 @pytest.mark.parametrize(

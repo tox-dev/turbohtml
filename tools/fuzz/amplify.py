@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias
 
 from turbohtml import Document, Html, HTMLParseError, parse, parse_xml, tokenize
-from turbohtml.clean import linkify, minify_css, minify_js, sanitize
+from turbohtml.clean import linkify, minify_css, minify_js, sanitize, sanitize_report
 from turbohtml.extract import clean_url, normalize_url
 from turbohtml.transform import Transform
 from turbohtml.validate import RelaxNG, XMLSchema
@@ -654,6 +654,10 @@ def _to_text(text: str) -> str:
     return parse(text).to_text()
 
 
+def _sanitize_report(text: str) -> str:
+    return sanitize_report(text)[0]
+
+
 def _select_input(text: str) -> None:
     _SELECTOR_HOST.select(text)
 
@@ -767,6 +771,8 @@ TARGETS: Final[dict[str, Target]] = {
     # corpora and repeated literals both peak at 1.00, offset 45
     "to_text": Target(run=_to_text, sources=(*_HTML_SOURCES, "serialize/text.c"), bound=Bound(slope=4.0, offset=64)),
     "sanitize": Target(run=sanitize, sources=(*_HTML_SOURCES, "clean/sanitize.c"), bound=_SERIALIZED),
+    # the same walk while it records every removal, which the plain call never asks for
+    "sanitize_report": Target(run=_sanitize_report, sources=(*_HTML_SOURCES, "clean/sanitize.c"), bound=_SERIALIZED),
     # "a.co " becomes a 46-character nofollow anchor, 9.2 times its length; corpora peak 2.26, offset 191
     "linkify": Target(
         run=linkify, sources=(*_HTML_SOURCES, "clean/linkify.c", "url/*"), bound=Bound(slope=10.0, offset=256)
