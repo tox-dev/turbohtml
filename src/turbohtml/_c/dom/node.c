@@ -2073,7 +2073,9 @@ PyDoc_STRVAR(canonicalize_doc, "canonicalize(options=None)\n--\n\n"
                                ":param options: a Canonical configuration object (version, exclusive,\n"
                                "    with_comments, inclusive_ns_prefixes), or None for the defaults.\n"
                                ":returns: the canonical XML, encoded as UTF-8 bytes.\n"
-                               ":raises TypeError: if options is not a Canonical configuration object.");
+                               ":raises TypeError: if options is not a Canonical configuration object.\n"
+                               ":raises ValueError: if the namespace declarations repeated on elements that\n"
+                               "    do not carry them would outgrow what the rest of the output funds.");
 
 PyDoc_STRVAR(serialize_doc, "serialize(options=None, *, inner=False)\n--\n\n"
                             "Serialize this node and its subtree to a str.\n\n"

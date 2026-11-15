@@ -79,6 +79,7 @@ typedef struct {
     Py_ssize_t *candidates;
     char *tag_prefix; /* scratch: a tag name's prefix as UTF-8, since prefixes are compared as bytes */
     Py_ssize_t tag_prefix_cap;
+    Py_ssize_t copied; /* code points of declarations written on an element that does not carry them */
 } c14n_ns;
 
 static int c14n_ns_name_cmp(const char *left, Py_ssize_t left_len, const char *right, Py_ssize_t right_len) {
@@ -304,6 +305,7 @@ static int c14n_ns_begin(c14n_ns *scope, th_tree *tree, th_node *apex, const th_
     scope->uses_len = 0;
     scope->tag_prefix = NULL;
     scope->tag_prefix_cap = 0;
+    scope->copied = 0;
     scope->prefixes = PyMem_Malloc((size_t)(attributes + 1) * sizeof(c14n_ns_prefix));
     scope->decls = PyMem_Malloc((size_t)(attributes + 1) * sizeof(c14n_ns_decl));
     scope->uses = PyMem_Malloc((size_t)(names + 1) * sizeof(c14n_ns_use));
@@ -453,28 +455,44 @@ static void c14n_put_xlink_decl(sbuf *out) {
     sbuf_putc(out, '"');
 }
 
-static void c14n_ns_put_decl(sbuf *out, const c14n_ns *scope, Py_ssize_t prefix) {
+/* Returns 0, or -1 with ValueError set once a copied declaration exceeds the allowance. */
+static int c14n_ns_put_decl(sbuf *out, c14n_ns *scope, const th_node *node, Py_ssize_t prefix) {
     const c14n_ns_prefix *name = &scope->prefixes[prefix];
     const c14n_ns_decl *decl = &scope->decls[name->decl];
+    int copy = decl->owner != node;
+    if (copy && !c14n_ns_copy_funded(out, scope->copied, name->name_len + decl->uri_len + 10)) {
+        return -1;
+    }
+    Py_ssize_t start = out->len;
     sbuf_puts(out, " xmlns:");
     sbuf_put_utf8(out, name->name, name->name_len);
     sbuf_puts(out, "=\"");
     c14n_put_attr(out, decl->uri, decl->uri_len);
     sbuf_putc(out, '"');
+    if (copy) {
+        scope->copied += out->len - start; /* what was written: escaping can lengthen the URI */
+    }
+    return 0;
 }
 
-/* Emit the collected prefixed declarations and the xlink one in prefix order. */
-static void c14n_ns_put(sbuf *out, const c14n_ns *scope, Py_ssize_t count, int render_xlink) {
+/* Emit the collected prefixed declarations and the xlink one in prefix order. Returns -1 with ValueError set when
+   c14n_ns_put_decl refuses one. */
+static int c14n_ns_put(sbuf *out, c14n_ns *scope, const th_node *node, Py_ssize_t count, int render_xlink) {
     Py_ssize_t index = 0;
     for (; index < count && c14n_ns_before_xlink(scope, scope->candidates[index]); index++) {
-        c14n_ns_put_decl(out, scope, scope->candidates[index]);
+        if (c14n_ns_put_decl(out, scope, node, scope->candidates[index]) < 0) {
+            return -1;
+        }
     }
     if (render_xlink) {
         c14n_put_xlink_decl(out);
     }
     for (; index < count; index++) {
-        c14n_ns_put_decl(out, scope, scope->candidates[index]);
+        if (c14n_ns_put_decl(out, scope, node, scope->candidates[index]) < 0) {
+            return -1;
+        }
     }
+    return 0;
 }
 
 /* The end of the declaration that starts at start in tag, when lead is what it starts with; start otherwise. A
@@ -498,23 +516,29 @@ static Py_ssize_t c14n_scoped_decl_end(const sbuf *tag, Py_ssize_t start, const 
 
 /* The start tag of an element that renders prefixed declarations. c14n_left_out_open_tag writes the default and
    xlink declarations ahead of the attributes, so they are split off its output: the scope's declarations are written
-   between them, in prefix order, and the attributes follow. */
-static void c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
-                                 const c14n_left_out *left_out, const th_c14n_opts *opts, const th_node **xlink_binding,
-                                 c14n_ns *scope, Py_ssize_t count) {
+   between them, in prefix order, and the attributes follow. Returns -1, with ValueError set when c14n_ns_put refused a
+   declaration, once out has failed. */
+static int c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
+                                const c14n_left_out *left_out, const th_c14n_opts *opts, const th_node **xlink_binding,
+                                c14n_ns *scope, Py_ssize_t count) {
     sbuf tag = {NULL, 0, 0, 0, 0};
     c14n_left_out_open_tag(&tag, tree, node, apex, left_out, opts, xlink_binding);
     if (tag.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         out->failed = 1;      /* GCOVR_EXCL_LINE: the split offsets below read the whole tag */
         PyMem_Free(tag.data); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;               /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t default_end = c14n_scoped_decl_end(&tag, 1 + node->text_len, " xmlns=\"");
     Py_ssize_t xlink_end = c14n_scoped_decl_end(&tag, default_end, " xmlns:xlink=\"");
     sbuf_put_ucs4(out, tag.data, default_end);
-    c14n_ns_put(out, scope, count, xlink_end != default_end);
+    if (c14n_ns_put(out, scope, node, count, xlink_end != default_end) < 0) {
+        out->failed = 1;
+        PyMem_Free(tag.data);
+        return -1;
+    }
     sbuf_put_ucs4(out, tag.data + xlink_end, tag.len - xlink_end);
     PyMem_Free(tag.data);
+    return 0;
 }
 
 /* Enter node, which the canonical form leaves out: its declarations are in scope for its children, which render them
@@ -554,8 +578,8 @@ static th_node *c14n_scoped_step(sbuf *out, th_tree *tree, th_node *node, const 
         }
         if (count == 0) {
             c14n_left_out_open_tag(out, tree, node, apex, left_out, opts, xlink_binding);
-        } else {
-            c14n_scoped_open_tag(out, tree, node, apex, left_out, opts, xlink_binding, scope, count);
+        } else if (c14n_scoped_open_tag(out, tree, node, apex, left_out, opts, xlink_binding, scope, count) < 0) {
+            return NULL;
         }
         if (node->first_child != NULL) {
             descend = node->first_child;
