@@ -309,7 +309,7 @@ static void mark_start_dirty(th_tree *tree, th_node *node) {
    of a name with an uppercase letter also carries ATTR_INDEX_FOLDED. node_attr_find_indexed trusts the index only while
    its count equals attr_count. Every other editor of attrs either only lowers attr_count or works on an array without
    an index, so the index is rebuilt on the next lookup. */
-#define ATTR_INDEX_MIN 32
+#define ATTR_INDEX_MIN TH_ATTR_INDEX_MIN
 #define ATTR_INDEX_MAX ((size_t)1 << 30) /* twice a position, the flag and the 1 have to fit 32 bits */
 #define ATTR_INDEX_FOLDED 1u
 #define ATTR_INDEX_STALE UINT32_MAX
@@ -386,8 +386,7 @@ ATTR_INDEX_FN void attr_index_add(th_tree *tree, const th_node *node, attr_index
 
 /* Rebuilds a stale index first. Chains run from the highest position down, so the last match met is the lowest, the
    one a scan of the array returns. */
-ATTR_INDEX_FN Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *node, const char *name,
-                                                Py_ssize_t name_len, uint32_t atom) {
+static inline Py_ssize_t node_attr_find_exact_indexed(th_tree *tree, const th_node *node, uint32_t atom) {
     attr_index *index = node_attr_index(node);
     const size_t buckets = 2 * th_node_attr_capacity(node);
     const uint32_t *next = index->links + buckets;
@@ -406,9 +405,18 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *no
             found = position;
         }
     }
+    return found;
+}
+
+ATTR_INDEX_FN Py_ssize_t node_attr_find_indexed(th_tree *tree, const th_node *node, const char *name,
+                                                Py_ssize_t name_len, uint32_t atom) {
+    Py_ssize_t found = node_attr_find_exact_indexed(tree, node, atom);
     if (found >= 0 || !attr_index_folds(tree, node)) {
         return found;
     }
+    const attr_index *index = node_attr_index(node);
+    const size_t buckets = 2 * th_node_attr_capacity(node);
+    const uint32_t *next = index->links + buckets;
     int cased;
     const size_t bucket = attr_name_folded_hash(name, name_len, &cased) & (buckets - 1);
     for (uint32_t entry = index->links[bucket]; entry != 0; entry = next[entry - 1]) {
@@ -702,6 +710,16 @@ int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_
         node->text_capacity_shift = 0;
     }
     return 0;
+}
+
+/* node_attr_find_large without the case-folded fallback. */
+Py_ssize_t th_node_attr_find_atom(th_tree *tree, th_node *node, uint32_t atom) {
+    if (!(node->attr_capacity_shift & TH_ATTR_INDEXED)) {
+        if (node_attr_reserve_indexed(tree, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -2;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return node_attr_find_exact_indexed(tree, node, atom);
 }
 
 /* Remove the attribute with this name, shifting the rest down. Returns 1 when one
