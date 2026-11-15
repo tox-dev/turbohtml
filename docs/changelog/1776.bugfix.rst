@@ -1,0 +1,2 @@
+Minified ``<script>`` and ``<style>`` content inside ``<noscript>`` no longer closes that element early in browsers that
+run scripts.

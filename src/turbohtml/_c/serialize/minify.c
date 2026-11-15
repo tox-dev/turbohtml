@@ -606,10 +606,13 @@ static int script_is_js(th_tree *tree, th_node *node) {
 }
 
 /* `</script` ends the element and `<!--` enters the escaped state, where a later `<script` hides the end tag; a source
-   can carry either inside an escaped `<!--` section whose markers the minifier strips. */
+   can carry either inside an escaped `<!--` section whose markers the minifier strips. `</noscript` ends an enclosing
+   <noscript>: a scripting browser reads that element as raw text up to the first one, where the scripting-off parse
+   built this <script> as its child. */
 static int js_embeds_in_script(const Py_UCS4 *js, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         if (js[index] == '<' && (starts_with_ascii_ci(js + index, len - index, "</script") ||
+                                 starts_with_ascii_ci(js + index, len - index, "</noscript") ||
                                  starts_with_ascii_ci(js + index, len - index, "<!--"))) {
             return 0;
         }
@@ -671,8 +674,11 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
    caller to emit the content verbatim -- for a non-style raw-text element or an empty <style>,
    so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
    would have ended the element there), and the CSS engine returns its input unchanged if its
-   output would spell </style at all, so the minified stylesheet stays inside the element. Kept out
-   of line: only a <style> under minify_css reaches it, and inlined it grows the serializer's walk. */
+   output would spell </style at all, so the minified stylesheet stays inside the element. The
+   engine knows nothing of an enclosing <noscript>, which a scripting browser reads as raw text up to
+   the first `</noscript`, where the scripting-off parse built this <style> as its child, so a minified
+   stylesheet that spells one gives way to the verbatim content here. Kept out of line: only a
+   <style> under minify_css reaches it, and inlined it grows the serializer's walk. */
 static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node, int baseline) {
     if (node->atom != TH_TAG_STYLE) {
         return 0; /* script/textarea/title and other raw-text elements are never CSS */
@@ -707,8 +713,15 @@ static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *no
         out->failed = 1;                  /* GCOVR_EXCL_LINE: allocation-failure path */
         return 1;                         /* GCOVR_EXCL_LINE */
     }
+    Py_ssize_t start = out->len;
     sbuf_put_utf8(out, (const char *)result, css_len); /* css_len 0 (a whitespace-only stylesheet) writes nothing */
     PyMem_Free(result);
+    for (Py_ssize_t index = start; index < out->len; index++) {
+        if (out->data[index] == '<' && starts_with_ascii_ci(out->data + index, out->len - index, "</noscript")) {
+            out->len = start;
+            return 0;
+        }
+    }
     return 1;
 }
 

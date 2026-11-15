@@ -1114,6 +1114,30 @@ def test_script_that_would_not_reparse_stays_verbatim(source: str) -> None:
     assert script(source, minify_js=JSMinify()) == f"<script>{source}</script>"
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<script>x="</noscr"+"ipt><img src=x>"</script>', id="folded-string"),
+        pytest.param('<script>x="</NoScr"+"Ipt><img src=x>"</script>', id="folded-string-mixed-case"),
+        pytest.param('<style>a::before{content:"</noscr\\\nipt><img src=x>"}</style>', id="string-line-continuation"),
+    ],
+)
+def test_minified_content_under_noscript_spells_no_noscript_end_tag(source: str) -> None:
+    # a scripting browser reads the whole <noscript> as raw text, so a joined `</noscript` would end it mid-string
+    layout = Minify(minify_js=JSMinify(), minify_css=CSSMinify())
+    out = parse_fragment(f"<noscript>{source}</noscript>", "div").serialize(Html(layout=layout))
+    assert out == f"<div><noscript>{source}</noscript></div>"
+
+
+def test_content_under_noscript_is_still_minified() -> None:
+    # only the end tag closes the element: any other `<`, a `<noscript` start tag included, stays minified
+    layout = Minify(minify_js=JSMinify(), minify_css=CSSMinify())
+    source = '<script>var  a = "<noscript>" ;</script><style>a {  content : "<noscript>"  }</style>'
+    out = parse_fragment(f"<noscript>{source}</noscript>", "div").serialize(Html(layout=layout))
+    minified = '<script>var a="<noscript>"</script><style>a{content:"<noscript>"}</style>'
+    assert out == f"<div><noscript>{minified}</noscript></div>"
+
+
 def test_empty_script_is_unchanged() -> None:
     assert script("", minify_js=JSMinify()) == "<script></script>"
 

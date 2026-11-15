@@ -80,7 +80,8 @@ byte-for-byte.
 
 The minifier emits a script verbatim when the JS parser rejects it, so one bad ``<script>`` cannot break the document.
 It does the same when the minified text would hold ``</script`` or ``<!--`` in any letter case, where the HTML parser
-would end the element or search past it for the end.
+would end the element or search past it for the end, and when it would hold ``</noscript``, where a browser that runs
+scripts ends an enclosing ``<noscript>``.
 
 .. testcode::
 

@@ -368,8 +368,8 @@ processing instructions; remove :class:`~turbohtml.ProcessingInstruction` nodes 
 :func:`minify_js` minifies a JavaScript string on its own. It always folds whitespace, comments, and number literals; a
 frozen :class:`JSMinify` toggles the optional ``mangle`` (rename local bindings) and ``fold`` (constant-fold and
 eliminate dead code) passes. The same :class:`JSMinify` passed as ``Minify(minify_js=...)`` rewrites inline ``<script>``
-content during HTML minification, and emits a script verbatim when its minified text would hold ``</script`` or ``<!--``
-in any letter case.
+content during HTML minification, and emits a script verbatim when its minified text would hold ``</script``,
+``</noscript`` or ``<!--`` in any letter case.
 
 :func:`minify_js` writes a ``<`` that folding would join into either sequence as ``\x3c`` and keeps a space between
 ``<`` and a following ``/``. It passes a ``</script`` or ``<!--`` already in the source through, so its output is not
@@ -391,6 +391,8 @@ Both are value-safe at any baseline; the optional :class:`CSSMinify` ``baseline`
 
 A minified ``<style>`` body ends where its source ended. A ``<`` keeps a space before a following ``/``, and a
 stylesheet whose minified form would spell a ``</style`` comes back unchanged, whether or not its source spells one.
+``Minify(minify_css=...)`` also writes a ``<style>`` verbatim when its minified text would hold ``</noscript``, which
+ends an enclosing ``<noscript>`` in a browser that runs scripts.
 
 The minifier descends at most 100 levels: the style sheet is the first, and each ``{}`` block, function call nested in
 another function's arguments, and parenthesis inside ``calc()`` adds one. Past that depth it drops the over-nested block
