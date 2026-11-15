@@ -956,6 +956,9 @@ typedef struct th_schema {
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */
     Py_UCS4 *ws_buffer;
     Py_ssize_t ws_cap;
+    /* the buffer one validate() call copies a long number into to convert it; see dt_value_double */
+    char *number_buffer;
+    Py_ssize_t number_cap;
     /* XSD position sets of one validate() call that no matcher holds, and the length they were made for */
     struct posset_spare *posset_spares;
     Py_ssize_t posset_size;
@@ -1637,6 +1640,8 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     local.regex_scratch = NULL;
     local.ws_buffer = NULL;
     local.ws_cap = 0;
+    local.number_buffer = NULL;
+    local.number_cap = 0;
     local.posset_spares = NULL;
     local.edecl_items = NULL;
     local.edecl_cap = 0;

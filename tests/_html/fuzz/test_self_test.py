@@ -644,6 +644,39 @@ def test_relaxng_allocation_failure_raises_memory_error(
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
+# a bound and an instance value too long for the stack buffer of the range comparison
+_LONG_NUMBER: Final[str] = f"{'0' * 90}3"
+_BOUNDED_XSD: Final[str] = (
+    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="v"><xs:simpleType>'
+    f'<xs:restriction base="xs:integer"><xs:maxInclusive value="{_LONG_NUMBER}"/></xs:restriction>'
+    "</xs:simpleType></xs:element></xs:schema>"
+)
+_BOUNDED_RELAXNG: Final[str] = (
+    '<element xmlns="http://relaxng.org/ns/structure/1.0" '
+    'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes" name="v">'
+    f'<data type="integer"><param name="maxInclusive">{_LONG_NUMBER}</param></data></element>'
+)
+_BOUNDED_XSD_SCHEMA: Final[XMLSchema] = XMLSchema(_BOUNDED_XSD)
+_BOUNDED_RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_BOUNDED_RELAXNG)
+
+
+@pytest.mark.fuzz_build
+@pytest.mark.parametrize(
+    ("call", "setup"),
+    [
+        pytest.param(_BOUNDED_XSD_SCHEMA.validate, lambda: parse_xml(f"<v>{_LONG_NUMBER}</v>"), id="xsd-validate"),
+        pytest.param(lambda _: RelaxNG(_BOUNDED_RELAXNG), lambda: None, id="relaxng-compile"),
+        pytest.param(
+            _BOUNDED_RELAXNG_SCHEMA.validate, lambda: parse_xml(f"<v>{_LONG_NUMBER}</v>"), id="relaxng-validate"
+        ),
+    ],
+)
+def test_schema_long_number_allocation_failure_raises_memory_error(
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
+) -> None:
+    assert set(alloc_sweep(call, setup)) == {"MemoryError"}
+
+
 @pytest.mark.fuzz_build
 def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     # normalize_url fills a one-time vocabulary cache on its first call; warm it outside the injection window so the
