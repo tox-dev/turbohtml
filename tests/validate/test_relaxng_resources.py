@@ -243,6 +243,12 @@ def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> R
             id="malformed-xml-base",
         ),
         pytest.param(
+            {"main.rng": f'<group {_NS} xml:base="http://["><externalRef xml:base="sub/" href="x"/></group>'},
+            ValueError,
+            "Invalid IPv6 URL",
+            id="malformed-outer-xml-base",
+        ),
+        pytest.param(
             {"main.rng": f'<externalRef {_NS} href="http://["/>'},
             ValueError,
             "Invalid IPv6 URL",
