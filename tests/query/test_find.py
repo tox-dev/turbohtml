@@ -1178,7 +1178,7 @@ def test_filter_moving_the_searched_node_to_another_tree_finishes_on_the_old_one
 
     matches: Final = [_el(match) for match in search(fragment, moves)]
     assert [(match.attrs["href"], match.text) for match in matches] == [("/2", "2")]
-    assert fragment.parent is host
+    assert fragment.parent == host
 
 
 def test_attribute_filter_snapshot_releases_on_error() -> None:

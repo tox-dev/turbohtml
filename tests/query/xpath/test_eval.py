@@ -1661,7 +1661,7 @@ def test_node_set_variable_iterable_moving_the_context_node_to_another_tree(
 
     with pytest.raises(ValueError, match="context node moved to a different tree"):
         evaluate(fragment, anchors())
-    assert fragment.parent is host
+    assert fragment.parent == host
 
 
 @pytest.mark.parametrize(
