@@ -141,6 +141,25 @@ def test_data_with_xsd_library() -> None:
     assert not check(schema, "<n>notint</n>").valid
 
 
+@pytest.mark.parametrize(
+    ("datatype", "text", "ok"),
+    [
+        pytest.param("ID", "abc", True, id="ID"),
+        pytest.param("ID", "1abc", False, id="ID-digit-start"),
+        pytest.param("NOTATION", "a:b:c", False, id="NOTATION-two-colons"),
+        pytest.param("gYearMonth", "2000-12", True, id="gYearMonth"),
+        pytest.param("gYearMonth", "2000-13", False, id="gYearMonth-month"),
+        pytest.param("gDay", "---31", True, id="gDay"),
+        pytest.param("gDay", "---32", False, id="gDay-day"),
+    ],
+)
+def test_data_xsd_scalar_builtins(datatype: str, text: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
+    schema = grammar(
+        f'<start><element name="n"><data type="{datatype}"/></element></start>', attrs=f'datatypeLibrary="{_DT}"'
+    )
+    assert check(schema, f"<n>{text}</n>").valid is ok
+
+
 def grammar(body: str, *, attrs: str = "") -> str:
     return f'<grammar xmlns="{_RELAXNG_NS}" {attrs}>{body}</grammar>'
 
