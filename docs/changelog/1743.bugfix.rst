@@ -1,0 +1,2 @@
+A loop of :class:`~turbohtml.Range` calls over the children of one wide element no longer slows down with the square of
+the child count.

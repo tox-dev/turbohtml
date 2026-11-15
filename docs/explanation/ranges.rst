@@ -17,6 +17,12 @@ rather than materializing paths. Because the setters keep ``start <= end`` -- a 
 the current end, or into a different tree, drags the end onto the new point -- the two boundaries always share a root,
 so every later comparison is well defined.
 
+Child offsets index a linked list, so turning a child into its offset, or an offset into its child, walks siblings. The
+tree remembers the last few children a range call mapped, and the next call steps from the nearest of them: a loop that
+selects, compares, wraps, or inserts at each child of a long list in turn takes a step per child instead of a walk from
+the first child per call. An edit through another API clears that memory, so the next range call after it walks from the
+first child once.
+
 The content operations are the WHATWG extract, clone, and delete algorithms, split into the same three regions: the
 *partially contained* children at each end (a node that is an inclusive ancestor of exactly one boundary), the fully
 *contained* children in the middle, and, when both boundaries sit in one character-data node, the single spliced run.

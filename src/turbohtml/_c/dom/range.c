@@ -34,47 +34,238 @@ static int is_char_data(const th_node *node) {
     }
 }
 
+/* Child offsets are positions in a linked list, so a Range call that maps a child to its offset or back walks the
+   siblings before it, and a caller's loop over a long child list would pay a walk per call. The handle keeps a few
+   (parent, child, index) cursors instead: a lookup steps from the nearest cursor of the same parent and moves that
+   cursor along. Edits through other tree APIs bump mutation_version and normalize unlinks without one, so either
+   empties the cursors; the edits Range makes itself go through range_insert_before and range_remove, which keep them
+   in step. */
+#define SIBLING_CURSORS (sizeof(((HandleObject *)NULL)->sibling_cursors) / sizeof(struct sibling_cursor))
+
+static int cursors_current(const HandleObject *handle) {
+    return handle->sibling_cursor_version == handle->mutation_version &&
+           handle->sibling_cursor_unlinks == th_tree_unlinks();
+}
+
+static void cursors_refresh(HandleObject *handle) {
+    if (!cursors_current(handle)) {
+        memset(handle->sibling_cursors, 0, sizeof(handle->sibling_cursors));
+        handle->sibling_cursor_version = handle->mutation_version;
+        handle->sibling_cursor_unlinks = th_tree_unlinks();
+    }
+}
+
+/* Move slot, or the next cursor in turn when slot is NULL, onto child at index. */
+static void cursor_store(HandleObject *handle, struct sibling_cursor *slot, th_node *parent, th_node *child,
+                         Py_ssize_t index) {
+    if (slot == NULL) {
+        slot = &handle->sibling_cursors[handle->sibling_cursor_next++ % SIBLING_CURSORS];
+    }
+    slot->parent = parent;
+    slot->child = child;
+    slot->index = index;
+}
+
+/* The index of node, which has a parent, among its siblings. The walk goes back toward the first child and, in step,
+   both ways toward the children the cursors hold for that parent, and ends at whichever it meets first. A first child
+   needs no cursor, which keeps the common short child lists off the cursor bookkeeping. */
+static Py_ssize_t sibling_index(HandleObject *handle, th_node *node) {
+    if (node->prev_sibling == NULL) {
+        return 0;
+    }
+    cursors_refresh(handle);
+    struct sibling_cursor *known[SIBLING_CURSORS];
+    size_t known_count = 0;
+    for (size_t slot = 0; slot < SIBLING_CURSORS; slot++) {
+        if (handle->sibling_cursors[slot].parent == node->parent) {
+            known[known_count++] = &handle->sibling_cursors[slot];
+        }
+    }
+    th_node *before = node;
+    th_node *after = known_count > 0 ? node : NULL;
+    for (Py_ssize_t steps = 0;; steps++) {
+        for (size_t slot = 0; slot < known_count; slot++) {
+            Py_ssize_t index = known[slot]->child == before  ? known[slot]->index + steps
+                               : known[slot]->child == after ? known[slot]->index - steps
+                                                             : -1;
+            if (index >= 0) {
+                if (steps > 0) {
+                    cursor_store(handle, known[slot], node->parent, node, index);
+                }
+                return index;
+            }
+        }
+        TH_WORK_STEP();
+        before = before->prev_sibling;
+        if (before == NULL) {
+            cursor_store(handle, NULL, node->parent, node, steps);
+            return steps;
+        }
+        if (after != NULL) {
+            after = after->next_sibling;
+        }
+    }
+}
+
+/* The child of parent at index, or NULL past the last child, walked from the first child or from the nearest child
+   the cursors hold for parent. */
+static th_node *child_at(HandleObject *handle, th_node *parent, Py_ssize_t index) {
+    if (index == 0) {
+        return parent->first_child;
+    }
+    cursors_refresh(handle);
+    struct sibling_cursor *nearest = NULL;
+    Py_ssize_t distance = index;
+    for (size_t slot = 0; slot < SIBLING_CURSORS; slot++) {
+        struct sibling_cursor *cursor = &handle->sibling_cursors[slot];
+        Py_ssize_t gap = cursor->index > index ? cursor->index - index : index - cursor->index;
+        if (cursor->parent == parent && gap < distance) {
+            nearest = cursor;
+            distance = gap;
+        }
+    }
+    th_node *child = nearest == NULL ? parent->first_child : nearest->child;
+    Py_ssize_t at = nearest == NULL ? 0 : nearest->index;
+    for (; child != NULL && at < index; at++) {
+        TH_WORK_STEP();
+        child = child->next_sibling;
+    }
+    for (; at > index; at--) {
+        TH_WORK_STEP();
+        child = child->prev_sibling;
+    }
+    if (child != NULL && (nearest == NULL || distance > 0)) {
+        cursor_store(handle, nearest, parent, child, index);
+    }
+    return child;
+}
+
+static Py_ssize_t child_count(HandleObject *handle, th_node *parent) {
+    return parent->last_child == NULL ? 0 : sibling_index(handle, parent->last_child) + 1;
+}
+
 /* The DOM "length of a node": the code-point count for character data, else the child count. */
-static Py_ssize_t node_length(th_node *node) {
-    if (is_char_data(node)) {
-        return node->text_len;
+static Py_ssize_t node_length(HandleObject *handle, th_node *node) {
+    return is_char_data(node) ? node->text_len : child_count(handle, node);
+}
+
+/* Link child into parent before ref (NULL appends), moving the cursors of parent past it. A cursor whose child is not
+   next to the new one cannot tell which side it is on and is dropped. Stale cursors move too, which is harmless: the
+   next lookup empties them. */
+static void range_insert_before(HandleObject *handle, th_node *parent, th_node *child, th_node *ref) {
+    th_node_insert_before(parent, child, ref);
+    for (size_t slot = 0; slot < SIBLING_CURSORS; slot++) {
+        struct sibling_cursor *cursor = &handle->sibling_cursors[slot];
+        if (cursor->parent != parent) {
+            continue;
+        }
+        if (child->next_sibling == cursor->child || child->prev_sibling == NULL) {
+            cursor->index++;
+        } else if (child->prev_sibling != cursor->child && child->next_sibling != NULL) {
+            cursor->parent = NULL;
+        }
     }
-    Py_ssize_t count = 0;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        count++;
+}
+
+/* Unlink child from its parent, if any, moving the cursors of that parent as range_insert_before does. */
+static void range_remove(HandleObject *handle, th_node *child) {
+    th_node *parent = child->parent;
+    int current = parent != NULL && cursors_current(handle);
+    for (size_t slot = 0; current && slot < SIBLING_CURSORS; slot++) {
+        struct sibling_cursor *cursor = &handle->sibling_cursors[slot];
+        if (cursor->parent != parent) {
+            continue;
+        }
+        if (cursor->child == child) {
+            if (child->prev_sibling != NULL) {
+                cursor->child = child->prev_sibling;
+                cursor->index--;
+            } else {
+                cursor->child = child->next_sibling;
+                cursor->parent = child->next_sibling == NULL ? NULL : parent;
+            }
+        } else if (child->next_sibling == cursor->child || child->prev_sibling == NULL) {
+            cursor->index--;
+        } else if (child->prev_sibling != cursor->child && child->next_sibling != NULL) {
+            cursor->parent = NULL;
+        }
     }
-    return count;
+    th_node_remove_silent(handle->tree, child);
+    if (current) {
+        handle->sibling_cursor_unlinks = th_tree_unlinks();
+    }
+}
+
+/* handle_drop_index for an edit Range makes itself, which keeps the cursors current: range_insert_before and
+   range_remove move them with every change of a child list. */
+static void range_drop_index(HandleObject *handle) {
+    int current = cursors_current(handle);
+    handle_drop_index((PyObject *)handle);
+    if (current) {
+        handle->sibling_cursor_version = handle->mutation_version;
+    }
+}
+
+/* import_foreign_node into the range's tree. The import links nothing into this tree and bumps the version once, so
+   the cursors stay current unless the version moved further: another thread edited this tree while the import gave
+   the lock up. */
+static int range_import(HandleObject *handle, PyObject **node_ref) {
+    int current = cursors_current(handle);
+    uint64_t version = handle->mutation_version;
+    int imported = import_foreign_node((PyObject *)handle, node_ref);
+    if (current && handle->mutation_version == version + 1) {
+        handle->sibling_cursor_version = handle->mutation_version;
+    }
+    return imported;
+}
+
+/* The tree order of two different nodes of one tree: -1 when left comes first, else 1. */
+static int node_order(HandleObject *handle, th_node *left, th_node *right) {
+    Py_ssize_t left_depth = 0;
+    for (th_node *node = left; node->parent != NULL; node = node->parent) {
+        left_depth++;
+    }
+    Py_ssize_t right_depth = 0;
+    for (th_node *node = right; node->parent != NULL; node = node->parent) {
+        right_depth++;
+    }
+    int order = node_climb_to_siblings(&left, left_depth, &right, right_depth);
+    if (order != 0) {
+        return order;
+    }
+    return sibling_index(handle, left) < sibling_index(handle, right) ? -1 : 1;
 }
 
 /* bp_compare for two different nodes with left_node not after right_node in tree order: -1, or +1 when left_node is
    an ancestor of right_node and the point sits after the child that leads to it. */
-static int bp_compare_ordered(th_node *left_node, Py_ssize_t left_offset, th_node *right_node) {
+static int bp_compare_ordered(HandleObject *handle, th_node *left_node, Py_ssize_t left_offset, th_node *right_node) {
     if (is_ancestor(left_node, right_node)) {
         th_node *child = right_node;
         while (child->parent != left_node) {
             child = child->parent;
         }
-        if (node_index(child) < left_offset) {
+        if (sibling_index(handle, child) < left_offset) {
             return 1;
         }
     }
     return -1;
 }
 
-/* Compare two boundary points sharing a root: -1 (left before right), 0 (equal), +1 (left after). The swap is done
-   once and not by recursion: two nodes that share no root each sort after the other, which used to recurse without
-   end. */
-static int bp_compare(th_node *left_node, Py_ssize_t left_offset, th_node *right_node, Py_ssize_t right_offset) {
+/* Compare two boundary points sharing a root, the tree of handle: -1 (left before right), 0 (equal), +1 (left after).
+   The swap is done once and not by recursion: two nodes that share no root each sort after the other, which used to
+   recurse without end. */
+static int bp_compare(HandleObject *handle, th_node *left_node, Py_ssize_t left_offset, th_node *right_node,
+                      Py_ssize_t right_offset) {
     if (left_node == right_node) {
         if (left_offset == right_offset) {
             return 0;
         }
         return left_offset < right_offset ? -1 : 1;
     }
-    if (node_order(left_node, right_node) > 0) {
-        return bp_compare_ordered(right_node, right_offset, left_node) == -1 ? 1 : -1;
+    if (node_order(handle, left_node, right_node) > 0) {
+        return bp_compare_ordered(handle, right_node, right_offset, left_node) == -1 ? 1 : -1;
     }
-    return bp_compare_ordered(left_node, left_offset, right_node);
+    return bp_compare_ordered(handle, left_node, left_offset, right_node);
 }
 
 /* Whether two boundary containers share a root; a differing handle guarantees a different tree. */
@@ -100,7 +291,8 @@ static inline const Py_UCS4 *char_data_offset(const Py_UCS4 *text, Py_ssize_t of
 /* Split a character-data node at offset: the tail becomes a new sibling right after it, which is
    returned. The tail reads the rest of the head's buffer, so a split stores no text. NULL on
    allocation failure. */
-static th_node *split_data_node(th_tree *tree, th_node *node, Py_ssize_t offset) {
+static th_node *split_data_node(HandleObject *handle, th_node *node, Py_ssize_t offset) {
+    th_tree *tree = handle->tree;
     const Py_UCS4 *text;
     if (realize_char_data(tree, node, &text) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
         return NULL;                                /* GCOVR_EXCL_LINE: allocation failure */
@@ -118,47 +310,35 @@ static th_node *split_data_node(th_tree *tree, th_node *node, Py_ssize_t offset)
     if (th_node_delete_data(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_node_insert_before(node->parent, tail, node->next_sibling);
+    range_insert_before(handle, node->parent, tail, node->next_sibling);
     return tail;
 }
 
 /* Move every child of a throwaway fragment onto parent, in order. */
-static void adopt_fragment_children(th_tree *tree, th_node *parent, th_node *fragment) {
+static void adopt_fragment_children(HandleObject *handle, th_node *parent, th_node *fragment) {
     while (fragment->first_child != NULL) {
         th_node *child = fragment->first_child;
-        th_node_remove_silent(tree, child);
-        th_node_append_child(parent, child);
+        range_remove(handle, child);
+        range_insert_before(handle, parent, child, NULL);
     }
 }
 
 /* The children of common that the range fully contains, checked for a contained DocumentType (a
-   HierarchyRequestError). *out_count is the run length; the returned array is PyMem-owned (NULL when
-   empty). Sets an exception and returns -1 through *error on a doctype or allocation failure. */
-static th_node **collect_contained(th_node *common, th_node *start_node, Py_ssize_t start_offset, th_node *end_node,
-                                   Py_ssize_t end_offset, Py_ssize_t *out_count, int *error) {
+   HierarchyRequestError). first and last are the children of common on the boundary paths, NULL for a boundary in
+   common itself. *out_count is the run length; the returned array is PyMem-owned (NULL when empty). Sets an exception
+   and returns -1 through *error on a doctype or allocation failure. */
+static th_node **collect_contained(HandleObject *handle, th_node *common, th_node *first, Py_ssize_t start_offset,
+                                   th_node *last, Py_ssize_t end_offset, Py_ssize_t *out_count, int *error) {
     *error = 0;
-    Py_ssize_t from = start_offset;
-    if (start_node != common) {
-        th_node *child = start_node;
-        while (child->parent != common) {
-            child = child->parent;
-        }
-        from = node_index(child) + 1;
-    }
-    Py_ssize_t to = end_offset;
-    if (end_node != common) {
-        th_node *child = end_node;
-        while (child->parent != common) {
-            child = child->parent;
-        }
-        to = node_index(child);
+    th_node *run = first == NULL ? child_at(handle, common, start_offset) : first->next_sibling;
+    Py_ssize_t limit = PY_SSIZE_T_MAX;
+    if (last == NULL) {
+        limit = end_offset - (first == NULL ? start_offset : sibling_index(handle, first) + 1);
     }
     Py_ssize_t count = 0;
-    Py_ssize_t position = 0;
-    for (th_node *child = common->first_child; child != NULL; child = child->next_sibling, position++) {
-        if (position >= from && position < to) {
-            count++;
-        }
+    for (th_node *child = run; child != last && count < limit; child = child->next_sibling) {
+        TH_WORK_STEP();
+        count++;
     }
     *out_count = count;
     if (count == 0) {
@@ -170,18 +350,15 @@ static th_node **collect_contained(th_node *common, th_node *start_node, Py_ssiz
         *error = 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t index = 0;
-    position = 0;
-    for (th_node *child = common->first_child; child != NULL; child = child->next_sibling, position++) {
-        if (position >= from && position < to) {
-            if (child->type == TH_NODE_DOCTYPE) {
-                PyErr_SetString(PyExc_ValueError, "cannot extract a range spanning a doctype");
-                PyMem_Free(nodes);
-                *error = 1;
-                return NULL;
-            }
-            nodes[index++] = child;
+    th_node *child = run;
+    for (Py_ssize_t index = 0; index < count; index++, child = child->next_sibling) {
+        if (child->type == TH_NODE_DOCTYPE) {
+            PyErr_SetString(PyExc_ValueError, "cannot extract a range spanning a doctype");
+            PyMem_Free(nodes);
+            *error = 1;
+            return NULL;
         }
+        nodes[index] = child;
     }
     return nodes;
 }
@@ -260,8 +437,9 @@ static th_node *partial_child(th_node *common, th_node *boundary) {
    common ancestor of the boundaries it recurses with, so common is handed down rather than found
    again from the root at every level. NULL on error with an exception set; the returned CONTENT
    node lives in tree. */
-static th_node *do_extract(th_tree *tree, th_node *common, th_node *start_node, Py_ssize_t start_offset,
+static th_node *do_extract(HandleObject *handle, th_node *common, th_node *start_node, Py_ssize_t start_offset,
                            th_node *end_node, Py_ssize_t end_offset) {
+    th_tree *tree = handle->tree;
     th_node *fragment = th_tree_make_fragment(tree);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -291,7 +469,7 @@ static th_node *do_extract(th_tree *tree, th_node *common, th_node *start_node, 
     Py_ssize_t contained_count;
     int error;
     th_node **contained =
-        collect_contained(common, start_node, start_offset, end_node, end_offset, &contained_count, &error);
+        collect_contained(handle, common, first, start_offset, last, end_offset, &contained_count, &error);
     if (error) {
         return NULL;
     }
@@ -320,15 +498,15 @@ static th_node *do_extract(th_tree *tree, th_node *common, th_node *start_node, 
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_extract(tree, first, start_node, start_offset, first, node_length(first));
+        th_node *sub = do_extract(handle, first, start_node, start_offset, first, child_count(handle, first));
         if (sub == NULL) {         /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        adopt_fragment_children(tree, clone, sub);
+        adopt_fragment_children(handle, clone, sub);
     }
     for (Py_ssize_t index = 0; index < contained_count; index++) {
-        th_node_remove_silent(tree, contained[index]);
+        range_remove(handle, contained[index]);
         th_node_append_child(fragment, contained[index]);
     }
     PyMem_Free(contained);
@@ -351,11 +529,11 @@ static th_node *do_extract(th_tree *tree, th_node *common, th_node *start_node, 
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_extract(tree, last, last, 0, end_node, end_offset);
+        th_node *sub = do_extract(handle, last, last, 0, end_node, end_offset);
         if (sub == NULL) { /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        adopt_fragment_children(tree, clone, sub);
+        adopt_fragment_children(handle, clone, sub);
     }
     return fragment;
 }
@@ -363,8 +541,9 @@ static th_node *do_extract(th_tree *tree, th_node *common, th_node *start_node, 
 /* Clone the range's content into a fresh fragment, leaving the source tree untouched. Recursive
    over straddled elements, handing common down as do_extract does. NULL on error with an exception
    set. */
-static th_node *do_clone(th_tree *tree, th_node *common, th_node *start_node, Py_ssize_t start_offset,
+static th_node *do_clone(HandleObject *handle, th_node *common, th_node *start_node, Py_ssize_t start_offset,
                          th_node *end_node, Py_ssize_t end_offset) {
+    th_tree *tree = handle->tree;
     th_node *fragment = th_tree_make_fragment(tree);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -391,7 +570,7 @@ static th_node *do_clone(th_tree *tree, th_node *common, th_node *start_node, Py
     Py_ssize_t contained_count;
     int error;
     th_node **contained =
-        collect_contained(common, start_node, start_offset, end_node, end_offset, &contained_count, &error);
+        collect_contained(handle, common, first, start_offset, last, end_offset, &contained_count, &error);
     if (error) {
         return NULL;
     }
@@ -415,12 +594,12 @@ static th_node *do_clone(th_tree *tree, th_node *common, th_node *start_node, Py
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_clone(tree, first, start_node, start_offset, first, node_length(first));
+        th_node *sub = do_clone(handle, first, start_node, start_offset, first, child_count(handle, first));
         if (sub == NULL) {         /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             PyMem_Free(contained); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        adopt_fragment_children(tree, clone, sub);
+        adopt_fragment_children(handle, clone, sub);
     }
     for (Py_ssize_t index = 0; index < contained_count; index++) {
         th_node *copy = th_tree_copy_node(tree, tree, contained[index]);
@@ -447,43 +626,36 @@ static th_node *do_clone(th_tree *tree, th_node *common, th_node *start_node, Py
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(fragment, clone);
-        th_node *sub = do_clone(tree, last, last, 0, end_node, end_offset);
+        th_node *sub = do_clone(handle, last, last, 0, end_node, end_offset);
         if (sub == NULL) { /* GCOVR_EXCL_BR_LINE: only the OOM paths of the recursion reach here */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        adopt_fragment_children(tree, clone, sub);
+        adopt_fragment_children(handle, clone, sub);
     }
     return fragment;
 }
 
 /* The collapsed boundary a range takes after extract/delete, computed before the tree mutates. */
-static void collapse_point(th_node *common, th_node *start_node, Py_ssize_t start_offset, th_node **out_node,
-                           Py_ssize_t *out_offset) {
+static void collapse_point(HandleObject *handle, th_node *common, th_node *start_node, Py_ssize_t start_offset,
+                           th_node **out_node, Py_ssize_t *out_offset) {
     if (start_node == common) {
         *out_node = start_node;
         *out_offset = start_offset;
         return;
     }
     *out_node = common;
-    *out_offset = node_index(partial_child(common, start_node)) + 1;
+    *out_offset = sibling_index(handle, partial_child(common, start_node)) + 1;
 }
 
 /* --- boundary helpers on the RangeObject --- */
 
-static int validate_boundary(th_node *node, Py_ssize_t offset) {
+static int validate_boundary(PyObject *handle, th_node *node, Py_ssize_t offset) {
     if (node->type == TH_NODE_DOCTYPE) {
         PyErr_SetString(PyExc_ValueError, "a boundary point cannot be inside a doctype");
         return -1;
     }
-    Py_ssize_t remaining = offset;
-    if (is_char_data(node)) {
-        remaining = offset > node->text_len;
-    } else {
-        for (th_node *child = node->first_child; child != NULL && remaining > 0; child = child->next_sibling) {
-            remaining--;
-        }
-    }
-    if (offset < 0 || remaining > 0) {
+    if (offset < 0 || (is_char_data(node) ? offset > node->text_len
+                                          : offset > 0 && child_at((HandleObject *)handle, node, offset - 1) == NULL)) {
         PyErr_SetString(PyExc_IndexError, "offset is out of range for the node");
         return -1;
     }
@@ -512,7 +684,8 @@ static int check_boundaries(RangeObject *range) {
     if (check_shared_root(range) < 0) {
         return -1;
     }
-    if (bp_compare(range->start_node, range->start_offset, range->end_node, range->end_offset) > 0) {
+    if (bp_compare((HandleObject *)range->start_handle, range->start_node, range->start_offset, range->end_node,
+                   range->end_offset) > 0) {
         PyErr_SetString(PyExc_ValueError, "the range start follows its end after a tree edit");
         return -1;
     }
@@ -539,7 +712,7 @@ static void store_end(RangeObject *self, PyObject *handle, th_node *node, Py_ssi
    past the current end, so start <= end holds. */
 static void set_start_bp(RangeObject *self, PyObject *handle, th_node *node, Py_ssize_t offset) {
     if (!same_root(handle, node, self->end_handle, self->end_node) ||
-        bp_compare(node, offset, self->end_node, self->end_offset) > 0) {
+        bp_compare((HandleObject *)handle, node, offset, self->end_node, self->end_offset) > 0) {
         store_end(self, handle, node, offset);
     }
     store_start(self, handle, node, offset);
@@ -547,7 +720,7 @@ static void set_start_bp(RangeObject *self, PyObject *handle, th_node *node, Py_
 
 static void set_end_bp(RangeObject *self, PyObject *handle, th_node *node, Py_ssize_t offset) {
     if (!same_root(handle, node, self->start_handle, self->start_node) ||
-        bp_compare(node, offset, self->start_node, self->start_offset) < 0) {
+        bp_compare((HandleObject *)handle, node, offset, self->start_node, self->start_offset) < 0) {
         store_start(self, handle, node, offset);
     }
     store_end(self, handle, node, offset);
@@ -572,7 +745,7 @@ TH_NODE_API(static, PyObject *, range_new, (PyTypeObject * type, PyObject *args,
         return NULL;
     }
     th_node *node = ((NodeObject *)container)->node;
-    if (validate_boundary(node, offset) < 0) {
+    if (validate_boundary(((NodeObject *)container)->handle, node, offset) < 0) {
         return NULL;
     }
     RangeObject *self = (RangeObject *)type->tp_alloc(type, 0);
@@ -624,10 +797,14 @@ static PyObject *get_collapsed(PyObject *self, void *Py_UNUSED(closure)) {
 
 static PyObject *get_common_ancestor(PyObject *self, void *Py_UNUSED(closure)) {
     RangeObject *range = (RangeObject *)self;
-    if (check_boundaries(range) < 0) {
-        return NULL;
+    PyObject *result = NULL;
+    /* the comparison moves the handle's sibling cursors */
+    Py_BEGIN_CRITICAL_SECTION(range->start_handle);
+    if (check_boundaries(range) == 0) {
+        result = node_wrap(state_of(self), range->start_handle, common_ancestor(range->start_node, range->end_node));
     }
-    return node_wrap(state_of(self), range->start_handle, common_ancestor(range->start_node, range->end_node));
+    Py_END_CRITICAL_SECTION();
+    return result;
 }
 
 /* --- boundary setters --- */
@@ -652,7 +829,7 @@ static PyObject *set_boundary(PyObject *self, PyObject *args, int is_start) {
     }
     PyObject *handle;
     th_node *node;
-    if (node_arg(self, container, &handle, &node) < 0 || validate_boundary(node, offset) < 0) {
+    if (node_arg(self, container, &handle, &node) < 0 || validate_boundary(handle, node, offset) < 0) {
         return NULL;
     }
     if (is_start) {
@@ -685,7 +862,7 @@ static int reference_parent(PyObject *self, PyObject *arg, PyObject **handle, th
         return -1;
     }
     *parent = node->parent;
-    *index = node_index(node);
+    *index = sibling_index((HandleObject *)*handle, node);
     return 0;
 }
 
@@ -762,7 +939,7 @@ TH_NODE_API(static, PyObject *, range_select_node_contents, (PyObject * self, Py
         return NULL;
     }
     store_start((RangeObject *)self, handle, node, 0);
-    store_end((RangeObject *)self, handle, node, node_length(node));
+    store_end((RangeObject *)self, handle, node, node_length((HandleObject *)handle, node));
     Py_RETURN_NONE;
 }
 
@@ -828,7 +1005,11 @@ static PyObject *range_compare_boundary_points(PyObject *self, PyObject *args) {
         right_node = right->end_node;
         right_offset = right->end_offset;
     }
-    return PyLong_FromLong(bp_compare(left_node, left_offset, right_node, right_offset));
+    long order;
+    Py_BEGIN_CRITICAL_SECTION(left->start_handle);
+    order = bp_compare((HandleObject *)left->start_handle, left_node, left_offset, right_node, right_offset);
+    Py_END_CRITICAL_SECTION();
+    return PyLong_FromLong(order);
 }
 
 /* Parse and validate a (node, offset) point argument against the range's own tree. Returns 0, or
@@ -864,14 +1045,15 @@ TH_NODE_API(static, PyObject *, range_compare_point, (PyObject * self, PyObject 
         PyErr_SetString(PyExc_ValueError, "the point is in a different tree");
         return NULL;
     }
-    if (validate_boundary(node, offset) < 0) {
+    RangeObject *range = (RangeObject *)self;
+    HandleObject *handle = (HandleObject *)range->start_handle;
+    if (validate_boundary(range->start_handle, node, offset) < 0) {
         return NULL;
     }
-    RangeObject *range = (RangeObject *)self;
-    if (bp_compare(node, offset, range->start_node, range->start_offset) < 0) {
+    if (bp_compare(handle, node, offset, range->start_node, range->start_offset) < 0) {
         return PyLong_FromLong(-1);
     }
-    if (bp_compare(node, offset, range->end_node, range->end_offset) > 0) {
+    if (bp_compare(handle, node, offset, range->end_node, range->end_offset) > 0) {
         return PyLong_FromLong(1);
     }
     return PyLong_FromLong(0);
@@ -888,12 +1070,13 @@ TH_NODE_API(static, PyObject *, range_is_point_in_range, (PyObject * self, PyObj
     if (outside) {
         Py_RETURN_FALSE;
     }
-    if (validate_boundary(node, offset) < 0) {
+    RangeObject *range = (RangeObject *)self;
+    HandleObject *handle = (HandleObject *)range->start_handle;
+    if (validate_boundary(range->start_handle, node, offset) < 0) {
         return NULL;
     }
-    RangeObject *range = (RangeObject *)self;
-    if (bp_compare(node, offset, range->start_node, range->start_offset) < 0 ||
-        bp_compare(node, offset, range->end_node, range->end_offset) > 0) {
+    if (bp_compare(handle, node, offset, range->start_node, range->start_offset) < 0 ||
+        bp_compare(handle, node, offset, range->end_node, range->end_offset) > 0) {
         Py_RETURN_FALSE;
     }
     Py_RETURN_TRUE;
@@ -916,9 +1099,9 @@ TH_NODE_API(static, PyObject *, range_intersects_node, (PyObject * self, PyObjec
     if (node->parent == NULL) {
         Py_RETURN_TRUE;
     }
-    Py_ssize_t offset = node_index(node);
-    if (bp_compare(node->parent, offset, range->end_node, range->end_offset) < 0 &&
-        bp_compare(node->parent, offset + 1, range->start_node, range->start_offset) > 0) {
+    Py_ssize_t offset = sibling_index((HandleObject *)handle, node);
+    if (bp_compare((HandleObject *)handle, node->parent, offset, range->end_node, range->end_offset) < 0 &&
+        bp_compare((HandleObject *)handle, node->parent, offset + 1, range->start_node, range->start_offset) > 0) {
         Py_RETURN_TRUE;
     }
     Py_RETURN_FALSE;
@@ -930,22 +1113,22 @@ TH_NODE_API(static, PyObject *, range_intersects_node, (PyObject * self, PyObjec
    when discard is set (deleteContents), None. */
 static PyObject *extract_or_delete(PyObject *self, int discard) {
     RangeObject *range = (RangeObject *)self;
-    th_tree *tree = ((HandleObject *)range->start_handle)->tree;
+    HandleObject *handle = (HandleObject *)range->start_handle;
     module_state *state = state_of(self);
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
     if (check_boundaries(range) == 0 &&
         range_check_recursive_depth(range, discard ? "delete_contents()" : "extract_contents()") == 0) {
-        handle_drop_index(range->start_handle);
+        range_drop_index(handle);
         th_node *common = common_ancestor(range->start_node, range->end_node);
         th_node *new_node;
         Py_ssize_t new_offset;
         int collapsed = range_is_collapsed(range);
         if (!collapsed) {
-            collapse_point(common, range->start_node, range->start_offset, &new_node, &new_offset);
+            collapse_point(handle, common, range->start_node, range->start_offset, &new_node, &new_offset);
         }
         th_node *fragment =
-            do_extract(tree, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
+            do_extract(handle, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -971,14 +1154,13 @@ static PyObject *range_delete_contents(PyObject *self, PyObject *Py_UNUSED(ignor
 
 static PyObject *range_clone_contents(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     RangeObject *range = (RangeObject *)self;
-    th_tree *tree = ((HandleObject *)range->start_handle)->tree;
     module_state *state = state_of(self);
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
     if (check_boundaries(range) == 0 && range_check_recursive_depth(range, "clone_contents()") == 0) {
         th_node *common = common_ancestor(range->start_node, range->end_node);
-        th_node *fragment =
-            do_clone(tree, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        th_node *fragment = do_clone((HandleObject *)range->start_handle, common, range->start_node,
+                                     range->start_offset, range->end_node, range->end_offset);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -1003,7 +1185,7 @@ static th_node *adopt(RangeObject *range, PyObject *child_obj) {
         return NULL;
     }
     if (child->node->type != TH_NODE_CONTENT) { /* a fragment stays where it is; only its children move */
-        th_node_remove_silent(((HandleObject *)range->start_handle)->tree, child->node);
+        range_remove((HandleObject *)range->start_handle, child->node);
     }
     return child->node;
 }
@@ -1058,7 +1240,7 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
             PyErr_SetString(PyExc_ValueError, "cannot insert at this boundary point");
             return NULL;
         }
-        int imported = import_foreign_node(range->start_handle, node_ref);
+        int imported = range_import((HandleObject *)range->start_handle, node_ref);
         node_obj = *node_ref;
         if (imported < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1068,24 +1250,20 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
         }
     }
     Py_ssize_t start_offset = range->start_offset;
+    HandleObject *handle = (HandleObject *)range->start_handle;
     th_node *incoming = ((NodeObject *)node_obj)->node;
-    th_node *reference;
-    if (start_text_like) {
-        reference = start_node;
-    } else {
-        reference = start_node->first_child;
-        for (Py_ssize_t index = 0; index < start_offset && reference != NULL; index++) {
-            reference = reference->next_sibling;
-        }
-    }
+    th_node *reference = start_text_like ? start_node : child_at(handle, start_node, start_offset);
     th_node *parent = reference == NULL ? start_node : reference->parent;
     /* a Text start is split and the node goes after its head, which is before the head's current next sibling */
     if (reject_insert(parent, incoming, start_text_like ? start_node->next_sibling : reference) < 0) {
         return NULL;
     }
-    handle_drop_index(range->start_handle);
+    range_drop_index(handle);
     if (start_text_like) {
-        reference = split_data_node(((HandleObject *)range->start_handle)->tree, start_node, start_offset);
+        /* a cursor on the start node keeps the tail the split links after it next to a cursor; the tail's offset is
+           looked up below */
+        (void)sibling_index(handle, start_node);
+        reference = split_data_node(handle, start_node, start_offset);
         if (reference == NULL) { /* GCOVR_EXCL_BR_LINE: split only fails on OOM */
             return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1097,18 +1275,18 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
     if (linked == NULL) {
         return NULL;
     }
-    Py_ssize_t new_offset = reference == NULL ? node_length(parent) : node_index(reference);
-    new_offset += linked->type == TH_NODE_CONTENT ? node_length(linked) : 1;
-    th_tree_note_deepened(((HandleObject *)range->start_handle)->tree);
+    Py_ssize_t new_offset = reference == NULL ? child_count(handle, parent) : sibling_index(handle, reference);
+    new_offset += linked->type == TH_NODE_CONTENT ? child_count(handle, linked) : 1;
+    th_tree_note_deepened(handle->tree);
     if (linked->type == TH_NODE_CONTENT) {
         /* a DocumentFragment inserts its children and is left empty */
         while (linked->first_child != NULL) {
             th_node *child = linked->first_child;
-            th_node_remove_silent(((HandleObject *)range->start_handle)->tree, child);
-            th_node_insert_before(parent, child, reference);
+            range_remove(handle, child);
+            range_insert_before(handle, parent, child, reference);
         }
     } else {
-        th_node_insert_before(parent, linked, reference);
+        range_insert_before(handle, parent, linked, reference);
     }
     if (range_is_collapsed(range)) {
         store_end(range, range->start_handle, parent, new_offset);
@@ -1172,7 +1350,7 @@ static int import_surround_parent(RangeObject *range, PyObject *new_parent) {
         if (check_boundaries(range) < 0 || reject_partial_non_text(range) < 0) {
             return -1;
         }
-        int imported = import_foreign_node(range->start_handle, &new_parent);
+        int imported = range_import((HandleObject *)range->start_handle, &new_parent);
         if (imported <= 0) {
             return (int)imported;
         }
@@ -1196,20 +1374,20 @@ TH_NODE_API(static, PyObject *, range_surround_contents, (PyObject * self, PyObj
         return NULL;
     }
     PyObject *result = NULL;
-    th_tree *tree = ((HandleObject *)range->start_handle)->tree;
+    HandleObject *handle = (HandleObject *)range->start_handle;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
     if (import_surround_parent(range, new_parent) == 0) {
         parent_node = ((NodeObject *)new_parent)->node; /* the import re-points a foreign wrapper at its copy */
-        handle_drop_index(range->start_handle);
+        range_drop_index(handle);
         th_node *common = common_ancestor(range->start_node, range->end_node);
         th_node *new_node;
         Py_ssize_t new_offset;
         int collapsed = range_is_collapsed(range);
         if (!collapsed) {
-            collapse_point(common, range->start_node, range->start_offset, &new_node, &new_offset);
+            collapse_point(handle, common, range->start_node, range->start_offset, &new_node, &new_offset);
         }
         th_node *fragment =
-            do_extract(tree, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
+            do_extract(handle, common, range->start_node, range->start_offset, range->end_node, range->end_offset);
         if (fragment == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a node allocation failed */
             PyErr_NoMemory();                        /* GCOVR_EXCL_LINE: allocation failure */
         } /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
@@ -1219,13 +1397,14 @@ TH_NODE_API(static, PyObject *, range_surround_contents, (PyObject * self, PyObj
                 store_end(range, range->start_handle, new_node, new_offset);
             }
             while (parent_node->first_child != NULL) {
-                th_node_remove_silent(tree, parent_node->first_child);
+                range_remove(handle, parent_node->first_child);
             }
             th_node *linked = insert_core(range, new_parent);
             if (linked != NULL) {
-                adopt_fragment_children(tree, linked, fragment);
-                store_start(range, range->start_handle, linked->parent, node_index(linked));
-                store_end(range, range->start_handle, linked->parent, node_index(linked) + 1);
+                adopt_fragment_children(handle, linked, fragment);
+                Py_ssize_t index = sibling_index(handle, linked);
+                store_start(range, range->start_handle, linked->parent, index);
+                store_end(range, range->start_handle, linked->parent, index + 1);
                 result = Py_NewRef(new_parent);
             }
         }

@@ -813,6 +813,17 @@ typedef struct {
     Py_ssize_t value_len;
 } xslt_ns_decl;
 
+/* One xmlns:prefix attribute of a large result element, keyed by the element and the URI it bound when recorded.
+   position stays valid because result attributes are never removed; uri is the value buffer that was there then, so
+   a later write that rebinds the prefix leaves a different buffer at position and marks the entry stale. */
+typedef struct {
+    const th_node *element; /* NULL marks a free slot */
+    const Py_UCS4 *uri;
+    Py_ssize_t uri_len;
+    Py_ssize_t position;
+    uint32_t hash;
+} xslt_out_binding;
+
 /* A named xsl:attribute-set (section 7.1.4). Its body holds xsl:attribute children; the
    precedence orders redefinitions across import boundaries (higher importer wins). */
 typedef struct {
@@ -1026,6 +1037,7 @@ typedef struct engine {
     th_tree *out_tree;
     th_tree *merged_tree; /* holds copies of the principal + imported stylesheets when importing */
     th_node *src_root;
+    xp_id_cache src_ids; /* id() over the source, which a run leaves alone: indexed once per run, not walked per node */
     xp_lang_memo *src_langs; /* lang()'s answers over the source, kept across the run's evaluations */
 
     xslt_rule *rules;
@@ -1082,8 +1094,12 @@ typedef struct engine {
     xslt_ns_decl *ns_decls;
     size_t ns_decls_len;
     size_t ns_decls_cap;
-    int ns_counter; /* serial for the generated ns_N prefixes xsl:attribute namespace fixup mints */
-    int precedence; /* import precedence being assigned as declarations are walked */
+    int ns_counter;                 /* serial for the generated ns_N prefixes xsl:attribute namespace fixup mints */
+    xslt_out_binding *out_bindings; /* xmlns:prefix attributes of large result elements, by URI */
+    size_t out_bindings_cap;
+    size_t out_bindings_len;
+    th_node_map out_bindings_seen; /* large result element to the attributes recorded from it, plus one */
+    int precedence;                /* import precedence being assigned as declarations are walked */
 
     /* Whether a non-empty default namespace is in scope at the output parent, which a no-namespace result element
        must undeclare. */
@@ -2034,9 +2050,9 @@ static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *c
     }
     const char *feature = NULL;
     int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
-                                                  xslt_extension, eng, &eng->src_langs, out, &feature)
+                                                  xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature)
                            : xp_eval_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
-                                        xslt_extension, eng, &eng->src_langs, out, &feature);
+                                        xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature);
     if (bindings != storage) {
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
@@ -2203,7 +2219,7 @@ static int fill_key(engine *eng, xslt_key *key) {
         status = xml ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
                                           callback ? pattern_name_test : NULL, &scope, &matched, &feature)
                      : xp_eval_at(key->match_prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1,
-                                  NULL, NULL, NULL, NULL, &eng->src_langs, &matched, &feature);
+                                  NULL, NULL, NULL, NULL, &eng->src_langs, NULL, &matched, &feature);
     }
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
@@ -2362,7 +2378,7 @@ TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
                                           pattern_callback_needed(eng, rule->prog) ? pattern_name_test : NULL, &scope,
                                           &matched, &feature)
                      : xp_eval_at(rule->prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
-                                  NULL, xslt_extension, eng, &eng->src_langs, &matched, &feature);
+                                  NULL, xslt_extension, eng, &eng->src_langs, NULL, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {   /* GCOVR_EXCL_BR_LINE: pattern evaluation sets an exception only on allocation */
             if (feature == NULL) { /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
@@ -3289,20 +3305,120 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     return instantiate_under(eng, instruction, element, bound);
 }
 
-/* xsl:attribute name={avt}: set an attribute on the containing result element. */
-/* Place a namespaced attribute (xsl:attribute with a namespace) on out_parent under section
-   7.1.3: reuse a prefix the element already binds to that URI, else declare a fresh generated
-   ns_N prefix, then set the "prefix:local" attribute. */
-static int do_attribute_ns(engine *eng, th_node *out_parent, const Py_UCS4 *name, Py_ssize_t name_len,
-                           const Py_UCS4 *nsuri, Py_ssize_t nsuri_len, const Py_UCS4 *value, Py_ssize_t value_len) {
-    Py_ssize_t local_start = 0;
-    for (Py_ssize_t index = 0; index < name_len; index++) {
-        if (name[index] == ':') {
-            local_start = index + 1;
+static uint32_t out_binding_hash(const th_node *element, const Py_UCS4 *uri, Py_ssize_t uri_len) {
+    return th_name_hash(uri, uri_len * (Py_ssize_t)sizeof(Py_UCS4)) ^ (uint32_t)th_key_mix(element->seq);
+}
+
+/* The slot holding element's binding of uri, or the free slot it would take. The hash is keyed, so a document cannot
+   choose URIs that share one run of slots. */
+static xslt_out_binding *out_binding_slot(const engine *eng, const th_node *element, uint32_t hash, const Py_UCS4 *uri,
+                                          Py_ssize_t uri_len) {
+    size_t slot = th_hash_slot(hash, eng->out_bindings_cap);
+    for (;;) {
+        xslt_out_binding *entry = &eng->out_bindings[slot];
+        /* & rather than &&: unequal texts under equal keyed hashes never occur, so no test reaches that branch */
+        if (entry->element == NULL ||
+            ((entry->element == element) & (entry->hash == hash) & str_eq(entry->uri, entry->uri_len, uri, uri_len))) {
+            return entry;
+        }
+        TH_WORK_STEP();
+        slot = (slot + 1) & (eng->out_bindings_cap - 1);
+    }
+}
+
+static int out_binding_current(const th_node *element, const xslt_out_binding *entry) {
+    return element->attrs[entry->position].value == entry->uri;
+}
+
+static int out_bindings_reserve(engine *eng) {
+    if (eng->out_bindings_len + 1 <= eng->out_bindings_cap / 2) {
+        return 0;
+    }
+    size_t capacity;
+    size_t bytes;
+    /* GCOVR_EXCL_BR_START: allocation failure */
+    if (!th_grow_cap(eng->out_bindings_cap + 1, eng->out_bindings_cap, 16, sizeof(xslt_out_binding), &capacity,
+                     &bytes)) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    xslt_out_binding *grown = PyMem_Calloc(1, bytes);
+    if (grown == NULL) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    xslt_out_binding *old = eng->out_bindings;
+    size_t old_cap = eng->out_bindings_cap;
+    eng->out_bindings = grown;
+    eng->out_bindings_cap = capacity;
+    for (size_t index = 0; index < old_cap; index++) {
+        if (old[index].element != NULL) {
+            *out_binding_slot(eng, old[index].element, old[index].hash, old[index].uri, old[index].uri_len) =
+                old[index];
         }
     }
-    const char *prefix = NULL;
-    Py_ssize_t prefix_len = 0;
+    PyMem_Free(old);
+    return 0;
+}
+
+/* Record the xmlns:prefix attributes element gained since the last call. The first position recorded for a URI is
+   kept while it still binds that URI, which is the declaration a scan of the array meets first. */
+static int out_bindings_record(engine *eng, th_node *element) {
+    Py_ssize_t seen = th_node_map_find(&eng->out_bindings_seen, element);
+    if (seen == 0) {
+        if (th_node_map_insert(&eng->out_bindings_seen, element, 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                     /* GCOVR_EXCL_LINE */
+        }
+        seen = 1;
+    }
+    if (out_bindings_reserve(eng) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = seen - 1; index < element->attr_count; index++) {
+        TH_WORK_STEP();
+        const th_node_attr *attr = &element->attrs[index];
+        Py_ssize_t decl_len = 0;
+        const char *decl = th_attr_name(eng->out_tree, attr->name_atom, &decl_len);
+        if (decl_len <= 6 || memcmp(decl, "xmlns:", 6) != 0 || attr->value_len == 0) {
+            continue;
+        }
+        if (out_bindings_reserve(eng) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                       /* GCOVR_EXCL_LINE */
+        }
+        uint32_t hash = out_binding_hash(element, attr->value, attr->value_len);
+        xslt_out_binding *entry = out_binding_slot(eng, element, hash, attr->value, attr->value_len);
+        if (entry->element == NULL) {
+            *entry = (xslt_out_binding){element, attr->value, attr->value_len, index, hash};
+            eng->out_bindings_len++;
+        } else if (!out_binding_current(element, entry)) {
+            entry->uri = attr->value;
+            entry->position = index;
+        }
+    }
+    eng->out_bindings_seen.entries[th_node_map_slot(&eng->out_bindings_seen, element)].value = element->attr_count + 1;
+    return 0;
+}
+
+/* The prefix out_parent already binds to nsuri, or NULL in *prefix. A large element answers from out_bindings, since
+   each namespaced xsl:attribute can add a declaration and an attribute to the same element. When a recorded
+   declaration was since rebound, the answer is NULL even if another declaration of the element binds nsuri, and the
+   caller declares a fresh prefix. Returns -1 on allocation failure. */
+static int output_prefix_for_uri(engine *eng, th_node *out_parent, const Py_UCS4 *nsuri, Py_ssize_t nsuri_len,
+                                 const char **prefix, Py_ssize_t *prefix_len) {
+    *prefix = NULL;
+    if (out_parent->attr_count >= TH_ATTR_INDEX_MIN) {
+        if (out_bindings_record(eng, out_parent) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                  /* GCOVR_EXCL_LINE */
+        }
+        const xslt_out_binding *entry =
+            out_binding_slot(eng, out_parent, out_binding_hash(out_parent, nsuri, nsuri_len), nsuri, nsuri_len);
+        if (entry->element != NULL && out_binding_current(out_parent, entry)) {
+            Py_ssize_t decl_len = 0;
+            const char *decl = th_attr_name(eng->out_tree, out_parent->attrs[entry->position].name_atom, &decl_len);
+            *prefix = decl + 6;
+            *prefix_len = decl_len - 6;
+        }
+        return 0;
+    }
     for (Py_ssize_t index = 0; index < out_parent->attr_count; index++) {
         const th_node_attr *decl_attr = &out_parent->attrs[index];
         Py_ssize_t decl_len = 0;
@@ -3328,9 +3444,29 @@ static int do_attribute_ns(engine *eng, th_node *out_parent, const Py_UCS4 *name
         if (!same_uri) {
             continue;
         }
-        prefix = decl + 6;
-        prefix_len = decl_len - 6;
-        break;
+        *prefix = decl + 6;
+        *prefix_len = decl_len - 6;
+        return 0;
+    }
+    return 0;
+}
+
+/* xsl:attribute name={avt}: set an attribute on the containing result element. */
+/* Place a namespaced attribute (xsl:attribute with a namespace) on out_parent under section
+   7.1.3: reuse a prefix the element already binds to that URI, else declare a fresh generated
+   ns_N prefix, then set the "prefix:local" attribute. */
+static int do_attribute_ns(engine *eng, th_node *out_parent, const Py_UCS4 *name, Py_ssize_t name_len,
+                           const Py_UCS4 *nsuri, Py_ssize_t nsuri_len, const Py_UCS4 *value, Py_ssize_t value_len) {
+    Py_ssize_t local_start = 0;
+    for (Py_ssize_t index = 0; index < name_len; index++) {
+        if (name[index] == ':') {
+            local_start = index + 1;
+        }
+    }
+    const char *prefix;
+    Py_ssize_t prefix_len = 0;
+    if (output_prefix_for_uri(eng, out_parent, nsuri, nsuri_len, &prefix, &prefix_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return fail(eng, "out of memory");                                                    /* GCOVR_EXCL_LINE */
     }
     char generated[32];
     if (prefix == NULL) {
@@ -4065,7 +4201,7 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
                                               pattern_callback_needed(eng, prog) ? pattern_name_test : NULL, &scope,
                                               &matched, &feature)
                          : xp_eval_at(prog, eng->src_tree, &(xp_item){eng->src_root, -1}, eng->src_root, 1, 1, NULL,
-                                      NULL, xslt_extension, eng, &eng->src_langs, &matched, &feature);
+                                      NULL, xslt_extension, eng, &eng->src_langs, NULL, &matched, &feature);
         if (status < 0) {
             if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
@@ -5962,24 +6098,46 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
 static const Py_UCS4 *alias_result_uri(const engine *eng, const char *prefix, Py_ssize_t prefix_len,
                                        Py_ssize_t *out_len);
 
+static int ns_binding_matches(const th_node_attr *attr, const Py_UCS4 *value, Py_ssize_t value_len) {
+    return attr->value_len == value_len &&
+           (value_len == 0 || memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0);
+}
+
 /* Whether an output ancestor of `start` already binds namespace `name` (an "xmlns" or
    "xmlns:prefix" spelling) to the identical URI. The nearest binding wins, so a rebinding
-   to a different URI reports out-of-scope and the caller redeclares. */
+   to a different URI reports out-of-scope and the caller redeclares. Copied source
+   attributes can give one output element any number of attributes under any number of
+   literal children, so a large ancestor answers from its attribute index; a small one is
+   scanned, which costs less than resolving the name's atom. Returns -1 on allocation
+   failure. */
 static int output_ns_in_scope(engine *eng, th_node *start, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                               Py_ssize_t value_len) {
     for (th_node *anc = start; anc != NULL; anc = anc->parent) {
         if (anc->type != TH_NODE_ELEMENT) {
             continue;
         }
+        if (anc->attr_count >= TH_ATTR_INDEX_MIN) {
+            uint32_t atom = th_attr_lookup(eng->out_tree, name, name_len);
+            if (atom == UINT32_MAX) {
+                return 0; /* no output element carries the name */
+            }
+            Py_ssize_t index = th_node_attr_find_atom(eng->out_tree, anc, atom);
+            if (index == -1) {
+                continue;
+            }
+            if (index < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;   /* GCOVR_EXCL_LINE */
+            }
+            return ns_binding_matches(&anc->attrs[index], value, value_len);
+        }
         for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
+            TH_WORK_STEP();
             const th_node_attr *attr = &anc->attrs[index];
             Py_ssize_t anc_len = 0;
             const char *anc_name = th_attr_name(eng->out_tree, attr->name_atom, &anc_len);
-            if (anc_len != name_len || memcmp(anc_name, name, (size_t)name_len) != 0) {
-                continue;
+            if (anc_len == name_len && memcmp(anc_name, name, (size_t)name_len) == 0) {
+                return ns_binding_matches(attr, value, value_len);
             }
-            return attr->value_len == value_len &&
-                   (value_len == 0 || memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0);
         }
     }
     return 0;
@@ -6129,7 +6287,11 @@ static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_nod
     }
     for (size_t index = 0; index < eng->ns_decls_len; index++) {
         const xslt_ns_decl *decl = &eng->ns_decls[index];
-        if (output_ns_in_scope(eng, out_parent, decl->name, decl->name_len, decl->value, decl->value_len)) {
+        int in_scope = output_ns_in_scope(eng, out_parent, decl->name, decl->name_len, decl->value, decl->value_len);
+        if (in_scope < 0) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        if (in_scope) {
             continue;
         }
         /* GCOVR_EXCL_BR_START: alloc */
@@ -7445,6 +7607,7 @@ static PyObject *serialize_markup(engine *eng, th_node *root) {
 /* ---- engine lifecycle ----------------------------------------------------- */
 
 static void engine_clear(engine *eng) {
+    xp_id_cache_clear(&eng->src_ids);
     xp_lang_memo_free(eng->src_langs);
     PyMem_Free(eng->dispatch);
     for (size_t index = 0; index < eng->number_sites.count; index++) {
@@ -7500,6 +7663,8 @@ static void engine_clear(engine *eng) {
     scope_drop(eng, 0);
     PyMem_Free(eng->scope);
     PyMem_Free(eng->ns_decls);
+    PyMem_Free(eng->out_bindings);
+    PyMem_Free(eng->out_bindings_seen.entries);
     PyMem_Free(eng->src_namespaced.entries);
     if (eng->out_tree != NULL) {
         th_tree_free(eng->out_tree);
@@ -7520,6 +7685,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->owns_model = 0;
     eng->src_tree = src_tree;
     eng->src_root = th_tree_document(src_tree);
+    eng->src_ids = (xp_id_cache){0};
     eng->src_langs = NULL;
     eng->out_tree = NULL;
     eng->dispatch = NULL;
@@ -7546,6 +7712,10 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->default_bound = 0;
     eng->src_namespaced = (th_node_map){0};
     eng->ns_counter = 0;
+    eng->out_bindings = NULL;
+    eng->out_bindings_cap = 0;
+    eng->out_bindings_len = 0;
+    eng->out_bindings_seen = (th_node_map){0};
     eng->gen_counter = 0;
     eng->depth = 0;
 #if defined(__linux__)

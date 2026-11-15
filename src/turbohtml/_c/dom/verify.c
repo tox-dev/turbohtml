@@ -28,6 +28,9 @@ TH_NODE_API(, PyObject *, turbohtml_tree_verify, (PyObject * module, PyObject *o
     /* a cache entry compiled against a newer attribute generation, or an id map built past the tree's id version,
        means a mutation path skipped its version bump */
     uint32_t generation = th_tree_attr_generation(tree);
+    /* every write that bumps the id version bumps the attribute version with it (node_attr_begin, th_node_attr_del),
+       and handle_drop_index bumps the id version alone, once per mutation_version */
+    found.versions += th_tree_id_version(tree) > th_tree_attr_version(tree) + handle->mutation_version;
     for (int index = 0; index < handle->sel_cache_len; index++) {
         found.versions += handle->sel_cache[index].attr_gen > generation;
     }

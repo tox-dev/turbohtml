@@ -1824,6 +1824,7 @@ TH_NODE_API(static, PyObject *, element_attr, (PyObject * self, PyObject *args, 
 void handle_drop_index(PyObject *handle_obj) {
     HandleObject *handle = (HandleObject *)handle_obj;
     handle->mutation_version++;
+    th_tree_note_element_edit(handle->tree);
     handle_clear_css_cache(handle);
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);
@@ -2894,6 +2895,7 @@ static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len
 static int has_attr_named(th_tree *tree, const th_node *node, Py_ssize_t filled, const char *name,
                           Py_ssize_t name_len) {
     for (Py_ssize_t index = 0; index < filled; index++) {
+        TH_WORK_STEP();
         Py_ssize_t existing_len;
         const char *existing = th_attr_name(tree, node->attrs[index].name_atom, &existing_len);
         if (existing_len == name_len && memcmp(existing, name, (size_t)name_len) == 0) {
@@ -2903,12 +2905,90 @@ static int has_attr_named(th_tree *tree, const th_node *node, Py_ssize_t filled,
     return 0;
 }
 
+/* The ASCII-lowercased UTF-8 spelling of one attribute key, in a buffer the caller frees. -1 with an exception set when
+   the key is not a valid attribute name. */
+static int folded_attr_key_name(PyObject *name, char **stored, Py_ssize_t *stored_len) {
+    if (!PyUnicode_Check(name)) {
+        PyErr_SetString(PyExc_TypeError, "attribute name must be a str");
+        return -1;
+    }
+    if (th_validate_markup_name(name, 1) < 0) {
+        return -1;
+    }
+    Py_ssize_t name_len;
+    const char *name_utf8 = PyUnicode_AsUTF8AndSize(name, &name_len);
+    if (name_utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: a lone-surrogate name cannot encode, hard to force */
+        return -1;           /* GCOVR_EXCL_LINE: surrogate path */
+    }
+    char *bytes = PyMem_Malloc((size_t)name_len);
+    if (bytes == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t byte = 0; byte < name_len; byte++) {
+        char ch = name_utf8[byte];
+        bytes[byte] = ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch;
+    }
+    *stored = bytes;
+    *stored_len = name_len;
+    return 0;
+}
+
+/* fill_element_attrs for TH_WIDE_ATTR_COUNT or more keys. Every name is stored first and one sort marks the repeats,
+   so a repeated key's value is never read, as in the scan below. */
+static int fill_wide_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyObject *keys) {
+    Py_ssize_t count = PyList_GET_SIZE(keys);
+    for (Py_ssize_t index = 0; index < count; index++) {
+        char *stored;
+        Py_ssize_t stored_len;
+        if (folded_attr_key_name(PyList_GET_ITEM(keys, index), &stored, &stored_len) < 0) {
+            return -1;
+        }
+        int rc = th_tree_set_attr_name(tree, node, index, stored, stored_len);
+        PyMem_Free(stored);
+        if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    if (th_node_attr_mark_repeats(node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory();                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (node->attrs[index].name_atom == TH_ATTR_UNKNOWN) {
+            continue;
+        }
+        PyObject *name = PyList_GET_ITEM(keys, index);
+        PyObject *value = PyObject_GetItem(attrs, name);
+        Py_UCS4 *points;
+        Py_ssize_t value_len;
+        int has_value;
+        int bad = value == NULL || element_attr_value(value, &points, &value_len, &has_value) < 0;
+        Py_XDECREF(value);
+        if (bad) {
+            return -1;
+        }
+        int rc = th_tree_set_attr_value(tree, node, index, points, value_len, has_value);
+        PyMem_Free(points);
+        if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    th_node_attr_drop_marked(node);
+    return 0;
+}
+
 /* Fill a constructed element's attribute slots from the keys of attrs. fold lowercases
    each name for an HTML tree; an XML tree keeps case, so its names are stored verbatim.
    Two keys that fold to one name keep the first, as the HTML tokenizer does for a
    repeated attribute, so the element never carries the same name twice. */
 static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyObject *keys, int fold) {
     Py_ssize_t count = PyList_GET_SIZE(keys);
+    if (fold && count >= TH_WIDE_ATTR_COUNT) {
+        return fill_wide_element_attrs(tree, node, attrs, keys);
+    }
     Py_ssize_t filled = 0;
     for (Py_ssize_t index = 0; index < count; index++) {
         PyObject *name = PyList_GET_ITEM(keys, index);

@@ -1215,5 +1215,19 @@
       "left": "<e>",
       "right": "</e>"
     }
+  },
+  {
+    "name": "xpath-id-document-walk",
+    "source": "https://github.com/tox-dev/turbohtml/blob/8592a664a6a4efe3518ab0331a1a92c66a48379d/src/turbohtml/_c/query/xpath/functions.c#L953-L963",
+    "targets": [
+      "xpath_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<book><sec id=\"s1\">x</sec>",
+      "left": "<p><xref to=\"s1 s2\"/></p>",
+      "tail": "</book>"
+    }
   }
 ]
