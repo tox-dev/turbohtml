@@ -1318,6 +1318,58 @@ def test_sequence_extension_chain_compiles() -> None:
     assert isinstance(XMLSchema(schema), XMLSchema)
 
 
+_ALL_GROUP_MEMBERS: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
+_ALL_GROUP_DEF: Final[str] = f'<xs:group name="g"><xs:all>{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+            '<xs:group ref="g" maxOccurs="2"/></xs:complexType></xs:element></xs:schema>',
+            id="group-ref-twice",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+            '<xs:group ref="g" maxOccurs="unbounded"/></xs:complexType></xs:element></xs:schema>',
+            id="group-ref-unbounded",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>'
+            f'<xs:all maxOccurs="2">{_ALL_GROUP_MEMBERS}</xs:all></xs:complexType></xs:element></xs:schema>',
+            id="direct-all-twice",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="h"><xs:all maxOccurs="2">{_ALL_GROUP_MEMBERS}</xs:all></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="h"/></xs:complexType></xs:element></xs:schema>',
+            id="group-definition-all-twice",
+        ),
+    ],
+)
+def test_all_group_occurring_more_than_once_raises(schema: str) -> None:
+    with pytest.raises(ValueError, match="an xs:all group may occur only once"):
+        XMLSchema(schema)
+
+
+def test_all_group_occurring_once_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}>{_ALL_GROUP_DEF}<xs:element name="r"><xs:complexType>'
+        '<xs:group ref="g" minOccurs="0" maxOccurs="1"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<r><a/><b/></r>").valid
+    assert check(schema, "<r/>").valid
+
+
+def test_repeated_sequence_group_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="s"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:element name="r"><xs:complexType><xs:group ref="s" maxOccurs="2"/></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert check(schema, "<r><c/><c/></r>").valid
+
+
 @pytest.mark.parametrize(
     "count", [pytest.param(1, id="one"), pytest.param(2, id="two"), pytest.param(12, id="grown-table")]
 )

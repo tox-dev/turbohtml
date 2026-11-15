@@ -3579,6 +3579,32 @@ def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
     assert _canon(result) == "ok"
 
 
+@pytest.mark.parametrize(
+    ("padding", "count", "match"),
+    [
+        pytest.param(0, 1025, "xsl:import references exceed the limit of 1024 files", id="files"),
+        pytest.param(1 << 20, 8, "xsl:import references exceed the limit of 8 MiB", id="bytes"),
+    ],
+)
+def test_transform_import_root_caps_repeated_imports(tmp_path: Path, padding: int, count: int, match: str) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:template match="/">ok</xsl:template></xsl:stylesheet>{" " * padding}',
+        encoding="utf-8",
+    )
+
+    def compile_imports(times: int) -> Transform:
+        imports: Final = '<xsl:import href="base.xsl"/>' * times
+        sheet = turbohtml.parse_xml(
+            f'<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">{imports}</xsl:stylesheet>'
+        )
+        return Transform(sheet, base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)
+
+    assert _canon(compile_imports(count - 1)(turbohtml.parse_xml("<r/>"))) == "ok"
+    with pytest.raises(ValueError, match=match):
+        compile_imports(count)
+
+
 _IMPORT_CONFINEMENT: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda path: path, id="import-root"),
     pytest.param(lambda _: None, id="unconfined"),

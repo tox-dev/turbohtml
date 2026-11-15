@@ -100,6 +100,14 @@ def test_filter_preserves_order_and_duplicates_across_trees() -> None:
 
 
 @pytest.mark.parametrize(
+    "selector", [pytest.param(":dir(rtl)", id="plain"), pytest.param(":scope:dir(rtl)", id="scope")]
+)
+def test_filter_resolves_dir_auto_through_a_shared_ancestor(selector: str) -> None:
+    candidates = parse("<div dir=auto>א<p id=a></p><bdi id=b>x</bdi><p id=c></p></div>").select("[id]")
+    assert [node.attr("id") for node in compile(selector).filter(candidates)] == ["a", "c"]
+
+
+@pytest.mark.parametrize(
     "candidates",
     [
         pytest.param([1], id="first"),

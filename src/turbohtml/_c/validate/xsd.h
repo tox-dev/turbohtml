@@ -770,6 +770,17 @@ typedef struct xfacet_entry {
 static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
 static int xsd_record_facets(th_schema *schema, th_node *node, int content);
 
+/* XSD 1.0 All Group Limited: an xs:all particle, written or reached through a group ref, occurs once, because its
+   members are matched once. */
+static int xsd_check_all_occurs(th_schema *schema, th_node *particle) {
+    th_node *model = is_schema_el(schema, particle, XSD_NS, "group") ? xsd_group_model(schema, particle) : particle;
+    if (model == NULL || !is_schema_el(schema, model, XSD_NS, "all") || xsd_occurs_max(schema->tree, particle) == 1) {
+        return 0;
+    }
+    PyErr_SetString(PyExc_ValueError, "an xs:all group may occur only once: its maxOccurs must be 1");
+    return -1;
+}
+
 /* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
 static int xsd_cache_facets(th_schema *schema, th_node *node) {
     const qname *name = schema_node_qname(schema, node);
@@ -783,6 +794,9 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
                 return -1;                                      /* GCOVR_EXCL_LINE */
             }
         } else if (u_eq_ascii(name->local, name->local_len, "all")) {
+            if (xsd_check_all_occurs(schema, node) < 0) {
+                return -1;
+            }
             if (xsd_record_all(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
                 return -1;                          /* GCOVR_EXCL_LINE */
             }
@@ -822,7 +836,10 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
             return -1;
         }
     } else if (u_eq_ascii(local, local_len, "group")) {
-        return xsd_require_ref(schema, node, &schema->groups, "group");
+        if (xsd_require_ref(schema, node, &schema->groups, "group") < 0) {
+            return -1;
+        }
+        return xsd_check_all_occurs(schema, node);
     } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
         return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
     } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
