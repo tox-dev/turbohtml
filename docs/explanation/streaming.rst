@@ -126,5 +126,9 @@ two disagree, and ends an SVG or MathML element that an end tag closed in the so
 rewrite with no such edit, or with one and no foreign content, template or frameset after it, never starts the second
 tree builder and writes what it always wrote.
 
+Text that ends in ``<``, or inside ``<title>`` or ``<textarea>`` in an end tag cut short, reads as text because of what
+follows it in the source. When a handler drops or changes what follows, the rewriter escapes that ``<`` if the next
+thing it writes would turn it into a tag, a comment or an end tag; otherwise it leaves the ``<`` as written.
+
 A guarantee that has to hold against hostile markup, such as no script surviving, still belongs to
 :func:`turbohtml.clean.sanitize`, which works on the parsed tree.

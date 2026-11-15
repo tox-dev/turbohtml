@@ -1,2 +1,2 @@
-After a handler edit that changes how the page parses, :func:`~turbohtml.rewrite.rewrite` writes the markup that follows
-so a browser still reads it as it read the input.
+After a handler edit, :func:`~turbohtml.rewrite.rewrite` writes the markup that follows, and a ``<`` the edit left
+before it, so a browser reads them as it read the input.

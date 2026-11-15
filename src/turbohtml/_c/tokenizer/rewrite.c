@@ -1631,14 +1631,9 @@ static void rw_end_tag_at(Py_UCS4 *at, const th_node *node) {
 
 /* Append the end tag of an open element. */
 static void rw_emit_end_tag(rw_out *out, const th_node *node) {
-    if (out->len + node->text_len + 3 > out->room) {
-        rw_out_make_room(out, node->text_len + 3, '<');
-    }
-    if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    rw_end_tag_at(out->data + out->len, node);
-    out->len += node->text_len + 3;
+    rw_out_ascii(out, "</");
+    rw_out_run(out, node->text, node->text_len);
+    rw_out_char(out, '>');
 }
 
 /* Whether the spine's innermost element is an SVG/MathML element: until a th_shadow runs, exactly when the tree

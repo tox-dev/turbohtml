@@ -2344,6 +2344,7 @@ def _before_and_unwrap(element: Element) -> None:
             id="space-follows",
         ),
         pytest.param("<svg>a<<p>b", [("p", _before_and_unwrap)], {}, "<svg>a&lt;</svg>cb", id="foreign-closed"),
+        pytest.param("<svg>a<<p>b", [("p", _unwrap)], {}, "<svg>a<</svg>b", id="foreign-closed-in-place"),
         pytest.param(
             "<svg><g></g>a<&amp;i>", [("g", _remove)], {"text": _on_reference(_remove)}, "<svg>a&lt;i>", id="mirrored"
         ),
