@@ -1949,6 +1949,23 @@ def test_rewrite_character_reference_in_foreign_content_keeps_its_text(
     assert rewrite(source, text=lambda text: text.set_text(f"<{text.text}")) == prefixed
 
 
+@pytest.mark.parametrize(
+    ("source", "texts"),
+    [
+        pytest.param("<svg><![CDATA[a]]></svg>", ["a"], id="section"),
+        pytest.param("<svg><![CDATA[a]]>b</svg>", ["a", "b"], id="section-then-text"),
+        pytest.param("<svg>y<![CDATA[z]]>w</svg>", ["y", "z", "w"], id="queued-run"),
+        pytest.param("<svg><![CDATA[a", ["a"], id="eof"),
+    ],
+)
+def test_rewrite_cdata_section_in_each_storage_width(width_prefix: str, source: str, texts: list[str]) -> None:
+    # the prefix sets the input's storage width, so each width's copy of the tokenizer reads the section
+    seen: list[str] = []
+    document = width_prefix + source
+    assert rewrite(document, text=lambda text: seen.append(text.text)) == document
+    assert seen == [text for text in (width_prefix, *texts) if text]
+
+
 def test_rewrite_cdata_section_text_is_escaped_when_rewritten() -> None:
     result = rewrite("<svg><![CDATA[<B>&]]></svg>", text=lambda text: text.set_text(text.text.lower()))
     assert result == "<svg>&lt;b&gt;&amp;</svg>"

@@ -1344,3 +1344,17 @@ def test_split_reference_survives_a_queued_feed() -> None:
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert _refs(tokens) == [("&", "&amp;")]
     assert [token.data for token in tokens if token.type is TokenType.TEXT] == ["x", "y"]
+
+
+@pytest.mark.parametrize(
+    ("source", "data"),
+    [
+        pytest.param("<svg><![CDATA[a]]></svg>", "a", id="section"),
+        pytest.param("<svg>y<![CDATA[z]]>w</svg>", "yzw", id="text-around-section"),
+        pytest.param("<svg><![CDATA[a", "a", id="eof"),
+    ],
+)
+def test_tokenize_cdata_section_text_in_each_storage_width(width_prefix: str, source: str, data: str) -> None:
+    # the prefix sets the input's storage width, so each width's copy of the tokenizer reads the section
+    texts = [token.data for token in tokenize(width_prefix + source) if token.type is TokenType.TEXT]
+    assert texts == [text for text in (width_prefix, data) if text]
