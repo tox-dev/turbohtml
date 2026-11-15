@@ -726,12 +726,24 @@ int th_tree_scripting(const th_tree *tree);
 /* Set in the nest bound while the tree may have a MutationObserver, so an observed insertion takes one test to know
    whether it must queue a record or drop a bound. Alone it is below TH_HAS_MEMO_DEPTH, so it bounds nothing. */
 #define TH_NEST_OBSERVED 1
+/* More ancestors than any element the HTML tree builder makes can have: its open-element stack stops at
+   TH_MAX_TREE_DEPTH, and an element it does not push sits one level below the deepest. */
+#define TH_DEEP_NEST (TH_MAX_TREE_DEPTH + 2)
+/* Set in the nest bound while no element of the tree has TH_DEEP_NEST ancestors, so an ancestor walk on it is as short
+   as on any parsed page and the selector matcher runs without its ancestor memo. Alone it is below TH_HAS_MEMO_DEPTH,
+   so it bounds nothing for :has(). */
+#define TH_NEST_CAPPED 2
 /* A depth no element of the tree reaches, known in O(1), or a value below TH_HAS_MEMO_DEPTH when none is known. Only
    a document the HTML tree builder made whose open-element stack stayed below TH_HAS_MEMO_DEPTH, and that nothing has
-   deepened since, has one (TH_HAS_MEMO_DEPTH, plus TH_NEST_OBSERVED once observed). Any other tree (a parsed fragment,
-   parse_xml(), Element(), a copy, a sanitizer or XSLT result, or an edited document) may nest arbitrarily deep. A
-   :has() query skips the subtree memo on a tree bounded below the memo depth, where the direct walk is cheap. */
+   deepened since, has one (TH_HAS_MEMO_DEPTH, plus TH_NEST_CAPPED, plus TH_NEST_OBSERVED once observed). Any other
+   tree may nest deeper. A :has() query skips the subtree memo on a tree bounded below the memo depth, where the direct
+   walk is cheap. TH_NEST_CAPPED stays set on a document the HTML tree builder made, on a parse_xml() document whose
+   open-element stack stayed within TH_MAX_TREE_DEPTH, and on either after an edit that linked a node, or a subtree of a
+   few nodes, whose elements stay short of TH_DEEP_NEST ancestors; a parsed fragment, Element(), a copy, a sanitizer or
+   XSLT result, or a document edited any other way may nest arbitrarily deep. */
 Py_ssize_t th_tree_nest_bound(const th_tree *tree);
+/* Whether the nest bound lacks TH_NEST_CAPPED, so an element of the tree may have TH_DEEP_NEST ancestors. */
+int th_tree_nests_deep(const th_tree *tree);
 /* Drops the tree's nest bound, keeping TH_NEST_OBSERVED, after an edit that can nest a node deeper than before. The
    observed link primitives drop it themselves, and so does a copy that nests TH_HAS_MEMO_DEPTH levels; a caller that
    links with th_node_append_child or th_node_insert_before calls it when the link can deepen the tree. */
