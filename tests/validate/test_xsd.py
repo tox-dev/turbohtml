@@ -1207,13 +1207,14 @@ def test_all_group_beside_sequence_content() -> None:
     assert check(schema, "<seq><c/></seq>").valid
     assert not check(schema, "<seq><b/></seq>").valid
     assert check(schema, "<direct><d/></direct>").valid
+
+
 def _type_schema(content: str) -> str:
     return f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{content}</xs:complexType></xs:element></xs:schema>'
 
 
 _AB: Final[str] = '<xs:element name="a"/><xs:element name="b"/>'
 _A_REPEATED: Final[str] = "element 'a' is not allowed here"
-_NAMED_GROUP_MESSAGE: Final[str] = "content of element does not match its content model"
 _NAMED_GROUP: Final[str] = (
     f'<xs:schema {_XS}><xs:group name="g"><xs:all>{_AB}</xs:all></xs:group>'
     '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
@@ -1256,11 +1257,11 @@ _REPEATED_CHILD: Final[list[pytest.ParameterSet]] = [
         [_A_REPEATED],
         id="member-with-max-occurs-zero",
     ),
-    pytest.param(_NAMED_GROUP, "<r><a/><a/><b/></r>", [_NAMED_GROUP_MESSAGE], id="named-group-repeated-child"),
+    pytest.param(_NAMED_GROUP, "<r><a/><a/><b/></r>", [_A_REPEATED], id="named-group-repeated-child"),
     pytest.param(
         _NAMED_GROUP.replace('<xs:element name="a"/>', '<xs:element name="a" maxOccurs="2"/>'),
         "<r><a/><a/><b/></r>",
-        [_NAMED_GROUP_MESSAGE],
+        [_A_REPEATED],
         id="named-group-member-max-occurs",
     ),
     pytest.param(_EXTENDED_ALL, "<r><a/><a/><b/></r>", [_A_REPEATED], id="complex-content-extension"),
