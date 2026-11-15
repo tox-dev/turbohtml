@@ -980,8 +980,12 @@ md_opts th_markdown_default_opts(void);
 /* Render node and its subtree as Markdown under opt: a block-aware tree walk
    emitting headings, lists, links, emphasis, code, blockquotes, images and pipe
    tables with normal-flow whitespace collapsing. PyMem-allocated; *out_len
-   receives the length. NULL on allocation failure. */
-Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_ssize_t *out_len);
+   receives the length. NULL on allocation failure. ordinals is the owner's slot for the
+   cache that lets list items render one by one; the owner frees it with
+   th_markdown_ordinals_free and resets it to NULL on every structural change and
+   before the tree goes away. */
+Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, void **ordinals, Py_ssize_t *out_len);
+void th_markdown_ordinals_free(void *ordinals);
 
 /* The layout-aware text export configuration (the inscriptis role): a plain-text
    rendering that keeps the visual structure, with column-aligned tables. */
