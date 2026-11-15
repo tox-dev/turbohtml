@@ -2474,7 +2474,7 @@ PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
     } else {
         th_minify_source source = {track.spans, track.count, regions, region_count};
         minify_opts.source = track.count > 0 ? &source : NULL; /* with no noscript, the walk without source checks */
-        th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL};
+        th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL, 0};
         Py_ssize_t out_len;
         Py_UCS4 *data = th_node_minify(tree, th_tree_document(tree), &minify_opts, &opts, &out_len);
         if (data == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
