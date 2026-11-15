@@ -236,6 +236,24 @@ def test_break_holding_content_is_not_decided_by_that_content() -> None:
     assert document.to_markdown() == "a"
 
 
+def test_run_of_breaks_is_not_decided_by_a_break_holding_content() -> None:
+    document: Final = parse(f"<p>a{'<br>' * 11}z")
+    document.select("br")[-1].append(Text("y"))
+    assert document.to_markdown() == "a  \n" + "\\\n" * 10 + "z"
+
+
+def test_break_in_unfunded_link_copy_is_not_decided_by_the_link_before_it() -> None:
+    href: Final = "u" * 300
+    document: Final = parse(f"<div><div><a href={href}>1</div>2</div>3</div>4")
+    copy: Final = document.select("a")[-1]
+    for child in list(copy.children):
+        child.extract()
+    copy.insert_before(*(Element("br") for _ in range(10)))
+    copy.append(Element("br"))
+    copy.append(Element("div", children=[Text("z")]))
+    assert document.to_markdown() == f"[1]({href})\n\n[2]({href})\n\n" + "\\\n" * 10 + "\n\nz"
+
+
 @pytest.mark.parametrize(
     "separator",
     [
