@@ -564,9 +564,6 @@ static void rw_attr_index_build(rw_ctx *ctx, const th_node *node) {
 /* Keep the index, when there is one, in step with an attribute appended at position. An array the table is too small
    for drops it, and the next lookup builds one for the longer array. */
 static void rw_attr_index_append(rw_ctx *ctx, const th_node *node, Py_ssize_t position) {
-    if (ctx->attr_index == NULL) {
-        return;
-    }
     if ((size_t)(position + 1) * 2 > ctx->attr_index_cap) {
         rw_attr_index_drop(ctx);
         return;
@@ -819,7 +816,9 @@ append:
     slot->name_atom = atom;
     slot->value = copy;
     slot->value_len = new_len;
-    rw_attr_index_append(self->ctx, node, node->attr_count);
+    if (self->ctx->attr_index != NULL) {
+        rw_attr_index_append(self->ctx, node, node->attr_count);
+    }
     node->attr_count++;
     Py_RETURN_NONE;
 }
@@ -1366,7 +1365,10 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
             handle->open = &open;
         }
         rw_call_handler(ctx, ctx->rules[index].handler, (PyObject *)handle);
-        rw_attrs_settle(ctx, node); /* before the next selector, the start-tag writer or the spine reads the array */
+        /* before the next selector, the start-tag writer or the spine reads the array */
+        if (ctx->attr_index != NULL || ctx->attr_dead != 0) {
+            rw_attrs_settle(ctx, node);
+        }
     }
 
     if (ctx->error) {
