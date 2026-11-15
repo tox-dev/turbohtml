@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
@@ -19,6 +21,8 @@ from turbohtml.convert import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from work_steps import WorkSteps
 
     from turbohtml import Node
 
@@ -87,6 +91,17 @@ XPathValue: TypeAlias = "Sequence[Node | str | float] | float | bool | str"
         ),
         pytest.param(r"di\a0 v", "descendant-or-self::*[name() = 'di\xa0v']", id="unsafe-type-name"),
         pytest.param(r"[h\]ref]", "descendant-or-self::*[attribute::*[name() = 'h]ref']]", id="unsafe-attr-name"),
+        pytest.param(
+            "p[a]:only-of-type",
+            "descendant-or-self::p[@a and not(preceding-sibling::p) and not(following-sibling::p)]",
+            id="of-type-after-other-simples",
+        ),
+        pytest.param(
+            "-x[a]:only-of-type",
+            "descendant-or-self::*[name() = '-x' and @a and not(preceding-sibling::*[name() = '-x'])"
+            " and not(following-sibling::*[name() = '-x'])]",
+            id="of-type-unsafe-type-name",
+        ),
         pytest.param(":hover", "descendant-or-self::*[false()]", id="never-pseudo"),
         pytest.param(":dir(sideways)", "descendant-or-self::*[false()]", id="dir-unknown-direction"),
         pytest.param(":is(:unknown-pseudo)", "descendant-or-self::*[false()]", id="is-forgiving-empty"),
@@ -164,6 +179,40 @@ def test_nested_of_clause_repeats_the_inner_condition() -> None:
     assert css_to_xpath("li:nth-child(2n+3 of :nth-child(2 of a))") == (
         f"descendant-or-self::li[(({inner})) and count(preceding-sibling::*[({inner})]) >= 2"
         f" and count(preceding-sibling::*[({inner})]) mod 2 = 0]"
+    )
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [
+        pytest.param("", id="untyped"),
+        pytest.param("-x", id="unsafe-type-name"),
+    ],
+)
+def test_of_type_pseudo_classes_scale_linearly(type_name: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(_translate_for_steps, type_name + ".a" * (4 * count) + ":only-of-type" * count),
+        (1000, 4000),
+    )
+
+
+def _translate_for_steps(selector: str) -> None:
+    with contextlib.suppress(ExpressionError):  # an untyped compound raises, but only after its simples are visited
+        css_to_xpath(selector)
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [
+        pytest.param("x", id="safe-type-name"),
+        pytest.param("-x", id="unsafe-type-name"),
+    ],
+)
+def test_long_type_past_the_output_limit_scales_linearly(type_name: str, work_steps: WorkSteps) -> None:
+    # at these sizes the output passes its 2**24 character limit; past it, the type must not be re-read per pseudo-class
+    work_steps.assert_linear(
+        lambda length: partial(_translate_for_steps, type_name + "x" * length + ":only-of-type" * length),
+        (2048, 8192),
     )
 
 
