@@ -1344,7 +1344,7 @@ def test_rng_restricted_grammar_compiles_and_validates(schema: str, xml: str, *,
     assert rng_ok(schema, xml) is valid
 
 
-def _crossed_chain(leaf: str, start: str, combine: str, *, count: int) -> str:
+def _crossed_chain(leaf: str, start: str, combine: str, *, count: int, extra: str = "") -> str:
     defines = "".join(
         f'<define name="d{index}"><{combine}><ref name="d{index + 1}"/><ref name="e{index + 1}"/></{combine}></define>'
         f'<define name="e{index}"><{combine}><ref name="e{index + 1}"/><ref name="d{index + 1}"/></{combine}></define>'
@@ -1352,7 +1352,7 @@ def _crossed_chain(leaf: str, start: str, combine: str, *, count: int) -> str:
     )
     return rgrammar(
         f'<start><element name="r">{start}</element></start>{defines}'
-        f'<define name="d{count}">{leaf}</define><define name="e{count}">{leaf}</define>'
+        f'<define name="d{count}">{leaf}</define><define name="e{count}">{leaf}</define>{extra}'
     )
 
 
@@ -1632,6 +1632,77 @@ def test_rng_shared_defines_scale_linearly(leaf: str, content: str, xml: str, wo
     )
 
 
+_OPTIONAL_V: Final[str] = '<optional><element name="v"><empty/></element></optional>'
+_CROSSED_STARTS: Final[list[pytest.ParameterSet]] = [
+    pytest.param('<ref name="d0"/>', id="alone"),
+    pytest.param('<interleave><ref name="d0"/><element name="a"><empty/></element></interleave>', id="interleaved"),
+]
+
+
+@pytest.mark.parametrize("start", _CROSSED_STARTS)
+@pytest.mark.parametrize("combine", ["group", "oneOrMore"])
+def test_rng_crossed_places_scale_linearly(start: str, combine: str, work_steps: WorkSteps) -> None:
+    document = parse_xml("<r><v/><v/><v/></r>")
+    work_steps.assert_linear(
+        lambda n: partial(_validate_until_raised, RelaxNG(_crossed_places(start, combine, n)), document), (9, 11)
+    )
+
+
+def _validate_until_raised(schema: RelaxNG, document: Document) -> None:
+    with suppress(ValueError):
+        schema.validate(document)
+
+
+def _crossed_places(start: str, combine: str, count: int) -> str:
+    # Unreferenced elements raise the limits that grow with the schema, so the places outgrow the memo first.
+    unused = "".join(f'<element name="u{index}"><empty/></element>' for index in range(250))
+    return _crossed_chain(
+        _OPTIONAL_V, start, combine, count=count, extra=f'<define name="unused"><choice>{unused}</choice></define>'
+    )
+
+
+@pytest.mark.parametrize("start", _CROSSED_STARTS)
+@pytest.mark.parametrize("combine", ["group", "oneOrMore"])
+def test_rng_crossed_places_past_the_work_limit_raise(start: str, combine: str) -> None:
+    with pytest.raises(ValueError, match="too ambiguous"):
+        RelaxNG(_crossed_places(start, combine, 11)).validate(parse_xml("<r><v/><v/><v/></r>"))
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r><v/><v/><v/></r>", True, id="places-accepted"),
+        pytest.param("<r><v/><w/></r>", False, id="unknown-element"),
+    ],
+)
+@pytest.mark.parametrize("combine", ["group", "oneOrMore"])
+def test_rng_crossed_places_below_the_work_limit_decide(combine: str, xml: str, *, valid: bool) -> None:
+    assert rng_ok(_crossed_places('<ref name="d0"/>', combine, 6), xml) is valid
+
+
+def test_rng_repeated_optional_places_scale_linearly(work_steps: WorkSteps) -> None:
+    document = parse_xml("<doc><v/><v/><v/></doc>")
+    work_steps.assert_linear(
+        lambda n: partial(_validate_until_raised, RelaxNG(rwrap(_OPTIONAL_V * n)), document), (200, 800)
+    )
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<doc><v/><v/><v/></doc>", True, id="places-accepted"),
+        pytest.param("<doc><v/><w/></doc>", False, id="unknown-element"),
+    ],
+)
+def test_rng_repeated_optional_places_below_the_work_limit_decide(xml: str, *, valid: bool) -> None:
+    assert rng_ok(rwrap(_OPTIONAL_V * 200), xml) is valid
+
+
+def test_rng_repeated_optional_places_past_the_work_limit_raise() -> None:
+    with pytest.raises(ValueError, match="too ambiguous"):
+        RelaxNG(rwrap(_OPTIONAL_V * 800)).validate(parse_xml("<doc><v/><v/><v/></doc>"))
+
+
 @pytest.mark.parametrize(
     ("xml", "valid"),
     [
@@ -1693,11 +1764,6 @@ def test_rng_too_many_nested_places_raise(schema: str) -> None:
 def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<r><a><v/></a></r>")
     work_steps.assert_linear(lambda n: partial(_validate_until_raised, RelaxNG(_nested_places(6, n)), document), (5, 6))
-
-
-def _validate_until_raised(schema: RelaxNG, document: Document) -> None:
-    with suppress(ValueError):
-        schema.validate(document)
 
 
 @pytest.mark.parametrize(

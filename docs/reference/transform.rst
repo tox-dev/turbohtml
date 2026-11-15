@@ -29,8 +29,10 @@ adds the XSLT functions ``current()``, ``key()``, ``generate-id()``, ``format-nu
 External-document loading is limited. ``xsl:import`` resolves local paths and file URLs against ``base_url``; the
 imported declarations join conflict resolution at lower import precedence. The compatibility default permits any local
 path. Set ``allow_imports=False`` for an untrusted stylesheet, or set ``import_root`` so parent traversal, absolute
-paths, file URLs, and resolved symlinks must stay inside one directory. ``xsl:include`` and ``document()`` do not
-resolve, and ``document()`` returns an empty node-set.
+paths, file URLs, and resolved symlinks must stay inside one directory. A stylesheet may import one file any number of
+times and each import is loaded and compiled again, so construction raises :class:`ValueError` once the imports number
+more than 1,024 or total more than 8 MiB. ``xsl:include`` and ``document()`` do not resolve, and ``document()`` returns
+an empty node-set.
 
 :class:`Transform` copies the principal and imported stylesheets into private native storage, then builds the stylesheet
 model and compiled XPath programs during construction. Each call allocates source-specific evaluation state; callers can

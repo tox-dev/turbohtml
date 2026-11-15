@@ -101,6 +101,7 @@ typedef struct {
     int quirks;         /* the tree was parsed in quirks mode: class/ID match case-insensitively */
     int has_relational; /* the selector contains a :has() somewhere: a match may want the subtree memo */
     int reads_legend;   /* a :disabled, :enabled, :read-only or :read-write somewhere: a match wants the legend memo */
+    int reads_dir;      /* a :dir() somewhere: a walk over many nodes wants one context for its dir=auto answers */
     th_tree *tree;      /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
 } sel_compiled;
 
@@ -181,7 +182,9 @@ typedef struct {
    (sel_compiled.reads_legend). It holds the :disabled answers that are facts of the tree alone
    (which legends are their fieldset's first, and whether a fieldset above a node disables it), so
    it can share a table with the other two and outlive a scope, for as long as the tree is not
-   mutated. */
+   mutated. It also holds the first strong direction of the nodes a :dir() walk entered, the same
+   kind of fact; when a context has no legend memo, the first such walk points legend_memo at a
+   per-thread table. */
 typedef struct {
     th_tree *tree;
     th_node *scope;
