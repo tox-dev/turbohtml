@@ -1,0 +1,2 @@
+Schema validation and compilation on a worker thread with a small C stack now raise ``RecursionError`` for deeply nested
+schemas instead of crashing the interpreter.

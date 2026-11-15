@@ -36,7 +36,8 @@ enum {
     RX_FAIL_ESCAPE,
     RX_FAIL_GROUP,
     RX_FAIL_QUANTIFIER,
-    RX_FAIL_BRACKET
+    RX_FAIL_BRACKET,
+    RX_FAIL_STACK
 };
 /* Shared by all patterns of one schema: their NFAs stay in the schema arena for as long as the schema lives. */
 #define RX_MAX_STATES 2000000
@@ -102,6 +103,7 @@ typedef struct {
     int has_extended;
     Py_ssize_t fail_pos, fail_end; /* the span a nesting or bound error points at */
     int depth;                     /* open groups on the recursion path, capped at RX_MAX_GROUP_DEPTH */
+    uintptr_t stack_floor;         /* the lowest frame address the parse may run at; see core/stack.h */
 } rparser;
 
 static rnode *rx_node(rparser *parser, int type) {
@@ -614,6 +616,11 @@ static rnode *rx_parse_concat(rparser *parser) {
 }
 
 static rnode *rx_parse_alt(rparser *parser) {
+    if (TH_FRAME_ADDRESS() < parser->stack_floor) {
+        parser->failed = RX_FAIL_STACK;
+        parser->fail_pos = parser->pos;
+        return NULL;
+    }
     rnode *left = rx_parse_concat(parser);
     while (parser->pos < parser->len && parser->pattern[parser->pos] == '|') {
         parser->pos++;
@@ -949,7 +956,12 @@ static int regex_cache_push(th_schema *schema, const Py_UCS4 *text, Py_ssize_t l
 static int regex_cache_add(th_schema *schema, rpattern *pattern) {
     const Py_UCS4 *text = pattern->text;
     const Py_ssize_t len = pattern->len;
-    rparser parser = {.pattern = text, .len = len, .mem = &schema->mem};
+#ifdef TH_STACK_FLOOR
+    const uintptr_t floor = th_stack_floor();
+#else
+    const uintptr_t floor = 0;
+#endif
+    rparser parser = {.pattern = text, .len = len, .mem = &schema->mem, .stack_floor = floor};
     rnode *ast = rx_parse_alt(&parser);
     if (!parser.failed && parser.pos < len) {
         parser.failed = RX_FAIL_GROUP;
@@ -961,6 +973,12 @@ static int regex_cache_add(th_schema *schema, rpattern *pattern) {
     if (failed == RX_FAIL_MEMORY) { /* GCOVR_EXCL_BR_LINE: arena OOM */
         PyErr_NoMemory();           /* GCOVR_EXCL_LINE */
         return -1;                  /* GCOVR_EXCL_LINE */
+    }
+    if (failed == RX_FAIL_STACK) {
+        PyErr_SetString(PyExc_RecursionError,
+                        "schema pattern nests groups deeper than this thread's C stack holds; run the compile on a "
+                        "thread with a larger stack");
+        return -1;
     }
     if (failed == RX_FAIL_NESTING) {
         PyErr_Format(PyExc_ValueError,

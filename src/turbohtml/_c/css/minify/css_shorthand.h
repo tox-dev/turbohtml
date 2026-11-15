@@ -267,7 +267,7 @@ static Py_ssize_t css_position_run(css_buf *pool, const css_comp *items, Py_ssiz
 
 static void css_emit_position_run(comp_vec *result, const pos_val *run, Py_ssize_t count) {
     for (Py_ssize_t index = 0; index < count; index++) {
-        css_comp comp;
+        css_comp comp = {0};
         comp.off = run[index].off;
         comp.len = run[index].len;
         comp.isfunc = 0;
@@ -297,7 +297,7 @@ static void css_handle_background_position(css_buf *pool, comp_vec *comps) {
         if (index == comps->len || at_comma) {
             Py_ssize_t resolved = css_position_run(pool, run_items, run_count, run);
             if (!first_run) {
-                css_comp sep;
+                css_comp sep = {0};
                 sep.off = pool_cstr(pool, ",");
                 sep.len = 1;
                 sep.isfunc = 2;
@@ -674,8 +674,8 @@ static void css_background_run(css_buf *pool, comp_vec *run) {
         index++;
     }
     if (had_tokens && run->len == 0) {
-        css_comp zero_x;
-        css_comp zero_y;
+        css_comp zero_x = {0};
+        css_comp zero_y = {0};
         css_set_comp(pool, &zero_x, "0", CK_NUM);
         css_set_comp(pool, &zero_y, "0", CK_NUM);
         comp_vec_push(run, zero_x);
@@ -697,7 +697,7 @@ static void css_handle_background(css_buf *pool, comp_vec *comps) {
             }
             css_background_run(pool, &run);
             if (!first_run) {
-                css_comp sep;
+                css_comp sep = {0};
                 sep.off = pool_cstr(pool, ",");
                 sep.len = 1;
                 sep.isfunc = 2;
@@ -836,7 +836,7 @@ static css_comp css_font_family_comp(css_buf *pool, css_comp comp) {
             word_start = index + 1;
         }
     }
-    css_comp result;
+    css_comp result = {0};
     if (all_ident) {
         result.off = pool_run(pool, lowered.data, lowered.len);
         result.len = lowered.len;
@@ -1192,10 +1192,14 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
         if (css_handle_unicode_range(vec, start, end, out)) {
             return;
         }
-        /* Rebuilding invalid ranges can join separated U+ and a tokens into a valid range. */
-        const css_token *last = &vec->items[end - 1];
-        cbuf_put_run(out, vec->items[start].text,
-                     last->text + last->text_len + last->unit_len - vec->items[start].text);
+        /* Rebuilding invalid ranges can join separated U+ and a tokens into a valid range. A leading bang comment is
+           written by the step's hoist, so the copy starts at the first token that is not one: the declaration holds
+           such a token, since a value of comments alone is dropped before this point. */
+        Py_ssize_t first = start;
+        while (css_is_bang(&vec->items[first])) {
+            first++;
+        }
+        cbuf_put_run(out, vec->items[first].text, css_raw_end(vec, first, end) - vec->items[first].text);
         if (end == vec->len) {
             css_close_raw_blocks(vec, start, end, out);
         }

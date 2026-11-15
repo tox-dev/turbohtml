@@ -1,0 +1,2 @@
+rewrite() no longer adds a tag where an empty end tag or removed node sat between a ``<`` and text, including raw text
+past the nesting cap.
