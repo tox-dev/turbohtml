@@ -1495,30 +1495,30 @@ typedef struct {
     Py_ssize_t count;
 } css_inline_style;
 
+/* The most answers of the cascade's deep :has() memo, in bytes: 2 MiB of two-bit answers, 8M of them, more than the
+   1.5M the cascade's old hash table held. A page's cascade keeps one memo for every rule and element. */
+#define CSS_DEEP_MEMO_LIMIT ((size_t)1 << 21)
+
 /* The largest :has() table the cascade keeps: 2^21 slots of 24 bytes, 48 MB. Each :has() argument keys its own answers,
    one per element, so without a cap the table grows with arguments times elements. */
 #define CSS_HAS_MEMO_LIMIT ((size_t)1 << 21)
 
-/* The deep memo keeps about two answers per rule and tree node its walks pass, and the table fills to three quarters,
-   so four slots per rule and node keeps a stylesheet of any size under its cap. */
-#define CSS_DEEP_MEMO_SLOTS_PER_RULE_NODE 4
+/* The deep memo's store keeps one 512-byte page per 2048 tree nodes for each key a walk uses, and a rule uses at most
+   four keys, so this many bytes hold every rule's answers over a tree of nodes nodes. */
+#define CSS_DEEP_MEMO_KEYS_PER_RULE 4
+#define CSS_DEEP_MEMO_PAGE_NODES ((size_t)1 << 11)
+#define CSS_DEEP_MEMO_PAGE_BYTES ((size_t)1 << 9)
 
-/* The cap of the deep memo for a stylesheet of rules rules over a tree of nodes nodes, a power of two at least
-   CSS_HAS_MEMO_LIMIT. A product past SIZE_MAX keeps the fixed cap, so the table fills, fails, and the walks take the
-   direct path. */
+/* The cap of the cascade's deep memo for a stylesheet of rules rules over a tree of nodes nodes, at least
+   CSS_DEEP_MEMO_LIMIT. A product past SIZE_MAX keeps the fixed cap, so the store fails and the walks take the direct
+   path. */
 size_t th_css_deep_memo_limit(size_t rules, size_t nodes) {
-    if (rules != 0 && nodes > SIZE_MAX / CSS_DEEP_MEMO_SLOTS_PER_RULE_NODE / rules) {
-        return CSS_HAS_MEMO_LIMIT;
+    const size_t pages = nodes / CSS_DEEP_MEMO_PAGE_NODES + 1;
+    if (rules > SIZE_MAX / CSS_DEEP_MEMO_KEYS_PER_RULE / pages / CSS_DEEP_MEMO_PAGE_BYTES) {
+        return CSS_DEEP_MEMO_LIMIT;
     }
-    const size_t wanted = CSS_DEEP_MEMO_SLOTS_PER_RULE_NODE * rules * nodes;
-    size_t limit = CSS_HAS_MEMO_LIMIT;
-    while (limit < wanted) {
-        if (limit > SIZE_MAX / 2) {
-            return CSS_HAS_MEMO_LIMIT;
-        }
-        limit *= 2;
-    }
-    return limit;
+    const size_t wanted = rules * CSS_DEEP_MEMO_KEYS_PER_RULE * pages * CSS_DEEP_MEMO_PAGE_BYTES;
+    return wanted > CSS_DEEP_MEMO_LIMIT ? wanted : CSS_DEEP_MEMO_LIMIT;
 }
 
 /* How many consecutive levels of an ancestor chain path holds. The HTML tree builder nests no deeper than
@@ -1562,7 +1562,7 @@ typedef struct {
     sel_memo legend_memo;
     /* one answer per rule and long attribute value, a product the page sets both factors of, so capped as has_memo */
     sel_memo value_memo;
-    /* the answers of the ancestor walks on a tree that may nest deep (sel_deep_query), capped as has_memo */
+    /* the answers of the ancestor walks on a tree that may nest deep (sel_deep_query), capped at CSS_DEEP_MEMO_LIMIT */
     sel_deep_memo deep_memo;
 } css_computed_cache;
 
@@ -1590,7 +1590,7 @@ static css_computed_cache *css_computed_new(uint64_t version) {
     cache->attr_version = version;
     cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
-    cache->deep_memo.memo.limit = CSS_HAS_MEMO_LIMIT;
+    cache->deep_memo.limit = CSS_DEEP_MEMO_LIMIT;
     cache->deep_memo.kept = PyMem_Calloc(1, sizeof(sel_deep_kept));
     if (cache->deep_memo.kept == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyMem_Free(cache->initial_text); /* GCOVR_EXCL_LINE: allocation failure */
@@ -2065,6 +2065,7 @@ static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet
                    &cache->legend_memo,
                    &cache->position_memo,
                    &cache->value_memo};
+    cache->deep_memo.failed |= th_tree_seq_wrapped(tree);
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];
@@ -2082,7 +2083,7 @@ static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet
             int best_c = 0;
             for (int alt = 0; alt < compiled->count; alt++) {
                 if (!(deep && compiled->climbs
-                          ? sel_deep_matches_alt(element, &compiled->alts[alt], &ctx, &cache->deep_memo.memo)
+                          ? sel_deep_matches_alt(element, &compiled->alts[alt], &ctx, &cache->deep_memo)
                           : selector_matches_alt(element, &compiled->alts[alt], &ctx))) {
                     continue;
                 }
@@ -2183,7 +2184,9 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
         for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
             rules += (size_t)sheets[sheet].rule_count;
         }
-        cache->deep_memo.memo.limit = th_css_deep_memo_limit(rules, th_tree_node_count(handle->tree));
+        cache->deep_memo.limit = th_css_deep_memo_limit(rules, th_tree_node_count(handle->tree));
+        cache->deep_memo.kept->lists.limit = cache->deep_memo.limit;
+        cache->deep_memo.kept->scoped.limit = cache->deep_memo.limit;
     }
     if (cache->path_len > 0 && cache->path[cache->path_len - 1]->node == element) {
         return css_copy_map(out, cache->path[cache->path_len - 1]->values);

@@ -297,13 +297,37 @@ typedef struct {
     const th_node *scope;
 } sel_deep_counts;
 
-/* The tables of the deep matcher past the ancestor memo, allocated by the first match that needs one. lists keeps the
-   answers of the nested lists one match asks again (sel_simple.nest): whether an alternative that walks matches an
-   element and whether a :has() holds for one, which hold under any scope; scoped keeps the answers that depend on the
-   scope element, for scoped_for alone. */
+/* The deep stand-in's answers: two bits (unknown, no, yes) per key and node, a key being a pointer into the selector
+   (a :has() compound index, an ancestor target or a simple). A key's pages are indexed by node->seq, which the
+   tree numbers from 0 in creation order, and a page exists once a node in its block is stored. The memo holds
+   at most limit bytes of pages and directories, and past that, or when allocation fails, it is failed and the
+   matcher walks directly. */
 typedef struct {
-    sel_memo lists;
-    sel_memo scoped;
+    const void *key;       /* NULL marks an empty slot */
+    unsigned char **pages; /* a page per block of SEL_DEEP_PAGE_NODES seqs, NULL until one of its nodes is stored */
+    size_t pages_len;
+} sel_deep_key;
+
+typedef struct sel_deep_kept sel_deep_kept;
+
+typedef struct {
+    sel_deep_key *keys; /* open addressing by key, NULL until the first store */
+    size_t mask;        /* capacity - 1 */
+    size_t count;       /* keys stored */
+    sel_deep_key *last; /* the slot of the key looked up last, valid until the table grows */
+    size_t bytes;       /* bytes of pages and page directories allocated */
+    size_t limit;       /* the most bytes of pages and directories a caller sets */
+    int failed;         /* past the limit or out of memory: the matcher walks directly */
+    sel_deep_kept
+        *kept; /* the tables past the ancestor memo, allocated by the first match that needs one, on the heap */
+} sel_deep_memo;
+
+/* The tables of the deep matcher past the ancestor memo. lists keeps the answers of the nested lists one match asks
+   again (sel_simple.nest): whether an alternative that walks matches an element and whether a :has() holds for one,
+   which hold under any scope; scoped keeps the answers that depend on the scope element, for scoped_for alone. */
+struct sel_deep_kept {
+    sel_deep_memo lists;
+    sel_deep_memo scoped;
     const th_node *scoped_for;
     /* the driver binds :scope to the element it tests (the cascade, matches(), Matcher.filter), so an answer about any
        other element the match reaches holds under every scope, unless it reads siblings after the element */
@@ -311,15 +335,7 @@ typedef struct {
     sel_deep_counts *counts;
     int count_slots;
     sel_position_memo positions; /* sibling positions inside an 'of S' clause, for a context that has none */
-} sel_deep_kept;
-
-/* The memo of the deep matcher. memo comes first, so the matcher, which threads a sel_memo pointer, reaches kept
-   (sel_deep_tables). kept stays on the heap: a stand-in any larger than a table and a pointer grows the stack frame of
-   every query enough to change how the compiler inlines the query loops. */
-typedef struct {
-    sel_memo memo;
-    sel_deep_kept *kept;
-} sel_deep_memo;
+};
 
 void sel_deep_memo_free(sel_deep_memo *memo);
 
@@ -339,7 +355,7 @@ typedef struct {
 
 sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep);
 /* Match one alternative as selector_matches_alt does, keeping the answers of the ancestor walks in memo. */
-int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_memo *memo);
+int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo);
 
 /* Whether a query over compiled runs on a stand-in: compiled climbs on a tree that may nest deep, or climbs from its
    climbs on any tree. */

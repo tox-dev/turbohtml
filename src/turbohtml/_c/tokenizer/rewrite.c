@@ -432,9 +432,9 @@ typedef struct {
     Py_ssize_t retired_len;
     Py_ssize_t open_len;
     uint32_t next_seq; /* the value memo hashes a spine element by its seq */
-    /* Some rules run on stand-ins (rw_go_deep), whose memos key an element by its address, so a closed element waits in
-       the retired list (linked through its parent) until the memos are emptied, and no later element can take its
-       address while an entry names it. The memos are emptied once RW_DEEP_RETIRED_MAX elements wait. */
+    /* Some rules run on stand-ins (rw_go_deep), whose memos hold answers for elements by their seq, so a closed element
+       waits in the retired list (linked through its parent) until the memos are emptied. The memos are emptied once
+       RW_DEEP_RETIRED_MAX elements wait. */
     int deep;
     th_node *retired_nodes;
     Py_ssize_t retired_node_count;
