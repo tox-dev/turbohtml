@@ -3937,8 +3937,11 @@ static void md_list_number_before(md_ctx *ctx, th_node *container, th_node *targ
 
 static void md_render_root_item(md_ctx *ctx, th_node *node) {
     th_node *list = node->parent;
+    /* an item is never a wrapper, even around an item the parser foster-parented into it: the list
+       renders and counts that item and looks for none inside, so climbing through it would name a list
+       whose scan cannot reach node */
     while (list != NULL && list->atom != TH_TAG_UL && list->atom != TH_TAG_OL && list->atom != TH_TAG_MENU &&
-           md_is_item_wrapper(list)) {
+           list->atom != TH_TAG_LI && md_is_item_wrapper(list)) {
         list = list->parent;
     }
     int in_list = list != NULL && list->ns == TH_NS_HTML &&
