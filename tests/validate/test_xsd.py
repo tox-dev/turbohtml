@@ -4215,6 +4215,40 @@ def test_xsd_long_decimal_bound(value: str, *, expected: bool) -> None:
 
 
 @pytest.mark.parametrize(
+    ("base", "value", "expected"),
+    [
+        pytest.param("xs:integer", f"{'0' * 64}250", False, id="zeros-then-digits-out-of-bound"),
+        pytest.param("xs:integer", f"{'0' * 90}50", True, id="zeros-then-digits-in-bound"),
+        pytest.param("xs:decimal", f"{'0' * 64}250.5", False, id="decimal-zeros-then-digits-out-of-bound"),
+        pytest.param("xs:double", f"5.{'0' * 80}e30", False, id="long-fraction-then-exponent-out-of-bound"),
+        pytest.param("xs:float", f"5.{'0' * 80}e30", False, id="float-long-fraction-then-exponent-out-of-bound"),
+        pytest.param("xs:double", f"1{'0' * 70}e-70", True, id="long-integer-then-exponent-in-bound"),
+    ],
+)
+def test_xsd_long_number_range(base: str, value: str, *, expected: bool) -> None:
+    # the digits or exponent that decide the comparison sit past the 63rd character of the value
+    assert check(restricted('<xs:maxInclusive value="100"/>', base), f"<v>{value}</v>").valid is expected
+
+
+def test_xsd_long_range_facet_value() -> None:
+    schema: Final = restricted(f'<xs:maxInclusive value="{"0" * 80}3"/>', "xs:integer")
+    assert [check(schema, f"<v>{value}</v>").valid for value in ("3", "4")] == [True, False]
+
+
+def test_xsd_long_number_buffer_grows_per_value() -> None:
+    # one validate() call grows its buffer for each longer value and reuses it for shorter ones
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:integer">'
+        '<xs:maxInclusive value="100"/></xs:restriction></xs:simpleType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    in_bound: Final = "".join(f"<v>{'0' * (length - 2)}50</v>" for length in (3, 64, 100, 300, 200))
+    out_of_bound: Final = f"{in_bound}<v>{'0' * 199}101</v>"
+    assert [check(schema, f"<r>{document}</r>").valid for document in (in_bound, out_of_bound)] == [True, False]
+
+
+@pytest.mark.parametrize(
     "document",
     [
         pytest.param("<v>bad</v>", id="datatype"),
