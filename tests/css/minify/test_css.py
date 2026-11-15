@@ -3439,12 +3439,12 @@ def test_minify_css_unicode_range_keeps_split_tokens(value: str) -> None:
         pytest.param("a{b:u+ag}", "a{b:u+ag}", id="name-after-hex"),
         pytest.param("a{b:U+1-2gh}", "a{b:U 1 -2gh}", id="name-after-span"),
         pytest.param("a{b:u+1234567}", "a{b:u 1234567}", id="seventh-digit"),
-        pytest.param("a{b:u+1%}", "a{b:u 1%}", id="percentage"),
+        pytest.param("a{b:u+36%}", "a{b:u 36%}", id="percentage"),
         pytest.param("a{b:u+1.5}", "a{b:u 1.5}", id="fraction"),
         pytest.param("a{b:u+1-.5}", "a{b:u 1-.5}", id="fraction-after-dash"),
         pytest.param("a{b:u+1.c,u+4??d}", "a{b:u+1.c,u+4??d}", id="range-before-delimiter"),
-        pytest.param("a{b:u+a/**/(c)}", "a{b:u+a(c)}", id="range-before-block"),
-        pytest.param("a{b:u+a", "a{b:u+a}", id="range-at-end-of-input"),
+        pytest.param("a{b:u+b/**/(c)}", "a{b:u+b(c)}", id="range-before-block"),
+        pytest.param("a{b:u+c", "a{b:u+c}", id="range-at-end-of-input"),
     ],
 )
 def test_minify_css_unicode_range_ends_where_its_tokens_end(source: str, expected: str) -> None:
