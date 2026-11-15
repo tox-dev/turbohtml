@@ -114,6 +114,11 @@ def test_external_only_keeps_other_sites() -> None:
         pytest.param("https://a.test.com/", "https://b.test.com/x", id="sibling-subdomains-share-etld1"),
         pytest.param("https://spam.example.co.uk/", "https://example.co.uk/x", id="multi-suffix-same-site"),
         pytest.param("https://sub.tv.com/", "https://other.tv.com/x", id="tld-like-label-is-not-a-suffix"),
+        pytest.param("https://www.maple-trade.org./", "https://blog.maple-trade.org./x", id="trailing-dot-subdomains"),
+        pytest.param("https://www.maple-trade.org./", "https://maple-trade.org./x", id="trailing-dot-apex"),
+        pytest.param(
+            "https://spam.maple-trade.com.au./", "https://maple-trade.com.au./x", id="trailing-dot-multi-suffix"
+        ),
     ],
 )
 def test_external_boundary_drops_the_href(base: str, href: str) -> None:
@@ -130,6 +135,15 @@ def test_external_boundary_drops_the_href(base: str, href: str) -> None:
         pytest.param("https://foo.github.io/", "https://bar.github.io/x", id="private-suffix-github-io"),
         pytest.param("https://www.ck/", "https://other.ck/x", id="wildcard-and-exception-suffix"),
         pytest.param("http://192.0.2.1/", "http://198.51.100.2/x", id="ip-hosts-compare-whole"),
+        pytest.param("https://harbor.com.au./", "https://other.com.au./x", id="trailing-dot-distinct-registrants"),
+        pytest.param("https://foo.pages.dev./", "https://bar.pages.dev./x", id="trailing-dot-private-suffix"),
+        pytest.param(
+            "https://www.city.kawasaki.jp./", "https://other.kawasaki.jp./x", id="trailing-dot-wildcard-exception"
+        ),
+        pytest.param(
+            "https://www.maple-trade.org./", "https://maple-trade.org.attacker.net./x", id="trailing-dot-suffix-attack"
+        ),
+        pytest.param("https://www.maple-trade.org/", "https://www.maple-trade.org./x", id="trailing-dot-only-on-link"),
     ],
 )
 def test_external_boundary_keeps_the_href(base: str, href: str) -> None:
