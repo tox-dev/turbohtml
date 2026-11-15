@@ -1,2 +1,1 @@
-Stop ``iter_elements``, ``select`` and ``find_all`` from crashing or returning stale results after ``linkify_node``
-changes a link.
+Stop ``iter_elements`` from crashing when ``linkify_node`` unwraps or replaces a link the walk is about to visit.
