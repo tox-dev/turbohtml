@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from functools import partial
 from typing import TYPE_CHECKING, Final, Protocol
 
@@ -2691,3 +2693,113 @@ def test_closest_under_long_value_in_linear_time(work_steps: WorkSteps) -> None:
         return partial(parse(f'<section class="{"w " * size}">{"<div>" * size}').select("div")[-1].closest, ".hit *")
 
     work_steps.assert_linear(deepest, (250, 1000))
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [
+        pytest.param(
+            "n = 6_144\n"
+            'document = parse_xml("<s>" * n + "<t/>" + "</s>" * n)\n'
+            'call = lambda: document.select(" > ".join(["s"] * n + ["t"]))\n',
+            id="child",
+        ),
+        pytest.param(
+            "n = 6_144\n"
+            'document = parse_xml("<r>" + "<s/>" * n + "<t/></r>")\n'
+            'call = lambda: document.select(" ~ ".join(["s"] * n + ["t"]))\n',
+            id="general-sibling",
+        ),
+        pytest.param(
+            "n = 6_144\n"
+            'document = parse_xml("<s>" * n + "<t/>" + "</s>" * n)\n'
+            'call = lambda: document.select(" ".join(["s"] * n + ["t"]))\n',
+            id="descendant-deep-tree",
+        ),
+        pytest.param(
+            "n = 6_144\n"
+            'document = parse_xml("<r>" + "<u>" * 600 + "</u>" * 600 + "<s/>" * n + "<t/></r>")\n'
+            'call = lambda: document.select("r " + " ~ ".join(["s"] * n + ["t"]))\n',
+            id="general-sibling-deep-tree",
+        ),
+        pytest.param(
+            "n = 6_144\n"
+            'document = parse_xml("<r><u/>" + "<s/>" * n + "<t/></r>")\n'
+            'call = lambda: document.select("u:has(~ " + " ~ ".join(["s"] * n + ["t"]) + ")")\n',
+            id="has-general-sibling",
+        ),
+        pytest.param(
+            "n = 6_144\n"
+            'document = parse_xml("<s>" * n + "<t/>" + "</s>" * n)\n'
+            'call = lambda: [document.select_one("s:has(" + " ".join(["s"] * (n - 1) + ["t"]) + ")")]\n',
+            id="has-descendant-deep-tree",
+        ),
+        pytest.param(
+            'selector = "t"\n'
+            "for _ in range(30):\n"
+            "    selector = ':is(' + selector + ') > ' + ' > '.join(['s'] * 29)\n"
+            'document = parse_xml("<r><s/></r>")\n'
+            "call = lambda: document.select(selector)\n",
+            id="summed-over-nesting",
+        ),
+    ],
+)
+def test_long_selector_chain_raises_recursion_error_on_a_small_stack(setup: str) -> None:
+    code = (
+        "import threading\n"
+        "from turbohtml import parse, parse_xml\n"
+        f"{setup}"
+        "outcome = []\n"
+        "def run():\n"
+        "    try:\n"
+        "        outcome.append(len(call()))\n"
+        "    except RecursionError as error:\n"
+        "        outcome.append(str(error))\n"
+        "threading.stack_size(256 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(outcome[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr
+
+
+def test_long_selector_chain_cached_on_a_large_stack_raises_on_a_small_one() -> None:
+    code = (
+        "import threading\n"
+        "from turbohtml import parse_xml\n"
+        "document = parse_xml('<s>' * 199 + '<t/>' + '</s>' * 199)\n"
+        "selector = ' > '.join(['s'] * 199 + ['t'])\n"
+        "print(len(document.select(selector)))\n"
+        "outcome = []\n"
+        "def run():\n"
+        "    try:\n"
+        "        outcome.append(len(document.select(selector)))\n"
+        "    except RecursionError as error:\n"
+        "        outcome.append(str(error))\n"
+        "threading.stack_size(256 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(outcome[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param(" > ".join(["s"] * 199 + ["t"]), ["t"], id="chain"),
+        pytest.param(f"{' > '.join(['s'] * 199 + ['t'])}, t:first-child", ["t"], id="shorter-alternative-after"),
+        pytest.param(f":is({' > '.join(['s'] * 199)}) > t:is(t)", ["t"], id="shorter-nested-list-after"),
+    ],
+)
+def test_long_selector_chain_matches_when_the_stack_holds_it(selector: str, expected: list[str]) -> None:
+    document = parse_xml(f"{'<s>' * 199}<t/>{'</s>' * 199}")
+    assert [element.tag for element in document.select(selector)] == expected

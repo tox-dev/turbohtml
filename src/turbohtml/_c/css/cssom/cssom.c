@@ -1476,6 +1476,7 @@ typedef struct {
     const th_node *style;
     int supported;
     int nests_climbs; /* a rule's selector climbs from its climbs (sel_compiled.climbs 2) */
+    Py_ssize_t chain; /* the longest chain of a rule's selector (sel_compiled.chain) */
 } css_sheet;
 
 typedef struct {
@@ -1908,6 +1909,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
         }
         Py_ssize_t alternative_count = 0;
         int nests_climbs = 0;
+        Py_ssize_t chain = 0;
         for (Py_ssize_t rule = 0; rule < rule_count; rule++) {
             PyObject *selector = css_slice_str(rules[rule].selector, rules[rule].selector_len);
             if (selector == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1938,6 +1940,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
                 css_prioritize_subject(compiled[rule]);
                 alternative_count += compiled[rule]->count;
                 nests_climbs |= compiled[rule]->climbs > 1;
+                chain = compiled[rule]->chain > chain ? compiled[rule]->chain : chain;
             }
         }
         sheets[count - 1].clean = clean;
@@ -1945,6 +1948,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
         sheets[count - 1].rule_count = rule_count;
         sheets[count - 1].compiled = compiled;
         sheets[count - 1].nests_climbs = nests_climbs;
+        sheets[count - 1].chain = chain;
         if (alternative_count == 0) {
             continue;
         }
@@ -2000,6 +2004,11 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
         }
         handle->css_sheets = sheets;
         handle->css_sheet_count = count;
+        Py_ssize_t chain = 0;
+        for (Py_ssize_t sheet = 0; sheet < count; sheet++) {
+            chain = sheets[sheet].chain > chain ? sheets[sheet].chain : chain;
+        }
+        handle->css_sheet_chain = chain;
         handle->css_sheet_attr_gen = attr_gen;
         handle->css_sheets_ready = 1;
     }
@@ -2132,11 +2141,15 @@ static int css_path_push(css_computed_cache *cache, th_node *element, const css_
     return 0;
 }
 
+/* Returns 0, -1 on allocation failure, or -2 with RecursionError set. */
 static int css_compute_map(module_state *state, HandleObject *handle, th_node *element, css_value *out) {
     Py_ssize_t sheet_count = 0;
     const css_sheet *const sheets = css_cached_sheets(state, handle, &sheet_count);
     if (sheet_count < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;         /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    if (sel_stack_check(handle->css_sheet_chain) < 0) {
+        return -2;
     }
     const uint64_t version = th_tree_attr_version(handle->tree);
     css_computed_cache *cache = handle->css_computed;
@@ -2213,13 +2226,13 @@ PyObject *turbohtml_css_computed_style(PyObject *module, PyObject *arg) {
     HandleObject *handle = (HandleObject *)handle_obj;
     th_node *element = ((NodeObject *)arg)->node;
     css_value final_map[NUM_PROPS] = {0};
-    int failed = 0;
+    int status = 0;
     Py_BEGIN_CRITICAL_SECTION(handle_obj); /* per-tree lock: sheet collection and matching read the tree */
-    failed = css_compute_map(state, handle, element, final_map) < 0;
+    status = css_compute_map(state, handle, element, final_map);
     Py_END_CRITICAL_SECTION();
-    if (failed) {                /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        css_free_map(final_map); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (status < 0) {
+        css_free_map(final_map);
+        return status == -1 ? PyErr_NoMemory() : NULL; /* GCOVR_EXCL_BR_LINE: only an allocation failure gives -1 */
     }
     PyObject *result = PyTuple_New(NUM_PROPS);
     if (result == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

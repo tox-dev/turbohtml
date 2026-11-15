@@ -1920,14 +1920,18 @@ PyDoc_STRVAR(select_doc, "select(selector, /)\n--\n\n"
                          ":param selector: the CSS selector.\n"
                          ":returns: the matching descendant Elements in document order.\n"
                          ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                         "    and the source offset.");
+                         "    and the source offset.\n"
+                         ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                         "    this thread has left can match.");
 
 PyDoc_STRVAR(select_one_doc, "select_one(selector, /)\n--\n\n"
                              "Find the first descendant Element matching a CSS selector.\n\n"
                              ":param selector: the CSS selector.\n"
                              ":returns: the first matching Element, or None.\n"
                              ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                             "    and the source offset.");
+                             "    and the source offset.\n"
+                             ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                             "    this thread has left can match.");
 
 PyDoc_STRVAR(xpath_doc, "xpath(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
                         "Evaluate an XPath expression relative to this node. A node-set returns a list\n"
@@ -1982,7 +1986,9 @@ PyDoc_STRVAR(matches_doc, "matches(selector, /)\n--\n\n"
                           ":param selector: the CSS selector.\n"
                           ":returns: whether this node is an Element that matches.\n"
                           ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                          "    and the source offset.");
+                          "    and the source offset.\n"
+                          ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                          "    this thread has left can match.");
 
 PyDoc_STRVAR(closest_doc, "closest(selector, /)\n--\n\n"
                           "Find the nearest Element matching a CSS selector, testing this node then each\n"
@@ -1990,7 +1996,9 @@ PyDoc_STRVAR(closest_doc, "closest(selector, /)\n--\n\n"
                           ":param selector: the CSS selector.\n"
                           ":returns: the nearest matching Element, or None.\n"
                           ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                          "    and the source offset.");
+                          "    and the source offset.\n"
+                          ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                          "    this thread has left can match.");
 
 PyDoc_STRVAR(prune_doc, "prune(selector, /)\n--\n\n"
                         "Keep only the descendants matching a CSS selector, together with their\n"
@@ -2001,7 +2009,9 @@ PyDoc_STRVAR(prune_doc, "prune(selector, /)\n--\n\n"
                         ":param selector: the CSS selector the kept descendants must match.\n"
                         ":returns: this node.\n"
                         ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                        "    and the source offset.");
+                        "    and the source offset.\n"
+                        ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                        "    this thread has left can match.");
 
 PyDoc_STRVAR(remove_doc, "remove(selector, /)\n--\n\n"
                          "Drop every descendant Element matching the CSS selector, each with its\n"
@@ -2011,7 +2021,9 @@ PyDoc_STRVAR(remove_doc, "remove(selector, /)\n--\n\n"
                          ":param selector: the CSS selector the dropped descendants must match.\n"
                          ":returns: this node.\n"
                          ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                         "    and the source offset.");
+                         "    and the source offset.\n"
+                         ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                         "    this thread has left can match.");
 
 PyDoc_STRVAR(strip_tags_doc, "strip_tags(selector, /)\n--\n\n"
                              "Unwrap every descendant Element matching the CSS selector, replacing each\n"
@@ -2021,7 +2033,9 @@ PyDoc_STRVAR(strip_tags_doc, "strip_tags(selector, /)\n--\n\n"
                              ":param selector: the CSS selector the unwrapped descendants must match.\n"
                              ":returns: this node.\n"
                              ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
-                             "    and the source offset.");
+                             "    and the source offset.\n"
+                             ":raises RecursionError: the selector chains more compound selectors than the C stack\n"
+                             "    this thread has left can match.");
 
 static PyObject *node_serialize(PyObject *self, PyObject *args, PyObject *kwds);
 

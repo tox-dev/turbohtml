@@ -144,6 +144,7 @@ typedef struct {
     int xpath_cache_len;
     void *css_sheets;
     Py_ssize_t css_sheet_count;
+    Py_ssize_t css_sheet_chain; /* the longest chain of any sheet's rule (sel_compiled.chain), set with the sheets */
     uint32_t css_sheet_attr_gen;
     uint64_t css_sheet_attr_version; /* the tree's attribute version the <style> types were last checked at */
     int css_sheets_ready;

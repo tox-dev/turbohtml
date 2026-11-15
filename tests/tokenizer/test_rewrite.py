@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import random
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from bisect import bisect_left
 from collections import Counter
 from difflib import SequenceMatcher
@@ -2918,3 +2920,25 @@ def test_rewrite_long_class_above_many_elements_in_linear_time(child: str, work_
         ),
         (250, 1000),
     )
+
+
+def test_long_selector_chain_raises_recursion_error_on_a_small_stack() -> None:
+    code = (
+        "import threading\n"
+        "from turbohtml.rewrite import rewrite\n"
+        "outcome = []\n"
+        "def run():\n"
+        "    try:\n"
+        '        outcome.append(rewrite("<s></s>", elements=[(" ".join(["s"] * 6_144), lambda element: None)]))\n'
+        "    except RecursionError as error:\n"
+        "        outcome.append(str(error))\n"
+        "threading.stack_size(256 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(outcome[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr

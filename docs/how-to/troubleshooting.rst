@@ -81,6 +81,10 @@ A malformed CSS selector raises :class:`~turbohtml.SelectorSyntaxError`, and a m
 
     bad selector
 
+A selector that chains thousands of compound selectors can need more C stack than the calling thread has left. Matching
+it then raises :class:`RecursionError` before any element is tested, instead of crashing the process. Split the selector
+into several queries, or run it on a thread with a larger stack.
+
 ******************************
  Encoding detection is opt-in
 ******************************

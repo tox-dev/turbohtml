@@ -2,19 +2,13 @@
    the matcher and recursive-descent parser live here as one translation unit, and
    selector.h now carries only the shared types plus the entry-point prototypes. */
 
+#include "core/common.h"
+#include "core/stack.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "css/select/selector.h"
 
 #include <limits.h>
-
-#if defined(_MSC_VER)
-#define TH_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define TH_NOINLINE __attribute__((noinline))
-#else
-#define TH_NOINLINE
-#endif
 
 /* Record a parse failure with the position and reason for the error message. Set
    unconditionally: an error propagates up through early returns without another
@@ -929,6 +923,7 @@ static int sel_complex_parse(sel_parser *parser, sel_complex *complex, int neste
         compounds[count].count = simple_count;
         compounds[count].combinator = combinator;
         count++;
+        parser->compounds++;
         int saw_ws = parser->pos < parser->len && is_space(parser->src[parser->pos]);
         sel_skip_ws(parser);
         if (parser->pos >= parser->len) {
@@ -1168,6 +1163,56 @@ static int sel_alts_climb(const sel_complex *alts, int count, int relative) {
     return climbs;
 }
 
+/* The C stack one compound of a chain may take in any matcher family: about three times the most measured with gcc
+   -O2 and LTO (a :has() sibling split, 0.33 KiB), leaving room for the frames of unoptimized and other compilers. */
+enum { SEL_CHAIN_BYTES = 1024 };
+
+#ifndef TH_STACK_FLOOR
+/* Where the platform reports no stack bounds, the room assumed left: a 512 KiB thread less the margin other stack
+   guards keep and the frames of the caller, as the JavaScript parser assumes. */
+enum { SEL_FALLBACK_STACK = 384 * 1024 };
+#endif
+
+/* The most compounds a match of alts recurses through. Each combinator step of the matcher goes one call deeper per
+   compound, and the list of a functional pseudo-class starts its own chain on top, so the chains add up along the
+   nesting. */
+static Py_ssize_t sel_alts_chain(const sel_complex *alts, int count) {
+    Py_ssize_t longest = 0;
+    for (int alt = 0; alt < count; alt++) {
+        const sel_complex *complex = &alts[alt];
+        Py_ssize_t nested = 0;
+        for (int index = 0; index < complex->count; index++) {
+            const sel_compound *compound = &complex->compounds[index];
+            for (int at = 0; at < compound->count; at++) {
+                const sel_simple *simple = &compound->simples[at];
+                if (simple->kind == ':' && simple->sub != NULL) {
+                    const Py_ssize_t inner = sel_alts_chain(simple->sub, simple->sub_count);
+                    nested = inner > nested ? inner : nested;
+                }
+            }
+        }
+        const Py_ssize_t chain = complex->count + nested;
+        longest = chain > longest ? chain : longest;
+    }
+    return longest;
+}
+
+TH_NOINLINE int sel_stack_check_chain(Py_ssize_t chain) {
+#ifdef TH_STACK_FLOOR
+    const intptr_t room = (intptr_t)(TH_FRAME_ADDRESS() - th_stack_floor());
+#else
+    const intptr_t room = SEL_FALLBACK_STACK;
+#endif
+    if (room / SEL_CHAIN_BYTES >= chain) {
+        return 0;
+    }
+    PyErr_Format(PyExc_RecursionError,
+                 "the selector chains %zd compound selectors, more than the C stack this thread has left can match; "
+                 "split it, or run it on a thread with a larger stack",
+                 chain);
+    return -1;
+}
+
 /* Compile a selector string against the tree it will run on. Returns NULL with a
    SelectorSyntaxError set on a syntax error. */
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str) {
@@ -1182,7 +1227,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     }
     compiled->quirks = th_tree_quirks(tree);
     compiled->tree = tree;
-    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token"};
+    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token", 0};
     if (sel_parse_alts(&parser, &compiled->alts, &compiled->count, 0, 0, 0) < 0) {
         sel_raise(selector_error, selector_str, &parser);
         PyMem_Free(compiled->source);
@@ -1193,6 +1238,9 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
     compiled->reads_dir = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_dir_pseudo);
     compiled->climbs = sel_alts_climb(compiled->alts, compiled->count, 0);
+    /* the parsed total bounds the chain, so the walk runs only for a selector long enough to reach the check */
+    compiled->chain =
+        parser.compounds > SEL_CHAIN_CHECK ? sel_alts_chain(compiled->alts, compiled->count) : parser.compounds;
     return compiled;
 }
 
