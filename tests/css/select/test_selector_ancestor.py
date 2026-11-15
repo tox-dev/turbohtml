@@ -14,6 +14,7 @@ from turbohtml.rewrite import rewrite
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
     from turbohtml.rewrite import Element as RewriteElement
@@ -731,3 +732,49 @@ def _observed(depth: int) -> Document:
     MutationObserver().observe(document, child_list=True, subtree=True)
     _top(document).append(Element("x"))
     return document
+
+
+@pytest.mark.parametrize(
+    ("above", "count"),
+    [
+        pytest.param(999, 1, id="reaches"),
+        pytest.param(998, 0, id="misses"),
+    ],
+)
+def test_select_deep_has_past_memo_bound(above: int, count: int) -> None:
+    # an i with `above` d's over it, then a run of 5000 d's holding no i: d^999 i matches only if 999 d's sit over the i
+    document: Final = parse_xml(f"<doc>{'<d>' * above}<i/>{'<d>' * 5000}{'</d>' * 5000}{'</d>' * above}</doc>")
+    assert len(document.select(f"doc:has({'d ' * 999}i)")) == count
+
+
+def test_select_deep_has_memo_stays_within_budget(peak_bytes: PeakBytes) -> None:
+    # past the memo's bound the walk carries on without it, so the traced peak stays far below the unbounded table
+    peak: Final = peak_bytes(
+        "import tracemalloc\n"
+        "from turbohtml import parse_xml\n"
+        "above = 998\n"
+        "chain = '<d>' * above + '<i/>' + '<d>' * 5000\n"
+        "document = parse_xml('<doc>' + chain + '</d>' * 5000 + '</d>' * above + '</doc>')\n"
+        "tracemalloc.start()\n"
+        "found = document.select('doc:has(' + 'd ' * 999 + 'i)')\n"
+        "assert not found\n"
+        "print(tracemalloc.get_traced_memory()[1])\n",
+        (),
+    )
+    assert peak < 128 * 1024 * 1024, peak
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        pytest.param("section:has(div b)", id="descendant-pair"),
+        pytest.param("div:has(p b i)", id="descendant-triple"),
+        pytest.param("section:has(p > b i)", id="child-pair"),
+        pytest.param("div:has(u ~ b i)", id="general-sibling-inside"),
+        pytest.param("section:has(b + u)", id="adjacent-inside"),
+        pytest.param("section:has(p b x)", id="descendant-missing"),
+    ],
+)
+def test_deep_has_matches_parsed_page_per_compound(selector: str) -> None:
+    # the same page through the ordinary matcher and through the deep stand-in, whose :has() memo keys each compound
+    assert _paths(_deep(_SIBLINGS).select(selector)) == _paths(parse(_SIBLINGS).select(selector))

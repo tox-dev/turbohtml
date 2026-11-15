@@ -3547,8 +3547,13 @@ static TH_NOINLINE int sel_deep_match(th_node *node, const sel_simple *simple, c
     return sel_deep_alts(node, simple->sub, simple->sub_count, ctx, &deep->memo);
 }
 
+/* The most slots the stand-in's memo grows to, the same bound as the cascade's :has() table (CSS_HAS_MEMO_LIMIT). Keys
+   are one per compound index and node, so past it the matcher walks directly and memory stops growing with the
+   selector's length times the depth. */
+#define SEL_DEEP_MEMO_LIMIT ((size_t)1 << 21)
+
 sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep) {
-    deep->memo = (sel_memo){0};
+    deep->memo = (sel_memo){.limit = SEL_DEEP_MEMO_LIMIT};
     deep->simple =
         (sel_simple){.kind = ':', .pseudo = PSEUDO_DEEP, .sub = compiled->alts, .sub_count = compiled->count};
     deep->compound = (sel_compound){&deep->simple, 1, ' '};

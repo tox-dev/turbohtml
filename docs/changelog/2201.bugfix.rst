@@ -1,0 +1,1 @@
+Selector queries with a long ``:has()`` argument on a very deep tree use bounded memory now, and match more slowly past that bound.
