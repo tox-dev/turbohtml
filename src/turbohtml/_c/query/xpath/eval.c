@@ -691,9 +691,9 @@ static int ns_enter(struct xp_ns_index *index, struct th_tree *tree, struct th_n
         if (attr_colon != NULL) {
             attr_local = attr_colon + 1;
             attr_local_len = name_len - (attr_local - name);
-            if (ns_prefixed_id(index, tree, name, attr_colon - name, &pair.ns) <
-                0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return -1; /* GCOVR_EXCL_LINE */
+            int status = ns_prefixed_id(index, tree, name, attr_colon - name, &pair.ns);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;    /* GCOVR_EXCL_LINE */
             }
         }
         pair.local = ns_intern(index, attr_local, attr_local_len);
@@ -4774,7 +4774,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
         NULL,
         name_test,
         name_test_ctx,
-        name_test == NULL && th_tree_is_xml(tree),
+        name_test == NULL,
         &root,
         NULL,
 #ifdef TH_OPERATION_LIMIT
