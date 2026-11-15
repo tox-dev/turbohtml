@@ -1263,8 +1263,8 @@ static int rw_validate_simple(sel_simple *simple, th_tree *tree, const char **re
     if (simple->kind == '[' &&
         simple->attr_atom == UINT32_MAX) { /* a custom attribute selector always carries a name */
         rw_key key;
-        if (rw_key_encode(&key, PyUnicode_4BYTE_KIND, simple->name, simple->name_len) <
-            0) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        const int failed = rw_key_encode(&key, PyUnicode_4BYTE_KIND, simple->name, simple->name_len) < 0;
+        if (failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return 0; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         simple->attr_atom = intern_attr_dynamic(tree, key.bytes, key.len);
@@ -1337,8 +1337,8 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *attr = &token->attrs[index];
             rw_key key;
-            if (rw_key_encode(&key, attr->name.kind, attr->name.data, attr->name.len) <
-                0) {                      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            const int failed = rw_key_encode(&key, attr->name.kind, attr->name.data, attr->name.len) < 0;
+            if (failed) {                 /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 node->attr_count = index; /* GCOVR_EXCL_LINE: allocation-failure path */
                 rw_free_node(node);       /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
