@@ -121,6 +121,7 @@ typedef struct {
        skips it (a shared pool would race) and keeps the tp_alloc/tp_free path. */
     PyObject *node_freelist;
     int node_freelist_len;
+    uint64_t handles_created; /* numbers each _TreeHandle, so no two trees salt their node hashes alike */
 } module_state;
 
 /* Register the types and enum into module/state. Each returns 0 or -1. */
