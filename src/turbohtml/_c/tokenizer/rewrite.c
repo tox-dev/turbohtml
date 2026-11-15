@@ -415,8 +415,7 @@ typedef struct {
     Py_ssize_t closing_cap;
     /* a handler edit may change how a parse reads the markup after it (see rw_note_element_edits) */
     int edited;
-    int frameset_hazard; /* a removed element would have made a parse ignore a later <frameset> */
-    int untracked_raw;   /* a raw-text or RCDATA element past the depth guard is open, which the spine does not track */
+    int frameset_hazard;    /* a removed element would have made a parse ignore a later <frameset> */
     Py_ssize_t *attr_index; /* position + 1 per slot, 0 when free; NULL until a by-name call needs it */
     size_t attr_index_cap;  /* power-of-two slot count, at least twice the attribute slots */
     uint64_t attr_seed;     /* salt so chosen attribute names cannot flood one slot */
@@ -435,7 +434,9 @@ typedef struct {
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
    but not pushed, so a pathologically deep or unclosed input keeps the spine (and the C
-   stack the selector matcher walks) bounded rather than growing without limit. */
+   stack the selector matcher walks) bounded rather than growing without limit. A raw-text
+   or RCDATA element takes the one slot past the cap: the tokenizer reads its content as
+   text, as the tree builder does, and no start tag is read while it is open. */
 #define RW_MAX_DEPTH TH_DEPTH_LIMIT(8192)
 
 /* Empty the value memo and free the long value buffers retired while it held entries. */
@@ -1649,6 +1650,12 @@ static int rw_spine_foreign(const rw_ctx *ctx) {
     return ctx->depth > 0 && ctx->stack[ctx->depth - 1].ns != TH_NS_HTML;
 }
 
+/* Whether any handler is registered: without one the output is the input, so a misread of it changes nothing. */
+static int rw_has_handler(const rw_ctx *ctx) {
+    return ctx->rule_count > 0 || ctx->text_handler != NULL || ctx->comment_handler != NULL ||
+           ctx->doctype_handler != NULL;
+}
+
 /* The spine and the th_shadow read the input; the output is the input with the handlers' edits, and a browser parses
    the output. Edits to attributes, to comments and to the text of a raw-text element leave every later token read as
    in the input, as does removing a raw-text element. Dropping any other tag or writing anywhere else can change it:
@@ -2151,6 +2158,24 @@ static TH_NOINLINE void rw_mirror_opened(rw_ctx *ctx, rw_open *open, rw_handle *
     Py_CLEAR(ctx->append_text); /* the tags stay, so the content stays raw text */
 }
 
+/* A start tag past the depth cap: the tree builder refuses the element, so its tags stream through and its end tag
+   closes only an element the spine still holds. No content is found again, so an edit that needs one raises. The
+   spine also loses the namespace an SVG or MathML element would give what follows, so a handler could not see it
+   read as the browser does. */
+static TH_NOINLINE void rw_refuse_element(rw_ctx *ctx, rw_open *open) {
+    if (open->drop_content || open->append_html != NULL || open->after_html != NULL) {
+        PyErr_SetString(PyExc_ValueError,
+                        "an element nested past the depth limit cannot be removed or have its content edited");
+        ctx->error = 1;
+    } else if (open->ns != TH_NS_HTML && rw_has_handler(ctx)) {
+        PyErr_SetString(PyExc_ValueError, "SVG or MathML nested past the depth limit cannot be rewritten");
+        ctx->error = 1;
+    }
+    Py_XDECREF(open->append_html);
+    Py_XDECREF(open->after_html);
+    rw_free_node(ctx, open->node);
+}
+
 static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     uint16_t atom = token->atom;
     Py_ssize_t closed = 0;
@@ -2195,10 +2220,8 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         return;                                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
-    /* a start tag past the depth cap is not pushed, so it switches no content model and nothing checks the text
-       written into it: that text is escaped like any other */
     rw_open open = {.node = node,
-                    .model = ctx->depth < RW_MAX_DEPTH ? (int8_t)model : -1,
+                    .model = (int8_t)model,
                     .ns = ns,
                     .shadow = shadow,
                     .line = (uint32_t)token->line,
@@ -2322,17 +2345,17 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     }
 
     if (ctx->depth >= RW_MAX_DEPTH) {
-        /* keep the spine bounded: emit the element's content inline but do not track it,
-           so it never nests deeper than the guard (its end tag streams as a stray). Its raw text is still raw for a
-           browser, so the tokenizer reads it as such. */
-        if (ctx->shadow == NULL) { /* a th_shadow switched it already */
-            th_tok_switch(ctx->sm, model < 0 ? TH_INIT_DATA : (enum th_initial_state)model);
-        }
+        /* a th_shadow steers the tokenizer, and the tree builder switches it for a raw-text element it refuses at its
+           own cap, so the tokenizer's state is the element's content model even when the spine has none */
         const th_buf *end_tag;
-        ctx->untracked_raw = th_tok_content_model(ctx->sm, &end_tag) != TH_INIT_DATA;
-        Py_XDECREF(open.append_html);
-        rw_free_node(ctx, node);
-        return; /* at the limit nothing was popped either, so the CDATA state stands */
+        enum th_initial_state tokenized = th_tok_content_model(ctx->sm, &end_tag);
+        if (ctx->shadow != NULL && tokenized != TH_INIT_DATA) {
+            open.model = (int8_t)tokenized;
+        }
+        if (ctx->depth >= RW_MAX_DEPTH + (open.model >= 0)) {
+            rw_refuse_element(ctx, &open);
+            return; /* at the limit nothing was popped either, so the CDATA state stands */
+        }
     }
     if (ctx->depth == ctx->stack_cap) {
         size_t cap;
@@ -2482,8 +2505,6 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
 }
 
 static void rw_handle_end(rw_ctx *ctx, th_token *token) {
-    /* the tokenizer emits an end tag inside raw text only for the element's own end tag, so this closes it */
-    ctx->untracked_raw = 0;
     if (ctx->mirror != NULL) {
         rw_mirror_before(ctx, token);
     }
@@ -2593,7 +2614,7 @@ static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, const th_token *token) {
 
 /* Whether the output at this point is content the tokenizer reads as data, outside any raw-text or RCDATA element. */
 static int rw_data_context(const rw_ctx *ctx) {
-    return !ctx->untracked_raw && (ctx->depth == 0 || ctx->stack[ctx->depth - 1].model < 0);
+    return ctx->depth == 0 || ctx->stack[ctx->depth - 1].model < 0;
 }
 
 /* Write a text run gathered from several source spans. A token dropped between the pieces (an empty end tag, or one a
@@ -2982,5 +3003,8 @@ int rewrite_register(PyObject *module, module_state *state) {
     if (state->rewrite_handle_type == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return PyModule_AddObjectRef(module, "_RewriteHandle", state->rewrite_handle_type);
+    if (PyModule_AddObjectRef(module, "_RewriteHandle", state->rewrite_handle_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                                         /* GCOVR_EXCL_LINE */
+    }
+    return PyModule_AddIntConstant(module, "_REWRITE_MAX_DEPTH", RW_MAX_DEPTH);
 }
