@@ -2700,8 +2700,10 @@ static int each_filter(xp_overlap *state, Py_ssize_t before) {
         rc = filter_slice(state->prog, state->step->first, state->ctx, following, before, state->accepted);
     }
     if (rc == 0 && drop_repeats(following, before, state->seen) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        rc = -1;                                                       /* GCOVR_EXCL_LINE */
+        /* GCOVR_EXCL_START: allocation-failure path */
+        rc = -1; /* GCOVR_EXCL_LINE */
     }
+    /* GCOVR_EXCL_STOP */
     return rc;
 }
 
@@ -3246,8 +3248,10 @@ static int preceding_views(xp_overlap *state, const xp_nodeset *contexts, xp_nod
         ahead = PyMem_Malloc(((size_t)seq.len + 1) * sizeof(Py_ssize_t));
         marks = PyMem_Calloc((size_t)seq.len + 2, sizeof(Py_ssize_t));
         if (rc == 0 && (keep == NULL || ahead == NULL || marks == NULL)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            rc = -1;                                                       /* GCOVR_EXCL_LINE */
+            /* GCOVR_EXCL_START: allocation-failure path */
+            rc = -1; /* GCOVR_EXCL_LINE */
         }
+        /* GCOVR_EXCL_STOP */
         for (Py_ssize_t d = 0; rc == 0 && d < seq.len; d++) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             keep[d] = ended.items[d] < index - first;
             ended.items[d] = 0; /* from here on: the runs that cover the node but not its context's stretch */
