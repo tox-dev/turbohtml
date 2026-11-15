@@ -140,6 +140,9 @@ struct th_node {
     /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
        exact-sized; nothing reads it once the tree is built. */
     uint8_t text_capacity_shift;
+    /* Valid while attr_values_shared: the seq of the element whose values the sharing started from, the same for
+       every element sharing them, so the selector memo hashes a shared value alike from each (th_node_values_seq). */
+    uint32_t values_seq;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -160,6 +163,19 @@ struct th_node {
 static inline size_t th_node_attr_capacity(const th_node *node) {
     const unsigned shift = node->attr_capacity_shift;
     return shift ? (size_t)1 << (shift & (TH_ATTR_INDEXED - 1)) : 0;
+}
+
+/* Mark src's attribute values as shared by a clone or copy, which takes values_seq from src afterwards. */
+static inline void th_node_share_values(th_node *src) {
+    if (!src->attr_values_shared) {
+        src->values_seq = src->seq;
+        src->attr_values_shared = 1;
+    }
+}
+
+/* A sequence that every element pointing at the same attribute value buffers reports alike. */
+static inline uint32_t th_node_values_seq(const th_node *node) {
+    return node->attr_values_shared ? node->values_seq : node->seq;
 }
 
 /* The next node of a pre-order walk bounded to root's subtree, or NULL once the walk is done. */

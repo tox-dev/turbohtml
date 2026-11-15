@@ -1585,8 +1585,9 @@ static th_node *node_clone(th_tree *tree, th_node *src) {
         }
         memcpy(node->attrs, src->attrs, (size_t)src->attr_count * sizeof(th_node_attr));
         /* the slots are the clone's own, the values they point at are not */
+        th_node_share_values(src);
         node->attr_values_shared = 1;
-        src->attr_values_shared = 1;
+        node->values_seq = src->values_seq;
     }
     node->attr_count = src->attr_count;
     if (tree->track_positions) {

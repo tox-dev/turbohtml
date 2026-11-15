@@ -2131,3 +2131,65 @@ def _toggler(count: int) -> Callable[[Element], None]:
             element.set_attribute("a0", "v")
 
     return toggle
+
+
+# 320 characters: past the length from which a class answer is kept while the element stays open
+_PAD: Final[str] = "w " * 160
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            f'<ol class="{_PAD}hit"><li></li><li></li></ol><ol class="{_PAD}"><li></li></ol>',
+            f'<ol class="{_PAD}hit"><li k=""></li><li k=""></li></ol><ol class="{_PAD}"><li></li></ol>',
+            id="ancestor",
+        ),
+        pytest.param(
+            f'<ol class="{_PAD}"><li class="{_PAD}"></li></ol><ol class="{_PAD}hit"><li></li></ol>',
+            f'<ol class="{_PAD}"><li class="{_PAD}"></li></ol><ol class="{_PAD}hit"><li k=""></li></ol>',
+            id="value-freed-before-a-later-ancestor",
+        ),
+    ],
+)
+def test_rewrite_long_class_value_answers(source: str, expected: str) -> None:
+    assert rewrite(source, elements=[(".hit li", _mark)]) == expected
+
+
+def _mark(element: Element) -> None:
+    element.set_attribute("k", "")
+
+
+def test_rewrite_handler_replaces_long_values_of_a_matched_element() -> None:
+    source: Final = f'<ol class="{_PAD}hit"><li class="{_PAD}" data-v="{_PAD}"><i></i></li></ol>'
+    expected: Final = f'<ol class="{_PAD}hit"><li class="short"><i k=""></i></li></ol>'
+    assert rewrite(source, elements=[(".hit li", _replace_long_values), (".hit i", _mark)]) == expected
+
+
+def _replace_long_values(element: Element) -> None:
+    element.set_attribute("class", "short")
+    element.remove_attribute("data-v")
+
+
+def test_rewrite_long_value_under_type_rule_is_kept() -> None:
+    source: Final = f'<ol class="{_PAD}"><li data-v="{_PAD}"></li></ol>'
+    expected: Final = f'<ol class="{_PAD}"><li data-v="{_PAD}" k=""></li></ol>'
+    assert rewrite(source, elements=[("li", _mark)]) == expected
+
+
+@pytest.mark.parametrize(
+    "child",
+    [
+        pytest.param("<li></li>", id="short-children"),
+        pytest.param(f'<li class="{_PAD}"></li>', id="long-children"),
+        pytest.param(f'<li class="{_PAD}"><b class="{_PAD}"></b></li>', id="nested-long-children"),
+    ],
+)
+def test_rewrite_long_class_above_many_elements_in_linear_time(child: str, work_steps: WorkSteps) -> None:
+    # each start tag below the list tests the list's class value again
+    work_steps.assert_linear(
+        lambda count: partial(
+            rewrite, f'<ol class="{"w " * count}">{child * count}</ol>', elements=[(".hit *", _mark)]
+        ),
+        (250, 1000),
+    )

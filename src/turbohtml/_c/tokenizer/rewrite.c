@@ -320,16 +320,17 @@ typedef struct {
     Py_ssize_t end_at;        /* set when popped early: output offset the element ended at, or -1 (not in the output) */
     uint32_t line;            /* where the start tag began, which pairs the entry with the th_shadow element */
     uint32_t col;
-    int32_t followed;      /* index of the nearest entry from here down that follows one, or -1 */
-    uint16_t foreign_open; /* SVG/MathML entries from here down */
-    uint16_t points_open;  /* integration point entries from here down */
-    uint8_t edited;        /* an attribute changed: rebuild the start tag instead of verbatim */
-    uint8_t drop_content;  /* suppress this element's inner tokens */
-    uint8_t drop_end_tag;  /* do not emit the element's end tag */
-    uint8_t literal;       /* a handler wrote unescaped text into this raw-text element */
-    uint8_t ns;            /* the namespace the tree builder gives the element (the node stays HTML for matching) */
-    uint8_t integration;   /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
-    int8_t model;          /* the content model the start tag switched to, or -1 */
+    int32_t followed;       /* index of the nearest entry from here down that follows one, or -1 */
+    uint16_t foreign_open;  /* SVG/MathML entries from here down */
+    uint16_t points_open;   /* integration point entries from here down */
+    uint8_t edited;         /* an attribute changed: rebuild the start tag instead of verbatim */
+    uint8_t drop_content;   /* suppress this element's inner tokens */
+    uint8_t drop_end_tag;   /* do not emit the element's end tag */
+    uint8_t literal;        /* a handler wrote unescaped text into this raw-text element */
+    uint8_t ns;             /* the namespace the tree builder gives the element (the node stays HTML for matching) */
+    uint8_t integration;    /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
+    int8_t model;           /* the content model the start tag switched to, or -1 */
+    Py_ssize_t long_values; /* code points of its values long enough for the value memo (rw_long_values) */
 } rw_open;
 
 typedef struct {
@@ -366,12 +367,59 @@ typedef struct {
     size_t attr_index_cap;  /* power-of-two slot count, at least twice the attribute slots */
     uint64_t attr_seed;     /* salt so chosen attribute names cannot flood one slot */
     Py_ssize_t attr_dead;   /* removed attributes still holding a slot of the element's array */
+    /* The selector's answers for long attribute values, kept across start tags: each descendant tests the long values
+       of its open ancestors again. The memo keys a value by its buffer, so a freed long buffer waits in the retired
+       list (linked through its own first bytes) until the memo is emptied, and no later buffer can take its address
+       while an entry names it. The memo is emptied once the retired code points outnumber those still open, so a
+       value read again afterwards is paid for by the retired ones and the list never outgrows the open values. */
+    sel_memo value_memo;
+    void *retired;
+    Py_ssize_t retired_len;
+    Py_ssize_t open_len;
+    uint32_t next_seq; /* the value memo hashes a spine element by its seq */
 } rw_ctx;
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
    but not pushed, so a pathologically deep or unclosed input keeps the spine (and the C
    stack the selector matcher walks) bounded rather than growing without limit. */
 #define RW_MAX_DEPTH TH_DEPTH_LIMIT(8192)
+
+/* Empty the value memo and free the long value buffers retired while it held entries. */
+static void rw_values_flush(rw_ctx *ctx) {
+    sel_memo_free(&ctx->value_memo);
+    while (ctx->retired != NULL) {
+        void *next;
+        memcpy(&next, ctx->retired, sizeof(next));
+        PyMem_Free(ctx->retired);
+        ctx->retired = next;
+    }
+    ctx->retired_len = 0;
+}
+
+/* Free an attribute value buffer, or retire it while the value memo may key it (see rw_ctx.value_memo). */
+static void rw_free_value(rw_ctx *ctx, Py_UCS4 *value, Py_ssize_t value_len) {
+    if (value_len < SEL_VALUE_MEMO_MIN || ctx->value_memo.slots == NULL) {
+        PyMem_Free(value);
+        return;
+    }
+    memcpy(value, &ctx->retired, sizeof(ctx->retired));
+    ctx->retired = value;
+    ctx->retired_len += value_len;
+    if (ctx->retired_len > ctx->open_len) {
+        rw_values_flush(ctx);
+    }
+}
+
+/* The code points of the element's values that the value memo may key. */
+static Py_ssize_t rw_long_values(const th_node *node) {
+    Py_ssize_t total = 0;
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        if (node->attrs[index].value_len >= SEL_VALUE_MEMO_MIN) {
+            total += node->attrs[index].value_len;
+        }
+    }
+    return total;
+}
 
 /* --- the handle object handed to a Python handler --- */
 
@@ -871,7 +919,7 @@ static PyObject *rw_set_attribute(rw_handle *self, PyObject *args) {
     }
     th_node_attr *slot = fresh ? NULL : rw_attr_find(self->ctx, node, atom);
     if (slot != NULL) {
-        PyMem_Free(slot->value);
+        rw_free_value(self->ctx, slot->value, slot->value_len);
         slot->value = copy;
         slot->value_len = new_len;
         Py_RETURN_NONE;
@@ -905,7 +953,7 @@ static PyObject *rw_remove_attribute(rw_handle *self, PyObject *name) {
     th_node *node = self->open->node;
     th_node_attr *attr = rw_attr_find(self->ctx, node, atom);
     if (attr != NULL) {
-        PyMem_Free(attr->value);
+        rw_free_value(self->ctx, attr->value, attr->value_len);
         if (self->ctx->attr_index != NULL) {
             rw_attr_index_delete(self->ctx, node, rw_attr_index_probe(self->ctx, node, atom));
         }
@@ -1311,9 +1359,9 @@ static int rw_validate_alts(sel_complex *alts, int count, th_tree *tree, const c
 /* --- the driver --- */
 
 /* Free a self-managed spine node and its attribute copies. */
-static void rw_free_node(th_node *node) {
+static void rw_free_node(rw_ctx *ctx, th_node *node) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-        PyMem_Free(node->attrs[index].value);
+        rw_free_value(ctx, node->attrs[index].value, node->attrs[index].value_len);
     }
     PyMem_Free(node->attrs);
     PyMem_Free(node->text);
@@ -1332,6 +1380,7 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
     node->atom = atom;
     node->tag_flags = th_tag_flags(atom);
     node->parent = parent;
+    node->seq = ++ctx->next_seq;
     Py_ssize_t tag_len = token->name.len; /* a start tag always carries a name, so tag_len >= 1 */
     node->text = PyMem_Malloc((size_t)tag_len * sizeof(Py_UCS4));
     if (node->text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1355,14 +1404,14 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
             const int failed = rw_key_encode(&key, attr->name.kind, attr->name.data, attr->name.len) < 0;
             if (failed) {                 /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 node->attr_count = index; /* GCOVR_EXCL_LINE: allocation-failure path */
-                rw_free_node(node);       /* GCOVR_EXCL_LINE: allocation-failure path */
+                rw_free_node(ctx, node);  /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             uint32_t name_atom = rw_attr_atom(ctx->tree, key.bytes, key.len);
             rw_key_free(&key);
             if (name_atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
                 node->attr_count = index;       /* GCOVR_EXCL_LINE: allocation-failure path */
-                rw_free_node(node);             /* GCOVR_EXCL_LINE: allocation-failure path */
+                rw_free_node(ctx, node);        /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;                    /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             node->attrs[index].name_atom = name_atom;
@@ -1372,7 +1421,7 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
                     PyMem_Malloc((size_t)(attr->value.len ? attr->value.len : 1) * sizeof(Py_UCS4));
                 if (node->attrs[index].value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
                     node->attr_count = index;           /* GCOVR_EXCL_LINE: allocation-failure path */
-                    rw_free_node(node);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+                    rw_free_node(ctx, node);            /* GCOVR_EXCL_LINE: allocation-failure path */
                     return NULL;                        /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 for (Py_ssize_t pos = 0; pos < attr->value.len; pos++) {
@@ -1575,7 +1624,8 @@ static void rw_release_foreign(rw_ctx *ctx, Py_ssize_t closed, int dropped) {
         }
     }
     for (Py_ssize_t index = 0; index < closed; index++) {
-        rw_free_node(popped[index].node);
+        ctx->open_len -= popped[index].long_values;
+        rw_free_node(ctx, popped[index].node);
     }
 }
 
@@ -1840,7 +1890,7 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     }
     rw_handle *handle = NULL;
     for (Py_ssize_t index = 0; index < ctx->rule_count && !suppressed && !ctx->error; index++) {
-        if (!selector_matches(node, ctx->rules[index].compiled, NULL)) {
+        if (!selector_matches(node, ctx->rules[index].compiled, NULL, &ctx->value_memo)) {
             continue;
         }
         if (handle == NULL) {
@@ -1868,7 +1918,7 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             Py_DECREF(handle);
         }
         Py_XDECREF(open.append_html);
-        rw_free_node(node);
+        rw_free_node(ctx, node);
         return;
     }
 
@@ -1922,7 +1972,7 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
             handle->live = 0;
             Py_DECREF(handle);
         }
-        rw_free_node(node);
+        rw_free_node(ctx, node);
         if (foreign) {
             rw_sync_cdata(ctx);
         }
@@ -1938,29 +1988,31 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         /* keep the spine bounded: emit the element's content inline but do not track it,
            so it never nests deeper than the guard (its end tag streams as a stray) */
         Py_XDECREF(open.append_html);
-        rw_free_node(node);
+        rw_free_node(ctx, node);
         return; /* at the limit nothing was popped either, so the CDATA state stands */
     }
     if (ctx->depth == ctx->stack_cap) {
         size_t cap;
         size_t bytes;
         int grew = th_grow_cap((size_t)(ctx->depth + 1), (size_t)ctx->stack_cap, 32, sizeof(rw_open), &cap, &bytes);
-        if (!grew) {            /* GCOVR_EXCL_BR_LINE: the depth guard caps growth first */
-            ctx->error = 1;     /* GCOVR_EXCL_LINE: unreachable overflow-guard path */
-            PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
-            rw_free_node(node); /* GCOVR_EXCL_LINE */
-            return;             /* GCOVR_EXCL_LINE */
+        if (!grew) {                 /* GCOVR_EXCL_BR_LINE: the depth guard caps growth first */
+            ctx->error = 1;          /* GCOVR_EXCL_LINE: unreachable overflow-guard path */
+            PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+            rw_free_node(ctx, node); /* GCOVR_EXCL_LINE */
+            return;                  /* GCOVR_EXCL_LINE */
         }
         rw_open *grown = PyMem_Realloc(ctx->stack, bytes);
-        if (grown == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            ctx->error = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
-            rw_free_node(node); /* GCOVR_EXCL_LINE */
-            return;             /* GCOVR_EXCL_LINE */
+        if (grown == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->error = 1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
+            rw_free_node(ctx, node); /* GCOVR_EXCL_LINE */
+            return;                  /* GCOVR_EXCL_LINE */
         }
         ctx->stack = grown;
         ctx->stack_cap = (Py_ssize_t)cap;
     }
+    open.long_values = rw_long_values(node);
+    ctx->open_len += open.long_values;
     ctx->stack[ctx->depth++] = open;
     if (open.drop_content) {
         ctx->suppress++;
@@ -2120,7 +2172,8 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
-        rw_free_node(open->node);
+        ctx->open_len -= open->long_values;
+        rw_free_node(ctx, open->node);
     }
     ctx->depth = match + 1; /* an error below leaves only the closing element for rw_ctx_clear */
     rw_open *closing = &ctx->stack[match];
@@ -2146,7 +2199,8 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
     }
     Py_XDECREF(closing->append_html);
     Py_XDECREF(closing->after_html);
-    rw_free_node(closing->node);
+    ctx->open_len -= closing->long_values;
+    rw_free_node(ctx, closing->node);
     ctx->depth = match;
     if (foreign) {
         rw_sync_cdata(ctx);
@@ -2242,10 +2296,11 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     for (Py_ssize_t index = 0; index < ctx->depth; index++) {
         Py_XDECREF(ctx->stack[index].append_html);
         Py_XDECREF(ctx->stack[index].after_html);
-        rw_free_node(ctx->stack[index].node);
+        rw_free_node(ctx, ctx->stack[index].node);
     }
     th_shadow_free(ctx->shadow); /* its text spans the tokenizer's input, freed below */
     th_shadow_free(ctx->parked);
+    rw_values_flush(ctx);
     Py_XDECREF(ctx->append_text); /* still set only when a handler failed */
     PyMem_Free(ctx->stack);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
@@ -2416,7 +2471,8 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
-        rw_free_node(open->node);
+        ctx.open_len -= open->long_values;
+        rw_free_node(&ctx, open->node);
     }
 
     PyObject *result = NULL;
