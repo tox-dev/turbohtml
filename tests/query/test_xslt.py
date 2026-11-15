@@ -1157,6 +1157,16 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, mess
         _run(f"<r>{'<n>' * 600}x{'</n>' * 600}</r>", body)
 
 
+_KEY_LOOKUP: Final[str] = """<xsl:template match="/"><xsl:value-of select="count(key('k0', 'x'))"/></xsl:template>"""
+
+
+def _key_chain(links: int, *, match: str = "a") -> str:
+    chain = "".join(
+        f"""<xsl:key name="k{index}" match="{match}" use="key('k{index + 1}', .)"/>""" for index in range(links)
+    )
+    return f'{chain}<xsl:key name="k{links}" match="{match}" use="."/>'
+
+
 @pytest.mark.skipif(
     sys.version_info < (3, 14) and sys.platform != "linux",
     reason="before CPython 3.14 only Linux builds read the thread's real C stack bounds",
@@ -1174,6 +1184,7 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, mess
             '<xsl:value-of select="$v"/></xsl:template>',
             id="variable-body",
         ),
+        pytest.param(f"{_key_chain(300, match='r')}{_KEY_LOOKUP}", id="key-chain"),
     ],
 )
 def test_transform_recursion_on_a_small_thread_stack_raises_cleanly(body: str) -> None:
@@ -1751,16 +1762,8 @@ def test_transform_key_use_evaluation_error() -> None:
         _run("<r><n/></r>", body)
 
 
-_KEY_LOOKUP: Final[str] = """<xsl:template match="/"><xsl:value-of select="count(key('k0', 'x'))"/></xsl:template>"""
-
-
 def test_transform_key_use_builds_the_key_it_calls() -> None:
     assert _run("<r><a>x</a><a>y</a></r>", _key_chain(3) + _KEY_LOOKUP) == "1"
-
-
-def _key_chain(links: int) -> str:
-    chain = "".join(f"""<xsl:key name="k{index}" match="a" use="key('k{index + 1}', .)"/>""" for index in range(links))
-    return f'{chain}<xsl:key name="k{links}" match="a" use="."/>'
 
 
 def test_transform_key_use_chain_is_depth_limited() -> None:

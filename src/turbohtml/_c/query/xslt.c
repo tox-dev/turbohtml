@@ -965,6 +965,7 @@ typedef struct engine {
     Py_ssize_t ctx_size;
     int gen_counter;
     int depth;
+    int key_builds; /* key tables being built, each nested in the use expression of the one before */
 #if defined(__linux__)
     uintptr_t stack_floor; /* enter_deep_level's bound for the thread of this run; 0 until its first checked level */
 #endif
@@ -2024,13 +2025,18 @@ static int fill_key(engine *eng, xslt_key *key) {
 }
 
 /* A use expression may call key() on a key that is not built yet, which builds that one from inside this build, so a
-   chain of keys nests here. Each build takes a level of the template-nesting cap and its stack check. */
+   chain of keys nests here. Each build takes a level of the template-nesting cap. A nested build also checks the stack
+   at any depth: a level of the chain, with its use expression, takes several times the stack XSLT_STACK_CHECK_DEPTH
+   assumes, so 32 unchecked levels overflow a 128 KiB thread, and a key builds at most once per run. */
 static int build_key(engine *eng, xslt_key *key) {
-    if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_KEY, NULL) < 0) {
+    if ((++eng->depth > XSLT_STACK_CHECK_DEPTH || eng->key_builds > 0) &&
+        enter_deep_level(eng, XSLT_LEVEL_KEY, NULL) < 0) {
         return -1;
     }
     key->built = 1;
+    eng->key_builds++;
     int rc = fill_key(eng, key);
+    eng->key_builds--;
     eng->depth--;
     return rc;
 }
@@ -2707,12 +2713,6 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
                      XSLT_MAX_DEPTH);
         return fail_py(eng);
     }
-    /* only the 3.11-3.13 coverage jobs leave this branch untaken */
-    if (Py_EnterRecursiveCall(" while applying an XSLT stylesheet") != 0) { /* GCOVR_EXCL_BR_LINE */
-        eng->depth--;                                                       /* GCOVR_EXCL_LINE */
-        return fail_py(eng);                                                /* GCOVR_EXCL_LINE */
-    }
-    Py_LeaveRecursiveCall();
 #if defined(__linux__)
     if (eng->stack_floor == 0) {
         eng->stack_floor = find_stack_floor();
@@ -2726,6 +2726,13 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
         return fail_py(eng);
     }
 #endif
+    /* after the floor: CPython 3.14 aborts the process instead of raising when called from a frame already past its
+       stack limit. Which check answers first depends on the thread's stack, so the coverage jobs may not take it. */
+    if (Py_EnterRecursiveCall(" while applying an XSLT stylesheet") != 0) { /* GCOVR_EXCL_BR_LINE */
+        eng->depth--;                                                       /* GCOVR_EXCL_LINE */
+        return fail_py(eng);                                                /* GCOVR_EXCL_LINE */
+    }
+    Py_LeaveRecursiveCall();
     return 0;
 }
 
