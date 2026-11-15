@@ -2352,6 +2352,64 @@ def test_instance_with_foreign_prefixed_attribute() -> None:
     assert xsd_ok(schema, xml)
 
 
+_XSI: Final[str] = 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+_SIMPLE_ROUTES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(f'<xs:schema {_XS}><xs:element name="v" type="xs:int"/></xs:schema>', "<v{attrs}>5</v>", id="builtin"),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:simpleType name="n"><xs:restriction base="xs:int"/></xs:simpleType>'
+        '<xs:element name="v" type="n"/></xs:schema>',
+        "<v{attrs}>5</v>",
+        id="named",
+    ),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:element name="v"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType>'
+        "</xs:element></xs:schema>",
+        "<v{attrs}>5</v>",
+        id="inline",
+    ),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:element name="w"><xs:complexType><xs:sequence>'
+        '<xs:element name="g" type="xs:int"/></xs:sequence></xs:complexType></xs:element></xs:schema>',
+        "<w><g{attrs}>5</g></w>",
+        id="local",
+    ),
+    pytest.param(
+        f'<xs:schema {_XS}><xs:element name="g" type="xs:int"/><xs:element name="w"><xs:complexType>'
+        '<xs:sequence><xs:element ref="g"/></xs:sequence></xs:complexType></xs:element></xs:schema>',
+        "<w><g{attrs}>5</g></w>",
+        id="ref",
+    ),
+]
+_SIMPLE_REJECTED_ATTRS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(' a="1"', id="undeclared"),
+    pytest.param(f' {_XSI} xsi:foo="1"', id="xsi-other-local-name"),
+    pytest.param(' xmlns:x="urn:x" x:nil="false"', id="other-namespace-nil"),
+    pytest.param(' xml:lang="en"', id="xml-namespace"),
+]
+_SIMPLE_ALLOWED_ATTRS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(' xmlns:x="urn:x"', id="namespace-declaration"),
+    pytest.param(' xmlns=""', id="default-namespace-declaration"),
+    pytest.param(f' {_XSI} xsi:type="xs:int"', id="xsi-type"),
+    pytest.param(f' {_XSI} xsi:nil="false"', id="xsi-nil"),
+    pytest.param(f' {_XSI} xsi:schemaLocation="urn:x a.xsd"', id="xsi-schemaLocation"),
+    pytest.param(f' {_XSI} xsi:noNamespaceSchemaLocation="a.xsd"', id="xsi-noNamespaceSchemaLocation"),
+    pytest.param(' xmlns:i="http://www.w3.org/2001/XMLSchema-instance" i:nil="false"', id="xsi-under-other-prefix"),
+]
+
+
+@pytest.mark.parametrize(("schema", "template"), _SIMPLE_ROUTES)
+@pytest.mark.parametrize("attrs", _SIMPLE_REJECTED_ATTRS)
+def test_simple_typed_element_rejects_attribute(schema: str, template: str, attrs: str) -> None:
+    errors = XMLSchema(schema).validate(parse_xml(template.format(attrs=attrs))).errors
+    assert [error.message for error in errors] == ["simple-typed element must not have attributes"]
+
+
+@pytest.mark.parametrize(("schema", "template"), _SIMPLE_ROUTES)
+@pytest.mark.parametrize("attrs", _SIMPLE_ALLOWED_ATTRS)
+def test_simple_typed_element_keeps_allowed_attributes(schema: str, template: str, attrs: str) -> None:
+    assert xsd_ok(schema, template.format(attrs=attrs))
+
+
 def test_extension_without_own_particle() -> None:
     schema = (
         f"<xs:schema {_XS}>"

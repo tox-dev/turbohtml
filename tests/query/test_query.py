@@ -464,6 +464,16 @@ def test_query_closest_sibling_combinator_over_a_long_run(selector: str, count: 
     assert len(found) == count
 
 
+@pytest.mark.parametrize("selector", [pytest.param(".hit *", id="plain"), pytest.param(".hit :scope", id="scoped")])
+def test_query_closest_under_long_class_grows_linearly(selector: str, work_steps: WorkSteps) -> None:
+    # every climb asks the class value of the shared parent
+    work_steps.assert_linear(
+        lambda n: partial(Query(parse(f'<ol class="{"w " * n}">{"<li>" * n}'))("li").closest, selector), (250, 1000)
+    )
+    found: Final = Query(parse(f'<ol class="{"w " * 200}hit"><li><li></ol>'))("li").closest(selector)
+    assert [node.tag for node in found] == ["li", "li"]
+
+
 def test_query_closest_deeply_nested_grows_linearly(work_steps: WorkSteps) -> None:
     # Counted steps rather than seconds: a wall-clock budget is flaky on shared runners.
     work_steps.assert_linear(
@@ -761,6 +771,58 @@ def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
     element.extract()
     element.attrs["id"] = "gone"
     assert element.css_path() == "p"
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<p>one</p>", ["div", "div > p"], id="plain-child"),
+        pytest.param('<p id="one">one</p>', ["div", "#one"], id="own-id-child"),
+        pytest.param('<p id="top">one</p>', ["div", "#top"], id="child-repeats-root-id"),
+        pytest.param('<p id="top">one</p><i id="only">two</i>', ["div", "#top", "#only"], id="mixed-ids"),
+    ],
+)
+def test_css_path_of_detached_fragment_root_ignores_its_own_id(markup: str, expected: list[str]) -> None:
+    root: Final = turbohtml.parse_fragment(markup)
+    root.extract()
+    root.attrs["id"] = "top"
+    assert [node.css_path() for node in (root, *root.select("p, i"))] == expected
+
+
+def test_css_path_of_detached_fragment_root_with_id_costs_no_more_than_without(work_steps: WorkSteps) -> None:
+    work_steps.assert_within(_detached_fragment_root("top").css_path, _detached_fragment_root(None).css_path, factor=2)
+
+
+def _detached_fragment_root(root_id: str | None) -> Element:
+    root: Final = turbohtml.parse_fragment("".join(f'<p id="p{index}">{index}</p>' for index in range(1000)))
+    root.extract()
+    if root_id is not None:
+        root.attrs["id"] = root_id
+    return root
+
+
+def test_css_path_of_constructed_root_with_id_ignores_its_own_id() -> None:
+    root: Final = Element("div")
+    root.attrs["id"] = "top"
+    child: Final = Element("p")
+    root.append(child)
+    assert [root.css_path(), child.css_path()] == ["div", "div > p"]
+
+
+def test_css_path_of_subtree_extracted_from_detached_fragment_root_with_id() -> None:
+    root: Final = turbohtml.parse_fragment('<section><p id="one">one</p></section>')
+    root.extract()
+    root.attrs["id"] = "top"
+    section: Final = root.select("section")[0]
+    section.extract()
+    assert [section.css_path(), section.select("p")[0].css_path()] == ["section", "section > p"]
+
+
+def test_css_path_of_fragment_root_detached_by_replace_with_ignores_its_own_id() -> None:
+    root: Final = turbohtml.parse_fragment("<p>one</p>")
+    root.attrs["id"] = "top"
+    root.replace_with(Element("span"))
+    assert [root.css_path(), root.select("p")[0].css_path()] == ["div", "div > p"]
 
 
 @pytest.mark.parametrize(

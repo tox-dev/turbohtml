@@ -282,6 +282,24 @@ def test_computed_style_has_rule_is_answered_for_each_element_of_one_tree() -> N
     assert middle != "red"
 
 
+def test_computed_style_long_class_value_refreshes_after_change() -> None:
+    # the rule's answer about the long class value is kept between elements and must not outlive a change to it
+    pad: Final = "w " * 160
+    document: Final = parse(f'<style>li{{color:blue}}.hit li{{color:red}}</style><ol class="{pad}hit"><li><li></ol>')
+    items: Final = document.select("li")
+    before: Final = [computed_style(item)["color"] for item in items]
+    document.select("ol")[0].attrs["class"] = pad
+    assert (before, [computed_style(item)["color"] for item in items]) == (["red", "red"], ["blue", "blue"])
+
+
+def test_computed_style_under_long_class_value_in_linear_time(work_steps: WorkSteps) -> None:
+    def styles(size: int) -> Callable[[], object]:
+        items = parse(f'<style>.hit li{{color:red}}</style><ol class="{"w " * size}">{"<li>" * size}').select("li")
+        return lambda: [computed_style(item) for item in items]
+
+    work_steps.assert_linear(styles, (250, 1000))
+
+
 def test_computed_style_has_rule_after_detaching_a_subtree_of_the_same_tree() -> None:
     document = parse("<style>div:has(b) { color: red }</style><div><b>x</b></div><div><b>y</b></div>")
     detached = document.select("b")[1].extract()

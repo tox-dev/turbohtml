@@ -764,6 +764,8 @@ def test_style_dropped_when_not_allowed() -> None:
         pytest.param("", id="empty-value"),
         pytest.param("position: fixed; z-index: 9", id="all-dropped-removes-attribute"),
         pytest.param("é: red", id="non-ascii-property-name"),
+        pytest.param("color: <!--url(q';z-index:1; width: 1px", id="cdo-then-unclosed-bad-url"),
+        pytest.param("color: U+7furl(q'); width: 1px", id="unicode-range-then-bad-url"),
     ],
 )
 def test_style_scrubbing_drops_the_attribute(style: str) -> None:
@@ -851,6 +853,61 @@ def _style_policy(
             'style="cursor: urls(/*);color:red;*/); width: 1px"',
             id="longer-name-is-function",
         ),
+        # `<!--` is one token, so the name after it starts afresh and a `url(` there is a url token
+        pytest.param("font-family: <!--url(javascript:q); width: 1px", 'style="width: 1px"', id="cdo-then-url-scheme"),
+        pytest.param("color: <!--a; width: <!-", 'style="color: &lt;!--a; width: &lt;!-"', id="cdo-then-name"),
+        pytest.param("color: \\\\<!--url(javascript:q); width: 1px", 'style="width: 1px"', id="escaped-backslash-cdo"),
+        pytest.param("color: <!--u+eurl(q');top:0;r:'); width: 1px", 'style="width: 1px"', id="cdo-then-unicode-range"),
+        pytest.param("color: <!--expression(q); width: 1px", 'style="width: 1px"', id="cdo-then-expression"),
+        pytest.param(
+            "--a(1); width: a!--b(2) var(--c) -e(3) d+1 u+",
+            'style="width: a!--b(2) var(--c) -e(3) d+1 u+"',
+            id="dashed-names-without-cdo",
+        ),
+        # an escaped `<` joins the name before it, so the `<!--` after it is no CDO
+        pytest.param(
+            "color: a\\<!--url(q/*); width: '*/);top:0;r:'",
+            'style="color: a\\&lt;!--url(q/*); width: \'*/)"',
+            id="escaped-less-than-is-no-cdo",
+        ),
+        # a hash or an at-keyword takes the whole name, so the `(` after it opens a block whose comments count
+        pytest.param(
+            "color: #url(q/*); width: '*/);top:0;r:'",
+            'style="color: #url(q/*); width: \'*/)"',
+            id="hash-named-url-is-no-url",
+        ),
+        pytest.param(
+            "color: @url(q/*); width: '*/);top:0;r:'",
+            'style="color: @url(q/*); width: \'*/)"',
+            id="at-keyword-named-url-is-no-url",
+        ),
+        pytest.param(
+            "color: #u\\72l(q/*); width: '*/);top:0;r:'",
+            'style="color: #u\\72l(q/*); width: \'*/)"',
+            id="hash-escaped-name-is-no-url",
+        ),
+        # a legacy unicode-range token is dropped with its declaration, since tokenizers disagree on where it ends
+        pytest.param("color: u+?url(javascript:x); width: 1px", 'style="width: 1px"', id="unicode-range-wildcard"),
+        pytest.param("color: U+26; width: 1px", 'style="width: 1px"', id="unicode-range-drops-declaration"),
+        pytest.param("color: au+e; width: U+g", 'style="color: au+e; width: U+g"', id="not-a-unicode-range"),
+        pytest.param(
+            "color: #U+26; width: @u+1", 'style="color: #U+26; width: @u+1"', id="sign-name-is-no-unicode-range"
+        ),
+        # a url token's body holds no comment, so a `/*` in it hides nothing after the token
+        pytest.param(
+            "cursor: url(q/*) url(javascript:r) /* */; width: 1px", 'style="width: 1px"', id="url-body-comment"
+        ),
+        pytest.param(
+            "cursor: url(q/*) url(javascript:r); width: 1px", 'style="width: 1px"', id="url-body-open-comment"
+        ),
+        pytest.param(
+            "cursor: url(q/*) url(s) /* */; width: 1px",
+            'style="cursor: url(q/*) url(s) /* */; width: 1px"',
+            id="url-body-comment-safe-urls",
+        ),
+        # a sign no name follows is a delimiter, so the `url(` after it is a url token
+        pytest.param("cursor: # url(q/*); position: fixed; */)", 'style="cursor: # url(q/*)"', id="lone-hash-then-url"),
+        pytest.param("color: red; width: 1px @", 'style="color: red; width: 1px @"', id="lone-at-sign-at-end"),
     ],
 )
 def test_style_scrubbing_keeps_the_declarations(style: str, expected: str) -> None:
@@ -1229,6 +1286,16 @@ def test_allowed_styles_empty_is_a_noop() -> None:
         pytest.param("p{cursor:url(x'y);color:red}", "p{color:red;}", id="bad-url-dropped"),
         pytest.param("p{color:red;cursor:url(x", "p{color:red;}", id="unterminated-url-dropped"),
         pytest.param("p{color:red;cursor:url(x'", "p{color:red;}", id="unterminated-bad-url-dropped"),
+        pytest.param("p{color:<!--url(q');top:0;r:'}", "p{}", id="cdo-then-bad-url"),
+        pytest.param("p{color:U+7furl(q);width:1px}", "p{width:1px;}", id="unicode-range-drops-declaration"),
+        pytest.param("u+a{color:red}p{color:red}", "p{color:red;}", id="unicode-range-in-prelude-drops-rule"),
+        pytest.param("<!--u+a{color:red}p{color:red}", "p{color:red;}", id="cdo-then-unicode-range-prelude"),
+        pytest.param("p{color:<!--u+e;width:1px}", "p{width:1px;}", id="cdo-then-unicode-range"),
+        pytest.param(
+            "p{color:#url(q/*);width:'*/);top:0}",
+            "p{color:#url(q/*);width:'*/);}",
+            id="hash-named-url-is-no-url",
+        ),
     ],
 )
 def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:

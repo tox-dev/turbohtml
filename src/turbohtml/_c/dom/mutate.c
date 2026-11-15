@@ -1611,9 +1611,10 @@ static th_node *copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node
         memset(node->attrs, 0, (size_t)src_node->attr_count * sizeof(th_node_attr));
         node->attr_count = src_node->attr_count;
         if (dest == src) {
-            src_node->attr_values_shared = 1; /* a copy in the same tree points at the source's values */
+            th_node_share_values(src_node); /* a copy in the same tree points at the source's values */
         }
         node->attr_values_shared = src_node->attr_values_shared;
+        node->values_seq = src_node->values_seq;
         for (Py_ssize_t index = 0; index < src_node->attr_count; index++) {
             const th_node_attr *from = &src_node->attrs[index];
             uint32_t atom = from->name_atom;

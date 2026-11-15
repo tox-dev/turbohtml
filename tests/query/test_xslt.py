@@ -3102,6 +3102,189 @@ def test_transform_exclude_result_prefixes_default_namespace() -> None:
     assert _collapse(result) == "<out/>"
 
 
+_XHTML_ROOT: Final[str] = (
+    '<xsl:template match="/"><html xmlns="http://www.w3.org/1999/xhtml"><xsl:apply-templates select="r/*"/></html>'
+    "</xsl:template>"
+)
+
+
+@pytest.mark.parametrize(
+    ("source", "body", "expected"),
+    [
+        pytest.param("<r><n/></r>", '<xsl:template match="n"><xsl:copy/></xsl:template>', '<n xmlns=""/>', id="copy"),
+        pytest.param(
+            "<r><n><m/></n></r>",
+            '<xsl:template match="n"><xsl:copy-of select="."/></xsl:template>',
+            '<n xmlns=""><m/></n>',
+            id="copy-of",
+        ),
+        pytest.param(
+            "<r><n/></r>",
+            '<xsl:template match="n"><xsl:element name="x"/></xsl:template>',
+            '<x xmlns=""/>',
+            id="element-without-namespace",
+        ),
+        pytest.param(
+            "<r><n/></r>",
+            '<xsl:template match="n"><xsl:element name="x" namespace=""/></xsl:template>',
+            '<x xmlns=""/>',
+            id="element-empty-namespace",
+        ),
+        pytest.param(
+            "<r><n/></r>",
+            '<xsl:template match="n"><p><q/></p></xsl:template>',
+            '<p xmlns=""><q/></p>',
+            id="literal-result-element",
+        ),
+    ],
+)
+def test_transform_no_namespace_element_under_default_namespace_is_undeclared(
+    source: str, body: str, expected: str
+) -> None:
+    assert expected in _run(source, _XHTML_ROOT + body, method="xml")
+
+
+def test_transform_no_namespace_literal_under_default_namespace_from_another_template_is_undeclared() -> None:
+    body = (
+        '<xsl:template match="/"><x xmlns="http://www.w3.org/1999/xhtml">'
+        '<xsl:apply-templates select="r/*"/></x></xsl:template><xsl:template match="n"><p/></xsl:template>'
+    )
+    assert '<x xmlns="http://www.w3.org/1999/xhtml"><p xmlns=""/></x>' in _run("<r><n/></r>", body, method="xml")
+
+
+def test_transform_aliased_default_namespace_literal_is_not_undeclared() -> None:
+    body = (
+        '<xsl:namespace-alias stylesheet-prefix="#default" result-prefix="h"/>'
+        '<xsl:template match="/"><x xmlns="http://www.w3.org/1999/xhtml">'
+        '<xsl:apply-templates select="r/*"/></x></xsl:template><xsl:template match="n"><p/></xsl:template>'
+    )
+    sheet = _sheet(body, method="xml", declare='xmlns:h="http://www.w3.org/1999/xhtml"')
+    assert 'xmlns=""' not in transform(sheet, turbohtml.parse_xml("<r><n/></r>"))
+
+
+def test_transform_copy_of_result_tree_fragment_undeclares_only_no_namespace_roots() -> None:
+    body = (
+        '<xsl:variable name="v">t<n/><p:q xmlns:p="urn:p"/><k xmlns="urn:k"/></xsl:variable>'
+        '<xsl:template match="/"><html xmlns="http://www.w3.org/1999/xhtml"><xsl:copy-of select="$v"/></html>'
+        "</xsl:template>"
+    )
+    result = transform(_sheet(body, method="xml"), turbohtml.parse_xml("<r/>"))
+    assert result == (
+        '<html xmlns="http://www.w3.org/1999/xhtml">t<n xmlns=""/><p:q xmlns:p="urn:p"/><k xmlns="urn:k"/></html>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "body"),
+    [
+        pytest.param(
+            '<r xmlns="urn:s"><n/></r>',
+            '<xsl:template match="*"><xsl:copy/></xsl:template>',
+            id="namespaced-copy",
+        ),
+        pytest.param(
+            '<r xmlns="urn:s"><n/></r>',
+            '<xsl:template match="*"><xsl:copy-of select="."/></xsl:template>',
+            id="namespaced-copy-of",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:n/></r>',
+            '<xsl:template match="*"><xsl:copy/></xsl:template>',
+            id="prefixed-copy",
+        ),
+        pytest.param(
+            "<r><n>t</n></r>",
+            '<xsl:template match="n"><xsl:copy-of select="text()"/></xsl:template>',
+            id="copy-of-text",
+        ),
+    ],
+)
+def test_transform_copy_in_namespace_keeps_the_default_namespace(source: str, body: str) -> None:
+    text = _XHTML_ROOT.replace('select="r/*"', 'select="*/*"') + body
+    assert 'xmlns=""' not in _run(source, text, method="xml")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            '<xsl:template match="n"><xsl:element name="x" namespace="urn:x"/></xsl:template>',
+            id="namespace-set",
+        ),
+        pytest.param(
+            '<xsl:template match="n"><xsl:element name="p:x"/></xsl:template>',
+            id="prefixed-name",
+        ),
+        pytest.param(
+            '<xsl:template match="n"><h:p xmlns:h="urn:h"/></xsl:template>',
+            id="prefixed-literal",
+        ),
+    ],
+)
+def test_transform_named_namespace_element_under_default_namespace_is_not_undeclared(body: str) -> None:
+    sheet = _sheet(_XHTML_ROOT + body, method="xml", declare='xmlns:p="urn:p"')
+    assert 'xmlns=""' not in transform(sheet, turbohtml.parse_xml("<r><n/></r>"))
+
+
+def test_transform_element_in_stylesheet_default_namespace_is_not_undeclared() -> None:
+    body = f'{_XHTML_ROOT}<xsl:template match="n"><xsl:element name="x"/></xsl:template>'
+    sheet = _sheet(body, method="xml", declare='xmlns="urn:d"')
+    assert 'xmlns=""' not in transform(sheet, turbohtml.parse_xml("<r><n/></r>"))
+
+
+def test_transform_element_in_empty_stylesheet_default_namespace_is_undeclared() -> None:
+    body = f'{_XHTML_ROOT}<xsl:template match="n"><xsl:element name="x"/></xsl:template>'
+    sheet = _sheet(body, method="xml", declare='xmlns=""')
+    assert '<x xmlns=""/>' in transform(sheet, turbohtml.parse_xml("<r><n/></r>"))
+
+
+def test_transform_literal_in_matching_default_namespace_is_not_undeclared() -> None:
+    body = (
+        '<xsl:template match="/"><html><xsl:apply-templates select="r/*"/></html></xsl:template>'
+        '<xsl:template match="n"><p/></xsl:template>'
+    )
+    sheet = _sheet(body, method="xml", declare='xmlns="http://www.w3.org/1999/xhtml"')
+    assert transform(sheet, turbohtml.parse_xml("<r><n/></r>")) == (
+        '<html xmlns="http://www.w3.org/1999/xhtml"><p/></html>'
+    )
+
+
+def test_transform_element_namespace_expression_error_under_default_namespace_raises() -> None:
+    body = '<xsl:template match="n"><xsl:element name="x" namespace="{key(\'k\', \'v\')}"/></xsl:template>'
+    with pytest.raises(ValueError, match="bad expression in attribute value template"):
+        _run("<r><n/></r>", _XHTML_ROOT + body, method="xml")
+
+
+def test_transform_copy_of_no_namespace_element_declaring_empty_default_declares_once() -> None:
+    body = '<xsl:template match="n"><xsl:copy-of select="."/></xsl:template>'
+    assert _run('<r><n xmlns=""><m/></n></r>', _XHTML_ROOT + body, method="xml").count('xmlns=""') == 1
+
+
+def test_transform_copy_siblings_under_default_namespace_reuse_source_answers() -> None:
+    body = '<xsl:template match="*"><xsl:copy/></xsl:template>'
+    result = _run('<r><x xmlns="urn:s"/><a/><c/></r>', _XHTML_ROOT + body, method="xml")
+    assert '<a xmlns=""/><c xmlns=""/>' in result
+
+
+def test_transform_copy_inside_namespaced_ancestor_reuses_source_answers() -> None:
+    body = '<xsl:template match="*"><xsl:copy><xsl:apply-templates/></xsl:copy></xsl:template>'
+    text = _XHTML_ROOT.replace('select="r/*"', 'select="*/*"') + body
+    assert 'xmlns=""' not in _run('<r xmlns="urn:s"><g><a/><c/></g></r>', text, method="xml")
+
+
+def test_transform_copy_under_default_namespace_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_deep_flat_copy, (500, 2000))
+
+
+def _deep_flat_copy(depth: int) -> Callable[[], object]:
+    source = turbohtml.parse_xml(f'<r xmlns="urn:s">{"<e>" * depth}{"</e>" * depth}</r>')
+    body = (
+        '<xsl:template match="/"><html xmlns="http://www.w3.org/1999/xhtml">'
+        '<xsl:for-each select="//e"><xsl:copy/></xsl:for-each></html></xsl:template>'
+    )
+    return partial(Transform(_sheet(body, method="xml")), source)
+
+
 def test_transform_namespace_dedup_skips_non_matching_ancestor_attributes() -> None:
     # The output parent carries an unrelated attribute and a same-length but different xmlns, so
     # scope lookup scans past both and the child still declares its own prefix.
@@ -3551,6 +3734,26 @@ def test_transform_number_multiple_levels() -> None:
     )
     result = _run("<doc><sec><sec/><sec/></sec><sec/></doc>", body)
     assert result == "[1][1.1][1.2][2]"
+
+
+def test_transform_number_multiple_numbers_every_level_past_chain_limit() -> None:
+    depth = 135
+    source = f"{'<e>' * (depth - 1)}<leaf/>{'</e>' * (depth - 1)}"
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//leaf"/></xsl:template>'
+        '<xsl:template match="leaf"><xsl:number level="multiple" count="*" format="1."/></xsl:template>'
+    )
+    assert _run(source, body) == "1." * depth
+
+
+def test_transform_number_multiple_attribute_past_chain_limit() -> None:
+    depth = 135
+    source = f'{"<e>" * (depth - 1)}<leaf a="1"/>{"</e>" * (depth - 1)}'
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//leaf/@a"/></xsl:template>'
+        '<xsl:template match="@a"><xsl:number level="multiple" count="*|@*" format="1."/></xsl:template>'
+    )
+    assert _run(source, body) == "1." * (depth + 1)
 
 
 def test_transform_number_level_any() -> None:
