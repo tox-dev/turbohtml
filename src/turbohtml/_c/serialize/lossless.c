@@ -45,15 +45,39 @@ static void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize
 static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0,    NULL, 0,    0,    0,
                                                 NULL,          0, NULL, NULL, NULL, NULL, NULL};
 
+/* Whether the source code points [start, end) hold a "<" or "&", which element content reads back as markup or a
+   character reference. A span is whatever slice of the input the tokenizer left untouched, not only data-state text: a
+   CDATA section at an integration point, raw-text or <plaintext> content, and a stray "<" all stay spans. */
+static int source_has_markup(const th_tree *tree, Py_ssize_t start, Py_ssize_t end) {
+    if (tree->kind == PyUnicode_1BYTE_KIND) {
+        const Py_UCS1 *bytes = (const Py_UCS1 *)tree->data + start;
+        Py_ssize_t length = end - start;
+        return memchr(bytes, '<', length) != NULL || memchr(bytes, '&', length) != NULL;
+    }
+    for (Py_ssize_t index = start; index < end; index++) {
+        Py_UCS4 character = PyUnicode_READ(tree->kind, tree->data, index);
+        if (character == '<' || character == '&') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Emit a text node: its verbatim source span while it is still the zero-copy slice
-   the parse left (character references and raw ampersands preserved), or the WHATWG
-   escaping of its current code points once a read realized it or an edit replaced it. */
+   the parse left and that slice reads back as the same text, or the WHATWG escaping
+   of its current code points -- for a span that holds markup characters, and once a
+   read realized the text or an edit replaced it. */
 static void lossless_put_text(sbuf *out, th_tree *tree, th_node *node) {
     if (text_is_span(node)) {
         Py_ssize_t offset = text_span_offset(node);
-        sbuf_put_source(out, tree, offset, offset + node->text_len);
-    } else if (node->text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: an earlier lazy text OOM */
-        out->failed = 1;                                   /* GCOVR_EXCL_LINE: allocation failure */
+        if (!source_has_markup(tree, offset, offset + node->text_len)) {
+            sbuf_put_source(out, tree, offset, offset + node->text_len);
+            return;
+        }
+        need_text(tree, node);
+    }
+    if (node->text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: a lazy text OOM, now or earlier */
+        out->failed = 1;                            /* GCOVR_EXCL_LINE: allocation failure */
     } else { /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
         sbuf_put_text(out, node->text, node->text_len, 0, TH_FMT_WHATWG);
     }
@@ -189,9 +213,9 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         break;
     }
     case TH_NODE_TEXT:
-        /* a span copies its source bytes either way, so only a realized or edited text pays the parent check */
-        if (!text_is_span(node) && lossless_in_rawtext(tree, node, root)) {
-            sbuf_put_ucs4(out, node->text, node->text_len);
+        /* the parent decides for a span too: its source bytes are literal in a raw-text element, escaped elsewhere */
+        if (lossless_in_rawtext(tree, node, root)) {
+            lossless_put_rawtext(out, tree, node);
         } else {
             lossless_put_text(out, tree, node);
         }
