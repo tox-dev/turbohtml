@@ -819,6 +819,16 @@ xr_cache *xp_regex_cache(xp_ctx *ctx) {
     return &caches->regex;
 }
 
+static Py_ssize_t growth_spent(xp_caches *const *caches) {
+    return *caches == NULL ? 0 : (*caches)->regex.grown;
+}
+
+static void growth_restore(xp_caches **caches, Py_ssize_t spent) {
+    if (*caches != NULL) {
+        (*caches)->regex.grown = spent;
+    }
+}
+
 TH_NOINLINE void xp_order_forget(xp_caches *caches) {
     if (caches != NULL && caches->positions.entries != NULL) {
         PyMem_Free(caches->positions.entries);
@@ -1730,6 +1740,9 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                 ctx->operations,
 #endif
             };
+            /* the strings a predicate builds are freed with its value, so the next node starts from what the evaluation
+               had spent before this one */
+            Py_ssize_t spent = growth_spent(ctx->caches);
             xp_result value;
             int rc = eval_condition(prog, expr, &pctx, &value);
             if (rc < 0) {
@@ -1737,6 +1750,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
             }
             int keep = value.kind == XP_NUMBER ? (double)(index + 1) == value.number : to_boolean(ctx->tree, &value);
             xp_result_free(&value);
+            growth_restore(ctx->caches, spent);
             if (keep) {
                 set->items[write_pos] = set->items[index];
                 if (set->snapshots && write_pos != index) {
