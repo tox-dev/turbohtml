@@ -384,6 +384,7 @@ def test_css_bad_url_token_is_no_link_and_ends_at_its_parenthesis(css: str) -> N
         pytest.param("\\75xl(a.png)", id="escaped-name-with-another-second-letter"),
         pytest.param("ur\\6d(a.png)", id="escaped-name-with-another-last-letter"),
         pytest.param("#\\75rl(a.png)", id="escaped-name-after-hash"),
+        pytest.param("@\\75rl(a.png)", id="escaped-name-after-at"),
         pytest.param("\\75rl;", id="escaped-name-before-another-token"),
         pytest.param("\\75rl\\78(a.png)", id="escaped-name-longer-than-url"),
     ],
