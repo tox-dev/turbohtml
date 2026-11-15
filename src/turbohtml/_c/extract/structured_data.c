@@ -30,6 +30,17 @@
 #include <string.h>
 
 #define STRUCTURED_DATA_MAX_ITEM_DEPTH ((Py_ssize_t)TH_DEPTH_LIMIT(400))
+/* itemref lets several items claim one nested item, and each claim builds a fresh record of it, so layers of shared
+   items double the records a handful of elements ask for. A call may build one record per itemscope element, which
+   covers every item nobody shares whatever the size of the page, plus this allowance for the repeats of shared ones:
+   a thousand listings that each reuse ten items fit, and spending all of it takes about ten milliseconds. */
+#define STRUCTURED_DATA_MAX_ITEM_REPEATS ((Py_ssize_t)10000)
+/* itemref also lets any number of items claim one plain property, and every record of a shared item collects that
+   item's own properties again, so items x properties values can come out of a page that holds items + properties
+   elements. A property element is valued at most twice per call and later claims take the cached value; this is how
+   many such later claims a call hands out. A page that shares nothing through itemref spends none: two thousand
+   listings that each reuse a block of twenty properties fit. */
+#define STRUCTURED_DATA_MAX_VALUE_REPEATS ((Py_ssize_t)100000)
 
 /* The longest @vocab or @prefix IRI, in code points, that declares a mapping. Every term in scope gets its own copy of
    the mapping, so the limit caps how far one short term grows. The RDFa 1.1 initial context's longest IRI is 48. */
@@ -239,6 +250,11 @@ typedef struct {
     struct micro_run *named_runs; /* that value's runs of props.claims */
     Py_ssize_t named_count;
     Py_ssize_t walk_budget; /* work the item walks may still do; negative once the call uses the property index */
+    Py_ssize_t records_left;
+    int funded;         /* whether the document's itemscope elements have topped up records_left */
+    Py_ssize_t *valued; /* node seq of a property element -> 1-based index into values, once itemref is in play */
+    PyObject *values;   /* list of those values: each a str, or None for a property microdata_text leaves out */
+    Py_ssize_t value_repeats_left;
 } micro_ctx;
 
 static PyObject *build_item(micro_ctx *ctx, th_node *element);
@@ -333,6 +349,7 @@ static PyObject *attr_value_or_none(const th_node_attr *attr) {
    (base is NULL otherwise, leaving values verbatim). None for text content microdata_text refuses. NULL only on the
    excluded allocation-failure path. */
 static PyObject *microdata_value(micro_ctx *ctx, th_node *element) {
+    TH_WORK_STEP();
     if (find_node_attr(element, TH_ATTR_ITEMSCOPE) != NULL) {
         return build_item(ctx, element);
     }
@@ -378,13 +395,15 @@ static int token_repeats(PyObject *tokens, Py_ssize_t index) {
 }
 
 /* Append `value` under every distinct whitespace-separated name in the itemprop run to the properties dict, each name
-   mapping to a list of values in document order. -1 only on the excluded allocation-failure path. */
-static int add_property(PyObject *properties, const Py_UCS4 *names, Py_ssize_t names_len, PyObject *value) {
+   mapping to a list of values in document order. Returns the number of names it filed the value under, or -1 only on
+   the excluded allocation-failure path. */
+static Py_ssize_t add_property(PyObject *properties, const Py_UCS4 *names, Py_ssize_t names_len, PyObject *value) {
     PyObject *tokens = split_token_list(names, names_len);
     if (tokens == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t count = PyList_GET_SIZE(tokens);
+    Py_ssize_t added = 0;
     for (Py_ssize_t index = 0; index < count; index++) {
         if (token_repeats(tokens, index)) {
             continue;
@@ -411,9 +430,10 @@ static int add_property(PyObject *properties, const Py_UCS4 *names, Py_ssize_t n
         if (append_failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
             goto error;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        added++;
     }
     Py_DECREF(tokens);
-    return 0;
+    return added;
 error:                 /* GCOVR_EXCL_LINE: shared cleanup for the unreachable allocation-failure arms */
     Py_DECREF(tokens); /* GCOVR_EXCL_LINE */
     return -1;         /* GCOVR_EXCL_LINE */
@@ -982,9 +1002,58 @@ static int crawl_item_properties(micro_ctx *ctx, th_node *root, const th_node_at
     return sort_properties(&ctx->props, results);
 }
 
+/* Take `count` repeated values out of the call's allowance. -1 with RecursionError set when fewer are left. */
+static int spend_value_repeats(micro_ctx *ctx, Py_ssize_t count) {
+    if (count > ctx->value_repeats_left) {
+        PyErr_Format(PyExc_RecursionError,
+                     "microdata() supports at most %zd repeats of property values shared through itemref",
+                     STRUCTURED_DATA_MAX_VALUE_REPEATS);
+        return -1;
+    }
+    ctx->value_repeats_left -= count;
+    return 0;
+}
+
+/* The value of a property that is no item. Once itemref is in play, a claim after the first valuation takes the cached
+   str instead of walking and copying the subtree again, out of the STRUCTURED_DATA_MAX_VALUE_REPEATS allowance;
+   *repeat tells such a claim. A property valued before the first itemref lookup is not cached, so its first shared
+   claim values it again. NULL with RecursionError set once the allowance is spent, and on the excluded
+   allocation-failure path. */
+static PyObject *shared_microdata_value(micro_ctx *ctx, th_node *property, int *repeat) {
+    if (ctx->valued == NULL) {
+        ctx->valued = PyMem_Calloc((size_t)th_tree_node_count(ctx->tree), sizeof(Py_ssize_t));
+        if (ctx->valued == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    const Py_ssize_t known = ctx->valued[property->seq];
+    *repeat = known != 0;
+    if (known != 0) {
+        if (spend_value_repeats(ctx, 1) < 0) {
+            return NULL;
+        }
+        return Py_NewRef(PyList_GET_ITEM(ctx->values, known - 1));
+    }
+    PyObject *value = microdata_value(ctx, property);
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: a value that is no item fails only on allocation */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (ctx->values == NULL) {
+        ctx->values = PyList_New(0);
+    }
+    /* GCOVR_EXCL_BR_START: the list fails only on allocation */
+    if (ctx->values == NULL || PyList_Append(ctx->values, value) < 0) {
+        Py_DECREF(value); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    ctx->valued[property->seq] = PyList_GET_SIZE(ctx->values);
+    return value;
+}
+
 /* Crawl the properties of the item rooted at `element` into `properties`, in document (tree) order per the spec's
    final sort, each itemprop name mapping to its list of values. A property whose text content microdata_text refuses
-   is left out. -1 only on the excluded allocation-failure path. */
+   is left out. -1 with RecursionError set past a limit of the call, or on the excluded allocation-failure path. */
 static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *properties) {
     node_stack results = {NULL, 0, 0};
     int status = -1;
@@ -1002,17 +1071,24 @@ static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *proper
     for (Py_ssize_t index = 0; index < results.len; index++) {
         th_node *property = results.items[index];
         const th_node_attr *itemprop = find_node_attr(property, TH_ATTR_ITEMPROP);
-        PyObject *value = microdata_value(ctx, property);
+        /* only itemref gives a property a second claimant, and the first lookup of one builds the id index */
+        const int shareable = ctx->ids.built && find_node_attr(property, TH_ATTR_ITEMSCOPE) == NULL;
+        int repeat = 0;
+        PyObject *value = shareable ? shared_microdata_value(ctx, property, &repeat) : microdata_value(ctx, property);
         if (value == NULL) {
             goto done;
         }
-        int failed = 0;
+        Py_ssize_t added = 0;
         if (value != Py_None) {
-            failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
+            added = add_property(properties, itemprop->value, itemprop->value_len, value);
         }
         Py_DECREF(value);
-        if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            goto done; /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            goto done;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        /* the claim paid for one entry; an element that names several properties adds one per further name */
+        if (repeat && added > 1 && spend_value_repeats(ctx, added - 1) < 0) {
+            goto done;
         }
     }
     status = 0;
@@ -1033,8 +1109,26 @@ static int tuple_set_or_fail(PyObject *tuple, Py_ssize_t index, PyObject *value)
     return 0;
 }
 
+/* Take one record out of the call's budget, 0 once it is spent. The budget starts as the shared-item allowance, which
+   few pages exhaust, so only the first time it runs dry do the document's itemscope elements top it up with the one
+   record each builds when nobody shares it. */
+static int claim_record(micro_ctx *ctx) {
+    if (ctx->records_left == 0 && !ctx->funded) {
+        ctx->funded = 1;
+        for (th_node *node = ctx->document->first_child; node != NULL; node = preorder_next(node, ctx->document)) {
+            ctx->records_left += node->type == TH_NODE_ELEMENT && find_node_attr(node, TH_ATTR_ITEMSCOPE) != NULL;
+        }
+    }
+    if (ctx->records_left == 0) {
+        return 0;
+    }
+    ctx->records_left--;
+    return 1;
+}
+
 /* Build one MicrodataItem(type, id, properties), bounding the item graph rather than the DOM depth because itemref can
-   connect shallow elements into a recursive graph. */
+   connect shallow elements into a recursive graph, and the records of the call because itemref can reach one element
+   along many paths of that graph. */
 static PyObject *build_item(micro_ctx *ctx, th_node *element) {
     if (node_stack_contains(&ctx->active_items, element)) {
         PyErr_SetString(PyExc_RecursionError, "microdata() found a cyclic nested item graph");
@@ -1043,6 +1137,11 @@ static PyObject *build_item(micro_ctx *ctx, th_node *element) {
     if (ctx->active_items.len >= STRUCTURED_DATA_MAX_ITEM_DEPTH) {
         PyErr_Format(PyExc_RecursionError, "microdata() supports at most %zd nested items",
                      STRUCTURED_DATA_MAX_ITEM_DEPTH);
+        return NULL;
+    }
+    if (!claim_record(ctx)) {
+        PyErr_Format(PyExc_RecursionError, "microdata() supports at most %zd repeats of items shared through itemref",
+                     STRUCTURED_DATA_MAX_ITEM_REPEATS);
         return NULL;
     }
     if (node_stack_push(&ctx->active_items, element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -1217,7 +1316,12 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
                      NULL,
                      NULL,
                      0,
-                     STRUCTURED_DATA_WALK_BUDGET_PER_NODE * (Py_ssize_t)th_tree_node_count(tree)};
+                     STRUCTURED_DATA_WALK_BUDGET_PER_NODE * (Py_ssize_t)th_tree_node_count(tree),
+                     STRUCTURED_DATA_MAX_ITEM_REPEATS,
+                     0,
+                     NULL,
+                     NULL,
+                     STRUCTURED_DATA_MAX_VALUE_REPEATS};
     int failed = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
@@ -1244,6 +1348,8 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     PyMem_Free(ctx.props.first.entries);
     PyMem_Free(ctx.props.past.entries);
     PyMem_Free(ctx.named_runs);
+    PyMem_Free(ctx.valued);
+    Py_XDECREF(ctx.values);
     PyMem_Free(ctx.active_items.items);
     if (failed) {
         Py_DECREF(items);

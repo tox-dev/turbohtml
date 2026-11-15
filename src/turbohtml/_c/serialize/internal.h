@@ -378,6 +378,14 @@ static inline void sbuf_put_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
     sbuf_put_ucs4_tail(out, text, start, len);
 }
 
+/* Dropped characters leave a `?` and a `>` adjacent in the output, so the `>` is looked for past them. */
+static inline int xml_pi_gt_follows(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t index) {
+    while (index < len && xml_char_invalid(text[index])) {
+        index++;
+    }
+    return index < len && text[index] == '>';
+}
+
 /* A `?>` in the data would end the instruction, and XML forbids C0 controls. */
 static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t start = 0;
@@ -385,7 +393,7 @@ static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize
         if (xml_char_invalid(text[index])) {
             sbuf_put_ucs4(out, text + start, index - start);
             start = index + 1;
-        } else if (index + 1 < len && text[index] == '?' && text[index + 1] == '>') {
+        } else if (text[index] == '?' && xml_pi_gt_follows(text, len, index + 1)) {
             sbuf_put_ucs4(out, text + start, index + 1 - start);
             sbuf_putc(out, ' ');
             start = index + 1;

@@ -199,8 +199,9 @@ void xp_order_forget(xp_caches *caches);
 /* The root `/` and id() start from, found once per top-level evaluation instead of climbed to from every predicate's
    context node. Outside a parsed fragment (see tree_root) every node an axis reaches has the root of the node the
    evaluation started at. A variable, or an extension function that can return or move nodes, can bring in a node of
-   another subtree, so from then on `mixed` is set and every context node is climbed from again. The XSLT engine
-   evaluates over its source tree only, which nothing edits during a transform, so the root it passes is `fixed`. */
+   another subtree, so from then on `mixed` is set and every context node is climbed from again, through a memo past
+   the first ancestors (climb_memoized). The XSLT engine evaluates over its source tree only, which nothing edits during
+   a transform, so the root it passes is `fixed`. */
 typedef struct {
     struct th_node *node; /* NULL until found, unless the caller of xp_eval_at supplied it */
     int mixed;

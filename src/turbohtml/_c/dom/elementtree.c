@@ -1934,6 +1934,135 @@ static PyObject *view_subelement(PyObject *module, PyObject *args, PyObject *kwa
     return result;
 }
 
+static int view_tag_matches(th_node *node, PyObject *filter) {
+    if (filter == Py_None) {
+        return 1;
+    }
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(filter); index++) {
+        PyObject *name = PyList_GET_ITEM(filter, index);
+        if (PyUnicode_GET_LENGTH(name) != node->text_len) {
+            continue;
+        }
+        int kind = PyUnicode_KIND(name);
+        const void *data = PyUnicode_DATA(name);
+        Py_ssize_t offset = 0;
+        while (offset < node->text_len && PyUnicode_READ(kind, data, offset) == node->text[offset]) {
+            offset++;
+        }
+        if (offset == node->text_len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The raw nodes a strip call acts on, collected before any edit. */
+typedef struct {
+    th_node **items;
+    Py_ssize_t count;
+    Py_ssize_t capacity;
+} strip_targets;
+
+static int strip_targets_push(strip_targets *targets, th_node *node) {
+    if (targets->count == targets->capacity) {
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)targets->capacity + 1, (size_t)targets->capacity, 16, sizeof(th_node *), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path */
+        }
+        th_node **resized = PyMem_Realloc(targets->items, bytes);
+        if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: a realloc failure cannot be forced from a test */
+            return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        targets->items = resized;
+        targets->capacity = (Py_ssize_t)cap;
+    }
+    targets->items[targets->count++] = node;
+    return 0;
+}
+
+/* Collects, in document order, the elements a strip call acts on, as raw nodes. strip_tags() takes every match.
+   strip_elements() takes the matches a getparent() climb from each would reach: the climb stops at a template's
+   content, a tail holder, and an earlier match with its whole subtree, so the walk skips everything under those.
+   The walk makes no Python call: a wrapper's critical section can suspend the tree lock, and a concurrent move
+   would then reshape the walk. */
+static int view_strip_collect(th_node *root, PyObject *filter, int unwrap, strip_targets *targets) {
+    th_node *barrier = view_is_holder(root) ? root : NULL;
+    th_node *node = root->first_child;
+    int status = 0;
+    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
+    while (status == 0 && node != NULL) {
+        /* GCOVR_EXCL_BR_STOP */
+        TH_WORK_STEP();
+        if (node->type == TH_NODE_ELEMENT && view_tag_matches(node, filter) && (unwrap || barrier == NULL)) {
+            if (!unwrap) {
+                barrier = node;
+            }
+            status = strip_targets_push(targets, node);
+        } else if (!unwrap && barrier == NULL && (node->type != TH_NODE_ELEMENT || view_is_holder(node))) {
+            barrier = node;
+        }
+        th_node *next = node->first_child;
+        while (next == NULL && node != root) {
+            if (node == barrier) {
+                barrier = NULL;
+            }
+            next = node->next_sibling;
+            node = node->parent;
+        }
+        node = next;
+    }
+    return status;
+}
+
+/* Edits the collected nodes with the tree's observed removals, the same calls node_unwrap and node_extract make. An
+   unwrap splices a match's children into its parent first; a strip_elements() match takes its tail text with it when
+   with_tail is set. Unwrapping only relinks, so a nested match is reparented to a surviving ancestor and its parent is
+   read here, when its turn comes. */
+static void view_strip_edit(th_tree *tree, const strip_targets *targets, int unwrap, int with_tail) {
+    for (Py_ssize_t at = 0; at < targets->count; at++) {
+        th_node *node = targets->items[at];
+        if (unwrap) {
+            th_node *parent = node->parent;
+            while (node->first_child != NULL) {
+                th_node *child = node->first_child;
+                th_node_remove_observed(tree, child);
+                th_node_insert_before_observed(tree, parent, child, node);
+            }
+            th_node_remove_observed(tree, node);
+            continue;
+        }
+        if (with_tail) {
+            th_node *tail = node->next_sibling;
+            while (tail != NULL && tail->type == TH_NODE_TEXT) {
+                th_node *next = tail->next_sibling;
+                th_node_remove_observed(tree, tail);
+                tail = next;
+            }
+        }
+        th_node_remove_observed(tree, node);
+    }
+}
+
+/* The collection and the edits run under the tree lock with no Python call in between, so a concurrent move waits for
+   the whole strip and neither ends the collection early nor changes a match before it is removed. */
+TH_NODE_API(static, int, view_strip_locked, (NodeObject * owner, PyObject *filter, int unwrap, int with_tail),
+            (owner, filter, unwrap, with_tail), (NodeObject * owner, PyObject *filter, int unwrap, int with_tail),
+            owner, NULL) {
+    strip_targets targets = {NULL, 0, 0};
+    int status = view_strip_collect(owner->node, filter, unwrap, &targets);
+    if (status < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+    } else if (targets.count > 0) {
+        handle_drop_index(owner->handle);
+        view_strip_edit(tree_of((PyObject *)owner), &targets, unwrap, with_tail);
+    }
+    PyMem_Free(targets.items);
+    return status;
+}
+
 static PyObject *view_strip(PyObject *module, PyObject *args, int unwrap, int with_tail) {
     module_state *state = PyModule_GetState(module);
     if (PyTuple_GET_SIZE(args) == 0 ||
@@ -1952,52 +2081,18 @@ static PyObject *view_strip(PyObject *module, PyObject *args, int unwrap, int wi
     if (!present) {
         Py_RETURN_NONE;
     }
-    PyObject *root = PyTuple_GET_ITEM(args, 0);
     PyObject *tags = PyTuple_GetSlice(args, 1, PyTuple_GET_SIZE(args));
     if (tags == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
     }
-    PyObject *iterator = view_descendants(root, tags);
+    PyObject *filter = view_filter(tags);
     Py_DECREF(tags);
-    if (iterator == NULL) {
+    if (filter == NULL) {
         return NULL;
     }
-    PyObject *items = PySequence_List(iterator);
-    Py_DECREF(iterator);
-    if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    int status = 0;
-    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(items); index++) {
-        /* GCOVR_EXCL_BR_STOP */
-        PyObject *item = PyList_GET_ITEM(items, index);
-        if (unwrap) {
-            status = view_discard(view_drop_tag(item, NULL));
-        } else {
-            PyObject *parent = view_parent(item, NULL);
-            /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-            while (parent != NULL && parent != Py_None && parent != root) {
-                /* GCOVR_EXCL_BR_STOP */
-                PyObject *previous = parent;
-                parent = view_parent(parent, NULL);
-                Py_DECREF(previous);
-            }
-            if (parent == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                status = -1;      /* GCOVR_EXCL_LINE: allocation failure */
-            } else if (parent == root) {
-                status = with_tail ? view_set_text(item, Py_None, (void *)1) : 0;
-                /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-                if (status == 0) {
-                    /* GCOVR_EXCL_BR_STOP */
-                    status = view_discard(node_extract((PyObject *)((ElementView *)item)->node, NULL));
-                }
-            }
-            Py_XDECREF(parent);
-        }
-    }
-    Py_DECREF(items);
-    if (status < 0) { /* GCOVR_EXCL_BR_LINE: selected descendants have parents; only allocation can fail */
+    int status = view_strip_locked(((ElementView *)PyTuple_GET_ITEM(args, 0))->node, filter, unwrap, with_tail);
+    Py_DECREF(filter);
+    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;  /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_RETURN_NONE;
