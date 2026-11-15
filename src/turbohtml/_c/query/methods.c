@@ -2037,14 +2037,17 @@ static int build_xpath_namespaces(PyObject *mapping, xp_namespace **out_items, P
    skipped because Node.xpath reads them as options off the same kwargs; the
    precompiled XPath object binds them at construction and clears the flag, so every
    keyword is a $variable. self is the context Node: it supplies the module state and
-   the reference handle a bound Element is validated against. On error an exception is
-   set and partial bindings freed. */
+   the reference handle a bound Element is validated against. A node-set binding holds
+   node pointers into that handle's tree, and the iterable it is read from runs Python
+   that can move self into another tree, dropping the reference self holds on this one.
+   So the handle is owned while the bindings are built, and a context Node that has left
+   it by the end is an error, because the caller evaluates in whichever tree self is in
+   afterwards. On error an exception is set and partial bindings freed. */
 static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options, xp_binding **out_items,
                             Py_ssize_t *out_len) {
     *out_items = NULL;
     *out_len = 0;
     module_state *state = state_of(self);
-    PyObject *reference_handle = ((NodeObject *)self)->handle;
     Py_ssize_t total = kwds == NULL ? 0 : PyDict_Size(kwds);
     if (total == 0) {
         return 0;
@@ -2054,6 +2057,7 @@ static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options,
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         return -1;        /* GCOVR_EXCL_LINE */
     }
+    PyObject *reference_handle = Py_NewRef(((NodeObject *)self)->handle);
     Py_ssize_t count = 0;
     Py_ssize_t pos = 0;
     PyObject *key;
@@ -2073,10 +2077,12 @@ static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options,
         }
         Py_UCS4 *name = PyUnicode_AsUCS4Copy(key);
         if (name == NULL) {                /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            Py_DECREF(reference_handle);   /* GCOVR_EXCL_LINE */
             free_xpath_vars(items, count); /* GCOVR_EXCL_LINE */
             return -1;                     /* GCOVR_EXCL_LINE */
         }
         if (xpath_var_value(value, &items[count].value, state, reference_handle) < 0) {
+            Py_DECREF(reference_handle);
             PyMem_Free(name);
             free_xpath_vars(items, count);
             return -1;
@@ -2084,6 +2090,13 @@ static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options,
         items[count].name = name;
         items[count].name_len = PyUnicode_GET_LENGTH(key);
         count++;
+    }
+    int moved = !node_owned_by((NodeObject *)self, reference_handle);
+    Py_DECREF(reference_handle);
+    if (moved) {
+        PyErr_SetString(PyExc_ValueError, "xpath context node moved to a different tree while its variables were read");
+        free_xpath_vars(items, count);
+        return -1;
     }
     *out_items = items;
     *out_len = count;

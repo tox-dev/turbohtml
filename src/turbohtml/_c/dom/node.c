@@ -1259,17 +1259,21 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
         }
         if (conv != Py_None) {
             wrap_ctx.state = state_of(self);
-            wrap_ctx.handle = ((NodeObject *)self)->handle;
             opt.converters = conv;
             opt.wrap_node = md_wrap_node;
             opt.wrap_node_ctx = &wrap_ctx;
         }
     }
+    /* a converter can move self into another tree, which drops the reference self holds on this one; the render takes
+       its own once the converters are unpacked, so the walk and the elements it wraps stay on the tree it started in */
+    PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
+    wrap_ctx.handle = handle;
     Py_ssize_t out_len;
     Py_UCS4 *data;
-    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    data = th_node_markdown(tree_of(self), ((NodeObject *)self)->node, &opt, &out_len);
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    data = th_node_markdown(((HandleObject *)handle)->tree, ((NodeObject *)self)->node, &opt, &out_len);
     Py_END_CRITICAL_SECTION();
+    Py_DECREF(handle);
     Py_XDECREF(conv);
     if (data == NULL) {
         /* a converter that raised or returned a non-str leaves the exception set;
