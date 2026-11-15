@@ -9,9 +9,10 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs 
 import sys
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import pytest
+import tinycss2
 from bench.operations import INPUTS
 
 from turbohtml import clean
@@ -3214,6 +3215,78 @@ def test_minify_css_one_call_rewrite_is_a_fixed_point(source: str, expected: str
     assert minify_css(minify_css(source)) == expected
 
 
+# Three or more colons spell no pseudo-element, so the legacy `::name` -> `:name` shortening leaves them as written.
+_COLON_RUN: Final[list[pytest.ParameterSet]] = [
+    pytest.param(":::before{color:red}", ":::before{color:red}", id="three-colons-before"),
+    pytest.param(":::after{color:red}", ":::after{color:red}", id="three-colons-after"),
+    pytest.param("a:::before{color:red}", "a:::before{color:red}", id="three-colons-after-compound"),
+    pytest.param("::::before{color:red}", "::::before{color:red}", id="four-colons"),
+    pytest.param("a:::first-line{color:red}", "a:::first-line{color:red}", id="three-colons-first-line"),
+    pytest.param("::/**/:before{color:red}", ":::before{color:red}", id="comment-splits-run"),
+    pytest.param(":/**/:/**/:before{color:red}", ":::before{color:red}", id="comments-split-run"),
+    pytest.param("a::before:::after{color:red}", "a:before:::after{color:red}", id="run-after-legacy-name"),
+    pytest.param("p:is(:::before){color:red}", "p:is(:::before){color:red}", id="three-colons-in-function"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _COLON_RUN)
+def test_minify_css_colon_run_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _COLON_RUN)
+def test_minify_css_inline_colon_run_is_a_fixed_point(source: str, expected: str) -> None:
+    once = minify_css_inline(source)
+    assert once == minify_css_inline(expected)
+    assert minify_css_inline(once) == once
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_colon_run_meaning_is_a_fixed_point(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    selector = _colon_selector(rng)
+    once = minify_css(f"{selector}{{x:1}}")
+    assert _colon_runs(once.partition("{")[0]) == _expected_colon_runs(selector)
+    assert minify_css(once) == once
+
+
+def _colon_selector(rng: random.Random) -> str:
+    text = []
+    for _ in range(rng.randint(1, 3)):
+        text.append(rng.choice(("a", "b", "")))
+        for index in range(rng.randint(1, 4)):
+            if index:
+                text.append(rng.choice(("", "/**/")))
+            text.append(":")
+        names = ("before", "after", "first-line", "first-letter", "hover", "")
+        text.extend((rng.choice(("", "/**/")), rng.choice(names)))
+    return "".join(text)
+
+
+def _colon_runs(selector: str) -> list[tuple[int, str]]:
+    return [(len(colons), name) for colons, name in _COLON_RUN_RE.findall(selector.replace("/**/", ""))]
+
+
+def _expected_colon_runs(selector: str) -> list[tuple[int, str]]:
+    return [
+        (1 if count == 2 and name in {"before", "after", "first-line", "first-letter"} else count, name)
+        for count, name in _colon_runs(selector)
+    ]
+
+
+_COLON_RUN_RE: Final[re.Pattern[str]] = re.compile(r"(:+)([a-z-]*)")
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_minify_css_inline_colon_run_meaning_is_a_fixed_point(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    selector = _colon_selector(rng)
+    once = minify_css_inline(f"{selector}{{x:1}}")
+    assert _colon_runs(once.partition("{")[0]) == _expected_colon_runs(selector)
+    assert minify_css_inline(once) == once
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -4430,6 +4503,96 @@ def test_calc_preserves_types(source: str, expected: str) -> None:
 @pytest.mark.parametrize(("source", "expected"), _TYPE_CASES)
 def test_calc_type_output_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
+
+
+_CALC_BOUNDARY: Final[list[pytest.ParameterSet]] = [
+    pytest.param("b{a:b(calc(9)var(--a))}", "b{a:b(9 var(--a))}", id="number-before-function"),
+    pytest.param("a{b:x(calc(9)-x)}", "a{b:x(9 -x)}", id="number-before-minus-ident"),
+    pytest.param("a{b:x(calc(9)%)}", "a{b:x(9 %)}", id="number-before-percent"),
+    pytest.param("a{b:x(calc(9)\\30)}", "a{b:x(9 \\30)}", id="number-before-escape"),
+    pytest.param("a{b:x(calc(9)u+0)}", "a{b:x(9 u+0)}", id="number-before-unicode-range"),
+    pytest.param("a{b:f(x+calc(1))}", "a{b:f(x+ 1)}", id="plus-after-name-before-number"),
+    pytest.param("a{b:f(calc(1)y)}", "a{b:f(1 y)}", id="number-before-name"),
+    pytest.param("a{b:f(calc(1)-y)}", "a{b:f(1 -y)}", id="number-before-minus-name"),
+    pytest.param("a{b:f(calc(1)e3)}", "a{b:f(1 e3)}", id="number-before-exponent-name"),
+    pytest.param("a{b:f(+calc(1)y)}", "a{b:f(+ 1 y)}", id="plus-before-number-before-name"),
+    pytest.param("a{b:x(calc(1px)calc(2px))}", "a{b:x(1px 2px)}", id="dimension-before-calc"),
+    pytest.param("a{b:e(0.calc(7))}", "a{b:e(0. 7)}", id="dot-before-number"),
+    pytest.param("a{b:x(1.calc(7))}", "a{b:x(1. 7)}", id="number-dot-before-number"),
+    pytest.param("a{b:x(+calc(7))}", "a{b:x(+ 7)}", id="plus-before-number"),
+    pytest.param("a{filter:calc(9)url(x)}", "a{filter:9 url(x)}", id="filter-number-before-url"),
+    pytest.param("a{b:x(rgb(calc(1),0,0)var(--a))}", "a{b:x(#010000 var(--a))}", id="color-calc-before-function"),
+    pytest.param("a{b:x(rgb(1,0,0)var(--a))}", "a{b:x(#010000 var(--a))}", id="color-before-function"),
+    pytest.param("a{b:x(calc(9)1)}", "a{b:x(9 1)}", id="number-before-number"),
+    pytest.param("a{b:x(calc(9))}", "a{b:x(9)}", id="last-in-function"),
+    pytest.param("a{b:x(1,calc(9))}", "a{b:x(1,9)}", id="after-comma"),
+    pytest.param("a{b:calc((1+2", "a{b:calc((1 2))}", id="open-group-with-leftover"),
+    pytest.param("a{b:calc((1", "a{b:1}", id="open-nested-group"),
+    pytest.param("a{b:calc((1px", "a{b:1px}", id="open-nested-group-dimension"),
+    pytest.param("a{b:x(calc((1", "a{b:x(1)}", id="open-nested-group-in-function"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _CALC_BOUNDARY)
+def test_calc_unwrap_keeps_token_boundary(source: str, expected: str) -> None:
+    once: Final = minify_css(source)
+    assert once == expected
+    assert minify_css(once) == once
+
+
+@pytest.mark.parametrize("seed", range(400))
+def test_calc_unwrap_keeps_token_boundary_over_generated_neighbors(seed: int) -> None:
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    left = rng.choice(("", "0.", "1.", ".", "+", "x+", "%", '"s"', "/", ","))
+    right = rng.choice((
+        "",
+        "var(--a)",
+        "-x",
+        "x",
+        "y",
+        "e3",
+        "%",
+        "1",
+        ".5",
+        "+1",
+        "-1",
+        "#fff",
+        '"s"',
+        "url(x)",
+        "(1)",
+        "\\e",
+        "/",
+        ",",
+    ))
+    number = rng.choice(("9", "1px", ".5em", "-1", "50%", "2.5", "+3"))
+    once: Final = minify_css(f"a{{b:x({left}calc({number}){right})}}")
+    assert minify_css(once) == once
+    assert _value_shape(once) == _value_shape(f"a{{b:x({left} {number} {right})}}")
+
+
+def _value_shape(source: str) -> list[_Shape]:
+    rule: Final = tinycss2.parse_stylesheet(source, skip_comments=True, skip_whitespace=True)[0]
+    declaration: Final = tinycss2.parse_declaration_list(rule.content, skip_comments=True, skip_whitespace=True)[0]
+    return _token_shape(declaration.value)
+
+
+def _token_shape(
+    tokens: list[Any],  # simplint: ignore[imprecise-annotation]  # tinycss2 nodes share no static type
+) -> list[_Shape]:
+    shape: list[_Shape] = []
+    for token in tokens:
+        if token.type in {"whitespace", "comment"}:
+            continue
+        if token.type == "function":
+            shape += [("function", token.lower_name), *_token_shape(token.arguments), ("close",)]
+        elif token.type.endswith(" block"):
+            shape += [(token.type,), *_token_shape(token.content), ("close",)]
+        else:
+            shape.append((token.type, getattr(token, "value", None), getattr(token, "unit", None)))
+    return shape
+
+
+_Shape = tuple[str | float | None, ...]
 
 
 @pytest.mark.parametrize(

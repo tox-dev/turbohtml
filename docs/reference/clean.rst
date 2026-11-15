@@ -488,8 +488,9 @@ Structure and selectors
   O(rules²) time and memory. ``@media`` blocks fuse only when at most seven blocks enclose them; a deeper block stays
   separate from its same-query siblings.
 - Lower-case type selectors, trim combinator whitespace, drop a redundant universal ``*`` before a subclass, write the
-  four legacy pseudo-elements with one colon (``::before`` → ``:before``), and unquote an attribute value that is a
-  valid identifier (`Selectors 4 §5–6 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__, `Pseudo-Elements 4 §8
+  four legacy pseudo-elements with one colon (``::before`` → ``:before``; a run of three or more colons stays as
+  written), and unquote an attribute value that is a valid identifier (`Selectors 4 §5–6
+  <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__, `Pseudo-Elements 4 §8
   <https://www.w3.org/TR/css-pseudo-4/#css2-compat>`__); a custom-property name keeps its case (`Variables 1 §2
   <https://www.w3.org/TR/css-variables-1/#defining-variables>`__).
 - Keep a custom-property value byte-exact past edge trimming: §2 defines the value as the literal token stream,

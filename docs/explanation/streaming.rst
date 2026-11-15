@@ -29,8 +29,10 @@ never builds.
 One part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
 closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint,
 including the tree builder it runs for some markup (see `Foreign content follows the tree builder`_). It also caps the
-open-element stack at 512 elements, so a pathologically deep or unclosed input cannot exhaust memory or the C stack the
-selector matcher walks. Start tags past the cap, formatting elements included, attach at the capped depth as siblings.
+open-element stack at 8,192 elements, so a pathologically deep or unclosed input cannot exhaust memory or the C stack
+the selector matcher walks. Past the cap the rewriter stops tracking elements, as the tree builder refuses them, but a
+raw-text or RCDATA element still reads its content as text. An edit that needs the content of an element nested that
+deep raises :class:`ValueError`, and so does a handler once an SVG or MathML element starts there.
 
 ***********************************
  Selectors match against the spine
