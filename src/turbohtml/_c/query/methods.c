@@ -2447,6 +2447,175 @@ retry:;
     return 0;
 }
 
+/* What node_css_closest_each holds for a node: whether an element at or above it matches. The match is in the output by
+   then, so which one it is no longer matters. */
+enum { CLOSEST_FOUND = 1, CLOSEST_NONE = 2 };
+
+/* Until a climb gets this far, a run keeps no answers: ordinary markup nests far less deep, so it never pays for
+   storing or looking one up (the threshold of the selector matcher's SEL_SIBLING_MEMO_MIN_RUN). */
+#define CLOSEST_MEMO_MIN_RUN 32
+
+/* Append the match node to out unless an earlier run of node_css_closest_each found it: seen holds what those runs
+   found, or is NULL during the first. */
+static int closest_keep(PyObject *out, PyObject *seen, module_state *state, PyObject *handle, th_node *node) {
+    if (seen == NULL) {
+        return append_wrapped(out, state, handle, node);
+    }
+    PyObject *wrapped = element_wrap(state, handle, node);
+    if (wrapped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t before = PySet_GET_SIZE(seen);
+    int status = PySet_Add(seen, wrapped);
+    if (status == 0 && PySet_GET_SIZE(seen) != before) { /* GCOVR_EXCL_BR_LINE: the add only fails on allocation */
+        status = PyList_Append(out, wrapped);
+    }
+    Py_DECREF(wrapped);
+    return status;
+}
+
+/* Query.closest(): append to out the nearest self-or-ancestor match of every node in nodes, each match once and in the
+   order the nodes reach it. Returns 0, or -1 with an exception set.
+
+   The nodes of one tree that follow each other share a run: one critical section, one compiled selector and one
+   sibling memo. The HTML tree builder caps nesting at TH_MAX_TREE_DEPTH, but an XML or a programmatic tree nests
+   without limit, and climbing from every node to its match is quadratic for nodes nested in each other or below one
+   long chain of ancestors. A node that does not match answers as its parent does, so past the first
+   CLOSEST_MEMO_MIN_RUN ancestors a climb stops at the first one whose answer the node map holds, and it stores its
+   answer under each ancestor it passed from there. Once one climb has gone that far the tree is a deep one, and the
+   climbs after it ask and fill the map from their first node: from then on the run tests each node once, while a
+   tree that nests no deeper than ordinary markup never touches the map on the way up.
+
+   closest() binds :scope to the node it starts from, so a selector that writes it has no answer to share: it keeps the
+   whole climb from every node, and the map only tells the matches already found. */
+int node_css_closest_each(PyObject *module, PyObject *nodes, PyObject *selector, PyObject *out) {
+    module_state *state = PyModule_GetState(module);
+    PyObject *seen = NULL;
+    int error = 0;
+    for (Py_ssize_t first = 0; !error && first < PyList_GET_SIZE(nodes);) {
+        PyObject *item = PyList_GET_ITEM(nodes, first);
+        if (!is_node(item, state)) {
+            PyErr_SetString(PyExc_TypeError, "expected a turbohtml element");
+            error = 1;
+            break;
+        }
+        /* The node map of a run ends with its critical section, and a set that spans trees can come back to one in
+           a later run, so from the second run on the wrappers already in out tell what is new. */
+        if (first > 0 && seen == NULL && (seen = PySet_New(out)) == NULL) { /* GCOVR_EXCL_BR_LINE: allocation */
+            error = 1;                                                      /* GCOVR_EXCL_LINE */
+            break;                                                          /* GCOVR_EXCL_LINE */
+        }
+        NodeObject *anchor = (NodeObject *)item;
+        Py_ssize_t index = first;
+        PyObject *handle = node_owner_ref(anchor);
+        int moved = 0;
+        Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the ancestor walks */
+        sel_compiled *compiled = cached_compile(state->selector_error, (HandleObject *)handle, selector);
+        if (compiled == NULL) {
+            error = 1;
+        } else if (!node_owned_by(anchor, handle)) {
+            moved = 1;
+        } else {
+            const int shared = !selector_uses_scope(compiled);
+            const sel_simple *single = sel_single_simple(compiled);
+            /* a builtin tag name on an HTML tree compares atoms, as select() does through the element index */
+            uint16_t tag = TH_TAG_UNKNOWN;
+            if (single != NULL && single->kind == 'e' && !th_tree_is_xml(compiled->tree)) {
+                tag = single->tag_atom;
+            }
+            th_node_map known = {0};
+            sel_sibling_memo memo = {0};
+            sel_ctx ctx = {compiled->tree, NULL, compiled->quirks, NULL, NULL, NULL, &memo, NULL, NULL};
+            int memo_after = shared ? CLOSEST_MEMO_MIN_RUN : INT_MAX; /* steps a climb takes before it asks the map */
+            th_node *last = NULL; /* the previous climb's answer, already in the map */
+            for (; index < PyList_GET_SIZE(nodes); index++) {
+                item = PyList_GET_ITEM(nodes, index);
+                /* a Query holds elements: the exact type spares them the subtype check of the other nodes */
+                if (!Py_IS_TYPE(item, (PyTypeObject *)state->element_type) && !is_node(item, state)) {
+                    break; /* the next run raises for a non-node */
+                }
+                if (!node_owned_by((NodeObject *)item, handle)) {
+                    break;
+                }
+                /* closest() scopes :scope to the node it was invoked on */
+                ctx.scope = ((NodeObject *)item)->node;
+                th_node *memo_from = NULL;
+                Py_ssize_t answer = 0;
+                int walked = 0;
+                th_node *node = ctx.scope;
+                for (; node != NULL; node = node->parent, walked++) {
+                    TH_WORK_STEP();
+                    if (walked >= memo_after) {
+                        if (memo_from == NULL) {
+                            memo_from = node;
+                        }
+                        if ((answer = th_node_map_find(&known, node)) != 0) {
+                            break;
+                        }
+                    }
+                    if (node->type != TH_NODE_ELEMENT) {
+                        continue;
+                    }
+                    int matched;
+                    if (tag != TH_TAG_UNKNOWN) {
+                        matched = node->atom == tag;
+                    } else if (single != NULL) {
+                        matched = sel_match_simple(node, single, &ctx);
+                    } else {
+                        matched = selector_matches_c(node, compiled, &ctx);
+                    }
+                    if (matched) {
+                        break;
+                    }
+                }
+                if (memo_from != NULL) {
+                    memo_after = 0;
+                }
+                if (!shared) { /* the sibling memo serves one scope element */
+                    sel_memo_free(&memo.table);
+                    memo = (sel_sibling_memo){0};
+                }
+                int fresh = 0;
+                int failed = 0;
+                if (answer == 0) {
+                    answer = node != NULL ? CLOSEST_FOUND : CLOSEST_NONE;
+                    /* a climb that has not asked the map yet can end on a match an earlier one stored */
+                    fresh = node != NULL && node != last && th_node_map_find(&known, node) == 0;
+                    if (fresh) {
+                        failed |= th_node_map_insert(&known, node, CLOSEST_FOUND) < 0;
+                    }
+                    last = node;
+                }
+                if (memo_from != NULL) {
+                    for (th_node *passed = memo_from; passed != node; passed = passed->parent) {
+                        failed |= th_node_map_insert(&known, passed, answer) < 0;
+                    }
+                }
+                if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                    PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                    error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+                    break;            /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                /* GCOVR_EXCL_BR_START: the wrapper and the append only fail on allocation failure */
+                if (fresh && closest_keep(out, seen, state, handle, node) < 0) {
+                    error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                    break;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                /* GCOVR_EXCL_BR_STOP */
+            }
+            sel_memo_free(&memo.table);
+            PyMem_Free(known.entries);
+        }
+        Py_END_CRITICAL_SECTION();
+        Py_DECREF(handle);
+        if (!moved) {
+            first = index;
+        }
+    }
+    Py_XDECREF(seen);
+    return -error;
+}
+
 /* prune()'s keep map values. A match keeps its whole subtree; an ancestor of a match keeps only
    the path to its matches, so its other children are still pruned. Zero marks a removed node. */
 enum prune_mark {

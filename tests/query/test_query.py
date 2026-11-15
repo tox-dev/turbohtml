@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import operator
 import sys
 from functools import partial
 from typing import TYPE_CHECKING, Final, cast
@@ -9,7 +10,7 @@ from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
 import turbohtml
-from turbohtml import Element, parse
+from turbohtml import Element, Node, _html, parse  # ruff:ignore[import-private-name]  # the native entry takes any list
 from turbohtml.query import Query, SelectorSyntaxError
 
 if TYPE_CHECKING:
@@ -305,6 +306,107 @@ def test_query_closest_tag_name(name: str) -> None:
 def test_query_closest_invalid_selector(selector: str) -> None:
     with pytest.raises(SelectorSyntaxError):
         Query("<p>x</p>")("p").closest(selector)
+
+
+@pytest.mark.parametrize(
+    "reorder",
+    [
+        pytest.param(lambda nodes: nodes, id="document-order"),
+        pytest.param(operator.itemgetter(slice(None, None, -1)), id="reversed"),
+        pytest.param(lambda nodes: nodes[1::2] + nodes[::2], id="interleaved"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("selector", "count"),
+    [
+        pytest.param("book", 1, id="shared-match"),
+        pytest.param("missing", 0, id="no-match"),
+        pytest.param("part.mid", 1, id="match-inside-the-chain"),
+        pytest.param("part", 100, id="self-match"),
+        pytest.param("book part", 100, id="descendant"),
+        pytest.param(".mid part, book", 51, id="selector-list"),
+        pytest.param(":scope", 100, id="scope-per-element"),
+        pytest.param(":not(:scope)", 100, id="scope-excluded"),
+    ],
+)
+def test_query_closest_deeply_nested_answers_as_each_element(
+    selector: str, count: int, reorder: Callable[[list[Element]], list[Element]]
+) -> None:
+    # a climb past 32 ancestors starts to share its answer with the climbs after it
+    document: Final = turbohtml.parse_xml(
+        f"<book>{'<part>' * 49}<part class='mid'>{'<part>' * 50}{'</part>' * 100}</book>"
+    )
+    sections: Final = reorder(document.select("part"))
+    nearest: Final = [section.closest(selector) for section in sections]
+    found: Final = list(Query(sections).closest(selector))
+    assert found == list(dict.fromkeys(node for node in nearest if node is not None))
+    assert len(found) == count
+
+
+def test_query_closest_deep_chain_shared_by_siblings() -> None:
+    document: Final = turbohtml.parse_xml(f"<book>{'<a>' * 80}<part/><part/><part/>{'</a>' * 80}</book>")
+    assert list(Query(document.select("part")).closest("book")) == document.select("book")
+    assert len(Query(document.select("part")).closest("missing")) == 0
+
+
+def test_query_closest_deep_trees_interleaved() -> None:
+    first: Final = turbohtml.parse_xml(f"<book id='first'>{'<part>' * 40}{'</part>' * 40}</book>").select("part")
+    second: Final = turbohtml.parse_xml(f"<book id='second'>{'<part>' * 40}{'</part>' * 40}</book>").select("part")
+    mixed: Final = [section for pair in zip(first, second, strict=True) for section in pair]
+    assert [node.attrs["id"] for node in Query(mixed).closest("book")] == ["first", "second"]
+
+
+@pytest.mark.parametrize(
+    ("selector", "count"),
+    [
+        pytest.param("lead ~ part", 40, id="left-match"),
+        pytest.param("x ~ part", 0, id="no-left-match"),
+        pytest.param("lead ~ part:not(:scope)", 0, id="scope-excluded"),
+        pytest.param("lead ~ :scope", 40, id="scope-per-element"),
+    ],
+)
+def test_query_closest_sibling_combinator_over_a_long_run(selector: str, count: int) -> None:
+    # the elements of one tree share a sibling memo, which a walk past 32 siblings reads
+    sections: Final = turbohtml.parse_xml(f"<book><lead/>{'<part/>' * 40}</book>").select("part")
+    nearest: Final = [section.closest(selector) for section in sections]
+    found: Final = list(Query(sections).closest(selector))
+    assert found == [node for node in nearest if node is not None]
+    assert len(found) == count
+
+
+def test_query_closest_deeply_nested_grows_linearly(work_steps: WorkSteps) -> None:
+    # Counted steps rather than seconds: a wall-clock budget is flaky on shared runners.
+    work_steps.assert_linear(
+        lambda n: partial(
+            Query(turbohtml.parse_xml(f"<book>{'<part>' * n}{'</part>' * n}</book>"))("part").closest, "book"
+        ),
+        (500, 2000),
+    )
+
+
+def test_query_closest_keeps_an_answer_seen_again_after_another() -> None:
+    document: Final = turbohtml.parse('<main id="a"><p>x</p><p>y</p></main><main id="b"><p>z</p></main>')
+    first, second, third = document.find_all("p")
+    assert [node.attrs["id"] for node in Query([first, third, second]).closest("main")] == ["a", "b"]
+
+
+def test_query_closest_climbs_from_a_node_that_is_not_an_element() -> None:
+    document: Final = parse("<div class=box><p>a<!--b--></p></div>")
+    paragraph = document.find("p")
+    assert paragraph is not None
+    assert list(Query(cast("list[Element]", [paragraph, *paragraph.children])).closest("p")) == [paragraph]
+
+
+@pytest.mark.parametrize(
+    "nodes",
+    [
+        pytest.param(["p"], id="first-not-a-node"),
+        pytest.param([parse("<p>a</p>").find("p"), "p"], id="later-not-a-node"),
+    ],
+)
+def test_query_closest_entry_rejects_a_non_node(nodes: list[Element | str | None]) -> None:
+    with pytest.raises(TypeError, match="turbohtml element"):
+        _html.query_closest(cast("list[Node]", nodes), "p")
 
 
 @pytest.mark.parametrize(
