@@ -60,6 +60,13 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           COV_GCOV: ${{ matrix.cov }}
+      - name: 🧾 Oracle: upload C coverage
+        if: ${{ always() && runner.os == 'macOS' && matrix.py == '3.11' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: c-coverage-macos
+          path: .tox/3.11/tmp/c_coverage.json
+          if-no-files-found: warn
       - name: 📊 Report failed selector branches
         if: ${{ failure() && runner.os == 'macOS' && contains(fromJSON('["3.11","3.12","3.13","3.14"]'), matrix.py) }}
         run: |
