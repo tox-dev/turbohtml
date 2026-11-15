@@ -136,7 +136,7 @@
     "shape": {
       "kind": "repeat",
       "head": "a",
-      "left": "\u0316\u0301"
+      "left": "̖́"
     }
   },
   {
@@ -151,6 +151,21 @@
       "head": "<div>",
       "left": "<b></b>",
       "tail": "</div>"
+    }
+  },
+  {
+    "name": "of-type-position-walk",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1947",
+    "targets": [
+      "select_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<div>",
+      "left": "<x{n}></x{n}>",
+      "tail": "</div>",
+      "counter": true
     }
   },
   {
@@ -673,7 +688,7 @@
     ],
     "shape": {
       "kind": "repeat",
-      "left": "*~~\u00a0"
+      "left": "*~~ "
     }
   },
   {
@@ -957,6 +972,33 @@
     }
   },
   {
+    "name": "css-merge-dropped-rule-chain",
+    "source": "tests/css/minify/test_css.py::test_minify_css_live_rule_search_scales_linearly",
+    "targets": [
+      "minify_css"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "u{k:v}w{k:v}u{m:n}w{m:n}"
+    }
+  },
+  {
+    "name": "sanitize-report-attribute-drops",
+    "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/clean/sanitize.c#L1916-L1917",
+    "targets": [
+      "sanitize_report"
+    ],
+    "base": 16384,
+    "shape": {
+      "kind": "repeat",
+      "head": "<a",
+      "left": " a{n}",
+      "tail": ">x</a>",
+      "counter": true
+    }
+  },
+  {
     "name": "css-border-default-rescan",
     "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/css/minify/css_render.h#L777",
     "targets": [
@@ -983,6 +1025,73 @@
       "left": "<n xlink:role=\"\">",
       "right": "</n>",
       "tail": "</r>"
+    }
+  },
+  {
+    "name": "whatwg-reopened-link-target",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<p>a<a href='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
+    }
+  },
+  {
+    "name": "whatwg-reopened-attribute-in-raw-table",
+    "source": "https://html.spec.whatwg.org/multipage/parsing.html#reconstruct-the-active-formatting-elements",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "<table><tr><td colspan=2><p>a<b title='",
+      "left": "u",
+      "middle": "'>x",
+      "right": "<p>b"
+    }
+  },
+  {
+    "name": "js-fold-nested-blocks",
+    "source": "https://github.com/tox-dev/turbohtml/blob/26ff562fbd219618b791f924c934676cd7e7c772/src/turbohtml/_c/js/fold.c#L1593-L1604",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 512,
+    "shape": {
+      "kind": "sandwich",
+      "left": "{c:;",
+      "right": "}"
+    }
+  },
+  {
+    "name": "js-fold-constant-if",
+    "source": "https://github.com/tox-dev/turbohtml/blob/26ff562fbd219618b791f924c934676cd7e7c772/src/turbohtml/_c/js/fold.c#L1718-L1724",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 512,
+    "shape": {
+      "kind": "sandwich",
+      "left": "if(1){c:;",
+      "right": "}"
+    }
+  },
+  {
+    "name": "js-fold-abrupt-else",
+    "source": "https://github.com/tox-dev/turbohtml/blob/26ff562fbd219618b791f924c934676cd7e7c772/src/turbohtml/_c/js/fold.c#L1718-L1724",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 1024,
+    "shape": {
+      "kind": "sandwich",
+      "left": "if(q){b();throw 0}else{c:;",
+      "right": "}"
     }
   }
 ]

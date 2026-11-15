@@ -13,7 +13,7 @@ from weakref import finalize, ref
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_xml
+from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_fragment, parse_xml
 from turbohtml.convert import css_to_xpath
 from turbohtml.query import XPathDepthError
 
@@ -137,6 +137,79 @@ def test_absolute_path_in_a_parsed_fragment_starts_at_the_fragment() -> None:
     assert tags(bold.xpath("/p")) == ["p"]
 
 
+def test_absolute_path_above_a_parsed_fragment_starts_at_the_document_over_it() -> None:
+    fragment: Final = turbohtml.parse_fragment("<p><b>x</b></p>")
+    assert fragment.xpath("count(//b/ancestor::node())") == 3  # the p, the fragment, the document it hangs under
+    assert fragment.xpath("count(//b/ancestor::node()[/p])") == 2  # from that document /p finds nothing
+    document: Final = fragment.xpath_one("..")
+    assert isinstance(document, Document)
+    assert tags(document.xpath("//b[/p]")) == ["b"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("//a[@id = /r/@main]/@id", ["2"], id="document"),
+        pytest.param("descendant::a[/r][@id = /r/@main]/@id", ["2"], id="relative-outer-path"),
+        pytest.param("(//a)[/r/@main = @id]/@id", ["2"], id="filter"),
+        pytest.param("//a[/r/@main = @id][not(/k)][/r or other()]/@id", ["2"], id="extension-not-called"),
+        pytest.param("$other/a[@id = /@main][/k]/@id", ["1"], id="variable"),
+        pytest.param("(//a | $other)[/k]/@main", ["1"], id="union-with-variable"),
+        pytest.param("//a[/r][$other/a[/k][not(/r)]][/r][not(/k)]/@id", ["1", "2"], id="variable-between"),
+        pytest.param("//a[/r][other()/a[/k][not(/r)]][/r][not(/k)]/@id", ["1", "2"], id="extension-between"),
+        pytest.param("//a[id('2')][other()/a[id('1')]]/@id", ["1", "2"], id="id"),
+    ],
+)
+def test_absolute_path_in_a_predicate_starts_at_its_context_root(expression: str, expected: list[str]) -> None:
+    document, detached = _two_roots()
+
+    def other(_context: SimpleNamespace) -> list[Element]:
+        return [detached]
+
+    result = document.xpath(expression, other=[detached], extensions={(None, "other"): other})
+    assert result == expected
+
+
+def _two_roots() -> tuple[Document, Element]:
+    document: Final = parse_xml("<r main='2'><a id='1'><a id='2'/></a><top main='1'><a id='1'/><k/></top></r>")
+    detached: Final = one(document, "//top")
+    detached.extract()
+    return document, detached
+
+
+def one(node: turbohtml.Node, expr: str) -> Element:
+    # The single Element an expression is expected to select.
+    result = node.xpath_one(expr)
+    assert isinstance(result, Element)
+    return result
+
+
+def test_absolute_path_follows_a_context_node_moved_mid_evaluation() -> None:
+    document, detached = _two_roots()
+
+    def adopt(context: SimpleNamespace) -> bool:
+        if context.context_node.attrs["id"] == "2":
+            detached.append(context.context_node)
+        return True
+
+    assert document.xpath("//a[/r][adopt()][/r]/@id", extensions={(None, "adopt"): adopt}) == ["1"]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("count(//e[/e/@main = @id])", id="comparison"),
+        pytest.param("count(//e[/x = @id and unused()])", id="extension-not-called"),
+    ],
+)
+def test_absolute_path_in_a_predicate_over_a_deep_tree_stays_linear(expression: str, work_steps: WorkSteps) -> None:
+    def build(size: int) -> Callable[[], object]:
+        document: Final = parse_xml("<e>" * size + "</e>" * size)
+        return lambda: document.xpath(expression, extensions={(None, "unused"): lambda _context: True})
+
+    work_steps.assert_linear(build, (1000, 4000))
+
+
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
@@ -181,13 +254,6 @@ def test_attribute_values(doc: turbohtml.Node) -> None:
 
 def test_attribute_wildcard(doc: turbohtml.Node) -> None:
     assert one(doc, "//div").xpath("@*") == ["d1", "box"]
-
-
-def one(node: turbohtml.Node, expr: str) -> Element:
-    # The single Element an expression is expected to select.
-    result = node.xpath_one(expr)
-    assert isinstance(result, Element)
-    return result
 
 
 def test_attribute_node_test_matches_all(doc: turbohtml.Node) -> None:
@@ -1654,6 +1720,28 @@ def test_node_set_variable_rejects_bad_node_sets(
 ) -> None:
     with pytest.raises(exc, match=match):
         variable_doc.xpath("$items", items=make_items(variable_doc))
+
+
+@pytest.mark.parametrize(
+    "evaluate",
+    [
+        pytest.param(lambda node, items: node.xpath("$items/text()", items=items), id="node-xpath"),
+        pytest.param(lambda node, items: XPath("$items/text()")(node, items=items), id="compiled"),
+    ],
+)
+def test_node_set_variable_iterable_moving_the_context_node_to_another_tree(
+    evaluate: Callable[[Element, Iterator[Element]], object],
+) -> None:
+    fragment: Final = parse_fragment("<p><a>one</a></p>")
+    host: Final = Element("div")
+
+    def anchors() -> Iterator[Element]:
+        yield from fragment.select("a")
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move drops the tree's last owner
+
+    with pytest.raises(ValueError, match="context node moved to a different tree"):
+        evaluate(fragment, anchors())
+    assert fragment.parent == host
 
 
 @pytest.mark.parametrize(

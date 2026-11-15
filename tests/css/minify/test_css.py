@@ -1000,6 +1000,49 @@ def test_minify_css_escaped_space_kept(source: str, expected: str) -> None:
     assert minify_css(expected) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{b:url(img\\ )}", "a{b:url(img\\ )}", id="space"),
+        pytest.param("a{b:url(img\\\t)}", "a{b:url(img\\\t)}", id="tab"),
+        pytest.param("a{b:url(img\\\n)}", "a{b:url(img\\\n)}", id="newline"),
+        pytest.param("a{b:url( \\ )}", "a{b:url(\\ )}", id="only-escaped-space"),
+        pytest.param("a{b:url(img\\  \t)}", "a{b:url(img\\ )}", id="trailing-whitespace-after-it-trimmed"),
+        pytest.param("a{b:url(img\\\\ )}", "a{b:url(img\\\\)}", id="escaped-backslash-trailing-space-trimmed"),
+        pytest.param("a{b:url(img\\41 )}", "a{b:url(img\\41)}", id="hex-escape-trailing-space-trimmed"),
+        pytest.param("a{b:url('img'\\ )}", "a{b:url('img'\\ )}", id="after-quoted-body"),
+        pytest.param("a{b:url(img\\ ", "a{b:url(img\\ )}", id="url-open-at-eof"),
+        pytest.param("a{filter:url(img\\ )}", "a{filter:url(img\\ )}", id="filter"),
+        pytest.param("@supports (b:url(img\\ )){a{b:c}}", "@supports(b:url(img\\ )){a{b:c}}", id="at-prelude"),
+        pytest.param("@import url(img\\ );a{b:c}", "@import url(img\\ );a{b:c}", id="import-keeps-function"),
+        pytest.param("@namespace url(img\\ );a{b:c}", "@namespace url(img\\ );a{b:c}", id="namespace-keeps-function"),
+        pytest.param(
+            "@import url(img\\\\ );a{b:c}", '@import"img\\\\";a{b:c}', id="import-escaped-backslash-unwrapped"
+        ),
+        pytest.param(
+            "a{b:url(img\\ );c:')}p{display:none}d{e:'}",
+            "a{b:url(img\\ );c:')}p{display:none}d{e:'}",
+            id="string-after-url-stays-a-string",
+        ),
+        pytest.param(
+            "@import url(img\\ );a{b:';}p{display:none}d{e:'}",
+            "@import url(img\\ );a{b:';}p{display:none}d{e:'}",
+            id="string-after-import-stays-a-string",
+        ),
+    ],
+)
+def test_minify_css_url_escaped_whitespace_kept(source: str, expected: str) -> None:
+    # a whitespace after an unescaped backslash is not trailing (CSS Syntax 3 §4.3.6): trimming it would leave the
+    # backslash to escape the `)`, or the quote of the string an @import url() unwraps to, and the token would run on
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
+def test_minify_css_inline_url_escaped_whitespace_kept() -> None:
+    source = "cursor:url(img\\ );font-family:');position:fixed;x:'"
+    assert minify_css_inline(source) == source
+
+
 _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\7b x}", "a{e:\\{x}", id="leading-brace"),
     pytest.param("a{e:\\fec0}", "a{e:\ufec0}", id="non-bom-final-byte"),
@@ -1547,6 +1590,29 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
     expected = f"{first_rule}{middle}{last_rule}"
     result = minify_css(f"a{{--z:0}}{middle}a{{--w:0}}")
     assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("group", "expected"),
+    [
+        # each u{..}w{..} pair joins into u,w{..}, which then merges into the first rule while it is the last live one
+        pytest.param("u{k:v}w{k:v}u{m:n}w{m:n}", "u,w{k:v;m:n}", id="last-live-rule-merges-back"),
+        # w{m:n} joins u{m:n} across x, and u,w{m:n} merges into the first rule: the dropped rule is the one x links to
+        pytest.param(
+            "u,w{k:v}u{m:n}x{--s:3}w{m:n}u,w{o:p}u,w{q:r}",
+            "u,w{k:v;m:n;o:p;q:r}x{--s:3}",
+            id="linked-rule-merges-back",
+        ),
+    ],
+)
+def test_minify_css_live_rule_search_unlinks_dropped_rules(group: str, expected: str) -> None:
+    assert (minify_css(group), minify_css(expected)) == (expected, expected)
+
+
+def test_minify_css_live_rule_search_scales_linearly(work_steps: WorkSteps) -> None:
+    group = "u{k:v}w{k:v}u{m:n}w{m:n}"
+    work_steps.assert_linear(lambda count: partial(minify_css, group * count), (1000, 4000))
+    assert minify_css(group * 4000) == "u,w{k:v;m:n}"
 
 
 @pytest.mark.parametrize(

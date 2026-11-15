@@ -1027,6 +1027,20 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
             (opts->markdown && !commonmark_attr_name_valid(name, name_len))) {
             continue;
         }
+        if (opts->clone_budget != NULL) {
+            /* the tree builder reopens an unclosed formatting element in every block after it, attributes and all:
+               a written start tag funds one repeat of each attribute, a clone spends, and an attribute the budget
+               does not cover is left out, so a value spelled once cannot multiply Markdown's raw HTML */
+            Py_ssize_t cost = name_len + attr->value_len;
+            if (!(node->tag_flags & TH_ELEM_IMPLIED)) {
+                *opts->clone_budget += cost;
+            } else if (cost > *opts->clone_budget) {
+                continue;
+            } else {
+                *opts->clone_budget -= cost;
+            }
+        }
+        TH_WORK_STEPS_ADD(name_len + attr->value_len);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, name, name_len);
         if (ser_put_charset_value(out, opts, charset_kind, name, name_len)) {

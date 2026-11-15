@@ -959,6 +959,22 @@ def test_base_url_uses_fallback_for_unclosed_host_bracket_after_userinfo() -> No
     assert parse('<base href="http://user]@[::1/x">').base_url("https://site.org/x") == "https://site.org/x"
 
 
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param(f"http://b.org/{'a' * (2048 - 14)}/", f"http://b.org/{'a' * (2048 - 14)}/", id="at-limit"),
+        pytest.param(f"http://b.org/{'a' * (2048 - 13)}/", "http://site.org/a", id="path-past-limit"),
+        pytest.param(f"http://b.org/?{'a' * (2048 - 13)}", "http://site.org/a", id="query-past-limit"),
+        pytest.param(f"{'a' * (2048 - 16)}/", "http://site.org/a", id="relative-past-limit"),
+        pytest.param(f"http://b.org/{'é' * 400}/", "http://site.org/a", id="percent-encoding-counts"),
+        pytest.param(f"{'./' * 2000}d/", "http://site.org/d/", id="long-href-short-url"),
+    ],
+)
+def test_base_url_longer_than_limit_uses_fallback(href: str, expected: str) -> None:
+    # every relative URL of the page is joined onto the base, so a page must not be able to make it as long as it likes
+    assert parse(f'<base href="{href}">').base_url("http://site.org/a") == expected
+
+
 def test_meta_refresh_resolves_encoded_dot_segments() -> None:
     assert parse('<meta http-equiv=refresh content="0;url=/a/%2e%2e/..">').meta_refresh("https://example.org/.") == (
         0.0,

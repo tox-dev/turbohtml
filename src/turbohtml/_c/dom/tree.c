@@ -470,7 +470,7 @@ const void *th_tree_source_data(th_tree *tree, int *kind, int *has_nul) {
 
 /* A shallow element clone (same atom/name/attrs, no children) for the adoption
    agency and active-formatting-element reconstruction. */
-static th_node *node_clone(th_tree *tree, const th_node *src);
+static th_node *node_clone(th_tree *tree, th_node *src);
 
 static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
@@ -1548,7 +1548,7 @@ static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out
     return out;
 }
 
-static th_node *node_clone(th_tree *tree, const th_node *src) {
+static th_node *node_clone(th_tree *tree, th_node *src) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -1565,12 +1565,15 @@ static th_node *node_clone(th_tree *tree, const th_node *src) {
             return NULL;           /* GCOVR_EXCL_LINE */
         }
         memcpy(node->attrs, src->attrs, (size_t)src->attr_count * sizeof(th_node_attr));
+        /* the slots are the clone's own, the values they point at are not */
+        node->attr_values_shared = 1;
+        src->attr_values_shared = 1;
     }
     node->attr_count = src->attr_count;
     if (tree->track_positions) {
         /* an adoption-agency clone stands in for the same source start tag, so it
            keeps the original's position */
-        const uint32_t *src_pos = node_pos((th_node *)src);
+        const uint32_t *src_pos = node_pos(src);
         node_pos(node)[0] = src_pos[0];
         node_pos(node)[1] = src_pos[1];
     }
@@ -2186,6 +2189,7 @@ static inline uint64_t *afe_keys(const th_tree *tree) {
 
 /* Remove the active-formatting-elements entry at index, shifting the tail down. */
 static void afe_remove_at(th_tree *tree, Py_ssize_t index) {
+    tree->afe[index]->afe_listed = 0;
     size_t tail = (size_t)(tree->afe_len - index - 1);
     if (tail > 0) {
         memmove(&tree->afe[index], &tree->afe[index + 1], tail * sizeof(th_node *));
@@ -2414,7 +2418,15 @@ static int afe_push(th_tree *tree, th_node *node) {
     }
     afe_keys(tree)[tree->afe_len] = key;
     tree->afe[tree->afe_len++] = node;
+    node->afe_listed = 1;
     return 1;
+}
+
+/* Put a clone in the list slot of the entry it stands in for. */
+static void afe_replace_at(th_tree *tree, Py_ssize_t index, th_node *clone) {
+    tree->afe[index]->afe_listed = 0;
+    tree->afe[index] = clone;
+    clone->afe_listed = 1;
 }
 
 static void afe_push_marker(th_tree *tree) {
@@ -2434,16 +2446,22 @@ static void afe_clear_to_marker(th_tree *tree) {
         if (entry == NULL) {
             return;
         }
+        entry->afe_listed = 0;
     }
 }
 
+/* The list outlives the stack of open elements, so a search for an element that has left it would read every entry
+   the markers left behind. Membership comes from the flag, and the search runs only for a listed element. */
 static Py_ssize_t afe_index_of(th_tree *tree, th_node *node) {
-    for (Py_ssize_t index = tree->afe_len - 1; index >= 0; index--) {
-        if (tree->afe[index] == node) {
-            return index;
-        }
+    if (!node->afe_listed) {
+        return -1;
     }
-    return -1;
+    Py_ssize_t index = tree->afe_len - 1;
+    while (tree->afe[index] != node) {
+        TH_WORK_STEP();
+        index--;
+    }
+    return index;
 }
 
 static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
@@ -2508,6 +2526,17 @@ static void reconstruct_afe(th_tree *tree) {
         }
     }
     for (; index < tree->afe_len; index++) {
+        if (tree->open_len >= TH_MAX_TREE_DEPTH) {
+            /* stack_push would refuse the clone, so the entry would stay unopened and every later token would clone
+               the whole tail again; as in afe_push_if_open, an element the depth cap keeps off the stack leaves
+               the list */
+            for (Py_ssize_t dropped = index; dropped < tree->afe_len; dropped++) {
+                tree->afe[dropped]->afe_listed = 0;
+            }
+            tree->afe_len = index;
+            tree->afe_hash_valid = 0;
+            return;
+        }
         th_node *clone = node_clone(tree, tree->afe[index]);
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -2518,7 +2547,7 @@ static void reconstruct_afe(th_tree *tree) {
         insertion_location(tree, &parent, &before);
         node_insert_before(parent, clone, before);
         stack_push(tree, clone);
-        tree->afe[index] = clone;
+        afe_replace_at(tree, index, clone);
         /* an a or nobr start tag closes an open one in scope, so a clone the output nests in its namesake moves out */
         tree->reparse_hazard |= (clone->atom == TH_TAG_A) | (clone->atom == TH_TAG_NOBR);
     }
@@ -2535,7 +2564,7 @@ static int is_special_atom(uint16_t atom, uint8_t flags) {
 static int adoption_agency(th_tree *tree, uint16_t atom) {
     /* if the current node is a matching formatting element not in the list, pop it */
     th_node *cur = current_node(tree);
-    if (cur->atom == atom && afe_index_of(tree, cur) < 0) {
+    if (cur->atom == atom && !cur->afe_listed) {
         stack_pop(tree);
         return 1;
     }
@@ -2631,7 +2660,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 return 1;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             }
-            tree->afe[node_afe] = clone;
+            afe_replace_at(tree, node_afe, clone);
             tree->open[node_idx] = clone;
             tree->stack_version++;
             node = clone;
@@ -2689,6 +2718,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         size_t moved = (size_t)(tree->afe_len - bookmark);
         memmove(&tree->afe[bookmark + 1], &tree->afe[bookmark], moved * sizeof(th_node *));
         tree->afe[bookmark] = fmt_clone;
+        fmt_clone->afe_listed = 1;
         uint64_t *keys = afe_keys(tree);
         memmove(&keys[bookmark + 1], &keys[bookmark], moved * sizeof(uint64_t));
         keys[bookmark] = fmt_key;

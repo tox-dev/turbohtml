@@ -305,7 +305,12 @@ PyObject *turbohtml_register_feed(PyObject *module, PyObject *args);
 /* Implemented in dom/document.c, the URL-resolution routine base_url() runs, shared with the extraction methods so
    their base_url reuses it rather than reinventing RFC 3986 resolution. th_url_resolve joins a (possibly relative)
    target onto a base and percent-encodes the result; th_document_base_url resolves the document's <base href> against a
-   fallback. Both return a new reference, NULL with a ValueError set when a component cannot be split. */
+   fallback. Both return a new reference, NULL with a ValueError set when a component cannot be split.
+   TH_BASE_URL_MAX bounds the base URL, in code points, that a document sets through <base href> or xml:base. Every
+   relative URL in the document is joined onto that base, so an unbounded base makes the output grow with its length
+   times the link count. A longer base counts as one that fails to parse and is ignored. The caller's own URL is not
+   limited. */
+#define TH_BASE_URL_MAX 2048
 PyObject *th_url_resolve(PyObject *base, PyObject *target);
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback);
 

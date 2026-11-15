@@ -79,7 +79,7 @@ class SchemaValidationError(Exception):
 
 class ValidationResult(NamedTuple):
     """
-    The outcome of validating a document: a ``valid`` flag and the errors found.
+    The outcome of validating a document: a ``valid`` flag and the errors found, the first 1,000 at most.
 
     The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
     reads naturally.
@@ -105,7 +105,8 @@ class ValidationError(NamedTuple):
     One schema violation.
 
     :param message: a human-readable description of what failed.
-    :param path: the ``/root/child`` document-order path of the offending node.
+    :param path: the ``/root/child`` document-order path of the offending node; a name longer than 64 characters is
+        cut there and ends in a horizontal ellipsis (U+2026).
     :param line: the 1-based source line of the node, or ``0`` when unknown.
     :param type: the violation category -- ``"structure"``, ``"datatype"``, or ``"facet"``.
     """
@@ -122,7 +123,8 @@ class XMLSchema(_Schema):
 
     :raises ValueError: when the schema is malformed, its root is not ``xs:schema``, a ``ref``/``type``/``base``
         does not resolve, a group, attribute-group, or type-derivation reference forms a cycle or a chain over 100
-        hops, or an ``xs:unique``/``xs:key``/``xs:keyref`` identity constraint is declared.
+        hops, the references of one complex type expand to more than 20,000 particles and attribute declarations, or
+        an ``xs:unique``/``xs:key``/``xs:keyref`` identity constraint is declared.
     """
 
     def __init__(self, source: str | Node) -> None:

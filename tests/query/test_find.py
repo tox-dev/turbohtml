@@ -10,7 +10,7 @@ from weakref import finalize
 
 import pytest
 
-from turbohtml import Axis, Comment, Document, Element, Range, Text, parse, parse_xml
+from turbohtml import Axis, Comment, Document, Element, Range, Text, parse, parse_fragment, parse_xml
 from turbohtml.clean import collapse_whitespace_node
 
 if TYPE_CHECKING:
@@ -27,6 +27,7 @@ _DOC: Final[str] = (
     '<section><h2 id="t">T</h2><p class="lead big">one</p><p class="big">two</p><a href="/x">l</a></section>'
 )
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
+_WORD: Final[re.Pattern[str]] = re.compile(r"\w")
 
 
 def _raise(_value: str | None) -> bool:
@@ -236,6 +237,20 @@ def test_axis_following_skips_text_nodes() -> None:
 def test_axis_preceding_excludes_ancestors() -> None:
     link = _el(parse(_DOC).find("a"))
     assert _el(link.find("h2", axis=Axis.PRECEDING)).tag == "h2"
+
+
+@pytest.mark.parametrize(
+    ("query", "tags"),
+    [
+        pytest.param(lambda link: link.find_all(axis=Axis.PRECEDING), ["p", "p", "h2", "head"], id="structural"),
+        pytest.param(lambda link: link.find_all(text="T", axis=Axis.PRECEDING), ["h2"], id="text-scan"),
+        pytest.param(lambda link: link.find_all(text=_WORD, axis=Axis.PRECEDING), ["p", "p", "h2"], id="text-regex"),
+        pytest.param(lambda link: link.find_all(text=bool, axis=Axis.PRECEDING), ["p", "p", "h2"], id="text-callable"),
+    ],
+)
+def test_axis_preceding_skips_every_ancestor(query: Callable[[Element], list[Element]], tags: list[str]) -> None:
+    # nearest first; <section>, <body> and <html> all hold the text yet none of them precedes the link
+    assert _tags(query(_el(parse(_DOC).find("a")))) == tags
 
 
 @pytest.mark.parametrize(
@@ -1151,6 +1166,34 @@ def test_find_filter_cleanup_preserves_result_storage() -> None:
     found: Final = _el(root.find("p", attrs=attrs))
     gc.collect()
     assert (found.text, target.text) == ("original", "original")
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param(lambda node, moves: [node.find(href=moves)], id="find"),
+        pytest.param(lambda node, moves: node.find_all(href=moves), id="find-all"),
+        pytest.param(lambda node, moves: [node.find(href=moves, text="2")], id="text-scan-find"),
+        pytest.param(lambda node, moves: node.find_all(href=moves, text="2"), id="text-scan-find-all"),
+        pytest.param(lambda node, moves: [node.find(href=moves, text=bool)], id="text-snapshot-find"),
+        pytest.param(lambda node, moves: node.find_all(href=moves, text=bool), id="text-snapshot-find-all"),
+        pytest.param(lambda node, moves: [node.find(href=True, text=moves)], id="text-predicate-find"),
+        pytest.param(lambda node, moves: node.find_all(href=True, text=moves), id="text-predicate-find-all"),
+    ],
+)
+def test_filter_moving_the_searched_node_to_another_tree_finishes_on_the_old_one(
+    search: Callable[[Element, Callable[[str | None], bool]], list[Element | None]],
+) -> None:
+    fragment: Final = parse_fragment('<p><a href="/1">1</a><a href="/2">2</a></p>')
+    host: Final = Element("div")
+
+    def moves(value: str | None) -> bool:
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move leaves the search its last owner
+        return value in {"/2", "2"}
+
+    matches: Final = [_el(match) for match in search(fragment, moves)]
+    assert [(match.attrs["href"], match.text) for match in matches] == [("/2", "2")]
+    assert fragment.parent == host
 
 
 def test_attribute_filter_snapshot_releases_on_error() -> None:

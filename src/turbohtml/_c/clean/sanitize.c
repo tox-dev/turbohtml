@@ -175,6 +175,13 @@ static inline uint16_t reparsed_atom(const th_node *element) {
 #define TH_WALK_INLINE
 #endif
 
+/* The 32-attribute path keeps its trail and buffer out of the frame every element's attribute walk runs in. */
+#if defined(_MSC_VER)
+#define TH_WALK_OUTLINE __declspec(noinline)
+#else
+#define TH_WALK_OUTLINE __attribute__((noinline))
+#endif
+
 /* The rarer balancing steps run out of line, so the walk's loop keeps its registers for the policy work every element
    pays for. */
 #if defined(_MSC_VER)
@@ -1886,15 +1893,80 @@ static int apply_late_attribute_safety(sanitizer *s, th_node *element, PyObject 
     return 0;
 }
 
-static int compact_disallowed_attributes(sanitizer *s, th_node *element, PyObject *tag) {
+/* Do the name rules keep this attribute? An event handler never survives. An unlisted name survives on a kept custom
+   element only when custom_attribute_check admits it, and an `is` on any element only when allow_customized_builtins
+   is on and its value names a custom element -- both an allowlist substitute, never a bypass: the URL and style
+   baseline still runs on whatever they keep. Returns 1 keep, 0 drop, -1 on error. */
+static TH_WALK_INLINE int attribute_name_kept(sanitizer *s, PyObject *tag, const th_node_attr *attr, const char *name,
+                                              Py_ssize_t name_len, int custom) {
+    if (is_event_attribute(name, name_len)) {
+        return 0;
+    }
+    int keep = attr_allowed(s, tag, attr->name_atom, name, name_len);
+    if (keep == 0 && custom && s->custom_attribute_check != Py_None) {
+        PyObject *attribute = PyUnicode_FromStringAndSize(name, name_len);
+        if (attribute == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        keep = predicate_true2(s->custom_attribute_check, tag, attribute);
+        Py_DECREF(attribute);
+    }
+    if (keep == 0 && s->allow_customized_builtins && s->custom_element_check != Py_None && name_len == 2 &&
+        name[0] == 'i' && name[1] == 's' && attr->value != NULL) {
+        PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
+        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        keep = predicate_true(s->custom_element_check, value);
+        Py_DECREF(value);
+    }
+    return keep;
+}
+
+/* The removal records a compacted start tag still owes. The compaction drops every name-rejected attribute up front,
+   but a report lists removals in the order the walk meets them, between the URL and value removals of the attributes
+   around them, so each record waits here until the walk first reaches the kept attribute that followed it. */
+typedef struct {
+    uint32_t *atoms;      /* one per original attribute, in order: a dropped name, or TH_ATTR_UNKNOWN for a kept one */
+    Py_ssize_t count;     /* original attribute count */
+    Py_ssize_t next;      /* first slot not yet reported */
+    Py_ssize_t unvisited; /* kept attributes the walk has not reached yet. They are the tail of the array: a removal
+                             takes the attribute under the walk and a rescan only revisits the ones before it. A rescan
+                             that also deleted a later duplicate leaves this high, which reports a record early. */
+} dropped_trail;
+
+/* Record the drops in front of the next kept attribute and step past that attribute's slot. */
+static int record_compacted_drops(sanitizer *s, PyObject *tag, dropped_trail *trail) {
+    while (trail->next < trail->count) {
+        uint32_t atom = trail->atoms[trail->next++];
+        if (atom == TH_ATTR_UNKNOWN) {
+            break;
+        }
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(s->tree, atom, &name_len);
+        if (record_removed(s, tag, name, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on allocation */
+            return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return 0;
+}
+
+/* Drop every attribute the name rules reject in one pass over the array: deleting them one at a time shifts the rest of
+   the array down each time, which is quadratic in a start tag the input can make as long as it likes. `dropped`, when
+   a report is wanted, receives the dropped_trail slots. */
+static int compact_disallowed_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom, uint32_t *dropped) {
     Py_ssize_t kept = 0;
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        TH_WORK_STEP();
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-        int allowed = is_event_attribute(name, name_len) ? 0 : attr_allowed(s, tag, attr->name_atom, name, name_len);
+        int allowed = attribute_name_kept(s, tag, attr, name, name_len, custom);
         if (allowed < 0) {
             return -1;
+        }
+        if (dropped != NULL) {
+            dropped[index] = allowed ? TH_ATTR_UNKNOWN : attr->name_atom;
         }
         if (allowed) {
             if (kept != index) {
@@ -1909,68 +1981,34 @@ static int compact_disallowed_attributes(sanitizer *s, th_node *element, PyObjec
 
 static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *tag);
 
-static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom) {
-    if (s->attribute_predicate != Py_None && apply_attribute_predicate(s, element, tag) < 0) {
-        return -1;
-    }
-    int compacted = element->attr_count >= 32 && s->removed == NULL && s->attribute_filter == Py_None &&
-                    s->custom_attribute_check == Py_None && s->custom_element_check == Py_None;
-    /* The private tree has no observers or cached lookups before sanitization returns. */
-    if (compacted) {
-        if (compact_disallowed_attributes(s, element, tag) < 0) {
-            return -1;
-        }
-    }
+/* Vet the attributes of a kept element. `compacted` says compact_disallowed_attributes already applied the name rules;
+   `trail` then holds the records it owes, or is NULL when nothing is reported. */
+static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom, int compacted,
+                                         dropped_trail *trail) {
     Py_ssize_t index = 0;
     int late_written = 0;
     while (index < element->attr_count) {
+        if (trail != NULL && element->attr_count - index == trail->unvisited) {
+            trail->unvisited--;
+            if (record_compacted_drops(s, tag, trail) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on allocation */
+                return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len = 0;
         const char *name = compacted ? NULL : th_attr_name(s->tree, attr->name_atom, &name_len);
-        int drop = !compacted && is_event_attribute(name, name_len);
-        if (!compacted && !drop) {
-            int allowed = attr_allowed(s, tag, attr->name_atom, name, name_len);
-            if (allowed < 0) {
+        if (!compacted) {
+            int keep = attribute_name_kept(s, tag, attr, name, name_len, custom);
+            if (keep < 0) {
                 return -1;
             }
-            if (!allowed) {
-                /* an unlisted attribute survives on a kept custom element only when custom_attribute_check admits it,
-                   and an `is` on any element only when allow_customized_builtins is on and its value names a custom
-                   element -- both an allowlist substitute, never a bypass: the on*, URL, and style baseline below still
-                   runs on whatever they keep */
-                int keep = 0;
-                if (custom && s->custom_attribute_check != Py_None) {
-                    PyObject *attr = PyUnicode_FromStringAndSize(name, name_len);
-                    if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-                    }
-                    keep = predicate_true2(s->custom_attribute_check, tag, attr);
-                    Py_DECREF(attr);
-                    if (keep < 0) {
-                        return -1;
-                    }
+            if (!keep) {
+                if (record_removed(s, tag, name, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
+                    return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                if (!keep && s->allow_customized_builtins && s->custom_element_check != Py_None && name_len == 2 &&
-                    name[0] == 'i' && name[1] == 's' && attr->value != NULL) {
-                    PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
-                    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-                    }
-                    keep = predicate_true(s->custom_element_check, value);
-                    Py_DECREF(value);
-                    if (keep < 0) {
-                        return -1;
-                    }
-                }
-                drop = !keep;
+                th_node_attr_del(s->tree, element, name, name_len);
+                continue; /* the next attribute shifted into this slot */
             }
-        }
-        if (drop) {
-            if (record_removed(s, tag, name, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
-                return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            th_node_attr_del(s->tree, element, name, name_len);
-            continue; /* the next attribute shifted into this slot */
         }
         enum attribute_safety_result safety = apply_attribute_safety_at(s, element, tag, index, 0);
         if (safety == ATTRIBUTE_SAFETY_ERROR) { /* GCOVR_EXCL_BR_LINE: only allocation failures reach this path */
@@ -2005,6 +2043,11 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
         }
         index++;
     }
+    while (trail != NULL && trail->next < trail->count) {
+        if (record_compacted_drops(s, tag, trail) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on allocation */
+            return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
     if (s->add_link_rel != Py_None && reparsed_atom(element) == TH_TAG_A && find_attr(s, element, "href") >= 0) {
         drop_case_variants(s, element, "rel");
         Py_UCS4 *points = PyUnicode_AsUCS4Copy(s->add_link_rel);
@@ -2026,6 +2069,35 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
         return 0;
     }
     return apply_late_attribute_safety(s, element, tag);
+}
+
+static TH_WALK_OUTLINE int sanitize_large_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom) {
+    dropped_trail trail = {.count = element->attr_count};
+    if (s->removed != NULL) {
+        trail.atoms = PyMem_Malloc((size_t)trail.count * sizeof(uint32_t));
+        if (trail.atoms == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;             /* GCOVR_EXCL_LINE */
+        }
+    }
+    /* The private tree has no observers or cached lookups before sanitization returns. */
+    int status = compact_disallowed_attributes(s, element, tag, custom, trail.atoms);
+    if (status == 0) {
+        trail.unvisited = element->attr_count;
+        status = vet_attributes(s, element, tag, custom, 1, trail.atoms == NULL ? NULL : &trail);
+    }
+    PyMem_Free(trail.atoms);
+    return status;
+}
+
+static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom) {
+    if (s->attribute_predicate != Py_None && apply_attribute_predicate(s, element, tag) < 0) {
+        return -1;
+    }
+    if (element->attr_count < 32) {
+        return vet_attributes(s, element, tag, custom, 0, NULL);
+    }
+    return sanitize_large_attributes(s, element, tag, custom);
 }
 
 static th_node *next_sanitizer_node(th_node *node, th_node *root) {
@@ -3287,12 +3359,27 @@ static int balanced_unwrap_pending(const void *stack, Py_ssize_t depth, const th
     return 0;
 }
 
+/* Escaping or stripping an element lifts its children a level, so a chain of them costs time quadratic in its length.
+   The parser caps its trees, while parse_xml and hand-built trees are uncapped, so the walks refuse longer chains. */
+#define SANITIZE_MAX_UNWRAP_DEPTH ((Py_ssize_t)3 * TH_MAX_TREE_DEPTH)
+
+/* Count one more open element awaiting its unwrap. Returns 0, or -1 with RecursionError set past the limit. */
+static int unwrap_depth_enter(Py_ssize_t *unwrapping) {
+    if (++*unwrapping <= SANITIZE_MAX_UNWRAP_DEPTH) {
+        return 0;
+    }
+    PyErr_Format(PyExc_RecursionError, "sanitize does not support more than %zd nested disallowed elements",
+                 SANITIZE_MAX_UNWRAP_DEPTH);
+    return -1;
+}
+
 /* Walk descendants with an explicit stack. A frame keeps the post-order strip/escape action and the sibling that
    follows the element, so mutations cannot invalidate traversal state. */
 static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     sanitize_frame *frames = NULL;
     Py_ssize_t depth = 0;
     Py_ssize_t capacity = 0;
+    Py_ssize_t unwrapping = 0;
     th_node *child = parent->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3316,6 +3403,7 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 }
                 s->balance_edited |= defer_balance;
                 /* GCOVR_EXCL_BR_STOP */
+                unwrapping--;
             }
             parent_kept = frame.parent_kept;
             child = frame.next;
@@ -3329,6 +3417,10 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 return -1;
             }
             if (action != SANITIZE_DONE) {
+                if (action != SANITIZE_KEEP_CHILDREN && unwrap_depth_enter(&unwrapping) < 0) {
+                    PyMem_Free(frames);
+                    return -1;
+                }
                 if (depth == capacity) {
                     size_t grown;
                     size_t bytes;
@@ -3387,6 +3479,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
     balance_walk walk = {root, NULL, 0, 0, 0, 0};
     uint32_t bits = balancer_child_bits(root, 0);
     int parent_kept = 1; /* the root is kept context */
+    Py_ssize_t unwrapping = 0;
     th_node *child = root->first_child;
     for (;;) {
         if (child == NULL) {
@@ -3414,6 +3507,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
                 }
                 s->balance_edited |= defer_balance;
                 walk.deferred |= defer_balance;
+                unwrapping--;
             }
             if (frame->role > ROLE_RECORDED) {
                 if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */
@@ -3445,6 +3539,11 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
         if (action == SANITIZE_DONE) {
             child = next;
             continue;
+        }
+        if (action != SANITIZE_KEEP_CHILDREN && unwrap_depth_enter(&unwrapping) < 0) {
+            PyMem_Free(frames);
+            PyMem_Free(walk.verdicts);
+            return -1;
         }
         if (bits & CONTEXT_PENDING) {
             /* the parent deferred them: its frame, on top, holds the bits the parent sits in */

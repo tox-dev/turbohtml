@@ -1367,6 +1367,33 @@ def _compute_style_rounds(nodes: tuple[Element, ...], rounds: int) -> None:
 
 
 @pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param("rules", id="rules"),
+        pytest.param("selector-list", id="selector-list"),
+        pytest.param("compound", id="compound"),
+        pytest.param("arguments", id="arguments"),
+    ],
+)
+def test_computed_style_has_memo_is_bounded(shape: str, retained_bytes: RetainedBytes) -> None:
+    # every :has() argument keys one answer per element, so the memo grows with arguments times elements
+    arguments: Final = 13
+    sheet: Final = {
+        "rules": ":has(x){}" * arguments,
+        "selector-list": f"{','.join([':has(x)'] * arguments)}{{}}",
+        "compound": f"{':not(:has(x))' * arguments}{{}}",
+        "arguments": f":has({','.join(['x'] * arguments)}){{}}",
+    }[shape]
+    elements: Final = (1 << 21) // arguments + 8_192
+    document: Final = parse(f"<style>{sheet}:has(p){{color:red}}</style>{'<div>' * 28}{'<p>' * elements}")
+    root: Final = document.select_one("html")
+    assert isinstance(root, Element)
+    before: Final = retained_bytes()
+    assert computed_style(root)["color"] == "red"
+    assert retained_bytes() - before < 1 << 20
+
+
+@pytest.mark.parametrize(
     "order", [pytest.param(slice(None), id="forward"), pytest.param(slice(None, None, -1), id="reverse")]
 )
 @pytest.mark.parametrize("separator", [pytest.param("", id="adjacent"), pytest.param(" \n<!--gap-->", id="spaced")])
@@ -1406,6 +1433,33 @@ def test_computed_style_nth_offset_near_int_min_matches_nothing() -> None:
     paragraph: Final = document.select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == "blue"
+
+
+def test_computed_style_type_positions_in_long_run() -> None:
+    # past 32 siblings the cascade indexes the run once for all its elements, and an edit drops that index
+    run: Final = "".join(f"<x-{index % 2}></x-{index % 2}>" for index in range(80))
+    document: Final = parse(
+        "<style>#p > *{color:blue}#p > :last-of-type{color:red}#p > :nth-of-type(2){color:green}</style>"
+        f"<div id=p>{run}</div>"
+    )
+    nodes: Final = document.select("#p > *")
+    before: Final = [computed_style(node)["color"] for node in nodes]
+    nodes[-1].insert_after(Element("x-0"))
+    after: Final = [computed_style(node)["color"] for node in nodes]
+    assert (before, after) == (
+        ["blue"] * 2 + ["green"] * 2 + ["blue"] * 74 + ["red"] * 2,
+        ["blue"] * 2 + ["green"] * 2 + ["blue"] * 75 + ["red"],
+    )
+
+
+def test_computed_style_type_position_looked_up_backwards() -> None:
+    # the cascade remembers the last position it computed; a later call for an earlier sibling past a long run of
+    # other types reads the position memo instead of walking the run
+    document: Final = parse(
+        f"<style>#p > :nth-of-type(1){{color:red}}</style><div id=p><b></b>{'<i></i>' * 40}<b></b></div>"
+    )
+    nodes: Final = document.select("#p > b")
+    assert [computed_style(node)["color"] for node in nodes[::-1]] == ["canvastext", "red"]
 
 
 def test_computed_style_sibling_positions_after_insertion() -> None:

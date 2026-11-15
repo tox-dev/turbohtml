@@ -124,6 +124,59 @@ def test_deep_disallowed_input_completes_postorder_actions(mode: OnDisallowed, e
     assert (output.count("&lt;x&gt;"), "bottom" in output) == (expected_open_count, True)
 
 
+_UNWRAP_LIMIT: Final[int] = 3 * 512
+
+
+def test_disallowed_elements_nested_to_the_limit_are_sanitized() -> None:
+    document: Final = parse_xml("<x>" * _UNWRAP_LIMIT + "</x>" * _UNWRAP_LIMIT)
+    assert sanitize(document).count("&lt;x&gt;") == _UNWRAP_LIMIT
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(sanitize, id="sanitize"),
+        pytest.param(sanitize_report, id="sanitize-report"),
+        pytest.param(sanitize_node, id="sanitize-node"),
+        pytest.param(sanitize_report_node, id="sanitize-report-node"),
+    ],
+)
+@pytest.mark.parametrize(
+    "policy",
+    [
+        pytest.param(Policy(), id="escape"),
+        pytest.param(Policy(on_disallowed_tag=OnDisallowed.STRIP), id="strip"),
+        pytest.param(Policy(xml=True), id="plain-walk"),
+    ],
+)
+def test_disallowed_elements_nested_past_the_limit_are_refused(
+    call: Callable[[Document, Policy], object], policy: Policy
+) -> None:
+    # each escaped or stripped element lifts its content a level, so a longer chain costs the square of its length
+    document: Final = parse_xml("<b><x>" * (_UNWRAP_LIMIT + 1) + "</x></b>" * (_UNWRAP_LIMIT + 1))
+    with pytest.raises(RecursionError, match=f"sanitize does not support more than {_UNWRAP_LIMIT} nested"):
+        call(document, policy)
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        pytest.param(Policy(), f"{'<b>' * 4_000}t{'</b>' * 4_000}", id="kept"),
+        pytest.param(Policy(tags=frozenset(), on_disallowed_tag=OnDisallowed.REMOVE), "", id="removed"),
+    ],
+)
+def test_deep_elements_that_move_nothing_are_not_limited(policy: Policy, expected: str) -> None:
+    document: Final = parse_xml(f"{'<b>' * 4_000}t{'</b>' * 4_000}")
+    assert sanitize(document, replace(policy, xml=True)) == expected
+
+
+@pytest.mark.parametrize("parser", [pytest.param(parse, id="document"), pytest.param(parse_fragment, id="fragment")])
+def test_deepest_parsed_tree_is_under_the_unwrap_limit(parser: Callable[[str], Document | Element]) -> None:
+    # nested template contents double the tree builder's depth cap, the deepest tree it builds
+    tree: Final = parser(f"{'<template>' * 1_000}bottom")
+    assert sanitize(tree) == "&lt;template&gt;"
+
+
 def test_disallowed_attribute_dropped() -> None:
     assert sanitize('<a href="http://x" class="c" id="i">x</a>') == '<a href="http://x">x</a>'
 
@@ -428,6 +481,13 @@ def test_allowlisted_foreign_subtree_keeps_html_integration_child() -> None:
     policy = Policy(tags=frozenset({"svg", "foreignObject", "p"}))
     out = sanitize("<svg><foreignObject><p>hi</p></foreignObject></svg>", policy)
     assert out == "<svg><foreignObject><p>hi</p></foreignObject></svg>"
+
+
+def test_allowlisted_foreign_object_is_not_forged_by_non_ascii_name() -> None:
+    # the name matches foreignObject only after truncation, so it is no integration point and must not be emitted as one
+    policy = Policy(tags=frozenset({"svg", "foreignObject", "p"}))
+    out = sanitize("<svg><forťignobject><p>x</p></forťignobject></svg>", policy)
+    assert out == "<svg>&lt;forťignobject&gt;</svg><p>x</p>"
 
 
 def test_allowlisted_foreign_script_is_still_escaped() -> None:
@@ -2254,6 +2314,86 @@ def test_attribute_compaction_report_order(policy: Policy) -> None:
         "<a>x</a>",
         [Removed("a", name) for name in ("first", "href", "onclick", *(f"bad-{index}" for index in range(32)))],
     )
+
+
+def test_attribute_compaction_report_interleaves(policy: Policy) -> None:
+    pairs: Final = [f' bad-{index}="x" data-{index}="x"' for index in range(32)]
+    rest: Final = ' onclick="x" title="t" last="x"'
+    html: Final = "".join(('<a first="x"', *pairs[:16], ' href="javascript:x"', *pairs[16:], rest, ">x</a>"))
+    bad: Final = [f"bad-{index}" for index in range(32)]
+    kept: Final = "".join(f' data-{index}="x"' for index in range(32))
+    assert Sanitizer(policy).sanitize_report(html) == (
+        f'<a{kept} title="t">x</a>',
+        [Removed("a", name) for name in ("first", *bad[:16], "href", *bad[16:], "onclick", "last")],
+    )
+
+
+@pytest.mark.parametrize(
+    "callbacks",
+    [
+        pytest.param(Policy(), id="report"),
+        pytest.param(Policy(attribute_filter=lambda _tag, _name, value: value), id="attribute-filter"),
+        pytest.param(Policy(custom_element_check=lambda tag: tag == "x-card"), id="custom-element-check"),
+    ],
+)
+def test_attribute_compaction_report_matches_sanitize(policy: Policy, callbacks: Policy) -> None:
+    attribute_filter, custom_element_check = callbacks.attribute_filter, callbacks.custom_element_check
+    sanitizer: Final = Sanitizer(
+        replace(policy, attribute_filter=attribute_filter, custom_element_check=custom_element_check)
+    )
+    attributes: Final = "".join(f' bad-{index}="x"' for index in range(4_096))
+    html: Final = f'<a{attributes} href="/safe">x</a>'
+    out, removed = sanitizer.sanitize_report(html)
+    assert (out, sanitizer.sanitize(html)) == ('<a href="/safe">x</a>', '<a href="/safe">x</a>')
+    assert removed == [Removed("a", f"bad-{index}") for index in range(4_096)]
+
+
+def test_attribute_compaction_custom_check_drops(policy: Policy) -> None:
+    parts: Final = [f' bad-{index}="x"' for index in range(32)]
+    parts[7] = ' bad-7="x" is="x"'
+    attributes: Final = "".join(parts)
+    sanitizer: Final = Sanitizer(
+        replace(
+            policy,
+            custom_element_check=lambda tag: tag == "x-card",
+            custom_attribute_check=lambda _tag, name: name == "bad-7",
+        )
+    )
+    assert sanitizer.sanitize_report(f"<x-card{attributes}>x</x-card>") == (
+        '<x-card bad-7="x">x</x-card>',
+        [Removed("x-card", name) for name in (*(f"bad-{index}" for index in range(7)), "is")]
+        + [Removed("x-card", f"bad-{index}") for index in range(8, 32)],
+    )
+
+
+def test_attribute_compaction_custom_check_raises(policy: Policy) -> None:
+    def boom(_tag: str, name: str) -> bool:
+        raise ValueError(name)
+
+    attributes: Final = "".join(f' bad-{index}="x"' for index in range(32))
+    sanitizer: Final = Sanitizer(
+        replace(policy, custom_element_check=lambda tag: tag == "x-card", custom_attribute_check=boom)
+    )
+    with pytest.raises(ValueError, match="bad-0"):
+        sanitizer.sanitize(f"<x-card{attributes}>x</x-card>")
+
+
+@pytest.mark.parametrize(
+    "callbacks",
+    [
+        pytest.param(Policy(), id="report"),
+        pytest.param(Policy(attribute_filter=lambda _tag, _name, value: value), id="attribute-filter"),
+    ],
+)
+def test_attribute_compaction_report_is_linear(policy: Policy, callbacks: Policy, work_steps: WorkSteps) -> None:
+    sanitizer: Final = Sanitizer(replace(policy, attribute_filter=callbacks.attribute_filter))
+
+    def markup(count: int) -> str:
+        attributes: Final = "".join(f' bad-{index:x}="x"' for index in range(count))
+        return f'<a{attributes} href="/safe">x</a>'
+
+    work_steps.assert_linear(lambda n: partial(sanitizer.sanitize_report, markup(n)), (500, 2000))
+    assert sanitizer.sanitize_report(markup(500))[0] == '<a href="/safe">x</a>'
 
 
 def test_attribute_compaction_filter_order(policy: Policy) -> None:

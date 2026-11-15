@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias
 
 from turbohtml import Document, Html, HTMLParseError, parse, parse_xml, tokenize
-from turbohtml.clean import linkify, minify_css, minify_js, sanitize
+from turbohtml.clean import linkify, minify_css, minify_js, sanitize, sanitize_report
 from turbohtml.extract import clean_url, normalize_url
 from turbohtml.transform import Transform
 from turbohtml.validate import RelaxNG, XMLSchema
@@ -654,6 +654,10 @@ def _to_text(text: str) -> str:
     return parse(text).to_text()
 
 
+def _sanitize_report(text: str) -> str:
+    return sanitize_report(text)[0]
+
+
 def _select_input(text: str) -> None:
     _SELECTOR_HOST.select(text)
 
@@ -709,7 +713,8 @@ def _xslt(text: str) -> str:
 _SELECTOR_HOST: Final[Document] = parse(
     "<div id=a class='x y' data-v=ab><p lang=en-US>t<a href=/u>l</a></p><ul><li>1<li>2</ul><input type=text></div>"
 )
-# a linear-time spread of the engine: descendant and sibling combinators, :has (memoized since #509), nth, attributes
+# a linear-time spread of the engine: descendant and sibling combinators, :has (memoized since #509), nth, attributes,
+# and the of-type positions with no type selector in front, which every element of a sibling list has to answer
 _TREE_SELECTORS: Final[tuple[str, ...]] = (
     "div p",
     "a ~ b",
@@ -717,6 +722,8 @@ _TREE_SELECTORS: Final[tuple[str, ...]] = (
     "li:nth-child(2n+1)",
     "[data-v*='ab']",
     ":not(:empty)",
+    ":last-of-type",
+    ":nth-of-type(2)",
 )
 _XPATH_HOST: Final[Document] = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
 # node walks plus the EXSLT functions that size their result from document data (str:padding is #957)
@@ -767,6 +774,8 @@ TARGETS: Final[dict[str, Target]] = {
     # corpora and repeated literals both peak at 1.00, offset 45
     "to_text": Target(run=_to_text, sources=(*_HTML_SOURCES, "serialize/text.c"), bound=Bound(slope=4.0, offset=64)),
     "sanitize": Target(run=sanitize, sources=(*_HTML_SOURCES, "clean/sanitize.c"), bound=_SERIALIZED),
+    # the same walk while it records every removal, which the plain call never asks for
+    "sanitize_report": Target(run=_sanitize_report, sources=(*_HTML_SOURCES, "clean/sanitize.c"), bound=_SERIALIZED),
     # "a.co " becomes a 46-character nofollow anchor, 9.2 times its length; corpora peak 2.26, offset 191
     "linkify": Target(
         run=linkify, sources=(*_HTML_SOURCES, "clean/linkify.c", "url/*"), bound=Bound(slope=10.0, offset=256)

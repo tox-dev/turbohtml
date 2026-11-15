@@ -190,10 +190,17 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
     sel_sibling_memo memo = {0};
+    sel_position_memo position_memo = {0};
     HandleObject *handle_obj = (HandleObject *)handle;
-    sel_ctx ctx = {
-        compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-        &default_memo,  &memo,  &memo.table};
+    sel_ctx ctx = {compiled->tree,
+                   origin,
+                   compiled->quirks,
+                   selector_uses_has_memo(compiled) ? &memo.table : NULL,
+                   &nth_memo,
+                   &default_memo,
+                   &memo,
+                   &memo.table,
+                   &position_memo};
     if (selector_use_index(handle_obj, origin, compiled)) {
         Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
         for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -226,6 +233,7 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
     if (memo.table.slots != NULL) {
         sel_memo_free(&memo.table);
     }
+    sel_position_memo_free(&position_memo);
     if (error) { /* GCOVR_EXCL_START: append_wrapped failed to allocate */
         return -1;
     } /* GCOVR_EXCL_STOP */
@@ -388,6 +396,7 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
             /* each candidate is its own :scope, so the sibling memo serves only a selector without one */
             sel_sibling_memo sibling_memo = {0};
             sel_sibling_memo *memo = selector_uses_scope(compiled) ? NULL : &sibling_memo;
+            sel_position_memo positions = {0}; /* a sibling position does not depend on the scope */
             for (; index < count; index++) {
                 item = PyList_GET_ITEM(nodes, index);
                 if (!Py_IS_TYPE(item, (PyTypeObject *)state->element_type)) {
@@ -399,13 +408,14 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
                 if (!node_owned_by(candidate, handle)) {
                     break;
                 }
-                sel_ctx ctx = {compiled->tree, candidate->node,    compiled->quirks, NULL, NULL, NULL,
-                               memo,           &sibling_memo.table};
+                sel_ctx ctx = {compiled->tree, candidate->node,     compiled->quirks, NULL, NULL, NULL,
+                               memo,           &sibling_memo.table, &positions};
                 int matched = selector_matches_c(candidate->node, compiled, &ctx);
                 results[index] = (unsigned char)matched;
                 matched_count += matched;
             }
             sel_memo_free(&sibling_memo.table);
+            sel_position_memo_free(&positions);
         }
         Py_END_CRITICAL_SECTION();
         Py_DECREF(handle);
@@ -869,6 +879,7 @@ retry:;
     int moved = 0;
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
+    sel_position_memo position_memo = {0};
     sel_sibling_memo memo = {0};       /* shared across the walk so :has() and ~ memoize their scans */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the walk */
     HandleObject *handle_obj = (HandleObject *)handle;
@@ -880,9 +891,15 @@ retry:;
     } else {
         th_node *origin = ((NodeObject *)self)->node;
         const sel_simple *single = sel_single_simple(compiled);
-        sel_ctx ctx = {
-            compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-            &default_memo,  &memo,  &memo.table};
+        sel_ctx ctx = {compiled->tree,
+                       origin,
+                       compiled->quirks,
+                       selector_uses_has_memo(compiled) ? &memo.table : NULL,
+                       &nth_memo,
+                       &default_memo,
+                       &memo,
+                       &memo.table,
+                       &position_memo};
         if (selector_use_index(handle_obj, origin, compiled)) {
             Py_ssize_t end = indexed_candidates_end(handle_obj, compiled);
             for (Py_ssize_t pos = handle_obj->index_offsets[compiled->subject_atom]; pos < end; pos++) {
@@ -910,6 +927,7 @@ retry:;
         goto retry;
     }
     sel_memo_free(&memo.table);
+    sel_position_memo_free(&position_memo);
     if (error) {
         return NULL;
     }
@@ -2043,14 +2061,17 @@ static int build_xpath_namespaces(PyObject *mapping, xp_namespace **out_items, P
    skipped because Node.xpath reads them as options off the same kwargs; the
    precompiled XPath object binds them at construction and clears the flag, so every
    keyword is a $variable. self is the context Node: it supplies the module state and
-   the reference handle a bound Element is validated against. On error an exception is
-   set and partial bindings freed. */
+   the reference handle a bound Element is validated against. A node-set binding holds
+   node pointers into that handle's tree, and the iterable it is read from runs Python
+   that can move self into another tree, dropping the reference self holds on this one.
+   So the handle is owned while the bindings are built, and a context Node that has left
+   it by the end is an error, because the caller evaluates in whichever tree self is in
+   afterwards. On error an exception is set and partial bindings freed. */
 static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options, xp_binding **out_items,
                             Py_ssize_t *out_len) {
     *out_items = NULL;
     *out_len = 0;
     module_state *state = state_of(self);
-    PyObject *reference_handle = ((NodeObject *)self)->handle;
     Py_ssize_t total = kwds == NULL ? 0 : PyDict_Size(kwds);
     if (total == 0) {
         return 0;
@@ -2060,6 +2081,7 @@ static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options,
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         return -1;        /* GCOVR_EXCL_LINE */
     }
+    PyObject *reference_handle = Py_NewRef(((NodeObject *)self)->handle);
     Py_ssize_t count = 0;
     Py_ssize_t pos = 0;
     PyObject *key;
@@ -2079,10 +2101,12 @@ static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options,
         }
         Py_UCS4 *name = PyUnicode_AsUCS4Copy(key);
         if (name == NULL) {                /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            Py_DECREF(reference_handle);   /* GCOVR_EXCL_LINE */
             free_xpath_vars(items, count); /* GCOVR_EXCL_LINE */
             return -1;                     /* GCOVR_EXCL_LINE */
         }
         if (xpath_var_value(value, &items[count].value, state, reference_handle) < 0) {
+            Py_DECREF(reference_handle);
             PyMem_Free(name);
             free_xpath_vars(items, count);
             return -1;
@@ -2090,6 +2114,13 @@ static int build_xpath_vars(PyObject *self, PyObject *kwds, int reserve_options,
         items[count].name = name;
         items[count].name_len = PyUnicode_GET_LENGTH(key);
         count++;
+    }
+    int moved = !node_owned_by((NodeObject *)self, reference_handle);
+    Py_DECREF(reference_handle);
+    if (moved) {
+        PyErr_SetString(PyExc_ValueError, "xpath context node moved to a different tree while its variables were read");
+        free_xpath_vars(items, count);
+        return -1;
     }
     *out_items = items;
     *out_len = count;
@@ -2485,6 +2516,7 @@ retry:;
     int moved = 0;
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
+    sel_position_memo position_memo = {0};
     sel_sibling_memo memo = {0};       /* shared across the walk so :has() and ~ memoize their scans */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: match and edit must see one stable tree */
     sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
@@ -2499,9 +2531,15 @@ retry:;
            may run here; matching alone never rewires a node, so the snapshot lets
            pass 2 edit in pure C without dereferencing a stale pointer. */
         const sel_simple *single = sel_single_simple(compiled);
-        sel_ctx ctx = {
-            compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-            &default_memo,  &memo,  &memo.table};
+        sel_ctx ctx = {compiled->tree,
+                       origin,
+                       compiled->quirks,
+                       selector_uses_has_memo(compiled) ? &memo.table : NULL,
+                       &nth_memo,
+                       &default_memo,
+                       &memo,
+                       &memo.table,
+                       &position_memo};
         for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
             if (node->type != TH_NODE_ELEMENT) {
                 continue;
@@ -2532,6 +2570,7 @@ retry:;
         goto retry;
     }
     sel_memo_free(&memo.table);
+    sel_position_memo_free(&position_memo);
     PyMem_Free(keep.entries);
     if (error) {
         return NULL;
@@ -2602,9 +2641,16 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
     sel_sibling_memo memo = {0}; /* shared across the walk so :has() and ~ memoize their scans */
-    sel_ctx ctx = {
-        compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &memo.table : NULL, &nth_memo,
-        &default_memo,  &memo,  &memo.table};
+    sel_position_memo position_memo = {0};
+    sel_ctx ctx = {compiled->tree,
+                   origin,
+                   compiled->quirks,
+                   selector_uses_has_memo(compiled) ? &memo.table : NULL,
+                   &nth_memo,
+                   &default_memo,
+                   &memo,
+                   &memo.table,
+                   &position_memo};
     int result = 0;
     for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
         if (node->type != TH_NODE_ELEMENT) {
@@ -2619,6 +2665,7 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
         }
     }
     sel_memo_free(&memo.table);
+    sel_position_memo_free(&position_memo);
     return result;
 }
 

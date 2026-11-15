@@ -127,6 +127,13 @@ struct th_node {
     /* set once an enabled selectedcontent is reachable below this node, never cleared: the adoption agency only
        lists a moved subtree's targets with a select cache when that subtree sets it (th_node_mark_ancestors) */
     uint8_t reaches_selectedcontent;
+    /* Tree builder state: set while the element is an entry of the list of active formatting elements. The list
+       outlives the stack of open elements, so membership is read here instead of searched. */
+    uint8_t afe_listed;
+    /* An attribute value buffer of this element is also the value of another element: a clone takes its source's
+       slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
+       tree looks these up in its th_copy_memo instead of copying each one again. */
+    uint8_t attr_values_shared;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -392,12 +399,10 @@ void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *chi
    tree-builder's link inlines), so it reaches the registry through these accessors.
    th_tree_has_observers gates the record-capture work on the mutation hot path, and
    th_tree_has_iterators lets a removal loop skip the NodeIterator steps. */
-struct th_observer;
+struct th_mo_registry;
 int th_tree_has_observers(const th_tree *tree);
 int th_tree_has_iterators(const th_tree *tree);
-struct th_observer ***th_tree_observers_ptr(th_tree *tree);
-Py_ssize_t *th_tree_observer_count_ptr(th_tree *tree);
-Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree);
+struct th_mo_registry **th_tree_observers_ptr(th_tree *tree);
 
 int th_node_contains(th_tree *tree, th_node *ancestor, th_node *node);
 
@@ -423,11 +428,26 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator);
 const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize_t count, th_node *child,
                                 th_node *run_first, th_node *run_last);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
+/* The shared attribute values (th_node.attr_values_shared) a run of deep copies from one tree into another has copied
+   so far, keyed by their address in the source arena, so that a value the source elements share is copied once and
+   shared by the copies. th_tree_copy_node and th_tree_adopt_copy keep one per call. A caller that copies sibling
+   subtrees one by one zero-initializes one, hands it to each th_tree_copy_node_sharing or th_tree_adopt_copy_sharing
+   call of the run, all between the same two trees, and releases it with th_copy_memo_free. */
+typedef struct {
+    struct th_copied_value *entries; /* open addressing; a NULL source address marks a free entry */
+    size_t capacity;
+    size_t count;
+} th_copy_memo;
+th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
+static inline void th_copy_memo_free(th_copy_memo *memo) {
+    PyMem_Free(memo->entries);
+}
 int th_tree_has_shadows(const th_tree *tree);
 th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root);
 /* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
    also take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);
+th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo);
 /* How many nodes the tree's arena has ever held, linked or not: an upper bound on what adopting all of it copies. */
 uint32_t th_tree_node_count(const th_tree *tree);
 th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node);
@@ -612,8 +632,10 @@ typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE, TH_MARKDOWN_
    processing instruction and the text of a raw-text element are dropped too: CommonMark
    has no inline form of the `<?x>` spelling, and raw text holds a bare `<` the reader
    would take for the start of markup. */
-Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
-Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *clone_budget,
+                               Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *clone_budget,
+                                   Py_ssize_t *out_len);
 
 typedef struct {
     const Py_UCS4 *open;
@@ -623,7 +645,8 @@ typedef struct {
 } th_cell_wrap;
 
 /* An enclosing inline marker would otherwise vanish at the raw table block boundary. */
-Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *clone_budget,
+                                     Py_ssize_t *out_len);
 
 /* Serialize only node's children (its inner HTML), WHATWG-conformant and
    compact. PyMem-allocated; *out_len receives the length. NULL on failure. */
@@ -688,6 +711,7 @@ typedef struct {
     int markdown;                  /* a th_markdown_html context, or 0 outside Markdown */
     int *charset_missing;          /* non-NULL when charset is a placeholder no label names: a writer sets
                                     *charset_missing instead of writing it, and the caller refuses the output */
+    Py_ssize_t *clone_budget;      /* Markdown: the attribute characters parser clones may still write, or NULL */
     th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
     th_xml_ns_spend *xml_ns_spend; /* set by the serializer when xml_boundary has every child carry its own copy */
 } th_serialize_opts;

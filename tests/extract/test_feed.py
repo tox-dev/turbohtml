@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import partial
+from itertools import combinations
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -10,6 +11,8 @@ from turbohtml import Text, parse, parse_xml
 from turbohtml.extract import Entry, Feed, feed
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from work_steps import WorkSteps
 
 _RSS_XML: Final[str] = """<?xml version="1.0"?>
@@ -1113,6 +1116,143 @@ def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time(work_steps: Wo
     # removed from its attribute names skips that lookup, so it is the baseline.
     plain_xml: Final = head + "".join(attributes.values()).replace(":", "_") + tail
     work_steps.assert_within(partial(parse_feed, prefixed_xml), partial(parse_feed, plain_xml), factor=40)
+
+
+def test_feed_atom_xhtml_redeclared_prefix_is_scoped_to_its_element() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:h="http://www.w3.org/1999/xhtml" xmlns:s="urn:s">'
+        '<title type="xhtml"><h:div><h:p xmlns:h="urn:other" xmlns:s="urn:t"><h:b><s:x/></h:b></h:p>'
+        "<h:i><s:y/></h:i><h:u/></h:div></title></feed>"
+    )
+    assert parse_feed(xml).title == (
+        '<h:p xmlns:h="urn:other" xmlns:s="urn:t"><h:b xmlns:h="urn:other"><s:x xmlns:s="urn:t"/></h:b></h:p>'
+        '<i><s:y xmlns:s="urn:s"/></i><u></u>'
+    )
+
+
+def test_feed_atom_xhtml_redeclared_default_namespace_is_scoped_to_its_element() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+        '<p xmlns="urn:other"><b/></p><i xmlns="http://www.w3.org/1999/xhtml"><b/></i><b/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == (
+        '<p xmlns="urn:other"><b/></p><i xmlns="http://www.w3.org/1999/xhtml"><b></b></i><b></b>'
+    )
+
+
+def test_feed_atom_xhtml_many_redeclarations_on_one_element() -> None:
+    declarations: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(20))
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p7="urn:outer"><title type="xhtml">'
+        f'<div xmlns="http://www.w3.org/1999/xhtml"><p{declarations}><p7:x/></p><p7:y/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == f'<p{declarations}><p7:x xmlns:p7="urn:7"/></p><p7:y xmlns:p7="urn:outer"/>'
+
+
+def test_feed_atom_xhtml_resolves_every_prefix_pair() -> None:
+    pairs: Final = list(combinations(range(40), 2))
+    declarations: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(40))
+    entries: Final = "".join(
+        f'<entry><title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p{first}:x/><p{second}:y/></div>'
+        "</title></entry>"
+        for first, second in pairs
+    )
+    xml: Final = f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations}>{entries}</feed>'
+    assert [entry.title for entry in parse_feed(xml).entries] == [
+        f'<p{first}:x xmlns:p{first}="urn:{first}"/><p{second}:y xmlns:p{second}="urn:{second}"/>'
+        for first, second in pairs
+    ]
+
+
+def test_feed_atom_xhtml_resolves_more_prefixes_than_the_first_table_holds() -> None:
+    prefixes: Final = [f"p{index}" for index in range(40)]
+    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    uses: Final = "".join(f"<{prefix}:x/>" for prefix in prefixes)
+    xml: Final = (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations}><title type="xhtml">'
+        f'<div xmlns="http://www.w3.org/1999/xhtml">{uses}</div></title></feed>'
+    )
+    assert parse_feed(xml).title == "".join(f'<{prefix}:x xmlns:{prefix}="urn:{prefix}"/>' for prefix in prefixes)
+
+
+def test_feed_atom_xhtml_xmlns_like_attribute_declares_nothing() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p xmlnsx="urn:other"><b/></p></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<p xmlnsx="urn:other"><b></b></p>'
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("\u00e9", id="two-byte"),
+        pytest.param("\u65e5", id="three-byte"),
+        pytest.param("\U00010400", id="four-byte"),
+        pytest.param("p" * 80, id="long"),
+        pytest.param("\u00e9" * 40, id="long-non-ascii"),
+    ],
+)
+def test_feed_atom_xhtml_prefix_spelling(prefix: str) -> None:
+    xml: Final = (
+        f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:{prefix}="http://www.w3.org/1999/xhtml" '
+        f'xmlns:{prefix}x="urn:s"><title type="xhtml"><{prefix}:div><{prefix}:b {prefix}x:k="v">B</{prefix}:b>'
+        f"<{prefix}x:box/></{prefix}:div></title></feed>"
+    )
+    assert parse_feed(xml).title == (
+        f'<b xmlns:{prefix}x="urn:s" {prefix}x:k="v">B</b><{prefix}x:box xmlns:{prefix}x="urn:s"/>'
+    )
+
+
+def test_feed_atom_xhtml_never_declared_attribute_prefix_falls_back() -> None:
+    document: Final = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p>text</p></div></title></feed>'
+    )
+    document.select("p")[0].attrs["q:key"] = "v"
+    assert cast("Feed", document.feed()).title == "text"
+
+
+def test_feed_atom_never_declared_entry_field_prefix() -> None:
+    document: Final = parse_xml('<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Entry</title></entry></feed>')
+    document.select("title")[0].tag = "q:title"
+    assert cast("Feed", document.feed()).entries[0].title is None
+
+
+def test_feed_rdf_long_about_prefix() -> None:
+    prefix: Final = "r" * 80
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" '
+        f'xmlns:{prefix}="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        f'<item {prefix}:about="https://example.org/item"><title>Item</title></item></rdf:RDF>'
+    )
+    assert parse_feed(xml).entries[0].id == "https://example.org/item"
+
+
+def _wide_unused_declarations(count: int) -> str:
+    declarations: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(count))
+    elements: Final = "<h:b/>" * count
+    return (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations} xmlns:h="http://www.w3.org/1999/xhtml">'
+        f'<title type="xhtml"><h:div>{elements}</h:div></title></feed>'
+    )
+
+
+def _deep_nesting(depth: int) -> str:
+    opening: Final = "<h:b>" * depth
+    closing: Final = "</h:b>" * depth
+    return (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:h="http://www.w3.org/1999/xhtml">'
+        f'<title type="xhtml"><h:div>{opening}{closing}</h:div></title></feed>'
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [pytest.param(_wide_unused_declarations, id="wide"), pytest.param(_deep_nesting, id="deep")],
+)
+def test_feed_atom_xhtml_namespace_lookup_stays_linear(build: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse_feed, build(count)), (500, 2000))
 
 
 def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:

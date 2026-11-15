@@ -658,6 +658,14 @@ def test_multiple_select_returns_the_selected_list() -> None:
     assert select.field_value == ["a", "c"]
 
 
+def test_multiple_select_lists_an_option_nested_in_an_option_once() -> None:
+    select = _tree_field_value_control(
+        "<select multiple><option selected>a<div><option selected>b</div></option><option selected>c</select>",
+        "select",
+    )
+    assert select.field_value == ["ab", "c"]
+
+
 def test_multiple_select_with_no_selection_is_empty() -> None:
     select = _tree_field_value_control("<select multiple><option value=a>A<option value=b>B</select>", "select")
     assert select.field_value == []
@@ -754,6 +762,35 @@ def test_set_multiple_select_deselects_the_rest() -> None:
     )
     select.field_value = ["a"]
     assert select.field_value == ["a"]
+
+
+def test_set_multiple_select_leaves_an_option_nested_in_an_option_alone() -> None:
+    select = _tree_field_value_control(
+        "<select multiple><option>a<div><option>b</div></option><option>c</select>", "select"
+    )
+    select.field_value = ["b", "c"]
+    assert ["selected" in option.attrs for option in select.find_all("option")] == [False, False, True]
+
+
+def test_set_multiple_select_stops_at_an_option_detached_during_the_walk() -> None:
+    select = _tree_field_value_control("<select multiple><option>a<option>b</select>", "select")
+    option = select.find_all("option")[0]
+
+    class Detaching(str):  # ruff:ignore[subclass-builtin]  # the wanted-value set compares real str members
+        __slots__ = ()
+
+        def __eq__(self, other: object) -> bool:
+            option.extract()
+            return str(self) == other
+
+        __hash__ = str.__hash__
+
+    select.field_value = [Detaching("a"), "b"]
+    assert (option.parent, option.html, select.html) == (
+        None,
+        '<option selected="">a</option>',
+        '<select multiple=""><option>b</option></select>',
+    )
 
 
 def test_set_multiple_select_rejects_a_bare_str() -> None:
@@ -945,10 +982,11 @@ def test_multiple_select_skips_optgroup_disabled_options() -> None:
 def test_select_reads_each_option_against_its_own_optgroup_when_groups_nest(
     outer: str, inner: str, expected: list[str]
 ) -> None:
-    # the parser puts the second optgroup inside the first one's option, so its option sits between two of the first's
+    # the second optgroup sits inside the first one through a div, so its option comes between two of the first's
     form: Final = _form(
-        f"<form><select name=t multiple><optgroup{outer}><option value=a selected><b><optgroup{inner}>"
-        "<option value=b selected></b><option value=c selected></optgroup><option value=d selected></select></form>"
+        f"<form><select name=t multiple><optgroup{outer}><option value=a selected></option><div><optgroup{inner}>"
+        "<option value=b selected></optgroup></div><option value=c selected></optgroup><option value=d selected>"
+        "</select></form>"
     )
     select: Final = form.find("select")
     assert select is not None
@@ -990,7 +1028,7 @@ def test_select_reads_optgroups_nested_deeper_than_the_parser_builds() -> None:
     "options",
     [
         pytest.param("<option>", id="one-group"),
-        pytest.param("<option><b><optgroup disabled><option></b>", id="nested-groups"),
+        pytest.param("<option></option><div><optgroup disabled><option></optgroup></div>", id="nested-groups"),
     ],
 )
 def test_select_with_many_optgroup_attributes_is_read_in_linear_time(
@@ -1074,6 +1112,64 @@ def test_form_data_ignores_controls_nested_deep_inside_a_template() -> None:
 def test_form_data_skips_a_trailing_template() -> None:
     form = _form("<form><input name=a value=2><template><input name=t value=1></template></form>")
     assert form.form_data() == [("a", "2")]
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<select multiple name=s><option selected>a<div><option selected>b",
+            [("s", "ab")],
+            id="option-in-option",
+        ),
+        pytest.param(
+            "<select multiple name=s><optgroup><option selected>a<div><option selected>b</div></option></optgroup>"
+            "<option selected>c",
+            [("s", "ab"), ("s", "c")],
+            id="option-in-grouped-option",
+        ),
+        pytest.param(
+            "<select name=s><option>a<div><option selected>b</div></option><option>c",
+            [("s", "ab")],
+            id="option-in-option-single",
+        ),
+        pytest.param(
+            "<select multiple name=s><object><select multiple name=t><option selected>a</select></object>"
+            "<option selected>b",
+            [("s", "b"), ("t", "a")],
+            id="select-in-select",
+        ),
+        pytest.param(
+            "<select multiple name=s><datalist><option selected>a</datalist><option selected>b",
+            [("s", "b")],
+            id="option-in-datalist",
+        ),
+        pytest.param(
+            "<select multiple name=s><template><option selected>a</template><option selected>b",
+            [("s", "b")],
+            id="option-in-template",
+        ),
+    ],
+)
+def test_form_data_submits_an_option_for_its_nearest_select_only(markup: str, expected: list[tuple[str, str]]) -> None:
+    assert _form(f"<form>{markup}").form_data() == expected
+
+
+def test_form_data_skips_an_option_inside_an_hr() -> None:
+    form = _form("<form><select multiple name=s><hr><option selected>b</select></form>")
+    form.select("hr")[0].append(Element("option", {"selected": "", "value": "a"}))
+    assert form.form_data() == [("s", "b")]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"{'<select multiple name=s><object>' * 100}{'<option selected><div>' * 100}x", id="html"),
+        pytest.param(f"<svg>{'<select multiple name=s>' * 200}{'<option selected>' * 200}x", id="svg"),
+    ],
+)
+def test_form_data_does_not_multiply_nested_selects_by_nested_options(markup: str) -> None:
+    assert _form(f"<form>{markup}").form_data() == [("s", "x")]
 
 
 def test_option_value_falls_back_to_text() -> None:

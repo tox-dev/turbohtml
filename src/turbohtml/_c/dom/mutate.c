@@ -653,6 +653,7 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
                        1);
     tree->id_version += node->attrs[index].name_atom == TH_ATTR_ID;
     for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
+        TH_WORK_STEP();
         node->attrs[shift] = node->attrs[shift + 1];
     }
     node->attr_count--;
@@ -673,23 +674,15 @@ void th_node_insert_before(th_node *parent, th_node *child, th_node *ref) {
 
 /* The MutationObserver registry accessors dom/observe.c reaches the tree fields through. */
 int th_tree_has_observers(const th_tree *tree) {
-    return tree->observer_count > 0;
+    return tree->observers != NULL;
 }
 
 int th_tree_has_iterators(const th_tree *tree) {
     return tree->node_iterator_count > 0;
 }
 
-struct th_observer ***th_tree_observers_ptr(th_tree *tree) {
+struct th_mo_registry **th_tree_observers_ptr(th_tree *tree) {
     return &tree->observers;
-}
-
-Py_ssize_t *th_tree_observer_count_ptr(th_tree *tree) {
-    return &tree->observer_count;
-}
-
-Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree) {
-    return &tree->observer_cap;
 }
 
 /* The observing counterparts the binding layer (dom/element.c) routes user mutations
@@ -797,7 +790,7 @@ void th_tree_note_observed(th_tree *tree) {
    pays the single test it paid for the observer check alone. The insertion drops the bound and keeps the observer
    bit only while an observer is registered. */
 static TH_NOINLINE void child_inserted_hooked(th_tree *tree, th_node *parent, th_node *child) {
-    tree->nest_bound = tree->observer_count > 0 ? TH_NEST_OBSERVED : 0;
+    tree->nest_bound = tree->observers != NULL ? TH_NEST_OBSERVED : 0;
     th_mo_child_inserted(tree, parent, child);
 }
 
@@ -1254,8 +1247,78 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
     return 0;
 }
 
+struct th_copied_value {
+    const Py_UCS4 *from; /* an attribute value in the source arena */
+    Py_UCS4 *to;         /* its copy in the destination arena */
+    Py_ssize_t len;      /* the length copied; an empty value can sit at the address where the next value starts */
+};
+
+static struct th_copied_value *copied_value_slot(const th_copy_memo *memo, const Py_UCS4 *from) {
+    size_t slot = (size_t)(((uint64_t)(uintptr_t)from * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (memo->capacity - 1);
+    while (memo->entries[slot].from != NULL && memo->entries[slot].from != from) {
+        slot = (slot + 1) & (memo->capacity - 1);
+    }
+    return &memo->entries[slot];
+}
+
+static Py_UCS4 *copied_value_find(const th_copy_memo *memo, const Py_UCS4 *from, Py_ssize_t len) {
+    if (memo->capacity == 0) {
+        return NULL;
+    }
+    const struct th_copied_value *entry = copied_value_slot(memo, from);
+    return entry->len == len ? entry->to : NULL; /* a free entry has no copy either */
+}
+
+/* Remember that the value at from was copied to to; find has just missed it. Sharing only saves memory, so a memo
+   that cannot grow just stops recording. */
+static void copied_value_record(th_copy_memo *memo, const Py_UCS4 *from, Py_UCS4 *to, Py_ssize_t len) {
+    if (memo->count >= memo->capacity / 2) {
+        /* the live table bounds its capacity far below SIZE_MAX, and PyMem_Calloc refuses a byte size that wraps */
+        size_t capacity = memo->capacity ? memo->capacity * 2 : 16;
+        th_copy_memo grown = {PyMem_Calloc(capacity, sizeof(*memo->entries)), capacity, memo->count};
+        if (grown.entries == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        for (size_t slot = 0; slot < memo->capacity; slot++) {
+            if (memo->entries[slot].from != NULL) {
+                *copied_value_slot(&grown, memo->entries[slot].from) = memo->entries[slot];
+            }
+        }
+        PyMem_Free(memo->entries);
+        *memo = grown;
+    }
+    *copied_value_slot(memo, from) = (struct th_copied_value){from, to, len};
+    memo->count++;
+}
+
+/* The value buffer for the copy in dest of the attribute from of src_node, or NULL on allocation failure. The tree
+   builder lets every reconstruction of an unclosed formatting element point at the attribute values of its start tag
+   (node_clone), so a buffer per value of every copied element costs value length x clones for an input of value
+   length + clones. The copies keep shared what their sources share: in the same tree the copy points at the source's
+   value as a clone does, in another tree each value of an element that shares its values is copied once per
+   memo. A value is never written in place, so sharing is as safe in the copy as in the source. */
+static Py_UCS4 *copy_attr_value(th_tree *dest, const th_tree *src, const th_node *src_node, const th_node_attr *from,
+                                th_copy_memo *memo) {
+    if (dest == src) {
+        return from->value;
+    }
+    int shareable = src_node->attr_values_shared;
+    Py_UCS4 *value = shareable ? copied_value_find(memo, from->value, from->value_len) : NULL;
+    if (value == NULL) {
+        value = arena_alloc(dest, (from->value_len ? from->value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
+        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memcpy(value, from->value, (size_t)from->value_len * sizeof(Py_UCS4));
+        if (shareable) {
+            copied_value_record(memo, from->value, value, from->value_len);
+        }
+    }
+    return value;
+}
+
 /* Copy one node without its children, materializing borrowed text and re-interning per-tree attribute atoms. */
-th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node) {
+static th_node *copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo) {
     TH_WORK_STEP();
     th_node *node = node_new(dest, src_node->type);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1288,6 +1351,10 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
         }
         memset(node->attrs, 0, (size_t)src_node->attr_count * sizeof(th_node_attr));
         node->attr_count = src_node->attr_count;
+        if (dest == src) {
+            src_node->attr_values_shared = 1; /* a copy in the same tree points at the source's values */
+        }
+        node->attr_values_shared = src_node->attr_values_shared;
         for (Py_ssize_t index = 0; index < src_node->attr_count; index++) {
             const th_node_attr *from = &src_node->attrs[index];
             uint32_t atom = from->name_atom;
@@ -1301,12 +1368,10 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
             }
             node->attrs[index].name_atom = atom;
             if (from->value != NULL) {
-                Py_UCS4 *value =
-                    arena_alloc(dest, (from->value_len ? from->value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
+                Py_UCS4 *value = copy_attr_value(dest, src, src_node, from, memo);
                 if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                     return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                memcpy(value, from->value, (size_t)from->value_len * sizeof(Py_UCS4));
                 node->attrs[index].value = value;
                 node->attrs[index].value_len = from->value_len;
             }
@@ -1315,9 +1380,16 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
     return node;
 }
 
-static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_node) {
+th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node) {
+    th_copy_memo memo = {0};
+    th_node *copy = copy_node_shallow(dest, src, src_node, &memo);
+    th_copy_memo_free(&memo);
+    return copy;
+}
+
+static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo) {
     th_tree_note_deepened(dest);
-    th_node *root = th_tree_copy_node_shallow(dest, src, src_node);
+    th_node *root = copy_node_shallow(dest, src, src_node, memo);
     if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1326,7 +1398,7 @@ static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_no
     for (;;) {
         if (from->first_child != NULL) {
             from = from->first_child;
-            th_node *child = th_tree_copy_node_shallow(dest, src, from);
+            th_node *child = copy_node_shallow(dest, src, from, memo);
             if (child == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
@@ -1342,7 +1414,7 @@ static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_no
             return root;
         }
         from = from->next_sibling;
-        th_node *sibling = th_tree_copy_node_shallow(dest, src, from);
+        th_node *sibling = copy_node_shallow(dest, src, from, memo);
         if (sibling == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1354,16 +1426,16 @@ static th_node *copy_node_iterative(th_tree *dest, th_tree *src, th_node *src_no
 /* below TH_HAS_MEMO_DEPTH, so a copy nests that deep only through copy_node_iterative, which drops the nest bound */
 #define TH_COPY_RECURSION_LIMIT TH_DEPTH_LIMIT(TH_HAS_MEMO_DEPTH - 1)
 
-static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int depth) {
+static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int depth, th_copy_memo *memo) {
     if (depth == TH_COPY_RECURSION_LIMIT) {
-        return copy_node_iterative(dest, src, src_node);
+        return copy_node_iterative(dest, src, src_node, memo);
     }
-    th_node *node = th_tree_copy_node_shallow(dest, src, src_node);
+    th_node *node = copy_node_shallow(dest, src, src_node, memo);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (th_node *child = src_node->first_child; child != NULL; child = child->next_sibling) {
-        th_node *copy = copy_node_at(dest, src, child, depth + 1);
+        th_node *copy = copy_node_at(dest, src, child, depth + 1, memo);
         if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1372,11 +1444,18 @@ static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int
     return node;
 }
 
-th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
+th_node *th_tree_copy_node_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo) {
     if (dest->xml) {
         dest->has_xml_ns |= src->has_xml_ns;
     }
-    return copy_node_at(dest, src, src_node, 0);
+    return copy_node_at(dest, src, src_node, 0, memo);
+}
+
+th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
+    th_copy_memo memo = {0};
+    th_node *copy = th_tree_copy_node_sharing(dest, src, src_node, &memo);
+    th_copy_memo_free(&memo);
+    return copy;
 }
 
 int th_tree_has_shadows(const th_tree *tree) {
@@ -1407,8 +1486,8 @@ th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *ro
     return NULL;
 }
 
-static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_node) {
-    th_node *root = th_tree_copy_node(dest, src, src_node);
+static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo) {
+    th_node *root = th_tree_copy_node_sharing(dest, src, src_node, memo);
     if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
@@ -1423,7 +1502,7 @@ static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_n
             }
             adopted->tag_flags = shadow->tag_flags;
             for (th_node *child = shadow->first_child; child != NULL; child = child->next_sibling) {
-                th_node *child_copy = th_tree_copy_node(dest, src, child);
+                th_node *child_copy = th_tree_copy_node_sharing(dest, src, child, memo);
                 if (child_copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                     return NULL;          /* GCOVR_EXCL_LINE */
                 }
@@ -1436,9 +1515,9 @@ static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_n
     return root;
 }
 
-th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
-    th_node *copy =
-        src->shadow_count == 0 ? th_tree_copy_node(dest, src, src_node) : copy_adopted_shadows(dest, src, src_node);
+th_node *th_tree_adopt_copy_sharing(th_tree *dest, th_tree *src, th_node *src_node, th_copy_memo *memo) {
+    th_node *copy = src->shadow_count == 0 ? th_tree_copy_node_sharing(dest, src, src_node, memo)
+                                           : copy_adopted_shadows(dest, src, src_node, memo);
     if (copy == NULL || src->xml == dest->xml) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
         return copy;
     }
@@ -1447,6 +1526,13 @@ th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
             return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
+    return copy;
+}
+
+th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
+    th_copy_memo memo = {0};
+    th_node *copy = th_tree_adopt_copy_sharing(dest, src, src_node, &memo);
+    th_copy_memo_free(&memo);
     return copy;
 }
 

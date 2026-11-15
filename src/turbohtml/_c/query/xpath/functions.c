@@ -952,7 +952,7 @@ static TH_NOINLINE int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     }
     int rc = 0;
     if (ids != NULL) {
-        struct th_node *node = tree_root(ctx->tree, ctx->node);
+        struct th_node *node = tree_root(ctx);
         if (!keyed) {
             node = id_token_scan(ids, id_mask, 0, node, &out->nodes, &rc);
             if (node != NULL) {
@@ -2209,6 +2209,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     } else if (func_is(fn, "replace")) {
         rc = regex_replace(ctx, args, argc, 0, out);
     } else if (ctx->extension != NULL) {
+        ctx->root->mixed = 1; /* the result can lie in any subtree, and Python can move this tree's own nodes */
         if ((rc = xp_before_python(ctx)) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             rc = ctx->extension(ctx->extension_ctx, ctx->node, fn->str, fn->str_len, args, argc, out);
         }

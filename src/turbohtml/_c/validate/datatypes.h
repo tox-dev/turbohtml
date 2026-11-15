@@ -1104,19 +1104,20 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
     if (dt_is_numeric(facets->base_id) && (facets->has_min_inclusive || facets->has_max_inclusive ||
                                            facets->has_min_exclusive || facets->has_max_exclusive)) {
         double number = dt_to_double(value, len);
-        if (facets->has_min_inclusive && number < facets->min_inclusive) {
+        /* negated so an unordered NaN fails every bound: XSD excludes NaN from a bounded float or double */
+        if (facets->has_min_inclusive && !(number >= facets->min_inclusive)) {
             report(ctx, node, "facet", "value is below minInclusive");
             ok = 0;
         }
-        if (facets->has_max_inclusive && number > facets->max_inclusive) {
+        if (facets->has_max_inclusive && !(number <= facets->max_inclusive)) {
             report(ctx, node, "facet", "value is above maxInclusive");
             ok = 0;
         }
-        if (facets->has_min_exclusive && number <= facets->min_exclusive) {
+        if (facets->has_min_exclusive && !(number > facets->min_exclusive)) {
             report(ctx, node, "facet", "value is not above minExclusive");
             ok = 0;
         }
-        if (facets->has_max_exclusive && number >= facets->max_exclusive) {
+        if (facets->has_max_exclusive && !(number < facets->max_exclusive)) {
             report(ctx, node, "facet", "value is not below maxExclusive");
             ok = 0;
         }

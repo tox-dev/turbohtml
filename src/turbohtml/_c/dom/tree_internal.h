@@ -183,13 +183,12 @@ struct th_tree {
     th_node_map shadow_index;
     Py_ssize_t shadow_count;
     Py_ssize_t shadow_cap;
-    /* Live MutationObservers watching this tree, grown lazily on the first observe().
-       Each entry is owned by its MutationObserver Python object (dom/observe.c), which
-       holds a handle reference keeping the tree alive, so the array is empty by the
-       time the tree is freed. NULL for every observer-free tree. */
-    struct th_observer **observers;
-    Py_ssize_t observer_count;
-    Py_ssize_t observer_cap;
+    /* The registry of live MutationObservers watching this tree, allocated on the first
+       observe() and freed with the last observer. Each observer is owned by its
+       MutationObserver Python object (dom/observe.c), which holds a handle reference
+       keeping the tree alive, so the registry is gone by the time the tree is freed.
+       NULL for every observer-free tree. */
+    struct th_mo_registry *observers;
     /* Live NodeIterators rooted in this tree, each owned by its NodeIterator Python
        object (dom/traversal.c), which holds a handle reference keeping the tree alive,
        so the array is empty by the time the tree is freed. NULL when none exist. */

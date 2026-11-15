@@ -690,14 +690,16 @@ TH_NODE_API(static, PyObject *, shadow_root_set_inner_html, (PyObject * self, Py
         th_node_remove_silent(dest, root->first_child);
     }
     th_tree_note_deepened(dest);
+    th_copy_memo memo = {0}; /* one for all the top-level nodes, so attribute values they share are copied once */
     for (th_node *child = th_tree_document(fragment)->first_child; child != NULL; child = child->next_sibling) {
-        th_node *copy = th_tree_copy_node(dest, fragment, child);
+        th_node *copy = th_tree_copy_node_sharing(dest, fragment, child, &memo);
         if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             error = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
             break;          /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_node_append_child(root, copy);
     }
+    th_copy_memo_free(&memo);
     Py_END_CRITICAL_SECTION();
     th_tree_free(fragment);
     if (error) {                 /* GCOVR_EXCL_BR_LINE: the copy only fails on an unforceable allocation */
