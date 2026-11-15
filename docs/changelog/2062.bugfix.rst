@@ -1,0 +1,2 @@
+XML output and ``canonicalize()`` now keep each element in its namespace when the parent element is left out because its
+name is not a valid XML name.

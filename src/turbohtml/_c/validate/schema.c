@@ -1326,14 +1326,21 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
         rng_validate_root(&ctx, root);
     }
     Py_END_CRITICAL_SECTION();
+    const int exhausted = regex_exhausted(&local);
     PyMem_Free(ctx.path.data);
     arena_free(&local.mem);
-    /* a derivative or pattern check that lost an allocation, or a RELAX NG choice that ran past its limit, degraded to
-       a mismatch, so its verdict is unknown; only an arena OOM sets ctx.failed during validation */
-    if (local.mem.no_memory && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+    /* a derivative or pattern check that lost an allocation, a RELAX NG choice that ran past its limit, or a pattern
+       check that spent its step budget degraded to a mismatch, so its verdict is unknown; only an arena OOM sets
+       ctx.failed during validation */
+    if ((local.mem.no_memory || exhausted) && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: arena OOM */
         ctx.failed = 1;
-        if (local.choice_limit < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        if (local.choice_limit < 0) {
             PyErr_SetString(PyExc_ValueError, "RELAX NG content model too ambiguous to validate");
+        } else if (exhausted) { /* GCOVR_EXCL_BR_LINE: the other side is an arena OOM */
+            PyErr_Format(PyExc_ValueError,
+                         "schema patterns need more than %d NFA steps on top of %d per character matched to validate "
+                         "this document; lower their repeat counts",
+                         RX_BUDGET_BASE, RX_BUDGET_PER_CHAR);
         } else {
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         }

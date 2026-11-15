@@ -262,6 +262,18 @@ static void posset_copy(posset *into, const posset *from) {
     posset_or(into, from);
 }
 
+static int posset_same(const posset *left, const posset *right) {
+    if (left->count != right->count) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < left->count; index++) {
+        if (!right->member[left->items[index]]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* An empty set. The matcher takes its working sets here and hands them back with posset_free, so matching one element
    holds a few sets per level of its model however often a particle repeats; the arena, which releases nothing until
    validation ends, would otherwise keep one per repetition. An element with another child count starts a new list. */
@@ -300,38 +312,52 @@ static void posset_free(th_schema *schema, posset *set) {
 static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                            posset *out);
 
-/* A bounded particle takes every repetition from the positions the one before reached, and stops after maxOccurs. */
+/* Applies the term minOccurs times, leaving the positions after the last repetition in cur. An empty repetition still
+   counts, so the count stops early only once a repetition leaves the set unchanged: every later one would too. */
+static int xsd_match_min_repeats(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, int min,
+                                 posset *cur, posset *next) {
+    for (int count = 0; count < min; count++) {
+        xsd_match_once(schema, inst, particle, children, cur, next);
+        if (posset_empty(next)) {
+            return 0;
+        }
+        if (posset_same(cur, next)) {
+            return 1;
+        }
+        posset spare = *cur;
+        *cur = *next;
+        *next = spare;
+    }
+    return 1;
+}
+
+/* A bounded particle takes minOccurs repetitions, then steps one repetition at a time up to maxOccurs, stopping once a
+   repetition reaches no position the result lacks: every later one then reaches only positions it already holds. */
 static void xsd_match_bounded(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                               int min, int max, posset *out) {
-    posset seen = posset_alloc(schema, in->size);
+    if (min > max) { /* the compiler keeps an inverted occurs range, and no child count satisfies it */
+        return;
+    }
     posset cur = posset_alloc(schema, in->size);
     posset next = posset_alloc(schema, in->size);
-    if (!seen.member || !cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                        /* GCOVR_EXCL_LINE */
+    if (!cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                        /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
-    posset_copy(&seen, in);
-    if (min == 0) {
-        posset_or(out, in);
-    }
-    for (int count = 1; count <= max; count++) {
-        xsd_match_once(schema, inst, particle, children, &cur, &next);
-        if (posset_empty(&next)) {
-            break;
+    if (xsd_match_min_repeats(schema, inst, particle, children, min, &cur, &next)) {
+        posset_copy(out, &cur);
+        for (int count = min; count < max; count++) {
+            xsd_match_once(schema, inst, particle, children, &cur, &next);
+            if (!posset_or(out, &next)) {
+                break;
+            }
+            posset spare = cur;
+            cur = next;
+            next = spare;
         }
-        if (count >= min) {
-            posset_or(out, &next);
-        }
-        if (!posset_or(&seen, &next)) { /* a nullable body would otherwise repeat forever */
-            break;
-        }
-        posset spare = cur;
-        cur = next;
-        next = spare;
     }
     posset_free(schema, &next);
     posset_free(schema, &cur);
-    posset_free(schema, &seen);
 }
 
 /* An unbounded particle reaches its minOccurs-th set of positions, then closes it under one more repetition. The
@@ -339,27 +365,13 @@ static void xsd_match_bounded(th_schema *schema, th_tree *inst, th_node *particl
    reach it. */
 static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *particle, th_node **children,
                                 const posset *in, int min, posset *out) {
-    posset seen = posset_alloc(schema, in->size);
     posset cur = posset_alloc(schema, in->size);
     posset next = posset_alloc(schema, in->size);
-    if (!seen.member || !cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return;                                        /* GCOVR_EXCL_LINE */
+    if (!cur.member || !next.member) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                        /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
-    posset_copy(&seen, in);
-    int reached = 1;
-    for (int count = 1; reached && count <= min; count++) {
-        xsd_match_once(schema, inst, particle, children, &cur, &next);
-        reached = !posset_empty(&next);
-        if (count < min) {
-            /* a repetition adding no position ends the count, so a settled set is not repeated minOccurs times */
-            reached = reached && posset_or(&seen, &next);
-        }
-        posset spare = cur;
-        cur = next;
-        next = spare;
-    }
-    if (reached) {
+    if (xsd_match_min_repeats(schema, inst, particle, children, min, &cur, &next)) {
         posset_copy(out, &cur);
         while (!posset_empty(&cur)) {
             xsd_match_once(schema, inst, particle, children, &cur, &next);
@@ -373,7 +385,6 @@ static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *parti
     }
     posset_free(schema, &next);
     posset_free(schema, &cur);
-    posset_free(schema, &seen);
 }
 
 /* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */

@@ -35,6 +35,7 @@ from turbohtml.clean import Policy, sanitize
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
     from turbohtml import DocumentFragment, Node
@@ -1626,6 +1627,75 @@ def test_sanitizing_reconstructed_attributes_keeps_unique_names(count: int) -> N
         )
         == f"<p><b {attributes}>one</b></p><b {attributes}>two</b>"
     )
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param(lambda tag: f"<h1>{tag}</h1>{'<h2>y</h2>' * 3000}", id="reconstruction"),
+        pytest.param(lambda tag: f"<table>{tag}{'<tr>y' * 3000}", id="fostered-reconstruction"),
+        pytest.param(lambda tag: f"{tag}<li>y</em>" * 3000, id="adoption"),
+    ],
+)
+def test_formatting_clones_keep_a_node_share_of_attributes(document: Callable[[str], str]) -> None:
+    elements: Final = parse(document(f"<em {_attributes('k', 16)}>")).find_all("em")
+    assert len(elements) > 3000
+    assert {len(element.attrs) for element in elements} == {16}
+
+
+def _attributes(prefix: str, count: int) -> str:
+    return " ".join(f"{prefix}{index}" for index in range(count))
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param(lambda tag: f"<h1>{tag}</h1>{'<h2>y</h2>' * 60}", id="reconstruction"),
+        pytest.param(
+            lambda tag: f"{''.join(f'<s n{index}>' for index in range(60))}{tag}<div>{'</s>' * 120}", id="adoption"
+        ),
+    ],
+)
+def test_formatting_clones_past_the_attribute_bound_keep_the_structure(document: Callable[[str], str]) -> None:
+    sizes: Final = [len(element.attrs) for element in parse(document(f"<em {_attributes('k', 3000)}>")).find_all("em")]
+    kept: Final = sizes.count(3000)
+    # the clones the allowance pays for keep every attribute, the rest take their place without any
+    assert sizes == [3000] * kept + [0] * (len(parse(document("<em>")).find_all("em")) - kept)
+    assert 0 < kept < len(sizes)
+
+
+@pytest.mark.parametrize(
+    "clones",
+    [
+        pytest.param(lambda tags: f"<h1>{''.join(tags)}</h1>{'<h2>y</h2>' * 8}", id="reconstruction"),
+        # the adoption agency stops after eight rounds, so the last of its clones stays on the list
+        pytest.param(
+            lambda tags: "".join(f"<h1>{tag}{'<div>' * 9}</em>{'</div>' * 9}</h1>" for tag in tags), id="adoption"
+        ),
+    ],
+)
+@pytest.mark.parametrize("prefix", [pytest.param("", id="scanned"), pytest.param(_LISTED, id="hashed")])
+def test_formatting_clones_past_the_attribute_bound_count_for_noahs_ark(
+    clones: Callable[[list[str]], str], prefix: str
+) -> None:
+    spent: Final = f"<h1><b {_attributes('b', 5000)}></h1>{'<h2>y</h2>' * 16}"
+    tags: Final = [f"<em {_attributes(name, 5000)}>" for name in "xyz"]
+    document: Final = parse(f"{prefix}{spent}{clones(tags)}<h3><em>v</h3><h4>w</h4>")
+    # the three listed clones are bare, so the new em is a fourth equal entry and pushing it drops the earliest
+    assert [len(document.select(f"{name} em")) for name in ("h3", "h4")] == [4, 3]
+
+
+def test_formatting_clone_attributes_peak_memory_grows_linearly(peak_bytes: PeakBytes) -> None:
+    # as many reopenings as attributes: copying every attribute onto every clone would quadruple the peak per doubling
+    script: Final = (
+        "import sys, tracemalloc\nfrom turbohtml import parse\n"
+        "count = int(sys.argv[1])\n"
+        "attributes = ' '.join(f'k{index}' for index in range(count))\n"
+        "source = f'<h1><em {attributes}></h1>{\"<h2>y</h2>\" * count}'\n"
+        "tracemalloc.start()\nparse(source)\nprint(tracemalloc.get_traced_memory()[1])\n"
+    )
+    small: Final = peak_bytes(script, ("1500",))
+    assert peak_bytes(script, ("3000",)) < 3 * small
 
 
 @pytest.mark.parametrize(

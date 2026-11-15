@@ -11,6 +11,7 @@
 #include "core/common.h"
 
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/tree.h"
 
@@ -416,6 +417,19 @@ typedef struct {
     Py_UCS4 css; /* how the text spells the URL, as link_emit describes */
 } link_span;
 
+/* What the walk made of one attribute value, for the other elements that hold the same buffer. The tree builder
+   reopens an unclosed formatting element in every block that follows it, and each of those clones borrows the value
+   buffers of the one start tag (node_clone). A str per link per clone, or a rewritten copy of the value per clone, then
+   costs value length x clones for an input of value length + clones, so the clones share what the first of them got
+   as they share the source. A value is never written in place and the arena keeps it until the tree is freed, so its
+   address identifies its content. */
+typedef struct {
+    const Py_UCS4 *from; /* the value, by its address in the tree's arena; NULL marks a free slot */
+    PyObject *urls;      /* links(): a tuple of the str built for each link */
+    const Py_UCS4 *to;   /* a rewrite: the value the attribute held afterwards, `from` itself when no link changed */
+    Py_ssize_t to_len;
+} shared_value;
+
 /* The walk's shared state. Exactly one of `result` (enumerate) and `replace` (rewrite) is set. `spans` is reused across
    values to avoid a per-value allocation. */
 typedef struct {
@@ -430,6 +444,9 @@ typedef struct {
     const char *base_scheme;
     Py_ssize_t base_scheme_len;
     int base_netloc_scheme; /* the base scheme reserializes an absolute same-scheme URL unchanged (http/https) */
+    shared_value *shared;   /* open addressing at no more than half load, keyed by `from` */
+    size_t shared_cap;
+    size_t shared_count;
     link_span *spans;
     Py_ssize_t span_count;
     Py_ssize_t span_cap;
@@ -575,19 +592,89 @@ static Py_ssize_t spell_url(PyObject *url, Py_UCS4 css, Py_UCS4 *out) {
     return written;
 }
 
-/* Append a Link(element, attr, url) for each span to the result list. The Element wrapper for `report_node` is minted
-   on the first link and cached in *report_element, so an element with no link (the vast majority on a real page) is
-   never wrapped. `report_attr` is the attribute name (or None for <style> text), borrowed for the call's duration. */
+static shared_value *shared_slot(shared_value *entries, size_t cap, const Py_UCS4 *from) {
+    size_t slot = (size_t)(((uint64_t)(uintptr_t)from * UINT64_C(0x9E3779B97F4A7C15)) >> 32) & (cap - 1);
+    while (entries[slot].from != NULL && entries[slot].from != from) {
+        slot = (slot + 1) & (cap - 1);
+    }
+    return &entries[slot];
+}
+
+/* What the walk recorded for `from`, or NULL. */
+static const shared_value *shared_find(const link_walk *walk, const Py_UCS4 *from) {
+    if (walk->shared_cap == 0) {
+        return NULL;
+    }
+    const shared_value *found = shared_slot(walk->shared, walk->shared_cap, from);
+    return found->from != NULL ? found : NULL;
+}
+
+/* Record what became of `from`, which shared_find does not know. The table takes over the `urls` reference unless it
+   fails to grow. */
+static int shared_add(link_walk *walk, const Py_UCS4 *from, PyObject *urls, const Py_UCS4 *to, Py_ssize_t to_len) {
+    if (walk->shared_count >= walk->shared_cap / 2) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((walk->shared_count + 1) * 2, walk->shared_cap, 16, sizeof(shared_value), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        shared_value *grown = PyMem_Calloc(1, bytes);
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        for (size_t slot = 0; slot < walk->shared_cap; slot++) {
+            if (walk->shared[slot].from != NULL) {
+                const shared_value *entry = &walk->shared[slot];
+                *shared_slot(grown, cap, entry->from) = *entry;
+            }
+        }
+        PyMem_Free(walk->shared);
+        walk->shared = grown;
+        walk->shared_cap = cap;
+    }
+    *shared_slot(walk->shared, walk->shared_cap, from) = (shared_value){from, urls, to, to_len};
+    walk->shared_count++;
+    return 0;
+}
+
+/* A tuple of the URL (span_url) of each span just scanned in `value`, for the elements that hold the value to share. */
+static PyObject *span_urls(const link_walk *walk, const Py_UCS4 *value) {
+    PyObject *urls = PyTuple_New(walk->span_count);
+    if (urls == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < walk->span_count; index++) {
+        PyObject *url = span_url(value, &walk->spans[index]);
+        if (url == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(urls); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;     /* GCOVR_EXCL_LINE */
+        }
+        PyTuple_SET_ITEM(urls, index, url);
+    }
+    return urls;
+}
+
+/* Append a Link(element, attr, url) for each link to the result list: each str of `urls` when the value's links are
+   shared (span_urls), else each span cut from `value`. The Element wrapper for `report_node` is minted on the first
+   link and cached in *report_element, so an element with no link (the vast majority on a real page) is never wrapped.
+   `report_attr` is the attribute name (or None for <style> text), borrowed for the call's duration. */
 static int emit_enumerated(link_walk *walk, PyObject **report_element, th_node *report_node, PyObject *report_attr,
-                           const Py_UCS4 *value) {
+                           const Py_UCS4 *value, PyObject *urls) {
+    Py_ssize_t count = urls != NULL ? PyTuple_GET_SIZE(urls) : walk->span_count;
+    if (count == 0) {
+        return 0;
+    }
     if (*report_element == NULL) {
         *report_element = turbohtml_node_wrap_in(walk->owner, report_node);
         if (*report_element == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    for (Py_ssize_t index = 0; index < walk->span_count; index++) {
-        PyObject *url = span_url(value, &walk->spans[index]);
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *url = urls != NULL ? Py_NewRef(PyTuple_GET_ITEM(urls, index)) : span_url(value, &walk->spans[index]);
         if (url == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -636,6 +723,7 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
     for (; cursor < len; cursor++) {
         out[out_len++] = value[cursor];
     }
+    TH_WORK_STEPS_ADD(out_len);
     int status = attr_name != NULL ? th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1)
                                    : th_node_set_data(walk->tree, target, out, out_len);
     PyMem_Free(out);
@@ -774,7 +862,7 @@ static int handle_value(link_walk *walk, PyObject **report_element, th_node *rep
         return 0;
     }
     if (walk->result != NULL) {
-        return emit_enumerated(walk, report_element, report_node, report_attr, value);
+        return emit_enumerated(walk, report_element, report_node, report_attr, value, NULL);
     }
     return rewrite_value(walk, target, attr_name, attr_len, value, len);
 }
@@ -789,6 +877,47 @@ static const Py_UCS4 *attr_value(link_walk *walk, th_node *element, const char *
     }
     *len = element->attrs[index].value_len;
     return element->attrs[index].value;
+}
+
+/* handle_value for an attribute of an element without a start tag of its own, which may hold `value` with others (see
+   shared_value). The first such element does the work; the others adopt its result, so the callback runs once per
+   link of each distinct value rather than once per clone. */
+static int handle_shared_value(link_walk *walk, PyObject **report_element, th_node *element, PyObject *report_attr,
+                               const char *name, Py_ssize_t name_len, const Py_UCS4 *value, Py_ssize_t len,
+                               scanner_fn scan) {
+    const shared_value *known = shared_find(walk, value);
+    if (known != NULL && walk->result != NULL) {
+        return emit_enumerated(walk, report_element, element, report_attr, value, known->urls);
+    }
+    if (known != NULL) {
+        if (known->to == value) {
+            return 0;
+        }
+        return th_node_attr_set_shared(walk->tree, element, name, name_len, known->to, known->to_len);
+    }
+    walk->span_count = 0;
+    if (scan(value, len, collect_span, walk) < 0) { /* GCOVR_EXCL_BR_LINE: scan alloc only (collect_span realloc) */
+        return -1;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (walk->result != NULL) {
+        PyObject *urls = span_urls(walk, value);
+        /* GCOVR_EXCL_BR_START: the tuple and its table entry fail only on allocation */
+        if (urls == NULL || shared_add(walk, value, urls, NULL, 0) < 0) {
+            Py_XDECREF(urls); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        return emit_enumerated(walk, report_element, element, report_attr, value, urls);
+    }
+    int status = walk->span_count > 0 ? rewrite_value(walk, element, name, name_len, value, len) : 0;
+    if (status == 0) {
+        Py_ssize_t to_len = 0;
+        const Py_UCS4 *to = attr_value(walk, element, name, name_len, &to_len);
+        if (to != NULL) { /* a rewrite_links callback may have removed the attribute */
+            status = shared_add(walk, value, NULL, to, to_len);
+        }
+    }
+    return status;
 }
 
 static int value_imatch(const Py_UCS4 *value, Py_ssize_t len, const char *lit, Py_ssize_t lit_len) {
@@ -910,8 +1039,14 @@ static int process_element(link_walk *walk, th_node *element) {
                 break;                 /* GCOVR_EXCL_LINE */
             }
         }
-        failed = handle_value(walk, &report_element, element, report_attr, element, name, name_len,
-                              element->attrs[index].value, element->attrs[index].value_len, scan) < 0;
+        if (element->tag_flags & TH_ELEM_IMPLIED) {
+            /* only an element without a start tag of its own, a reopened formatting element, borrows its values */
+            failed = handle_shared_value(walk, &report_element, element, report_attr, name, name_len,
+                                         element->attrs[index].value, element->attrs[index].value_len, scan) < 0;
+        } else {
+            failed = handle_value(walk, &report_element, element, report_attr, element, name, name_len,
+                                  element->attrs[index].value, element->attrs[index].value_len, scan) < 0;
+        }
         Py_XDECREF(report_attr);
     }
     Py_XDECREF(report_element);
@@ -967,6 +1102,10 @@ static PyObject *run_walk(PyObject *owner, th_tree *tree, th_node *root, PyObjec
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(walk.handle);
+    for (size_t slot = 0; slot < walk.shared_cap; slot++) {
+        Py_XDECREF(walk.shared[slot].urls);
+    }
+    PyMem_Free(walk.shared);
     PyMem_Free(walk.spans);
     PyMem_Free(walk.nodes);
     if (failed) {
@@ -993,7 +1132,8 @@ PyObject *turbohtml_node_links(PyObject *owner, th_tree *tree, th_node *root) {
     return run_walk(owner, tree, root, result, NULL, NULL, 0, 0);
 }
 
-/* Node.rewrite_links(replace) -> None. Calls replace(url) for every link; a str result replaces it, None leaves it. */
+/* Node.rewrite_links(replace) -> None. Calls replace(url) for every link, except that the copies of a reopened element
+   share the first copy's result; a str result replaces it, None leaves it. */
 PyObject *turbohtml_node_rewrite_links(PyObject *owner, th_tree *tree, th_node *root, PyObject *replace) {
     if (!PyCallable_Check(replace)) {
         PyErr_SetString(PyExc_TypeError, "rewrite_links expected a callable");
