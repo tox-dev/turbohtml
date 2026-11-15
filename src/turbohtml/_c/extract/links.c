@@ -15,6 +15,7 @@
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
+#include "dom/nodes.h"
 #include "dom/tree.h"
 
 #include <string.h>
@@ -693,8 +694,14 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
         out[out_len++] = value[cursor];
     }
     TH_WORK_STEPS_ADD(out_len);
-    int status = attr_name != NULL ? th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1)
-                                   : th_node_set_data(walk->tree, target, out, out_len);
+    int status;
+    if (attr_name != NULL) {
+        status = th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1);
+    } else {
+        status = th_node_set_data(walk->tree, target, out, out_len);
+        /* the text node is a <style>'s, and computed_style() keeps that sheet compiled across edits */
+        handle_clear_css_cache((HandleObject *)walk->handle);
+    }
     PyMem_Free(out);
     return status;
 }
