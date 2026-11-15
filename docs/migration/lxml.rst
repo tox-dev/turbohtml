@@ -161,7 +161,8 @@ First, turbohtml keeps qualified names verbatim. lxml resolves a prefix to its U
 (``{urn:h}a``, read back through ``etree.QName``); turbohtml leaves the tag as the source ``h:a`` and keeps every
 ``xmlns``/``xmlns:prefix`` declaration as an ordinary attribute on :attr:`~turbohtml.Element.attrs`. It still validates
 namespaces -- an undeclared prefix is a well-formedness error -- but it does not build lxml's ``nsmap`` or rewrite
-names.
+names. XPath name tests follow lxml's results: ``//entry`` does not match an element in a default namespace, and
+``namespaces={"a": ATOM}`` with ``//a:entry`` does.
 
 Second, ill-formed input raises rather than recovering. A mismatched or unclosed tag, an undeclared prefix, an undefined
 entity, or a duplicate attribute raises :exc:`~turbohtml.HTMLParseError`, whose ``error`` carries the

@@ -16,7 +16,10 @@ expression that selects the same nodes as the CSS selector, for the systems that
 
 .. testoutput::
 
-    descendant-or-self::ul/li[@class and contains(concat(' ', normalize-space(@class), ' '), ' item ')]
+    descendant-or-self::*[name() = 'ul']/*[name() = 'li' and @class and contains(concat(' ', normalize-space(@class), ' '), ' item ')]
+
+A type selector becomes a ``name()`` comparison, not an XPath name test, so a type in a default namespace matches the
+same elements :meth:`~turbohtml.Node.select` matches.
 
 The default prefix scopes the expression to the context node's subtree, the cssselect convention. Pass a different
 ``prefix`` to change the anchoring; ``descendant::`` mirrors what :meth:`~turbohtml.Node.select` walks (descendants
@@ -28,7 +31,7 @@ only), and ``//`` produces a document-absolute path:
 
 .. testoutput::
 
-    //li[not(preceding-sibling::*)]
+    //*[name() = 'li' and not(preceding-sibling::*)]
 
 A selector list becomes a union with the prefix on each arm, and a selector that the CSS grammar rejects raises
 :class:`~turbohtml.SelectorSyntaxError` while a valid one that XPath 1.0 cannot express (``:dir()``, an of-type
@@ -46,7 +49,7 @@ pseudo-class without a type) raises :class:`~turbohtml.convert.ExpressionError`:
 
 .. testoutput::
 
-    //h1 | //h2
+    //*[name() = 'h1'] | //*[name() = 'h2']
     the of-type pseudo-classes need a type selector
 
 The same error reports a selector whose expression would pass 16,777,216 characters.

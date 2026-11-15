@@ -3747,7 +3747,7 @@ _COPY_PREFIXED: Final[str] = "<xsl:template match=\"*[name()='p:n']\"><xsl:copy/
             '<r xmlns="urn:s"><n/></r>', _COPY_ELEMENT, "*/*", "", '<n xmlns="urn:s"/>', id="default-from-ancestor"
         ),
         pytest.param(
-            '<r xmlns="urn:s"><n xmlns=""/></r>', _COPY_ELEMENT, "r/*", "", "<n/>", id="empty-default-shadows"
+            '<r xmlns="urn:s"><n xmlns=""/></r>', _COPY_ELEMENT, "*/*", "", "<n/>", id="empty-default-shadows"
         ),
         pytest.param(
             '<r xmlns:xml="http://www.w3.org/XML/1998/namespace"><n/></r>',
@@ -9442,3 +9442,42 @@ def test_transform_lang_per_node_grows_linearly(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda size: partial(sheet, parse_xml(f"<doc xml:lang='de'>{'<s>' * size}{'</s>' * size}</doc>")), (500, 2000)
     )
+
+
+_ATOM_FEED: Final[str] = '<feed xmlns="http://www.w3.org/2005/Atom"><entry/><x xmlns=""><entry/></x></feed>'
+
+
+@pytest.mark.parametrize(
+    ("source", "select", "expected"),
+    [
+        pytest.param(_ATOM_FEED, "//entry", "entry;", id="only-the-no-namespace-entry"),
+        pytest.param(_ATOM_FEED, "/feed", "", id="root-in-default-namespace"),
+        pytest.param(_ATOM_FEED, "//*", "feed;entry;x;entry;", id="wildcard-selects-every-element"),
+        pytest.param("<feed><entry/></feed>", "//entry", "entry;", id="no-default-namespace"),
+    ],
+)
+def test_for_each_unprefixed_name_test_follows_xpath_namespaces(source: str, select: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:for-each select="{select}"><xsl:value-of select="name()"/>;</xsl:for-each>'
+    assert transform(_sheet(f"{body}</xsl:template>"), parse_xml(source)) == expected
+
+
+def test_transform_pattern_matches_an_html_source() -> None:
+    sheet = _sheet(
+        '<xsl:template match="p">[<xsl:value-of select="."/>]</xsl:template>'
+        '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    )
+    assert transform(sheet, turbohtml.parse("<p>a</p><p>b</p>")) == "[a][b]"
+
+
+def test_transform_pattern_skips_a_foreign_element_moved_into_an_xml_tree() -> None:
+    document = parse_xml("<r/>")
+    svg = turbohtml.parse("<svg><rect/></svg>").select_one("svg")
+    root = document.select_one("r")
+    assert svg is not None
+    assert root is not None
+    root.append(svg)
+    sheet = _sheet(
+        '<xsl:template match="rect">[x]</xsl:template>'
+        '<xsl:template match="/"><xsl:apply-templates select="//rect"/></xsl:template>'
+    )
+    assert not transform(sheet, document)

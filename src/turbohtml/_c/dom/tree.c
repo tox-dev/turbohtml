@@ -5654,6 +5654,7 @@ void th_tree_free(th_tree *tree) {
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure before tree creation */
         return;         /* GCOVR_EXCL_LINE */
     }
+    xp_ns_index_free(tree->ns_index);
     arena_block *block = tree->arena;
     while (block != NULL) {
         arena_block *next = block->next;

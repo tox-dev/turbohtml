@@ -102,7 +102,11 @@ typedef struct {
 
 typedef struct th_attr_names th_attr_names;
 
+struct xp_ns_index;
+void xp_ns_index_free(struct xp_ns_index *index);
+
 struct th_tree {
+    struct xp_ns_index *ns_index; /* the XPath namespace index of an XML tree, built on first namespaced query */
     arena_block *arena;
     th_node *document;
     th_node **open; /* stack of open elements */

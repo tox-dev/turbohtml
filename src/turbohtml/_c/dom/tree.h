@@ -331,6 +331,9 @@ th_tree *th_tree_new(void);
 /* Whether the tree was parsed under XML rules, so name lookups are case-sensitive
    rather than folded to the HTML parser's lowercased names. */
 int th_tree_is_xml(const th_tree *tree);
+/* Whether an XML tree ever held an xmlns declaration. Without one every element is in no namespace, so a name test
+   needs no namespace resolution. */
+int th_tree_has_xml_ns(const th_tree *tree);
 /* Whether the tree builder reads this attribute of an element in ns while building, so changing it can change the
    tree. Every other attribute only reaches the DOM. */
 int th_builder_reads_attr(uint8_t ns, uint16_t tag, const char *name, Py_ssize_t len);
