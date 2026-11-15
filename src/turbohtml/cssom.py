@@ -301,6 +301,8 @@ def computed_style(element: Element) -> ComputedStyle:
 
     :param element: the element to compute the style of.
     :returns: the resolved, read-only computed style.
+    :raises RecursionError: if a rule of the page's style sheets chains more compound selectors than the C stack this
+        thread has left can match.
     """
     return ComputedStyle(_css_computed_style(element))
 

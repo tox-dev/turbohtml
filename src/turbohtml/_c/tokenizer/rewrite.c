@@ -3119,6 +3119,11 @@ static int rw_compile_rules(rw_ctx *ctx, module_state *state, PyObject *handlers
             Py_DECREF(pair);
             return -1;
         }
+        if (sel_stack_check(compiled->chain) < 0) {
+            selector_free(compiled);
+            Py_DECREF(pair);
+            return -1;
+        }
         ctx->rules[ctx->rule_count] = (rw_rule){compiled, Py_NewRef(handler), compiled, NULL};
         ctx->rule_count++;
         Py_DECREF(pair);

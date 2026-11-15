@@ -2,19 +2,13 @@
    the matcher and recursive-descent parser live here as one translation unit, and
    selector.h now carries only the shared types plus the entry-point prototypes. */
 
+#include "core/common.h"
+#include "core/stack.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "css/select/selector.h"
 
 #include <limits.h>
-
-#if defined(_MSC_VER)
-#define TH_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define TH_NOINLINE __attribute__((noinline))
-#else
-#define TH_NOINLINE
-#endif
 
 /* Record a parse failure with the position and reason for the error message. Set
    unconditionally: an error propagates up through early returns without another
@@ -930,6 +924,7 @@ static int sel_complex_parse(sel_parser *parser, sel_complex *complex, int neste
         compounds[count].count = simple_count;
         compounds[count].combinator = combinator;
         count++;
+        parser->compounds++;
         int saw_ws = parser->pos < parser->len && is_space(parser->src[parser->pos]);
         sel_skip_ws(parser);
         if (parser->pos >= parser->len) {
@@ -1296,6 +1291,57 @@ static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_o
     return walks;
 }
 
+/* The C stack one compound of a chain may take in any matcher family: about three times the most measured with gcc
+       -O2 and LTO (a :has() sibling split, 0.33 KiB), leaving room for the frames of unoptimized and other compilers.
+     */
+enum { SEL_CHAIN_BYTES = 1024 };
+
+#ifndef TH_STACK_FLOOR
+/* Where the platform reports no stack bounds, the room assumed left: a 512 KiB thread less the margin other stack
+   guards keep and the frames of the caller, as the JavaScript parser assumes. */
+enum { SEL_FALLBACK_STACK = 384 * 1024 };
+#endif
+
+/* The most compounds a match of alts recurses through. Each combinator step of the matcher goes one call deeper per
+   compound, and the list of a functional pseudo-class starts its own chain on top, so the chains add up along the
+   nesting. */
+static Py_ssize_t sel_alts_chain(const sel_complex *alts, int count) {
+    Py_ssize_t longest = 0;
+    for (int alt = 0; alt < count; alt++) {
+        const sel_complex *complex = &alts[alt];
+        Py_ssize_t nested = 0;
+        for (int index = 0; index < complex->count; index++) {
+            const sel_compound *compound = &complex->compounds[index];
+            for (int at = 0; at < compound->count; at++) {
+                const sel_simple *simple = &compound->simples[at];
+                if (simple->kind == ':' && simple->sub != NULL) {
+                    const Py_ssize_t inner = sel_alts_chain(simple->sub, simple->sub_count);
+                    nested = inner > nested ? inner : nested;
+                }
+            }
+        }
+        const Py_ssize_t chain = complex->count + nested;
+        longest = chain > longest ? chain : longest;
+    }
+    return longest;
+}
+
+TH_NOINLINE int sel_stack_check_chain(Py_ssize_t chain) {
+#ifdef TH_STACK_FLOOR
+    const intptr_t room = (intptr_t)(TH_FRAME_ADDRESS() - th_stack_floor());
+#else
+    const intptr_t room = SEL_FALLBACK_STACK;
+#endif
+    if (room / SEL_CHAIN_BYTES >= chain) {
+        return 0;
+    }
+    PyErr_Format(PyExc_RecursionError,
+                 "the selector chains %zd compound selectors, more than the C stack this thread has left can match; "
+                 "split it, or run it on a thread with a larger stack",
+                 chain);
+    return -1;
+}
+
 /* Whether a :has() sits inside another :has() argument, at any depth. */
 static int sel_alts_nest_has(const sel_complex *alts, int count, int inside) {
     for (int alt = 0; alt < count; alt++) {
@@ -1413,7 +1459,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     }
     compiled->quirks = th_tree_quirks(tree);
     compiled->tree = tree;
-    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token"};
+    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token", 0};
     if (sel_parse_alts(&parser, &compiled->alts, &compiled->count, 0, 0, 0) < 0) {
         sel_raise(selector_error, selector_str, &parser);
         PyMem_Free(compiled->source);
@@ -1424,6 +1470,9 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
     compiled->reads_dir = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_dir_pseudo);
     compiled->climbs = sel_alts_climb(compiled->alts, compiled->count, 0);
+    /* the parsed total bounds the chain, so the walk runs only for a selector long enough to reach the check */
+    compiled->chain =
+        parser.compounds > SEL_CHAIN_CHECK ? sel_alts_chain(compiled->alts, compiled->count) : parser.compounds;
     if (sel_alts_need_nest(compiled->alts, compiled->count)) {
         compiled->nests_has = sel_alts_nest_has(compiled->alts, compiled->count, 0);
         sel_nesting nesting = {0};
@@ -3201,8 +3250,8 @@ static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const 
     scoped.has_memo = NULL;
     sel_memo *memo = lead == '~' ? &ctx->sibling_memo->table : NULL;
     const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
-    /* a sibling left unmemoized repeats the walk of rest or of a nested list, and each link multiplies that walk, so
-       a test with more to verify memoizes from its second sibling, and a nested list from its first */
+    /* a sibling left unmemoized repeats the walk of rest or of a nested list, and each link multiplies that walk,
+       so a test with more to verify memoizes from its second sibling, and a nested list from its first */
     const int min_run = sel_compound_nests(&rel->compounds[0]) ? 0 : rel->count > 1 ? 1 : SEL_SIBLING_MEMO_MIN_RUN;
     th_node *memo_from = NULL;
     int found = 0;
@@ -3342,8 +3391,8 @@ static sel_deep_key *sel_deep_key_find(sel_deep_memo *memo, const void *key) {
     }
 }
 
-/* Grows the key table to twice its size, or sets it up. The table is sized by the selector's keys, so it does not count
-   toward the limit. */
+/* Grows the key table to twice its size, or sets it up. The table is sized by the selector's keys, so it does not
+   count toward the limit. */
 static int sel_deep_key_grow(sel_deep_memo *memo) {
     const size_t capacity = memo->keys == NULL ? 16 : (memo->mask + 1) * 2;
     sel_deep_key *keys = PyMem_Calloc(capacity, sizeof(sel_deep_key));
@@ -3495,7 +3544,8 @@ static void sel_deep_put(sel_deep_memo *memo, const void *key, const th_node *no
 static int sel_deep_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx, sel_deep_memo *memo);
 static int sel_deep_has(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx, sel_deep_memo *memo);
 
-/* The kept tables of memo, allocated on first use, or NULL when that fails: the caller then takes the direct walk. */
+/* The kept tables of memo, allocated on first use, or NULL when that fails: the caller then takes the direct walk.
+ */
 static sel_deep_kept *sel_deep_kept_of(sel_deep_memo *memo) {
     if (memo->kept == NULL) {
         memo->kept = PyMem_Calloc(1, sizeof(sel_deep_kept));
@@ -3525,8 +3575,8 @@ static sel_deep_memo *sel_deep_scoped(sel_deep_kept *kept, const th_node *scope)
 }
 
 /* The table that keeps the answers of a walk for compounds[0..index - 1] of complex past its first steps: memo, or
-   scoped where those compounds write :scope and the driver may rebind the scope (it passes a sibling memo only while
-   the scope stays put). NULL when no table can keep them. */
+   scoped where those compounds write :scope and the driver may rebind the scope (it passes a sibling memo only
+   while the scope stays put). NULL when no table can keep them. */
 static sel_deep_memo *sel_deep_walk_table(const sel_complex *complex, int index, const sel_ctx *ctx,
                                           sel_deep_memo *memo) {
     if (ctx->sibling_memo != NULL || !sel_rel_uses_scope(&(const sel_complex){complex->compounds, index, 0})) {
@@ -3542,9 +3592,8 @@ static sel_deep_memo *sel_deep_walk_table(const sel_complex *complex, int index,
     return sel_deep_scoped(kept, ctx->scope);
 }
 
-
-/* Whether the deep matcher keeps the answers of the :is(), :where() or :not() simple: one asked again whose walks only
-   climb (SEL_NEST_DEEP) costs no more than the tree nests per question, so on a tree known to nest less than
+/* Whether the deep matcher keeps the answers of the :is(), :where() or :not() simple: one asked again whose walks
+   only climb (SEL_NEST_DEEP) costs no more than the tree nests per question, so on a tree known to nest less than
    SEL_HAS_MEMO_MIN_DESCENT deep the direct walk is cheaper than the table. */
 static int sel_deep_keeps(const sel_simple *simple, const sel_ctx *ctx) {
     return simple->nest == SEL_NEST_ALWAYS ||
@@ -3597,9 +3646,9 @@ static int sel_deep_has_once(th_node *node, const sel_simple *simple, const sel_
 
 /* The index :nth-child(An+B of S) or :nth-last-child(An+B of S) gives node, for a clause one match asks about many
    siblings (sel_simple.nest): one plus the count of the element siblings before node (after it, for
-   :nth-last-child()) that match S. Each sibling's index is kept in the clause's counts, filled from the nearest sibling
-   that has one, so a sibling list costs one pass per clause in whatever order its siblings are asked. A position inside
-   S reads the position memo, which a single test's context lacks. */
+   :nth-last-child()) that match S. Each sibling's index is kept in the clause's counts, filled from the nearest
+   sibling that has one, so a sibling list costs one pass per clause in whatever order its siblings are asked. A
+   position inside S reads the position memo, which a single test's context lacks. */
 static int sel_deep_count(th_node *node, int direction, const sel_simple *simple, const sel_ctx *ctx,
                           sel_deep_memo *memo) {
     sel_deep_kept *kept = sel_deep_kept_of(memo);
@@ -3669,8 +3718,8 @@ static int sel_deep_has(th_node *anchor, const sel_complex *alts, int count, con
 static enum sel_status sel_deep_left(th_node *node, const sel_complex *complex, int index, th_node *anchor,
                                      const sel_ctx *ctx, sel_deep_memo *memo);
 
-/* Whether node declares the language a :lang() or the direction a :dir() reads, so its descendants that declare none
-   answer as it does: an element with a lang or xml:lang, or one with a valid dir or a bdi without one. */
+/* Whether node declares the language a :lang() or the direction a :dir() reads, so its descendants that declare
+   none answer as it does: an element with a lang or xml:lang, or one with a valid dir or a bdi without one. */
 static int sel_deep_declares(th_node *node, const sel_simple *simple, th_tree *tree) {
     if (simple->pseudo == PSEUDO_LANG) {
         return sel_lang_attr(tree, node, simple->attr_atom) != NULL;
@@ -3685,8 +3734,8 @@ static int sel_deep_declares(th_node *node, const sel_simple *simple, th_tree *t
 
 /* :lang() or :dir() at node: the nearest self-or-ancestor element that declares one answers, or, with none, the
    document default (no language, ltr). An element between them answers as node does, so past the first
-   SEL_ANCESTOR_MEMO_MIN_RUN levels the walk stops at the first one whose answer the memo holds and stores its answer
-   under each one it passed. A telephone input never inherits its direction. */
+   SEL_ANCESTOR_MEMO_MIN_RUN levels the walk stops at the first one whose answer the memo holds and stores its
+   answer under each one it passed. A telephone input never inherits its direction. */
 static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel_ctx *ctx, sel_deep_memo *memo) {
     if (simple->pseudo == PSEUDO_DIR && node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT &&
         sel_input_type_is(node, "tel")) {
@@ -3718,8 +3767,8 @@ static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel
     return found;
 }
 
-/* :nth-child(An+B of S) and :nth-last-child(An+B of S): sel_nth_index reading S through this matcher, with the count
-   kept per clause (sel_deep_count). */
+/* :nth-child(An+B of S) and :nth-last-child(An+B of S): sel_nth_index reading S through this matcher, with the
+   count kept per clause (sel_deep_count). */
 static int sel_deep_nth(th_node *node, int direction, const sel_simple *simple, const sel_ctx *ctx,
                         sel_deep_memo *memo) {
     return sel_deep_list(node, simple, ctx, memo) ? sel_deep_count(node, direction, simple, ctx, memo) : 0;
@@ -3805,8 +3854,8 @@ static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *compl
     for (; prev != NULL; prev = sel_prev_element(prev), walked++) {
         TH_WORK_STEP();
         if (walked == SEL_SIBLING_MEMO_MIN_RUN && siblings == NULL && anchor == NULL) {
-            /* without the driver's memo, which a query in document order fills, the walk keeps its answer under each
-               sibling it passed, as the ancestor walk does */
+            /* without the driver's memo, which a query in document order fills, the walk keeps its answer under
+               each sibling it passed, as the ancestor walk does */
             table = sel_deep_walk_table(complex, index, ctx, memo);
             memo_from = table != NULL ? prev : NULL; /* GCOVR_EXCL_BR_LINE: NULL only on allocation failure */
         }
@@ -3848,11 +3897,11 @@ static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *compl
 
 /* The descendant combinator to the left of compounds[index]: an ancestor of node matches compounds[index - 1] and
    everything left of it. Whether such an ancestor exists at or above a node depends only on that node, so past the
-   first SEL_ANCESTOR_MEMO_MIN_RUN ancestors the walk stops at the first one whose answer the memo holds and stores its
-   answer under each one it passed: a query visits each ancestor a bounded number of times. Inside :has() the answer
-   depends on the anchor, so the walk keeps off the memo; where compounds[0..index - 1] write :scope it depends on the
-   scope too, so the walk keeps off it unless the context holds a sibling memo, which a driver passes only while the
-   scope stays put. */
+   first SEL_ANCESTOR_MEMO_MIN_RUN ancestors the walk stops at the first one whose answer the memo holds and stores
+   its answer under each one it passed: a query visits each ancestor a bounded number of times. Inside :has() the
+   answer depends on the anchor, so the walk keeps off the memo; where compounds[0..index - 1] write :scope it
+   depends on the scope too, so the walk keeps off it unless the context holds a sibling memo, which a driver passes
+   only while the scope stays put. */
 static enum sel_status sel_deep_ancestors(th_node *node, const sel_complex *complex, int index, th_node *anchor,
                                           const sel_ctx *ctx, sel_deep_memo *memo) {
     const sel_compound *target = &complex->compounds[index - 1];
@@ -3950,10 +3999,10 @@ static const void *sel_deep_has_key(const sel_complex *rel, int index) {
 
 static int sel_deep_has_rel(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_deep_memo *memo);
 
-/* Whether node matches compounds[index] of rel, a :has() argument without :scope, and the compounds right of it hang
-   off node in turn: rel read left to right, so that every answer is a fact of the tree and the memo keeps it for every
-   anchor. -1 once the memo has failed, since without it each node would rescan its subtree; the anchor then takes the
-   direct walk. */
+/* Whether node matches compounds[index] of rel, a :has() argument without :scope, and the compounds right of it
+   hang off node in turn: rel read left to right, so that every answer is a fact of the tree and the memo keeps it
+   for every anchor. -1 once the memo has failed, since without it each node would rescan its subtree; the anchor
+   then takes the direct walk. */
 static int sel_deep_has_step(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx,
                              sel_deep_memo *memo) {
     if (!sel_deep_compound(node, &rel->compounds[index], ctx, memo)) {
@@ -4024,8 +4073,9 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
 }
 
 /* Whether a later element sibling of node passes sel_deep_has_step at index. Whether one does at or after a sibling
-   depends only on that sibling, so the walk stops at the first one whose answer the memo holds and stores its answer
-   under each one it passed: the anchors of a long sibling run visit each sibling a bounded number of times. */
+   depends only on that sibling, so the walk stops at the first one whose answer the memo holds and stores its
+   answer under each one it passed: the anchors of a long sibling run visit each sibling a bounded number of times.
+ */
 static int sel_deep_has_later(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx,
                               sel_deep_memo *memo) {
     const void *key = sel_deep_has_key(rel, index);
@@ -4099,8 +4149,9 @@ static int sel_deep_has_subtree(th_node *node, const sel_complex *rel, int subje
 }
 
 /* sel_has_match through this matcher. An argument without :scope reads left to right, its answers facts of the tree
-   the memo keeps for every anchor; a :scope that pins the leftmost compound to the anchor leaves the rest to read that
-   way. An argument that writes :scope elsewhere, or meets a memo that failed, takes the direct walk from the anchor. */
+   the memo keeps for every anchor; a :scope that pins the leftmost compound to the anchor leaves the rest to read
+   that way. An argument that writes :scope elsewhere, or meets a memo that failed, takes the direct walk from the
+   anchor. */
 static int sel_deep_has_anchor(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx,
                                sel_deep_memo *memo) {
     sel_ctx scoped = *ctx;
@@ -4177,8 +4228,8 @@ static TH_NOINLINE int sel_deep_match(th_node *node, const sel_simple *simple, c
     return sel_deep_alts(node, simple->sub, simple->sub_count, ctx, &deep->memo);
 }
 
-/* PSEUDO_DEEP_LISTS: PSEUDO_DEEP for a selector that keeps the answers of nested lists (SEL_CLIMBS_LISTS), which tell
-   apart the answers that hold under any scope by whether the subject is the scope. */
+/* PSEUDO_DEEP_LISTS: PSEUDO_DEEP for a selector that keeps the answers of nested lists (SEL_CLIMBS_LISTS), which
+   tell apart the answers that hold under any scope by whether the subject is the scope. */
 static TH_NOINLINE int sel_deep_match_lists(th_node *node, const sel_simple *simple, const sel_ctx *ctx) {
     sel_deep_query *deep = (sel_deep_query *)((const char *)simple - offsetof(sel_deep_query, simple));
     sel_deep_kept *kept = sel_deep_kept_of(&deep->memo);

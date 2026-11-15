@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from functools import partial
 from typing import TYPE_CHECKING, Final
 
@@ -1883,3 +1885,33 @@ def test_computed_style_keeps_sheets_across_attribute_writes_that_keep_style_typ
     style.attrs["media"] = "screen"
     paragraph.attrs["class"] = "x"
     assert computed_style(paragraph)["color"] == "blue"
+
+
+def test_long_rule_chain_raises_recursion_error_on_a_small_stack() -> None:
+    code = (
+        "import threading\n"
+        "from turbohtml import parse\n"
+        "from turbohtml.cssom import computed_style\n"
+        "n = 6_144\n"
+        'document = parse("<style>" + "wbr ~ " * n + "b{color:red}</style>" + "<wbr>" * n + "<b id=x></b>")\n'
+        "outcome = []\n"
+        "def run():\n"
+        "    try:\n"
+        '        outcome.append(computed_style(document.select_one("#x"))["color"])\n'
+        "    except RecursionError as error:\n"
+        "        outcome.append(str(error))\n"
+        "threading.stack_size(256 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(outcome[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, "C stack" in result.stdout) == (0, True), result.stderr
+
+
+def test_long_rule_chain_applies_when_the_stack_holds_it() -> None:
+    document = parse(f"<style>{'wbr ~ ' * 199}b{{color:red}}</style>{'<wbr>' * 199}<b id=x></b>")
+    assert computed_style(document.select("#x")[0])["color"] == "red"
