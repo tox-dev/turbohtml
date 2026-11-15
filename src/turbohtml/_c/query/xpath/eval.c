@@ -2475,14 +2475,21 @@ static Py_ssize_t first_passing(const xp_hop *hops, int count, Py_ssize_t size, 
    so the positions below, equal to and above bound are three runs, which two searches find. */
 static int compare_spans(const xp_hop *hops, int count, Py_ssize_t size, int op, double bound, xp_spans *out) {
     if (isnan(bound)) {
+#ifdef XP_EQ_VIA_PYTHON
+        return 0;
+#else
         return op == XN_NE ? spans_add(out, 1, size) : 0;
+#endif
     }
     int rising = hops_apply(hops, count, 1) <= hops_apply(hops, count, size);
     Py_ssize_t below_end = first_passing(hops, count, size, rising ? XN_GE : XN_LT, bound);
     Py_ssize_t above_end = first_passing(hops, count, size, rising ? XN_GT : XN_LE, bound);
+#ifndef XP_EQ_VIA_PYTHON
     Py_ssize_t equal_lo = rising ? below_end : above_end;
     Py_ssize_t equal_hi = (rising ? above_end : below_end) - 1;
+#endif
     switch (op) {
+#ifndef XP_EQ_VIA_PYTHON
     case XN_EQ:
         return spans_add(out, equal_lo, equal_hi);
     case XN_NE:
@@ -2490,6 +2497,7 @@ static int compare_spans(const xp_hop *hops, int count, Py_ssize_t size, int op,
             return -1;                             /* GCOVR_EXCL_LINE */
         }
         return spans_add(out, equal_hi + 1, size);
+#endif
     case XN_LT:
         return rising ? spans_add(out, 1, below_end - 1) : spans_add(out, below_end, size);
     case XN_LE:
@@ -2595,8 +2603,12 @@ static int formula_spans(const xp_program *prog, int32_t index, xp_ctx *pctx, in
         return rc;
     }
     /* a node-set compares member by member, and a boolean makes = and != compare truth values */
+#ifdef XP_EQ_VIA_PYTHON
+    int scalar = value.kind == XP_NUMBER || value.kind == XP_STRING || value.kind == XP_BOOLEAN;
+#else
     int scalar = value.kind == XP_NUMBER || value.kind == XP_STRING ||
                  (value.kind == XP_BOOLEAN && node->kind != XN_EQ && node->kind != XN_NE);
+#endif
     double bound = scalar ? to_number(pctx->tree, &value) : 0;
     xp_result_free(&value);
     if (!scalar) {
@@ -2610,7 +2622,11 @@ static int formula_spans(const xp_program *prog, int32_t index, xp_ctx *pctx, in
     }
     int op = node->kind;
     if (!left) { /* bound op chain is chain op' bound */
+#ifdef XP_EQ_VIA_PYTHON
+        op = op == XN_LT ? XN_GT : op == XN_LE ? XN_GE : op == XN_GT ? XN_LT : XN_LE;
+#else
         op = op == XN_LT ? XN_GT : op == XN_LE ? XN_GE : op == XN_GT ? XN_LT : op == XN_GE ? XN_LE : op;
+#endif
     }
     return compare_spans(hops, count, size, op, bound, out);
 }
