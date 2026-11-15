@@ -1100,10 +1100,12 @@ static void rng_build_join(th_schema *schema, rng_build_frame *frame, th_node *f
         return;
     }
     frame->route = route_new(schema, count, type);
-    if (frame->route == NULL) {               /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+    if (frame->route == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        /* GCOVR_EXCL_START: arena OOM is unforceable */
         frame->next = NULL;                   /* GCOVR_EXCL_LINE */
         frame->joined = schema->p_notallowed; /* GCOVR_EXCL_LINE */
     }
+    /* GCOVR_EXCL_STOP */
 }
 
 /* Group the pattern children of a container (Empty when none). `skip`, when set, is the name class an element or
@@ -4826,8 +4828,10 @@ static int rng_attrs_pairs(th_schema *schema, const rng_attrs *acc, const rng_at
             }
             if (nc_name_eq(name, names[other])) { /* GCOVR_EXCL_BR_LINE: unequal names need a 64-bit collision */
                 return 1;
+                /* GCOVR_EXCL_START: unequal names need a 64-bit collision */
             }
         }
+        /* GCOVR_EXCL_STOP */
     }
     return 0;
 }
