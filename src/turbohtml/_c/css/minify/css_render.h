@@ -1059,7 +1059,7 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
                     css_compkind kind;
                     if (css_try_calc(pool, vec, index + 2, close_index, &context, &off, &len, &kind) &&
                         len < vec->items[close_index].text + vec->items[close_index].text_len - token->text) {
-                        cbuf_put_run(&joined, pool->data + off, len);
+                        css_put_folded(&joined, pool->data + off, len, vec, close_index + 1, end);
                         index = close_index;
                         last_is_ident = 0;
                         continue;

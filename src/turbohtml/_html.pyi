@@ -517,3 +517,6 @@ def _fuzz_verify_broken(kind: str, /) -> tuple[int, int, int, int]: ...
 
 # Test-build hook: only the work-step build (meson -Dwork_steps=true) defines it.
 def _work_steps() -> int: ...
+
+# The open-element depth cap of the streaming rewriter: 8192, a tenth of that in the fuzz-only build.
+_REWRITE_MAX_DEPTH: int
