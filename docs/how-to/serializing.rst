@@ -41,7 +41,8 @@ The pretty form only adds or drops whitespace where the default CSS renders none
 inline ``<svg>`` or ``<math>`` -- stays on one line exactly as written, since a line break there would render as a
 space. ``<pre>``, ``<textarea>`` and raw-text elements keep their content verbatim. So the rendered text stays the same,
 and indenting the output again gives the same output. SVG and MathML children, and every element of an XML tree, get
-their own lines only when the parent holds no text; a parent with text stays verbatim.
+their own lines only when the parent holds no text; a parent with text stays verbatim. Indentation stops at 64 nesting
+levels: deeper lines keep that indentation, so a deeply nested document cannot multiply the output.
 
 .. testcode::
 

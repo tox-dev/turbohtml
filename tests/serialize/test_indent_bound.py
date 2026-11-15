@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import Final
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from markdown_it import MarkdownIt
 
-from turbohtml import Markdown, parse
+from turbohtml import Html, Indent, Markdown, parse, parse_xml
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _NESTED_ITEMS: Final[str] = f"{'<ul><li>' * 12}x"
 # plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
@@ -104,3 +108,30 @@ def test_markdown_past_the_cap_reads_back_under_commonmark_nesting(source: str) 
     labels = sorted(source.replace("<ul><li>", " ").replace("<blockquote>", " ").split())
     tokens = MarkdownIt("commonmark").parse(parse(source).to_markdown())
     assert sorted(token.content for token in tokens if token.type == "inline") == labels
+
+
+def test_pretty_indent_stops_at_the_nesting_cap() -> None:
+    depth: Final = 67
+    options = Html(layout=Indent())
+    document = parse_xml("<a>" * depth + "</a>" * depth)
+    pretty = document.serialize(options)
+    opened = [f"{'  ' * min(level, 64)}<a>" for level in range(depth - 1)]
+    closed = [line.replace("<a>", "</a>") for line in reversed(opened)]
+    assert pretty.split("\n") == [*opened, f"{'  ' * 64}<a></a>", *closed]
+    assert "".join(document.serialize_iter(options)) == pretty
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param(Html(layout=Indent()), id="html"),
+        pytest.param(Html(xml=True, layout=Indent()), id="xml"),
+        pytest.param(Html(layout=Indent("\t")), id="tab"),
+    ],
+)
+def test_pretty_deep_nesting_stays_linear(options: Html, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda depth: partial(_pretty_chain, depth, options), (500, 2000))
+
+
+def _pretty_chain(depth: int, options: Html) -> str:
+    return parse_xml("<a>" * depth + "</a>" * depth).serialize(options)
