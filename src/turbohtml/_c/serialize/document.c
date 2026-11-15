@@ -870,10 +870,10 @@ static void ser_newline_indent(sbuf *out, const ser_opts *opts, int depth) {
         return;
     }
     int levels = depth < TH_MAX_PRETTY_INDENT_LEVELS ? depth : TH_MAX_PRETTY_INDENT_LEVELS;
-    if (levels >
-        (PY_SSIZE_T_MAX - out->len - 1) / opts->indent_len) { /* GCOVR_EXCL_BR_LINE: allocation size overflow */
-        out->failed = 1;                                      /* GCOVR_EXCL_LINE: allocation size overflow */
-        return;                                               /* GCOVR_EXCL_LINE: allocation size overflow */
+    const Py_ssize_t room = (PY_SSIZE_T_MAX - out->len - 1) / opts->indent_len;
+    if (levels > room) { /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+        out->failed = 1; /* GCOVR_EXCL_LINE: allocation size overflow */
+        return;          /* GCOVR_EXCL_LINE: allocation size overflow */
     }
     Py_ssize_t length = levels * opts->indent_len;
     TH_WORK_STEPS_ADD(length);

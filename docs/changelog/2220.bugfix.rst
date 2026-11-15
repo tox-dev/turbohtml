@@ -1,0 +1,2 @@
+``computed_style()`` now returns the right color for an element when several rules in a stylesheet use ``:nth-child()``
+or ``:nth-last-child()`` with an ``of`` selector list.

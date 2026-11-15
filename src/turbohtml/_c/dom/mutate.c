@@ -815,9 +815,11 @@ Py_ssize_t th_node_attr_find_atom(th_tree *tree, th_node *node, uint32_t atom) {
 ATTR_INDEX_FN Py_ssize_t node_attr_find_wide(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
                                              uint32_t atom) {
     const Py_ssize_t found = node_attr_find_large(tree, node, name, name_len, atom);
-    if (found < -1) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+    if (found < -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        /* GCOVR_EXCL_START: allocation-failure path */
         PyErr_Clear(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
     return found;
 }
 
@@ -828,11 +830,13 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
     }
     uint32_t atom = th_attr_lookup_inline(tree, name, name_len);
     /* unlikely, so the scan small elements take keeps its code layout */
+    /* -2 when the node has no index or it could not be allocated; the scan below takes over */
+    Py_ssize_t found = -2;
     if (TH_UNLIKELY(node->attr_count >= ATTR_INDEX_MIN)) {
-        const Py_ssize_t found = node_attr_find_wide(tree, node, name, name_len, atom);
-        if (found >= -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return found;
-        }
+        found = node_attr_find_wide(tree, node, name, name_len, atom);
+    }
+    if (found >= -1) {
+        return found;
     }
     if (atom != UINT32_MAX) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {

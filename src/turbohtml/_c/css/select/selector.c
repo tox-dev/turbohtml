@@ -1141,7 +1141,7 @@ static int sel_alts_climb(const sel_complex *alts, int count, int relative) {
         int walked_from = 0; /* the compounds left of this one are tested along a walk */
         for (int index = 0; index < complex->count; index++) {
             if (complex->compounds[index].combinator == ' ' && (index > 0 || relative)) {
-                climbs = climbs > 1 ? climbs : 1;
+                climbs = 1; /* climbs is 0 or 1 here: the loop below returns 2 for any deeper walk */
                 walked_from = index;
             }
         }
@@ -3644,6 +3644,51 @@ static int sel_deep_has_once(th_node *node, const sel_simple *simple, const sel_
     return found;
 }
 
+/* The counts of the 'of S' clause simple, added empty on its first use, or NULL when allocation fails. They are keyed
+   by the clause, not its number (sel_simple.nest), as the cascade's memo serves the clauses of every rule. */
+static sel_deep_counts *sel_deep_counts_of(sel_deep_kept *kept, const sel_simple *simple) {
+    for (size_t mask = (size_t)kept->count_slots - 1, index = sel_deep_key_home(simple, mask); kept->counts != NULL;
+         index = (index + 1) & mask) {
+        if (kept->counts[index] == NULL) {
+            break;
+        }
+        if (kept->counts[index]->owner == simple) {
+            return kept->counts[index];
+        }
+    }
+    if ((kept->count_used + 1) * 4 > kept->count_slots * 3) {
+        const int capacity = kept->count_slots == 0 ? 8 : kept->count_slots * 2;
+        sel_deep_counts **grown = PyMem_Calloc((size_t)capacity, sizeof(sel_deep_counts *));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        for (int slot = 0; slot < kept->count_slots; slot++) {
+            if (kept->counts[slot] != NULL) {
+                size_t home = sel_deep_key_home(kept->counts[slot]->owner, (size_t)capacity - 1);
+                while (grown[home] != NULL) {
+                    home = (home + 1) & ((size_t)capacity - 1);
+                }
+                grown[home] = kept->counts[slot];
+            }
+        }
+        PyMem_Free(kept->counts);
+        kept->counts = grown;
+        kept->count_slots = capacity;
+    }
+    sel_deep_counts *counts = PyMem_Calloc(1, sizeof(sel_deep_counts));
+    if (counts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    counts->owner = simple;
+    size_t index = sel_deep_key_home(simple, (size_t)kept->count_slots - 1);
+    while (kept->counts[index] != NULL) {
+        index = (index + 1) & ((size_t)kept->count_slots - 1);
+    }
+    kept->counts[index] = counts;
+    kept->count_used++;
+    return counts;
+}
+
 /* The index :nth-child(An+B of S) or :nth-last-child(An+B of S) gives node, for a clause one match asks about many
    siblings (sel_simple.nest): one plus the count of the element siblings before node (after it, for
    :nth-last-child()) that match S. Each sibling's index is kept in the clause's counts, filled from the nearest
@@ -3652,29 +3697,21 @@ static int sel_deep_has_once(th_node *node, const sel_simple *simple, const sel_
 static int sel_deep_count(th_node *node, int direction, const sel_simple *simple, const sel_ctx *ctx,
                           sel_deep_memo *memo) {
     sel_deep_kept *kept = sel_deep_kept_of(memo);
-    const int slot = simple->nest - 1;
-    if (kept == NULL) {                                            /* GCOVR_EXCL_BR_LINE: allocation failure */
+    sel_deep_counts *counts = kept != NULL ? sel_deep_counts_of(kept, simple) : NULL; /* GCOVR_EXCL_BR_LINE */
+    if (counts == NULL) {                                          /* GCOVR_EXCL_BR_LINE: allocation failure */
         return sel_nth_of_index(node, direction < 0, simple, ctx); /* GCOVR_EXCL_LINE: allocation failure */
     }
-    if (simple->nest > kept->count_slots) {
-        sel_deep_counts *grown = PyMem_Realloc(kept->counts, (size_t)simple->nest * sizeof(sel_deep_counts));
-        if (grown == NULL) {                                           /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return sel_nth_of_index(node, direction < 0, simple, ctx); /* GCOVR_EXCL_LINE: allocation failure */
-        }
-        memset(grown + kept->count_slots, 0, (size_t)(simple->nest - kept->count_slots) * sizeof(sel_deep_counts));
-        kept->counts = grown;
-        kept->count_slots = simple->nest;
-    }
-    if (kept->counts[slot].scope != ctx->scope && (!kept->subject_scope || simple->pseudo != PSEUDO_NTH_CHILD) &&
+    if (counts->scope != ctx->scope && (!kept->subject_scope || simple->pseudo != PSEUDO_NTH_CHILD) &&
         sel_alts_write_scope(simple->sub, simple->sub_count)) {
-        PyMem_Free(kept->counts[slot].map.entries);
-        kept->counts[slot] = (sel_deep_counts){{0}, ctx->scope};
+        PyMem_Free(counts->map.entries);
+        counts->map = (th_node_map){0};
+        counts->scope = ctx->scope;
     }
     sel_ctx counting = *ctx;
     if (counting.position_memo == NULL) {
         counting.position_memo = &kept->positions;
     }
-    Py_ssize_t index = th_node_map_find(&kept->counts[slot].map, node);
+    Py_ssize_t index = th_node_map_find(&counts->map, node);
     if (index != 0) {
         return (int)index;
     }
@@ -3684,7 +3721,7 @@ static int sel_deep_count(th_node *node, int direction, const sel_simple *simple
          sibling = direction < 0 ? sibling->next_sibling : sibling->prev_sibling) {
         TH_WORK_STEP();
         if (sibling->type == TH_NODE_ELEMENT) {
-            index = th_node_map_find(&kept->counts[slot].map, sibling);
+            index = th_node_map_find(&counts->map, sibling);
             if (index != 0) {
                 known = sibling;
                 break;
@@ -3701,9 +3738,9 @@ static int sel_deep_count(th_node *node, int direction, const sel_simple *simple
         if (sibling->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (th_node_map_insert(&kept->counts[slot].map, sibling, index) < 0) { /* GCOVR_EXCL_BR_LINE */
-            index = sel_nth_of_index(node, direction < 0, simple, ctx);        /* GCOVR_EXCL_LINE */
-            break;                                                             /* GCOVR_EXCL_LINE */
+        if (th_node_map_insert(&counts->map, sibling, index) < 0) {     /* GCOVR_EXCL_BR_LINE */
+            index = sel_nth_of_index(node, direction < 0, simple, ctx); /* GCOVR_EXCL_LINE */
+            break;                                                      /* GCOVR_EXCL_LINE */
         }
         if (sibling == node) {
             break;
@@ -4249,7 +4286,10 @@ TH_NOINLINE void sel_deep_memo_free(sel_deep_memo *memo) {
     sel_deep_store_free(&kept->lists);
     sel_deep_store_free(&kept->scoped);
     for (int slot = 0; slot < kept->count_slots; slot++) {
-        PyMem_Free(kept->counts[slot].map.entries);
+        if (kept->counts[slot] != NULL) {
+            PyMem_Free(kept->counts[slot]->map.entries);
+            PyMem_Free(kept->counts[slot]);
+        }
     }
     PyMem_Free(kept->counts);
     sel_position_memo_free(&kept->positions);

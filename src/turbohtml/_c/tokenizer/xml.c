@@ -1581,8 +1581,10 @@ static int consume_start_tag(xml_parser *parser) {
                     /* GCOVR_EXCL_BR_STOP */
                     record(parser, "xml-duplicate-attribute", span->start);
                     return -1;
+                    /* GCOVR_EXCL_START: names that differ under one salted 64-bit hash cannot be forced from a test */
                 }
             }
+            /* GCOVR_EXCL_STOP */
             slot = (slot + 1) & (parser->dup_cap - 1);
         }
         parser->dup[slot] = (xml_hashslot){parser->dup_gen, hash, index};

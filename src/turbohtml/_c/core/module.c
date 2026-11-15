@@ -325,6 +325,9 @@ static PyMethodDef html_methods[] = {
 #ifdef TH_WORK_STEPS
     {"_work_steps", turbohtml_work_steps, METH_NOARGS, NULL},
 #endif
+#ifdef TH_COVERAGE_FLUSH
+    {"_coverage_flush", turbohtml_coverage_flush, METH_NOARGS, NULL},
+#endif
     {NULL, NULL, 0, NULL},
 };
 

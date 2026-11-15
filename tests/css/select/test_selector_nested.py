@@ -248,6 +248,14 @@ def test_scope_read_after_an_element_is_answered_per_scope() -> None:
     assert [item.matches(selector) for item in items] == [False, False] + [True] * 40
 
 
+def test_of_clause_with_scope_counts_apart_for_each_has_anchor() -> None:
+    document = parse("<div><b><a></a></b></div><div><b></b></div><div><b><a></a></b><b><a></a></b></div>")
+    divs = document.select("div")
+    selector = "div:has(:nth-last-child(1 of :scope a))"
+    assert document.select(selector) == [divs[0], divs[2]]
+    assert [div.matches(selector) for div in divs] == [True, False, True]
+
+
 def test_scope_list_inside_has_walks_past_the_memo_run() -> None:
     document = parse_xml(f"<r>{'<b>' * 90}{'</b>' * 90}</r>")
     assert document.select("b:has(:is(:scope * *, q))") == document.select("b:has(* *)")

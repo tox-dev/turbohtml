@@ -93,6 +93,31 @@ commands = [
     "--ignore={tox_root}{/}tests{/}_html{/}fuzz{/}test_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
+  # gcov merges every process into the same .gcda files, so a lost process changes neither their number nor their
+  # size; the per-file run count (one per process that wrote it) is what drops when a process exits without writing
+  { replace = "if", condition = "factor.win32 or factor['3.15'] or factor['3.14t'] or factor['3.15t']", then = [], else = [
+    [
+      "python",
+      "-c",
+      """
+import pathlib
+import struct
+
+def runs(path):
+    data = path.read_bytes()
+    words = struct.unpack('<%dI' % (len(data) // 4), data)
+    if words[4] == 0xA1000000:
+        return words[6]
+    if words[-6] == 0xA1000000:
+        return words[-4]
+    return words[-3] if words[-7] == 0xA3000000 else -1
+
+gcda = sorted(pathlib.Path(r'{env_dir}', 'cbuild').rglob('*.gcda'))
+size = sum(path.stat().st_size for path in gcda)
+print('gcda files:', len(gcda), 'bytes:', size, 'runs per file:', sorted(set(map(runs, gcda))))
+    """,
+    ],
+  ], extend = true },
   { replace = "if", condition = "factor.win32 or factor['3.15'] or factor['3.14t'] or factor['3.15t']", then = [
     "python",
     "-c",

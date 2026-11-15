@@ -1791,9 +1791,11 @@ static void rw_mirror_sync(rw_ctx *ctx, int compact) {
     /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
     if (th_shadow_mirror_feed(ctx->mirror, ctx->out.data + ctx->mirrored, end - ctx->mirrored, rw_mirror_refs(ctx),
                               count, sizeof(rw_open)) < 0) {
+        /* GCOVR_EXCL_START: allocation-failure path */
         ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
     /* GCOVR_EXCL_BR_STOP */
     ctx->mirrored = end;
 }
@@ -1801,9 +1803,11 @@ static void rw_mirror_sync(rw_ctx *ctx, int compact) {
 static TH_NOINLINE void rw_mirror_start(rw_ctx *ctx) {
     ctx->mirror = th_shadow_mirror_new();
     if (ctx->mirror == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
+        /* GCOVR_EXCL_START: allocation-failure path */
+        ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
 }
 
 static th_node *rw_mirror_current(const rw_ctx *ctx) {
@@ -2391,9 +2395,11 @@ static TH_NOINLINE th_node *rw_shadow_step(rw_ctx *ctx, th_token *token) {
     if (th_shadow_compact(ctx->shadow, rw_refs(ctx), ctx->depth, sizeof(rw_open)) < 0 ||
         (before = rw_shadow_current(ctx), th_shadow_step(ctx->shadow, token) < 0)) {
         /* GCOVR_EXCL_BR_STOP */
+        /* GCOVR_EXCL_START: allocation-failure path */
         ctx->error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* GCOVR_EXCL_STOP */
     return before;
 }
 
@@ -2821,10 +2827,12 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         ctx->stack_cap = (Py_ssize_t)cap;
     }
     if (rw_open_name(ctx, &open) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        if (handle != NULL) {           /* GCOVR_EXCL_LINE: allocation-failure path */
-            handle->live = 0;           /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_DECREF(handle);          /* GCOVR_EXCL_LINE: allocation-failure path */
+        /* GCOVR_EXCL_START: allocation-failure path */
+        if (handle != NULL) {  /* GCOVR_EXCL_LINE: allocation-failure path */
+            handle->live = 0;  /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(handle); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        /* GCOVR_EXCL_STOP */
         Py_XDECREF(open.append_html); /* GCOVR_EXCL_LINE: allocation-failure path */
         rw_free_node(ctx, node);      /* GCOVR_EXCL_LINE: allocation-failure path */
         ctx->error = 1;               /* GCOVR_EXCL_LINE: allocation-failure path */

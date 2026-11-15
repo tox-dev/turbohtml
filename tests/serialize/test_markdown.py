@@ -1930,6 +1930,10 @@ def test_task_list_interrupts_paragraph() -> None:
     assert md("<p>a</p><ul><li><input type=checkbox checked>b</li></ul>") == "a\n\n- [x] b"
 
 
+def test_list_text_before_first_item_after_paragraph() -> None:
+    assert md("<p>a</p><ol><span>x</span><li>b</li></ol>") == "a\n\nx\n\n1. b"
+
+
 def test_task_list_respects_input_strip() -> None:
     assert (
         parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(strip=["input"])) == "- done"
