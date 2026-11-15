@@ -1138,10 +1138,14 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     css_tokenize(combined.data, combined.len, &tokens);
     cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
+    Py_ssize_t scratch = pool->len;
     css_parse_declarations(pool, &inner, &decls, 0);
     cbuf_free(&inner.media_next);
     css_buf body = {NULL, 0, 0, pool->oom};
     css_render_declarations(pool, &decls, baseline, &body, CSS_DECL_NORMAL);
+    /* only decls points at what the parse and render interned, and body is a buffer of its own, so the pool gives that
+       scratch back: left there, every merge would hold a parsed copy of the whole body until the call returns */
+    pool->len = scratch;
     prev->body_off = pool_run(pool, body.data, body.len);
     prev->body_len = body.len;
     css_free(tokens.items);
@@ -1152,9 +1156,13 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
 
 /* A physical-slot cap leaves dropped rules as invisible barriers on the next pass. Bound the live-rule search and stop
    growing a merged run once it reaches 10 KiB: an unbounded same-selector run costs O(n^2) time and memory (~115 KiB of
-   CSS reached ~1 GiB). One merge may cross the limit, which keeps later passes from merging a split run. */
+   CSS reached ~1 GiB). One merge may cross the limit, which keeps later passes from merging a split run. A merge
+   re-minifies the whole target, and a rule that repeats the target's declarations never grows it toward that limit, so
+   a rule merges only into a target up to 64 times its length: the re-minified bytes stay linear in the input. Shorter
+   rules fold into each other first, and the merge back is retried once they add up. */
 #define CSS_MAX_MERGE_REACH 256
 #define CSS_MAX_MERGED_RUN_LENGTH 10240
+#define CSS_MAX_MERGE_RATIO 64
 
 static Py_ssize_t css_merge_attribute_end(const css_char *selector, Py_ssize_t len, Py_ssize_t open) {
     Py_ssize_t index = open + 1;
@@ -1559,7 +1567,8 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
             break;
         }
         if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-            if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
+            if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH ||
+                target->body_len / CSS_MAX_MERGE_RATIO > it->body_len) {
                 break;
             }
             Py_ssize_t body_off = target->body_off;
