@@ -390,6 +390,7 @@ jobs:
           TSAN_SHARD: ${{ matrix.shard }}
   release:
     name: 🏷️ Release dry run
+    if: ${{ github.event_name != 'pull_request' }}
     uses: $/.github/workflows/prepare-release.yaml
     permissions:
       contents: read
@@ -398,6 +399,7 @@ jobs:
       dry-run: true
   hooks:
     name: 🧹 Hooks under the cooldown
+    if: ${{ github.event_name != 'pull_request' }}
     uses: tox-dev/github-workflows/.github/workflows/cooled-hooks.yaml@bf1c3ab0aa137d307a07aad844d507af73039387 # 6.8.0
     permissions:
       contents: read
