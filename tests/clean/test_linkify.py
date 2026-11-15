@@ -1055,6 +1055,37 @@ def test_the_node_form_refuses_a_str() -> None:
         linkify_node(_TEXT)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
+@pytest.mark.parametrize(
+    ("html", "selector", "expected"),
+    [
+        pytest.param(
+            '<a href="/x">see http://x.com</a>',
+            "a",
+            '<a href="/x">see http://x.com</a>',
+            id="anchor-owner",
+        ),
+        pytest.param(
+            '<a href="/x"><span>see http://x.com</span></a>',
+            "span",
+            '<a href="/x"><span>see http://x.com</span></a>',
+            id="node-inside-anchor",
+        ),
+        pytest.param(
+            '<a href="/x">kept</a><span>see http://x.com</span>',
+            "span",
+            '<a href="/x">kept</a><span>see <a href="http://x.com">http://x.com</a></span>',
+            id="node-beside-anchor",
+        ),
+    ],
+)
+def test_node_form_does_not_link_under_an_anchor(html: str, selector: str, expected: str) -> None:
+    root = parse_fragment(html)
+    owner = root.select_one(selector)
+    assert owner is not None
+    linkify_node(owner, Linkify(callbacks=_no_callbacks()))
+    assert root.inner_html == expected
+
+
 @pytest.mark.parametrize("entry", [pytest.param(linkify, id="linkify"), pytest.param(linkify_node, id="linkify_node")])
 def test_a_foreign_object_is_rejected(entry: Callable[[str | Node], object]) -> None:
     with pytest.raises(TypeError):
