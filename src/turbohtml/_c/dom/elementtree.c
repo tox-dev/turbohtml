@@ -1934,6 +1934,47 @@ static PyObject *view_subelement(PyObject *module, PyObject *args, PyObject *kwa
     return result;
 }
 
+/* Moves the matches strip_elements() removes to the front of items and returns their count. One walk of owner's
+   subtree decides them all: a getparent() climb from each match costs its depth again, and parse_xml() does not bound
+   depth. The walk stops at the same nodes the climb does: a template's content, a tail holder, and an earlier match
+   with its whole subtree. */
+TH_NODE_API(static, Py_ssize_t, view_strip_targets, (NodeObject * owner, PyObject *items), (owner, items),
+            (NodeObject * owner, PyObject *items), owner, NULL) {
+    Py_ssize_t index = 0;
+    Py_ssize_t kept = 0;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    th_node *root = owner->node;
+    th_node *barrier = NULL;
+    th_node *node = root;
+    while (node != NULL && index < PyList_GET_SIZE(items)) {
+        TH_WORK_STEP();
+        PyObject *item = PyList_GET_ITEM(items, index);
+        th_node *wanted = NULL;
+        Py_DECREF(node_owner_pair(((ElementView *)item)->node, &wanted));
+        if (node == wanted) {
+            if (barrier == NULL) {
+                barrier = node;
+                PyList_SET_ITEM(items, index, PyList_GET_ITEM(items, kept));
+                PyList_SET_ITEM(items, kept++, item);
+            }
+            index++;
+        } else if (barrier == NULL && (node->type != TH_NODE_ELEMENT || view_is_holder(node))) {
+            barrier = node;
+        }
+        th_node *next = node->first_child;
+        while (next == NULL && node != root) {
+            if (node == barrier) {
+                barrier = NULL;
+            }
+            next = node->next_sibling;
+            node = node->parent;
+        }
+        node = next;
+    }
+    Py_END_CRITICAL_SECTION();
+    return kept;
+}
+
 static PyObject *view_strip(PyObject *module, PyObject *args, int unwrap, int with_tail) {
     module_state *state = PyModule_GetState(module);
     if (PyTuple_GET_SIZE(args) == 0 ||
@@ -1967,33 +2008,21 @@ static PyObject *view_strip(PyObject *module, PyObject *args, int unwrap, int wi
     if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
     }
+    Py_ssize_t count = unwrap ? PyList_GET_SIZE(items) : view_strip_targets(((ElementView *)root)->node, items);
     int status = 0;
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(items); index++) {
+    for (Py_ssize_t index = 0; status == 0 && index < count; index++) {
         /* GCOVR_EXCL_BR_STOP */
         PyObject *item = PyList_GET_ITEM(items, index);
         if (unwrap) {
             status = view_discard(view_drop_tag(item, NULL));
         } else {
-            PyObject *parent = view_parent(item, NULL);
+            status = with_tail ? view_set_text(item, Py_None, (void *)1) : 0;
             /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-            while (parent != NULL && parent != Py_None && parent != root) {
+            if (status == 0) {
                 /* GCOVR_EXCL_BR_STOP */
-                PyObject *previous = parent;
-                parent = view_parent(parent, NULL);
-                Py_DECREF(previous);
+                status = view_discard(node_extract((PyObject *)((ElementView *)item)->node, NULL));
             }
-            if (parent == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                status = -1;      /* GCOVR_EXCL_LINE: allocation failure */
-            } else if (parent == root) {
-                status = with_tail ? view_set_text(item, Py_None, (void *)1) : 0;
-                /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-                if (status == 0) {
-                    /* GCOVR_EXCL_BR_STOP */
-                    status = view_discard(node_extract((PyObject *)((ElementView *)item)->node, NULL));
-                }
-            }
-            Py_XDECREF(parent);
         }
     }
     Py_DECREF(items);

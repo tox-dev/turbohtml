@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
-from turbohtml import Element, Text, etree, parse
+from turbohtml import Element, Text, etree, parse, parse_xml
 from turbohtml.etree import document_fromstring, fragment_fromstring, fromstring, strip_elements, strip_tags, tostring
 
 if TYPE_CHECKING:
@@ -156,6 +156,47 @@ def test_element_tree_empty_strip_filter_retains_content(
 ) -> None:
     function(tree)
     assert tostring(tree, encoding="unicode") == "<div>start<a>A</a>one<b>B</b>two</div>"
+
+
+def test_element_tree_strip_elements_leaves_nested_match_in_removed_subtree() -> None:
+    tree: Final = etree.fromstring("<div><b>one<i>two</i>three</b>four<i>five</i>six</div>")
+    outer: Final = tree[0]
+    etree.strip_elements(tree, "b", "i")
+    assert (etree.tostring(tree, encoding="unicode"), etree.tostring(outer, encoding="unicode")) == (
+        "<div/>",
+        "<b>one<i>two</i>three</b>",
+    )
+
+
+def test_element_tree_strip_elements_leaves_template_content() -> None:
+    tree: Final = etree.fromstring("<div><template><b>kept</b></template><b>gone</b></div>")
+    etree.strip_elements(tree, "b")
+    assert etree.tostring(tree, encoding="unicode") == "<div><template><b>kept</b></template></div>"
+
+
+def test_element_tree_strip_elements_stops_at_tail_holder() -> None:
+    tree: Final = etree.fromstring("<div><p><b>bold</b></p>tail</div>")
+    removed: Final = tree[0]
+    tree.remove(removed)  # parks the element and its tail under a holder that getparent() does not climb past
+    holder: Final = removed.node.parent
+    assert isinstance(holder, Element)
+    etree.strip_elements(etree.ElementView(holder), "b")
+    assert etree.tostring(removed, encoding="unicode") == "<p><b>bold</b></p>tail"
+
+
+def test_element_tree_strip_elements_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_match_per_level, (700, 2_800))
+
+
+def _match_per_level(depth: int) -> Callable[[], None]:
+    root: Final = parse_xml(f"<r>{'<s><m/>' * depth}{'</s>' * depth}</r>").root
+    assert root is not None
+    tree: Final = etree.ElementView(root)
+
+    def strip() -> None:
+        etree.strip_elements(tree, "m")
+
+    return strip
 
 
 @pytest.mark.parametrize(
