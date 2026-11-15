@@ -1915,3 +1915,25 @@ def test_long_rule_chain_raises_recursion_error_on_a_small_stack() -> None:
 def test_long_rule_chain_applies_when_the_stack_holds_it() -> None:
     document = parse(f"<style>{'wbr ~ ' * 199}b{{color:red}}</style>{'<wbr>' * 199}<b id=x></b>")
     assert computed_style(document.select("#x")[0])["color"] == "red"
+
+
+def test_computed_style_of_clauses_of_two_rules_count_apart() -> None:
+    # each rule numbers its 'of S' clauses from 1, and the climbing rule puts both on the deep matcher's one memo
+    document: Final = parse(
+        "<style>*{color:blue}:is(:is(q u) v) w{color:green}* a:nth-child(1 of .k){color:red}"
+        "* b:nth-child(2 of [d]){color:lime}</style><p><b d></b><a class=k></a><b d></b></p>"
+    )
+    assert [computed_style(node)["color"] for node in document.select("p *")] == ["blue", "red", "lime"]
+
+
+def test_computed_style_of_clauses_of_many_rules_count_apart() -> None:
+    rules: Final = [f"* b:nth-child({index % 3 + 1} of .c{index % 4})" for index in range(16)]
+    classes: Final = "".join(f"<b class=c{index % 4}></b>" for index in range(10))
+    document: Final = parse(
+        f"<style>*{{color:blue}}:is(:is(q u) v) w{{color:green}}{''.join(f'{rule}{{color:red}}' for rule in rules)}"
+        f"</style><p>{classes}</p>"
+    )
+    nodes: Final = document.select("p *")
+    assert [computed_style(node)["color"] for node in nodes] == [
+        "red" if any(node.matches(rule) for rule in rules) else "blue" for node in nodes
+    ]

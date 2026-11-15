@@ -85,7 +85,7 @@ typedef struct {
     int sub_count;    /* ':': number of comma-separated alternatives in sub */
     /* ':' with a sub, set by sel_alts_nest: 0 when one match asks it about an element once; otherwise the deep matcher
        keeps its answers: SEL_NEST_ALWAYS or SEL_NEST_DEEP for :is(), :where() and :not(), and for an 'of S' clause its
-       1-based slot in sel_deep_memo.counts */
+       1-based number among the selector's clauses */
     int nest;
 } sel_simple;
 
@@ -313,6 +313,8 @@ void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parse
 typedef struct {
     th_node_map map;
     const th_node *scope;
+    const sel_simple
+        *owner; /* the clause: one memo serves every rule of the cascade, whose clauses each number from 1 */
 } sel_deep_counts;
 
 /* The deep stand-in's answers: two bits (unknown, no, yes) per key and node, a key being a pointer into the selector
@@ -351,8 +353,9 @@ struct sel_deep_kept {
     /* the driver binds :scope to the element it tests (the cascade, matches(), Matcher.filter), so an answer about any
        other element the match reaches holds under every scope, unless it reads siblings after the element */
     int subject_scope;
-    sel_deep_counts *counts;
-    int count_slots;
+    sel_deep_counts **counts; /* open addressing by clause, NULL until a clause counts */
+    int count_slots;          /* capacity */
+    int count_used;
     sel_position_memo positions; /* sibling positions inside an 'of S' clause, for a context that has none */
 };
 
