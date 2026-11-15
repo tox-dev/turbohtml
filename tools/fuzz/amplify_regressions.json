@@ -155,7 +155,7 @@
   },
   {
     "name": "of-type-position-walk",
-    "source": "https://github.com/tox-dev/turbohtml/pull/1945",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1947",
     "targets": [
       "select_tree"
     ],
