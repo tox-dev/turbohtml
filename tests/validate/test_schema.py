@@ -542,15 +542,20 @@ def test_prefix_is_not_resolved_by_the_declaration_of_another(
     assert accepts(schema, document.replace(f'{prefix}="urn:second"', f'{prefix}="urn:first"'))
 
 
+@pytest.mark.parametrize("padding", [pytest.param(0, id="few-attributes"), pytest.param(40, id="many-attributes")])
 @pytest.mark.parametrize("prefix", _NON_ASCII_NAMES)
-def test_schema_vocabulary_under_a_non_ascii_prefix(prefix: str) -> None:
+def test_schema_vocabulary_under_a_non_ascii_prefix(prefix: str, padding: int) -> None:
+    # attributes ahead of the declaration move the lookup from the ancestor walk to the per-path scope
+    pad: Final = " ".join(f'pad{index}=""' for index in range(padding))
     xsd: Final = (
-        f'<{prefix}:schema xmlns:{prefix}="http://www.w3.org/2001/XMLSchema">'
+        f'<{prefix}:schema {pad} xmlns:{prefix}="http://www.w3.org/2001/XMLSchema">'
         f'<{prefix}:element name="doc" type="{prefix}:int"/></{prefix}:schema>'
     )
     assert xsd_ok(xsd, "<doc>3</doc>")
     assert not xsd_ok(xsd, "<doc>three</doc>")
-    rng: Final = f'<{prefix}:element name="doc" xmlns:{prefix}="{_RELAXNG_NS}"><{prefix}:empty/></{prefix}:element>'
+    rng: Final = (
+        f'<{prefix}:element name="doc" {pad} xmlns:{prefix}="{_RELAXNG_NS}"><{prefix}:empty/></{prefix}:element>'
+    )
     assert rng_ok(rng, "<doc/>")
     assert not rng_ok(rng, "<doc>text</doc>")
 

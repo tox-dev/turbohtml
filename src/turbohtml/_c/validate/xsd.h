@@ -754,7 +754,7 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
         const Py_UCS4 *local, *prefix, *uri;
         Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
         split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-        resolve_ns(tree, derivation, prefix, prefix_len, &uri, &uri_len);
+        resolve_ns(schema->tree_ns, derivation, prefix, prefix_len, &uri, &uri_len);
         if (is_xsd_uri(uri, uri_len)) {
             entry->base_id = xsd_builtin_id(local, local_len);
         } else {
@@ -776,14 +776,14 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
         if (facet->type != TH_NODE_ELEMENT) {
             continue;
         }
-        qname name = node_qname(tree, facet, facet->text, facet->text_len);
-        if (name.uri == NULL || !u_eq_ascii(name.uri, name.uri_len, XSD_NS)) {
+        const qname *name = schema_node_qname(schema, facet);
+        if (name->uri == NULL || !u_eq_ascii(name->uri, name->uri_len, XSD_NS)) {
             continue;
         }
         Py_ssize_t value_len = 0;
         const Py_UCS4 *value = xsd_attr(tree, facet, "value", &value_len);
         if (value != NULL) {
-            const int status = facet_add(&schema->mem, entry->own, name.local, name.local_len, value, value_len);
+            const int status = facet_add(&schema->mem, entry->own, name->local, name->local_len, value, value_len);
             if (status < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
                 return -1;    /* GCOVR_EXCL_LINE */
             }
@@ -981,7 +981,7 @@ static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex)
     const Py_UCS4 *local, *prefix, *uri;
     Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
     split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
+    resolve_ns(schema->tree_ns, node, prefix, prefix_len, &uri, &uri_len);
     if (is_xsd_uri(uri, uri_len)) {
         if (xsd_is_builtin_type(local, local_len)) {
             return 0;
@@ -1021,7 +1021,7 @@ static int xsd_require_base(th_schema *schema, th_node *node) {
     const Py_UCS4 *local, *prefix, *uri;
     Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
     split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
+    resolve_ns(schema->tree_ns, node, prefix, prefix_len, &uri, &uri_len);
     if (is_xsd_uri(uri, uri_len)) {
         return 0;
     }
@@ -1414,7 +1414,7 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
         const Py_UCS4 *local, *prefix, *uri;
         Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
         split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-        resolve_ns(tree, effective, prefix, prefix_len, &uri, &uri_len);
+        resolve_ns(schema->tree_ns, effective, prefix, prefix_len, &uri, &uri_len);
         int base_id = DT_STRING;
         if (is_xsd_uri(uri, uri_len)) {
             base_id = xsd_builtin_id(local, local_len);
@@ -1484,10 +1484,9 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 Py_ssize_t base_len = 0;
                 const Py_UCS4 *base = xsd_attr(tree, derivation, "base", &base_len);
                 if (base != NULL) {
-                    const Py_UCS4 *local, *prefix, *uri;
-                    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
+                    const Py_UCS4 *local, *prefix;
+                    Py_ssize_t local_len = 0, prefix_len = 0;
                     split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-                    resolve_ns(tree, derivation, prefix, prefix_len, &uri, &uri_len);
                     th_node *base_type = named_find(&schema->complex_types, local, local_len);
                     if (base_type != NULL) {
                         xsd_collect_attrs(ctx, instance, base_type, declared, attrs);
@@ -1844,7 +1843,7 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
         const Py_UCS4 *local, *prefix, *uri;
         Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
         split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-        resolve_ns(tree, decl, prefix, prefix_len, &uri, &uri_len);
+        resolve_ns(schema->tree_ns, decl, prefix, prefix_len, &uri, &uri_len);
         int is_xsd_ns = is_xsd_uri(uri, uri_len);
         th_node *complex = is_xsd_ns ? NULL : named_find(&schema->complex_types, local, local_len);
         if (complex != NULL) {
