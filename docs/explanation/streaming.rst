@@ -119,15 +119,24 @@ Handlers can still change how a browser reads what follows. Unwrapping a ``<fore
 ``<font>`` inside ``<svg>``, changing the ``encoding`` of an ``<annotation-xml>``, or removing an element that decided
 what a later end tag closes can turn the raw text after it into markup or back. Such an edit is one that drops or
 replaces tags, writes around an element or comment or into an element that is not raw text, edits text outside raw text
-or the doctype, or changes an attribute a parse reads: the ``type`` of an ``<input>``, or a ``<font>`` or
-``<annotation-xml>`` in foreign content. After one, the rewriter runs a second tree builder over its own output,
+or the doctype, or changes an attribute the tree builder reads: the ``type`` of an ``<input>``; ``selected``,
+``disabled`` or ``multiple`` on an ``<option>``, ``<optgroup>``, ``<selectedcontent>`` or ``<select>``; a ``shadowroot``
+attribute of a ``<template>``; the ``encoding`` of an ``<annotation-xml>``; or ``color``, ``face`` or ``size`` on a
+``<font>`` in foreign content. After a structural edit, the rewriter runs a second tree builder over its own output,
 starting at the edit when it is inside ``<svg>`` or ``<math>``, or else at the next ``<svg>``, ``<math>``,
-``<template>`` or ``<frameset>``, since only there can the difference change how a token is read. From then on it writes
-each token so that the output reads it as the source did: it ends raw text only the output opened, escapes raw text the
-output would read as markup, turns a CDATA section into text or a ``<![CDATA[`` bogus comment into a comment where the
-two disagree, and ends an SVG or MathML element that an end tag closed in the source but leaves open in the output. A
-rewrite with no such edit, or with one and no foreign content, template or frameset after it, never starts the second
-tree builder and writes what it always wrote.
+``<template>`` or ``<frameset>``, since only there can the difference change how a token is read. After an attribute
+edit of that kind it runs the second builder over the rest of the input, since the output can then read any later tag
+differently. From then on it writes each token so that the output reads it as the source did: it ends raw text only the
+output opened, escapes raw text the output would read as markup, turns a CDATA section into text or a ``<![CDATA[``
+bogus comment into a comment where the two disagree, and ends an SVG or MathML element that an end tag closed in the
+source but leaves open in the output. A rewrite with no such edit, or with a structural one and no foreign content,
+template or frameset after it, never starts the second tree builder and writes what it always wrote.
+
+Once an edit has changed the markup, a start or end tag that the tree builder ignores is dropped rather than written,
+since the output would otherwise read it as an element. A frameset that replaces the body also drops the body's content
+from the output, so removing that frameset leaves the page as removing it from the parsed tree would. When the end tag
+of an unwrapped or removed element is not written, the HTML elements it closed get no end tag of their own: the output
+has no end tag to close them, so they stay open as the edited markup leaves them.
 
 Text that ends in ``<``, or inside ``<title>`` or ``<textarea>`` in an end tag cut short, reads as text because of what
 follows it in the source. When a handler drops or changes what follows, the rewriter escapes that ``<`` if the next
