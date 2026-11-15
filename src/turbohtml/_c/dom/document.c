@@ -1113,8 +1113,7 @@ static PyObject *refresh_fallback(PyObject *fallback) {
 }
 
 PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
-                           "Resolve this document's base URL from its first <base href>. A base tag inside\n"
-                           "<template>, or one that is an SVG or MathML element, is ignored. A base that resolves to\n"
+                           "Resolve this document's base URL from its first <base href>. A base that resolves to\n"
                            "more than 2,048 characters is ignored.\n\n"
                            ":param fallback: the URL the <base href> is resolved against, and the result\n"
                            "    itself when the document has no <base href>.\n"
@@ -1231,30 +1230,16 @@ static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
            url_web_special_base(absolute ? input : fallback);
 }
 
-/* The next node of a pre-order walk over the nodes that are in the document, or NULL once the walk is done. A
-   template's contents hang off the template as a content fragment but belong to a separate inert document (HTML spec
-   4.12.3), so the walk steps over them: a <base> or <meta> in there sets no base URL and refreshes no page. */
-static th_node *in_document_next(th_node *current, th_node *root) {
-    if (current->type != TH_NODE_CONTENT && current->first_child != NULL) {
-        return current->first_child;
-    }
-    while (current != root && current->next_sibling == NULL) {
-        current = current->parent;
-    }
-    return current == root ? NULL : current->next_sibling;
-}
-
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
    when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
-   TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named base. The
-   extraction methods share it. */
+   TH_BASE_URL_MAX. The extraction methods share it. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
     th_node *root = ((NodeObject *)self)->node;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    for (th_node *node = root->first_child; node != NULL; node = in_document_next(node, root)) {
-        if (node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_BASE && node->ns == TH_NS_HTML &&
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_BASE &&
             (href = element_attr_str(tree, node, "href", 4)) != NULL) {
             break;
         }
@@ -1309,7 +1294,7 @@ TH_NODE_API(static, PyObject *, document_base_url, (PyObject * self, PyObject *a
 PyDoc_STRVAR(meta_refresh_doc,
              "meta_refresh(fallback='')\n--\n\n"
              "Read the document's <meta http-equiv=refresh> redirect. A refresh tag inside\n"
-             "<noscript> or <template>, or one that is an SVG or MathML element, is ignored.\n\n"
+             "<noscript> is ignored.\n\n"
              ":param fallback: the URL the directive's target is resolved against, and the\n"
              "    target itself when the directive omits one.\n"
              ":returns: a (delay_seconds, url) pair, or None when the document has no\n"
@@ -1368,9 +1353,8 @@ TH_NODE_API(static, PyObject *, document_meta_refresh, (PyObject * self, PyObjec
     th_tree *tree = tree_of(self);
     th_node *root = ((NodeObject *)self)->node;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    for (th_node *node = root->first_child; node != NULL; node = in_document_next(node, root)) {
-        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_META || node->ns != TH_NS_HTML ||
-            under_noscript(node)) {
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_META || under_noscript(node)) {
             continue;
         }
         PyObject *equiv = element_attr_str(tree, node, "http-equiv", 10);

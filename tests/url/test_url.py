@@ -24,42 +24,6 @@ from turbohtml import parse, parse_fragment
         pytest.param('<base href="dog:x">', "http://site.com/", "dog:x", id="data-prefix-is-not-data"),
         pytest.param('<base href="just:foo">', "http://site.com/", "just:foo", id="short-javascript-prefix"),
         pytest.param("<p>no base</p>", "http://site.com/", "http://site.com/", id="no-base"),
-        pytest.param(
-            '<template><base href="http://decoy.com/"></template><base href="http://real.com/">',
-            "http://site.com/",
-            "http://real.com/",
-            id="skips-template-contents",
-        ),
-        pytest.param(
-            '<template><template><base href="http://decoy.com/"></template></template><p><base href="/real/"></p>',
-            "http://site.com/",
-            "http://site.com/real/",
-            id="skips-nested-template-contents",
-        ),
-        pytest.param(
-            '<div><template><base href="http://decoy.com/"></template></div>',
-            "http://site.com/",
-            "http://site.com/",
-            id="template-contents-only",
-        ),
-        pytest.param(
-            '<svg><base href="http://decoy.com/"></base></svg><base href="http://real.com/">',
-            "http://site.com/",
-            "http://real.com/",
-            id="skips-svg-base",
-        ),
-        pytest.param(
-            '<math><base href="http://decoy.com/"></base></math><base href="http://real.com/">',
-            "http://site.com/",
-            "http://real.com/",
-            id="skips-mathml-base",
-        ),
-        pytest.param(
-            '<svg><foreignObject><base href="http://real.com/"></foreignObject></svg>',
-            "http://site.com/",
-            "http://real.com/",
-            id="html-base-in-foreign-object",
-        ),
         pytest.param("<base>", "http://site.com/", "http://site.com/", id="valueless-href"),
         pytest.param('<base href="">', "http://site.com/", "http://site.com/", id="empty-href"),
         pytest.param('<base href="  ">', "http://site.com/", "http://site.com/", id="blank-href"),
@@ -1175,15 +1139,6 @@ def test_meta_refresh_rejects_missing_special_host(href: str, fallback: str) -> 
         pytest.param("<p>nothing</p>", None, id="no-meta"),
         pytest.param(
             '<noscript><meta http-equiv=refresh content="5;url=x"></noscript>', None, id="ignored-in-noscript"
-        ),
-        pytest.param(
-            '<template><meta http-equiv=refresh content="5;url=x"></template>', None, id="ignored-in-template"
-        ),
-        pytest.param(
-            '<template><meta http-equiv=refresh content="5;url=x"></template>'
-            '<meta http-equiv=refresh content="6;url=y">',
-            (6.0, "y"),
-            id="template-contents-do-not-hide-refresh",
         ),
     ],
 )

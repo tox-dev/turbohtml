@@ -1342,8 +1342,7 @@ static TH_NOINLINE int xsd_is_builtin_type(const Py_UCS4 *local, Py_ssize_t loca
         return 1;
     }
     /* These XSD 1.0 types retain the existing fallback without dedicated datatype handlers. */
-    static const char *const names[] = {"anyType",    "NOTATION", "ID",        "IDREF", "ENTITY",
-                                        "gYearMonth", "gYear",    "gMonthDay", "gDay",  "gMonth"};
+    static const char *const names[] = {"anyType"};
     for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
         if (u_eq_ascii(local, local_len, names[index])) {
             return 1;
