@@ -1180,6 +1180,17 @@
     }
   },
   {
+    "name": "js-arrow-head-lookahead",
+    "source": "https://github.com/tox-dev/turbohtml/blob/23d769071ab1903a74fc18410b1f9720a65dda3d/src/turbohtml/_c/js/parser.c#L1096-L1109",
+    "targets": [
+      "minify_js"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "(/[(]+/);"
+    }
+  },
+  {
     "name": "xpath-id-document-walk",
     "source": "https://github.com/tox-dev/turbohtml/blob/8592a664a6a4efe3518ab0331a1a92c66a48379d/src/turbohtml/_c/query/xpath/functions.c#L953-L963",
     "targets": [

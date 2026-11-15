@@ -1407,9 +1407,15 @@ TH_NODE_API(static, int, element_set_checked, (PyObject * self, PyObject *value,
     return 0;
 }
 
+/* Whether node is an HTML element with this atom. An SVG or MathML element can share a local name with an HTML one, so
+   the atom alone does not say which exclusion applies. */
+static int is_html_atom(const th_node *node, uint16_t atom) {
+    return node->atom == atom && node->ns == TH_NS_HTML;
+}
+
 static th_node *fieldset_first_legend(th_node *fieldset) {
     for (th_node *child = fieldset->first_child; child != NULL; child = child->next_sibling) {
-        if (child->atom == TH_TAG_LEGEND) {
+        if (is_html_atom(child, TH_TAG_LEGEND)) {
             return child;
         }
     }
@@ -1440,7 +1446,7 @@ static int fieldset_disables(th_node *control, th_node *form) {
         if (ancestor == NULL) {
             return 1;
         }
-        if (ancestor->atom == TH_TAG_FIELDSET && find_node_attr(ancestor, TH_ATTR_DISABLED) != NULL &&
+        if (is_html_atom(ancestor, TH_TAG_FIELDSET) && find_node_attr(ancestor, TH_ATTR_DISABLED) != NULL &&
             !control_in_first_legend(ancestor, control)) {
             return 1;
         }
@@ -1646,7 +1652,7 @@ PyDoc_STRVAR(form_data_doc, "form_data()\n--\n\n"
    legend before it. */
 static int legend_is_first(const th_node *legend) {
     for (const th_node *earlier = legend->prev_sibling; earlier != NULL; earlier = earlier->prev_sibling) {
-        if (earlier->atom == TH_TAG_LEGEND) {
+        if (is_html_atom(earlier, TH_TAG_LEGEND)) {
             return 0;
         }
     }
@@ -1654,12 +1660,13 @@ static int legend_is_first(const th_node *legend) {
 }
 
 static th_node *next_form_control(th_node *current, th_node *form) {
-    if (current->atom == TH_TAG_FIELDSET && find_node_attr(current, TH_ATTR_DISABLED) != NULL) {
+    if (is_html_atom(current, TH_TAG_FIELDSET) && find_node_attr(current, TH_ATTR_DISABLED) != NULL) {
         th_node *legend = fieldset_first_legend(current);
         if (legend != NULL) {
             return legend;
         }
-    } else if (current->atom != TH_TAG_TEMPLATE && current->atom != TH_TAG_DATALIST && current->first_child != NULL) {
+    } else if (!is_html_atom(current, TH_TAG_TEMPLATE) && !is_html_atom(current, TH_TAG_DATALIST) &&
+               current->first_child != NULL) {
         return current->first_child;
     }
     while (current != form) {
@@ -1671,8 +1678,8 @@ static th_node *next_form_control(th_node *current, th_node *form) {
         th_node *parent = current->parent;
         /* Pair allocation can run callbacks, so re-read fieldset state before skipping siblings. */
         if (current->next_sibling != NULL &&
-            !(current->atom == TH_TAG_LEGEND && parent->atom == TH_TAG_FIELDSET && legend_is_first(current) &&
-              find_node_attr(parent, TH_ATTR_DISABLED) != NULL)) {
+            !(is_html_atom(current, TH_TAG_LEGEND) && is_html_atom(parent, TH_TAG_FIELDSET) &&
+              legend_is_first(current) && find_node_attr(parent, TH_ATTR_DISABLED) != NULL)) {
             return current->next_sibling;
         }
         current = parent;

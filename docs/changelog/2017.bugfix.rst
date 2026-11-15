@@ -1,0 +1,2 @@
+XSD validation now accepts valid content for repeated particles with minOccurs of two or more whose repetitions can
+match no children.

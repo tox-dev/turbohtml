@@ -1749,6 +1749,23 @@ def test_transform_number_interleaved_count_patterns_stay_separate() -> None:
     assert _run("<r><a/><b/><a/><b/></r>", body) == "1-,-1,2-,-2,"
 
 
+def test_transform_number_alternating_from_patterns_count_under_own_pattern() -> None:
+    # each instruction restarts its count at its own from match, and the other instruction's match does not reset it
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/x">'
+        '<xsl:number level="any" from="g"/>.<xsl:number level="any" from="h"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><x/><g/><x/><h/><x/><g/><x/></r>", body) == "1.1,1.2,2.1,1.2,"
+
+
+def test_transform_number_alternating_count_patterns_count_under_own_pattern() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/*">'
+        '<xsl:number level="any" count="x"/>.<xsl:number level="any" count="g"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><x/><g/><x/><h/><x/><g/><x/></r>", body) == "1.0,1.1,2.1,2.1,3.1,3.2,4.2,"
+
+
 def test_transform_number_alternating_same_length_names() -> None:
     # the names are the same length, so telling them apart is the name comparison itself rather than the length
     body = (
@@ -5528,6 +5545,95 @@ def test_number_any_default_count_over_interleaved_names_scales_linearly(
     work_steps.assert_linear(
         lambda pairs: partial(transform, parse_xml(f"<list{declarations}>{pair * pairs}</list>")), (300, 1200)
     )
+
+
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        pytest.param(
+            ('<xsl:number level="any" from="g"/>', '<xsl:number level="any" from="h"/>'), id="any-from-patterns"
+        ),
+        pytest.param(
+            ('<xsl:number level="any" count="p"/>', '<xsl:number level="any" count="q"/>'), id="any-count-patterns"
+        ),
+        pytest.param(
+            ('<xsl:number level="any" count="p" from="g"/>', '<xsl:number level="any" count="q" from="h"/>'),
+            id="any-count-and-from-patterns",
+        ),
+        pytest.param(('<xsl:number count="p"/>', '<xsl:number count="q"/>'), id="single-count-patterns"),
+        pytest.param(('<xsl:number from="g"/>', '<xsl:number from="h"/>'), id="single-from-patterns"),
+        pytest.param(('<xsl:number count="p"/>', '<xsl:number count="p"/>'), id="single-same-count-patterns"),
+        pytest.param(("<xsl:number/>", "<xsl:number/>"), id="single-default-names"),
+        pytest.param(
+            ('<xsl:number level="multiple" count="p"/>', '<xsl:number level="multiple" count="q"/>'),
+            id="multiple-count-patterns",
+        ),
+        pytest.param(
+            ('<xsl:number level="multiple" count="p" from="g"/>', '<xsl:number level="multiple" count="q" from="h"/>'),
+            id="multiple-count-and-from-patterns",
+        ),
+    ],
+)
+def test_number_alternating_instructions_scale_linearly(
+    instructions: tuple[str, str], prefix_transform: Callable[[str, str], Transform], work_steps: WorkSteps
+) -> None:
+    first, second = instructions
+    transform: Final = prefix_transform(f'<xsl:for-each select="list/*">{first}.{second}|</xsl:for-each>', "")
+    work_steps.assert_linear(
+        lambda pairs: partial(transform, parse_xml(f"<list>{'<p/><q/>' * pairs}</list>")), (300, 1200)
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "selection", "numbers", "expected"),
+    [
+        pytest.param(
+            "<r><x/><g/><x/><h/><x/><g/><x/></r>",
+            "r/*",
+            '<xsl:number count="x"/>.<xsl:number count="g"/>,',
+            "1.,.1,2.,.,3.,.2,4.,",
+            id="single-count-patterns",
+        ),
+        pytest.param(
+            "<r><s><x/><x/></s><s><x/></s></r>",
+            "r//x",
+            '<xsl:number level="multiple" count="s"/>.<xsl:number level="multiple" count="x" from="s"/>,',
+            "1.1,1.2,2.1,",
+            id="multiple-count-and-from-patterns",
+        ),
+        pytest.param(
+            "<r><p/><q/><p/><q/><p/></r>",
+            "r/*",
+            '<xsl:number/>.<xsl:number from="q"/>,',
+            "1.1,1.,2.2,2.,3.3,",
+            id="single-default-names",
+        ),
+    ],
+)
+def test_number_alternating_instructions_count_under_own_pattern(
+    source: str, selection: str, numbers: str, expected: str
+) -> None:
+    body = f'<xsl:template match="/"><xsl:for-each select="{selection}">{numbers}</xsl:for-each></xsl:template>'
+    assert _run(source, body) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "selection", "parse"),
+    [
+        pytest.param(f"<r>{'<p/><q/>' * 100}</r>", "r/*", parse_xml, id="xml-names"),
+        pytest.param(f'<r xmlns:a="urn:a">{"<a:p/><p/>" * 100}</r>', "r/*", parse_xml, id="xml-expanded-names"),
+        pytest.param(f'<r xmlns:a="urn:a">{"x<a:p/>y<p/>" * 100}</r>', "r/*", parse_xml, id="xml-text-siblings"),
+        pytest.param(f"<body>{'<p></p><q></q>' * 100}</body>", "//body/*", turbohtml.parse, id="html-names"),
+    ],
+)
+def test_number_alternating_siblings_beyond_a_short_scan(
+    markup: str, selection: str, parse: Callable[[str], Node], compile_numbers: Callable[[str], Transform]
+) -> None:
+    compiled: Final = compile_numbers(
+        f'<xsl:template match="/"><xsl:for-each select="{selection}"><xsl:number/><xsl:text>|</xsl:text>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert compiled(parse(markup)) == "".join(f"{index // 2 + 1}|" for index in range(200))
 
 
 @pytest.mark.parametrize(

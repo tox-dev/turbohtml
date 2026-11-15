@@ -245,9 +245,10 @@ static int host_name_underscored(int kind, const void *data, Py_ssize_t start, P
    labels must be host-name shaped (the bare-domain rules); a scheme URL passes 0,
    so a numeric host like 1.2.3.4 is accepted. Returns the index past the host on
    success, or -1. Hyphens are allowed inside a label, not at its edges, and a
-   trailing one is punctuation the host ends before. */
+   trailing one is punctuation the host ends before. A non-NULL `tail` receives
+   the start of the last two labels read, the ones the bare-domain rules judge. */
 static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssize_t len, int require_tld,
-                            PyObject *extra_tlds) {
+                            PyObject *extra_tlds, Py_ssize_t *tail) {
     Py_ssize_t pos = start;
     Py_ssize_t last_label_start = start;
     Py_ssize_t previous_label_start = start;
@@ -256,6 +257,7 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
     int label_ended_with_hyphen = 0;
     int dots = 0;
     while (pos < len) {
+        TH_WORK_STEP();
         Py_UCS4 c = READ(pos);
         if (is_label_char(c)) {
             label_len++;
@@ -280,6 +282,9 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
         } else {
             break;
         }
+    }
+    if (tail != NULL) {
+        *tail = previous_label_start;
     }
     /* A bare domain needs a dot to be told apart from an ordinary word; an authority written behind an explicit
        scheme does not, so `http://localhost:8000/` and `http://intranet/` are the links their authors wrote. */
@@ -324,7 +329,7 @@ static Py_ssize_t scan_authority_host(int kind, const void *data, Py_ssize_t sta
     if (start < len && READ(start) == '[') {
         return scan_ip_literal(kind, data, start, len);
     }
-    return scan_host(kind, data, start, len, 0, NULL);
+    return scan_host(kind, data, start, len, 0, NULL, NULL);
 }
 
 /* Real URL tails nest brackets a handful deep. A walk that finds an unclosed opener keeps reading past the link it
@@ -503,10 +508,17 @@ static int match_url(int kind, const void *data, Py_ssize_t colon, Py_ssize_t st
     return 1;
 }
 
+/* Where the bare-domain matcher's last refused host scan started, up to the last two labels of its run. A label in
+   [from, until) would read the same run and be refused the same way, so it is refused without another scan. */
+typedef struct {
+    Py_ssize_t from;
+    Py_ssize_t until;
+} host_refusal;
+
 /* Try to match a bare domain (no scheme) whose first label dot triggered it; the
    domain starts by expanding left over label characters from `dot`. */
 static int match_domain(int kind, const void *data, Py_ssize_t dot, Py_ssize_t start, Py_ssize_t len,
-                        Py_ssize_t *out_start, Py_ssize_t *out_end, PyObject *extra_tlds) {
+                        Py_ssize_t *out_start, Py_ssize_t *out_end, PyObject *extra_tlds, host_refusal *refused) {
     Py_ssize_t pos = dot;
     while (pos > start) {
         Py_UCS4 before = READ(pos - 1);
@@ -522,8 +534,14 @@ static int match_domain(int kind, const void *data, Py_ssize_t dot, Py_ssize_t s
     if (pos == dot || blocked_on_left(kind, data, pos) || after_url_syntax(kind, data, pos)) {
         return 0;
     }
-    Py_ssize_t host_end = scan_host(kind, data, pos, len, 1, extra_tlds);
+    if (pos >= refused->from && pos < refused->until) {
+        return 0;
+    }
+    Py_ssize_t tail;
+    Py_ssize_t host_end = scan_host(kind, data, pos, len, 1, extra_tlds, &tail);
     if (host_end < 0) {
+        refused->from = pos;
+        refused->until = tail;
         return 0;
     }
     *out_start = pos;
@@ -548,7 +566,7 @@ static int match_email(int kind, const void *data, Py_ssize_t at, Py_ssize_t sta
     if (pos == at || (pos > start && READ(pos - 1) == '@')) {
         return 0;
     }
-    Py_ssize_t host_end = scan_host(kind, data, at + 1, len, 1, extra_tlds);
+    Py_ssize_t host_end = scan_host(kind, data, at + 1, len, 1, extra_tlds, NULL);
     if (host_end < 0) {
         return 0;
     }
@@ -619,9 +637,9 @@ static int match_mailto(int kind, const void *data, Py_ssize_t colon, Py_ssize_t
     return 1;
 }
 
-/* The scan reads the text through one view: the code-point accessor the recognizer takes, the matcher policy, and
+/* The scan reads the text through one view: the code-point accessor the recognizer takes, the matcher policy,
    `resume`, the end of the last emitted span, which bounds every leftward expansion so a matcher never reads into a
-   link already emitted. */
+   link already emitted, and `refused`, the labels the bare-domain matcher need not start a host scan from again. */
 typedef struct {
     PyObject *text;
     int kind;
@@ -637,6 +655,7 @@ typedef struct {
        match. The href is the identity, not the matched text, so a bare domain and its written-out scheme collapse. */
     PyObject *seen;
     Py_ssize_t resume;
+    host_refusal refused;
 } scan_view;
 
 static uint32_t read_point(const void *text, size_t index) {
@@ -759,8 +778,8 @@ static TH_FORCEINLINE Py_ssize_t scheme_less_len(const scan_view *scan, Py_ssize
     return bound;
 }
 
-static TH_FORCEINLINE int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start,
-                                        Py_ssize_t *end, enum th_link_kind *link_kind, th_phone_match *number) {
+static TH_FORCEINLINE int match_trigger(scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
+                                        enum th_link_kind *link_kind, th_phone_match *number) {
     int kind = scan->kind;
     const void *data = scan->data;
     if (c == ':') {
@@ -794,11 +813,12 @@ static TH_FORCEINLINE int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssi
         return scan->parse_email && match_email(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
     }
     *link_kind = TH_LINK_URL;
-    return scan->bare_domains && match_domain(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+    return scan->bare_domains &&
+           match_domain(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds, &scan->refused);
 }
 
-static inline int match_trigger_wide(const scan_view *scan, Py_UCS4 point, Py_ssize_t pos, Py_ssize_t *start,
-                                     Py_ssize_t *end, enum th_link_kind *link_kind) {
+static inline int match_trigger_wide(scan_view *scan, Py_UCS4 point, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
+                                     enum th_link_kind *link_kind) {
     if (point == ':') {
         if (match_url(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->url_schemes)) {
             *link_kind = TH_LINK_HAS_SCHEME;
@@ -819,8 +839,8 @@ static inline int match_trigger_wide(const scan_view *scan, Py_UCS4 point, Py_ss
                match_email(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
     }
     *link_kind = TH_LINK_URL;
-    return scan->bare_domains &&
-           match_domain(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+    return scan->bare_domains && match_domain(scan->kind, scan->data, pos, scan->resume, scan->len, start, end,
+                                              scan->extra_tlds, &scan->refused);
 }
 
 /* Does a domain the `.` arm would link overlap the number just recognized? It keeps winning, so `1password.com` is
@@ -828,7 +848,7 @@ static inline int match_trigger_wide(const scan_view *scan, Py_UCS4 point, Py_ss
    not punctuation a run allows, and a number touching `@` was rejected with its neighbors. A domain found from a
    dot inside or right after the number includes the number's digits, so finding one is overlapping. The trigger that
    decided it is memoized for the scan to read back. */
-static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t end, trigger_memo *memo) {
+static int token_overlaps(scan_view *scan, Py_ssize_t start, Py_ssize_t end, trigger_memo *memo) {
     Py_ssize_t probe_end = end < scan->len ? end + 1 : end;
     for (Py_ssize_t probe = start; probe < probe_end; probe++) {
         if (PyUnicode_READ(scan->kind, scan->data, probe) != '.') {
@@ -837,7 +857,7 @@ static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t en
         memo->pos = probe;
         memo->link_kind = TH_LINK_URL;
         memo->found = scan->bare_domains && match_domain(scan->kind, scan->data, probe, scan->resume, scan->len,
-                                                         &memo->start, &memo->end, scan->extra_tlds);
+                                                         &memo->start, &memo->end, scan->extra_tlds, &scan->refused);
         if (memo->found) {
             return 1;
         }
@@ -948,6 +968,7 @@ static int scan_matches_wide(PyObject *text, int parse_email, int bare_domains, 
         .phone = NULL,
         .seen = seen,
         .resume = 0,
+        .refused = {0, 0},
     };
     scan_view *scan = &view;
     Py_ssize_t pos = 0;
@@ -992,6 +1013,7 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
         .phone = phone,
         .seen = seen,
         .resume = 0,
+        .refused = {0, 0},
     };
     trigger_memo memo = {.pos = -1, .link_kind = TH_LINK_URL};
     Py_ssize_t pos = 0;
