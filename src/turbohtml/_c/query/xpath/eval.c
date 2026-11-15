@@ -733,9 +733,9 @@ static TH_NOINLINE int climb_ancestors(xp_nodeset *out, const xn *step, const st
     return rc;
 }
 
-/* A table keyed on the node's address. th_node_map hashes creation sequences, which a document chooses: members picked
-   by sequence can fill one stretch of the table, and every probe then walks that stretch. Addresses are not the
-   document's to choose, and MurmurHash3's finalizer spreads the low bits the allocator leaves zero. */
+/* A table keyed on the node's address. th_node_map starts its probe from the creation sequence, which the document
+   chooses, so a document can crowd its members into one run of slots. Addresses are not the document's to choose, and
+   the mix below spreads the low bits the allocator leaves zero. */
 typedef struct {
     const struct th_node *node;
     Py_ssize_t value;
