@@ -3562,9 +3562,12 @@ def test_validation_verdict_benchmark(index: int, *, expected: bool) -> None:
     assert XMLSchema(source).is_valid(parse_xml(document)) is expected
 
 
-def _group_chain(count: int, *, reverse: bool) -> str:
+def _group_chain(count: int, *, reverse: bool, nesting: int = 0, wrapper: str = "xs:sequence") -> str:
+    # each group holds its ref to the next one under `nesting` more particles
+    opened, closed = f"<{wrapper}>" * nesting, f"</{wrapper}>" * nesting
     defs: Final = [
-        f'<xs:group name="g{n}"><xs:sequence><xs:group ref="g{n + 1}"/></xs:sequence></xs:group>' for n in range(count)
+        f'<xs:group name="g{n}"><xs:sequence>{opened}<xs:group ref="g{n + 1}"/>{closed}</xs:sequence></xs:group>'
+        for n in range(count)
     ]
     defs.append(f'<xs:group name="g{count}"><xs:sequence><xs:element name="x"/></xs:sequence></xs:group>')
     if reverse:
@@ -3753,6 +3756,24 @@ def _identity_constraint(constraint: str) -> str:
             id="deep-group-chain-tail-compiled-first",
         ),
         pytest.param(
+            _group_chain(7, reverse=False, nesting=60),
+            "group reference chain nests 400 levels or deeper",
+            id="deeply-nested-group-chain-in-document-order",
+        ),
+        pytest.param(
+            _group_chain(7, reverse=True, nesting=60),
+            "group reference chain nests 400 levels or deeper",
+            id="deeply-nested-group-chain-tail-compiled-first",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="g">{"<xs:sequence>" * 90}<xs:element name="x"/>'
+            f'{"</xs:sequence>" * 90}</xs:group><xs:element name="r"><xs:complexType>'
+            f'{"<xs:sequence>" * 330}<xs:group ref="g"/>{"</xs:sequence>" * 330}</xs:complexType></xs:element>'
+            "</xs:schema>",
+            "group reference chain nests 400 levels or deeper",
+            id="group-used-under-deep-nesting",
+        ),
+        pytest.param(
             f"<xs:schema {_XS}>"
             f"""{
                 "".join(
@@ -3826,6 +3847,23 @@ _ANNOTATED_GROUP: Final[str] = (
     [
         pytest.param(_group_chain(20, reverse=False), "<r><x/></r>", True, id="group-chain-within-limit"),
         pytest.param(_group_chain(20, reverse=False), "<r><y/></r>", False, id="group-chain-within-limit-wrong-leaf"),
+        pytest.param(
+            _group_chain(4, reverse=False, nesting=90), "<r><x/></r>", True, id="nested-group-chain-within-limit"
+        ),
+        pytest.param(
+            _group_chain(4, reverse=False, nesting=90),
+            "<r><y/></r>",
+            False,
+            id="nested-group-chain-within-limit-wrong-leaf",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="g"><xs:sequence><xs:element name="x"><xs:complexType><xs:sequence>'
+            '<xs:group ref="g" minOccurs="0"/></xs:sequence></xs:complexType></xs:element></xs:sequence></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>',
+            "<r><x><x><x/></x></x></r>",
+            True,
+            id="group-recursing-through-an-element",
+        ),
         pytest.param(
             f"<xs:schema {_XS}>"
             '<xs:group name="g0"><xs:sequence><xs:group ref="g1"/><xs:group ref="g1"/></xs:sequence></xs:group>'
@@ -3965,6 +4003,29 @@ _ANNOTATED_GROUP: Final[str] = (
             id="references-shared-through-a-base-type-undeclared",
         ),
         pytest.param(_wide_literal_model(), '<r a="1"><x/><y/></r>', True, id="long-literal-model-is-not-expansion"),
+        # a reference under a non-particle is not followed, so it neither nests the chain nor closes a cycle
+        pytest.param(
+            _group_chain(7, reverse=False, nesting=60, wrapper="xs:annotation"),
+            "<r/>",
+            True,
+            id="deeply-nested-group-chain-under-non-particles",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="g"><xs:choice><xs:annotation><xs:appinfo><xs:group ref="g"/>'
+            '</xs:appinfo></xs:annotation><xs:element name="x"/></xs:choice></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>',
+            "<r><x/></r>",
+            True,
+            id="group-cycle-under-a-non-particle",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="g"><xs:annotation><xs:documentation>doc</xs:documentation>'
+            '</xs:annotation><xs:sequence><xs:element name="x" type="xs:string"/></xs:sequence></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>',
+            "<r><x>v</x></r>",
+            True,
+            id="group-definition-with-an-annotation",
+        ),
     ],
 )
 def test_schema_compiles_and_validates(schema: str, xml: str, *, valid: bool) -> None:
