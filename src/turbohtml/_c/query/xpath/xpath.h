@@ -28,6 +28,9 @@ typedef struct xp_program xp_program;
    also raises depth_error. The source is not retained; names and literals are copied. */
 xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen, PyObject *depth_error);
 
+/* Whether a name compiles back to a name test for exactly that name: Element.xpath_path asks before writing a tag. */
+int xp_is_plain_name(const Py_UCS4 *text, Py_ssize_t len);
+
 int xp_calls_python(const xp_program *prog);
 void xp_retain(xp_program *prog);
 void xp_free(xp_program *prog);
