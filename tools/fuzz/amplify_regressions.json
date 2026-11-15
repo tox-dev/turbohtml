@@ -136,7 +136,7 @@
     "shape": {
       "kind": "repeat",
       "head": "a",
-      "left": "\u0316\u0301"
+      "left": "̖́"
     }
   },
   {
@@ -688,7 +688,7 @@
     ],
     "shape": {
       "kind": "repeat",
-      "left": "*~~\u00a0"
+      "left": "*~~ "
     }
   },
   {
@@ -1038,6 +1038,45 @@
       "left": "u",
       "middle": "'>x",
       "right": "<p>b"
+    }
+  },
+  {
+    "name": "js-fold-nested-blocks",
+    "source": "https://github.com/tox-dev/turbohtml/blob/26ff562fbd219618b791f924c934676cd7e7c772/src/turbohtml/_c/js/fold.c#L1593-L1604",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 512,
+    "shape": {
+      "kind": "sandwich",
+      "left": "{c:;",
+      "right": "}"
+    }
+  },
+  {
+    "name": "js-fold-constant-if",
+    "source": "https://github.com/tox-dev/turbohtml/blob/26ff562fbd219618b791f924c934676cd7e7c772/src/turbohtml/_c/js/fold.c#L1718-L1724",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 512,
+    "shape": {
+      "kind": "sandwich",
+      "left": "if(1){c:;",
+      "right": "}"
+    }
+  },
+  {
+    "name": "js-fold-abrupt-else",
+    "source": "https://github.com/tox-dev/turbohtml/blob/26ff562fbd219618b791f924c934676cd7e7c772/src/turbohtml/_c/js/fold.c#L1718-L1724",
+    "targets": [
+      "minify_js"
+    ],
+    "base": 1024,
+    "shape": {
+      "kind": "sandwich",
+      "left": "if(q){b();throw 0}else{c:;",
+      "right": "}"
     }
   }
 ]

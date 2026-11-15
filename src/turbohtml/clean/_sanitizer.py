@@ -118,6 +118,8 @@ def sanitize(html: str | Node, options: Policy | None = None) -> str:
         ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset, or
         ``attribute_prefixes`` contains a non-string.
     :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
+    :raises RecursionError: if ``html`` is a node with more than 1,536 disallowed elements nested in one another, past
+        any tree the HTML parser builds; a :func:`turbohtml.parse_xml` or hand-built tree has no depth cap.
     """
     return Sanitizer(options).sanitize(html)
 
@@ -161,6 +163,8 @@ class Sanitizer:
             ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset,
             or ``attribute_prefixes`` contains a non-string.
         :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
+        :raises RecursionError: if ``html`` is a node with more than 1,536 disallowed elements nested in one another,
+            past any tree the HTML parser builds; a :func:`turbohtml.parse_xml` or hand-built tree has no depth cap.
         """
         return self._render(self._filter(html, None, inner=True))
 
@@ -227,6 +231,7 @@ class Sanitizer:
         :returns: the sanitized HTML paired with the list of dropped items.
         :raises TypeError: like :meth:`sanitize`, on a mistyped set-valued policy field.
         :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        :raises RecursionError: like :meth:`sanitize`, on more than 1,536 nested disallowed elements.
         """
         removed: list[tuple[str, str | None]] = []
         return self._render(self._filter(html, removed, inner=True)), list(starmap(Removed, removed))
@@ -247,6 +252,7 @@ class Sanitizer:
         :returns: a new node of the same kind holding the sanitized subtree.
         :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
         :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        :raises RecursionError: like :meth:`sanitize`, on more than 1,536 nested disallowed elements.
         """
         return self._filter(_node_only(node), None)
 
@@ -261,6 +267,7 @@ class Sanitizer:
         :returns: the sanitized copy paired with one :class:`Removed` record per dropped element or attribute.
         :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
         :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        :raises RecursionError: like :meth:`sanitize`, on more than 1,536 nested disallowed elements.
         """
         removed: list[tuple[str, str | None]] = []
         return self._filter(_node_only(node), removed), list(starmap(Removed, removed))
@@ -489,6 +496,7 @@ def sanitize_report(html: str | Node, options: Policy | None = None) -> tuple[st
     :returns: the sanitized HTML paired with one :class:`Removed` record per dropped element or attribute.
     :raises TypeError: like :func:`sanitize`, on a mistyped set-valued policy field.
     :raises ValueError: like :func:`sanitize`, on an empty ``attribute_prefixes`` entry.
+    :raises RecursionError: like :func:`sanitize`, on more than 1,536 nested disallowed elements.
     """
     return Sanitizer(options).sanitize_report(html)
 
@@ -505,6 +513,7 @@ def sanitize_node(node: _NODE_T, options: Policy | None = None) -> _NODE_T:
     :returns: a new node of the same kind holding the sanitized subtree.
     :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
     :raises ValueError: like :func:`sanitize`, on an empty ``attribute_prefixes`` entry.
+    :raises RecursionError: like :func:`sanitize`, on more than 1,536 nested disallowed elements.
     """
     return Sanitizer(options).sanitize_node(node)
 
@@ -518,6 +527,7 @@ def sanitize_report_node(node: _NODE_T, options: Policy | None = None) -> tuple[
     :returns: the sanitized copy paired with one :class:`Removed` record per dropped element or attribute.
     :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
     :raises ValueError: like :func:`sanitize`, on an empty ``attribute_prefixes`` entry.
+    :raises RecursionError: like :func:`sanitize`, on more than 1,536 nested disallowed elements.
     """
     return Sanitizer(options).sanitize_report_node(node)
 

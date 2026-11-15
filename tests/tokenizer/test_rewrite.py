@@ -141,6 +141,27 @@ def test_rewrite_edited_start_tag_escapes_attribute_values(src: str, expected: s
     assert rewrite(src, elements=[("p", _set("t", '"&<>'))]) == expected
 
 
+@pytest.mark.parametrize(
+    ("src", "expected"),
+    [
+        pytest.param("<img hidden/=q>", '<img hidden="" =q k="v">', id="equals-name-after-bare"),
+        pytest.param("<img b/=m/=n>", '<img b="" =m="" =n k="v">', id="two-in-a-row"),
+        pytest.param('<img c=""/=m>', '<img c="" =m k="v">', id="equals-name-after-empty-value"),
+        pytest.param("<img =m c>", '<img =m c k="v">', id="equals-name-first"),
+        pytest.param("<img a b>", '<img a b k="v">', id="ordinary-bare-names-stay-bare"),
+    ],
+)
+def test_rewrite_edited_start_tag_keeps_equals_name_from_becoming_a_value(src: str, expected: str) -> None:
+    assert rewrite(src, elements=[("img", _set("k", "v"))]) == expected
+
+
+def test_rewrite_remove_attribute_keeps_equals_name_from_becoming_a_value() -> None:
+    def handler(element: Element) -> None:
+        element.remove_attribute("b")
+
+    assert rewrite("<a rel b=1 =m>y</a>", elements=[("a", handler)]) == '<a rel="" =m>y</a>'
+
+
 def test_rewrite_set_attribute_empty_name_raises() -> None:
     with pytest.raises(ValueError, match="empty"):
         rewrite("<p>x</p>", elements=[("p", _set("", "v"))])

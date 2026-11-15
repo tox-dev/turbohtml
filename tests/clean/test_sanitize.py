@@ -124,6 +124,59 @@ def test_deep_disallowed_input_completes_postorder_actions(mode: OnDisallowed, e
     assert (output.count("&lt;x&gt;"), "bottom" in output) == (expected_open_count, True)
 
 
+_UNWRAP_LIMIT: Final[int] = 3 * 512
+
+
+def test_disallowed_elements_nested_to_the_limit_are_sanitized() -> None:
+    document: Final = parse_xml("<x>" * _UNWRAP_LIMIT + "</x>" * _UNWRAP_LIMIT)
+    assert sanitize(document).count("&lt;x&gt;") == _UNWRAP_LIMIT
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(sanitize, id="sanitize"),
+        pytest.param(sanitize_report, id="sanitize-report"),
+        pytest.param(sanitize_node, id="sanitize-node"),
+        pytest.param(sanitize_report_node, id="sanitize-report-node"),
+    ],
+)
+@pytest.mark.parametrize(
+    "policy",
+    [
+        pytest.param(Policy(), id="escape"),
+        pytest.param(Policy(on_disallowed_tag=OnDisallowed.STRIP), id="strip"),
+        pytest.param(Policy(xml=True), id="plain-walk"),
+    ],
+)
+def test_disallowed_elements_nested_past_the_limit_are_refused(
+    call: Callable[[Document, Policy], object], policy: Policy
+) -> None:
+    # each escaped or stripped element lifts its content a level, so a longer chain costs the square of its length
+    document: Final = parse_xml("<b><x>" * (_UNWRAP_LIMIT + 1) + "</x></b>" * (_UNWRAP_LIMIT + 1))
+    with pytest.raises(RecursionError, match=f"sanitize does not support more than {_UNWRAP_LIMIT} nested"):
+        call(document, policy)
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        pytest.param(Policy(), f"{'<b>' * 4_000}t{'</b>' * 4_000}", id="kept"),
+        pytest.param(Policy(tags=frozenset(), on_disallowed_tag=OnDisallowed.REMOVE), "", id="removed"),
+    ],
+)
+def test_deep_elements_that_move_nothing_are_not_limited(policy: Policy, expected: str) -> None:
+    document: Final = parse_xml(f"{'<b>' * 4_000}t{'</b>' * 4_000}")
+    assert sanitize(document, replace(policy, xml=True)) == expected
+
+
+@pytest.mark.parametrize("parser", [pytest.param(parse, id="document"), pytest.param(parse_fragment, id="fragment")])
+def test_deepest_parsed_tree_is_under_the_unwrap_limit(parser: Callable[[str], Document | Element]) -> None:
+    # nested template contents double the tree builder's depth cap, the deepest tree it builds
+    tree: Final = parser(f"{'<template>' * 1_000}bottom")
+    assert sanitize(tree) == "&lt;template&gt;"
+
+
 def test_disallowed_attribute_dropped() -> None:
     assert sanitize('<a href="http://x" class="c" id="i">x</a>') == '<a href="http://x">x</a>'
 

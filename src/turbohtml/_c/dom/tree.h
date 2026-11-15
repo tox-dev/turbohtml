@@ -395,12 +395,10 @@ void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *chi
    tree-builder's link inlines), so it reaches the registry through these accessors.
    th_tree_has_observers gates the record-capture work on the mutation hot path, and
    th_tree_has_iterators lets a removal loop skip the NodeIterator steps. */
-struct th_observer;
+struct th_mo_registry;
 int th_tree_has_observers(const th_tree *tree);
 int th_tree_has_iterators(const th_tree *tree);
-struct th_observer ***th_tree_observers_ptr(th_tree *tree);
-Py_ssize_t *th_tree_observer_count_ptr(th_tree *tree);
-Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree);
+struct th_mo_registry **th_tree_observers_ptr(th_tree *tree);
 
 int th_node_contains(th_tree *tree, th_node *ancestor, th_node *node);
 

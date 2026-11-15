@@ -878,6 +878,12 @@ static void rw_emit_start_tag(rw_ctx *ctx, th_node *node, int self_closing) {
                 }
             }
             rw_out_char(&ctx->out, '"');
+        } else if (index + 1 < node->attr_count) {
+            Py_ssize_t next_len;
+            /* after a bare name a leading "=" would open its value, so the empty value is written out */
+            if (th_attr_name(ctx->tree, node->attrs[index + 1].name_atom, &next_len)[0] == '=') {
+                rw_out_ascii(&ctx->out, "=\"\"");
+            }
         }
     }
     if (self_closing) {
