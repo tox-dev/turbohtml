@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 import pytest
@@ -9,6 +10,8 @@ from turbohtml.rewrite import Element, rewrite
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 from typing import Final
 
 _Read = str | bool | None | tuple[tuple[str, str | None], ...]
@@ -1115,3 +1118,128 @@ def test_rewrite_attribute_growth_replace_and_escape() -> None:
 
     rest: Final = "".join(f' a{index}="before"' for index in range(1, 17))
     assert rewrite("<x>body</x>", elements=(("x", change),)) == f'<x a0="&quot;&amp;"{rest}>body</x>'
+
+
+def test_rewrite_removed_attribute_is_gone_for_the_rest_of_the_handler() -> None:
+    seen: list[_Read] = []
+
+    def handler(element: Element) -> None:
+        element.remove_attribute("b")
+        seen.extend((element.attrs, element.get("b", "gone"), element.has_attribute("b"), element.get("c")))
+        element.set_attribute("b", "again")
+        seen.append(element.attrs)
+
+    assert rewrite("<p a=1 b=2 c=3>t</p>", elements=[("p", handler)]) == '<p a="1" c="3" b="again">t</p>'
+    assert seen == [(("a", "1"), ("c", "3")), "gone", False, "3", (("a", "1"), ("c", "3"), ("b", "again"))]
+
+
+def test_rewrite_removed_attribute_is_gone_for_later_rules_and_descendants() -> None:
+    matched: list[tuple[str, tuple[tuple[str, str | None], ...]]] = []
+
+    def drop(element: Element) -> None:
+        element.remove_attribute("a")
+
+    def record(element: Element) -> None:
+        matched.append((element.tag, element.attrs))
+
+    rules: Final = [("p", drop), ("p[a]", record), ("p[c]", record), ("p[a] i", record), ("p[b] > i", record)]
+    assert rewrite("<p a b c><i>t</i></p>", elements=rules) == "<p b c><i>t</i></p>"
+    assert matched == [("p", (("b", None), ("c", None))), ("i", ())]
+
+
+def test_rewrite_handler_raising_after_removing_attributes() -> None:
+    def handler(element: Element) -> None:
+        for name, _ in element.attrs[:20]:
+            element.remove_attribute(name)
+        msg = "after-removal-boom"
+        raise ValueError(msg)
+
+    names: Final = "".join(f" a{index}=v" for index in range(40))
+    with pytest.raises(ValueError, match="after-removal-boom"):
+        rewrite(f"<p{names}>t</p>", elements=[("p", handler)])
+
+
+@pytest.mark.parametrize("count", [3, 16, 17, 40, 1000])
+def test_rewrite_attribute_edits_by_name_on_a_long_tag(count: int) -> None:
+    def handler(element: Element) -> None:
+        for index in range(0, count, 2):
+            element.remove_attribute(f"a{index}")
+        for index in range(count):
+            assert element.has_attribute(f"a{index}") is bool(index % 2)
+            assert element.get(f"a{index}") == (f"v{index}" if index % 2 else None)
+        assert element.get("never-seen") is None
+        assert element.attrs == tuple((f"a{index}", f"v{index}") for index in range(1, count, 2))
+        for index in range(1, count, 4):
+            element.set_attribute(f"a{index}", "set")
+        for index in range(count):
+            element.set_attribute(f"b{index}", "new")
+        assert element.get(f"b{count - 1}") == "new"
+        element.remove_attribute("b0")
+        assert not element.has_attribute("b0")
+
+    values: Final = {index: f"v{index}" for index in range(1, count, 2)}
+    values.update((index, "set") for index in range(1, count, 4))
+    source: Final = "".join(f" a{index}=v{index}" for index in range(count))
+    kept: Final = "".join(f' a{index}="{value}"' for index, value in values.items())
+    added: Final = "".join(f' b{index}="new"' for index in range(1, count))
+    assert rewrite(f"<p{source}>t</p>", elements=[("p", handler)]) == f"<p{kept}{added}>t</p>"
+
+
+def test_rewrite_long_tag_attribute_names_sharing_an_interning_key() -> None:
+    seen: list[_Read] = []
+
+    def handler(element: Element) -> None:
+        seen.append(element.get(first))
+        element.set_attribute(first, "set")
+        element.remove_attribute(first)
+        seen.append(element.get(second))
+        element.remove_attribute(second)
+        seen.append(element.has_attribute(first))
+
+    # names past the 256-byte encode buffer share one interned name; the first of them answers until it is removed
+    first: Final = f"data-{'z' * 300}"
+    second: Final = f"{first}y"
+    rest: Final = "".join(f" a{index}" for index in range(20))
+    assert rewrite(f"<p {first}=1{rest} {second}=2>t</p>", elements=[("p", handler)]) == f"<p{rest}>t</p>"
+    assert seen == ["1", "2", False]
+
+
+def _strip_each(element: Element) -> None:
+    for name, _ in element.attrs:
+        element.remove_attribute(name)
+
+
+def _strip_each_from_the_end(element: Element) -> None:
+    for name, _ in reversed(element.attrs):
+        element.remove_attribute(name)
+
+
+def _read_each(element: Element) -> None:
+    for name, _ in element.attrs:
+        assert element.get(name) is None
+        assert element.has_attribute(name)
+
+
+def _set_each(element: Element) -> None:
+    for name, _ in element.attrs:
+        element.set_attribute(name, "")
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        pytest.param(_strip_each, id="remove"),
+        pytest.param(_strip_each_from_the_end, id="remove-reversed"),
+        pytest.param(_read_each, id="get-has"),
+        pytest.param(_set_each, id="set"),
+    ],
+)
+def test_one_call_per_name_on_a_long_tag_scans_in_linear_time(
+    handler: Callable[[Element], None], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda count: partial(rewrite, _long_tag(count), elements=[("p", handler)]), (500, 2000))
+
+
+def _long_tag(count: int) -> str:
+    names: Final = "".join(f" a{index}" for index in range(count))
+    return f"<p{names}>"
