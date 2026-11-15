@@ -7172,12 +7172,14 @@ static PyObject *load_stylesheet_import(PyObject *module, th_resource_policy *po
         return NULL;        /* GCOVR_EXCL_LINE */
     }
     PyObject *path = th_resource_resolve(joined);
-    Py_DECREF(joined);
-    if (path == NULL) {
-        Py_DECREF(current);
-        return NULL;
+    if (path == NULL) {     /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
+        Py_DECREF(joined);  /* GCOVR_EXCL_LINE */
+        Py_DECREF(current); /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
     }
-    if (th_resource_check_root(policy, path) < 0) {
+    int confined = th_resource_check_root(policy, path, joined);
+    Py_DECREF(joined);
+    if (confined < 0) {
         Py_DECREF(path);
         Py_DECREF(current);
         return NULL;

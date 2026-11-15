@@ -3430,6 +3430,30 @@ def test_transform_import_root_rejects_symlink_escape(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    "link_parent",
+    [
+        pytest.param("styles", id="link inside root"),
+        pytest.param("elsewhere", id="link outside root"),
+    ],
+)
+def test_transform_import_root_escape_names_href_not_symlink_target(tmp_path: Path, link_parent: str) -> None:
+    root = tmp_path / "styles"
+    root.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    target = tmp_path / "target.xsl"
+    target.write_text('<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"/>', encoding="utf-8")
+    link = tmp_path / link_parent / "linked.xsl"
+    try:
+        link.symlink_to(target)
+    except OSError as error:  # pragma: no cover - Windows may deny symlink creation
+        pytest.skip(f"symlinks unavailable: {error}")
+    with pytest.raises(ValueError, match="path escapes import_root") as rejection:
+        Transform(_import_sheet(str(link)), base_url=str(root / "main.xsl"), import_root=root)
+    assert str(rejection.value).endswith("linked.xsl")
+    assert "target.xsl" not in str(rejection.value)
+
+
+@pytest.mark.parametrize(
     "replacement",
     [
         pytest.param(
