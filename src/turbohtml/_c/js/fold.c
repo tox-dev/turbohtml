@@ -564,7 +564,7 @@ static int is_empty_branch(F *folder, int32_t idx) {
    Each rotation moves the left operand one level down and no other operand deeper, so sibling
    parenthesised groups, which the parser meters one at a time, would join into a spine as tall
    as their sum. left_deepest is the deepest point under the left operand (or a bound above it):
-   once a rotation would push that past JM_MAX_REWRITE_DEPTH the rotation stops, and the printer
+   once a rotation would push that past prog->rewrite_limit the rotation stops, and the printer
    parenthesises the right operand left in place. */
 static void rotate_logical_chain(F *folder, int32_t idx, int32_t settled, int32_t left_deepest) {
     jm_program *prog = folder->prog;
@@ -572,7 +572,7 @@ static void rotate_logical_chain(F *folder, int32_t idx, int32_t settled, int32_
         TH_WORK_STEP();
         uint16_t op = prog->nodes[cur].op;
         while (prog->nodes[prog->nodes[cur].b].kind == JN_LOGICAL && prog->nodes[prog->nodes[cur].b].op == op) {
-            if (left_deepest >= JM_MAX_REWRITE_DEPTH) {
+            if (left_deepest >= prog->rewrite_limit) {
                 return;
             }
             if (++left_deepest > folder->deepest) {
@@ -1049,7 +1049,7 @@ static void fold_if_return_chain(F *folder, int32_t first) {
             prog->nodes[next].kind != JN_RETURN || prog->nodes[next].a < 0) {
             continue;
         }
-        if (folder->deepest >= JM_MAX_REWRITE_DEPTH) {
+        if (folder->deepest >= prog->rewrite_limit) {
             break; /* this guard and the ones before it stay statements */
         }
         int32_t cond = make_cond(folder, prog->nodes[index].a, prog->nodes[then].a, prog->nodes[next].a);

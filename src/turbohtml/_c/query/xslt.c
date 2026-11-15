@@ -19,6 +19,7 @@
 #include "core/hash.h"
 #include "core/node_map.h"
 #include "core/resource.h"
+#include "core/stack.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "dom/nodes.h"
@@ -30,15 +31,6 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
-#if defined(__linux__)
-#include <pthread.h>
-#if !defined(__GLIBC__) && !defined(__ANDROID__)
-#include <sys/auxv.h>
-#include <sys/resource.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
-#endif
 #include <stdint.h>
 #include <string.h>
 
@@ -1074,7 +1066,7 @@ typedef struct engine {
     int gen_counter;
     int depth;
     int key_builds; /* key tables being built, each nested in the use expression of the one before */
-#if defined(__linux__)
+#ifdef TH_STACK_FLOOR
     uintptr_t stack_floor; /* enter_deep_level's bound for the thread of this run; 0 until its first checked level */
 #endif
 
@@ -1202,53 +1194,6 @@ static int build_name_indexes(engine *eng) {
    the stack check and the cap, so a level costs one comparison, as it did before the stack check existed. */
 #define XSLT_STACK_CHECK_DEPTH 32
 _Static_assert(XSLT_MAX_DEPTH > XSLT_STACK_CHECK_DEPTH, "enter_deep_level enforces the cap");
-
-#if defined(__linux__)
-/* Stack kept free below a counted level for what runs under it without a check of its own: an instruction handler and
-   the XPath evaluation it starts. CPython 3.14 keeps 32 KiB for the same purpose; this is twice that so this guard
-   answers first where both run. */
-#define XSLT_STACK_MARGIN ((size_t)64 * 1024)
-
-/* The lowest address a counted level may run at on the calling thread. A thread's stack never moves, and glibc reads
-   /proc/self/maps to answer for the main thread, so each thread asks once. */
-TH_NOINLINE static uintptr_t find_stack_floor(void) {
-    static __thread uintptr_t known;
-    if (known != 0) {
-        return known;
-    }
-    pthread_attr_t attr;
-    if (pthread_getattr_np(pthread_self(), &attr) != 0) { /* GCOVR_EXCL_BR_LINE: fails only without /proc or memory */
-        return known = 1;                                 /* GCOVR_EXCL_LINE: no frame lies below 1, so no trip */
-    }
-    void *lowest = NULL;
-    size_t size = 0;
-    pthread_attr_getstack(&attr, &lowest, &size);
-#if !defined(__GLIBC__) && !defined(__ANDROID__)
-    size_t guard = 0;
-    pthread_attr_getguardsize(&attr, &guard);
-#endif
-    pthread_attr_destroy(&attr);
-#if !defined(__GLIBC__) && !defined(__ANDROID__)
-    /* musl keeps no bounds for the process's first thread and reports only the part of its stack mapped so far, which
-       the kernel grows on demand until the mapping spans RLIMIT_STACK. That thread is the one with no guard page: a
-       thread forked into a child keeps its guard, and the thread id rules out one started on a stack its creator
-       supplied. The kernel copies the executable's path to the top of the mapping, above the argument and environment
-       strings that musl's answer leaves out, so the page that path ends in closes the mapping. */
-    struct rlimit limit;
-    if (guard == 0 && getpid() == (pid_t)syscall(SYS_gettid) && getrlimit(RLIMIT_STACK, &limit) == 0) {
-        const char *path = (const char *)getauxval(AT_EXECFN);
-        uintptr_t page = (uintptr_t)getauxval(AT_PAGESZ);
-        uintptr_t end = path == NULL ? (uintptr_t)lowest + size : ((uintptr_t)path + strlen(path) + page) & ~(page - 1);
-        if (limit.rlim_cur == RLIM_INFINITY || limit.rlim_cur >= end) {
-            return known = 1; /* no limit to keep under; the level cap and the interpreter's check still apply */
-        }
-        lowest = (void *)(end - limit.rlim_cur);
-        size = limit.rlim_cur;
-    }
-#endif
-    return known = (uintptr_t)lowest + (size / 2 < XSLT_STACK_MARGIN ? size / 2 : XSLT_STACK_MARGIN);
-}
-#endif
 
 /* ---- xsl element identification ------------------------------------------- */
 
@@ -2935,9 +2880,9 @@ static int raise_attrset_depth(engine *eng, const xslt_attrset *set) {
    comparison.
 
    The interpreter's own guard compares the stack pointer with the thread's real limit only from CPython 3.14; before
-   that it counts calls. Only its stack check is wanted, so the call is released at once. On Linux, where musl starts
-   threads with 128 KiB, the thread's bounds are also read directly, which covers every Python version. Elsewhere an
-   older interpreter relies on 400 levels fitting the default thread stacks (512 KiB on macOS, 1 MiB on Windows). */
+   that it counts calls. Only its stack check is wanted, so the call is released at once. On Linux, macOS and Windows
+   the thread's bounds are also read directly (th_stack_floor), which covers every Python version. Elsewhere an older
+   interpreter relies on 400 levels fitting the thread's stack. */
 TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, const xslt_attrset *set) {
     if (eng->depth > XSLT_MAX_DEPTH) {
         eng->depth--;
@@ -2964,12 +2909,11 @@ TH_NOINLINE static int enter_deep_level(engine *eng, enum xslt_level level, cons
                      XSLT_MAX_DEPTH);
         return fail_py(eng);
     }
-#if defined(__linux__)
+#ifdef TH_STACK_FLOOR
     if (eng->stack_floor == 0) {
-        eng->stack_floor = find_stack_floor();
+        eng->stack_floor = th_stack_floor();
     }
-    /* the frame address, not a local's: under ASan a local can live on a heap-allocated fake stack */
-    if ((uintptr_t)__builtin_frame_address(0) < eng->stack_floor) {
+    if (TH_FRAME_ADDRESS() < eng->stack_floor) {
         eng->depth--;
         PyErr_SetString(PyExc_RecursionError,
                         "xslt: template nesting needs more C stack than this thread has left; reduce the recursion "
@@ -6975,7 +6919,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree,
     eng->ns_counter = 0;
     eng->gen_counter = 0;
     eng->depth = 0;
-#if defined(__linux__)
+#ifdef TH_STACK_FLOOR
     eng->stack_floor = 0; /* the model may have been compiled on another thread */
 #endif
 #ifdef TH_OPERATION_LIMIT

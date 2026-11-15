@@ -3,6 +3,7 @@
 
 #include "core/common.h"
 #include "core/node_map.h"
+#include "core/stack.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
 #include "dom/tree.h"
@@ -2722,10 +2723,18 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
     }
 }
 
+TH_NOINLINE int xp_too_deep(int depth) {
+#ifdef TH_STACK_FLOOR
+    return depth >= XP_MAX_DEPTH || TH_FRAME_ADDRESS() < th_stack_floor();
+#else
+    return depth >= XP_MAX_DEPTH;
+#endif
+}
+
 /* Guard every recursive descent with a depth cap so a long operator spine or a deeply
    nested group raises past the bound instead of overflowing the C stack (issue #421). */
 int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists) {
-    if (ctx->depth >= XP_MAX_DEPTH) {
+    if (ctx->depth >= XP_STACK_CHECK_DEPTH && xp_too_deep(ctx->depth)) {
         *ctx->feature = "an expression nested too deeply";
         return -5;
     }
@@ -2752,7 +2761,7 @@ int eval_guarded(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *ou
    no instruction of its own for it. Out of line: inlined into eval_function, it grew the LTO unit enough to stop an
    unrelated inline in the selector matcher. */
 TH_NOINLINE int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists) {
-    if (ctx->depth + XP_HELD_DEPTH >= XP_MAX_DEPTH) {
+    if (ctx->depth + XP_HELD_DEPTH >= XP_STACK_CHECK_DEPTH && xp_too_deep(ctx->depth + XP_HELD_DEPTH)) {
         *ctx->feature = "an expression nested too deeply";
         return -5;
     }

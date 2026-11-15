@@ -1563,7 +1563,7 @@ static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, in
     return !prog->syms[sym].read_before_init;
 }
 
-/* Whether moving the function declaration of sym under its one read keeps the tree within JM_MAX_REWRITE_DEPTH, and
+/* Whether moving the function declaration of sym under its one read keeps the tree within prog->rewrite_limit, and
    if so, the bookkeeping for the move. The body lands as deep as the read sits plus its own height, so a chain of
    nested declarations, each read under a tall expression, would otherwise stack those expressions: the parser meters
    each on its own, the inlined tree is as tall as their sum, and every later walk recurses once per level. The
@@ -1578,7 +1578,7 @@ static int function_inline_fits(jm_program *prog, int32_t sym) {
     for (int32_t scope = prog->syms[sym].scope; scope >= 0; scope = prog->scopes[scope].parent) {
         bottom += prog->scopes[scope].sunk;
     }
-    if (bottom > JM_MAX_REWRITE_DEPTH) {
+    if (bottom > prog->rewrite_limit) {
         return 0;
     }
     prog->scopes[own].sunk = sink;

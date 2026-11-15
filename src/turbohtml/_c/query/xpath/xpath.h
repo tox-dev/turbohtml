@@ -147,7 +147,7 @@ typedef int (*xp_extension_fn)(void *ctx, xp_item context, const Py_UCS4 *name, 
    -3 for an evaluation error that maps to ValueError (a reference to an unbound variable,
    or a name test whose prefix is not bound), -4 for a type error that maps to TypeError
    (a value used where a node-set is required), or -5 for an expression nested past
-   XP_MAX_DEPTH, which maps to XPathDepthError (a ValueError subclass),
+   XP_MAX_DEPTH or the thread's C stack, which maps to XPathDepthError (a ValueError subclass),
    with *feature set to a short name for the message. Returns -1 on allocation failure or
    when a Python error is already set (a malformed regex, an extension failure, or an
    unknown-function/wrong-arity call reported with the function name). */

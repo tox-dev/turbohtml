@@ -173,6 +173,13 @@ int xp_name_eq(const lexer *lx, const char *kw);
    writes takes, and 64 levels already fire on an expression of a hundred characters. */
 #define XP_MAX_DEPTH 64
 
+/* Levels past this one also compare their frame with the thread's stack floor (xp_too_deep): 64 levels fit the default
+   thread stacks, but not a thread sized near the smallest Python starts. Shallower levels pay one comparison. */
+#define XP_STACK_CHECK_DEPTH 16
+
+/* Whether a level at depth reaches XP_MAX_DEPTH or the end of the thread's C stack. */
+int xp_too_deep(int depth);
+
 /* What the evaluator charges on top of the level eval_expr counts. A function call
    keeps its frame under its arguments and a location path its step state under its
    base expression and its predicates (XP_HELD_DEPTH), and a predicate its context

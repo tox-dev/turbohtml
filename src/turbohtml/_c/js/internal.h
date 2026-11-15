@@ -304,13 +304,6 @@ static inline int jm_is_reference_operand(const jm_node *node, int identifiers) 
                             node->str[3] == 'l'));
 }
 
-/* How deep, in walk calls from the program root, a rewrite may leave the tree. The fold, mangle and print walks recurse
-   once per level and are sized for the height the parser's nesting cap (JM_MAX_DEPTH) admits, but three rewrites turn
-   something that cap never meters into height: the guard fold nests a statement list once per `if(c)return v;`, the
-   logical-chain rotation joins sibling parenthesised groups into one spine, and the single-use function inline hangs a
-   declaration's body under its read. Each stops growing the tree here, set under the parser's cap. */
-enum { JM_MAX_REWRITE_DEPTH = TH_DEPTH_LIMIT(900) };
-
 /* A lexical binding. name borrows the source; resolved follows references to their
    declaration after the whole program is parsed (a reference's symbol points at the
    nearest enclosing declaration once scopes close). uses counts references so the
@@ -406,6 +399,13 @@ typedef struct jm_program {
     int never_undefined;   /* a fold found no binding named `undefined`; no pass creates a binding, so none appears */
     int resolved;          /* every identifier carries its symbol from a with/eval-free resolution */
     int has_regex;         /* a regex literal was parsed: only then can a binding be initialized to one */
+    /* How deep, in walk calls from the program root, a rewrite may leave the tree. The fold, mangle and print walks
+       recurse once per level and are sized for the height the parser's nesting cap admits, but three rewrites turn
+       something that cap never meters into height: the guard fold nests a statement list once per `if(c)return v;`,
+       the logical-chain rotation joins sibling parenthesised groups into one spine, and the single-use function inline
+       hangs a declaration's body under its read. Each stops growing the tree here, nine tenths of the parser's cap on
+       the thread jm_parse ran on. */
+    int32_t rewrite_limit;
 
     int failed;     /* sticky allocation failure: the minifier raises MemoryError instead of printing the tree */
     int *parse_err; /* the parser's error flag while jm_parse runs, else NULL: a failed node allocation stops the

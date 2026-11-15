@@ -375,6 +375,10 @@ in any letter case.
 ``<`` and a following ``/``. It passes a ``</script`` or ``<!--`` already in the source through, so its output is not
 safe to paste into a ``<script>`` element; minify inline scripts through ``Minify(minify_js=...)`` instead.
 
+A script may nest 1,000 levels deep. On a thread whose C stack holds fewer, such as the 512 KiB secondary threads of
+macOS, the limit is what the stack left below the call holds, so a deeper script raises :exc:`ValueError` instead of
+overflowing the stack.
+
 .. autofunction:: minify_js
 
 .. autoclass:: JSMinify
