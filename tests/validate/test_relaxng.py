@@ -3597,6 +3597,17 @@ def _routed_chain(depth: int) -> str:
     return grammar(start + "".join(defs))
 
 
+def test_rng_small_schema_nested_places_raise() -> None:
+    schema = RelaxNG(
+        grammar(
+            '<start><ref name="x"/></start><define name="x"><element name="a">'
+            '<zeroOrMore><ref name="x"/></zeroOrMore><zeroOrMore><ref name="x"/></zeroOrMore></element></define>'
+        )
+    )
+    with pytest.raises(ValueError, match="too ambiguous"):
+        schema.validate(parse_xml("<a>" * 12 + "</a>" * 12))
+
+
 @cache
 def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
     # every nesting depth from 1 to the cap runs the start-tag walk down the repeat nest on the smallest stack the
