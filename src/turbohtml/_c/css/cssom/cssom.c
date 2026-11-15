@@ -1495,6 +1495,10 @@ typedef struct {
     Py_ssize_t count;
 } css_inline_style;
 
+/* The most answers of the cascade's deep :has() memo, in bytes: 2 MiB of two-bit answers, 8M of them, more than the
+   1.5M the cascade's old hash table held. A page's cascade keeps one memo for every rule and element. */
+#define CSS_DEEP_MEMO_LIMIT ((size_t)1 << 21)
+
 /* The largest :has() table the cascade keeps: 2^21 slots of 24 bytes, 48 MB. Each :has() argument keys its own answers,
    one per element, so without a cap the table grows with arguments times elements. */
 #define CSS_HAS_MEMO_LIMIT ((size_t)1 << 21)
@@ -1540,8 +1544,8 @@ typedef struct {
     sel_memo legend_memo;
     /* one answer per rule and long attribute value, a product the page sets both factors of, so capped as has_memo */
     sel_memo value_memo;
-    /* the answers of the ancestor walks on a tree that may nest deep (sel_deep_query), capped as has_memo */
-    sel_memo deep_memo;
+    /* the answers of the ancestor walks on a tree that may nest deep (sel_deep_query), capped at CSS_DEEP_MEMO_LIMIT */
+    sel_deep_memo deep_memo;
 } css_computed_cache;
 
 static css_computed_cache *css_computed_new(uint64_t version) {
@@ -1568,7 +1572,7 @@ static css_computed_cache *css_computed_new(uint64_t version) {
     cache->attr_version = version;
     cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
-    cache->deep_memo.limit = CSS_HAS_MEMO_LIMIT;
+    cache->deep_memo.limit = CSS_DEEP_MEMO_LIMIT;
     return cache;
 }
 
@@ -1728,7 +1732,7 @@ static void css_free_computed(HandleObject *handle) {
         sel_memo_free(&cache->has_memo);
         sel_memo_free(&cache->legend_memo);
         sel_memo_free(&cache->value_memo);
-        sel_memo_free(&cache->deep_memo);
+        sel_deep_memo_free(&cache->deep_memo);
         sel_position_memo_free(&cache->position_memo);
         for (Py_ssize_t slot = 0; slot < cache->entry_count; slot++) {
             PyMem_Free(cache->entries[slot]);
@@ -2036,6 +2040,7 @@ static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet
                    &cache->legend_memo,
                    &cache->position_memo,
                    &cache->value_memo};
+    cache->deep_memo.failed |= th_tree_seq_wrapped(tree);
     long order = 0;
     for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
         const css_sheet *current = &sheets[sheet];

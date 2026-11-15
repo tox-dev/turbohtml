@@ -707,10 +707,10 @@ def test_computed_style_nth_of_out_of_order_deep_tree() -> None:
 
 
 def test_computed_style_deep_has_past_memo_limit() -> None:
-    # 64 :has() arguments each keep an answer per element, past the most answers the cascade keeps
-    arguments: Final = 64
+    # 128 :has() arguments of two compounds keep two answers per element, past the bytes of answers the cascade keeps
+    arguments: Final = 128
     sheet: Final = f":has({','.join(['p q'] * arguments)}){{color:blue}}:has(p){{color:red}}"
-    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 21) // arguments + 8_192)}")
+    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}")
     root: Final = document.select_one("html")
     assert root is not None
     assert computed_style(root)["color"] == "red"
@@ -748,7 +748,7 @@ def test_select_deep_has_past_memo_bound(above: int, count: int) -> None:
 
 
 def test_select_deep_has_memo_stays_within_budget(peak_bytes: PeakBytes) -> None:
-    # past the memo's bound the walk carries on without it, so the traced peak stays far below the unbounded table
+    # the answers of a deep query take two bits per compound and node, so the traced peak stays far below the hash table
     peak: Final = peak_bytes(
         "import tracemalloc\n"
         "from turbohtml import parse_xml\n"
@@ -761,7 +761,12 @@ def test_select_deep_has_memo_stays_within_budget(peak_bytes: PeakBytes) -> None
         "print(tracemalloc.get_traced_memory()[1])\n",
         (),
     )
-    assert peak < 128 * 1024 * 1024, peak
+    assert peak < 16 * 1024 * 1024, peak
+
+
+def test_select_deep_has_memo_work_linear(work_steps: WorkSteps) -> None:
+    # a 16-compound :has() over a chain: each compound answers once per node, so the steps grow with the depth alone
+    work_steps.assert_linear(lambda depth: partial(_nested(depth).select, f"b:has({'b ' * 15}i)"), (600, 2400))
 
 
 @pytest.mark.parametrize(

@@ -263,6 +263,29 @@ void sel_value_memo_put(sel_memo *memo, const void *key, const th_node *node, co
 void sel_position_memo_free(sel_position_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
 
+/* The deep stand-in's answers: two bits (unknown, no, yes) per key and node, a key being a pointer into the selector
+   (a :has() compound index, an ancestor target or a simple). A key's pages are indexed by node->seq, which the
+   tree numbers from 0 in creation order, and a page exists once a node in its block is stored. The memo holds
+   at most limit bytes of pages and directories, and past that, or when allocation fails, it is failed and the
+   matcher walks directly. */
+typedef struct {
+    const void *key;       /* NULL marks an empty slot */
+    unsigned char **pages; /* a page per block of SEL_DEEP_PAGE_NODES seqs, NULL until one of its nodes is stored */
+    size_t pages_len;
+} sel_deep_key;
+
+typedef struct {
+    sel_deep_key *keys; /* open addressing by key, NULL until the first store */
+    size_t mask;        /* capacity - 1 */
+    size_t count;       /* keys stored */
+    sel_deep_key *last; /* the slot of the key looked up last, valid until the table grows */
+    size_t bytes;       /* bytes of pages and page directories allocated */
+    size_t limit;       /* the most bytes of pages and directories a caller sets */
+    int failed;         /* past the limit or out of memory: the matcher walks directly */
+} sel_deep_memo;
+
+void sel_deep_memo_free(sel_deep_memo *memo);
+
 /* A query's stand-in for a selector that climbs (sel_compiled.climbs) on a tree that may nest deep. The HTML tree
    builder nests no deeper than TH_MAX_TREE_DEPTH, but an XML or a built tree nests without limit, and an ancestor walk
    from every candidate of a deep one is quadratic. The stand-in is one compound of one PSEUDO_DEEP simple whose sub is
@@ -274,12 +297,12 @@ typedef struct {
     sel_complex complex;
     sel_compound compound;
     sel_simple simple;
-    sel_memo memo;
+    sel_deep_memo memo;
 } sel_deep_query;
 
 sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep);
 /* Match one alternative as selector_matches_alt does, keeping the answers of the ancestor walks in memo. */
-int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_memo *memo);
+int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo);
 
 /* Whether a query over compiled runs on a stand-in: compiled climbs on a tree that may nest deep, or climbs from its
    climbs on any tree. */
@@ -294,13 +317,13 @@ int selector_matches_deep(th_node *node, sel_compiled *compiled, th_node *scope)
 /* The selector a query over compiled runs: compiled itself, or the stand-in in deep when sel_climbs_deep.
    sel_deep_leave frees what the stand-in kept. */
 static inline sel_compiled *sel_deep_enter(sel_compiled *compiled, sel_deep_query *deep) {
-    deep->memo.slots = NULL;
+    deep->memo.keys = NULL;
     return compiled->climbs != 0 && sel_climbs_deep(compiled) ? sel_deep_wrap(compiled, deep) : compiled;
 }
 
 static inline void sel_deep_leave(sel_deep_query *deep) {
-    if (deep->memo.slots != NULL) {
-        sel_memo_free(&deep->memo);
+    if (deep->memo.keys != NULL) {
+        sel_deep_memo_free(&deep->memo);
     }
 }
 void sel_free_alts(sel_complex *alts, int count);

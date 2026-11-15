@@ -3061,15 +3061,184 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
     return 0;
 }
 
+/* Each page covers SEL_DEEP_PAGE_NODES consecutive seqs at two bits each. */
+#define SEL_DEEP_PAGE_SHIFT 11
+#define SEL_DEEP_PAGE_NODES (1 << SEL_DEEP_PAGE_SHIFT)
+#define SEL_DEEP_PAGE_BYTES (SEL_DEEP_PAGE_NODES / 4)
+
+static size_t sel_deep_key_home(const void *key, size_t mask) {
+    return (size_t)(((uint64_t)(uintptr_t)key * 0x9E3779B97F4A7C15ull) >> 32) & mask;
+}
+
+static sel_deep_key *sel_deep_key_find(sel_deep_memo *memo, const void *key) {
+    if (memo->last->key == key) {
+        return memo->last;
+    }
+    for (size_t index = sel_deep_key_home(key, memo->mask);; index = (index + 1) & memo->mask) {
+        sel_deep_key *slot = &memo->keys[index];
+        if (slot->key == key) {
+            return memo->last = slot;
+        }
+        if (slot->key == NULL) {
+            return NULL;
+        }
+    }
+}
+
+/* Grows the key table to twice its size, or sets it up. The table is sized by the selector's keys, so it does not count
+   toward the limit. */
+static int sel_deep_key_grow(sel_deep_memo *memo) {
+    const size_t capacity = memo->keys == NULL ? 16 : (memo->mask + 1) * 2;
+    sel_deep_key *keys = PyMem_Calloc(capacity, sizeof(sel_deep_key));
+    if (keys == NULL) { /* GCOVR_EXCL_LINE: allocation failure cannot be forced from a test */
+        return 0;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    const size_t old_capacity = memo->keys == NULL ? 0 : memo->mask + 1;
+    sel_deep_key *old = memo->keys;
+    memo->keys = keys;
+    memo->last = NULL;
+    memo->mask = capacity - 1;
+    for (size_t index = 0; index < old_capacity; index++) {
+        if (old[index].key != NULL) {
+            size_t home = sel_deep_key_home(old[index].key, memo->mask);
+            while (keys[home].key != NULL) {
+                home = (home + 1) & memo->mask;
+            }
+            keys[home] = old[index];
+        }
+    }
+    PyMem_Free(old);
+    return 1;
+}
+
+static sel_deep_key *sel_deep_key_slot(sel_deep_memo *memo, const void *key) {
+    if (memo->keys == NULL || (memo->count + 1) * 4 > (memo->mask + 1) * 3) {
+        if (!sel_deep_key_grow(memo)) { /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    size_t index = sel_deep_key_home(key, memo->mask);
+    while (memo->keys[index].key != NULL && memo->keys[index].key != key) {
+        index = (index + 1) & memo->mask;
+    }
+    sel_deep_key *slot = &memo->keys[index];
+    if (slot->key == NULL) {
+        slot->key = key;
+        memo->count++;
+    }
+    memo->last = slot;
+    return slot;
+}
+
+TH_NOINLINE void sel_deep_memo_free(sel_deep_memo *memo) {
+    if (memo->keys != NULL) {
+        for (size_t index = 0; index <= memo->mask; index++) {
+            sel_deep_key *slot = &memo->keys[index];
+            if (slot->key != NULL) {
+                for (size_t block = 0; block < slot->pages_len; block++) {
+                    PyMem_Free(slot->pages[block]);
+                }
+                PyMem_Free(slot->pages);
+            }
+        }
+        PyMem_Free(memo->keys);
+    }
+    memo->keys = NULL;
+    memo->last = NULL;
+    memo->mask = 0;
+    memo->count = 0;
+    memo->bytes = 0;
+}
+
+static void sel_deep_fail(sel_deep_memo *memo) {
+    sel_deep_memo_free(memo);
+    memo->failed = 1;
+}
+
+static int sel_deep_reserve(sel_deep_memo *memo, size_t bytes) {
+    if (memo->bytes + bytes > memo->limit) {
+        return 0;
+    }
+    memo->bytes += bytes;
+    return 1;
+}
+
+static int sel_deep_get(sel_deep_memo *memo, const void *key, const th_node *node, int *out) {
+    if (memo->keys == NULL) {
+        return 0;
+    }
+    const sel_deep_key *slot = sel_deep_key_find(memo, key);
+    if (slot == NULL) {
+        return 0;
+    }
+    const size_t block = node->seq >> SEL_DEEP_PAGE_SHIFT;
+    if (block >= slot->pages_len || slot->pages[block] == NULL) {
+        return 0;
+    }
+    const unsigned state =
+        (slot->pages[block][(node->seq & (SEL_DEEP_PAGE_NODES - 1)) >> 2] >> ((node->seq & 3) * 2)) & 3u;
+    if (state == 0) {
+        return 0;
+    }
+    *out = state == 2;
+    return 1;
+}
+
+/* Adds the page of block to slot, which has none there, or fails the memo when the limit or memory stops it. */
+static int sel_deep_page(sel_deep_memo *memo, sel_deep_key *slot, size_t block) {
+    const size_t length = block < slot->pages_len ? slot->pages_len : block + 1;
+    const size_t grown = length - slot->pages_len;
+    if (!sel_deep_reserve(memo, grown * sizeof(unsigned char *) + SEL_DEEP_PAGE_BYTES)) {
+        sel_deep_fail(memo);
+        return 0;
+    }
+    if (grown > 0) {
+        unsigned char **pages = PyMem_Realloc(slot->pages, length * sizeof(unsigned char *));
+        if (pages == NULL) {     /* GCOVR_EXCL_LINE: allocation-failure path */
+            sel_deep_fail(memo); /* GCOVR_EXCL_LINE */
+            return 0;            /* GCOVR_EXCL_LINE */
+        }
+        memset(pages + slot->pages_len, 0, grown * sizeof(unsigned char *));
+        slot->pages = pages;
+        slot->pages_len = length;
+    }
+    slot->pages[block] = PyMem_Calloc(1, SEL_DEEP_PAGE_BYTES);
+    if (slot->pages[block] == NULL) { /* GCOVR_EXCL_LINE: allocation-failure path */
+        sel_deep_fail(memo);          /* GCOVR_EXCL_LINE */
+        return 0;                     /* GCOVR_EXCL_LINE */
+    }
+    return 1;
+}
+
+static void sel_deep_put(sel_deep_memo *memo, const void *key, const th_node *node, int result) {
+    if (memo->failed) {
+        return;
+    }
+    sel_deep_key *slot = memo->last != NULL && memo->last->key == key ? memo->last : sel_deep_key_slot(memo, key);
+    if (slot == NULL) {      /* GCOVR_EXCL_LINE: allocation-failure path */
+        sel_deep_fail(memo); /* GCOVR_EXCL_LINE */
+        return;              /* GCOVR_EXCL_LINE */
+    }
+    const size_t block = node->seq >> SEL_DEEP_PAGE_SHIFT;
+    if (block >= slot->pages_len || slot->pages[block] == NULL) {
+        if (!sel_deep_page(memo, slot, block)) {
+            return;
+        }
+    }
+    unsigned char *byte = &slot->pages[block][(node->seq & (SEL_DEEP_PAGE_NODES - 1)) >> 2];
+    const unsigned shift = (node->seq & 3) * 2;
+    *byte = (unsigned char)((*byte & ~(3u << shift)) | ((result ? 2u : 1u) << shift));
+}
+
 /* The matcher of a query's stand-in (sel_deep_query): the matcher above, with the answers of its ancestor walks kept
    in memo. A walk this short runs without it, so a tree that nests no deeper than ordinary markup never pays for a
    hash probe. */
 #define SEL_ANCESTOR_MEMO_MIN_RUN 32
 
-static int sel_deep_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx, sel_memo *memo);
-static int sel_deep_has(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx, sel_memo *memo);
+static int sel_deep_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx, sel_deep_memo *memo);
+static int sel_deep_has(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx, sel_deep_memo *memo);
 static enum sel_status sel_deep_left(th_node *node, const sel_complex *complex, int index, th_node *anchor,
-                                     const sel_ctx *ctx, sel_memo *memo);
+                                     const sel_ctx *ctx, sel_deep_memo *memo);
 
 /* Whether node declares the language a :lang() or the direction a :dir() reads, so its descendants that declare none
    answer as it does: an element with a lang or xml:lang, or one with a valid dir or a bdi without one. */
@@ -3089,7 +3258,7 @@ static int sel_deep_declares(th_node *node, const sel_simple *simple, th_tree *t
    document default (no language, ltr). An element between them answers as node does, so past the first
    SEL_ANCESTOR_MEMO_MIN_RUN levels the walk stops at the first one whose answer the memo holds and stores its answer
    under each one it passed. A telephone input never inherits its direction. */
-static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel_ctx *ctx, sel_deep_memo *memo) {
     if (simple->pseudo == PSEUDO_DIR && node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT &&
         sel_input_type_is(node, "tel")) {
         return sel_match_simple(node, simple, ctx);
@@ -3103,7 +3272,7 @@ static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel
             if (memo_from == NULL) {
                 memo_from = ancestor;
             }
-            if (sel_memo_get(memo, simple, ancestor, &found)) {
+            if (sel_deep_get(memo, simple, ancestor, &found)) {
                 break;
             }
         }
@@ -3114,7 +3283,7 @@ static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel
     }
     if (memo_from != NULL) {
         for (th_node *passed = memo_from; passed != ancestor; passed = passed->parent) {
-            sel_memo_put(memo, simple, passed, found);
+            sel_deep_put(memo, simple, passed, found);
         }
     }
     return found;
@@ -3122,7 +3291,8 @@ static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel
 
 /* :nth-child(An+B of S) and :nth-last-child(An+B of S): sel_nth_index reading S through this matcher. A query in
    document order meets a sibling list's candidates in order, so the count goes on from the previous candidate's. */
-static int sel_deep_nth(th_node *node, int direction, const sel_simple *simple, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_nth(th_node *node, int direction, const sel_simple *simple, const sel_ctx *ctx,
+                        sel_deep_memo *memo) {
     if (!sel_deep_alts(node, simple->sub, simple->sub_count, ctx, memo)) {
         return 0;
     }
@@ -3153,7 +3323,7 @@ static int sel_deep_nth(th_node *node, int direction, const sel_simple *simple, 
 }
 
 /* sel_match_simple for the simples whose answer climbs, or holds a selector list that may. */
-static int sel_deep_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx, sel_deep_memo *memo) {
     if (simple->kind == ':') {
         switch (simple->pseudo) {
         case PSEUDO_LANG:
@@ -3180,7 +3350,7 @@ static int sel_deep_simple(th_node *node, const sel_simple *simple, const sel_ct
     return sel_match_simple(node, simple, ctx);
 }
 
-static int sel_deep_compound(th_node *node, const sel_compound *compound, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_compound(th_node *node, const sel_compound *compound, const sel_ctx *ctx, sel_deep_memo *memo) {
     if (node->type != TH_NODE_ELEMENT) {
         return 0;
     }
@@ -3194,7 +3364,7 @@ static int sel_deep_compound(th_node *node, const sel_compound *compound, const 
 
 /* Whether node matches target, comparing atoms when target is a lone builtin type selector of an HTML tree. */
 static int sel_deep_target(th_node *node, const sel_compound *target, uint16_t target_atom, const sel_ctx *ctx,
-                           sel_memo *memo) {
+                           sel_deep_memo *memo) {
     if (target_atom != TH_TAG_UNKNOWN) {
         return node->type == TH_NODE_ELEMENT && node->atom == target_atom;
     }
@@ -3202,7 +3372,7 @@ static int sel_deep_target(th_node *node, const sel_compound *target, uint16_t t
 }
 
 static enum sel_status sel_deep_from(th_node *node, const sel_complex *complex, int index, th_node *anchor,
-                                     const sel_ctx *ctx, sel_memo *memo) {
+                                     const sel_ctx *ctx, sel_deep_memo *memo) {
     if (index == 0) {
         return anchor == NULL ? SEL_MATCHES : sel_match_anchor(node, &complex->compounds[0], anchor);
     }
@@ -3211,7 +3381,7 @@ static enum sel_status sel_deep_from(th_node *node, const sel_complex *complex, 
 
 /* sel_match_sibling_walk through this matcher. */
 static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *complex, int index, th_node *anchor,
-                                         const sel_ctx *ctx, sel_memo *memo) {
+                                         const sel_ctx *ctx, sel_deep_memo *memo) {
     const sel_compound *target = &complex->compounds[index - 1];
     const uint16_t target_atom = sel_compound_known_type_atom(target, ctx->tree);
     th_node *nearest = sel_prev_element(node);
@@ -3259,7 +3429,7 @@ static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *compl
    scope too, so the walk keeps off it unless the context holds a sibling memo, which a driver passes only while the
    scope stays put. */
 static enum sel_status sel_deep_ancestors(th_node *node, const sel_complex *complex, int index, th_node *anchor,
-                                          const sel_ctx *ctx, sel_memo *memo) {
+                                          const sel_ctx *ctx, sel_deep_memo *memo) {
     const sel_compound *target = &complex->compounds[index - 1];
     const uint16_t target_atom = sel_compound_known_type_atom(target, ctx->tree);
     enum sel_status status = SEL_FAILS_COMPLETELY;
@@ -3272,7 +3442,7 @@ static enum sel_status sel_deep_ancestors(th_node *node, const sel_complex *comp
             memo_from = ancestor;
         }
         int cached;
-        if (memo_from != NULL && sel_memo_get(memo, target, ancestor, &cached)) {
+        if (memo_from != NULL && sel_deep_get(memo, target, ancestor, &cached)) {
             status = cached ? SEL_MATCHES : SEL_FAILS_COMPLETELY;
             break;
         }
@@ -3286,7 +3456,7 @@ static enum sel_status sel_deep_ancestors(th_node *node, const sel_complex *comp
     }
     if (memo_from != NULL) {
         for (th_node *passed = memo_from; passed != ancestor; passed = passed->parent) {
-            sel_memo_put(memo, target, passed, status == SEL_MATCHES);
+            sel_deep_put(memo, target, passed, status == SEL_MATCHES);
         }
     }
     return status;
@@ -3294,7 +3464,7 @@ static enum sel_status sel_deep_ancestors(th_node *node, const sel_complex *comp
 
 /* sel_match_left through this matcher. */
 static enum sel_status sel_deep_left(th_node *node, const sel_complex *complex, int index, th_node *anchor,
-                                     const sel_ctx *ctx, sel_memo *memo) {
+                                     const sel_ctx *ctx, sel_deep_memo *memo) {
     const sel_compound *target = &complex->compounds[index - 1];
     const uint16_t target_atom = sel_compound_known_type_atom(target, ctx->tree);
     switch (complex->compounds[index].combinator) {
@@ -3326,13 +3496,13 @@ static enum sel_status sel_deep_left(th_node *node, const sel_complex *complex, 
     }
 }
 
-int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_memo *memo) {
+int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo) {
     const int subject = complex->count - 1;
     return sel_deep_compound(node, &complex->compounds[subject], ctx, memo) &&
            sel_deep_from(node, complex, subject, NULL, ctx, memo) == SEL_MATCHES;
 }
 
-static int sel_deep_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx, sel_deep_memo *memo) {
     for (int index = 0; index < count; index++) {
         if (sel_deep_matches_alt(node, &alts[index], ctx, memo)) {
             return 1;
@@ -3348,13 +3518,14 @@ static const void *sel_deep_has_key(const sel_complex *rel, int index) {
     return &rel->compounds[index].combinator;
 }
 
-static int sel_deep_has_rel(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_memo *memo);
+static int sel_deep_has_rel(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_deep_memo *memo);
 
 /* Whether node matches compounds[index] of rel, a :has() argument without :scope, and the compounds right of it hang
    off node in turn: rel read left to right, so that every answer is a fact of the tree and the memo keeps it for every
    anchor. -1 once the memo has failed, since without it each node would rescan its subtree; the anchor then takes the
    direct walk. */
-static int sel_deep_has_step(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_has_step(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx,
+                             sel_deep_memo *memo) {
     if (!sel_deep_compound(node, &rel->compounds[index], ctx, memo)) {
         return 0;
     }
@@ -3367,7 +3538,7 @@ static int sel_deep_has_step(th_node *node, const sel_complex *rel, int index, c
 /* Whether node's subtree (its strict descendants) holds an element that passes sel_deep_has_step at index: the
    descendant walk of sel_has_desc, with every answer past SEL_HAS_MEMO_MIN_DESCENT levels below the anchor kept in
    memo under key. */
-static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_memo *memo,
+static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_deep_memo *memo,
                              int descent) {
     const void *key = sel_deep_has_key(rel, index);
     th_node *current = node;
@@ -3380,7 +3551,7 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
             current = child;
             current_descent++;
         entered:
-            if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT && sel_memo_get(memo, key, current, &found)) {
+            if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT && sel_deep_get(memo, key, current, &found)) {
                 if (found) {
                     break;
                 }
@@ -3395,7 +3566,7 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
     complete:
         /* node itself was never tested, so its subtree's answer is not its own */
         if (current != node && current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
-            sel_memo_put(memo, key, current, 0);
+            sel_deep_put(memo, key, current, 0);
         }
         while (current != node) {
             th_node *sibling = sel_next_element_sibling(current);
@@ -3406,7 +3577,7 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
             current = current->parent;
             current_descent--;
             if (current != node && current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
-                sel_memo_put(memo, key, current, 0);
+                sel_deep_put(memo, key, current, 0);
             }
         }
         return 0;
@@ -3414,7 +3585,7 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
     /* a failed memo stores nothing more, so marking after a -1 is harmless */
     for (th_node *ancestor = current->parent;; ancestor = ancestor->parent) {
         if (--current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
-            sel_memo_put(memo, key, ancestor, 1);
+            sel_deep_put(memo, key, ancestor, 1);
         }
         if (ancestor == node) {
             return found;
@@ -3425,26 +3596,27 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
 /* Whether a later element sibling of node passes sel_deep_has_step at index. Whether one does at or after a sibling
    depends only on that sibling, so the walk stops at the first one whose answer the memo holds and stores its answer
    under each one it passed: the anchors of a long sibling run visit each sibling a bounded number of times. */
-static int sel_deep_has_later(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_has_later(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx,
+                              sel_deep_memo *memo) {
     const void *key = sel_deep_has_key(rel, index);
     th_node *first = sel_next_element_sibling(node);
     th_node *sibling = first;
     int found = 0;
     for (; sibling != NULL; sibling = sel_next_element_sibling(sibling)) {
         TH_WORK_STEP();
-        if (sel_memo_get(memo, key, sibling, &found) || (found = sel_deep_has_step(sibling, rel, index, ctx, memo))) {
+        if (sel_deep_get(memo, key, sibling, &found) || (found = sel_deep_has_step(sibling, rel, index, ctx, memo))) {
             break;
         }
     }
     for (th_node *passed = first; passed != sibling; passed = sel_next_element_sibling(passed)) {
-        sel_memo_put(memo, key, passed, found);
+        sel_deep_put(memo, key, passed, found);
     }
     return found;
 }
 
 /* Whether an element that compounds[index]'s combinator relates to node passes sel_deep_has_step at index: the
    compounds from index on, read as a :has() argument of node. */
-static int sel_deep_has_rel(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_has_rel(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx, sel_deep_memo *memo) {
     switch (rel->compounds[index].combinator) {
     case '>':
         for (th_node *child = sel_first_element_child(node); child != NULL; child = sel_next_element_sibling(child)) {
@@ -3468,7 +3640,7 @@ static int sel_deep_has_rel(th_node *node, const sel_complex *rel, int index, co
 
 /* sel_has_subtree through this matcher. */
 static int sel_deep_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx,
-                                sel_memo *memo) {
+                                sel_deep_memo *memo) {
     th_node *current = sel_first_element_child(node);
     while (current != NULL) {
         TH_WORK_STEP();
@@ -3499,7 +3671,7 @@ static int sel_deep_has_subtree(th_node *node, const sel_complex *rel, int subje
 /* sel_has_match through this matcher. An argument without :scope reads left to right, its answers facts of the tree
    the memo keeps for every anchor; a :scope that pins the leftmost compound to the anchor leaves the rest to read that
    way. An argument that writes :scope elsewhere, or meets a memo that failed, takes the direct walk from the anchor. */
-static int sel_deep_has(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx, sel_memo *memo) {
+static int sel_deep_has(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx, sel_deep_memo *memo) {
     sel_ctx scoped = *ctx;
     scoped.scope = anchor;
     scoped.sibling_memo = NULL;
@@ -3547,13 +3719,11 @@ static TH_NOINLINE int sel_deep_match(th_node *node, const sel_simple *simple, c
     return sel_deep_alts(node, simple->sub, simple->sub_count, ctx, &deep->memo);
 }
 
-/* The most slots the stand-in's memo grows to, the same bound as the cascade's :has() table (CSS_HAS_MEMO_LIMIT). Keys
-   are one per compound index and node, so past it the matcher walks directly and memory stops growing with the
-   selector's length times the depth. */
-#define SEL_DEEP_MEMO_LIMIT ((size_t)1 << 21)
+/* The most bytes of pages a query's memo holds: 256 MiB, about 1e9 answers. Past it the matcher walks directly. */
+#define SEL_DEEP_MEMO_LIMIT ((size_t)256 << 20)
 
 sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep) {
-    deep->memo = (sel_memo){.limit = SEL_DEEP_MEMO_LIMIT};
+    deep->memo = (sel_deep_memo){.limit = SEL_DEEP_MEMO_LIMIT, .failed = th_tree_seq_wrapped(compiled->tree)};
     deep->simple =
         (sel_simple){.kind = ':', .pseudo = PSEUDO_DEEP, .sub = compiled->alts, .sub_count = compiled->count};
     deep->compound = (sel_compound){&deep->simple, 1, ' '};

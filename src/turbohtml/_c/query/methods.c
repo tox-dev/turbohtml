@@ -2619,6 +2619,8 @@ retry:;
     return PyBool_FromLong(matched);
 }
 
+static int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) __attribute__((always_inline));
+
 TH_NODE_API(, PyObject *, node_css_closest, (PyObject * self, PyObject *arg), (self, arg),
             (PyObject * self, PyObject *arg), (NodeObject *)self,
             arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
@@ -2655,7 +2657,7 @@ static TH_NOINLINE th_node *closest_sharing_dir(th_node *scope, const sel_compil
     return found;
 }
 
-int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
+static int node_css_closest_borrowed(PyObject *self, PyObject *arg, th_node **found) {
     if (check_selector_arg(arg) < 0) {
         return -1;
     }
