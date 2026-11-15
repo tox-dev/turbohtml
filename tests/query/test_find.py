@@ -27,6 +27,7 @@ _DOC: Final[str] = (
     '<section><h2 id="t">T</h2><p class="lead big">one</p><p class="big">two</p><a href="/x">l</a></section>'
 )
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
+_WORD: Final[re.Pattern[str]] = re.compile(r"\w")
 
 
 def _raise(_value: str | None) -> bool:
@@ -236,6 +237,20 @@ def test_axis_following_skips_text_nodes() -> None:
 def test_axis_preceding_excludes_ancestors() -> None:
     link = _el(parse(_DOC).find("a"))
     assert _el(link.find("h2", axis=Axis.PRECEDING)).tag == "h2"
+
+
+@pytest.mark.parametrize(
+    ("query", "tags"),
+    [
+        pytest.param(lambda link: link.find_all(axis=Axis.PRECEDING), ["p", "p", "h2", "head"], id="structural"),
+        pytest.param(lambda link: link.find_all(text="T", axis=Axis.PRECEDING), ["h2"], id="text-scan"),
+        pytest.param(lambda link: link.find_all(text=_WORD, axis=Axis.PRECEDING), ["p", "p", "h2"], id="text-regex"),
+        pytest.param(lambda link: link.find_all(text=bool, axis=Axis.PRECEDING), ["p", "p", "h2"], id="text-callable"),
+    ],
+)
+def test_axis_preceding_skips_every_ancestor(query: Callable[[Element], list[Element]], tags: list[str]) -> None:
+    # nearest first; <section>, <body> and <html> all hold the text yet none of them precedes the link
+    assert _tags(query(_el(parse(_DOC).find("a")))) == tags
 
 
 @pytest.mark.parametrize(
