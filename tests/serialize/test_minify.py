@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Doctype, Element, Formatter, Html, Minify, Text, parse, parse_fragment
+from turbohtml import Doctype, Element, Formatter, Html, Minify, Text, parse, parse_fragment, parse_xml
 from turbohtml.clean import CSSMinify, minify
 
 if TYPE_CHECKING:
+    from work_steps import WorkSteps
     from wpt_tree_corpus import WptHtmlTreeCorpus
 from turbohtml.clean import JSMinify
 from turbohtml.clean import Minify as CleanMinify
@@ -468,6 +470,71 @@ def test_omit_keeps_p_end_inside_formatting() -> None:
 def test_omit_keeps_p_end_before_formatting_sibling() -> None:
     out = frag("<div><p>a</p><b>x</b></div>", strip_comments=False)
     assert "</p>" in out
+
+
+# the HTML parser's open-element limit (TH_MAX_TREE_DEPTH); deeper trees come only from adoption or the DOM
+_PARSER_DEPTH: Final[int] = 512
+
+
+def test_omit_end_tag_guard_stays_linear_in_nesting(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: _adopted_serialize("<th>" * n + "</th>" * n), (500, 2000))
+
+
+def _adopted_serialize(xml: str) -> partial[str]:
+    host: Final = parse_fragment("", "div")
+    root: Final = parse_xml(xml).root
+    assert isinstance(root, Element)
+    host.append(root)
+    return partial(host.serialize, Html(layout=Minify()), inner=True)
+
+
+def test_omit_keeps_end_tags_over_trailing_formatting_past_parser_depth() -> None:
+    # the <i> stays on every cell's trailing path however deep it lies, and a following sibling takes it off
+    depth: Final = _PARSER_DEPTH + 37
+    opened, closed = "<th>" * depth, "</th>" * depth
+    assert _adopted(f"{opened}<i>x</i>{closed}") == f"{opened}<i>x</i>{closed}"
+    assert _adopted(f"{opened}<i>x</i>y{closed}") == f"{opened}<i>x</i>y"
+
+
+def _adopted(xml: str) -> str:
+    return _adopted_serialize(xml)()
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<ul><li><xmp><b/></xmp></li></ul>", "<ul><li><xmp><b></b></xmp></li></ul>", id="raw-text"),
+        pytest.param("<ul><li><br><b/></br></li></ul>", "<ul><li><br></li></ul>", id="void"),
+        pytest.param("<ul><li><xmp><b/>x</xmp></li></ul>", "<ul><li><xmp><b></b>x</xmp></ul>", id="not-trailing"),
+        pytest.param(
+            "<ul><li><xmp><span><b/></span></xmp></li></ul>",
+            "<ul><li><xmp><span><b></b></span></xmp></li></ul>",
+            id="raw-text-under-element",
+        ),
+    ],
+)
+def test_omit_end_tag_over_child_the_walk_does_not_descend_into(source: str, expected: str) -> None:
+    # a raw-text or void element holds an element only in a tree no parser built; the trailing path runs through it
+    assert _adopted(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("depth", "expected"),
+    [
+        pytest.param(_PARSER_DEPTH - 9, "<rp><rp></span>", id="within-parser-depth"),
+        pytest.param(_PARSER_DEPTH + 37, "<rp></rp><rp></span>", id="past-parser-depth"),
+    ],
+)
+def test_omit_scope_climb_stops_at_parser_depth(depth: int, expected: str) -> None:
+    # past the depth a reparse can reach the ruby is out of reach, so the end tag stays
+    out: Final = _adopted(f"<ruby>{'<span>' * depth}<rp/><rp/>{'</span>' * depth}</ruby>")
+    assert out.startswith(f"<ruby>{'<span>' * depth}{expected}")
+
+
+def test_omit_scope_climb_stays_linear_over_sibling_run(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: _adopted_serialize(f"<ruby>{'<span>' * n}{'<rp/>' * n}{'</span>' * n}</ruby>"), (500, 2000)
+    )
 
 
 def test_omit_li_end_dropped_with_attributed_child() -> None:

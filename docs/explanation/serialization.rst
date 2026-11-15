@@ -38,11 +38,12 @@ that generate implied end tags), since ``</span>`` stops at the open ``<p>`` and
 ``</dd>`` also stays at the end of an ``<li>``, ``<dd>`` or ``<dt>``, whose own end tag is optional; an ``</rt>``,
 ``</rp>``, ``</optgroup>`` or ``</option>`` at the end of its parent stays when that parent is an SVG or MathML
 integration point, whose end tag is ignored under the open HTML child, or another of those four elements (an
-``<option>`` ending its ``<optgroup>`` aside); and a value is unquoted only when no character could end or re-open it.
-The minified doctype keeps its public and system identifiers, since they choose the document mode, and in quirks mode a
-``</p>`` before a ``<table>`` stays, because a quirks parse nests the table inside the open paragraph. The transforms
-that would *not* round-trip (deleting whitespace between block elements, or omitting a tag whose reparse changes
-nesting) are exactly the ones turbohtml declines to make.
+``<option>`` ending its ``<optgroup>`` aside); an ``</rt>``, ``</rp>`` or ``</optgroup>`` before a sibling of its kind
+also stays when its ``<ruby>`` or ``<select>`` is more than 512 levels up, deeper than the parser builds; and a value is
+unquoted only when no character could end or re-open it. The minified doctype keeps its public and system identifiers,
+since they choose the document mode, and in quirks mode a ``</p>`` before a ``<table>`` stays, because a quirks parse
+nests the table inside the open paragraph. The transforms that would *not* round-trip (deleting whitespace between block
+elements, or omitting a tag whose reparse changes nesting) are exactly the ones turbohtml declines to make.
 
 An unclosed formatting element is reopened in every block after it, and each copy carries the attributes of its one
 start tag. The writers draw those copied attributes on a budget: ``html``, ``serialize()``, ``to_source()``,
