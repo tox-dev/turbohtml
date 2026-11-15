@@ -654,6 +654,7 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.xlink.last = NULL;
     self->cursor.xlink.scope = NULL;
     self->cursor.xml_ns = (th_xml_ns_spend){0, 0, TH_XML_NS_BASE};
+    self->cursor.clone_credit = 0;
     self->indent = indent;
     self->indent_len = indent_len;
     self->mutation_version = ((HandleObject *)handle)->mutation_version;
