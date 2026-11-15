@@ -2274,3 +2274,172 @@ def test_subtree_matches_lxml(selector: str, xpath: str, *, exclusive: bool, pre
     )
     theirs: Final = etree.tostring(target, method="c14n", exclusive=exclusive, inclusive_ns_prefixes=prefixes)
     assert ours == theirs
+
+
+_LONG_URI: Final[str] = f"http://example.com/{'u' * 3000}"
+
+
+def _xml_root(source: str) -> Node:
+    return parse_xml(source).children[0]
+
+
+def _xml_left_out_run() -> Node:
+    document: Final = parse_xml('<r xmlns="urn:a"><s/></r>')
+    holder: Final = document.select_one("s")
+    assert holder is not None
+    holder.append(Element("1a", {"xmlns:p": _LONG_URI}, children=[Element("p:b") for _ in range(64)]))
+    return document
+
+
+@pytest.mark.parametrize(
+    ("build", "options"),
+    [
+        pytest.param(
+            lambda: _xml_root(f'<r xmlns:p="{_LONG_URI}">{"<p:a/>" * 64}</r>'),
+            Canonical(exclusive=True),
+            id="xml-prefix-unused-on-root",
+        ),
+        pytest.param(
+            lambda: _xml_root(f'<q:r xmlns:q="urn:q" xmlns="{_LONG_URI}">{"<a/>" * 64}</q:r>'),
+            Canonical(exclusive=True),
+            id="xml-default-namespace",
+        ),
+        pytest.param(
+            lambda: _xml_root('<r xmlns:p="{}">{}</r>'.format(_LONG_URI, '<a p:b=""/>' * 64)),
+            Canonical(exclusive=True),
+            id="xml-attribute-prefix",
+        ),
+        pytest.param(
+            lambda: _xml_root(f'<t xmlns:p="{_LONG_URI}"><r>{"<p:a/>" * 64}</r></t>').children[0],
+            Canonical(exclusive=True),
+            id="xml-declared-above-apex",
+        ),
+        pytest.param(
+            lambda: _xml_root(f'<r xmlns:p="http://example.com/{"&amp;" * 3000}">{"<p:a/>" * 8}</r>'),
+            Canonical(exclusive=True),
+            id="xml-charged-as-written",
+        ),
+        pytest.param(
+            lambda: _xml_root(
+                "<r {}><a {}/></r>".format(
+                    " ".join(f'xmlns:p{index}="{_LONG_URI}{index}"' for index in range(33)),
+                    " ".join(f'p{index}:x=""' for index in range(33)),
+                )
+            ),
+            Canonical(exclusive=True),
+            id="xml-many-prefixes-on-one-element",
+        ),
+        pytest.param(_xml_left_out_run, Canonical(), id="xml-left-out-inclusive"),
+        pytest.param(
+            _xml_left_out_run, Canonical(exclusive=True, inclusive_ns_prefixes=("p",)), id="xml-left-out-forced"
+        ),
+        pytest.param(
+            lambda: _one(f'<div xmlns:p="{_LONG_URI}">{"<p:a></p:a>" * 64}</div>', "div"),
+            Canonical(exclusive=True),
+            id="html-prefix-unused-on-root",
+        ),
+        pytest.param(
+            lambda: _one(f'<div xmlns:z="{_LONG_URI}">{"<z:a></z:a>" * 64}</div>', "div"),
+            Canonical(exclusive=True),
+            id="html-prefix-after-xlink",
+        ),
+        pytest.param(
+            lambda: _one(f'<div><x@y xmlns:p="{_LONG_URI}"><p:z></p:z>{"<a></a>" * 64}</x@y></div>', "div"),
+            Canonical(),
+            id="html-left-out-inclusive",
+        ),
+        pytest.param(
+            lambda: _one(f'<div><x@y xmlns:p="{_LONG_URI}">{"<a></a>" * 64}</x@y></div>', "div"),
+            Canonical(exclusive=True, inclusive_ns_prefixes=("p",)),
+            id="html-left-out-forced",
+        ),
+    ],
+)
+def test_c14n_repeated_namespace_declarations_out_of_proportion_raise(
+    build: Callable[[], Node], options: Canonical
+) -> None:
+    node: Final = build()
+    with pytest.raises(ValueError, match="exceed the allowance of 65536 characters plus 32 per character of other"):
+        node.canonicalize(options)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(parse_xml, id="xml"),
+        pytest.param(lambda source: _one(source, "root"), id="html"),
+    ],
+)
+def test_c14n_repeated_namespace_declarations_in_proportion_are_kept(build: Callable[[str], Node]) -> None:
+    name: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    node: Final = build(f'<root xmlns:r="{name}">{"<r:id></r:id>" * 4000}</root>')
+    repeated: Final = f'<r:id xmlns:r="{name}"></r:id>' * 4000
+    assert node.canonicalize(Canonical(exclusive=True)) == f"<root>{repeated}</root>".encode()
+
+
+def test_c14n_long_repeated_namespace_declaration_fits_a_short_document() -> None:
+    document: Final = parse_xml(f'<r xmlns:p="{_LONG_URI * 10}"><p:a/><p:b/></r>')
+    assert len(document.canonicalize(Canonical(exclusive=True))) > 60000
+
+
+_ATOM: Final[str] = (
+    '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">'
+    "<title>t</title><entry><id>urn:e:1</id><title>one</title>"
+    '<media:thumbnail url="http://example.com/1.png"/></entry>'
+    "<entry><id>urn:e:2</id><title>two</title>"
+    '<media:thumbnail url="http://example.com/2.png"/></entry></feed>'
+)
+_SOAP: Final[str] = (
+    '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" '
+    'xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" '
+    'xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">'
+    '<s:Header><wsse:Security><wsu:Timestamp wsu:Id="ts"><wsu:Created>2026-11-15T00:00:00Z</wsu:Created>'
+    "</wsu:Timestamp></wsse:Security></s:Header>"
+    '<s:Body wsu:Id="body"><m:Order xmlns:m="urn:example:orders"><m:Item>1</m:Item><m:Item>2</m:Item></m:Order>'
+    "</s:Body></s:Envelope>"
+)
+
+
+@pytest.mark.parametrize(
+    ("source", "exclusive", "expected"),
+    [
+        pytest.param(
+            _ATOM,
+            True,
+            b'<feed xmlns="http://www.w3.org/2005/Atom"><title>t</title><entry><id>urn:e:1</id><title>one</title>'
+            b'<media:thumbnail xmlns:media="http://search.yahoo.com/mrss/" url="http://example.com/1.png">'
+            b"</media:thumbnail></entry><entry><id>urn:e:2</id><title>two</title>"
+            b'<media:thumbnail xmlns:media="http://search.yahoo.com/mrss/" url="http://example.com/2.png">'
+            b"</media:thumbnail></entry></feed>",
+            id="atom-exclusive",
+        ),
+        pytest.param(
+            _SOAP,
+            True,
+            b'<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Header>'
+            b'<wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0'
+            b'.xsd"><wsu:Timestamp xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-util'
+            b'ity-1.0.xsd" wsu:Id="ts"><wsu:Created>2026-11-15T00:00:00Z</wsu:Created></wsu:Timestamp></wsse:Security>'
+            b'</s:Header><s:Body xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-util'
+            b'ity-1.0.xsd" wsu:Id="body"><m:Order xmlns:m="urn:example:orders"><m:Item>1</m:Item><m:Item>2</m:Item>'
+            b"</m:Order></s:Body></s:Envelope>",
+            id="soap-exclusive",
+        ),
+        pytest.param(
+            _SOAP,
+            False,
+            b'<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" '
+            b'xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" '
+            b'xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">'
+            b'<s:Header><wsse:Security><wsu:Timestamp wsu:Id="ts"><wsu:Created>2026-11-15T00:00:00Z</wsu:Created>'
+            b"</wsu:Timestamp></wsse:Security></s:Header>"
+            b'<s:Body wsu:Id="body"><m:Order xmlns:m="urn:example:orders"><m:Item>1</m:Item><m:Item>2</m:Item>'
+            b"</m:Order></s:Body></s:Envelope>",
+            id="soap-inclusive",
+        ),
+    ],
+)
+def test_xml_c14n_namespaced_documents_keep_their_canonical_form(
+    source: str, expected: bytes, *, exclusive: bool
+) -> None:
+    assert parse_xml(source).canonicalize(Canonical(exclusive=exclusive)) == expected
