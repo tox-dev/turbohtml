@@ -38,8 +38,14 @@ static const char XSD_DT_NS[] = "http://www.w3.org/2001/XMLSchema-datatypes";
 static const char RNG_NS[] = "http://relaxng.org/ns/structure/1.0";
 
 /* Schema compilation and instance validation still have recursive grammar walks. Preflight the tree far enough below
-   the smallest supported thread stack that those walks cannot exhaust it. */
+   the smallest supported thread stack that those walks cannot exhaust it. The instance itself is descended with an
+   explicit stack (walk_stack_reserve), so its nesting adds nothing to the grammar walk an element starts. */
 #define TH_VALIDATE_MAX_DEPTH TH_DEPTH_LIMIT(400)
+
+/* Instance levels validated by recursion on the C stack before the walk moves to the explicit stack. A level costs a
+   few hundred bytes there, so the shallow levels stay small on any thread while the common shallow document pays no
+   frame bookkeeping. */
+#define TH_VALIDATE_SHALLOW_DEPTH 32
 
 /* Each collected error keeps its own copy of the path, so the errors and the names in the paths are both capped. */
 #define TH_VALIDATE_MAX_PATH_NAME 64
@@ -1128,6 +1134,30 @@ static const Py_UCS4 *element_text(valctx *ctx, th_node *element, Py_ssize_t *ou
     return buffer;
 }
 
+/* Both validators keep the instance elements they are inside on an explicit stack in the validation arena instead of
+   recursing once per nesting level, so the document's depth costs no C stack. Returns `frames` with room for one more
+   past `depth`, or NULL when the arena is out of memory. */
+static void *walk_stack_reserve(arena *mem, void *frames, Py_ssize_t depth, Py_ssize_t *cap, size_t frame_size) {
+    if (depth < *cap) {
+        return frames;
+    }
+    size_t capacity, bytes;
+    const int fits = th_grow_cap((size_t)depth + 1, (size_t)*cap, 16, frame_size, &capacity, &bytes);
+    if (!fits) {            /* GCOVR_EXCL_BR_LINE: the depth preflight keeps the stack far below an overflowing size */
+        mem->no_memory = 1; /* GCOVR_EXCL_LINE: the validate entry raises the MemoryError */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    void *grown = arena_alloc(mem, bytes);
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    if (depth > 0) {
+        memcpy(grown, frames, (size_t)depth * frame_size);
+    }
+    *cap = (Py_ssize_t)capacity;
+    return grown;
+}
+
 static th_tree *parse_schema_source(PyObject *source);
 static th_node *document_root(th_tree *tree);
 
@@ -1296,14 +1326,21 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
         rng_validate_root(&ctx, root);
     }
     Py_END_CRITICAL_SECTION();
+    const int exhausted = regex_exhausted(&local);
     PyMem_Free(ctx.path.data);
     arena_free(&local.mem);
-    /* a derivative or pattern check that lost an allocation, or a RELAX NG choice that ran past its limit, degraded to
-       a mismatch, so its verdict is unknown; only an arena OOM sets ctx.failed during validation */
-    if (local.mem.no_memory && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+    /* a derivative or pattern check that lost an allocation, a RELAX NG choice that ran past its limit, or a pattern
+       check that spent its step budget degraded to a mismatch, so its verdict is unknown; only an arena OOM sets
+       ctx.failed during validation */
+    if ((local.mem.no_memory || exhausted) && !ctx.failed) { /* GCOVR_EXCL_BR_LINE: arena OOM */
         ctx.failed = 1;
-        if (local.choice_limit < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        if (local.choice_limit < 0) {
             PyErr_SetString(PyExc_ValueError, "RELAX NG content model too ambiguous to validate");
+        } else if (exhausted) { /* GCOVR_EXCL_BR_LINE: the other side is an arena OOM */
+            PyErr_Format(PyExc_ValueError,
+                         "schema patterns need more than %d NFA steps on top of %d per character matched to validate "
+                         "this document; lower their repeat counts",
+                         RX_BUDGET_BASE, RX_BUDGET_PER_CHAR);
         } else {
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         }

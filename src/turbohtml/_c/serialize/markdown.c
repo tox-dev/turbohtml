@@ -1345,15 +1345,31 @@ static Py_UCS4 md_text_first(md_ctx *ctx, th_node *node, Py_UCS4 fallback) {
 
 static int md_is_link(md_ctx *ctx, th_node *node);
 
+/* How far md_char_after reads past a closing run, in nodes. The character that follows is
+   nearly always in the next node or two: only elements that hold no text stretch the walk,
+   and an inline SVG icon is the long case a real page has. */
+#define MD_AFTER_REACH 256
+
+/* An empty opening mark or a non-ASCII mark reads as ordinary: the content or the closing mark
+   comes first, and an ordinary character is the safe answer when unsure (md_char_after). */
+static Py_UCS4 md_quote_edge(const char *mark) {
+    unsigned char first = (unsigned char)mark[0];
+    return first != '\0' && first < 0x80 ? first : 'a';
+}
+
 /* The character the output holds right after an inline element, read off the tree for
    the flanking test of its closing run: the next text's first character, a line end at
-   a block or cell boundary or a break, the punctuation an enclosing run or a link closes
-   with, or the punctuation that a following link, run or code span opens with. An image,
-   or anything a converter writes, reads as ordinary: an ordinary character is where a run
-   after punctuation cannot close, so an uncertain answer only ever trades a delimiter for
-   the raw-HTML tag. The climb ends at the block around the element, or past the top of a
-   tree that has none above it (a fragment, a shadow root, a detached inline element, an
-   XML document, whose elements carry no HTML atom), where the output ends like a line. */
+   a block or cell boundary or a break, the punctuation an enclosing run, link or quote
+   closes with, or the punctuation that a following link, quote, run or code span opens
+   with. An image, preserved white space, or anything a converter writes, reads as
+   ordinary: an ordinary character is where a run after punctuation cannot close, so an
+   uncertain answer only ever trades a delimiter for the raw-HTML tag. Every element that
+   writes without holding a text node has to end the scan, or a line of them is scanned to
+   its end from the run around each; for one this function does not know, the scan gives
+   the uncertain answer past MD_AFTER_REACH nodes. The climb ends at the block around the
+   element, or past the top of a tree that has none above it (a fragment, a shadow root, a
+   detached inline element, an XML document, whose elements carry no HTML atom), where the
+   output ends like a line. */
 static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
     if (opt->converters != NULL) {
@@ -1363,7 +1379,9 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
     th_node *next = node->next_sibling;
     int depth = 0;       /* how far the scan has descended into the elements after node */
     int punct_depth = 0; /* the outermost entered element that writes punctuation before its text, 0 for none */
-    for (;;) {
+    int code_depth = 0;  /* the outermost entered code span, which writes only the text it holds, 0 for none */
+    for (int reach = 0; reach < MD_AFTER_REACH; reach++) {
+        TH_WORK_STEP();
         while (next == NULL) {
             cursor = cursor->parent;
             if (cursor == NULL) {
@@ -1372,6 +1390,7 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
             if (depth > 0) {
                 /* an entered element ran out without text, so it wrote nothing */
                 punct_depth = punct_depth == depth ? 0 : punct_depth;
+                code_depth = code_depth == depth ? 0 : code_depth;
                 depth--;
                 next = cursor->next_sibling;
                 continue;
@@ -1386,6 +1405,9 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
             /* inside link text only that link closes with a bracket: an `a` in it is a placeholder */
             if (ctx->link != NULL ? cursor == ctx->link : md_is_link(ctx, cursor)) {
                 return ']';
+            }
+            if (atom == TH_TAG_Q && opt->quote_close[0] != '\0' && !md_tag_filtered(opt, atom)) {
+                return md_quote_edge(opt->quote_close);
             }
             next = cursor->next_sibling;
         }
@@ -1404,8 +1426,21 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
         if (is_md_block(atom) || atom == TH_TAG_BR) {
             return '\n';
         }
+        if (code_depth == 0 && cursor->attr_count > 0 && md_css_whitespace(ctx, cursor, TH_WS_NORMAL) != TH_WS_NORMAL) {
+            /* preserved white space is written whole, empty or not (md_render_whitespace) */
+            return punct_depth > 0 ? '*' : 'a';
+        }
         if (atom == TH_TAG_IMG) {
             return punct_depth > 0 ? '*' : 'a';
+        }
+        if (atom == TH_TAG_Q && code_depth == 0 && !md_tag_filtered(opt, atom)) {
+            /* a quote opens the runs waiting around it, then writes its marks, empty or not */
+            if (punct_depth > 0) {
+                return '*';
+            }
+            if (opt->quote_open[0] != '\0' || opt->quote_close[0] != '\0') {
+                return md_quote_edge(opt->quote_open);
+            }
         }
         if (ctx->link == NULL && md_is_link(ctx, cursor)) {
             return '['; /* link text opens with its bracket, empty or not; inside link text an `a` is a placeholder */
@@ -1415,13 +1450,17 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
         }
         if (cursor->first_child != NULL) {
             depth++;
-            if (punct_depth == 0 &&
-                (md_is_emphasis(atom) || atom == TH_TAG_CODE || atom == TH_TAG_KBD || atom == TH_TAG_SAMP)) {
+            int code = atom == TH_TAG_CODE || atom == TH_TAG_KBD || atom == TH_TAG_SAMP;
+            if (punct_depth == 0 && (md_is_emphasis(atom) || code)) {
                 punct_depth = depth;
+            }
+            if (code_depth == 0 && code) {
+                code_depth = depth;
             }
             next = cursor->first_child;
         }
     }
+    return 'a'; /* out of reach */
 }
 
 /* Rewrite a written open run as the element's raw-HTML tag, moving the content after
