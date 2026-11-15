@@ -3059,8 +3059,7 @@ static void tmpl_set(th_tree *tree, enum mode mode) {
 
 /* tmpl_top runs only for a template element, which carries a pushed mode. */
 static enum mode tmpl_top(th_tree *tree) {
-    return tree->tmpl_len > 0 ? (enum mode)(tree->tmpl[tree->tmpl_len - 1] & ~TMPL_REFUSED)
-                              : M_IN_BODY; /* GCOVR_EXCL_BR_LINE */
+    return (enum mode)(tree->tmpl[tree->tmpl_len - 1] & ~TMPL_REFUSED);
 }
 
 /* A template refused at the depth cap stays off the stack but still opens its marker and its mode record, so what
