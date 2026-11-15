@@ -263,11 +263,8 @@ th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_
     return node;
 }
 
-/* Fill attribute slot index on a constructed element. has_value 0 makes a
-   valueless attribute (value NULL); otherwise the value is owned in the arena,
-   with an empty value kept distinct from a valueless one. */
-int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len,
-                     const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
+/* Fill the name of attribute slot index on a constructed element. Returns 0, or -1 on allocation failure. */
+int th_tree_set_attr_name(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len) {
     th_node_attr *attr = &node->attrs[index];
     attr->name_atom = th_attr_intern_utf8(tree, name, name_len);
     if (attr->name_atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
@@ -276,9 +273,17 @@ int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char 
     if (tree->xml && is_xml_namespace_decl(name, name_len)) {
         tree->has_xml_ns = 1;
     }
+    return 0;
+}
+
+/* Fill the value of attribute slot index whose name is set. has_value 0 makes a valueless attribute (value NULL);
+   otherwise the value is owned in the arena, with an empty value kept distinct from a valueless one. */
+int th_tree_set_attr_value(th_tree *tree, th_node *node, Py_ssize_t index, const Py_UCS4 *value, Py_ssize_t value_len,
+                           int has_value) {
     if (!has_value) {
         return 0;
     }
+    th_node_attr *attr = &node->attrs[index];
     Py_UCS4 *owned = arena_alloc(tree, (value_len ? value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -287,6 +292,16 @@ int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char 
     attr->value = owned;
     attr->value_len = value_len;
     return 0;
+}
+
+/* Fill attribute slot index on a constructed element (see th_tree_set_attr_name and th_tree_set_attr_value). */
+int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len,
+                     const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
+    int rc = th_tree_set_attr_name(tree, node, index, name, name_len);
+    if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return th_tree_set_attr_value(tree, node, index, value, value_len, has_value);
 }
 
 /* Flag a located element's start tag as changed, so the lossless serializer rewrites
@@ -1398,31 +1413,30 @@ static void heapsort_folded_attr_keys(folded_attr_key *keys, Py_ssize_t count) {
     }
 }
 
-/* Fold the attribute names of an element with many attributes, keeping the first of each folded name. Comparing every
-   name against each one kept before it is quadratic in the attribute count, and an XML document puts any number of
-   attributes on one element; sorting the folded atoms brings the attributes of one name together instead, without a
-   hash table whose collisions a document could choose. Returns 0, or -1 on allocation failure. */
-static int fold_wide_attrs(th_tree *dest, th_node *node) {
+/* Mark with TH_ATTR_UNKNOWN each attribute whose name atom repeats an earlier attribute's, keeping the first of each.
+   Comparing every name against each one kept before it is quadratic in the attribute count, and an XML document puts
+   any number of attributes on one element; sorting the atoms brings the attributes of one name together instead,
+   without a hash table whose collisions a document could choose. Returns 0, or -1 on allocation failure. */
+int th_node_attr_mark_repeats(th_node *node) {
     folded_attr_key *keys = PyMem_Malloc((size_t)node->attr_count * sizeof(*keys));
     if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-        uint32_t atom = fold_attr_atom(dest, node->attrs[index].name_atom);
-        if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            PyMem_Free(keys);          /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        node->attrs[index].name_atom = atom;
-        keys[index] = (folded_attr_key){atom, index};
+        keys[index] = (folded_attr_key){node->attrs[index].name_atom, index};
     }
     heapsort_folded_attr_keys(keys, node->attr_count);
     for (Py_ssize_t index = 1; index < node->attr_count; index++) {
+        TH_WORK_STEP();
         if (keys[index].atom == keys[index - 1].atom) {
             node->attrs[keys[index].index].name_atom = TH_ATTR_UNKNOWN; /* no attribute holds the absent atom */
         }
     }
     PyMem_Free(keys);
+    return 0;
+}
+
+void th_node_attr_drop_marked(th_node *node) {
     Py_ssize_t kept = 0;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         if (node->attrs[index].name_atom != TH_ATTR_UNKNOWN) {
@@ -1430,6 +1444,22 @@ static int fold_wide_attrs(th_tree *dest, th_node *node) {
         }
     }
     node->attr_count = kept;
+}
+
+/* Fold the attribute names of an element with many attributes, keeping the first of each folded name. Returns 0, or -1
+   on allocation failure. */
+static int fold_wide_attrs(th_tree *dest, th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        uint32_t atom = fold_attr_atom(dest, node->attrs[index].name_atom);
+        if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        node->attrs[index].name_atom = atom;
+    }
+    if (th_node_attr_mark_repeats(node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_node_attr_drop_marked(node);
     return 0;
 }
 
@@ -1459,7 +1489,7 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
     }
     node->atom = is_ascii ? th_tag_lookup(ascii, node->text_len) : TH_TAG_UNKNOWN;
     node->tag_flags = (uint8_t)(th_tag_flags(node->atom) | (node->tag_flags & TH_ELEM_IMPLIED));
-    if (node->attr_count >= 32) {
+    if (node->attr_count >= TH_WIDE_ATTR_COUNT) {
         return fold_wide_attrs(dest, node);
     }
     Py_ssize_t kept = 0;
