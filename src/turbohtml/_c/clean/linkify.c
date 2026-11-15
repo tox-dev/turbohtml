@@ -1731,6 +1731,7 @@ TH_NODE_API(static, int, apply_text,
         }
         if (status == 0) { /* GCOVR_EXCL_BR_LINE: fragment child allocation */
             th_node *parent = node->parent;
+            th_tree_note_deepened(tree);
             /* no iterator can point into the fragment this call built, so its children move without the steps */
             while (fragment->first_child != NULL) {
                 th_node *child = fragment->first_child;

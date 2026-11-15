@@ -134,6 +134,7 @@ static th_observer *mo_ensure(th_tree *tree) {
     }
     *observers = grown;
     (*observers)[(*count)++] = observer;
+    th_tree_note_observed(tree);
     return observer;
 }
 

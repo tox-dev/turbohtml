@@ -2373,6 +2373,7 @@ static int view_restore_head(NodeObject *owner, PyObject *source) {
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
     if (status == 0) {
         /* GCOVR_EXCL_BR_STOP */
+        th_tree_note_deepened(tree_of((PyObject *)owner));
         for (Py_ssize_t index = 0; index < PyList_GET_SIZE(moved); index++) {
             th_node *node = ((NodeObject *)PyList_GET_ITEM(moved, index))->node;
             th_node_remove(node);

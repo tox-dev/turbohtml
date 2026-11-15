@@ -338,8 +338,12 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
-Py_ssize_t th_tree_max_depth(const th_tree *tree) {
-    return tree->max_depth;
+Py_ssize_t th_tree_nest_bound(const th_tree *tree) {
+    return tree->nest_bound;
+}
+
+void th_tree_note_deepened(th_tree *tree) {
+    tree->nest_bound &= TH_NEST_OBSERVED;
 }
 
 int th_tree_failed(const th_tree *tree) {
@@ -476,8 +480,8 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
-    if (tree->open_len > tree->max_depth) {
-        tree->max_depth = tree->open_len;
+    if (tree->open_len >= TH_HAS_MEMO_DEPTH) {
+        tree->nest_bound = 0;
     }
     return 1;
 }
@@ -1840,6 +1844,7 @@ static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
 
 /* Deep-copy src's children into dst without consuming one C stack frame per level. */
 static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) {
+    tree->nest_bound = 0; /* the copy can sit deeper than the source the stack measured */
     const th_node *from = src;
     th_node *copy = dst;
     for (;;) {
@@ -2550,6 +2555,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         }
         /* moving the furthest block under a formatting clone can nest it where its own start tag would not */
         tree->reparse_hazard = 1;
+        tree->nest_bound = 0;
         /* the stack bottom, html or the fragment root, is below every formatting element; without one, the document
            takes its place */
         th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
@@ -4999,6 +5005,7 @@ static th_tree *tree_new_document(int positions, int locations) {
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
+    tree->nest_bound = TH_HAS_MEMO_DEPTH;
     tree->track_positions = positions || locations; /* set before any element node_new */
     tree->track_locations = locations;
     tree->document = node_new(tree, TH_NODE_DOCUMENT);
