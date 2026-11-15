@@ -196,6 +196,10 @@ def test_element_tree_strip_elements_stops_at_tail_holder_below_root() -> None:
     assert etree.tostring(removed, encoding="unicode") == "<p><b>bold</b></p>tail"
 
 
+def test_element_tree_getparent_of_a_detached_element_is_none() -> None:
+    assert etree.ElementView(Element("p")).getparent() is None
+
+
 def test_element_tree_strip_elements_star_removes_every_element() -> None:
     tree: Final = etree.fromstring("<div>a<b>x</b>c<i>y</i></div>")
     etree.strip_elements(tree, "*")

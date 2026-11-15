@@ -1956,33 +1956,39 @@ static int view_tag_matches(th_node *node, PyObject *filter) {
     return 0;
 }
 
-static int view_collect_append(module_state *state, NodeObject *owner, PyObject *targets, th_node *node) {
-    PyObject *wrapped = node_wrap_locked(state, owner->handle, node);
-    if (wrapped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;         /* GCOVR_EXCL_LINE: allocation failure */
+/* The raw nodes a strip call acts on, collected before any edit. */
+typedef struct {
+    th_node **items;
+    Py_ssize_t count;
+    Py_ssize_t capacity;
+} strip_targets;
+
+static int strip_targets_push(strip_targets *targets, th_node *node) {
+    if (targets->count == targets->capacity) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)targets->capacity + 1, (size_t)targets->capacity, 16, sizeof(th_node *), &cap,
+                               &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path */
+        }
+        th_node **resized = PyMem_Realloc(targets->items, bytes);
+        if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: a realloc failure cannot be forced from a test */
+            return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        targets->items = resized;
+        targets->capacity = (Py_ssize_t)cap;
     }
-    PyObject *view = view_wrap(state, wrapped);
-    Py_DECREF(wrapped);
-    if (view == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;      /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    int status = PyList_Append(targets, view);
-    Py_DECREF(view);
-    return status;
+    targets->items[targets->count++] = node;
+    return 0;
 }
 
-/* Collects, in document order, the elements a strip call acts on, as element views. strip_tags() takes every match.
+/* Collects, in document order, the elements a strip call acts on, as raw nodes. strip_tags() takes every match.
    strip_elements() takes the matches a getparent() climb from each would reach: the climb stops at a template's
    content, a tail holder, and an earlier match with its whole subtree, so the walk skips everything under those.
-   Collecting under the tree lock keeps the list in step with the tree the caller then changes, and avoids a climb
-   per match, which costs its depth again and parse_xml() does not bound. */
-static PyObject *view_strip_collect_locked(NodeObject *owner, PyObject *filter, int unwrap) {
-    PyObject *targets = PyList_New(0);
-    if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    module_state *state = state_of((PyObject *)owner);
-    th_node *root = owner->node;
+   The walk makes no Python call: a wrapper's critical section can suspend the tree lock, and a concurrent move
+   would then reshape the walk. */
+static int view_strip_collect(th_node *root, PyObject *filter, int unwrap, strip_targets *targets) {
     th_node *barrier = view_is_holder(root) ? root : NULL;
     th_node *node = root->first_child;
     int status = 0;
@@ -1994,7 +2000,7 @@ static PyObject *view_strip_collect_locked(NodeObject *owner, PyObject *filter, 
             if (!unwrap) {
                 barrier = node;
             }
-            status = view_collect_append(state, owner, targets, node);
+            status = strip_targets_push(targets, node);
         } else if (!unwrap && barrier == NULL && (node->type != TH_NODE_ELEMENT || view_is_holder(node))) {
             barrier = node;
         }
@@ -2008,39 +2014,52 @@ static PyObject *view_strip_collect_locked(NodeObject *owner, PyObject *filter, 
         }
         node = next;
     }
-    if (status < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
-        Py_DECREF(targets); /* GCOVR_EXCL_LINE: allocation failure */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    return targets;
+    return status;
 }
 
-/* The collection and the changes run under one lock, so a concurrent move can neither end the collection early nor
-   change a match between being collected and being removed. */
+/* Edits the collected nodes with the tree's observed removals, the same calls node_unwrap and node_extract make. An
+   unwrap splices a match's children into its parent first; a strip_elements() match takes its tail text with it when
+   with_tail is set. Unwrapping only relinks, so a nested match is reparented to a surviving ancestor and its parent is
+   read here, when its turn comes. */
+static void view_strip_edit(th_tree *tree, const strip_targets *targets, int unwrap, int with_tail) {
+    for (Py_ssize_t at = 0; at < targets->count; at++) {
+        th_node *node = targets->items[at];
+        if (unwrap) {
+            th_node *parent = node->parent;
+            while (node->first_child != NULL) {
+                th_node *child = node->first_child;
+                th_node_remove_observed(tree, child);
+                th_node_insert_before_observed(tree, parent, child, node);
+            }
+            th_node_remove_observed(tree, node);
+            continue;
+        }
+        if (with_tail) {
+            th_node *tail = node->next_sibling;
+            while (tail != NULL && tail->type == TH_NODE_TEXT) {
+                th_node *next = tail->next_sibling;
+                th_node_remove_observed(tree, tail);
+                tail = next;
+            }
+        }
+        th_node_remove_observed(tree, node);
+    }
+}
+
+/* The collection and the edits run under the tree lock with no Python call in between, so a concurrent move waits for
+   the whole strip and neither ends the collection early nor changes a match before it is removed. */
 TH_NODE_API(static, int, view_strip_locked, (NodeObject * owner, PyObject *filter, int unwrap, int with_tail),
             (owner, filter, unwrap, with_tail), (NodeObject * owner, PyObject *filter, int unwrap, int with_tail),
             owner, NULL) {
-    PyObject *targets = view_strip_collect_locked(owner, filter, unwrap);
-    if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;         /* GCOVR_EXCL_LINE: allocation failure */
+    strip_targets targets = {NULL, 0, 0};
+    int status = view_strip_collect(owner->node, filter, unwrap, &targets);
+    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+    } else if (targets.count > 0) {
+        handle_drop_index(owner->handle);
+        view_strip_edit(tree_of((PyObject *)owner), &targets, unwrap, with_tail);
     }
-    int status = 0;
-    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(targets); index++) {
-        /* GCOVR_EXCL_BR_STOP */
-        PyObject *item = PyList_GET_ITEM(targets, index);
-        if (unwrap) {
-            status = view_discard(view_drop_tag(item, NULL));
-        } else {
-            status = with_tail ? view_set_text(item, Py_None, (void *)1) : 0;
-            /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-            if (status == 0) {
-                /* GCOVR_EXCL_BR_STOP */
-                status = view_discard(node_extract((PyObject *)((ElementView *)item)->node, NULL));
-            }
-        }
-    }
-    Py_DECREF(targets);
+    PyMem_Free(targets.items);
     return status;
 }
 
