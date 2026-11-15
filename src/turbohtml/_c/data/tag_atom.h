@@ -815,10 +815,10 @@ static const uint64_t th_tag_key_masks[9] = {
     0xffffffffffull, 0xffffffffffffull, 0xffffffffffffffull, 0xffffffffffffffffull};
 
 /* A lowercased ASCII tag name of `len` bytes (at least one) packed little-endian into one word as th_tag_keys
-   holds it, so two names compare as one integer, or 0 for a longer name or one with fewer than 8 bytes
-   readable from `str`; the bytes past the name are masked off. */
-static inline uint64_t th_tag_key(const unsigned char *str, ptrdiff_t len, ptrdiff_t readable) {
-    if (len > 8 || readable < 8) { /* GCOVR_EXCL_BR_LINE: the machine's name buffer holds at least 16 bytes */
+   holds it, so two names compare as one integer, or 0 for a longer name; the bytes past the name are masked off.
+   `str` must have 8 readable bytes: the tokenizer reserves 16 for its name buffer up front and never shrinks it. */
+static inline uint64_t th_tag_key(const unsigned char *str, ptrdiff_t len) {
+    if (len > 8) {
         return 0;
     }
     uint64_t key;
