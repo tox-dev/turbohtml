@@ -72,13 +72,25 @@ struct pattern {
     int type;
     int nullable;
     pattern *p1, *p2;
-    nameclass *nc;
-    int def_index;
+    /* A choice built during validation is a node of a binary trie over its leaves' creation numbers (see trie_union)
+       and keeps its trie fields where the patterns that name or match text keep theirs. */
+    union {
+        nameclass *nc;
+        pattern *leaf; /* choice: one of its leaves, whose number carries the bits all of them share */
+    };
+    union {
+        int def_index;
+        int bit; /* choice: the highest bit in which a leaf number of p1 differs from one of p2 */
+    };
     int datatype_id;
     int value_ws;
+    uint32_t seq; /* creation number within the compile or the validation, so a trie's shape follows the input alone */
     facetset *facets;
     const Py_UCS4 *value;
-    Py_ssize_t value_len;
+    union {
+        Py_ssize_t value_len;
+        Py_ssize_t leaves; /* choice: how many leaves it holds; 0 until a merge first reads it */
+    };
 };
 
 /* Per-validation hash-consing: a structurally identical derivative shares one node, so a choice drops a duplicate
@@ -91,14 +103,14 @@ typedef struct patintern {
     unsigned shift; /* 64 - log2(cap): the slot is the hash's top bits, where the multiply mixes every operand bit */
 } patintern;
 
-static pattern *pat_new(th_schema *schema, int type) {
+static RNG_FORCEINLINE pattern *pat_new(th_schema *schema, int type) {
     pattern *pattern = arena_alloc(&schema->mem, sizeof(*pattern));
     if (pattern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return NULL;       /* GCOVR_EXCL_LINE */
     }
     memset(pattern, 0, sizeof(*pattern));
     pattern->type = type;
-    schema->pattern_count++;
+    pattern->seq = (uint32_t)schema->pattern_count++;
     pattern->nullable =
         type == P_REF || type == P_CHOICE || type == P_GROUP || type == P_INTERLEAVE || type == P_ONEMORE
             ? -1
@@ -217,6 +229,28 @@ static RNG_NOINLINE Py_ssize_t rng_choice_limit(th_schema *schema) {
     return schema->choice_limit;
 }
 
+/* Work units an event may spend for each alternative the choice limit allows. A merge costs a unit for each trie node
+   it visits and a memoized derivative costs one, so an event stays within a multiple of the schema size even when its
+   residual holds many nodes that each stay under the choice limit, or merges a wide choice once per place. The nested
+   optional places that stay under the choice limit spend up to five units per alternative. */
+#define RNG_EVENT_WORK_PER_LEAF 8
+
+static RNG_NOINLINE int rng_event_over(th_schema *schema) {
+    if (schema->event_work <= rng_choice_limit(schema) * RNG_EVENT_WORK_PER_LEAF) {
+        return 0;
+    }
+    schema->choice_limit = -1;
+    schema->mem.no_memory = 1;
+    return 1;
+}
+
+/* Charges the event in progress; true once it has spent more than the schema allows, which marks the arena like a
+   merge past the choice limit. Under the floor the limit cannot be reached, so the common event never computes it. */
+static RNG_FORCEINLINE int rng_event_spend(th_schema *schema, Py_ssize_t units) {
+    schema->event_work += units;
+    return schema->event_work > (Py_ssize_t)RNG_CHOICE_FLOOR * RNG_EVENT_WORK_PER_LEAF && rng_event_over(schema);
+}
+
 typedef struct memo_key {
     pattern *p;
     const Py_UCS4 *value;
@@ -236,6 +270,7 @@ typedef struct patmemo {
     size_t cap;   /* power of two, 0 until first grow */
     size_t count; /* live entries; zeroed when the event number advances */
     size_t event;
+    pattern *stopped; /* NotAllowed once the validation ran past its work limit, the answer to every later lookup */
 } patmemo;
 
 /* Moving to a new event number frees every slot without clearing them. */
@@ -247,6 +282,7 @@ static void memo_reset(patmemo *memo) {
 /* An event that stays within its free steps never reads the memo, so the memo is emptied only when it is needed. */
 static void memo_begin_event(th_schema *schema) {
     schema->memo_budget = schema->memo_free;
+    schema->event_work = 0;
 }
 
 /* Every derivative call takes one step off the budget, so only the first call past the free steps sees -1. The memo
@@ -281,6 +317,9 @@ static RNG_FORCEINLINE int memo_key_equal(memo_key stored, memo_key key) {
 static RNG_NOINLINE pattern *memo_find(const patmemo *memo, size_t op, pattern *p, const Py_UCS4 *value, Py_ssize_t len,
                                        const Py_UCS4 *name) {
     memo_key key = {p, value, len, name, op};
+    if (memo->stopped != NULL) {
+        return memo->stopped;
+    }
     if (memo->cap == 0) {
         return NULL;
     }
@@ -324,6 +363,12 @@ static RNG_NOINLINE int memo_grow(th_schema *schema) {
 
 static RNG_NOINLINE void memo_add(th_schema *schema, size_t op, pattern *p, const Py_UCS4 *value, Py_ssize_t len,
                                   const Py_UCS4 *name, pattern *derived) {
+    /* A walk that only revisits cached nodes adds nothing, so each new entry is one unit of the event's work. Past the
+       limit both memos answer NotAllowed, so the derivatives still in progress stop at their next lookup. */
+    if (rng_event_spend(schema, 1)) {
+        schema->event_memo->stopped = schema->token_memo->stopped = schema->p_notallowed;
+        return;
+    }
     memo_key key = {p, value, len, name, op};
     patmemo *memo = schema->memo;
     if (memo->count * 2 >= memo->cap && !memo_grow(schema)) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -343,7 +388,7 @@ static RNG_NOINLINE void memo_add(th_schema *schema, size_t op, pattern *p, cons
 #define RNG_ATT_REJECTS (RNG_LEAF_TYPES | (1u << P_ELEMENT))
 #define RNG_CLOSE_KEEPS (RNG_LEAF_TYPES | (1u << P_ELEMENT))
 
-static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2);
+static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2);
 
 /* Smart constructors: absorb notAllowed / empty so derivatives stay bounded. */
 static pattern *pat_choice(th_schema *schema, pattern *p1, pattern *p2) {
@@ -356,7 +401,9 @@ static pattern *pat_choice(th_schema *schema, pattern *p1, pattern *p2) {
     if (schema->intern == NULL) { /* compiling: interning only exists during validation */
         return pat_binary(schema, P_CHOICE, p1, p2);
     }
-    if (p1->type != P_CHOICE && p2->type != P_CHOICE) { /* hot path: two leaves need no merge buffer */
+    /* hot path: two leaves in address order, the cheapest canonical order; a merge that reads this node rebuilds it in
+       trie order, which is the same node whenever the two orders agree */
+    if (p1->type != P_CHOICE && p2->type != P_CHOICE) {
         if (p1 == p2) {
             return p1;
         }
@@ -395,72 +442,106 @@ static pattern *pat_fold(th_schema *schema, pat_join_fn join, pattern **parts, P
     return parts[0];
 }
 
-static Py_ssize_t choice_leaf_count(const pattern *choice);
-static void choice_collect(pattern *choice, pattern **out, Py_ssize_t *at);
-static int pat_ptr_cmp(const void *left, const void *right);
+#if defined(_MSC_VER)
+#include <intrin.h>
+static RNG_FORCEINLINE int trie_high_bit(uint64_t bits) {
+    unsigned long index;
+    _BitScanReverse64(&index, bits);
+    return (int)index;
+}
+#else
+#define trie_high_bit(bits) (63 - __builtin_clzll(bits))
+#endif
 
-static pattern *pat_choice_node(th_schema *schema, pattern *p1, pattern *p2) {
-    return pat_binary(schema, P_CHOICE, p1, p2);
+/* A choice built during validation is a binary trie over the creation numbers of its leaves, the non-choice patterns
+   it holds (Okasaki and Gill, "Fast Mergeable Integer Maps"): a node splits its leaves on the highest bit in which
+   their numbers differ, p1 holding those with a 0 there. One leaf set has one shape, so hash-consing makes it one node,
+   and two choices merge by walking only where their leaves interleave: adding one leaf to a choice of n rebuilds a
+   path of at most 32 nodes and shares the rest, where a sorted list would rebuild all n. The trie is at most 32 levels
+   deep, so the derivatives that recurse into it stay off the deep stack a long chain would take. */
+static RNG_FORCEINLINE uint64_t trie_key(const pattern *p) {
+    return (p->type == P_CHOICE ? p->leaf : p)->seq;
 }
 
-/* A canonical choice holds non-choice leaves sorted by address and free of duplicates: a right-leaning chain of up to
-   RNG_CHAIN_JOIN of them, a balanced tree of more.
+static RNG_FORCEINLINE Py_ssize_t trie_size(const pattern *p) {
+    return p->type == P_CHOICE ? p->leaves : 1;
+}
 
-   The memo derives each node once per event, but a content model whose places double with each define still leaves a
+/* Joins two tries whose leaves differ above both of their split bits. When the hot path in pat_choice built this node
+   already, the join only fills in its trie fields. */
+static pattern *trie_join(th_schema *schema, pattern *p, pattern *q) {
+    int bit = trie_high_bit(trie_key(p) ^ trie_key(q));
+    if ((trie_key(p) >> bit) & 1) {
+        pattern *swap = p;
+        p = q;
+        q = swap;
+    }
+    pattern *node = pat_binary(schema, P_CHOICE, p, q);
+    if (node->type == P_CHOICE && node->leaves == 0) { /* GCOVR_EXCL_BR_LINE: only arena OOM yields NotAllowed */
+        node->leaf = p->type == P_CHOICE ? p->leaf : p;
+        node->bit = bit;
+        node->leaves = trie_size(p) + trie_size(q);
+    }
+    return node;
+}
+
+/* Each call is one unit of `work`, which the caller charges to the event. */
+static pattern *trie_union(th_schema *schema, pattern *s, pattern *t, Py_ssize_t *work) {
+    ++*work;
+    if (s == t) {
+        return s;
+    }
+    int s_bit = s->type == P_CHOICE ? s->bit : -1;
+    int t_bit = t->type == P_CHOICE ? t->bit : -1;
+    if (s_bit < t_bit) {
+        pattern *swap = s;
+        s = t;
+        t = swap;
+        int swap_bit = s_bit;
+        s_bit = t_bit;
+        t_bit = swap_bit;
+    }
+    uint64_t shared = trie_key(s) ^ trie_key(t);
+    if (s_bit < 0 || (shared >> s_bit) > 1) { /* two leaves, or t lies outside the bits s's leaves share */
+        return trie_join(schema, s, t);
+    }
+    if (s_bit == t_bit) {
+        return trie_join(schema, trie_union(schema, s->p1, t->p1, work), trie_union(schema, s->p2, t->p2, work));
+    }
+    if ((trie_key(t) >> s_bit) & 1) {
+        return trie_join(schema, s->p1, trie_union(schema, s->p2, t, work));
+    }
+    return trie_join(schema, trie_union(schema, s->p1, t, work), s->p2);
+}
+
+/* A choice compiled from the schema, or one the hot path built in an order the trie does not use, becomes a trie each
+   time a merge meets it. */
+static pattern *trie_of(th_schema *schema, pattern *p, Py_ssize_t *work) {
+    if (p->type != P_CHOICE || p->leaves > 0) {
+        return p;
+    }
+    return trie_union(schema, trie_of(schema, p->p1, work), trie_of(schema, p->p2, work), work);
+}
+
+/* The memo derives each node once per event, but a content model whose places double with each define still leaves a
    residual choice with one leaf per place. A merge is the only step that grows a choice past two leaves, so past the
-   limit it yields NotAllowed and marks the arena, and validate() raises; a limit of -1 marks that this happened. */
-static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
-    Py_ssize_t total = choice_leaf_count(p1) + choice_leaf_count(p2);
-    pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
-    if (leaves == NULL) {                            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return pat_binary(schema, P_CHOICE, p1, p2); /* GCOVR_EXCL_LINE */
+   limit it yields NotAllowed and marks the arena, and validate() raises; a limit of -1 marks that this happened. A
+   merge also charges the event its work, which bounds what one event spends on choices that each stay under the
+   limit. */
+static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
+    Py_ssize_t work = 0;
+    pattern *merged = trie_union(schema, trie_of(schema, p1, &work), trie_of(schema, p2, &work), &work);
+    TH_WORK_STEPS_ADD(work);
+    if (rng_event_spend(schema, work)) {
+        return schema->p_notallowed;
     }
-    Py_ssize_t len = 0;
-    choice_collect(p1, leaves, &len);
-    choice_collect(p2, leaves, &len);
-    qsort(leaves, (size_t)total, sizeof(pattern *), pat_ptr_cmp);
-    len = 1;
-    for (Py_ssize_t index = 1; index < total; index++) {
-        if (leaves[index] != leaves[len - 1]) {
-            leaves[len++] = leaves[index];
-        }
+    /* the limit is never below RNG_CHOICE_FLOOR, so a smaller choice needs no check */
+    if (trie_size(merged) > RNG_CHOICE_FLOOR && trie_size(merged) > rng_choice_limit(schema)) {
+        schema->choice_limit = -1;
+        schema->mem.no_memory = 1;
+        return schema->p_notallowed;
     }
-    if (len > RNG_CHAIN_JOIN) {
-        /* the limit is never below RNG_CHOICE_FLOOR, so a chain of RNG_CHAIN_JOIN leaves needs no check */
-        if (len > rng_choice_limit(schema)) {
-            schema->choice_limit = -1;
-            schema->mem.no_memory = 1;
-            return schema->p_notallowed;
-        }
-        return pat_fold(schema, pat_choice_node, leaves, len);
-    }
-    pattern *result = leaves[len - 1];
-    for (Py_ssize_t index = len - 2; index >= 0; index--) {
-        result = pat_binary(schema, P_CHOICE, leaves[index], result);
-    }
-    return result;
-}
-
-static Py_ssize_t choice_leaf_count(const pattern *choice) {
-    Py_ssize_t count = 1;
-    for (; choice->type == P_CHOICE; choice = choice->p2) {
-        count += choice_leaf_count(choice->p1);
-    }
-    return count;
-}
-
-static void choice_collect(pattern *choice, pattern **out, Py_ssize_t *at) {
-    for (; choice->type == P_CHOICE; choice = choice->p2) {
-        choice_collect(choice->p1, out, at);
-    }
-    out[(*at)++] = choice;
-}
-
-/* Total order on nodes by address, so a canonical choice has a single shape per leaf set. */
-static int pat_ptr_cmp(const void *left, const void *right) {
-    pattern *left_pat = *(pattern *const *)left;
-    pattern *right_pat = *(pattern *const *)right;
-    return (left_pat > right_pat) - (left_pat < right_pat);
+    return merged;
 }
 
 static pattern *pat_group(th_schema *schema, pattern *p1, pattern *p2) {
@@ -1254,13 +1335,17 @@ static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const 
 /* Each token is an event of its own, with its own free steps and the token memo: in the text's memo the derivatives of
    every token would stay until the text event ends, and on the text's budget a long list would take the memo path for
    tokens that never revisit a node. A token that runs past its free steps starts the next ones on the memo, and the
-   text pays the steps its tokens took. */
+   text pays the steps its tokens took. Each token also has the work limit of an event, and the text pays the mean of
+   its tokens' work, so the lists one text reaches share an allowance of one event per token. */
 static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
     pattern *derived = p->p1;
     Py_ssize_t budget = schema->memo_budget;
     Py_ssize_t steps = schema->memo_free;
     Py_ssize_t spent = 0;
+    Py_ssize_t work = 0;
+    Py_ssize_t tokens = 0;
     Py_ssize_t index = 0;
+    Py_ssize_t text_work = schema->event_work;
     schema->memo = schema->token_memo;
     while (index < len) {
         while (index < len && is_xml_space(value[index])) {
@@ -1273,8 +1358,11 @@ static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const
         if (index > start) {
             memo_reset(schema->memo);
             schema->memo_budget = steps;
+            schema->event_work = 0;
             derived = rng_text_deriv(schema, derived, value + start, index - start);
             spent += steps - schema->memo_budget;
+            work += schema->event_work;
+            tokens++;
             if (schema->memo_budget < 0) {
                 steps = 0;
             }
@@ -1285,6 +1373,7 @@ static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const
         }
     }
     schema->memo = schema->event_memo;
+    schema->event_work = text_work + (tokens > 0 ? work / tokens : 0);
     /* Stopping at 0 lets the text's next step see -1 and empty the memo of an earlier event. */
     schema->memo_budget = budget < 0 ? budget : spent < budget ? budget - spent : 0;
     return rng_nullable(schema, derived) ? schema->p_empty : schema->p_notallowed;
@@ -3030,7 +3119,7 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     memset(intern, 0, sizeof(*intern));
     schema->intern = intern;
     /* On the stack, so a validation that never needs the memo lays out its arena patterns as before. */
-    patmemo memos[2] = {{NULL, 0, 0, 1}, {NULL, 0, 0, 1}};
+    patmemo memos[2] = {{NULL, 0, 0, 1, NULL}, {NULL, 0, 0, 1, NULL}};
     schema->memo = schema->event_memo = &memos[0];
     schema->token_memo = &memos[1];
     /* Heuristic threshold: a walk longer than twice the schema pattern count probably revisits a node, so the
