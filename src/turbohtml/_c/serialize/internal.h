@@ -1093,7 +1093,9 @@ static inline void ser_xml_ns_gather(sbuf *out, th_tree *tree, th_xml_ns_scope *
         }
         scope->count = kept;
     }
-    scope->default_ns = ser_xml_ns_find(scope, "", NULL, 0);
+    /* Looked up as an empty element-name prefix: through the byte compare, gcc cannot tell a stored prefix length is
+       not negative and fails -Wstringop-overread. */
+    scope->default_ns = ser_xml_ns_find(scope, NULL, NULL, 0);
 }
 
 /* Whether an element name, spelled in code points, starts with prefix and a colon. */
