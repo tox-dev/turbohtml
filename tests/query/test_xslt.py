@@ -1551,6 +1551,23 @@ def test_transform_number_interleaved_count_patterns_stay_separate() -> None:
     assert _run("<r><a/><b/><a/><b/></r>", body) == "1-,-1,2-,-2,"
 
 
+def test_transform_number_alternating_from_patterns_count_under_own_pattern() -> None:
+    # each instruction restarts its count at its own from match, and the other instruction's match does not reset it
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/x">'
+        '<xsl:number level="any" from="g"/>.<xsl:number level="any" from="h"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><x/><g/><x/><h/><x/><g/><x/></r>", body) == "1.1,1.2,2.1,1.2,"
+
+
+def test_transform_number_alternating_count_patterns_count_under_own_pattern() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/*">'
+        '<xsl:number level="any" count="x"/>.<xsl:number level="any" count="g"/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><x/><g/><x/><h/><x/><g/><x/></r>", body) == "1.0,1.1,2.1,2.1,3.1,3.2,4.2,"
+
+
 def test_transform_number_alternating_same_length_names() -> None:
     # the names are the same length, so telling them apart is the name comparison itself rather than the length
     body = (
@@ -5279,6 +5296,29 @@ def test_number_any_default_count_over_interleaved_names_scales_linearly(
     )
     work_steps.assert_linear(
         lambda pairs: partial(transform, parse_xml(f"<list{declarations}>{pair * pairs}</list>")), (300, 1200)
+    )
+
+
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        pytest.param(('<xsl:number level="any" from="g"/>', '<xsl:number level="any" from="h"/>'), id="from-patterns"),
+        pytest.param(
+            ('<xsl:number level="any" count="p"/>', '<xsl:number level="any" count="q"/>'), id="count-patterns"
+        ),
+        pytest.param(
+            ('<xsl:number level="any" count="p" from="g"/>', '<xsl:number level="any" count="q" from="h"/>'),
+            id="count-and-from-patterns",
+        ),
+    ],
+)
+def test_number_any_alternating_instructions_scale_linearly(
+    instructions: tuple[str, str], prefix_transform: Callable[[str, str], Transform], work_steps: WorkSteps
+) -> None:
+    first, second = instructions
+    transform: Final = prefix_transform(f'<xsl:for-each select="list/*">{first}.{second}|</xsl:for-each>', "")
+    work_steps.assert_linear(
+        lambda pairs: partial(transform, parse_xml(f"<list>{'<p/><q/>' * pairs}</list>")), (300, 1200)
     )
 
 
