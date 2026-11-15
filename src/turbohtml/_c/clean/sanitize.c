@@ -5062,14 +5062,16 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
             (PyObject * module, PyObject *args), node_argument(PyModule_GetState(module), args, NULL, 0, NULL), NULL) {
     PyObject *source;
     PyObject *removed = NULL;
+    int inner = 0;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(
-            args, "OOOOppipOOOOOOOOpOOOpOOppppOpp:_sanitize", &source, &s.tags, &s.attributes, &s.url_schemes,
-            &s.allow_relative, &s.allow_fragments, &s.on_disallowed, &s.strip_comments, &s.add_link_rel,
-            &s.attribute_filter, &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-            &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles, &s.transform_tags,
-            &s.isolate_named_props, &s.custom_element_check, &s.custom_attribute_check, &s.allow_customized_builtins,
-            &s.allow_html, &s.allow_svg, &s.allow_mathml, &s.attribute_predicate, &s.bleach_url_policy, &s.xml)) {
+    if (!PyArg_ParseTuple(args, "OOOOppipOOOOOOOOpOOOpOOppppOppp:_sanitize", &source, &s.tags, &s.attributes,
+                          &s.url_schemes, &s.allow_relative, &s.allow_fragments, &s.on_disallowed, &s.strip_comments,
+                          &s.add_link_rel, &s.attribute_filter, &s.set_attributes, &s.remove_with_content,
+                          &s.css_properties, &s.attribute_prefixes, &s.attribute_values, &s.media_hosts,
+                          &s.strip_templates, &removed, &s.allowed_styles, &s.transform_tags, &s.isolate_named_props,
+                          &s.custom_element_check, &s.custom_attribute_check, &s.allow_customized_builtins,
+                          &s.allow_html, &s.allow_svg, &s.allow_mathml, &s.attribute_predicate, &s.bleach_url_policy,
+                          &s.xml, &inner)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;
@@ -5186,6 +5188,23 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
         th_tree_free(s.tree);
         /* a callback or Python API call sets its own exception; a failed tree allocation sets none */
         return PyErr_Occurred() ? NULL : PyErr_NoMemory(); /* GCOVR_EXCL_BR_LINE: allocation failure */
+    }
+    /* an inner caller serializes the root's children and leaves the root out, the way the str form drops the div its
+       fragment parsed under, so a node root's own content model must not shape that string: the walk keeps every text
+       node on the premise that it is written escaped, and the inner HTML of a raw-text root (xmp, style, script, ...)
+       writes its text verbatim. That caller gets the children under a plain fragment instead. */
+    if (inner && !s.xml && !s.from_parse && root->type == TH_NODE_ELEMENT) {
+        th_node *fragment = th_tree_make_fragment(s.tree);
+        if (fragment == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            th_tree_free(s.tree);    /* GCOVR_EXCL_LINE: allocation-failure path */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        }
+        for (th_node *child = root->first_child, *next; child != NULL; child = next) {
+            next = child->next_sibling;
+            th_node_remove(child);
+            th_node_append_child(fragment, child);
+        }
+        root = fragment;
     }
     if (retained_source == NULL) {
         return wrap_fresh_tree_node(PyModule_GetState(module), s.tree, root);
