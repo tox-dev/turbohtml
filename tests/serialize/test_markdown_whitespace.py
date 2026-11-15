@@ -239,9 +239,9 @@ _SETEXT: Final[Markdown.Headings] = Markdown.Headings(style="setext")
             id="break-in-another-buffer",
         ),
         pytest.param(
-            f'<a href="/t">one twothreefour {_PRE}&lt;i&gt;</a>',
+            f'<a href="/t">alpha betagamma {_PRE}&lt;i&gt;</a>',
             Markdown(wrapping=Markdown.Wrapping(width=12)),
-            "[one\ntwothreefour <pre>b</pre>\\<i>](/t)",
+            "[alpha\nbetagamma <pre>b</pre>\\<i>](/t)",
             id="wrapped-link",
         ),
         pytest.param(
@@ -250,7 +250,7 @@ _SETEXT: Final[Markdown.Headings] = Markdown.Headings(style="setext")
             f"one\ntwothreefour <pre>b</pre>\\<i>\n{'=' * 33}",
             id="wrapped-heading",
         ),
-        pytest.param(f"<h1>{_PRE}&lt;i&gt;</h1>", Markdown(headings=_SETEXT), "# <pre>b</pre>\\<i>", id="setext-h1"),
+        pytest.param(f"<h1>{_PRE}x&lt;i&gt;</h1>", Markdown(headings=_SETEXT), "# <pre>b</pre>x\\<i>", id="setext-h1"),
         pytest.param(f"<h2> {_PRE} #</h2>", Markdown(headings=_SETEXT), "## <pre>b</pre> \\#", id="setext-h2"),
         pytest.param(
             f"<h1><span><i>{_PRE}</i></span></h1>",
