@@ -14,7 +14,8 @@ mutate freely, use :func:`turbohtml.parse`.
 
 Register a ``(selector, handler)`` pair under ``elements``. The handler is called with an
 :class:`~turbohtml.rewrite.Element` for each match; set or remove attributes on it and the start tag is rebuilt, while
-everything you do not touch is copied through verbatim:
+everything you do not touch is copied through verbatim, except that an empty end tag (``</>``) is dropped and a ``<`` in
+text that a dropped tag, comment or empty end tag would join with the text after it is written as ``&lt;``:
 
 .. testcode::
 
