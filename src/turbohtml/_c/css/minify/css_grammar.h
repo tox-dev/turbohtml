@@ -538,8 +538,8 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
 /* Whether an @import/@namespace url() keeps its function form. text[start, end) is the url()'s whitespace-trimmed
    interior. A url() with a <url-modifier> after its URL (CSS Values 4 §4.5.4), any content beyond trailing whitespace
    past the quoted or bare URL, keeps it, since the @import grammar (CSS Cascade 5 §3.1) reads a token moved outside the
-   url() as a media query, and @namespace reads it as the prefix. So does a bare URL holding a quote or `(`: that makes
-   it a bad url (CSS Syntax 3 §4.3.6), which no string spells, and the quote would end the string wrapped around it. */
+   url() as a media query, and @namespace reads it as the prefix. So does a bare URL holding a `(`: that makes it a bad
+   url (CSS Syntax 3 §4.3.6), which no string spells. A bare URL holding a quote is already a bad-url token. */
 static int css_url_keeps_function(const css_char *text, Py_ssize_t start, Py_ssize_t end) {
     if (start >= end) {
         return 0;
@@ -552,7 +552,7 @@ static int css_url_keeps_function(const css_char *text, Py_ssize_t start, Py_ssi
     }
     for (Py_ssize_t index = start; index < end; index++) {
         css_char character = text[index];
-        if (css_is_ws(character) || character == '"' || character == '\'' || character == '(') {
+        if (css_is_ws(character) || character == '(') {
             return 1;
         }
     }
