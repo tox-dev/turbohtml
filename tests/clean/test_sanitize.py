@@ -430,6 +430,13 @@ def test_allowlisted_foreign_subtree_keeps_html_integration_child() -> None:
     assert out == "<svg><foreignObject><p>hi</p></foreignObject></svg>"
 
 
+def test_allowlisted_foreign_object_is_not_forged_by_non_ascii_name() -> None:
+    # the name matches foreignObject only after truncation, so it is no integration point and must not be emitted as one
+    policy = Policy(tags=frozenset({"svg", "foreignObject", "p"}))
+    out = sanitize("<svg><forťignobject><p>x</p></forťignobject></svg>", policy)
+    assert out == "<svg>&lt;forťignobject&gt;</svg><p>x</p>"
+
+
 def test_allowlisted_foreign_script_is_still_escaped() -> None:
     # the unsafe-tag set neutralizes scripting in any namespace even when allowlisted
     out = sanitize("<svg><script>alert(1)</script></svg>", Policy(tags=frozenset({"svg", "script"})))
