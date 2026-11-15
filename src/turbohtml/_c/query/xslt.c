@@ -4136,8 +4136,8 @@ static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, cons
 }
 
 static int number_names_equal(const xslt_number_name *left, const xslt_number_name *right) {
-    return left->type == right->type && left->ns == right->ns && left->name_len == right->name_len &&
-           left->uri_len == right->uri_len &&
+    return ((left->type ^ right->type) | (left->ns ^ right->ns) | (left->name_len ^ right->name_len) |
+            (left->uri_len ^ right->uri_len)) == 0 &&
            (left->name_len == 0 || memcmp(left->name, right->name, (size_t)left->name_len * sizeof(Py_UCS4)) == 0) &&
            (left->uri_len == 0 || memcmp(left->uri, right->uri, (size_t)left->uri_len * sizeof(Py_UCS4)) == 0);
 }

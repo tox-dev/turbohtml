@@ -4864,6 +4864,7 @@ _PAIR: Final[str] = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
             id="explicit-value-interleaving",
         ),
         pytest.param('<r><n id="a"/><n id="b"/></r>', "r/n/@id", _PAIR, "1:1|1:1|", id="attributes"),
+        pytest.param("<r><n/><!--c--><n/></r>", "r/node()", "<xsl:number/>", "1|1|2|", id="comment-after-element"),
     ],
 )
 def test_number_memo_criteria(
@@ -4893,6 +4894,14 @@ def test_number_memo_same_instruction_target(
         "<xsl:text>|</xsl:text></xsl:for-each></xsl:template>"
     )
     assert compiled(parse_xml(source)) == expected
+
+
+def test_number_single_counts_past_element_of_another_namespace(compile_numbers: Callable[[str], Transform]) -> None:
+    compiled: Final = compile_numbers(
+        '<xsl:template match="/"><xsl:for-each select="//div"><xsl:number/><xsl:text>|</xsl:text></xsl:for-each>'
+        "</xsl:template>"
+    )
+    assert compiled(turbohtml.parse("<body><svg></svg><div></div><div></div></body>")) == "1|2|"
 
 
 def test_number_memo_compiled_transform_reuse(compile_numbers: Callable[[str], Transform]) -> None:
