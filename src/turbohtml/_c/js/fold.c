@@ -111,6 +111,7 @@ static int string_value_empty(const jm_node *node) {
 /* The truthiness of a *pure* (side-effect-free) constant: 1 truthy, 0 falsy, -1 not a
    pure constant (so neither its value is known nor may it be dropped). */
 static int pure_truthy(F *folder, int32_t idx) {
+    TH_WORK_STEP();
     jm_node *node = &folder->prog->nodes[idx];
     switch (node->kind) {
     case JN_NUM: {
@@ -125,6 +126,12 @@ static int pure_truthy(F *folder, int32_t idx) {
         return ident_is(node, "null") ? 0 : -1;
     case JN_UNARY:
         if (node->op == JT_NOT) {
+            /* walk() folds bottom-up, so a `!` still over a unary is not a constant. Descending the chain from
+               each of its levels made every pass quadratic in its length. A rewrite may stack a `!` over a constant
+               mid-pass; reading it as unknown is safe, and the next pass folds it. */
+            if (folder->prog->nodes[node->a].kind == JN_UNARY) {
+                return -1;
+            }
             int inner = pure_truthy(folder, node->a);
             return inner < 0 ? -1 : !inner;
         }
