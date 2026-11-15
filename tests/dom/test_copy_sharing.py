@@ -93,12 +93,12 @@ def test_fragment_children_keep_reconstructed_values_shared(consume: Callable[[D
 
 
 def test_copy_shares_many_distinct_reconstructed_elements() -> None:
-    # more shared values than the memo starts with room for
-    tags: Final = "".join(f'<b class="{index:02d}-{"c" * 40}" data-i="{index}">' for index in range(40))
-    page: Final = parse(f"<p>{tags}<p>x<p>y")
+    # more shared values than the memo starts with room for; each block reconstructs at most 16 of the 40 elements
+    tags: Final = [f'<b class="{index:02d}-{"c" * 40}" data-i="{index}">' for index in range(40)]
+    page: Final = parse(f"<p>{''.join(tags[:16])}<p>x{''.join(tags[16:32])}<p>x{''.join(tags[32:])}<p>y")
     clone: Final = copy.deepcopy(page)
     assert clone.serialize() == page.serialize()
-    assert [bold.attrs["data-i"] for bold in clone.select("p:last-child b")] == [str(index) for index in range(40)]
+    assert {bold.attrs["data-i"] for bold in clone.select("b")} == {str(index) for index in range(40)}
 
 
 @pytest.mark.parametrize(
