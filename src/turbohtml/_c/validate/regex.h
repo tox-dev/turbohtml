@@ -467,8 +467,7 @@ static rnode *rx_parse_atom(rparser *parser) {
 }
 
 /* Read a run of decimal digits as a quantifier count, saturating at the state budget: a larger count can never compile
-   within it, and saturating keeps the arithmetic from overflowing and an empty-atom repeat such as (){999999999999}
-   from looping without creating states. Returns the digit count. */
+   within it, and saturating keeps the arithmetic from overflowing. Returns the digit count. */
 static Py_ssize_t rx_parse_count(rparser *parser, int *count) {
     Py_ssize_t digits = 0;
     int value = 0;
@@ -512,6 +511,9 @@ static int rx_parse_bound(rparser *parser, int *rmin, int *rmax) {
     return 1;
 }
 
+/* A piece that matches only the empty string compiles to no NFA state, so the state budget cannot bound the copies
+   rx_compile_repeat makes of it, and nested repeats of such a piece multiply. Folding it here keeps every copy paid for
+   by a state. x{1} folds to x so that a chain of single repeats is not walked once per level for every copy. */
 static rnode *rx_parse_quant(rparser *parser) {
     rnode *atom = rx_parse_atom(parser);
     if (atom == NULL || parser->pos >= parser->len) { /* GCOVR_EXCL_BR_LINE: NULL only on unforceable arena OOM */
@@ -521,6 +523,9 @@ static rnode *rx_parse_quant(rparser *parser) {
     int type = quant == '?' ? RN_QUEST : (quant == '*' ? RN_STAR : (quant == '+' ? RN_PLUS : -1));
     if (type != -1) {
         parser->pos++;
+        if (atom->type == RN_EMPTY) {
+            return atom;
+        }
         rnode *node = rx_node(parser, type);
         if (node != NULL) { /* GCOVR_EXCL_BR_LINE: node is NULL only on unforceable arena OOM */
             node->a = atom;
@@ -530,6 +535,12 @@ static rnode *rx_parse_quant(rparser *parser) {
     if (quant == '{') {
         int rmin, rmax;
         if (rx_parse_bound(parser, &rmin, &rmax)) {
+            if (atom->type == RN_EMPTY || (rmin == 1 && rmax == 1)) {
+                return atom;
+            }
+            if (rmax == 0) {
+                return rx_node(parser, RN_EMPTY);
+            }
             rnode *node = rx_node(parser, RN_REPEAT);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: node is NULL only on unforceable arena OOM */
                 node->a = atom;
@@ -548,6 +559,9 @@ static rnode *rx_parse_concat(rparser *parser) {
         rnode *piece = rx_parse_quant(parser);
         if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on unforceable arena OOM */
             return NULL;     /* GCOVR_EXCL_LINE */
+        }
+        if (piece->type == RN_EMPTY) {
+            continue; /* see rx_parse_quant */
         }
         if (left == NULL) {
             left = piece;
@@ -607,8 +621,9 @@ static rstate *rx_state(rcompiler *compiler, int kind) {
 static rstate *rx_compile(rcompiler *compiler, rnode *node, rstate *out);
 
 /* Compile `node->a{rmin,rmax}` (rmax -1 for unbounded) iteratively, so a huge repeat count grows the NFA without
-   growing the C stack; rx_state's budget bounds the memory, and the loops stop once it trips. An inverted bound such
-   as {5,2} compiles as {5,}, as the recursive construction always did. */
+   growing the C stack; rx_state's budget bounds the memory, and the loops stop once it trips. Every copy moves towards
+   it, because rx_parse_quant leaves no atom that compiles to nothing. An inverted bound such as {5,2} compiles as
+   {5,}, as the recursive construction always did. */
 static rstate *rx_compile_repeat(rcompiler *compiler, rnode *node, int rmin, int rmax, rstate *out) {
     if (rmax < rmin) {
         rmax = -1;
@@ -627,6 +642,7 @@ static rstate *rx_compile_repeat(rcompiler *compiler, rnode *node, int rmin, int
         cur = split;
     }
     for (int required = 0; required < rmin && !compiler->failed; required++) {
+        TH_WORK_STEP();
         cur = rx_compile(compiler, node->a, cur);
     }
     return cur;
