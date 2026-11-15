@@ -578,11 +578,13 @@ static int view_is_holder(th_node *node) {
     return node->type == TH_NODE_ELEMENT && (node->tag_flags & TH_ELEM_TAIL_HOLDER) != 0;
 }
 
-TH_NODE_API(static, PyObject *, view_top, (NodeObject * owner), (owner), (NodeObject * owner), owner, NULL) {
+TH_NODE_API(static, PyObject *, view_top, (NodeObject * owner, int element), (owner, element),
+            (NodeObject * owner, int element), owner, NULL) {
     PyObject *result;
     Py_BEGIN_CRITICAL_SECTION(owner->handle);
     th_node *node = owner->node;
-    while (node->parent != NULL && !view_is_holder(node->parent)) {
+    while (node->parent != NULL && !view_is_holder(node->parent) &&
+           (!element || node->parent->type == TH_NODE_ELEMENT)) {
         node = node->parent;
     }
     result = node_wrap_locked(state_of((PyObject *)owner), owner->handle, node);
@@ -591,7 +593,7 @@ TH_NODE_API(static, PyObject *, view_top, (NodeObject * owner), (owner), (NodeOb
 }
 
 static PyObject *view_origin(NodeObject *node) {
-    PyObject *top = view_top(node);
+    PyObject *top = view_top(node, 0);
     if (top == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;   /* GCOVR_EXCL_LINE: allocation failure */
     }
@@ -650,6 +652,10 @@ static PyObject *view_getroottree(PyObject *self, PyObject *Py_UNUSED(ignored)) 
         PyObject *root = PyObject_GetAttrString(origin, "root");
         Py_DECREF(origin);
         origin = root;
+    } else if (!Py_IS_TYPE(origin, (PyTypeObject *)state->element_type)) {
+        /* A shadow root or fragment tops the tree. A view wraps only an element, so as with getparent(), which ends at
+           the same boundary, the root is the outermost element. */
+        Py_SETREF(origin, view_top(node, 1));
     }
     if (origin == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */

@@ -7,7 +7,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml import Element, etree, parse
+from turbohtml import Element, Range, etree, parse
 from turbohtml.etree import (
     ElementView,
     SubElement,
@@ -147,6 +147,62 @@ def test_element_view_removed_node_retains_document_context(tree: ElementView) -
         return child.getroottree().getroot().tag, child.find("//p")
 
     assert detach() == ("html", last)
+
+
+@pytest.mark.parametrize(
+    ("content", "target", "expected"),
+    [
+        pytest.param("<span>x</span>", "span", "span", id="child"),
+        pytest.param("<p><em>x</em></p>", "em", "p", id="descendant"),
+    ],
+)
+def test_element_view_root_in_shadow_tree_is_outermost_element(content: str, target: str, expected: str) -> None:
+    markup: Final = f'<div><template shadowrootmode="open">{content}</template></div>'
+    host: Final = parse(markup, source_locations=True).find("div")
+    assert host is not None
+    shadow: Final = host.shadow_root
+    assert shadow is not None
+    node: Final = shadow.find(target)
+    assert node is not None
+    root: Final = ElementView(node).getroottree().getroot()
+    assert (root.tag, root.getparent(), root.node.parent) == (expected, None, shadow)
+    root.attrib["data-marked"] = "1"
+    assert root.node.attr("data-marked") == "1"
+
+
+def test_element_view_root_in_fragment_is_outermost_element() -> None:
+    element: Final = parse("<div><p><b>bold</b></p>tail</div>", source_locations=True).find("div")
+    assert element is not None
+    boundary: Final = Range(element, 0)
+    boundary.set_end(element, 1)
+    fragment: Final = boundary.extract_contents()
+    bold: Final = fragment.find("b")
+    assert bold is not None
+    root: Final = ElementView(bold).getroottree().getroot()
+    assert (root.tag, root.getparent()) == ("p", None)
+    root.attrib["class"] = "moved"
+    assert fragment.html == '<p class="moved"><b>bold</b></p>'
+
+
+def test_element_view_removed_from_shadow_tree_is_its_own_root() -> None:
+    markup: Final = '<div><template shadowrootmode="open"><p><b>bold</b></p><i>last</i></template></div>'
+    host: Final = parse(markup, source_locations=True).find("div")
+    assert host is not None
+    shadow: Final = host.shadow_root
+    assert shadow is not None
+    paragraph: Final = shadow.find("p")
+    assert paragraph is not None
+    parent: Final = ElementView(paragraph)
+    child: Final = parent[0]
+
+    @document_context
+    def detach() -> tuple[ElementView, ElementView | None]:
+        parent.remove(child)
+        return child.getroottree().getroot(), child.find("//i")
+
+    root, last = detach()
+    assert last is not None
+    assert (root, last.tag) == (child, "i")
 
 
 @pytest.mark.parametrize(
