@@ -1824,17 +1824,22 @@ def _misread(source: str) -> list[str]:
     marked = rewrite(source, elements=[("*", lambda element: element.before(mark))])
     starts = [at - before for before, at in enumerate(at for at, char in enumerate(marked) if char == mark)]
     seen = set(starts)
-    problems = []
-    for element in _parsed_elements(parse(source, source_locations=True, scripting=True)):
-        if (location := element.source_location) is None:
-            continue
-        if location.start_tag.start_offset not in seen:
-            problems.append(f"no handler call for <{element.tag}> at {location.start_tag.start_offset}")
-        if element.namespace is Namespace.HTML and element.tag in _RAW_TEXT:
-            end = len(source) if location.end_tag is None else location.end_tag.start_offset
-            if (inside := bisect_left(starts, location.start_tag.end_offset)) < bisect_left(starts, end):
-                problems.append(f"handler call at {starts[inside]} inside the text of <{element.tag}>")
-    return problems
+    located = [
+        (element, location)
+        for element in _parsed_elements(parse(source, source_locations=True, scripting=True))
+        if (location := element.source_location) is not None
+    ]
+    return [
+        f"no handler call for <{element.tag}> at {location.start_tag.start_offset}"
+        for element, location in located
+        if location.start_tag.start_offset not in seen
+    ] + [
+        f"handler call at {starts[inside]} inside the text of <{element.tag}>"
+        for element, location in located
+        if element.namespace is Namespace.HTML and element.tag in _RAW_TEXT
+        if (inside := bisect_left(starts, location.start_tag.end_offset))
+        < bisect_left(starts, len(source) if location.end_tag is None else location.end_tag.start_offset)
+    ]
 
 
 def _parsed_elements(node: Document | ParsedElement | ShadowRoot) -> Iterator[ParsedElement]:
