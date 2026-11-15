@@ -576,6 +576,11 @@ th_node *th_tree_document(th_tree *tree);
 uint32_t th_tree_attr_generation(const th_tree *tree);
 uint64_t th_tree_attr_version(const th_tree *tree);
 uint64_t th_tree_id_version(const th_tree *tree);
+/* A count of the edits through the mutation API that can add, drop or reorder the tree's elements. Every structural
+   mutator calls handle_drop_index, which bumps it, and linkify, which edits without it, bumps it itself. With
+   th_tree_id_version it tells a cache of the tree's elements by id whether it still holds. */
+uint64_t th_tree_element_version(const th_tree *tree);
+void th_tree_note_element_edit(th_tree *tree);
 /* Whether the handle's slot cache still matches the slot attributes: set when the cache starts, cleared by an attribute
    edit that changes slot assignment (see th_tree.slot_cache_valid). */
 int th_tree_slot_cache_valid(const th_tree *tree);

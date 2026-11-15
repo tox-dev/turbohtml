@@ -206,6 +206,8 @@ typedef struct {
     struct th_node *node; /* NULL until found, unless the caller of xp_eval_at supplied it */
     int mixed;
     int fixed;
+    xp_id_cache *ids; /* the caller's id() cache, or NULL to use own */
+    xp_id_cache own;  /* the evaluation's id() cache, cleared when it ends */
 } xp_root;
 
 typedef struct {
