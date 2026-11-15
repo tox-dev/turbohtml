@@ -3570,6 +3570,9 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
     assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="drives the repeat check for the C coverage gate, which Windows does not run"
+)
 def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
     # the repeat check recurses on the C stack that is left, so it fires only once the walk above it has used most of
     # the thread's stack; json's encoder nests one C level per depth and calls the validation from its innermost level,
