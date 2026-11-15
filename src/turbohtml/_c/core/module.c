@@ -16,6 +16,7 @@
 #include "core/hash.h"
 #include "core/vec.h"
 
+#include "css/cssom/cssom.h"
 #include "tokenizer/binding.h"
 
 /* Drive th_grow_cap directly so a test covers its size-overflow guards. Every reserve site shares
@@ -34,6 +35,18 @@ static PyObject *turbohtml_grow_probe(PyObject *module, PyObject *args) {
     size_t bytes = 0;
     int grew = th_grow_cap((size_t)needed, (size_t)current, (size_t)initial, (size_t)elem_size, &cap, &bytes);
     return Py_BuildValue("(iKK)", grew, (unsigned long long)cap, (unsigned long long)bytes);
+}
+
+/* Drive th_css_deep_memo_limit directly so a test covers its product and doubling overflow arms, which no
+   stylesheet and tree can reach. */
+static PyObject *turbohtml_deep_memo_limit_probe(PyObject *module, PyObject *args) {
+    (void)module;
+    unsigned long long rules;
+    unsigned long long nodes;
+    if (!PyArg_ParseTuple(args, "KK", &rules, &nodes)) {
+        return NULL;
+    }
+    return PyLong_FromUnsignedLongLong(th_css_deep_memo_limit((size_t)rules, (size_t)nodes));
 }
 
 PyDoc_STRVAR(escape_doc, "escape(s, quote=True)\n--\n\n"
@@ -304,6 +317,7 @@ static PyMethodDef html_methods[] = {
 
     {"_sanitize_policy", turbohtml_sanitize_policy, METH_VARARGS, NULL},
     {"_grow_probe", turbohtml_grow_probe, METH_VARARGS, NULL},
+    {"_deep_memo_limit_probe", turbohtml_deep_memo_limit_probe, METH_VARARGS, NULL},
     {"_schema_compile", turbohtml_schema_compile, METH_VARARGS, NULL},
     {"_schema_validate", (PyCFunction)(void (*)(void))turbohtml_schema_validate, METH_VARARGS | METH_KEYWORDS, NULL},
     {"_conformance_check", turbohtml_conformance_check, METH_O, NULL},

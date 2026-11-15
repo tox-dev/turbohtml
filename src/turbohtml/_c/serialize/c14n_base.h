@@ -34,6 +34,22 @@ static int c14n_absolute_uri(const Py_UCS4 *uri, Py_ssize_t len) {
     return 0;
 }
 
+/* Exclusive canonicalization declares a namespace on every element that uses it below one that does not, and an
+   element written in place of a left-out one carries that one's declarations, so a long URI above many short elements
+   multiplies the output. The rest of the output funds these copies as it funds the inner XML ones (dom/tree.h). Returns
+   1 when a copy of about `cost` code points fits after the `copied` code points already written as copies; otherwise
+   sets ValueError and returns 0. */
+static int c14n_ns_copy_funded(const sbuf *out, Py_ssize_t copied, Py_ssize_t cost) {
+    if (xml_ns_copy_funded(copied, out->len, cost, TH_XML_NS_BASE)) {
+        return 1;
+    }
+    PyErr_Format(PyExc_ValueError,
+                 "the namespace declarations repeated on the elements that use them exceed the allowance of %d "
+                 "characters plus %d per character of other output",
+                 TH_XML_NS_BASE, TH_XML_NS_PER_CHAR);
+    return 0;
+}
+
 static const th_node_attr *c14n_base_attribute(th_tree *tree, const th_node *node) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         Py_ssize_t length;

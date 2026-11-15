@@ -43,6 +43,10 @@ int th_tree_is_xml(const th_tree *tree) {
     return tree->xml;
 }
 
+int th_tree_has_xml_ns(const th_tree *tree) {
+    return tree->has_xml_ns;
+}
+
 void th_tree_set_xml(th_tree *tree, int xml) {
     tree->xml = xml;
     tree->has_xml_ns = 0;

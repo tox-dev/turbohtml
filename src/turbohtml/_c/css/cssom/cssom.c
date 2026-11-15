@@ -1504,6 +1504,24 @@ typedef struct {
    one per element, so without a cap the table grows with arguments times elements. */
 #define CSS_HAS_MEMO_LIMIT ((size_t)1 << 21)
 
+/* The deep memo's store keeps one 512-byte page per 2048 tree nodes for each key a walk uses, and a rule uses at most
+   four keys, so this many bytes hold every rule's answers over a tree of nodes nodes. */
+#define CSS_DEEP_MEMO_KEYS_PER_RULE 4
+#define CSS_DEEP_MEMO_PAGE_NODES ((size_t)1 << 11)
+#define CSS_DEEP_MEMO_PAGE_BYTES ((size_t)1 << 9)
+
+/* The cap of the cascade's deep memo for a stylesheet of rules rules over a tree of nodes nodes, at least
+   CSS_DEEP_MEMO_LIMIT. A product past SIZE_MAX keeps the fixed cap, so the store fails and the walks take the direct
+   path. */
+size_t th_css_deep_memo_limit(size_t rules, size_t nodes) {
+    const size_t pages = nodes / CSS_DEEP_MEMO_PAGE_NODES + 1;
+    if (rules > SIZE_MAX / CSS_DEEP_MEMO_KEYS_PER_RULE / pages / CSS_DEEP_MEMO_PAGE_BYTES) {
+        return CSS_DEEP_MEMO_LIMIT;
+    }
+    const size_t wanted = rules * CSS_DEEP_MEMO_KEYS_PER_RULE * pages * CSS_DEEP_MEMO_PAGE_BYTES;
+    return wanted > CSS_DEEP_MEMO_LIMIT ? wanted : CSS_DEEP_MEMO_LIMIT;
+}
+
 /* How many consecutive levels of an ancestor chain path holds. The HTML tree builder nests no deeper than
    TH_MAX_TREE_DEPTH, so the chain of a parsed page fits whole; an XML or a built tree can be deeper. */
 #define CSS_PATH_DENSE ((Py_ssize_t)2 * TH_MAX_TREE_DEPTH)
@@ -1574,6 +1592,7 @@ static css_computed_cache *css_computed_new(uint64_t version) {
     cache->has_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->value_memo.limit = CSS_HAS_MEMO_LIMIT;
     cache->deep_memo.limit = CSS_DEEP_MEMO_LIMIT;
+    cache->deep_memo.subject_scope = 1; /* the cascade binds :scope to the element it styles */
     return cache;
 }
 
@@ -2168,6 +2187,11 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
             return -1;       /* GCOVR_EXCL_LINE: allocation failure */
         }
         handle->css_computed = cache;
+        size_t rules = 0;
+        for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
+            rules += (size_t)sheets[sheet].rule_count;
+        }
+        cache->deep_memo.limit = th_css_deep_memo_limit(rules, th_tree_node_count(handle->tree));
     }
     if (cache->path_len > 0 && cache->path[cache->path_len - 1]->node == element) {
         return css_copy_map(out, cache->path[cache->path_len - 1]->values);

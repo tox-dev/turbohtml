@@ -248,6 +248,7 @@ typedef struct {
     xp_before_python_fn before_python;
     xp_name_test_fn name_test;
     void *name_test_ctx;
+    int strict_no_ns;
     xp_root *root;        /* shared by the predicate contexts of one top-level evaluation */
     xp_lang_memo **langs; /* the caller's lang() memo (xp_eval_at), or NULL for the evaluation's own in caches */
 #ifdef TH_OPERATION_LIMIT
