@@ -81,7 +81,10 @@ iterative tree-depth scan. A schema or instance nested 400 levels or deeper rais
 recursive grammar walk starts, including on small worker-thread stacks. Both validators then descend the instance
 recursively for a fixed number of levels and with an explicit stack of open elements below them, so the C stack a
 validation needs does not grow with how deep the document nests. The compiler walks the schema the same way, so neither
-how deep a schema nests nor a chain of group, type or ``ref`` references through it grows the C stack it needs.
+how deep a schema nests nor a chain of group, type or ``ref`` references through it grows the C stack it needs. The
+recursive content-model matchers, the RELAX NG derivative and the XML Schema particle matcher, still recurse once per
+level, so they check the thread's C stack before each level and raise :class:`RecursionError` when it is nearly spent.
+On Linux, macOS and Windows a small worker thread thus gets that error for a schema its stack cannot hold, not a crash.
 
 ***********************
  What a result carries
