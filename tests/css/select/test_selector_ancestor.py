@@ -57,10 +57,10 @@ def test_select_deep_chain_at_every_level(selector: str, expected: list[str | No
     )
 
 
-def _deep(html: str) -> Document:
-    # linking in a subtree too large to measure drops what parse() knows of how deep the page nests, so its queries run
-    # as on a deep tree
-    document: Final = parse(html)
+def _deep(html: str, parser: Callable[[str], Document] = parse) -> Document:
+    # linking in a subtree too large to measure drops what the parser knows of how deep the page nests, so its queries
+    # run as on a deep tree
+    document: Final = parser(html)
     holder: Final = Element("x")
     for _ in range(40):
         branch = Element("y")
@@ -555,6 +555,38 @@ def test_computed_style_deep_tree_picks_most_specific_alternative(selectors: str
         assert found is not None
         styles.append(computed_style(found)["color"])
     assert styles == [color, color]
+
+
+@pytest.mark.parametrize(
+    ("parser", "markup", "expected"),
+    [
+        pytest.param(
+            parse,
+            "<section lang=fr><svg xml:lang=de><g id=a></g></svg><svg xml:lang='' lang=it><g id=b></g></svg>"
+            "<svg><g id=c></g></svg><math lang=es><mi id=d></mi></math><div lang=''><p id=e></p></div>"
+            "<div lang=en><p id=f></p></div></section>",
+            [["a"], ["b"], ["c", "d", "e"], [], ["f"]],
+            id="html",
+        ),
+        pytest.param(
+            parse_xml,
+            "<r xml:lang='fr'><a xml:lang=''><b id='g'/></a><c lang='en'><d id='h'/></c>"
+            "<e xml:lang='de'><f id='i'/></e></r>",
+            [["i"], [], ["h"], [], []],
+            id="xml",
+        ),
+    ],
+)
+def test_select_lang_declarations_deep_tree(
+    parser: Callable[[str], Document], markup: str, expected: list[list[str]]
+) -> None:
+    # xml:lang counts on a foreign or XML element and lang on an HTML or SVG element of an HTML page; an empty lang, or
+    # an empty xml:lang on a page the HTML parser built, declares nothing
+    found: Final = [
+        [_ids(document.select(f"[id]:lang({lang})")) for lang in ("de", "it", "fr", "es", "en")]
+        for document in (parser(markup), _deep(markup, parser))
+    ]
+    assert found == [expected, expected]
 
 
 def test_matches_lang_and_dir_on_extracted_element() -> None:
