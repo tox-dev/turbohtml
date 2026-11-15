@@ -1824,6 +1824,7 @@ TH_NODE_API(static, PyObject *, element_attr, (PyObject * self, PyObject *args, 
 void handle_drop_index(PyObject *handle_obj) {
     HandleObject *handle = (HandleObject *)handle_obj;
     handle->mutation_version++;
+    th_tree_note_element_edit(handle->tree);
     handle_clear_css_cache(handle);
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);
@@ -2621,7 +2622,9 @@ TH_NODE_API(static, PyObject *, element_css_path, (PyObject * self, PyObject *ig
         const int alone = handle_obj->path_positions == NULL;
         Py_ssize_t top = count - 1;
         int anchored = 0;
-        for (Py_ssize_t index = 0; index < count; index++) {
+        /* select() searches the document's descendants only, so a detached fragment root never anchors itself */
+        const Py_ssize_t anchors = chain[count - 1] == document ? count - 1 : count;
+        for (Py_ssize_t index = 0; index < anchors; index++) {
             const th_node_attr *id = find_node_attr(chain[index], TH_ATTR_ID);
             int escaped;
             if (id != NULL && id->value != NULL && path_id_safe(id->value, id->value_len, &escaped) && id_map != NULL &&

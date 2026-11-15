@@ -45,6 +45,7 @@
 #endif
 
 static const char XSD_NS[] = "http://www.w3.org/2001/XMLSchema";
+static const char XSI_NS[] = "http://www.w3.org/2001/XMLSchema-instance";
 static const char XSD_DT_NS[] = "http://www.w3.org/2001/XMLSchema-datatypes";
 static const char RNG_NS[] = "http://relaxng.org/ns/structure/1.0";
 
@@ -231,12 +232,16 @@ typedef struct {
    validator's hottest cost, so each schema element node's namespace-resolved qname is
    computed once at compile time and looked up by node pointer here. Built before any
    compile classification runs and never mutated afterwards, so a compiled schema shared
-   across validating threads stays read-only. */
+   across validating threads stays read-only. The same holds for the QNames in the type and base attributes, which
+   declarations read on every instance element. */
 struct th_schema;
 typedef struct {
     th_node *node;
     qname name;
+    qname type;
+    qname base;
 } sqname_entry;
+static const sqname_entry *schema_node_entry(const struct th_schema *schema, th_node *node);
 static const qname *schema_node_qname(const struct th_schema *schema, th_node *node);
 
 static void split_prefix(const Py_UCS4 *name, Py_ssize_t len, const Py_UCS4 **local, Py_ssize_t *local_len,
@@ -974,7 +979,7 @@ static qname schema_direct_qname(const struct th_schema *schema, th_node *node) 
     return node_qname(schema->tree_ns, node, node->text, node->text_len);
 }
 
-static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
+static const sqname_entry *schema_node_entry(const th_schema *schema, th_node *node) {
     if (schema->sqname_count == 0) { /* a schema below the cache threshold resolves directly; see the build gate */
         return NULL;
     }
@@ -983,7 +988,7 @@ static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
         Py_ssize_t mid = lo + ((hi - lo) >> 1);
         th_node *at = schema->sqnames[mid].node;
         if (at == node) {
-            return &schema->sqnames[mid].name;
+            return &schema->sqnames[mid];
         }
         if (at < node) {
             lo = mid + 1;
@@ -992,6 +997,11 @@ static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
         }
     }
     return NULL; /* GCOVR_EXCL_LINE: every schema element node is cached, so the search never misses */
+}
+
+static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
+    const sqname_entry *entry = schema_node_entry(schema, node);
+    return entry == NULL ? NULL : &entry->name;
 }
 
 /* The node after `node` in document order, past its descendants, without leaving `root`'s subtree; NULL at its end.
@@ -1044,122 +1054,26 @@ static Py_ssize_t schema_count_elements(th_node *document) {
     return total;
 }
 
-/* One in-scope xmlns binding; the stack grows entering an element that declares bindings and shrinks leaving
-   it, so resolving a prefix is a top-down scan of what is in scope instead of an ancestor walk. */
-typedef struct {
-    const char *prefix; /* UTF-8 bytes into the interned attribute name; "" for the default namespace */
-    Py_ssize_t prefix_len;
-    const Py_UCS4 *uri;
-    Py_ssize_t uri_len;
-    const th_node *owner; /* the element that declares it, which takes it off the stack when the walk leaves */
-} ns_binding;
+static Py_ssize_t ns_scope_enter(th_schema *schema, th_tree *tree, th_node *element);
+static void ns_scope_leave(th_schema *schema, Py_ssize_t mark);
+static qname node_qname_scoped(th_schema *schema, const Py_UCS4 *name, Py_ssize_t name_len, int is_attr);
 
-typedef struct {
-    ns_binding *items;
-    Py_ssize_t len;
-    Py_ssize_t cap;
-} ns_scope;
-
-static int ns_scope_push(th_schema *schema, ns_scope *scope, const th_node *owner, const char *prefix,
-                         Py_ssize_t prefix_len, const Py_UCS4 *uri, Py_ssize_t uri_len) {
-    if (scope->len == scope->cap) {
-        Py_ssize_t cap = scope->cap ? scope->cap * 2 : TH_INITIAL_CAPACITY(8);
-        ns_binding *items = arena_alloc(&schema->mem, (size_t)cap * sizeof(ns_binding));
-        if (items == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return -1;       /* GCOVR_EXCL_LINE */
-        }
-        if (scope->len > 0) {
-            memcpy(items, scope->items, (size_t)scope->len * sizeof(ns_binding));
-        }
-        scope->items = items;
-        scope->cap = cap;
+/* The QName an attribute holds, its prefix resolved in scope at `element`, or an empty qname when the attribute is
+   absent. */
+static qname attr_qname_scoped(th_schema *schema, th_node *element, const char *name, Py_ssize_t name_len) {
+    const th_node_attr *attr = attr_exact(schema->tree, element, name, name_len);
+    if (attr == NULL) {
+        return (qname){NULL, 0, NULL, 0};
     }
-    scope->items[scope->len].prefix = prefix;
-    scope->items[scope->len].prefix_len = prefix_len;
-    scope->items[scope->len].uri = uri;
-    scope->items[scope->len].uri_len = uri_len;
-    scope->items[scope->len].owner = owner;
-    scope->len++;
-    return 0;
+    return node_qname_scoped(schema, attr->value, attr->value_len, 0);
 }
 
-/* The innermost binding for prefix, or no namespace at all. The xml prefix needs no special case here: the
-   cache resolves schema-element tag prefixes, an xml:-prefixed schema element is foreign, and is_schema_el
-   maps both the xml namespace and no namespace to "not a schema element" -- resolve_ns keeps the xml rule for
-   the document path, where xml:lang and friends are observable. */
-static void ns_scope_resolve(const ns_scope *scope, const Py_UCS4 *prefix, Py_ssize_t prefix_len, const Py_UCS4 **uri,
-                             Py_ssize_t *uri_len) {
-    for (Py_ssize_t index = scope->len - 1; index >= 0; index--) {
-        const ns_binding *binding = &scope->items[index];
-        if (u_eq_utf8(prefix, prefix_len, binding->prefix, binding->prefix_len)) {
-            *uri = binding->uri;
-            *uri_len = binding->uri_len;
-            return;
-        }
-    }
-    *uri = NULL;
-    *uri_len = 0;
-}
-
-/* Enter one element's qname at slot `at`, with the bindings it declares pushed for its subtree. */
-static int schema_fill_qname(th_schema *schema, th_node *element, ns_scope *scope, Py_ssize_t at) {
-    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
-        Py_ssize_t alen = 0;
-        const char *abytes = th_attr_name(schema->tree, element->attrs[index].name_atom, &alen);
-        if (!is_xmlns_decl(abytes, alen)) {
-            continue;
-        }
-        /* a bare xmlns binds the default namespace; its prefix is the empty string, not a slice past the name */
-        const char *decl_prefix = alen > 5 ? abytes + 6 : "";
-        Py_ssize_t decl_prefix_len = alen > 5 ? alen - 6 : 0;
-        /* GCOVR_EXCL_BR_START: arena OOM is unforceable from a test */
-        if (ns_scope_push(schema, scope, element, decl_prefix, decl_prefix_len, element->attrs[index].value,
-                          element->attrs[index].value_len) < 0) {
-            /* GCOVR_EXCL_BR_STOP */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-    }
-    const Py_UCS4 *local;
-    const Py_UCS4 *prefix;
-    Py_ssize_t local_len = 0;
-    Py_ssize_t prefix_len = 0;
-    split_prefix(element->text, element->text_len, &local, &local_len, &prefix, &prefix_len);
-    qname name = {local, local_len, NULL, 0};
-    ns_scope_resolve(scope, prefix, prefix_len, &name.uri, &name.uri_len);
+/* The element's declarations are entered before this runs, so they apply to its own name and attribute values. */
+static void schema_fill_qname(th_schema *schema, th_node *element, Py_ssize_t at) {
     schema->sqnames[at].node = element;
-    schema->sqnames[at].name = name;
-    return 0;
-}
-
-static int schema_fill_qnames(th_schema *schema, th_node *document, ns_scope *scope) {
-    Py_ssize_t at = 0;
-    /* a parsed schema always has a root element, so the document has a first child */
-    th_node *node = document->first_child;
-    for (;;) {
-        if (node->type == TH_NODE_ELEMENT) {
-            if (schema_fill_qname(schema, node, scope, at++) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return -1;                                          /* GCOVR_EXCL_LINE */
-            }
-            if (node->first_child != NULL) {
-                node = node->first_child;
-                continue;
-            }
-        }
-        /* leaving a node, and each ancestor it is the last child of, drops the bindings they declared */
-        for (;;) {
-            while (scope->len > 0 && scope->items[scope->len - 1].owner == node) {
-                scope->len--;
-            }
-            if (node->next_sibling != NULL) {
-                node = node->next_sibling;
-                break;
-            }
-            node = node->parent;
-            if (node == document) {
-                return 0;
-            }
-        }
-    }
+    schema->sqnames[at].name = node_qname_scoped(schema, element->text, element->text_len, 0);
+    schema->sqnames[at].type = attr_qname_scoped(schema, element, "type", 4);
+    schema->sqnames[at].base = attr_qname_scoped(schema, element, "base", 4);
 }
 
 static int sqname_cmp(const void *left, const void *right) {
@@ -1175,13 +1089,44 @@ static int schema_build_qname_cache(th_schema *schema) {
     if (schema->sqnames == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;                 /* GCOVR_EXCL_LINE */
     }
-    ns_scope scope = {0};
-    if (schema_fill_qnames(schema, document, &scope) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;                                          /* GCOVR_EXCL_LINE */
+    /* the scope mark each open element entered at, so leaving the element unbinds the declarations it made */
+    Py_ssize_t local[16];
+    Py_ssize_t *marks = local;
+    Py_ssize_t cap = 16, depth = 0, at = 0;
+    /* a parsed schema always has a root element, so the document has a first child */
+    th_node *node = document->first_child;
+    for (;;) {
+        if (node->type == TH_NODE_ELEMENT) {
+            Py_ssize_t *grown = walk_reserve(marks, local, depth, &cap, sizeof(Py_ssize_t));
+            if (grown == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                walk_release(marks, local); /* GCOVR_EXCL_LINE */
+                return -1;                  /* GCOVR_EXCL_LINE */
+            }
+            marks = grown;
+            marks[depth++] = ns_scope_enter(schema, schema->tree, node);
+            schema_fill_qname(schema, node, at++);
+            if (node->first_child != NULL) {
+                node = node->first_child;
+                continue;
+            }
+        }
+        for (;;) {
+            if (node->type == TH_NODE_ELEMENT) {
+                ns_scope_leave(schema, marks[--depth]);
+            }
+            if (node->next_sibling != NULL) {
+                node = node->next_sibling;
+                break;
+            }
+            node = node->parent;
+            if (node == document) {
+                walk_release(marks, local);
+                schema->sqname_count = count;
+                qsort(schema->sqnames, (size_t)count, sizeof(sqname_entry), sqname_cmp);
+                return 0;
+            }
+        }
     }
-    schema->sqname_count = count;
-    qsort(schema->sqnames, (size_t)count, sizeof(sqname_entry), sqname_cmp);
-    return 0;
 }
 
 static int named_push(th_schema *schema, named_vec *vec, const Py_UCS4 *name, Py_ssize_t len, th_node *node) {
@@ -1327,6 +1272,7 @@ static Py_ssize_t ns_find_bytes(const nsscope *scope, const char *prefix, Py_ssi
     }
     size_t mask = scope->slot_cap - 1;
     for (size_t slot = (size_t)ns_hash_bytes(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
+        TH_WORK_STEP();
         const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
         if (binding->prefix_len == len && (len == 0 || memcmp(binding->prefix, prefix, (size_t)len) == 0)) {
             return scope->slots[slot] - 1;
@@ -1341,6 +1287,7 @@ static Py_ssize_t ns_find_units(const nsscope *scope, const Py_UCS4 *prefix, Py_
     }
     size_t mask = scope->slot_cap - 1;
     for (size_t slot = (size_t)named_hash(prefix, len) & mask; scope->slots[slot] != 0; slot = (slot + 1) & mask) {
+        TH_WORK_STEP();
         const nsbinding *binding = &scope->bindings[scope->slots[slot] - 1];
         if (u_eq_utf8(prefix, len, binding->prefix, binding->prefix_len)) {
             return scope->slots[slot] - 1;
@@ -1389,6 +1336,7 @@ static Py_ssize_t ns_scope_enter(th_schema *schema, th_tree *tree, th_node *elem
     nsscope *scope = &schema->ns;
     Py_ssize_t mark = scope->undo_count;
     for (Py_ssize_t position = element->attr_count - 1; position >= 0; position--) {
+        TH_WORK_STEP();
         Py_ssize_t alen = 0;
         const char *abytes = th_attr_name(tree, element->attrs[position].name_atom, &alen);
         if (!is_xmlns_decl(abytes, alen) || alen == 6) {

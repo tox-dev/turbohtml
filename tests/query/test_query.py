@@ -774,6 +774,58 @@ def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
 
 
 @pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<p>one</p>", ["div", "div > p"], id="plain-child"),
+        pytest.param('<p id="one">one</p>', ["div", "#one"], id="own-id-child"),
+        pytest.param('<p id="top">one</p>', ["div", "#top"], id="child-repeats-root-id"),
+        pytest.param('<p id="top">one</p><i id="only">two</i>', ["div", "#top", "#only"], id="mixed-ids"),
+    ],
+)
+def test_css_path_of_detached_fragment_root_ignores_its_own_id(markup: str, expected: list[str]) -> None:
+    root: Final = turbohtml.parse_fragment(markup)
+    root.extract()
+    root.attrs["id"] = "top"
+    assert [node.css_path() for node in (root, *root.select("p, i"))] == expected
+
+
+def test_css_path_of_detached_fragment_root_with_id_costs_no_more_than_without(work_steps: WorkSteps) -> None:
+    work_steps.assert_within(_detached_fragment_root("top").css_path, _detached_fragment_root(None).css_path, factor=2)
+
+
+def _detached_fragment_root(root_id: str | None) -> Element:
+    root: Final = turbohtml.parse_fragment("".join(f'<p id="p{index}">{index}</p>' for index in range(1000)))
+    root.extract()
+    if root_id is not None:
+        root.attrs["id"] = root_id
+    return root
+
+
+def test_css_path_of_constructed_root_with_id_ignores_its_own_id() -> None:
+    root: Final = Element("div")
+    root.attrs["id"] = "top"
+    child: Final = Element("p")
+    root.append(child)
+    assert [root.css_path(), child.css_path()] == ["div", "div > p"]
+
+
+def test_css_path_of_subtree_extracted_from_detached_fragment_root_with_id() -> None:
+    root: Final = turbohtml.parse_fragment('<section><p id="one">one</p></section>')
+    root.extract()
+    root.attrs["id"] = "top"
+    section: Final = root.select("section")[0]
+    section.extract()
+    assert [section.css_path(), section.select("p")[0].css_path()] == ["section", "section > p"]
+
+
+def test_css_path_of_fragment_root_detached_by_replace_with_ignores_its_own_id() -> None:
+    root: Final = turbohtml.parse_fragment("<p>one</p>")
+    root.attrs["id"] = "top"
+    root.replace_with(Element("span"))
+    assert [root.css_path(), root.select("p")[0].css_path()] == ["div", "div > p"]
+
+
+@pytest.mark.parametrize(
     "count", [pytest.param(4, id="small"), pytest.param(32, id="threshold"), pytest.param(512, id="large")]
 )
 @pytest.mark.parametrize(

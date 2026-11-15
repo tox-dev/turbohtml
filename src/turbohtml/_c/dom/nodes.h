@@ -114,6 +114,17 @@ typedef struct {
     } view_cursors[4];
     uint64_t view_cursor_version;
     unsigned view_cursor_next;
+    /* Range child offsets: children recently mapped to or from their index, so a loop of Range calls over a long child
+       list steps from the last one it used. Valid while sibling_cursor_version equals mutation_version and
+       sibling_cursor_unlinks equals th_tree_unlinks(); see sibling_index in dom/range.c. */
+    struct sibling_cursor {
+        th_node *parent;
+        th_node *child;
+        Py_ssize_t index;
+    } sibling_cursors[4];
+    uint64_t sibling_cursor_version;
+    uint64_t sibling_cursor_unlinks;
+    unsigned sibling_cursor_next;
     node_binding_slot *bindings;
     node_binding_slot inline_bindings[16];
     uint16_t binding_capacity;
@@ -605,21 +616,23 @@ static inline th_node *node_root(th_node *node) {
     return node;
 }
 
-/* node_order for nodes whose depths the caller already knows. */
-static inline int node_order_at(th_node *left, Py_ssize_t left_depth, th_node *right, Py_ssize_t right_depth) {
-    th_node *left_at = left;
-    th_node *right_at = right;
+/* Climb two different nodes of one tree, at the depths given, to the children of their lowest common ancestor. Returns
+   1 when *right is an ancestor of *left, -1 for the reverse, else 0 with *left and *right on two siblings. */
+static inline int node_climb_to_siblings(th_node **left, Py_ssize_t left_depth, th_node **right,
+                                         Py_ssize_t right_depth) {
+    th_node *left_at = *left;
+    th_node *right_at = *right;
     while (left_depth > right_depth) {
         left_at = left_at->parent;
         left_depth--;
-        if (left_at == right) {
+        if (left_at == *right) {
             return 1;
         }
     }
     while (right_depth > left_depth) {
         right_at = right_at->parent;
         right_depth--;
-        if (right_at == left) {
+        if (right_at == *left) {
             return -1;
         }
     }
@@ -627,19 +640,18 @@ static inline int node_order_at(th_node *left, Py_ssize_t left_depth, th_node *r
         left_at = left_at->parent;
         right_at = right_at->parent;
     }
-    return node_index(left_at) < node_index(right_at) ? -1 : 1;
+    *left = left_at;
+    *right = right_at;
+    return 0;
 }
 
-static inline int node_order(th_node *left, th_node *right) {
-    Py_ssize_t left_depth = 0;
-    for (th_node *node = left; node->parent != NULL; node = node->parent) {
-        left_depth++;
+/* The tree order of two different nodes whose depths the caller already knows: -1 when left comes first, else 1. */
+static inline int node_order_at(th_node *left, Py_ssize_t left_depth, th_node *right, Py_ssize_t right_depth) {
+    int order = node_climb_to_siblings(&left, left_depth, &right, right_depth);
+    if (order != 0) {
+        return order;
     }
-    Py_ssize_t right_depth = 0;
-    for (th_node *node = right; node->parent != NULL; node = node->parent) {
-        right_depth++;
-    }
-    return node_order_at(left, left_depth, right, right_depth);
+    return node_index(left) < node_index(right) ? -1 : 1;
 }
 
 /* Walk back in document order from current past origin's ancestors, which keeps the preceding axis disjoint from the
