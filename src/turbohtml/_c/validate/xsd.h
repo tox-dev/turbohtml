@@ -389,14 +389,10 @@ static void xsd_match_unbounded(th_schema *schema, th_tree *inst, th_node *parti
 
 /* Apply the particle's minOccurs/maxOccurs, accumulating every reachable position. */
 static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
-                             posset *out, int in_all) {
+                             posset *out) {
     posset_clear(out);
     int min = xsd_occurs_min(schema->tree, particle);
     int max = xsd_occurs_max(schema->tree, particle);
-    if (in_all) { /* a member of an xs:all group occurs at most once, whatever its declared maxOccurs */
-        min = min != 0;
-        max = max != 0;
-    }
     if (max < 0) {
         xsd_match_unbounded(schema, inst, particle, children, in, min, out);
     } else {
@@ -445,7 +441,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
                 continue;
             }
-            xsd_match_occurs(schema, inst, child, children, in, &branch, 0);
+            xsd_match_occurs(schema, inst, child, children, in, &branch);
             posset_or(out, &branch);
         }
         posset_free(schema, &branch);
@@ -458,12 +454,11 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         return;                                      /* GCOVR_EXCL_LINE */
     }
     posset_copy(&cur, in);
-    const int in_all = is_schema_el(schema, particle, XSD_NS, "all");
     for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
         if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
             continue;
         }
-        xsd_match_occurs(schema, inst, child, children, &cur, &next, in_all);
+        xsd_match_occurs(schema, inst, child, children, &cur, &next);
         posset spare = cur;
         cur = next;
         next = spare;
@@ -929,6 +924,9 @@ static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *loca
     } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
         return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
     } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
+        if (u_eq_ascii(local, local_len, "extension") && is_schema_el(schema, node->parent, XSD_NS, "complexContent")) {
+            schema->complex_extension = 1;
+        }
         return xsd_require_base(schema, node);
     }
     return 0;
@@ -1508,6 +1506,49 @@ static th_node *xsd_content_model(const th_schema *schema, th_node *scope) {
     return NULL;
 }
 
+/* The complexType a complexContent extension of ctype derives from, or NULL when it names none. */
+static th_node *xsd_extension_base(th_schema *schema, th_node *ctype) {
+    th_node *complex_content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
+    th_node *extension =
+        complex_content != NULL ? first_schema_child(schema, complex_content, XSD_NS, "extension") : NULL;
+    Py_ssize_t base_len = 0;
+    const Py_UCS4 *base = extension != NULL ? xsd_attr(schema->tree, extension, "base", &base_len) : NULL;
+    if (base == NULL) {
+        return NULL;
+    }
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
+    return named_find(&schema->complex_types, local, local_len);
+}
+
+/* The content model a complexType declares, or else the one nearest to it along its extension chain. */
+static th_node *xsd_nearest_model(th_schema *schema, th_node *ctype) {
+    th_node *complex_content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
+    if (complex_content == NULL) {
+        return xsd_content_model(schema, ctype);
+    }
+    th_node *extension = first_schema_child(schema, complex_content, XSD_NS, "extension");
+    th_node *derivation =
+        extension != NULL ? extension : first_schema_child(schema, complex_content, XSD_NS, "restriction");
+    th_node *model = derivation != NULL ? xsd_content_model(schema, derivation) : NULL;
+    if (model != NULL || extension == NULL) {
+        return model;
+    }
+    th_node *base = xsd_extension_base(schema, ctype);
+    return base != NULL ? xsd_nearest_model(schema, base) : NULL;
+}
+
+/* The content a complexType with no particles of its own inherits: the nearest model, with a group ref resolved to its
+   model group. */
+static TH_NOINLINE th_node *xsd_inherited_model(th_schema *schema, th_node *ctype) {
+    th_node *model = xsd_nearest_model(schema, ctype);
+    if (model != NULL && is_schema_el(schema, model, XSD_NS, "group")) {
+        return xsd_group_model(schema, model);
+    }
+    return model;
+}
+
 /* The effective particle for a complexType, following a complexContent extension so a
    derived type's base content precedes its own. Returns NULL for empty/simple content. */
 static th_node *xsd_effective_model(th_schema *schema, th_node *ctype, th_node **base_model_out) {
@@ -1612,15 +1653,16 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
         }
     }
 
+    th_node *content = model == NULL && schema->all_inherited ? xsd_nearest_model(schema, ctype) : model;
     th_node *all = NULL;
-    if (model != NULL && is_schema_el(schema, model, XSD_NS, "all")) {
-        all = model;
-    } else if (model != NULL && schema->named_all && is_schema_el(schema, model, XSD_NS, "group")) {
-        all = xsd_group_all(schema, model);
+    if (content != NULL && is_schema_el(schema, content, XSD_NS, "all")) {
+        all = content;
+    } else if (content != NULL && schema->named_all && is_schema_el(schema, content, XSD_NS, "group")) {
+        all = xsd_group_all(schema, content);
     }
     if (all != NULL) {
         /* an optional xs:all, direct or through a group ref, is satisfied by empty content */
-        if (nchildren > 0 || xsd_occurs_min(schema->tree, model) != 0) {
+        if (nchildren > 0 || xsd_occurs_min(schema->tree, content) != 0) {
             frame->instance = instance;
             xsd_all_match(ctx, frame, all, children, nchildren);
         }
@@ -1644,14 +1686,14 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
         if (after_base.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return;                      /* GCOVR_EXCL_LINE */
         }
-        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base, 0);
+        xsd_match_occurs(schema, inst, base_model, children, &start, &after_base);
         if (model != NULL) {
-            xsd_match_occurs(schema, inst, model, children, &after_base, &end, 0);
+            xsd_match_occurs(schema, inst, model, children, &after_base, &end);
         } else {
             posset_copy(&end, &after_base);
         }
     } else {
-        xsd_match_occurs(schema, inst, model, children, &start, &end, 0);
+        xsd_match_occurs(schema, inst, model, children, &start, &end);
     }
 
     if (!end.member[nchildren]) {
@@ -1808,6 +1850,7 @@ enum { CHAIN_GROUP, CHAIN_ATTRGROUP, CHAIN_TYPE };
 
 static int xsd_check_chains(th_schema *schema, int kind);
 static int xsd_check_expansion(th_schema *schema);
+static int xsd_check_all_extension(th_schema *schema, th_node *node);
 
 static int xsd_compile(th_schema *schema) {
     th_tree *tree = schema->tree;
@@ -1869,7 +1912,8 @@ static int xsd_compile(th_schema *schema) {
         return 0;
     }
     if (xsd_check_chains(schema, CHAIN_GROUP) < 0 || xsd_check_chains(schema, CHAIN_ATTRGROUP) < 0 ||
-        xsd_check_chains(schema, CHAIN_TYPE) < 0 || xsd_check_expansion(schema) < 0) {
+        xsd_check_chains(schema, CHAIN_TYPE) < 0 || xsd_check_expansion(schema) < 0 ||
+        (schema->complex_extension && xsd_check_all_extension(schema, schema->root) < 0)) {
         return 0;
     }
     if (schema->facet_count > 1) {
@@ -2196,6 +2240,31 @@ static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *me
         }
     }
     return xsd_expansion_cap(total);
+}
+
+/* XSD 1.0 cos-all-limited: an xs:all content model cannot be extended with particles, since the base's members would
+   then sit beside particles the base does not allow. */
+static int xsd_check_all_extension(th_schema *schema, th_node *node) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (is_schema_el(schema, child, XSD_NS, "complexType")) {
+            th_node *complex_content = first_schema_child(schema, child, XSD_NS, "complexContent");
+            th_node *extension =
+                complex_content != NULL ? first_schema_child(schema, complex_content, XSD_NS, "extension") : NULL;
+            th_node *base = xsd_extension_base(schema, child);
+            th_node *inherited = base != NULL ? xsd_inherited_model(schema, base) : NULL;
+            if (inherited != NULL && is_schema_el(schema, inherited, XSD_NS, "all")) {
+                if (xsd_content_model(schema, extension) != NULL) {
+                    PyErr_SetString(PyExc_ValueError, "an xs:all content model cannot be extended with particles");
+                    return -1;
+                }
+                schema->all_inherited = 1;
+            }
+        }
+        if (xsd_check_all_extension(schema, child) < 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 /* Every complex type, named or inline, is what some element is validated against. */
