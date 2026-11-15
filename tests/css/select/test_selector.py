@@ -804,6 +804,25 @@ def _deep_xml(depth: int) -> Document:
     return parse_xml(f"{'<group>' * depth}<item/>{'</group>' * depth}")
 
 
+# each element's attribute value sits next to it in the tree's arena, so the value's length sets how far apart the
+# elements lie in memory; a memo hashed by address put every element of a chain this far apart in one probe run
+def _deep_xml_spaced(depth: int) -> Document:
+    start: Final = f'<group pad="{"x" * 262}">'
+    return parse_xml(f"{start * depth}<item/>{'</group>' * depth}")
+
+
+# every node takes the next creation sequence, so comments steer which sequences the nested elements get; these are
+# the ones whose product with the node maps' Fibonacci multiplier lands in its lowest eighth, which gives the
+# elements' memo entries home slots in one run of the table at every size
+def _deep_xml_sequence_clustered(depth: int) -> Document:
+    parts: Final[list[str]] = []
+    sequence = 0
+    while len(parts) - parts.count("<!---->") < depth:
+        sequence += 1
+        parts.append("<group>" if sequence * 0x61C88647 % 2**32 < 2**29 else "<!---->")
+    return parse_xml(f"{''.join(parts)}<item/>{'</group>' * depth}")
+
+
 def _deep_appended(depth: int) -> Element:
     root: Final = Element("root")
     innermost = root
@@ -845,6 +864,8 @@ _NESTED_DEPTH: Final[int] = 4_000
     "build",
     [
         pytest.param(_deep_xml, id="parse-xml"),
+        pytest.param(_deep_xml_spaced, id="parse-xml-spaced-in-memory"),
+        pytest.param(_deep_xml_sequence_clustered, id="parse-xml-clustered-in-sequence"),
         pytest.param(_deep_appended, id="mutation-api"),
         pytest.param(_deep_xml_in_parsed_html, id="appended-to-parsed-html"),
         pytest.param(_deep_xml_imported_into_parsed_html, id="imported-into-parsed-html"),
