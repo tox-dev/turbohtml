@@ -804,8 +804,8 @@ def test_text_python_path_filter_adds_candidates(
     body: Final = _el(document.find("body"))
 
     def keep(value: str | None) -> bool:
-        if value == "/seed":
-            body.append(Element("a", {"href": "/added"}, [Text("q")]))
+        assert value == "/seed"
+        body.append(Element("a", {"href": "/added"}, [Text("q")]))
         return True
 
     assert query(document, keep) == expected
