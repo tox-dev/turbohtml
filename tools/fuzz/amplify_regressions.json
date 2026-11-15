@@ -972,6 +972,18 @@
     }
   },
   {
+    "name": "css-merge-dropped-rule-chain",
+    "source": "tests/css/minify/test_css.py::test_minify_css_live_rule_search_scales_linearly",
+    "targets": [
+      "minify_css"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "u{k:v}w{k:v}u{m:n}w{m:n}"
+    }
+  },
+  {
     "name": "sanitize-report-attribute-drops",
     "source": "https://github.com/tox-dev/turbohtml/blob/5df0a9b6625baabd1adc6714a2f33e23386d29cd/src/turbohtml/_c/clean/sanitize.c#L1916-L1917",
     "targets": [

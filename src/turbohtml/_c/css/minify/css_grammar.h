@@ -1552,16 +1552,21 @@ static int css_custom_bodies_disjoint(const css_buf *pool, const rule_item *left
    rule's selector or body: a same-selector merge whose declarations were already there leaves it as it was. An
    incomplete shorthand table cannot prove declarations independent, so the scan crosses only distinct type selectors or
    distinct custom-property names, which have no shorthand overlap. A rule an earlier merge dropped is skipped: its
-   content now sits in a rule before it. */
+   content now sits in a rule before it. The skip does not count against CSS_MAX_MERGE_REACH, so it also unlinks the
+   rule from the prev_live that led to it: each dropped rule is stepped over once, not once per scan, which is
+   O(rules^2) over a chain of them. */
 static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t index, Py_ssize_t *end, int *rewritten,
                                  int baseline, int depth) {
     rule_item *it = &items->items[index];
     *rewritten = 0;
     const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
     Py_ssize_t reach = 0;
-    for (Py_ssize_t back = it->prev_live; back >= 0; back = items->items[back].prev_live) {
+    Py_ssize_t *link = &it->prev_live;
+    for (Py_ssize_t back = *link; back >= 0; back = *link) {
+        TH_WORK_STEP();
         rule_item *target = &items->items[back];
         if (target->dropped) {
+            *link = target->prev_live;
             continue;
         }
         if (++reach > CSS_MAX_MERGE_REACH) {
@@ -1628,6 +1633,7 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
             (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
             break;
         }
+        link = &target->prev_live;
     }
     return -1;
 }
@@ -1690,6 +1696,11 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
         }
         if (!it->dropped) {
             last_live = index;
+        }
+        /* the rewrite loop above drops the rule last_live names when that rule merges further back; its own chain
+           leads to the live rule it went into, and no later rule may link to a dropped one */
+        while (items->items[last_live].dropped) {
+            last_live = items->items[last_live].prev_live;
         }
     }
     css_free(hashes);
