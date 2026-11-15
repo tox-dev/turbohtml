@@ -49,7 +49,9 @@ list token may also spend at most eight work units for each alternative the cap 
 residual choices or one shared pattern evaluated past the step allowance. An event that spends more raises the same
 :class:`ValueError`. The compiler enforces the specification's schema restrictions: it raises :class:`ValueError` for a
 ``<ref>`` with no name, for a reference cycle that never crosses an ``element``, and for an ``interleave`` whose
-branches compete for an element name or for text.
+branches compete for an element name or for text. It also raises for a ``group`` or ``interleave`` whose attributes have
+overlapping names, and for an ``anyName`` or ``nsName`` attribute outside ``oneOrMore`` or ``zeroOrMore`` within its
+element.
 
 A RELAX NG schema can span files through ``include`` and ``externalRef``. The compiler resolves both as the
 specification's simplification steps describe: each ``href`` resolves against the element's base URI, the referenced
