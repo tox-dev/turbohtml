@@ -162,7 +162,7 @@ class Sanitizer:
             or ``attribute_prefixes`` contains a non-string.
         :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
         """
-        return self._render(self._filter(html, None))
+        return self._render(self._filter(html, None, inner=True))
 
     def _render(self, root: Node) -> str:
         # Serialize the sanitized root's children as XML when the policy asks, else as HTML.
@@ -174,8 +174,12 @@ class Sanitizer:
     @overload
     def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Node: ...
 
-    def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None) -> Node:
+    @overload
+    def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None, *, inner: bool) -> Node: ...
+
+    def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None, *, inner: bool = False) -> Node:
         # Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``.
+        # An ``inner`` caller drops the root, so the root's content model must not shape the string it serializes.
         policy = self.policy
         return _sanitize(
             html,
@@ -208,6 +212,7 @@ class Sanitizer:
             policy.attribute_predicate,
             policy._bleach_url_policy,  # ruff:ignore[private-member-access]  # bridge the migration-only C option
             policy.xml,  # the XML serializer round-trips through parse_xml, so the HTML parse-stability pass is skipped
+            inner,
         )
 
     def sanitize_report(self, html: str | Node) -> tuple[str, list[Removed]]:
@@ -224,7 +229,7 @@ class Sanitizer:
         :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
         """
         removed: list[tuple[str, str | None]] = []
-        return self._render(self._filter(html, removed)), list(starmap(Removed, removed))
+        return self._render(self._filter(html, removed, inner=True)), list(starmap(Removed, removed))
 
     def sanitize_node(self, node: _NODE_T) -> _NODE_T:
         """

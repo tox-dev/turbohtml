@@ -249,4 +249,5 @@ descendants and never to the node itself, so pass the ``body`` to clean what a p
 Passing a :class:`~turbohtml.Document` makes the policy judge the ``html`` element itself, so a policy meant for whole
 documents lists ``html``, ``head`` and ``body``; a ``bleach``-style fragment allowlist would strip them.
 :func:`~turbohtml.clean.sanitize_report_node` pairs the copy with the :class:`~turbohtml.clean.Removed` records, and the
-string forms accept a node as well when a string is wanted at the end.
+string forms accept a node as well when a string is wanted at the end. That string holds the node's children as they
+read inside a plain element, so the text of a raw-text node such as ``xmp`` or ``style`` comes back escaped.
