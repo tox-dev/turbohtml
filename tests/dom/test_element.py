@@ -3330,7 +3330,10 @@ def test_rename_rejects_a_bad_name(name: str | int, error: type[Exception], mess
         pytest.param(
             "<body><div  id=a>x</div></body>", "section", '<body><section id="a">x</section></body>', id="closed"
         ),
-        pytest.param("<body><p  id=a>x</body>", "section", '<body><section id="a">x</body>', id="implicitly-closed"),
+        pytest.param("<body><p  id=a>x</body>", "dd", '<body><dd id="a">x</body>', id="implicitly-closed"),
+        pytest.param(
+            "<body><p  id=a>x</body>", "section", '<body><section id="a">x</section></body>', id="end-tag-required"
+        ),
         pytest.param("<body><br  id=a></body>", "hr", '<body><hr id="a"></body>', id="void"),
     ],
 )

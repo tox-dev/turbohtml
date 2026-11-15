@@ -196,6 +196,22 @@ def test_data_param_patterns_share_the_state_budget() -> None:
         RelaxNG(schema)
 
 
+def test_data_param_class_of_many_ranges_matches_in_linear_steps(work_steps: WorkSteps) -> None:
+    def build(members: int) -> Callable[[], object]:
+        pattern: Final = f"[{'a-c' * members}]*"
+        schema: Final = RelaxNG(
+            grammar(
+                f'<start><element name="s"><data type="string"><param name="pattern">{pattern}</param></data>'
+                "</element></start>",
+                attrs=f'datatypeLibrary="{_DT}"',
+            )
+        )
+        document: Final = parse_xml(f"<s>{'b' * members}</s>")
+        return partial(schema.is_valid, document)
+
+    work_steps.assert_linear(build, (500, 2000))
+
+
 def test_list_pattern() -> None:
     schema = grammar(
         '<start><element name="nums"><list><oneOrMore><data type="int"/></oneOrMore></list></element></start>',
@@ -288,6 +304,18 @@ def test_combine_interleave() -> None:
             id="anyName-except-hit",
         ),
         pytest.param("<choice><name>a</name><name>b</name></choice>", "<doc><b>x</b></doc>", True, id="name-choice"),
+        pytest.param(
+            "<choice><name>a</name><choice><nsName ns=''><except><name>skip</name></except></nsName></choice></choice>",
+            "<doc><ok>x</ok></doc>",
+            True,
+            id="nested-choice-except-ok",
+        ),
+        pytest.param(
+            "<choice><name>a</name><choice><nsName ns=''><except><name>skip</name></except></nsName></choice></choice>",
+            "<doc><skip>x</skip></doc>",
+            False,
+            id="nested-choice-except-hit",
+        ),
     ],
 )
 def test_name_classes(nameclass: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
@@ -940,6 +968,11 @@ def test_rng_interleave_choice_same_name() -> None:
             rwrap('<interleave><ref name="missing"/><text/></interleave>'),
             "<ref> has no matching define",
             id="undefined-ref-in-an-interleave-branch",
+        ),
+        pytest.param(
+            rwrap('<group><ref name="missing"/></group><attribute name="a"/>'),
+            "<ref> has no matching define",
+            id="undefined-ref-beside-an-attribute",
         ),
         pytest.param(
             rwrap(
@@ -1733,9 +1766,21 @@ def test_rng_interleave_combined_attributes_with_distinct_names_validate() -> No
     assert rng_ok(rgrammar(_COMBINED_ATTRIBUTES.format("baz")), '<doc bar="1" baz="2"/>')
 
 
-def test_rng_interleave_combined_attributes_with_same_name_rejected() -> None:
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(_COMBINED_ATTRIBUTES.format("bar"), id="combine-on-later-part"),
+        pytest.param(
+            '<start><element name="doc"><ref name="pair"/></element></start>'
+            '<define name="pair" combine="interleave"><attribute name="bar"/></define>'
+            '<define name="pair"><attribute name="bar"/></define>',
+            id="combine-on-first-part",
+        ),
+    ],
+)
+def test_rng_interleave_combined_attributes_with_same_name_rejected(schema: str) -> None:
     with pytest.raises(ValueError, match=_OVERLAPPING_ATTRIBUTES):
-        RelaxNG(rgrammar(_COMBINED_ATTRIBUTES.format("bar")))
+        RelaxNG(rgrammar(schema))
 
 
 def test_rng_combined_part_with_overlapping_group_rejected() -> None:
@@ -1755,6 +1800,23 @@ def test_rng_anyname_attribute_through_ref_follows_one_or_more() -> None:
     bare = f'<start><element name="doc"><ref name="any"/></element></start>{define}'
     with pytest.raises(ValueError, match=_UNBOUNDED_ATTRIBUTE):
         RelaxNG(rgrammar(bare))
+
+
+def test_rng_anyname_attribute_define_reused_inside_zero_or_more_validates() -> None:
+    assert rng_ok(_reused_any_attribute('<zeroOrMore><ref name="any"/></zeroOrMore>'), '<doc x="1"/>')
+
+
+def _reused_any_attribute(second: str) -> str:
+    # the second choice branch takes the record the first one built
+    return rgrammar(
+        f'<start><element name="doc"><choice><oneOrMore><ref name="any"/></oneOrMore>{second}</choice></element>'
+        '</start><define name="any"><attribute><anyName/></attribute></define>'
+    )
+
+
+def test_rng_anyname_attribute_define_reused_bare_rejected() -> None:
+    with pytest.raises(ValueError, match=_UNBOUNDED_ATTRIBUTE):
+        RelaxNG(_reused_any_attribute('<ref name="any"/>'))
 
 
 def test_rng_distinct_attributes_scale_linearly(work_steps: WorkSteps) -> None:
@@ -2403,6 +2465,18 @@ def test_shared_schema_validates_distinct_documents(name: str) -> None:
     with ThreadPoolExecutor(max_workers=4) as executor:
         results: Final = list(executor.map(schema.validate, documents))
     assert [result.valid for result in results] == [child == name for child in children]
+
+
+def test_rng_routing_leaves_the_compiled_schema_unchanged(work_steps: WorkSteps) -> None:
+    # the first token takes enough steps to start routing, which adopts what it derived: the compiled <optional>
+    values: Final = "".join(f"<value>v{index}</value>" for index in range(100))
+    optional: Final = "<optional><value>a</value><value>b</value><empty/></optional>"
+    schema: Final = RelaxNG(wrap(f"<list><choice>{values}</choice>{optional}</list>"))
+    document: Final = parse_xml("<doc>v5 a b</doc>")
+    steps: Final = [work_steps(partial(schema.validate, document)) for _ in range(2)]
+    assert steps[0] > 0
+    assert steps[1] == steps[0]
+    assert schema.is_valid(document)
 
 
 @pytest.mark.parametrize(
