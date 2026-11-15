@@ -1,0 +1,2 @@
+Minified CSS no longer glues a ``calc()``-unwrapped value to the token after it, and a ``calc()`` group left open at end
+of input folds in one pass.

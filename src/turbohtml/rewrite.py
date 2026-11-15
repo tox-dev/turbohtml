@@ -42,10 +42,14 @@ exposes :attr:`~Element.text` and :meth:`~Element.set_text`; a doctype handle ex
 Text content is HTML-escaped, except inside ``script``, ``style`` and the other raw-text elements, where a browser
 decodes no character references: text written there is kept as is, so ``a < b`` stays a valid script. The rewrite
 then raises :class:`ValueError` if that text would end the element early (``</script``, or ``<!--`` in a script),
-whether the element's end tag follows or the input ends first. Three cases are escaped like any other text: an element
-whose tags :meth:`~Element.remove_and_keep_content` drops, since nothing marks its content as text any more; text passed
-to :meth:`~Element.append` on a raw-text element when :meth:`~Element.remove` or :meth:`~Element.replace` then drops its
-tags; and a raw-text start tag nested past the open-element cap, which the rewriter does not open.
+whether the element's end tag follows or the input ends first. Two cases are escaped like any other text: an element
+whose tags :meth:`~Element.remove_and_keep_content` drops, since nothing marks its content as text any more; and text
+passed to :meth:`~Element.append` on a raw-text element when :meth:`~Element.remove` or :meth:`~Element.replace` then
+drops its tags.
+
+Past the open-element depth limit the rewriter tracks only raw-text and RCDATA elements, so their content is read as
+text, as the tree builder reads it. An edit that needs the content of an element nested that deep raises
+:class:`ValueError`, and so does a handler once an SVG or MathML element starts there.
 
 The rewriter reads ``noscript`` as a browser with scripting on does, so the fallback markup inside an unwrapped
 ``noscript`` comes out as escaped text. :func:`turbohtml.parse` defaults scripting off and keeps that markup as
@@ -129,7 +133,8 @@ def rewrite(
         returns the input unchanged (character references and original quoting are preserved).
     :raises TypeError: if ``html`` is not a str.
     :raises ValueError: if text a handler wrote into a raw-text element such as ``script`` or ``style`` would end
-        that element before its end tag.
+        that element before its end tag, if a handler edits an element nested past the depth limit in a way that needs
+        its content, or if a handler runs while an SVG or MathML element is nested past the depth limit.
     :raises SelectorSyntaxError: if a selector is malformed or uses a construct the stream cannot match (a sibling
         combinator, a positional or structural pseudo-class, or ``:has()``).
     """

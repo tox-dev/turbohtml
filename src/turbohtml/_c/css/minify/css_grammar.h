@@ -1115,11 +1115,6 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
                uses the pool as value scratch, so it is interned afterwards */
             item->sel_off = pool->len;
             css_minify_selector(cur->vec, prelude_start, prelude_end, keyframe, pool);
-            /* an empty prelude ({--x:}) lets css_minify_selector's rtrim cut below sel_off, and a negative length
-               would reach cbuf_put_run's memcpy as (size_t)-1 */
-            if (pool->len < item->sel_off) {
-                pool->len = item->sel_off;
-            }
             item->sel_len = pool->len - item->sel_off;
             /* an empty prelude is not a selector list (CSS Syntax 3 §5.4.3), so the rule is invalid and dropped rather
                than merged into the previous list as an empty entry; lightningcss 1.33.0 and csso 5.0.5 drop it too */

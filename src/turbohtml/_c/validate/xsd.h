@@ -355,6 +355,9 @@ static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
 /* Gather every element declaration reachable in a particle so a child can find its
    type by name (unique-particle-attribution makes the name→decl mapping unambiguous). */
 static void xsd_collect_edecls(th_schema *schema, th_node *particle, edecl_vec *vec) {
+    if (schema_stack_low(schema)) {
+        return;
+    }
     if (is_schema_el(schema, particle, XSD_NS, "element")) {
         edecl want;
         xsd_element_name(schema, particle, &want);
@@ -568,6 +571,9 @@ static void xsd_match_occurs(th_schema *schema, th_tree *inst, th_node *particle
 
 static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, th_node **children, const posset *in,
                            posset *out) {
+    if (schema_stack_low(schema)) {
+        return;
+    }
     posset_clear(out);
     if (is_schema_el(schema, particle, XSD_NS, "element")) {
         edecl want;
@@ -1815,6 +1821,9 @@ static int xsd_check_union(valctx *ctx, th_node *node, const xfacet_entry *choic
 static int xsd_check_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
                             Py_ssize_t len, int item) {
     th_schema *schema = ctx->schema;
+    if (schema_stack_low(schema)) {
+        return -1;
+    }
     facetset builtin;
     const facetset *facets;
     static const facet_levels no_levels = {NULL, NULL, 0, 0};
