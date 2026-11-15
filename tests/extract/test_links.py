@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from html import escape
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
@@ -8,9 +9,12 @@ import pytest
 
 from turbohtml import Element, Link, Text, parse, parse_fragment
 from turbohtml.extract import UrlCleaning, extract_links
+from turbohtml.mutations import MutationObserver
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
 _BASE: Final[str] = "https://test.com/dir/"
 
@@ -1154,6 +1158,158 @@ def test_rewrite_links_requires_a_callable() -> None:
 def test_external_links_drop_the_public_suffix_boundary(base: str, host: str, *, depth: int) -> None:
     href: Final = f"https://{'s.' * depth}{host}/x"
     assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == set()
+
+
+# An unclosed formatting element is reopened in every block that follows it, and each of those clones borrows the
+# attribute values of the one start tag. The walk hands the clones one result instead of a copy of it apiece.
+_REOPENED: Final[str] = '<p><a href="a.html" ping="p1 p2" title="t">x<p>y<p>z'
+
+
+def test_links_of_a_reopened_element_are_enumerated_on_each_clone() -> None:
+    links = parse_fragment(_REOPENED).links()
+    assert [(link.attribute, link.url) for link in links] == [("href", "a.html"), ("ping", "p1"), ("ping", "p2")] * 3
+    assert [link.element.text for link in links] == ["x"] * 3 + ["y"] * 3 + ["z"] * 3
+
+
+def test_a_reopened_element_is_resolved_on_each_clone() -> None:
+    anchor: Final = (
+        '<a href="https://example.com/dir/a.html" ping="https://example.com/dir/p1 https://example.com/dir/p2"'
+        ' title="t">'
+    )
+    assert _resolved(_REOPENED) == f"<p>{anchor}x</a></p><p>{anchor}y</a></p><p>{anchor}z</a></p>"
+
+
+# the start tag's element takes the ordinary path; its first clone computes the shared result, the other clones adopt it
+@pytest.mark.parametrize(
+    ("start_tag", "replaced"),
+    [
+        pytest.param('<a href="https://other.test/x">', ["https://other.test/x"] * 2, id="absolute"),
+        pytest.param('<b cite="" style="color:red">', [], id="no-link"),
+    ],
+)
+def test_a_reopened_element_with_nothing_to_rewrite_is_left_alone(start_tag: str, replaced: list[str]) -> None:
+    html: Final = f"<p>{start_tag}x<p>y<p>z"
+    seen: list[str] = []
+    root = parse_fragment(html)
+    before: Final = root.inner_html
+    root.resolve_links(_RESOLVE_BASE)
+    root.rewrite_links(seen.append)
+    assert root.inner_html == before
+    assert seen == replaced
+
+
+def test_many_reopened_elements_grow_the_shared_value_table() -> None:
+    # the table starts with 16 slots and grows past half load at its ninth distinct value; the formatting list reopens
+    # at most 16 elements, so twelve distinct values fit in one run
+    elements: Final = "".join(f'<b cite="c{index}">' for index in range(12))
+    root = parse_fragment(f"<p>{elements}x<p>y<p>z")
+    root.resolve_links(_HTTPS)
+    assert [link.url for link in root.links()] == [f"{_HTTPS}c{index}" for index in range(12)] * 3
+
+
+def test_resolved_clones_stay_independent() -> None:
+    root = parse_fragment(_REOPENED)
+    root.resolve_links(_RESOLVE_BASE)
+    _, second, third = root.select("a")
+    second.attrs["href"] = "other.html"
+    assert third.attrs["href"] == "https://example.com/dir/a.html"
+    root.resolve_links(_RESOLVE_BASE)
+    assert second.attrs["href"] == "https://example.com/dir/other.html"
+
+
+def test_resolving_a_reopened_element_records_a_mutation_per_clone() -> None:
+    root = parse_fragment(_REOPENED)
+    observer = MutationObserver()
+    observer.observe(root, attributes=True, subtree=True, attribute_old_value=True)
+    root.resolve_links(_RESOLVE_BASE)
+    records = observer.take_records()
+    assert [(record.attribute_name, record.old_value) for record in records] == [
+        ("href", "a.html"),
+        ("ping", "p1 p2"),
+    ] * 3
+    assert [record.target for record in records[::2]] == root.select("a")
+
+
+def test_replace_receives_each_url_of_each_clone() -> None:
+    seen: list[str] = []
+
+    def prefix(url: str) -> str:
+        seen.append(url)
+        return f"/moved/{url}"
+
+    out = _rewritten(_REOPENED, prefix)
+    anchor: Final = '<a href="/moved/a.html" ping="/moved/p1 /moved/p2" title="t">'
+    assert out == f"<p>{anchor}x</a></p><p>{anchor}y</a></p><p>{anchor}z</a></p>"
+    assert seen == ["a.html", "p1", "p2"] * 2
+
+
+def test_clones_adopt_the_rewrite_of_the_first_clone() -> None:
+    seen: list[str] = []
+
+    def rename(url: str) -> str:
+        seen.append(url)
+        return f"{url}-moved"
+
+    root = parse_fragment('<p><a href="a.html">0<p>1<p>2<p>3')
+    root.rewrite_links(rename)
+    assert seen == ["a.html"] * 2
+    assert [link.url for link in root.links()] == ["a.html-moved"] * 4
+
+
+def test_an_exception_from_replace_on_a_clone_propagates() -> None:
+    seen: list[str] = []
+
+    def fail_on_the_clone(url: str) -> str:
+        seen.append(url)
+        return _boom(url) if len(seen) == 2 else url
+
+    with pytest.raises(ValueError, match=r"nope: a\.html"):
+        _rewritten('<p><a href="a.html">x<p>y<p>z', fail_on_the_clone)
+    assert seen == ["a.html"] * 2
+
+
+def test_a_reopened_element_without_links_reports_none() -> None:
+    assert parse_fragment('<p><a href=" ">x<p>y<p>z').links() == []
+
+
+def test_clones_whose_attribute_replace_removed_are_each_rewritten() -> None:
+    root = parse_fragment('<p><a href="a.html">x<p>y<p>z<p>w')
+    anchors: Final = root.select("a")
+    seen: list[str] = []
+
+    def drop_from_the_clone(url: str) -> None:
+        seen.append(url)
+        del anchors[len(seen) - 1].attrs["href"]
+
+    root.rewrite_links(drop_from_the_clone)
+    assert seen == ["a.html"] * 4
+    assert [anchor.attrs.get("href") for anchor in anchors] == [None] * 4
+
+
+def test_a_long_href_on_a_reopened_element_is_not_copied_per_clone() -> None:
+    # without sharing, each clone would retain its own copy of the long value
+    # PyPy ships no _tracemalloc; the sharing is C and covered by the CPython run.
+    tracemalloc = pytest.importorskip("tracemalloc")
+    href: Final = "x" * 25_000
+    html: Final = f'<p><a href="{href}">x{"<p>y" * 1_500}'
+    resolved, rewritten = parse(html), parse(html)
+    tracemalloc.start()
+    resolved.resolve_links(_HTTPS)
+    rewritten.rewrite_links(lambda url: f"/moved/{url}")
+    links = resolved.links()
+    retained = tracemalloc.get_traced_memory()[0]
+    tracemalloc.stop()
+    assert [link.url for link in links] == [_HTTPS + href] * 1_501
+    assert [link.url for link in rewritten.links()] == [f"/moved/{href}"] * 1_501
+    assert retained < 4_000_000, f"the link walk retained {retained} bytes"
+
+
+def test_rewriting_reopened_clones_is_linear_in_the_value_length(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda size: partial(_rewrite_reopened_clones, size), (500, 2000))
+
+
+def _rewrite_reopened_clones(size: int) -> None:
+    parse(f'<p><a href="/{"x" * size}">x{"<p>y" * size}').rewrite_links(lambda url: f"/moved{url}")
 
 
 @pytest.mark.parametrize(

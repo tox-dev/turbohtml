@@ -844,8 +844,12 @@ static const Py_UCS4 *anchor_attr(th_tree *tree, th_node *node, const char *name
 
 /* Collect the href of every <a>/<area> that is neither rel=nofollow nor, under a language filter, hreflang'd to
    another language, in document order, trimmed the way Node.links() reports a URL attribute. Pure tree reads plus
-   str allocation, so it runs under the document's critical section. Returns -1 on allocation failure. */
+   str allocation, so it runs under the document's critical section. The tree builder reopens an unclosed <a> in every
+   block that follows it, and each of those clones borrows the one href buffer of the start tag: an anchor that holds
+   the buffer just collected adds nothing to a result that is a set, and a str per clone would cost href length x
+   clones. Returns -1 on allocation failure. */
 static int collect_hrefs(th_tree *tree, th_node *root, PyObject *language, PyObject *hrefs) {
+    const Py_UCS4 *collected = NULL;
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type != TH_NODE_ELEMENT || (node->atom != TH_TAG_A && node->atom != TH_TAG_AREA)) {
             continue;
@@ -879,6 +883,10 @@ static int collect_hrefs(th_tree *tree, th_node *root, PyObject *language, PyObj
                 continue;
             }
         }
+        if (href == collected) {
+            continue;
+        }
+        collected = href;
         PyObject *url = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, href + start, end - start);
         if (url == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */

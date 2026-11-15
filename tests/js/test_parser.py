@@ -120,6 +120,12 @@ if TYPE_CHECKING:
         pytest.param("x={a:1,", id="object-trailing-comma-eof"),
         pytest.param("x=[1,2,", id="array-trailing-comma-eof"),
         pytest.param("(a,b,", id="arrow-params-trailing-comma-eof"),
+        pytest.param("x=(a)=>'b", id="arrow-body-lexical-error"),
+        pytest.param("x=async(a,=>1)", id="async-arguments-error-at-arrow"),
+        # only `(` or `async (` at the start of an assignment expression heads an arrow function
+        pytest.param("a+(b)=>c", id="arrow-head-after-operator"),
+        pytest.param("x=async\n(a)=>a", id="async-newline-call-not-arrow-head"),
+        pytest.param("x=async function(){}(a)=>a", id="async-function-call-not-arrow-head"),
         # a backslash then a lone CR at end of input: the CRLF probe runs off the buffer and the string
         # is unterminated (exercises the line-continuation bound at the source end)
         pytest.param(f'x="a{chr(0x5C)}{chr(0x0D)}', id="continuation-backslash-cr-at-eof"),
@@ -152,6 +158,10 @@ def minify(source: str) -> str:
         # the message names the construct, the byte offset, and the offending token slice (#434)
         pytest.param("x=)", "unexpected token at offset 2 near ')'", id="names-token-slice"),
         pytest.param("x=(", "unexpected token at offset 3: reached end of input", id="end-of-input"),
+        # what only an arrow function's parameters allow is reported once no `=>` follows the list
+        pytest.param("x=()", "unexpected token at offset 3 near ')'", id="empty-group"),
+        pytest.param("x=(a,)", "unexpected token at offset 5 near ')'", id="group-trailing-comma"),
+        pytest.param("x=(...a,)", "unexpected token at offset 3 near '...'", id="group-rest-element"),
         pytest.param("@", "lexical error at offset 0 near '@'", id="stray-token"),
         # a non-ASCII offending code point renders as ? so the message stays one ASCII line
         pytest.param(f'"abc{chr(0x20AC)}', "lexical error at offset 0 near '\"abc?'", id="non-ascii-slice"),
@@ -516,11 +526,57 @@ def test_constructs_minify_to(source: str, expected: str) -> None:
         pytest.param("x=10n", "x=10n", id="bigint-literal"),
         pytest.param("x=a?.[b]", "x=a?.[b]", id="optional-computed-member"),
         pytest.param("f=async\nx=>x", "f=async;x=>x", id="async-newline-not-arrow"),
+        pytest.param("x=()=>1", "x=()=>1", id="no-parameters"),
+        pytest.param("x=(a,)=>a", "x=a=>a", id="parameters-trailing-comma"),
+        pytest.param("x=(a,...b)=>a", "x=(a,...b)=>a", id="rest-parameter"),
+        pytest.param("x=((a)=>a)(1)", "x=(a=>a)(1)", id="arrow-in-a-group"),
+        # the list is lexed from its own grammar position, so a regex or template in it may hold anything
+        pytest.param("x=(/[(]+/)", "x=/[(]+/", id="group-regex-holds-paren"),
+        pytest.param("x=(/[/*]+/)", "x=/[/*]+/", id="group-regex-holds-comment-opener"),
+        pytest.param("x=(/)=>/)", "x=/)=>/", id="group-regex-holds-arrow"),
+        pytest.param("x=(`${a}((`)", "x=`${a}((`", id="group-template-holds-paren"),
+        pytest.param("x=(a=/[(]+/)=>a", "x=(a=/[(]+/)=>a", id="arrow-default-regex-holds-paren"),
+        pytest.param("x=async(/[(]+/)", "x=async(/[(]+/)", id="async-call-regex-holds-paren"),
+        pytest.param("x=async(a=/[(]+/)=>a", "x=async(a=/[(]+/)=>a", id="async-arrow-default-regex-holds-paren"),
         pytest.param("class C{#a;m(){return #a in this}}", "class C{#a;m(){return#a in this}}", id="private-in-check"),
     ],
 )
 def test_backtrack_parses(source: str, expected: str) -> None:
     assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("x=(a)=>{}\n(b)", "x=a=>{};b", id="call"),
+        pytest.param("x=(a)=>{}\n+1", "x=a=>{};+1", id="binary-operator"),
+        pytest.param("x=(a)=>{}\n++y", "x=a=>{};++y", id="update"),
+        pytest.param("x=async(a)=>{}\n(b)", "x=async a=>{};b", id="call-after-async-arrow"),
+        pytest.param("x=(a=>a)+1", "x=(a=>a)+1", id="grouped-arrow-is-an-operand"),
+    ],
+)
+def test_nothing_extends_an_arrow_function(source: str, expected: str) -> None:
+    # an arrow function is a whole AssignmentExpression: what follows its body on the next line starts a statement
+    assert minify(source) == expected
+
+
+@pytest.mark.parametrize("tail", ["(b)", ".b", "[0]", "`t`", "++", "+1", "?1:2", "=1"])
+def test_token_after_an_arrow_function_body_raises(tail: str) -> None:
+    with pytest.raises(ValueError, match="missing semicolon at offset 9 near"):
+        minify(f"x=(a)=>{{}}{tail}")
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        pytest.param("(/[(]+/)", id="paren-in-regex-class"),
+        pytest.param("(/[/*]+/)", id="comment-opener-in-regex-class"),
+        pytest.param("(`${a}((`)", id="paren-after-template-substitution"),
+        pytest.param("async(/[(]+/)", id="async-call"),
+    ],
+)
+def test_parenthesized_groups_parse_in_linear_steps(group: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, f"{group};" * n), (500, 2000))
 
 
 @pytest.mark.parametrize(
@@ -548,6 +604,62 @@ def test_async_function_expression_keeps_name_and_star(source: str) -> None:
         pytest.param("async function f(){for(;;);}", "async function f(){for(;;);}", id="for-in-async-function"),
         pytest.param("async function f(){()=>await(1)}", "async function f(){()=>await(1)}", id="await-in-arrow"),
         pytest.param("x=async()=>await(1)", "x=async()=>await 1", id="await-in-async-arrow"),
+        pytest.param("async function f(){x=(await a)}", "async function f(){x=await a}", id="await-in-group"),
+        pytest.param(
+            "async function f(){x=async(await a)}", "async function f(){x=async(await a)}", id="await-in-async-call"
+        ),
+        pytest.param("function*g(){x=(yield,a)}", "function*g(){x=(yield,a)}", id="yield-in-group"),
+        pytest.param(
+            "async function f(){x=(a=async()=>await b)=>a}",
+            "async function f(){x=(a=async()=>await b)=>a}",
+            id="await-in-arrow-under-arrow-parameters",
+        ),
+        pytest.param(
+            "function*g(){x=(a=function*(){yield})=>a}",
+            "function*g(){x=(a=function*(){yield})=>a}",
+            id="yield-in-function-under-arrow-parameters",
+        ),
+        pytest.param("x=async(await)", "x=async(await)", id="await-name-in-async-call"),
+        pytest.param("x=(await)=>await", "x=await=>await", id="await-name-in-arrow-parameters"),
+        pytest.param("x=async(yield)=>yield", "x=async yield=>yield", id="yield-name-in-async-arrow-parameters"),
+        pytest.param(
+            "x=async(a=function(){await})=>a",
+            "x=async(a=function(){await})=>a",
+            id="await-name-in-function-under-async-arrow-parameters",
+        ),
+        pytest.param(
+            "x=async(a=b=>await)=>a", "x=async(a=b=>await)=>a", id="await-name-in-arrow-under-async-arrow-parameters"
+        ),
+        pytest.param(
+            "async function f(){class C{x=await}}",
+            "async function f(){class C{x=await}}",
+            id="await-name-in-field-initializer",
+        ),
+        pytest.param(
+            "async function f(){class C{x=await(y)}}",
+            "async function f(){class C{x=await(y)}}",
+            id="await-call-in-field-initializer",
+        ),
+        pytest.param(
+            "async function f(){class C{x=await\ny}}",
+            "async function f(){class C{x=await;y}}",
+            id="await-name-ends-field-initializer",
+        ),
+        pytest.param(
+            "async function f(){class C{x=(a=await)=>a}}",
+            "async function f(){class C{x=(a=await)=>a}}",
+            id="await-name-in-arrow-parameters-in-field-initializer",
+        ),
+        pytest.param(
+            "async function f(){x=(a=class{y=await})=>a}",
+            "async function f(){x=(a=class{y=await})=>a}",
+            id="await-name-in-field-initializer-under-arrow-parameters",
+        ),
+        pytest.param(
+            "x=async(a=class{y=await})=>a",
+            "x=async(a=class{y=await})=>a",
+            id="await-name-in-field-initializer-under-async-arrow-parameters",
+        ),
         pytest.param(
             "async function f(){x={async m(){await(1)},n(){await(1)}}}",
             "async function f(){x={async m(){await 1},n(){await(1)}}}",
@@ -589,6 +701,16 @@ def test_script_grammar_minifies_to(source: str, expected: str) -> None:
         pytest.param("function f(){await x}", id="identifier"),
         pytest.param("function f(){yield x}", id="yield"),
         pytest.param("function*g(){()=>yield 1}", id="yield-in-arrow"),
+        pytest.param("async function f(){(a=await x)=>a}", id="await-in-arrow-parameters"),
+        pytest.param("function*g(){(a=yield)=>a}", id="yield-in-arrow-parameters"),
+        pytest.param("async function f(){async(a=await x)=>a}", id="await-in-async-arrow-parameters"),
+        # an async arrow function's parameters read `await` as the operator where a script names an identifier
+        pytest.param("x=async(await)=>1", id="await-name-in-async-arrow-parameters"),
+        pytest.param("x=async(a=await)=>a", id="await-name-in-async-arrow-parameter-default"),
+        pytest.param("x=async(a,await(b))=>a", id="await-call-in-async-arrow-parameters"),
+        # a field initializer runs as a method of its own, where neither word is an operator
+        pytest.param("async function f(){class C{x=await 1}}", id="await-in-field-initializer"),
+        pytest.param("function*g(){class C{x=yield 1}}", id="yield-in-field-initializer"),
         pytest.param("async function f(){class C{static{await x}}}", id="await-in-static-block"),
         pytest.param("function*g(){class C{static{yield x}}}", id="yield-in-static-block"),
     ],

@@ -1631,3 +1631,23 @@ def test_clean_truncates_markup_run_into_the_host(url: str) -> None:
 def test_clean_truncates_at_a_host_the_url_parser_rejects(url: str) -> None:
     # with no '@' the host runs through the '<' or '>', a forbidden host code point: no browser reads another host
     assert clean_url(url) == "https://host.example/"
+
+
+def test_extract_links_reads_a_reopened_anchor_once() -> None:
+    # the tree builder reopens the unclosed <a> in every paragraph, and each clone borrows the one href buffer
+    html: Final = '<p><a href="/a">x<p>y<p>z</p><a href="/b">w</a><p><a href="/a">v</a>'
+    assert extract_links(html, "https://example.org/") == {"https://example.org/a", "https://example.org/b"}
+
+
+def test_extract_links_does_not_copy_a_long_href_per_reopened_anchor() -> None:
+    # each clone would allocate its own str of the long href before the result set drops the duplicate
+    # PyPy ships no _tracemalloc; the sharing is C and covered by the CPython run.
+    tracemalloc = pytest.importorskip("tracemalloc")
+    href: Final = "a" * 25_000
+    html: Final = f'<p><a href="/{href}">{"<p>x" * 1_500}'
+    tracemalloc.start()
+    links = extract_links(html, "https://example.org/")
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert links == {f"https://example.org/{href}"}
+    assert peak < 8_000_000, f"extract_links allocated {peak} bytes"

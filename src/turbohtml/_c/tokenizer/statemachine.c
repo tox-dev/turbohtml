@@ -26,6 +26,7 @@
 #include "core/hash.h"
 #include "core/vec.h"
 #include "core/work_steps.h"
+#include "data/tag_atom.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -368,6 +369,10 @@ void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_
     self->resolve_references = resolve_references;
     self->capture_source = capture_source;
     self->capture_attributes = capture_attributes;
+}
+
+void th_tok_capture_attributes(th_tokenizer *self, int on) {
+    self->capture_attributes = on;
 }
 
 void th_tok_capture_locations(th_tokenizer *self, int on) {
@@ -1145,6 +1150,17 @@ static void rawtext_fallback(th_tokenizer *self, enum state ret) {
 
 static void finish_tag(th_tokenizer *self) {
     self->state = ST_DATA;
+    /* interned once here for every consumer: the tree builder, the Tokenizer following open elements, the rewriter */
+    const th_buf *name = &self->tok.name;
+    uint64_t key = 0;
+    uint16_t atom = TH_TAG_UNKNOWN; /* the table holds only ASCII names */
+    if (name->kind == PyUnicode_1BYTE_KIND) {
+        key = th_tag_key(name->data, name->len, name->cap);
+        atom = key != 0 ? th_tag_key_atom(key) : th_tag_hash_atom(name->data, name->len);
+    }
+    self->tok.name_key = key;
+    self->tok.atom = atom;
+    self->tok.tag_flags = th_tag_atom_flags[atom];
     if (self->capture_locations) {
         /* the cursor has just passed the closing '>', so it marks the tag's end span */
         self->tok.end_line = self->line;

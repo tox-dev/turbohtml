@@ -70,34 +70,11 @@ static inline Py_UCS4 input_read(const th_tree *tree, Py_ssize_t index) {
     return ((const uint32_t *)tree->data)[index];
 }
 
+/* The atom and category flags of a fragment context's lowercased name, TH_TAG_UNKNOWN for an empty one. */
 static uint16_t intern_atom(const th_buf *name, uint8_t *out_flags) {
-    *out_flags = 0;
-    if (name->kind != PyUnicode_1BYTE_KIND || name->len == 0) { /* GCOVR_EXCL_BR_LINE: name is never empty */
-        return TH_TAG_UNKNOWN;                                  /* non-ASCII / empty tag names are never atoms */
-    }
-    const unsigned char *str = (const unsigned char *)name->data;
-    size_t slot = ((size_t)name->len * TH_TAG_HASH_LENGTH + (size_t)str[0] * TH_TAG_HASH_FIRST +
-                   (size_t)str[name->len - 1] * TH_TAG_HASH_LAST + (size_t)str[name->len > 1] * TH_TAG_HASH_SECOND) &
-                  TH_TAG_HASH_MASK;
-    uint8_t index = th_tag_hash[slot];
-    if (index == 0) {
-        return TH_TAG_UNKNOWN;
-    }
-    const th_tag_entry *entry = &th_tag_table[index - 1];
-    if (entry->name_len != name->len) {
-        return TH_TAG_UNKNOWN;
-    }
-    /* Verify with an inline byte loop, not memcmp: tag names are 1-10 bytes, so a
-       libc call's setup costs more than the compare it saves -- most of all for the
-       one-byte names (p, a, b, ...) a parse hits far more often than div or span. */
-    const unsigned char *en = (const unsigned char *)entry->name;
-    for (Py_ssize_t pos = 0; pos < name->len; pos++) {
-        if (str[pos] != en[pos]) {
-            return TH_TAG_UNKNOWN;
-        }
-    }
-    *out_flags = entry->flags;
-    return entry->atom;
+    uint16_t atom = name->len == 0 ? TH_TAG_UNKNOWN : th_tag_lookup(name->data, name->len);
+    *out_flags = th_tag_flags(atom);
+    return atom;
 }
 
 /* The token's interned tag atom, cached on the token by the run loop once per
@@ -481,7 +458,7 @@ const void *th_tree_source_data(th_tree *tree, int *kind, int *has_nul) {
 
 /* A shallow element clone (same atom/name/attrs, no children) for the adoption
    agency and active-formatting-element reconstruction. */
-static th_node *node_clone(th_tree *tree, th_node *src);
+static th_node *node_clone(th_tree *tree, th_node *src, int with_attrs);
 
 static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
@@ -1567,7 +1544,7 @@ static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out
     return out;
 }
 
-static th_node *node_clone(th_tree *tree, th_node *src) {
+static th_node *node_clone(th_tree *tree, th_node *src, int with_attrs) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -1577,7 +1554,7 @@ static th_node *node_clone(th_tree *tree, th_node *src) {
     node->tag_flags = (uint8_t)((src->tag_flags & ~TH_ELEM_CLOSED_BY_END_TAG) | TH_ELEM_IMPLIED);
     node->text = src->text;
     node->text_len = src->text_len;
-    if (src->attr_count > 0) {
+    if (with_attrs && src->attr_count > 0) {
         /* Mutations and sanitization can rewrite a reconstructed element's attribute slots. */
         node->attrs = arena_alloc(tree, src->attr_count * (Py_ssize_t)sizeof(th_node_attr));
         if (node->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -1587,8 +1564,8 @@ static th_node *node_clone(th_tree *tree, th_node *src) {
         /* the slots are the clone's own, the values they point at are not */
         node->attr_values_shared = 1;
         src->attr_values_shared = 1;
+        node->attr_count = src->attr_count;
     }
-    node->attr_count = src->attr_count;
     if (tree->track_positions) {
         /* an adoption-agency clone stands in for the same source start tag, so it
            keeps the original's position */
@@ -1597,6 +1574,34 @@ static th_node *node_clone(th_tree *tree, th_node *src) {
         node_pos(node)[1] = src_pos[1];
     }
     return node;
+}
+
+/* Reconstructing the active formatting elements and the adoption agency re-create an element the document wrote
+   once, and each clone owns a copy of its source's attribute slots. A few bytes of input buy a clone (text after the
+   </p> that closed a <b>), so a <b> with k attributes ahead of k paragraphs would copy k^2 slots. A clone is itself a
+   node, so one with at most TH_CLONE_ATTRS_PER_NODE attributes costs a constant per node and is copied whole without
+   being counted; that keeps the common clone to one compare. Larger copies are held to a flat allowance plus that
+   share per node the tree has made. Past the bound the clone still takes its place in the tree, the stack and the
+   list, keeping the structure the standard builds, but it carries no attributes, and neither do the clones later made
+   from it. */
+#define TH_CLONE_ATTR_ALLOWANCE 65536
+#define TH_CLONE_ATTRS_PER_NODE 16
+
+static TH_NOINLINE th_node *clone_formatting_counted(th_tree *tree, th_node *src) {
+    uint64_t copied = tree->clone_attr_slots + (uint64_t)src->attr_count;
+    uint64_t bound = TH_CLONE_ATTR_ALLOWANCE + TH_CLONE_ATTRS_PER_NODE * ((uint64_t)tree->node_seq + 1);
+    int with_attrs = copied <= bound && copied <= UINT32_MAX; /* GCOVR_EXCL_BR_LINE: no test copies 2^32 slots */
+    if (with_attrs) {
+        tree->clone_attr_slots = (uint32_t)copied;
+    }
+    return node_clone(tree, src, with_attrs);
+}
+
+static inline th_node *clone_formatting(th_tree *tree, th_node *src) {
+    if (TH_UNLIKELY(src->attr_count > TH_CLONE_ATTRS_PER_NODE)) {
+        return clone_formatting_counted(tree, src);
+    }
+    return node_clone(tree, src, 1);
 }
 
 /* Does the element carry an attribute with this interned name? */
@@ -1881,7 +1886,7 @@ static void select_cache_free(th_tree *tree) {
 
 static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
     if (source->type == TH_NODE_ELEMENT) {
-        th_node *copy = node_clone(tree, source);
+        th_node *copy = node_clone(tree, source, 1);
         if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
             copy->ns = source->ns;
         }
@@ -2442,11 +2447,30 @@ static int afe_push(th_tree *tree, th_node *node) {
     return 1;
 }
 
+/* A clone at index keeps the key of the entry it stands in for, unless clone_formatting left its attributes off: then
+   it hashes apart from its source, and the slot (which a reseed reads) and the set in use (which must hold the key of
+   every entry after the last marker) both take its own key. A failed insert has set tree->failed. */
+static TH_NOINLINE void afe_rekey(th_tree *tree, Py_ssize_t index) {
+    uint64_t key = afe_hash(tree->afe[index]);
+    afe_keys(tree)[index] = key;
+    if (tree->afe_hash_valid) {
+        (void)afe_hash_insert(tree, key);
+    }
+}
+
+static inline void afe_key_clone(th_tree *tree, Py_ssize_t index, const th_node *source) {
+    if (TH_UNLIKELY(tree->afe[index]->attr_count != source->attr_count)) {
+        afe_rekey(tree, index);
+    }
+}
+
 /* Put a clone in the list slot of the entry it stands in for. */
 static void afe_replace_at(th_tree *tree, Py_ssize_t index, th_node *clone) {
-    tree->afe[index]->afe_listed = 0;
+    th_node *source = tree->afe[index];
+    source->afe_listed = 0;
     tree->afe[index] = clone;
     clone->afe_listed = 1;
+    afe_key_clone(tree, index, source);
 }
 
 static void afe_push_marker(th_tree *tree) {
@@ -2578,7 +2602,7 @@ static void reconstruct_afe(th_tree *tree) {
             tree->afe_hash_valid = 0;
             return;
         }
-        th_node *clone = node_clone(tree, tree->afe[index]);
+        th_node *clone = clone_formatting(tree, tree->afe[index]);
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
@@ -2697,7 +2721,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
                 stack_remove_at(tree, node_idx);
                 continue;
             }
-            th_node *clone = node_clone(tree, node);
+            th_node *clone = clone_formatting(tree, node);
             if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 return 1;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             }
@@ -2721,7 +2745,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             insertion_location_target(tree, common, &parent, &before);
             node_insert_before(parent, last, before);
         }
-        th_node *fmt_clone = node_clone(tree, fmt);
+        th_node *fmt_clone = clone_formatting(tree, fmt);
         if (fmt_clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return 1;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
@@ -2745,7 +2769,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         if (fi < bookmark) {
             bookmark--;
         }
-        /* the clone hashes as fmt did, so it takes over fmt's key */
+        /* a clone with fmt's attributes hashes as fmt did, so it takes over fmt's key */
         uint64_t fmt_key = afe_keys(tree)[fi];
         /* removing fmt frees the slot the clone takes below, so the list needs no room */
         afe_remove_at(tree, fi);
@@ -2765,6 +2789,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         memmove(&keys[bookmark + 1], &keys[bookmark], moved * sizeof(uint64_t));
         keys[bookmark] = fmt_key;
         tree->afe_len++;
+        afe_key_clone(tree, bookmark, fmt);
         /* remove fmt from the stack, insert the clone below furthest */
         Py_ssize_t fs = stack_index_of(tree, fmt);
         stack_remove_at(tree, fs);
@@ -4810,11 +4835,8 @@ static TH_TREE_INLINE void drain_token(th_tree *tree, th_insert *dc, th_token *t
         tree->drop_newline = 0;
     }
 reprocess:;
-    /* Intern the tag name once; every comparison and insert below reads
-       tok->atom / tok->tag_flags instead of re-interning the same name. */
-    if (tok->kind == TH_START_TAG || tok->kind == TH_END_TAG) {
-        tok->atom = intern_atom(&tok->name, &tok->tag_flags);
-    } else {
+    /* the machine interned a tag's name; every comparison and insert below reads tok->atom / tok->tag_flags */
+    if (tok->kind != TH_START_TAG && tok->kind != TH_END_TAG) {
         tok->atom = TH_TAG_UNKNOWN;
         tok->tag_flags = 0;
     }

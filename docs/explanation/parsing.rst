@@ -69,7 +69,11 @@ Two decisions bound the tokenizer's scope:
 - The tokenizer is not a parser. It hands you the token stream; it does not build a tree, balance tags, or apply the
   tree-construction rules. The one tree-construction duty it takes on is content-model switching: after a start tag for
   ``script``, ``style``, ``title`` and the other raw-text elements, the element's contents tokenize as the spec requires
-  (a ``<b>`` inside a script body is text, not a tag).
+  (a ``<b>`` inside a script body is text, not a tag). Inside ``<svg>`` and ``<math>`` those names are ordinary elements
+  and a CDATA section is text, so the tokenizer follows which open elements are foreign by pairing the start and end
+  tags as written. It does not supply the tags a browser implies (a second ``<p>`` closing the first) or track the
+  insertion mode, so where a decision depends on exactly what a browser builds, take it from :func:`~turbohtml.parse` or
+  :mod:`turbohtml.saxparse` rather than from the token stream.
 - The machine recovers from parse errors rather than stopping on them. The spec defines a recovery transition for every
   error and the machine takes it, so malformed input produces the same tokens a browser would see. A duplicate attribute
   name is one such recovery: the spec keeps the first occurrence and drops the rest at tokenization, so ``<a href=x
@@ -110,14 +114,16 @@ times faster.
 the adoption agency, foreign content, and the error recovery a browser performs); the pinned revision of WPT's `HTML
 parsing data
 <https://github.com/web-platform-tests/wpt/tree/4830edb033cb486fd0cd6f85b5e937cfc718704d/html/syntax/parsing/resources>`_
-validates it. The result is the tree a browser builds for the same bytes, with four departures. A ``select`` copies its
+validates it. The result is the tree a browser builds for the same bytes, with five departures. A ``select`` copies its
 selected option into at most 16 ``selectedcontent`` elements, and any after those keep the content the markup gave them;
 valid markup has one per ``select``. A ``selectedcontent`` placed after its option drops the children the markup gave
 it, which a browser keeps beside the copy, so reparsing the output yields the same tree. When the shown option is
 written inside the ``selectedcontent`` or the adoption agency moves it there, the copy also leaves out the select's
 options nested in it, which a browser keeps; parse-time copies still match browsers. When more than 16 formatting
 elements stay unclosed and a later block reopens them, only the 16 innermost are reopened, and the outer ones are not
-reopened in any later block.
+reopened in any later block. A formatting element such as ``b`` that the parser reopens copies its attributes onto each
+reopened element only while the copied attributes stay within a share of the tree's node count; past that, reopened
+elements keep their place in the tree without attributes. A ``b`` with 16 attributes or fewer is always copied whole.
 
 turbohtml builds the tree in C as a pointer-linked node graph in a single bump-allocated arena, the layout `lexbor
 <https://lexbor.com>`_, Go's ``x/net/html``, and html5ever all converge on. It holds **no Python objects**. Element

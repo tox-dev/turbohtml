@@ -38,6 +38,7 @@ enum {
     RX_FAIL_QUANTIFIER,
     RX_FAIL_BRACKET
 };
+/* Shared by all patterns of one schema: their NFAs stay in the schema arena for as long as the schema lives. */
 #define RX_MAX_STATES 2000000
 /* Matching steps every live NFA state once per character, and a counted repeat keeps many states live without
    lengthening the pattern. The state visits of one validate() call are therefore budgeted, as the XPath regex steps
@@ -602,13 +603,14 @@ static rnode *rx_parse_alt(rparser *parser) {
 typedef struct {
     arena *mem;
     size_t count;
+    size_t limit;
     int failed;
     rstate sink; /* absorbs writes once the pattern is refused, so no caller dereferences NULL */
 } rcompiler;
 
 static rstate *rx_state(rcompiler *compiler, int kind) {
     rstate *state = NULL;
-    if (compiler->count >= RX_MAX_STATES) {
+    if (compiler->count >= compiler->limit) {
         compiler->failed = RX_FAIL_STATES;
     } else if ((state = arena_alloc(compiler->mem, sizeof(rstate))) == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
         compiler->failed = RX_FAIL_MEMORY;                                     /* GCOVR_EXCL_LINE */
@@ -915,7 +917,7 @@ static int regex_cache_add(th_schema *schema, rpattern *pattern) {
         parser.failed = RX_FAIL_GROUP;
         parser.fail_pos = parser.pos;
     }
-    rcompiler compiler = {.mem = &schema->mem};
+    rcompiler compiler = {.mem = &schema->mem, .limit = RX_MAX_STATES - schema->regex_states};
     rstate *start = parser.failed ? NULL : rx_compile(&compiler, ast, rx_state(&compiler, RS_ACCEPT));
     const int failed = parser.failed ? parser.failed : compiler.failed;
     if (failed == RX_FAIL_MEMORY) { /* GCOVR_EXCL_BR_LINE: arena OOM */
@@ -974,10 +976,15 @@ static int regex_cache_add(th_schema *schema, rpattern *pattern) {
         }
         return -1;
     }
+    if (failed == RX_FAIL_STATES && schema->regex_states == 0) {
+        PyErr_Format(PyExc_ValueError, "schema pattern needs more than %d NFA states; lower its repeat counts",
+                     RX_MAX_STATES);
+        return -1;
+    }
     if (failed == RX_FAIL_STATES) {
+        /* the pattern had only what the earlier ones left, so splitting one into several would not have helped */
         PyErr_Format(PyExc_ValueError,
-                     "schema pattern needs more than %d NFA states; lower its repeat counts or split it into "
-                     "several patterns",
+                     "schema patterns need more than %d NFA states between them; lower their repeat counts",
                      RX_MAX_STATES);
         return -1;
     }
@@ -985,6 +992,7 @@ static int regex_cache_add(th_schema *schema, rpattern *pattern) {
     pattern->has_extended = parser.has_extended;
     pattern->count = compiler.count;
     pattern->share = rx_share(pattern);
+    schema->regex_states += compiler.count;
     if (compiler.count > schema->regex_max_states) {
         schema->regex_max_states = compiler.count;
     }
