@@ -126,8 +126,9 @@ class XMLSchema(_Schema):
 
     :raises ValueError: when the schema is malformed, its root is not ``xs:schema``, a ``ref``/``type``/``base``
         does not resolve, a group, attribute-group, or type-derivation reference forms a cycle or a chain over 100
-        hops, the references of one complex type expand to more than 20,000 particles and attribute declarations, or
-        an ``xs:unique``/``xs:key``/``xs:keyref`` identity constraint is declared.
+        hops, group references nest the schema 400 levels or deeper once each group stands in place of its ``ref``,
+        the references of one complex type expand to more than 20,000 particles and attribute declarations, or an
+        ``xs:unique``/``xs:key``/``xs:keyref`` identity constraint is declared.
     """
 
     def __init__(self, source: str | Node) -> None:
