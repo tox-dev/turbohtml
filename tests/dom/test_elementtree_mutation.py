@@ -38,6 +38,35 @@ def test_element_tree_insert_into_childless(incoming: ElementView, index: int) -
 
 
 @pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(0, "<ul><li>d</li><li>c</li><li>b</li><li>a</li></ul>", id="front-reverses"),
+        pytest.param(-1, "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>", id="before-last-restores"),
+    ],
+)
+def test_element_tree_insert_moving_each_child_near_either_end_orders_them(index: int, expected: str) -> None:
+    listing = etree.fromstring("<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>")
+    for item in list(listing):
+        listing.insert(index, item)
+    assert etree.tostring(listing, encoding="unicode") == expected
+
+
+@pytest.mark.parametrize("index", [pytest.param(1, id="second"), pytest.param(-2, id="second-from-end")])
+def test_element_tree_insert_near_either_end_stays_linear(index: int, work_steps: WorkSteps) -> None:
+    def move_each(size: int) -> Callable[[], object]:
+        listing = etree.fromstring(f"<ol>{'<li>i</li>' * size}</ol>")
+        items = list(listing)
+
+        def move_all() -> None:
+            for item in items:
+                listing.insert(index, item)
+
+        return move_all
+
+    work_steps.assert_linear(move_each, (500, 2000))
+
+
+@pytest.mark.parametrize(
     ("operation", "expected"),
     [
         pytest.param(

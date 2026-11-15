@@ -1175,9 +1175,7 @@ _HEX_ESCAPE_END: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{b:@1\\1\r\n\nx}", "a{b:@1\\1\r\n x}", "a{b:@1\\1\r\n x}", id="crlf-closes-hex-escape"),
     pytest.param("a{b:@1\\78/**/f}", "a{b:@1\\78  f}", "a{b:@1\\78  f}", id="comment-after-at-keyword-hex-escape"),
     pytest.param(".\\31{b:f(a, b)}", ".\\31{b:f(a,b)}", ".\\31{b:f(a,b)}", id="escaped-selector-function-comma"),
-    pytest.param(
-        "a{b:\\1}/**/+c{d:e}", "a{b:\\1 }+c{d:e}", "a{b:\\1 };+c{d:e}", id="comment-before-leading-combinator"
-    ),
+    pytest.param("a{b:\\1}/**/+c{d:e}", "a{b:\\1 }+c{d:e}", "a{b:\\1 }", id="comment-before-leading-combinator"),
     pytest.param("{b:c((\\\\00004a", "", "{b:c((\\\\00004a))}", id="escaped-backslash-before-six-hex-digits"),
     pytest.param("{a+ 1{\\}", "", "{a+1{}}", id="nested-plus-before-number"),
 ]
@@ -2277,6 +2275,31 @@ def test_minify_css_inline_custom_property_block(source: str, expected: str) -> 
     assert minify_css_inline(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("margin:0{}top:0", "margin:0{}", id="block-in-value"),
+        pytest.param("color:red{a:b}position:fixed;width:1px", "color:red{a:b};width:1px", id="filled-block-in-value"),
+        pytest.param("a{b:c}d:e;f:g", "a{b:c};f:g", id="declaration-after-rule"),
+        pytest.param("a{x:1}b{y:2};c:d", "a{x:1};c:d", id="rule-after-rule"),
+        pytest.param("a{}--x:{}b;c:d", "a{};c:d", id="custom-property-after-rule"),
+        pytest.param("a{}@x{}b:c;d:e", "a{};d:e", id="at-rule-after-rule"),
+        pytest.param('color:{"a\n}position:fixed;top:0', "top:0", id="declaration-after-bad-block"),
+        pytest.param("margin:0}top:0;width:1px", "width:1px", id="stray-brace-in-value"),
+        pytest.param("color:red;}width:1px;height:1px", "color:red;height:1px", id="stray-brace-opens-item"),
+        pytest.param("--x:{a}b}c;color:red", "color:red", id="stray-brace-in-custom-property"),
+        pytest.param("@x a}b;c:d", "@x a;c:d", id="stray-brace-after-at-statement"),
+        pytest.param("--x:{a}b;color:red", "--x:{a}b;color:red", id="custom-property-keeps-block"),
+        pytest.param("@x{}position:fixed", "@x{};position:fixed", id="at-rule-ends-at-block"),
+        pytest.param("a{b{c:d}e:f}g:h;i:j", "a{b{c:d};e:f};i:j", id="nested-level-keeps-rules"),
+    ],
+)
+def test_minify_css_inline_reads_an_item_to_its_semicolon(source: str, expected: str) -> None:
+    # a style="" value sits in no block and holds no nested rule, so neither a {} block nor a `}` ends an item there
+    first: Final = minify_css_inline(source)
+    assert (first, minify_css_inline(first)) == (expected, expected)
+
+
 # a stylesheet ending in a statement at-rule keeps its `;`, so another sheet appended to it starts a new rule instead of
 # becoming the at-rule's block (CSS Syntax 3 §5.5.2); blocks its prelude leaves open close first (§5.5.9)
 _FINAL_AT_STATEMENT: Final[list[pytest.ParameterSet]] = [
@@ -2579,6 +2602,195 @@ def test_minify_css_stray_top_token(source: str, expected: str) -> None:
 @pytest.mark.parametrize(("source", "expected"), _STRAY_TOP_TOKEN)
 def test_minify_css_stray_top_token_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
+
+
+# A top-level ';' or '}' opens a qualified rule of its own when only whitespace, comments, `<!--` and `-->` come before
+# it, and with no block after it that rule takes in the rest of the sheet: an at-rule there is a component value, not a
+# statement (CSS Syntax 3 §5.4.1). Dropping the delimiter in front of one would bring it to life, and so would joining
+# two stray texts into a `<!--` or `-->`, which the top level skips.
+_STRAY_TOP_DELIMITER: Final[list[pytest.ParameterSet]] = [
+    pytest.param(";@import 'm';", ";@import'm';", id="semicolon-before-import"),
+    pytest.param("} @import 'm'", ";@import'm';", id="brace-before-import"),
+    pytest.param("\n;@namespace p 'n'", ";@namespace p'n';", id="semicolon-before-namespace"),
+    pytest.param("q{} ;@import 'm'", ";@import'm';", id="after-dropped-rule"),
+    pytest.param("q{z:1};@import 'm'", "q{z:1};@import'm';", id="after-rule"),
+    pytest.param("@import 'p';;@import 'q';", "@import'p';;@import'q';", id="between-imports"),
+    pytest.param("};;}@import 'm'", ";@import'm';", id="run-of-delimiters"),
+    pytest.param(";@import 'p';;@import 'q'", ";@import'p';@import'q';", id="second-delimiter-behind-written-one"),
+    pytest.param("}/*! k */@import 'm'", "/*! k */;@import'm';", id="bang-comment-before-import"),
+    pytest.param("--> ;@import 'm'", ";@import'm';", id="cdc-before-delimiter"),
+    pytest.param("<!-- /* k */\n;@import 'm'", ";@import'm';", id="cdo-and-comment-before-delimiter"),
+    pytest.param("/*/ k */}@import 'm'", ";@import'm';", id="comment-opening-with-slash"),
+    pytest.param("};-->@import 'm'", ";-->@import 'm'", id="cdc-after-delimiter"),
+    pytest.param("};<!-- @import 'm'", ";<!-- @import 'm'", id="cdo-after-delimiter"),
+    pytest.param(";@import 'p';--> ;@import 'q'", ";@import'p';-->;@import'q';", id="cdc-behind-written-delimiter"),
+    pytest.param(";@import 'p';--> ;z", ";@import'p';-->z", id="cdc-then-text-behind-written-delimiter"),
+    pytest.param("}--> /* * */ ;@import 'm'", ";--> /* * */;@import'm';", id="cdc-and-comment-behind-delimiter"),
+    pytest.param(";-->", ";-->", id="cdc-alone-behind-delimiter"),
+    pytest.param("};<!--", ";<!--", id="cdo-alone-behind-delimiter"),
+    pytest.param("};z;@import 'm'", "z@import'm'", id="text-opens-the-rule"),
+    pytest.param("z;};@import 'm'", "z@import'm'", id="delimiter-after-stray-text"),
+    pytest.param("z;;k", "z k", id="delimiter-between-names"),
+    pytest.param("@import 'm';;z", "@import'm';z", id="delimiter-between-import-and-text"),
+    pytest.param("/};@import 'm'", "/@import'm'", id="lone-slash-opens-the-rule"),
+    pytest.param("/z;@import 'm'", "/z@import'm'", id="slash-and-name-open-the-rule"),
+    pytest.param("<!-z;@import 'm'", "<!-z@import'm'", id="not-a-cdo"),
+    pytest.param("<};@import 'm'", "<@import'm'", id="lone-less-than"),
+    pytest.param("--z;@import 'm'", "--z@import'm'", id="not-a-cdc"),
+    pytest.param("-};@import 'm'", "-@import'm'", id="lone-minus"),
+    pytest.param(";;}", "", id="delimiters-only"),
+    pytest.param("q{z:1};;", "q{z:1}", id="trailing-semicolons"),
+    pytest.param("@import 'm';}", "@import'm';", id="brace-after-import"),
+    pytest.param("--> ;", "", id="cdc-then-semicolon"),
+    pytest.param("--};>@import 'm'", "-- >@import 'm'", id="join-would-spell-cdc"),
+    pytest.param("<};!--@import 'm'", "< !--@import 'm'", id="join-would-spell-cdo-after-less-than"),
+    pytest.param("<!};--@import 'm'", "<! --@import 'm'", id="join-would-spell-cdo-after-bang"),
+    pytest.param("-};>", "->", id="one-minus-before-greater-than"),
+    pytest.param("z};>", "z>", id="name-before-greater-than"),
+    pytest.param("!};--", "!--", id="bang-alone-before-two-minuses"),
+    pytest.param(">};--", ">--", id="two-minuses-after-greater-than"),
+    pytest.param(">};-", ">-", id="lone-minus-after-greater-than"),
+    pytest.param(">};-z", ">-z", id="minus-name-after-greater-than"),
+    pytest.param(">};!--", ">!--", id="bang-minuses-after-greater-than"),
+    pytest.param("<};!-z", "<!-z", id="bang-one-minus-after-less-than"),
+    pytest.param("<};!zk", "<!zk", id="bang-name-after-less-than"),
+    pytest.param("<};+zk", "<+zk", id="plus-name-after-less-than"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRAY_TOP_DELIMITER)
+def test_minify_css_stray_top_delimiter(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRAY_TOP_DELIMITER)
+def test_minify_css_stray_top_delimiter_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+# The sheet's top level decides which at-statements a browser honors (CSS Syntax 3 §5.4.1): a `}` there closes nothing,
+# so a statement reads on to `;` or a block; `<!--` and `-->` are skipped; and @import, @namespace and @charset count
+# only ahead of every other valid rule, so a rule that minifies away keeps its place in front of one. A name spelled
+# after `<!` keeps its escapes, since respelled it could join the `<!` into a `<!--`.
+_TOP_LEVEL_STATEMENT: Final[list[pytest.ParameterSet]] = [
+    pytest.param("@import 'm' }", "@import'm'};", id="brace-in-prelude"),
+    pytest.param("@import 'm'} q{}", "@import'm'} q{}", id="brace-then-block"),
+    pytest.param("@layer k } @namespace p 'n'", "@layer k } @namespace p'n';", id="statement-after-brace-in-prelude"),
+    pytest.param("@foo }q{color:red}", "@foo }q{color:red}", id="rule-after-brace-in-prelude"),
+    pytest.param("@media s{@foo }q{color:red}}", "@media s{@foo}q{color:red}", id="nested-brace-ends-block"),
+    pytest.param("z;@layer k}", "z@layer k", id="brace-after-stray-text"),
+    pytest.param("q{}@import 'm';", "q{}@import'm';", id="empty-rule-before-import"),
+    pytest.param("q{color:}@namespace 'n';", "q{}@namespace'n';", id="emptied-rule-before-namespace"),
+    pytest.param("@media s{}@import 'm';", "*{}@import'm';", id="empty-media-before-import"),
+    pytest.param('@supports (z:1){}@charset "u";', '@supports(z:1){}@charset "u";', id="empty-supports-before-charset"),
+    pytest.param(
+        "@container (width>1px){}@import 'm';", "@container(width>1px){}@import'm';", id="empty-container-before-import"
+    ),
+    pytest.param("q/**/r{}@import 'm'", "q/**/r{}@import'm';", id="prelude-kept-as-written"),
+    pytest.param("1px{}@import 'm'", "1px{}@import'm';", id="invalid-prelude-kept-as-written"),
+    pytest.param("q {}@import 'm'", "q{}@import'm';", id="space-before-block"),
+    pytest.param("q{}@layer k;@import 'm'", "@layer k;q{}@import'm';", id="layer-statement-between"),
+    pytest.param("q{}r{color:red}@import 'm'", "r{color:red}q{}@import'm';", id="kept-rule-between"),
+    pytest.param("q{}@import 'm';r{}@import 'n';", "q{}@import'm';r{}@import'n';", id="two-imports"),
+    pytest.param("q{}r{}@import 'm'", "q{}r{}@import'm';", id="two-empty-rules"),
+    pytest.param("q{}@import 'm';@import 'n'", "q{}@import'm';@import'n';", id="import-after-kept-rule"),
+    pytest.param("q{}@font-face{x:1}@import 'm'", "@font-face{x:1}q{}@import'm';", id="block-at-rule-between"),
+    pytest.param("q{}@\\63harset 'u';", "q{}@\\63harset'u';", id="escaped-name"),
+    pytest.param("q{}@foo;", "@foo;", id="unordered-statement"),
+    pytest.param("q{};@import 'm'", ";@import'm';", id="empty-rule-then-stray-delimiter"),
+    pytest.param("q{}z;@import 'm'", "z@import'm'", id="empty-rule-then-stray-text"),
+    pytest.param("{}@import 'm'", "@import'm';", id="empty-prelude"),
+    pytest.param("q{}@import 'm'{}", "@import'm'{}", id="import-with-block"),
+    pytest.param(
+        "@media s{t{color:red}}@media s{}@import 'm'", "@media s{t{color:red}}@import'm';", id="empty-media-joins"
+    ),
+    pytest.param("-->@layer k}", "@layer k};", id="cdc-before-statement"),
+    pytest.param("<!--@layer k;z", "@layer k;z", id="cdo-before-statement"),
+    pytest.param("<!---->@import 'm';z", "@import'm';z", id="cdo-and-cdc-as-one-name"),
+    pytest.param("<!-- -->q{color:red}", "q{color:red}", id="cdo-and-cdc-before-rule"),
+    pytest.param("<!-->", ">", id="cdo-then-greater-than"),
+    pytest.param("<!----z", "<!----z", id="cdo-before-dashed-name"),
+    pytest.param("<!----;", "<!----", id="cdo-before-dashes"),
+    pytest.param("<!z;-->", "<!z -->", id="bang-before-name"),
+    pytest.param("<a;-->", "<a -->", id="less-than-before-name"),
+    pytest.param("--;-->", "-- -->", id="dashes-before-delimiter"),
+    pytest.param(
+        "@media s{t{color:red}}-->@media s{u{color:blue}}",
+        "@media s{t{color:red}u{color:blue}}",
+        id="cdc-between-same-media",
+    ),
+    pytest.param(
+        "@media s{t{color:red}}-->@media r{u{color:blue}}",
+        "@media s{t{color:red}}@media r{u{color:blue}}",
+        id="cdc-between-other-media",
+    ),
+    pytest.param("@media s{-->t{color:red}}", "@media s{-->t{color:red}}", id="nested-cdc"),
+    pytest.param(
+        "@media s{t{color:red}-->}@media s{u{color:blue}}",
+        "@media s{t{color:red}-->}@media s{u{color:blue}}",
+        id="nested-cdc-before-same-media",
+    ),
+    pytest.param(
+        "@media s{@media r{t{color:red}}-->@media r{u{color:blue}}}",
+        "@media s{@media r{t{color:red}}-->@media r{u{color:blue}}}",
+        id="nested-cdc-between-same-media",
+    ),
+    pytest.param("<!-\\--->@import 'm';", "<!-\\--->@import 'm'", id="name-spelling-cdo-and-cdc"),
+    pytest.param("<!--\\--z;@import 'm'", "<!--\\--z@import'm'", id="escaped-dashes-after-cdo"),
+    pytest.param("<!\\--z", "<!\\--z", id="escaped-dash-after-bang"),
+    pytest.param("<!--\\31 z", "<!--\\31 z", id="hex-escape-after-cdo"),
+    pytest.param("a<!--\\--z", "a<!--\\--z", id="escaped-dashes-after-name"),
+    pytest.param("<!\\-", "<!\\-", id="single-escaped-dash"),
+    pytest.param("<!\\2d z", "<!-z", id="escaped-dash-before-name"),
+    pytest.param("!\\--z", "!--z", id="escaped-dashes-after-bang"),
+    pytest.param("< !\\--z", "< !--z", id="space-inside-cdo"),
+    pytest.param("a!\\--z", "a!--z", id="escaped-dashes-after-name-and-bang"),
+    pytest.param(">!\\--z", ">!--z", id="escaped-dashes-after-greater-than-and-bang"),
+    pytest.param("<>\\--z", "<>--z", id="escaped-dashes-after-less-than"),
+    pytest.param('<"s"\\--z', '<"s"--z', id="escaped-dashes-after-string"),
+    pytest.param("--", "--", id="dashes-alone"),
+    pytest.param("-- z", "-- z", id="dashes-before-name"),
+    pytest.param("<", "<", id="less-than-alone"),
+    pytest.param("<!", "<!", id="less-than-and-bang-alone"),
+    pytest.param("<!---- z", "<!---- z", id="cdo-and-dashes-before-name"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _TOP_LEVEL_STATEMENT)
+def test_minify_css_top_level_statement(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _TOP_LEVEL_STATEMENT)
+def test_minify_css_top_level_statement_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+# A dropped space or comment must not spell a `<!--` or `-->` in a selector: a browser reads either as one token, so the
+# selector changes, and at the start of a sheet the top level skips it and the rest matches on its own.
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("-- >q{color:red}", "-- >q{color:red}", id="space-before-greater-than"),
+        pytest.param("q -- >r{color:red}", "q -- >r{color:red}", id="descendant-dashes"),
+        pytest.param("q--/**/>r{color:red}", "q-- >/**/r{color:red}", id="comment-before-greater-than"),
+        pytest.param("q/**/>r{color:red}", "q>/**/r{color:red}", id="comment-after-name"),
+        pytest.param("<!/**/--q{color:red}", "<!/**/--q{color:red}", id="comment-before-dashes"),
+        pytest.param("</**/!--q{color:red}", "</**/!--q{color:red}", id="comment-before-bang"),
+        pytest.param("</**/!-q{color:red}", "<!-q{color:red}", id="comment-before-bang-one-minus"),
+        pytest.param("</**/!q{color:red}", "<!q{color:red}", id="comment-before-bang-name"),
+        pytest.param("[a=--/**/>]{color:red}", "[a=--/**/>]{color:red}", id="inside-attribute"),
+        pytest.param("-/**/>q{color:red}", "->/**/q{color:red}", id="one-minus-first"),
+        pytest.param("q-/**/>r{color:red}", "q->/**/r{color:red}", id="name-ending-in-minus"),
+        pytest.param(":not(a)/**/--r{color:red}", ":not(a)--r{color:red}", id="dashes-after-paren"),
+        pytest.param("a!/**/--r{color:red}", "a!--r{color:red}", id="dashes-after-bang-without-less-than"),
+        pytest.param("a/**/!--z{color:red}", "a!--z{color:red}", id="bang-after-name"),
+        pytest.param("</**/!{color:red}", "<!{color:red}", id="bang-ends-selector"),
+    ],
+)
+def test_minify_css_selector_keeps_comment_delimiters_apart(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
 
 
 # A rewrite that a calc() or color fold enables applies in the same call: the color fold reads the folded arguments,
@@ -4454,10 +4666,10 @@ def test_minify_css_calc_range(source: str, expected: str) -> None:
         pytest.param("p { color: red } q~u { color: red }", "p,q~u{color:red}", id="later-sibling-combinator"),
         pytest.param("p { color: red } >q { color: red }", "p{color:red}>q{color:red}", id="leading-combinator"),
         pytest.param("p { color: red } q>>r { color: red }", "p{color:red}q>>r{color:red}", id="double-combinator"),
-        pytest.param("p { color: red } -- >a { color: red }", "p{color:red}-->a{color:red}", id="cdc-arm"),
-        pytest.param("-- >a { color: red } p { color: red }", "-->a{color:red}p{color:red}", id="cdc-first"),
-        pytest.param("p { color: red } x -- >a { color: red }", "p{color:red}x -->a{color:red}", id="cdc-after-space"),
-        pytest.param("p { color: red } q,-- >a { color: red }", "p{color:red}q,-->a{color:red}", id="cdc-after-comma"),
+        pytest.param("p { color: red } -- >a { color: red }", "p{color:red}-- >a{color:red}", id="cdc-arm"),
+        pytest.param("-- >a { color: red } p { color: red }", "-- >a{color:red}p{color:red}", id="cdc-first"),
+        pytest.param("p { color: red } x -- >a { color: red }", "p{color:red}x -- >a{color:red}", id="cdc-after-space"),
+        pytest.param("p { color: red } q,-- >a { color: red }", "p{color:red}q,-- >a{color:red}", id="cdc-after-comma"),
         pytest.param("p { color: red } a-->b { color: red }", "p,a-->b{color:red}", id="ident-ending-hyphens"),
         pytest.param("p { color: red } ab>a { color: red }", "p,ab>a{color:red}", id="two-letter-type-combinator"),
         pytest.param("p { color: red } -a>a { color: red }", "p,-a>a{color:red}", id="hyphenated-type-combinator"),
@@ -4493,9 +4705,12 @@ def test_minify_css_calc_range(source: str, expected: str) -> None:
         ),
         pytest.param(
             "p { color: red } q { color: red } -- >a { color: red }",
-            "p,q{color:red}-->a{color:red}",
+            "p,q{color:red}-- >a{color:red}",
             id="cdc-lookahead",
         ),
+        pytest.param("p { color: red } -- a { color: red }", "p,-- a{color:red}", id="dashes-before-descendant"),
+        pytest.param("p { color: red } --.a { color: red }", "p,--.a{color:red}", id="dashes-before-class"),
+        pytest.param("p { color: red } q,-->a { color: red }", "p{color:red}q,-->a{color:red}", id="cdc-in-source"),
         pytest.param(
             "p { color: red } q { margin: 0 } ] { color: red }", "p{color:red}q{margin:0}]{color:red}", id="nonadjacent"
         ),

@@ -740,7 +740,7 @@ CSS_NOINLINE static void css_close_prelude_blocks(token_vec *vec, Py_ssize_t sta
 /* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of the header (name,
    prelude and '{') of an @media block that may merge with a same-query sibling, or 0 for another at-rule with a
    block. */
-static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_declarations) {
+static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_declarations, int top) {
     Py_ssize_t media_head = 0;
     if (cur->index == cur->media_at) {
         /* out is the caller's fresh piece buffer, so it can take over the prelude css_media_continues rendered */
@@ -748,7 +748,7 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_
         cur->media_next = (css_buf){NULL, 0, 0, pool->oom};
         cur->index = cur->media_body;
         media_head = out->len;
-        css_parse_rules(pool, cur, 0, 0, 1, out);
+        css_parse_rules(pool, cur, 0, 0, 1 + top, out);
         cbuf_putc(out, '}');
         return media_head;
     }
@@ -758,7 +758,10 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_
     cur->index++;
     int allow_url_string = css_run_ieq(name, name_len, "@import") || css_run_ieq(name, name_len, "@namespace");
     Py_ssize_t prelude_start = cur->index;
-    Py_ssize_t prelude_end = css_read_until(cur, ";{}");
+    /* a top-level `}` closes no block, so the prelude reads on through it to a `;` or a block (CSS Syntax 3 §5.5.2):
+       ended at the `}`, an at-rule a browser drops would come out as a statement of its own. Behind stray text the
+       statement is part of the stray rule's prelude, which the next pass reads to a `;` or `}` like other stray text */
+    Py_ssize_t prelude_end = css_read_until(cur, top && !cur->no_top_block ? ";{" : ";{}");
     css_token *token = cursor_peek(cur);
     /* css_read_until stops only on a stop DELIM (or EOF -> NULL peek), so a non-NULL peek is always that DELIM */
     if (token && token->delim == '{') {
@@ -779,7 +782,7 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_
                (#1065), merging them in this pass instead of leaving adjacent blocks for the next call. */
             media_head =
                 css_run_ieq(name, name_len, "@media") && cur->vec->depth <= CSS_MAX_MEDIA_MERGE_DEPTH ? out->len : 0;
-            css_parse_rules(pool, cur, 0, is_keyframes, media_head > 0, out);
+            css_parse_rules(pool, cur, 0, is_keyframes, media_head > 0 ? 1 + top : 0, out);
         } else {
             decl_vec decls = {NULL, 0, 0, pool->oom, 0};
             int font_feature_block = css_is_font_feature_block_at(name, name_len);
@@ -814,6 +817,16 @@ CSS_NOINLINE static void css_skip_block(cursor *cur) {
     if (cur->index < cur->vec->len) {
         cur->index++;
     }
+}
+
+/* Skip the rest of a style="" item, up to the `;` that ends it or the end of the value. Out of line for the reason
+   css_skip_block is: only an item a {} block or a stray `}` invalidates reaches it. */
+CSS_NOINLINE static void css_skip_item(cursor *cur) {
+    css_read_until(cur, ";");
+}
+
+static int css_style_attr_level(const cursor *cur) {
+    return cur->style_attr && cur->vec->depth == 1;
 }
 
 /* Skip a block whose '{' the cursor has passed when a bad token invalidates it: one in its prelude [start, end), which
@@ -863,6 +876,11 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         return;
     }
     comp_vec scratch = {NULL, 0, 0, pool->oom}; /* reused across this list's values, freed once below */
+    /* A style="" value sits in no block and holds no nested rule, so at its own level a browser reads a declaration
+       through its `;` whatever it holds, as the sanitizer and the CSSOM do: a `}` closes nothing there, and the text
+       after a {} block is the rest of the declaration that block makes invalid. Ending the item at either would set
+       that rest free as a declaration of its own, so it is dropped instead, along with an item a stray `}` cuts
+       short. */
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
@@ -870,12 +888,16 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == '}') {
+            if (css_style_attr_level(cur)) {
+                css_skip_item(cur);
+                continue;
+            }
             cur->index++;
             break;
         }
         if (token->kind == CSS_AT) {
             css_buf nested = {NULL, 0, 0, pool->oom};
-            Py_ssize_t kind = css_parse_at(pool, cur, &nested, 1);
+            Py_ssize_t kind = css_parse_at(pool, cur, &nested, 1, 0);
             css_decl decl = {0};
             decl.prop_off = pool_run(pool, nested.data, nested.len);
             decl.prop_len = nested.len;
@@ -897,7 +919,11 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         }
         if (terminator && terminator->delim == '{') {
             cur->index++;
+            int attr = css_style_attr_level(cur);
             if (cur->vec->bad && css_skip_bad_nested_block(cur, segment_start, segment_end)) {
+                if (attr) {
+                    css_skip_item(cur);
+                }
                 continue;
             }
             decl_vec inner = {NULL, 0, 0, pool->oom, 0};
@@ -918,9 +944,16 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
             cbuf_free(&selector);
             cbuf_free(&body);
             decl_vec_push(decls, decl);
+            if (attr) {
+                css_skip_item(cur);
+            }
             continue;
         }
         int closed_brace = terminator && terminator->delim == '}';
+        if (closed_brace && css_style_attr_level(cur)) {
+            css_skip_item(cur);
+            continue;
+        }
         /* the '{' terminator already returned above, so a non-NULL terminator here is always ';' or '}' */
         if (terminator) {
             cur->index++;
@@ -940,10 +973,13 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
 /* A top-level node collected before serialization, so adjacent qualified rules can be merged. is_rule holds a
    selector + rendered body (no braces); otherwise it is opaque text (an at-rule, a bang comment, or stray recovery
    text), which breaks rule adjacency. A statement separator prevents the next node from joining its prelude, and
-   stray marks recovered stray text. */
+   stray marks recovered stray text. css_parse_qualified leaves an empty rule unwritten, with the token range of its
+   prelude in sel_off and sel_len. */
 typedef struct {
     int is_rule;
-    int stray; /* fills the padding after is_rule, keeping the item at 64 bytes */
+    /* 1 for stray recovery text; 2 when it is top-level text that opens no rule and a `;` or `}` was consumed after
+       it. Fills the padding after is_rule, keeping the item at 64 bytes. */
+    int stray;
     Py_ssize_t sel_off;
     Py_ssize_t sel_len;
     Py_ssize_t body_off;
@@ -1011,6 +1047,31 @@ static Py_ssize_t css_find_top_block(token_vec *vec, Py_ssize_t from) {
     return -1;
 }
 
+/* Length of the run that starts text and opens no rule at the top level: whitespace, comments, `<!--` and `-->`, which
+   consume a list of rules skips there (CSS Syntax 3 §5.4.1). */
+CSS_NOINLINE static Py_ssize_t css_skip_top_blank(const css_char *text, Py_ssize_t len) {
+    Py_ssize_t index = 0;
+    while (index < len) {
+        if (css_is_ws(text[index])) {
+            index++;
+        } else if (len - index >= 4 && memcmp(text + index, "<!--", 4) == 0) {
+            index += 4;
+        } else if (len - index >= 3 && memcmp(text + index, "-->", 3) == 0) {
+            index += 3;
+        } else if (text[index] == '/' && index + 1 < len && text[index + 1] == '*') {
+            /* a comment runs to at least four code points and is closed: th_minify_css_bytes closes one the input
+               leaves open */
+            index += 4;
+            while (text[index - 2] != '*' || text[index - 1] != '/') {
+                index++;
+            }
+        } else {
+            break;
+        }
+    }
+    return index;
+}
+
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
 static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyframe, rule_item *item) {
     item->is_rule = 0;
@@ -1051,6 +1112,11 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
                 item->body_off = pool_run(pool, body.data, body.len);
                 item->body_len = body.len;
             }
+        } else {
+            /* an empty rule writes nothing, yet a browser still counts it among the rules an @import has to precede,
+               so css_parse_rules gets the prelude's token range to keep the rule where that matters */
+            item->sel_off = prelude_start;
+            item->sel_len = prelude_end - prelude_start;
         }
         css_free(decls.items);
         cbuf_free(&body);
@@ -1097,7 +1163,9 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
     }
     item->text_off = pool_run(pool, text.data, text.len);
     item->text_len = text.len;
-    item->stray = 1;
+    /* With no text that opens a rule before it, the top-level `;` or `}` consumed above is what opened the invalid
+       qualified rule that takes in the rest of the sheet, so css_parse_rules has to know it was there. */
+    item->stray = top && token && css_skip_top_blank(text.data, text.len) == text.len ? 2 : 1;
     cbuf_free(&text);
 }
 
@@ -1145,7 +1213,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     /* the merged body parses below the rule list that holds it, so it inherits that list's depth */
     token_vec tokens = {.depth = depth, .oom = pool->oom};
     css_tokenize(combined.data, combined.len, &tokens);
-    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
+    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
     Py_ssize_t scratch = pool->len;
     css_parse_declarations(pool, &inner, &decls, 0);
@@ -1357,9 +1425,12 @@ static int css_selector_merge_safe(const css_buf *pool, const rule_item *rule) {
             while (end < rule->sel_len && css_is_ident(selector[end])) {
                 end++;
             }
-            if (end < rule->sel_len && selector[end] == '>' && end - index == 2 && selector[index] == '-' &&
-                selector[index + 1] == '-') {
-                return 0; /* a bare -- followed by > retokenizes as CDC */
+            if (end < rule->sel_len && end - index == 2 && selector[index] == '-' && selector[index + 1] == '-' &&
+                (selector[end] == '>' || (selector[end] == ' ' && selector[end + 1] == '>'))) {
+                /* a bare -- followed by > retokenizes as CDC; with the space css_minify_selector keeps between the two
+                   it is a name, but not one every browser takes as a type selector. The selector is trimmed, so a
+                   space in it has a code point after it */
+                return 0;
             }
             if (!type_allowed || !css_is_ident_string(selector + index, end - index)) {
                 return 0;
@@ -1726,17 +1797,49 @@ static int css_is_empty_conditional_atrule(const css_char *text, Py_ssize_t len)
            css_run_ieq(text + 1, keyword - 1, "container");
 }
 
+static int css_delim_at(const token_vec *vec, Py_ssize_t index, css_char delim) {
+    return index < vec->len && vec->items[index].kind == CSS_DELIM && vec->items[index].delim == delim;
+}
+
+/* Whether token is a name of count unescaped dashes, count at most 4. */
+static int css_is_dashes(const css_token *token, Py_ssize_t count) {
+    return token->kind == CSS_IDENT && token->text_len == count && memcmp(token->text, "----", (size_t)count) == 0;
+}
+
+/* The number of tokens at index that spell a `-->`, a `<!--`, or a `<!---->` whose dashes the tokenizer reads as one
+   name; 0 when they spell none. Whitespace and comments are tokens too, so consecutive tokens touch. The top level
+   skips these (CSS Syntax 3 §5.4.1), so an at-rule after them opens a statement, not stray text. */
+CSS_NOINLINE static Py_ssize_t css_comment_delim_tokens(const token_vec *vec, Py_ssize_t index) {
+    if (css_is_dashes(&vec->items[index], 2)) {
+        return css_delim_at(vec, index + 1, '>') ? 2 : 0;
+    }
+    if (!css_delim_at(vec, index, '<') || !css_delim_at(vec, index + 1, '!') || index + 2 == vec->len) {
+        return 0;
+    }
+    const css_token *dashes = &vec->items[index + 2];
+    if (css_is_dashes(dashes, 2)) {
+        return 3;
+    }
+    return css_is_dashes(dashes, 4) && css_delim_at(vec, index + 3, '>') ? 4 : 0;
+}
+
 /* Just past an @media block's '}', test whether the next node is another @media with the same query. out holds the
    "@media <query>{" text of the block we are inside and nothing else. Whitespace and ordinary comments are skipped as
    they are between any two rules; a bang comment, a qualified rule, or a different at-rule ends the run, so the cursor
    is restored and 0 returned. On a match the cursor is left just past the following block's '{', so the caller keeps
-   collecting its rules into the same list -- merging them in this pass (#1065). */
-static int css_media_continues(cursor *cur, css_buf *pool, css_buf *out) {
+   collecting its rules into the same list -- merging them in this pass (#1065). A block at the top level skips a
+   `<!--` or `-->` there too, as css_parse_rules does. */
+static int css_media_continues(cursor *cur, css_buf *pool, css_buf *out, int top) {
     Py_ssize_t restore = cur->index;
     while (cur->index < cur->vec->len) {
         css_token *token = &cur->vec->items[cur->index];
         if (token->kind == CSS_WS) {
             cur->index++;
+            continue;
+        }
+        Py_ssize_t skipped = top ? css_comment_delim_tokens(cur->vec, cur->index) : 0;
+        if (skipped > 0) {
+            cur->index += skipped;
             continue;
         }
         if (token->kind == CSS_COMMENT) {
@@ -1829,9 +1932,9 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     /* the block parses where the first one did, so it inherits the rule list's depth */
     token_vec tokens = {.depth = cur->vec->depth, .oom = pool->oom};
     css_tokenize(run->text.data, run->text.len, &tokens);
-    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
+    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0, 0};
     css_buf merged = {NULL, 0, 0, pool->oom};
-    css_parse_at(pool, &inner, &merged, 0);
+    css_parse_at(pool, &inner, &merged, 0, 0);
     cbuf_free(&inner.media_next);
     rule_item *block = &items->items[run->item];
     Py_ssize_t text_off = pool_run(pool, merged.data, merged.len);
@@ -1880,6 +1983,21 @@ static int css_join_respells(const css_char *out, Py_ssize_t len, const css_char
     return out[len - 1] == '-' && (css_escapes(out, len - 1) || (out[len - 2] == '-' && css_escapes(out, len - 2)));
 }
 
+/* Whether text written straight after out spells a `<!--` or `-->` across the join. Apart, the two sides open a
+   qualified rule; joined, they are a token the top level skips (CSS Syntax 3 §5.4.1), so what follows would open a
+   statement of its own. css_would_merge judges a join by one code point and sees only the `-` `-` splits. */
+static int css_joins_comment_delim(const css_char *out, Py_ssize_t out_len, const css_char *text, Py_ssize_t len) {
+    css_char last = out[out_len - 1];
+    css_char before = out_len > 1 ? out[out_len - 2] : 0;
+    if (text[0] == '>') {
+        return last == '-' && before == '-';
+    }
+    if (len > 1 && text[0] == '-' && text[1] == '-') {
+        return last == '!' && before == '<';
+    }
+    return len > 2 && text[0] == '!' && text[1] == '-' && text[2] == '-' && last == '<';
+}
+
 /* Write the separator stray text needs after the node or stray text before it. Kept out of line: only stray text
    reaches it. */
 CSS_NOINLINE static void css_join_stray(css_buf *out, int prev_stray, const css_char *text, Py_ssize_t text_len) {
@@ -1887,8 +2005,9 @@ CSS_NOINLINE static void css_join_stray(css_buf *out, int prev_stray, const css_
         /* the `;` or `}` that kept the spelling pass from closing this hex escape is gone, so the next pass does */
         cbuf_putc(out, ' ');
     }
-    if ((prev_stray || css_join_respells(out->data, out->len, text, text_len)) &&
-        css_would_merge_escaped(out->data, out->len, css_ends_in_name(out->data, out->len), text, text_len)) {
+    if ((prev_stray && css_joins_comment_delim(out->data, out->len, text, text_len)) ||
+        ((prev_stray || css_join_respells(out->data, out->len, text, text_len)) &&
+         css_would_merge_escaped(out->data, out->len, css_ends_in_name(out->data, out->len), text, text_len))) {
         /* nothing separates a node from the stray text before it, and the next pass reads the two as one stray text:
            a token the two would form there gets spelled as a whole. After an at-statement the two join the same way,
            which keeps the joined name's spelling unless css_join_respells changes it */
@@ -1896,8 +2015,69 @@ CSS_NOINLINE static void css_join_stray(css_buf *out, int prev_stray, const css_
     }
 }
 
+/* Append to *held, allocating it on first use, a top-level rule that minifies away: the empty rule with the prelude
+   [start, end) as `{}`, or the empty conditional group rule in piece when it is not NULL. Kept out of line with the
+   buffer on the heap: only a sheet holding such a rule reaches it, and css_parse_rules recurses per nesting level. */
+CSS_NOINLINE static void css_hold_rule(css_buf **held, css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                       const css_buf *piece) {
+    if (*held == NULL) {
+        *held = css_malloc(sizeof(css_buf));
+        if (*held == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            *pool->oom = 1;  /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        **held = (css_buf){NULL, 0, 0, pool->oom};
+    }
+    if (piece != NULL) {
+        /* an @media rule is valid whatever its query, and as written it would join a same-query block next to it on
+           the next pass; any valid rule holds its place. The piece is an empty @media, @supports or @container with
+           its name lowercased, so its second code point tells them apart */
+        if (piece->data[1] == 'm') {
+            cbuf_puts(*held, "*{}");
+        } else {
+            cbuf_put_run(*held, piece->data, piece->len);
+        }
+        return;
+    }
+    /* the prelude goes out as written: whether a browser counts the rule depends on its selector being valid, which
+       the selector minifier keeps only for a valid one */
+    while (vec->items[end - 1].kind == CSS_WS) {
+        end--;
+    }
+    for (Py_ssize_t index = start; index < end; index++) {
+        const css_token *token = &vec->items[index];
+        cbuf_put_run(*held, token->text, token->text_len);
+        if (token->kind == CSS_NUM) {
+            cbuf_put_run(*held, token->text + token->text_len, token->unit_len);
+        }
+    }
+    cbuf_putc(*held, '{');
+    cbuf_putc(*held, '}');
+}
+
+/* Whether the at-keyword name is one a browser honors only ahead of every rule other than @charset, @import, @layer
+   and @namespace statements (CSS Cascade 5 §6.1, CSS Namespaces 3 §2). @charset counts once it is the first rule. A
+   name left escaped counts too: only @charset keeps its escapes through css_spell_names. */
+static int css_orders_rules(const css_char *name, Py_ssize_t len) {
+    return css_run_ieq(name, len, "@import") || css_run_ieq(name, len, "@namespace") ||
+           css_run_ieq(name, len, "@charset") || memchr(name, '\\', (size_t)len) != NULL;
+}
+
+/* Push the rules held so far as one item when the at-statement name is one css_orders_rules names. Kept out of line:
+   only a sheet holding such a rule reaches it. */
+CSS_NOINLINE static void css_put_held(css_buf *pool, rule_vec *items, css_buf *held, const css_token *name) {
+    if (css_orders_rules(name->text, name->text_len)) {
+        rule_item kept = {0};
+        kept.text_off = pool_run(pool, held->data, held->len);
+        kept.text_len = held->len;
+        rule_vec_push(items, kept);
+        held->len = 0;
+    }
+}
+
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
-   between rules are stray text; nested (inside an at-block) a '}' ends the list. */
+   between rules are stray text; nested (inside an at-block) a '}' ends the list. media is 1 for the list of an @media
+   block that may merge with a same-query sibling, 2 when that block sits at the top level. */
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, int media, css_buf *out) {
     if (!css_nesting_enter(cur->vec)) {
         /* over-nested: drop the remaining rules rather than overflow the C stack; only a nested call bails, so
@@ -1913,6 +2093,10 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        item's query joins the run, re-minified at the next at-rule or the end of the list. */
     Py_ssize_t joinable_at = -1;
     media_run *run = NULL;
+    /* Top-level rules that minify away, written back in front of the next statement css_orders_rules names: dropped,
+       they would let a browser honor a statement it ignores in the input. Each keeps its prelude, since a browser
+       counts only a valid rule. */
+    css_buf *held = NULL;
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
@@ -1929,6 +2113,14 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             cur->index++;
             continue;
         }
+        if (top && !cur->no_top_block &&
+            (token->kind == CSS_DELIM ? token->delim == '<' : token->kind == CSS_IDENT && token->text[0] == '-')) {
+            Py_ssize_t skipped = css_comment_delim_tokens(cur->vec, cur->index);
+            if (skipped > 0) {
+                cur->index += skipped;
+                continue;
+            }
+        }
         if (token->kind == CSS_DELIM && token->delim == '}' && !top) {
             cur->index++;
             /* a same-query @media right after this block's '}' is pulled into this rule list so its rules merge
@@ -1936,7 +2128,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
                the first joined rule, so a list that ends in some keeps the next block apart. */
             const rule_item *last = items.len > 0 ? &items.items[items.len - 1] : NULL;
             int ends_in_stray = last != NULL && last->stray && !last->at_statement;
-            if (media && !ends_in_stray && css_media_continues(cur, pool, out)) {
+            if (media && !ends_in_stray && css_media_continues(cur, pool, out, media == 2)) {
                 joinable_at = items.len;
                 continue;
             }
@@ -1944,14 +2136,22 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         }
         if (token->kind == CSS_AT) {
             css_buf piece = {NULL, 0, 0, pool->oom};
-            Py_ssize_t kind = css_parse_at(pool, cur, &piece, 0);
+            const css_token *name = token;
+            Py_ssize_t kind = css_parse_at(pool, cur, &piece, 0, top);
             /* css_parse_at always emits at least the lowercased at-rule name, so piece is never empty */
             if (css_is_empty_conditional_atrule(piece.data, piece.len)) {
                 joinable_at = items.len;
+                if (top) {
+                    css_hold_rule(&held, pool, cur->vec, 0, 0, &piece);
+                }
             } else if (kind <= 0 || joinable_at != items.len || !css_join_media(pool, &items, &piece, kind, &run)) {
                 if (run != NULL) {
                     css_rejoin_media(pool, cur, &items, run);
                     run = NULL;
+                }
+                /* after stray text the statement is a prelude component value either way */
+                if (held != NULL && held->len > 0 && kind < 0 && !cur->no_top_block) {
+                    css_put_held(pool, &items, held, name);
                 }
                 rule_item item = {0};
                 item.text_off = pool_run(pool, piece.data, piece.len);
@@ -1963,15 +2163,22 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         } else {
             rule_item item = {0};
             css_parse_qualified(pool, cur, top, keyframe, &item);
-            if (item.is_rule || item.text_len > 0) {
+            if (item.is_rule || item.text_len > 0 || item.stray == 2) {
                 rule_vec_push(&items, item);
             } else {
                 joinable_at = items.len;
+                if (top && item.sel_len > 0) {
+                    css_hold_rule(&held, pool, cur->vec, item.sel_off, item.sel_off + item.sel_len, NULL);
+                }
             }
         }
     }
     if (run != NULL) {
         css_rejoin_media(pool, cur, &items, run);
+    }
+    if (held != NULL) {
+        cbuf_free(held);
+        css_free(held);
     }
     /* an item collected after a failed growth may point at pool text that was never written */
     if (*pool->oom) {                /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1986,6 +2193,12 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        and drops it, so writing one would change the output of the next pass. */
     int after_stray = 0;
     int prev_stray = 0;
+    /* A top-level `;` or `}` that nothing rule-opening preceded was consumed unwritten, and nothing written since opens
+       the qualified rule it opened. That rule holds the rest of the sheet, so an at-keyword written next must not start
+       a statement of its own (`;@import "a"` imports nothing): the delimiter goes back in front of it. The reparse
+       reads the at-statements behind a written delimiter as at-statements again, so they keep their separators. */
+    int delim_pending = 0;
+    int delim_written = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
         if (item->dropped) {
@@ -2003,13 +2216,31 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             prev_stray = 0;
         } else {
             const css_char *text = pool->data + item->text_off;
-            if (prev_stray || after_stray) {
+            Py_ssize_t lead = delim_pending ? css_skip_top_blank(text, item->text_len) : item->text_len;
+            /* a `<!--` or `-->` written first is one the next pass skips before stray text, so it needs the delimiter
+               as much as an at-keyword does */
+            if (delim_pending && item->text_len > 0 && ((item->stray && lead > 0) || text[0] == '@')) {
+                cbuf_putc(out, ';');
+                delim_written = 1;
+                prev_stray = 0;
+            }
+            if (lead < item->text_len) {
+                delim_pending = 0;
+            }
+            if (item->text_len > 0 && (prev_stray || after_stray)) {
                 css_join_stray(out, prev_stray, text, item->text_len);
             }
             cbuf_put_run(out, text, item->text_len);
             prev_at_statement = item->at_statement;
-            prev_stray = top && item->stray;
-            after_stray = after_stray || prev_stray;
+            if (item->stray == 2) {
+                /* the text opens no rule, so only what was written earlier keeps what follows in one; behind a written
+                   delimiter the text still needs its own, or the reparse reads an at-statement after it as its end */
+                delim_pending = !after_stray && (!delim_written || item->text_len > 0);
+                prev_stray = prev_stray || item->text_len > 0;
+            } else {
+                prev_stray = top && item->stray;
+                after_stray = after_stray || prev_stray;
+            }
         }
     }
     if (prev_at_statement && top && !after_stray) {

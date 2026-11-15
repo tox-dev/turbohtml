@@ -1147,6 +1147,81 @@ def test_nullable_pair_repeated_three_times_rejects_odd_count() -> None:
     assert not check(schema, "<r><a/><a/><a/></r>").valid
 
 
+_WIDE_CHILDREN: Final[str] = "".join(f'<xs:element name="e{index}"/>' for index in range(200))
+_WIDE_ATTRIBUTES: Final[str] = "".join(f'<xs:attribute name="a{index}"/>' for index in range(200))
+_EMPTY_ATTRIBUTES: Final[str] = " ".join(f'a{index}=""' for index in range(32))
+
+
+@pytest.mark.parametrize(
+    ("content", "instance"),
+    [
+        pytest.param(
+            f'<xs:choice minOccurs="0" maxOccurs="0">{_WIDE_CHILDREN}</xs:choice>',
+            "<v/>",
+            id="child-declarations-unused",
+        ),
+        pytest.param(
+            f'<xs:sequence><xs:element name="first"/><xs:choice minOccurs="0" maxOccurs="0">{_WIDE_CHILDREN}'
+            "</xs:choice></xs:sequence>",
+            "<v><first/></v>",
+            id="child-declarations",
+        ),
+        pytest.param(_WIDE_ATTRIBUTES, "<v/>", id="attribute-declarations"),
+        pytest.param(_WIDE_ATTRIBUTES, f"<v {_EMPTY_ATTRIBUTES}/>", id="attribute-name-index"),
+    ],
+)
+def test_wide_type_costs_no_memory_per_instance(content: str, instance: str) -> None:
+    # The arena keeps every allocation until validate() returns, so a per-instance copy of the type's declarations
+    # grows with the instance count. maxOccurs="0" keeps the content-model matcher, which allocates for itself, out of
+    # the wide choice. PyPy has no tracemalloc; the lists are C and the CPython run covers them.
+    tracing: Final = pytest.importorskip("tracemalloc")
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS}><xs:element name="root"><xs:complexType><xs:sequence>'
+        '<xs:element name="section" maxOccurs="unbounded"><xs:complexType><xs:sequence>'
+        f'<xs:element name="v" maxOccurs="unbounded"><xs:complexType>{content}</xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element>"
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    document: Final = parse_xml(f"<root>{f'<section>{instance * 50}</section>' * 30}</root>")
+    tracing.start()
+    try:
+        assert schema.validate(document).valid
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < 4_000_000, f"validating 1500 instances peaked at {peak} bytes"
+
+
+def test_child_declarations_outlive_a_sibling_subtree() -> None:
+    # validating <a> refills the one lookup list with the declarations of its own children before <b> is reached
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="a"><xs:complexType><xs:sequence><xs:element name="x"/><xs:element name="y"/>'
+        '</xs:sequence></xs:complexType></xs:element><xs:element name="b" type="xs:int"/>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<r><a><x/><y/></a><b>1</b></r>").valid
+    assert [error.message for error in check(schema, "<r><a><x/><y/></a><b>x</b></r>").errors] == [
+        "value 'x' is not a valid int"
+    ]
+
+
+def test_attribute_name_index_is_rebuilt_for_each_element() -> None:
+    # <b> reuses the buffers <a> indexed its 200 declarations in, and must not find a0 there
+    narrow: Final = "".join(f'<xs:attribute name="b{index}"/>' for index in range(32))
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:element name="a"><xs:complexType>{_WIDE_ATTRIBUTES}</xs:complexType></xs:element>'
+        f'<xs:element name="b"><xs:complexType>{narrow}</xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    attributes_a: Final = " ".join(f'a{index}=""' for index in range(64))
+    attributes_b: Final = " ".join(f'b{index}=""' for index in range(32))
+    assert check(schema, f"<r><a {attributes_a}/><b {attributes_b}/></r>").valid
+    undeclared: Final = check(schema, f'<r><a {attributes_a}/><b {attributes_b} a0=""/></r>')
+    assert [error.message for error in undeclared.errors] == ["attribute 'a0' is not declared"]
+
+
 _OPTIONAL_A: Final[str] = '<xs:element name="a" minOccurs="0"/>'
 _OPTIONAL_PAIR: Final[str] = f'<xs:sequence minOccurs="0">{_A_ELEMENT * 2}</xs:sequence>'
 _EMPTIABLE_BODIES: Final[list[pytest.ParameterSet]] = [

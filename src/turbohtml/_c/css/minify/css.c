@@ -117,7 +117,7 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
     }
     css_buf pool = {NULL, 0, 0, &oom};
     css_buf out = {NULL, 0, 0, &oom};
-    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0};
+    cursor cur = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, &oom}, 0, inline_mode};
     /* readers index the pool from its start, so the parsers run only on complete tokens and an allocated pool */
     if (!oom && cbuf_reserve(&pool, CSS_POOL_RESERVE(length)) && /* GCOVR_EXCL_BR_LINE: OOM only */
         cbuf_reserve(&out, length)) {                            /* GCOVR_EXCL_BR_LINE: OOM only */
@@ -307,6 +307,20 @@ static void css_serialize_name(const css_char *name, Py_ssize_t len, int mode, i
     }
 }
 
+/* Whether the name token at index decodes to a leading `--` right after a `<!`. The tokens read as one name here, but a
+   `<!--` the spelling writes or keeps is a CDO to a browser, which starts a new token after it (CSS Syntax 3 §4.3.1):
+   respelled, `<!-\--->` would become `<!---->`, a CDO and a CDC that the top level skips, and `<!--\-->` would lose its
+   name the same way. */
+static int css_follows_cdo_start(const token_vec *tokens, Py_ssize_t index, const css_buf *decoded) {
+    if (tokens->items[index].kind != CSS_IDENT || index < 2 || decoded->len < 2 || decoded->data[0] != '-' ||
+        decoded->data[1] != '-') {
+        return 0;
+    }
+    const css_token *bang = &tokens->items[index - 1];
+    const css_token *less = &tokens->items[index - 2];
+    return bang->kind == CSS_DELIM && bang->delim == '!' && less->kind == CSS_DELIM && less->delim == '<';
+}
+
 /* Preserve hash type and raw @charset spelling: encoding sniffing precedes tokenization
    (CSS Syntax 3 §3.2 and §4.3.1). */
 static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssize_t length, css_buf *spelled) {
@@ -331,7 +345,8 @@ static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssi
         decoded.len = 0;
         css_decode_name(name, name_len, &decoded);
         if ((!starts_ident && token->kind != CSS_HASH) ||
-            (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0)) {
+            (token->kind == CSS_AT && decoded.len == 7 && memcmp(decoded.data, "charset", 7) == 0) ||
+            css_follows_cdo_start(tokens, index, &decoded)) {
             /* a name kept as written still gets the space closing a hex escape at its end, as a spelled one does,
                unless a `;`, `{`, `}` or the end of the input follows it, where no output can put whitespace after it */
             const css_char *after = name + name_len;

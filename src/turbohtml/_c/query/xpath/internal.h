@@ -238,7 +238,6 @@ typedef struct {
 struct xp_live_frame {
     const xp_live_frame *previous;
     uint64_t id;
-    uint64_t version;
     struct th_node *node;
     const xp_nodeset *sets[2];
     const xp_nodeset *append;
@@ -258,12 +257,6 @@ static inline void xp_live_enter(xp_ctx *ctx, xp_live_frame *frame) {
 static inline void xp_live_leave(xp_ctx *ctx, xp_live_frame *frame) {
     if (ctx->live != NULL) {
         ctx->live->current = (xp_live_frame *)frame->previous;
-    }
-}
-
-static inline void xp_live_changed(xp_ctx *ctx) {
-    if (ctx->live != NULL) {
-        ctx->live->current->version++;
     }
 }
 
@@ -356,6 +349,7 @@ static inline int eval_condition(const xp_program *prog, int32_t idx, xp_ctx *ct
 int eval_held(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out, int exists);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
+int xp_step_reads_position(const xp_program *prog, int32_t step_index);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
 
 #endif /* TURBOHTML_XPATH_INTERNAL_H */

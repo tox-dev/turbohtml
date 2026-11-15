@@ -89,6 +89,30 @@ CSS_NOINLINE static int css_combinator_keeps_hex_close(const token_vec *vec, Py_
            out->len > 0 && css_ends_in_hex_close(out->data, out->len);
 }
 
+static int css_is_dashes_name(const css_token *token) {
+    return token->kind == CSS_IDENT && token->text_len >= 2 && token->text[0] == '-' && token->text[1] == '-';
+}
+
+/* Whether the token at index, written straight after out where the input separates the two, spells a `<!--` or `-->`.
+   A browser reads either as one token (CSS Syntax 3 §4.3.1), so the selector would change, and at the start of a rule
+   it would be skipped, leaving the rest to match on its own. Kept out of line: only a dropped space or comment reaches
+   it. */
+CSS_NOINLINE static int css_selector_spells_comment_delim(const token_vec *vec, Py_ssize_t index, Py_ssize_t end,
+                                                          const css_buf *out) {
+    const css_token *token = &vec->items[index];
+    /* a space or comment is pending only after a token this selector wrote, so out is not empty */
+    css_char last = out->data[out->len - 1];
+    css_char before = out->len > 1 ? out->data[out->len - 2] : 0;
+    if (token->kind == CSS_DELIM && token->delim == '>') {
+        return last == '-' && before == '-';
+    }
+    if (css_is_dashes_name(token)) {
+        return last == '!' && before == '<';
+    }
+    return token->kind == CSS_DELIM && token->delim == '!' && last == '<' && index + 1 < end &&
+           css_is_dashes_name(&vec->items[index + 1]);
+}
+
 /* Minify a selector token run [start, end) into out. */
 static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int keyframe, css_buf *out) {
     int pending_ws = 0;
@@ -121,7 +145,10 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
         }
         if (token->kind == CSS_DELIM && attr_depth == 0 &&
             (token->delim == '>' || token->delim == '+' || token->delim == '~' || token->delim == ',')) {
-            if (!vec->escapes || !css_combinator_keeps_hex_close(vec, index, start, end, out)) {
+            if ((pending_ws || comment_gap) && token->delim == '>' &&
+                css_selector_spells_comment_delim(vec, index, end, out)) {
+                cbuf_putc(out, ' ');
+            } else if (!vec->escapes || !css_combinator_keeps_hex_close(vec, index, start, end, out)) {
                 css_rtrim(out);
             }
             cbuf_putc(out, token->delim);
@@ -158,8 +185,9 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             if (!blocked || (vec->escapes && css_escapes(out->data, out->len - 1))) {
                 cbuf_putc(out, ' ');
             }
-        } else if (comment_gap && css_would_merge_after(vec->escapes, out->data, out->len, last_is_ident, token->text,
-                                                        token->text_len)) {
+        } else if (comment_gap && (css_would_merge_after(vec->escapes, out->data, out->len, last_is_ident, token->text,
+                                                         token->text_len) ||
+                                   css_selector_spells_comment_delim(vec, index, end, out))) {
             /* whitespace here would be a descendant combinator, so only an empty comment keeps the tokens apart */
             cbuf_puts(out, "/**/");
         }

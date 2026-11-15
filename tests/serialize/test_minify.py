@@ -839,6 +839,8 @@ def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attrib
         pytest.param(
             '<p style="color: red ; margin : 0 0 0 0">x</p>', "<p style=color:red;margin:0>x", id="style-attr"
         ),
+        # a style attribute holds no nested rule, so the text after a {} block stays in the declaration the block voids
+        pytest.param('<p style="margin:0{}top:0;left:0">x</p>', "<p style=margin:0{};left:0>x", id="style-attr-block"),
         # a minified value carrying a double quote (a string literal) keeps its quotes and escapes
         pytest.param(
             "<p style='content: \"hi there\"'>x</p>",

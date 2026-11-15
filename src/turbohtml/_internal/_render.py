@@ -128,7 +128,8 @@ class Markdown:  # simplint: ignore[too-many-attributes]  # each field is a publ
         :param block_style: ``fenced`` (triple-backtick) or ``indented`` (four-space). With ``indented``, a block that
             four-space lines cannot hold where it stands (opening a list item, right after a list, past the nesting cap,
             or with a blank first line) is fenced.
-        :param language: default fence language when the element declares none.
+        :param language: default fence language when the element declares none; a language containing a backtick is not
+            written.
         :param mark: wrap inline code in ``[code]``/``[/code]`` markers.
         """
 
