@@ -49,6 +49,16 @@ typedef struct {
     Py_ssize_t foreign;     /* how many of the open elements are SVG/MathML */
     int capture_attributes; /* the caller's option; the machine also captures where foreign rules read them */
     int machine_foreign;    /* the machine is set for foreign content: CDATA is text, attributes are captured */
+    /* Which rules the next tag takes: TK_MODE_HTML (no SVG/MathML element is open), TK_MODE_SVG (the innermost
+       element on the spine is an SVG element that is no integration point and the caller captures attributes) or
+       TK_MODE_RULES. Set by tk_set_mode after every tag the full rules follow. */
+    int mode;
+    /* In TK_MODE_SVG the SVG children opened in place sit on the spine slots from run_base up to run_end with only
+       their key written; tk_flush_run fills in the rest before the full rules read the spine. run_limit is the end
+       of the spine's capacity, so the deferred elements never take the spine past what it holds. */
+    tk_open *run_base;
+    tk_open *run_end;
+    tk_open *run_limit;
 } TokenizerObject;
 
 typedef struct {
@@ -105,6 +115,7 @@ enum {
     TK_BREAKOUT = 128,
     TK_SVG_POINT = 256,
     TK_MATHML_TEXT = 512,
+    TK_FONT = 1024,
 };
 
 #define TK_CHILDLESS_BREAKOUT (TK_CHILDLESS | TK_BREAKOUT)
@@ -191,6 +202,7 @@ static const uint16_t TK_START[TH_TAG_XMP + 1] = {
     [TH_TAG_U] = TK_BREAKOUT,
     [TH_TAG_UL] = TK_BREAKOUT,
     [TH_TAG_VAR] = TK_BREAKOUT,
+    [TH_TAG_FONT] = TK_FONT,
     [TH_TAG_FOREIGNOBJECT] = TK_SVG_POINT,
     [TH_TAG_DESC] = TK_SVG_POINT,
     [TH_TAG_MI] = TK_MATHML_TEXT,
@@ -487,6 +499,42 @@ static void tk_sync(TokenizerObject *self, th_tokenizer *sm) {
     }
 }
 
+enum { TK_MODE_HTML, TK_MODE_SVG, TK_MODE_RULES };
+
+/* Pick the rules for the next tag from the spine and start an empty run of in-place SVG children on top of it. */
+static void tk_set_mode(TokenizerObject *self) {
+    if (self->foreign == 0) {
+        self->mode = TK_MODE_HTML;
+        return;
+    }
+    tk_open *top = &self->open[self->depth - 1]; /* a foreign element is open */
+    if (!self->capture_attributes || top->ns != TH_NS_SVG || top->html_point) {
+        self->mode = TK_MODE_RULES;
+        return;
+    }
+    self->mode = TK_MODE_SVG;
+    self->run_base = top + 1;
+    self->run_end = top + 1;
+    self->run_limit = self->open + self->open_cap;
+}
+
+/* Write out the SVG children tk_follow_svg opened in place as the full rules would have: each is a known or packed
+   name with no integration point under the same table flag as the element they opened in, and none of them added a
+   name to the run of names. */
+static void tk_flush_run(TokenizerObject *self) {
+    if (self->run_end == self->run_base) {
+        return;
+    }
+    Py_ssize_t count = self->run_end - self->run_base;
+    uint8_t in_table = self->run_base[-1].in_table;
+    for (tk_open *open = self->run_base; open < self->run_end; open++) {
+        *open = (tk_open){open->key, self->names_len, th_tag_key_atom(open->key), TH_NS_SVG, 0, 0, in_table};
+    }
+    self->depth += count;
+    self->foreign += count;
+    self->run_base = self->run_end;
+}
+
 /* Follow a start tag on the spine with the full rules and put `sm` in the state tree construction would before it reads
    on. Returns -1 when the spine cannot grow. */
 static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_token *record, uint16_t atom,
@@ -505,40 +553,80 @@ static int tk_track_start(TokenizerObject *self, th_tokenizer *sm, const th_toke
     return 0;
 }
 
-/* Follow a tag inside an SVG element that is no integration point in place where that is all it takes, the shape of an
-   inline SVG document: a start tag that does not break out opens an SVG element, and the end tag of the innermost
-   element closes it. The machine stays set for foreign content until the last foreign element closes. A caller who
-   asked for no attributes takes the full rules, which hide those captured for them. Returns 1 when the tag needs
-   tk_follow_rules. */
-static inline int tk_follow_svg(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
-    const tk_open *top = &self->open[self->depth - 1]; /* a foreign element is open */
-    uint64_t key = record->name_key;
-    if (top->ns != TH_NS_SVG || top->html_point || key == 0 || !self->capture_attributes) {
+/* Close the SVG element tk_set_mode found innermost when the end tag names it, as tk_end_tag would, and pick the rules
+   for the next tag. Returns 1 when the end tag needs tk_follow_rules. */
+static int tk_close_svg(TokenizerObject *self, th_tokenizer *sm, uint64_t key) {
+    const tk_open *top = self->run_base - 1;
+    if (key == 0 || top->key != key) {
         return 1;
     }
-    if (record->kind == TH_END_TAG) {
-        if (top->key != key) {
-            return 1;
-        }
-        self->foreign--;
-        self->names_len = top->name;
-        self->depth--;
-        if (self->foreign == 0 || self->open[self->depth - 1].ns == TH_NS_HTML) {
-            tk_sync(self, sm);
-        }
+    self->foreign--;
+    self->names_len = top->name;
+    self->depth--;
+    if (self->foreign == 0) { /* the inline SVG document closed: back in HTML content, as tk_sync would set it */
+        self->machine_foreign = 0;
+        th_tok_set_cdata(sm, 0);
+        self->mode = TK_MODE_HTML;
         return 0;
     }
-    uint16_t atom = record->atom;
-    if ((TK_START[atom] & TK_BREAKOUT) != 0 || atom == TH_TAG_FONT || self->depth == self->open_cap) {
+    tk_sync(self, sm);
+    tk_set_mode(self);
+    return 0;
+}
+
+/* Open an <svg> the HTML rules take, as tk_track_start would for a caller who captures attributes: an SVG element that
+   is no integration point, after which the machine reads foreign content and the next tags take tk_follow_svg. A
+   trailing slash leaves no element open, so nothing changes. */
+static int tk_open_svg(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
+    if (record->self_closing) {
+        return 0;
+    }
+    uint8_t in_table = self->depth > 0 && self->open[self->depth - 1].in_table;
+    tk_open *open = &self->open[self->depth++];
+    *open = (tk_open){record->name_key, self->names_len, TH_TAG_SVG, TH_NS_SVG, 0, 0, in_table};
+    self->foreign = 1;
+    self->machine_foreign = 1;
+    th_tok_set_cdata(sm, 1);
+    self->mode = TK_MODE_SVG;
+    self->run_base = open + 1;
+    self->run_end = open + 1;
+    self->run_limit = self->open + self->open_cap;
+    return 0;
+}
+
+/* Follow a tag inside an SVG element that is no integration point in place where that is all it takes, the shape of an
+   inline SVG document: a start tag that neither breaks out nor opens an integration point opens an SVG element, and
+   the end tag of the innermost element opened that way closes it. Only the key is written; tk_flush_run completes the
+   elements once a tag needs the full rules. The machine stays set for foreign content throughout, since the
+   innermost element stays an SVG element. Returns 1 when the tag needs tk_follow_rules. */
+static inline int tk_follow_svg(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
+    if (self->mode != TK_MODE_SVG) {
         return 1;
     }
-    if (!record->self_closing) {
-        uint8_t point = (TK_START[atom] & TK_SVG_POINT) != 0;
-        uint8_t in_table = top->in_table;
-        self->open[self->depth++] = (tk_open){
-            key, self->names_len, atom, TH_NS_SVG, point, point ? TH_TAG_SPECIAL | TH_TAG_SCOPING : 0, in_table};
-        self->foreign++;
+    uint64_t key = record->name_key;
+    tk_open *end = self->run_end;
+    if (record->kind == TH_END_TAG) {
+        if (end == self->run_base) {
+            return tk_close_svg(self, sm, key);
+        }
+        /* a deferred element always has a key, so an end tag without one never matches */
+        if (end[-1].key != key) {
+            return 1;
+        }
+        self->run_end = end - 1;
+        return 0;
     }
+    if ((TK_START[record->atom] & (TK_BREAKOUT | TK_FONT | TK_SVG_POINT)) != 0) {
+        return 1;
+    }
+    if (record->self_closing) {
+        return 0; /* the trailing slash ends an SVG element, so none stays open */
+    }
+    if (key == 0 || end == self->run_limit) {
+        return 1;
+    }
+    end->key = key;
+    self->run_end = end + 1;
     return 0;
 }
 
@@ -547,7 +635,7 @@ static inline int tk_follow_svg(TokenizerObject *self, th_tokenizer *sm, const t
    and the end tag of the innermost element pops it. Returns 1 when the tag needs tk_follow_rules. Inlined at both call
    sites: it runs for every tag the Tokenizer hands over. */
 static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const th_token *record) {
-    if (self->foreign != 0) {
+    if (self->mode != TK_MODE_HTML) {
         return tk_follow_svg(self, sm, record);
     }
     uint64_t key = record->name_key;
@@ -575,7 +663,14 @@ static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const 
         }
         return 0;
     }
-    return (start & TK_CHILDLESS) == 0;
+    if ((start & TK_CHILDLESS) != 0) {
+        return 0;
+    }
+    /* the capacity bound keeps tk_push's growth and its drop of the outer half with the full rules */
+    if (record->atom == TH_TAG_SVG && self->capture_attributes && self->depth < self->open_cap) {
+        return tk_open_svg(self, sm, record);
+    }
+    return 1;
 }
 
 /* Follow a tag with the full rules. Attributes the machine captured for those rules alone are not part of the token
@@ -583,6 +678,7 @@ static inline int tk_follow_html(TokenizerObject *self, th_tokenizer *sm, const 
    the machine still resets every slot it filled. Returns -1 when the spine cannot grow. */
 static Py_ssize_t tk_follow_rules(TokenizerObject *self, th_tokenizer *sm, th_token *record) {
     int captured = self->machine_foreign && !self->capture_attributes;
+    tk_flush_run(self);
     if (record->kind == TH_START_TAG) {
         if (tk_track_start(self, sm, record, record->atom, record->tag_flags) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -591,6 +687,7 @@ static Py_ssize_t tk_follow_rules(TokenizerObject *self, th_tokenizer *sm, th_to
         tk_end_tag(self, record, record->atom, record->tag_flags);
         tk_sync(self, sm);
     }
+    tk_set_mode(self);
     if (!captured) {
         return 0;
     }
@@ -795,6 +892,8 @@ static PyObject *tokenizer_reset(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     tokenizer->names_len = 0;
     tokenizer->foreign = 0;
     tokenizer->machine_foreign = 0;
+    tokenizer->mode = TK_MODE_HTML;
+    tokenizer->run_end = tokenizer->run_base;
     th_tok_set_cdata(tokenizer->sm, 0);
     th_tok_capture_attributes(tokenizer->sm, tokenizer->capture_attributes);
     Py_END_CRITICAL_SECTION();
