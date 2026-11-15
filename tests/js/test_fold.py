@@ -12,6 +12,7 @@ from bench.operations import INPUTS
 from turbohtml.clean import JSMinify, minify_js
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
     from types import ModuleType
 
@@ -2029,6 +2030,33 @@ def test_fold_keeps_undefined_reference(source: str, expected: str) -> None:
 )
 def test_fold_keeps_unreachable_lexical_declaration(source: str, expected: str) -> None:
     assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize("count", [pytest.param(0, id="same-arena"), pytest.param(90, id="grown-arena")])
+def test_fold_keeps_dead_branch_whose_hoisting_if_the_pass_appended(count: int) -> None:
+    # the first dead branch leaves a remembered answer behind, the booleans each fold into a new node (enough of them
+    # outgrow the node arena), and the `if` split from its else is a node appended after both
+    source: Final = f"if(0){{var z}}x=[{','.join(['true'] * count)}];L:if(0)if(a){{var v;break L}}else b()"
+    expected: Final = f"if(0)var z;x=[{','.join(['!0'] * count)}];a:if(0){{if(a){{var v;break a}}b()}}"
+    assert minify_js(source) == expected
+
+
+@pytest.mark.parametrize(
+    "nest",
+    [
+        pytest.param(lambda depth: f"{'if(0)' * depth}{{{'b:;' * (2 * depth)}var y}}", id="dead-branches"),
+        pytest.param(lambda depth: f"{'throw 1;if(r){' * depth}{'b:;' * (2 * depth)}var y{'}' * depth}", id="tails"),
+    ],
+)
+def test_fold_scans_a_kept_nest_once_per_pass(nest: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda depth: partial(minify_js, nest(depth)), (100, 400))
+
+
+def test_fold_forgets_a_hoist_that_left_with_a_spliced_else() -> None:
+    # the dead branch is scanned first and remembers that the inner `if` holds a hoisted function; the else that held
+    # it is then spliced out behind the `if`, which must not keep counting as the declaration the cut stops at
+    source: Final = "function f(){if(0){return 2;if(q)throw 3;else{a();while(b){function g(){}}}}}"
+    assert minify_js(source, JSMinify(mangle=False)) == "function f(){if(0){return 2;for(;b;){function g(){}}}}"
 
 
 @pytest.mark.parametrize(
