@@ -325,10 +325,76 @@ def test_xml_c14n_renders_namespace_axis(source: str, expected: bytes) -> None:
             b'<r xmlns:a="urn:p" xmlns:b="urn:p:q" a:x="2" b:x="1"></r>',
             id="uri-prefix-sorted",
         ),
+        pytest.param(
+            '<r xmlns:a="urn:p" xmlns:b="urn:p" b:x="1" a:y="2" a:w="3"/>',
+            b'<r xmlns:a="urn:p" xmlns:b="urn:p" a:w="3" b:x="1" a:y="2"></r>',
+            id="one-uri-two-prefixes",
+        ),
+        pytest.param(
+            '<r xmlns:a="http://www.w3.org/XML/1998/namespaces" xmlns:b="http://www.w3.org/XML/1998/n"'
+            ' a:x="1" xml:lang="en" b:x="2" x="3"/>',
+            b'<r xmlns:a="http://www.w3.org/XML/1998/namespaces" xmlns:b="http://www.w3.org/XML/1998/n"'
+            b' x="3" b:x="2" xml:lang="en" a:x="1"></r>',
+            id="around-the-xml-namespace",
+        ),
+        pytest.param(
+            '<r xmlns:a="urn:z" xmlns:b="urn:m"><c xmlns:a="urn:a" b:x="1" a:x="2"/><d b:x="1" a:x="2"/></r>',
+            b'<r xmlns:a="urn:z" xmlns:b="urn:m"><c xmlns:a="urn:a" a:x="2" b:x="1"></c><d b:x="1" a:x="2"></d></r>',
+            id="rebound-below",
+        ),
     ],
 )
 def test_xml_c14n_sorts_attributes_by_namespace_uri(source: str, expected: bytes) -> None:
     assert parse_xml(source).canonicalize() == expected
+
+
+def test_xml_c14n_apex_sorts_attributes_by_namespace_uri_declared_above() -> None:
+    document: Final = parse_xml('<r xmlns:a="urn:z" xmlns:b="urn:m" xml:lang="en"><c a:x="1" b:x="2"/></r>')
+    assert document.children[0].children[0].canonicalize() == (
+        b'<c xmlns:a="urn:z" xmlns:b="urn:m" xml:lang="en" b:x="2" a:x="1"></c>'
+    )
+
+
+def test_xml_c14n_sorts_many_attributes_on_one_long_uri() -> None:
+    count: Final = 2000
+    uri: Final = f"urn:{'a' * count}"
+    attributes: Final = " ".join(f'p:a{index:05}=""' for index in range(count))
+    assert (
+        parse_xml(_attributes_on_one_uri(count)).canonicalize()
+        == f'<r xmlns:p="{uri}"><a {attributes}></a></r>'.encode()
+    )
+
+
+def _attributes_on_one_uri(count: int) -> str:
+    uri: Final = f"urn:{'a' * count}"
+    attributes: Final = " ".join(f'p:a{index:05}=""' for index in reversed(range(count)))
+    return f'<r xmlns:p="{uri}"><a {attributes}/></r>'
+
+
+def test_xml_c14n_sorts_attributes_by_distinct_long_uris() -> None:
+    uris: Final = [f"urn:{'u' * 150}{index:02}" for index in range(20)]
+    declarations: Final = " ".join(sorted(f'xmlns:p{19 - index:02}="{uri}"' for index, uri in enumerate(uris)))
+    attributes: Final = [f'p{19 - index:02}:v="{index}"' for index in range(20)]
+    plain: Final = f'plain="{"w" * 200}"'
+    shuffled: Final = " ".join(attributes[index * 7 % 20] for index in range(20))
+    source: Final = f"<r {declarations} {shuffled} {plain}/>"
+    assert parse_xml(source).canonicalize() == f"<r {declarations} {plain} {' '.join(attributes)}></r>".encode()
+
+
+def test_xml_c14n_attribute_sort_steps_grow_linearly_in_uri_length(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse_xml(_attributes_on_one_uri(count)).canonicalize), (500, 2000))
+
+
+def test_xml_c14n_exclusive_redeclared_uri_steps_grow_linearly_in_uri_length(work_steps: WorkSteps) -> None:
+    options: Final = Canonical(exclusive=True)
+    work_steps.assert_linear(
+        lambda count: partial(parse_xml(_redeclared_uri(count)).canonicalize, options), (500, 2000)
+    )
+
+
+def _redeclared_uri(count: int) -> str:
+    uri: Final = f"urn:{'a' * count}"
+    return f'<p:r xmlns:p="{uri}"><m xmlns:p="{uri}">{"<p:a/>" * count}</m></p:r>'
 
 
 @pytest.mark.parametrize(

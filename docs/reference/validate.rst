@@ -15,6 +15,10 @@ return partial results. In a RELAX NG grammar the limit counts the levels of a `
 the next ``element``: compilation raises :class:`RecursionError` when references nest patterns 400 levels or deeper with
 no ``element`` in between.
 
+:meth:`~XMLSchema.validate` and :meth:`~XMLSchema.assert_valid` collect the first 1,000 errors of a document; further
+violations still make it invalid but are not listed. Each segment of :attr:`ValidationError.path` keeps the first 64
+characters of an element name and ends a longer one with a horizontal ellipsis (U+2026).
+
 Schema compilation raises :class:`ValueError` for an ``xs:pattern`` facet or RELAX NG ``pattern`` parameter that nests
 groups deeper than 250 levels, needs more than 2,000,000 automaton states, or has a ``{n,m}`` quantifier with ``n``
 above ``m``. The message names the limit and the offset where the pattern reaches it; flatten the nested groups, lower

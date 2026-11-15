@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 import pytest
 from markdown_it import MarkdownIt
 
-from turbohtml import Html, Indent, Markdown, parse, parse_xml
+from turbohtml import Html, Indent, Markdown, PlainText, parse, parse_xml
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from work_steps import WorkSteps
+
+    from turbohtml import Document
 
 _NESTED_ITEMS: Final[str] = f"{'<ul><li>' * 12}x"
 # plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
@@ -81,6 +85,191 @@ def test_text_table_sparse_rows_stay_linear() -> None:
 def test_annotated_table_keeps_cell_spans_after_padding_limit() -> None:
     text, spans = parse(_uneven_table(64, 16)).to_annotated_text({"td": ["cell"]})
     assert [text[start:end] for start, end, _label in spans] == ["X" * 64, "y", *["x", "y"] * 16]
+
+
+# an unclosed formatting element: the tree builder reopens it, attributes and all, in every block that follows
+def _clone_href(size: int) -> str:
+    return f"<p>a<a href='{'u' * size}'>x{'<p>b' * size}"
+
+
+def _clone_title(size: int) -> str:
+    return f"<p>a<a href=u title='{'t' * size}'>x{'<p>b' * size}"
+
+
+def _clone_language(size: int) -> str:
+    return f"<p>a<code class=language-{'u' * size}>x{'<pre>b</pre>' * size}"
+
+
+# longer than the allowance either renderer starts with, so only a start tag or rendered text can pay for a repeat
+_LONG_TARGET: Final[str] = "u" * 300
+
+
+@pytest.mark.parametrize(
+    ("markup", "options"),
+    [
+        pytest.param(_clone_href, Markdown(), id="href"),
+        pytest.param(_clone_href, Markdown(links=Markdown.Links(style="reference")), id="href-reference"),
+        pytest.param(_clone_title, Markdown(), id="title"),
+        pytest.param(_clone_language, Markdown(), id="fence-language"),
+    ],
+)
+def test_markdown_clone_attributes_stay_linear(
+    markup: Callable[[int], str], options: Markdown, work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda n: partial(parse(markup(n)).to_markdown, options), (500, 2000))
+
+
+def _raw_clone_href(size: int) -> str:
+    return f"<table><tr><td colspan=2>{_clone_href(size)}"
+
+
+def _raw_clone_title(size: int) -> str:
+    return f"<table><tr><td colspan=2><p>a<b title={'u' * size}>x{'<p>b' * size}"
+
+
+def _raw_list_clone_title(size: int) -> str:
+    return f"<div>z<table><tr><td><ul><li><b title={'u' * size}>x{'<li>y' * size}"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(_raw_clone_href, id="href"),
+        pytest.param(_raw_clone_title, id="title"),
+        pytest.param(_raw_list_clone_title, id="list-in-cell"),
+    ],
+)
+def test_markdown_raw_html_clone_attributes_stay_linear(markup: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: parse(markup(n)).to_markdown, (500, 2000))
+
+
+@pytest.mark.parametrize("links", ["inline", "footnote"])
+def test_text_clone_href_stays_linear(links: Literal["inline", "footnote"], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(parse(_clone_href(n)).to_text, PlainText(links=links)), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<p><a href=/u title=t>one<p>two", '[one](/u "t")\n\n[two](/u "t")', id="allowance-pays"),
+        pytest.param(
+            f"<a href={_LONG_TARGET}><p>moved</a>",
+            f"[]({_LONG_TARGET})\n\n[moved]({_LONG_TARGET})",
+            id="start-tag-pays",
+        ),
+        pytest.param(
+            f"<p><a href={_LONG_TARGET}>one<p>two<p>three",
+            f"[one]({_LONG_TARGET})\n\n[two]({_LONG_TARGET})\n\nthree",
+            id="link-unpaid",
+        ),
+        pytest.param(
+            f"<p><a href={_LONG_TARGET}>one<p>two<p>{'w' * 300}<p>four",
+            f"[one]({_LONG_TARGET})\n\n[two]({_LONG_TARGET})\n\n{'w' * 300}\n\n[four]({_LONG_TARGET})",
+            id="text-pays",
+        ),
+        pytest.param("<p><code class=language-py>x<pre>y</pre>", "`x`\n\n```py\ny\n```", id="fence-paid"),
+        pytest.param(f"<p><code class=language-{_LONG_TARGET}>x<pre>y</pre>", "`x`\n\n```\ny\n```", id="fence-unpaid"),
+        pytest.param(
+            "<table><tr><td colspan=2><p><b title=t>one<p>two",
+            '<table><tbody><tr><td colspan="2"><p><b title="t">one</b></p><p><b title="t">two</b></p></td></tr></tbody>'
+            "</table>",
+            id="raw-html-allowance-pays",
+        ),
+        pytest.param(
+            f"<table><tr><td colspan=2><p><b title={_LONG_TARGET} id=i>one<p>two<p>three",
+            f'<table><tbody><tr><td colspan="2"><p><b title="{_LONG_TARGET}" id="i">one</b></p>'
+            f'<p><b title="{_LONG_TARGET}" id="i">two</b></p><p><b id="i">three</b></p></td></tr></tbody></table>',
+            id="raw-html-attribute-unpaid",
+        ),
+    ],
+)
+def test_markdown_clone_attributes_spend_a_budget(source: str, expected: str) -> None:
+    assert parse(source).to_markdown() == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "<table><tr><td><a href='a  b'>x</a></td></tr></table>",
+            '| <a href="a&#32;&#32;b">x</a> |\n| --- |',
+            id="cell-link-target-with-space-run",
+        ),
+        pytest.param(
+            "<table><tr><td><a href='a  b'>x<p>y",
+            '| <a href="a&#32;&#32;b">x y</a> |\n| --- |',
+            id="cell-link-clone",
+        ),
+        pytest.param(
+            "<table><tr><td><b><i>x&amp;<table><tr><td colspan=2>y</td></tr></table>z</i></b></td></tr></table>",
+            '| <strong><em>x&<table><tr><td colspan="2">y</td></tr></table>z</em></strong> |\n| --- |',
+            id="emphasis-around-raw-table-in-cell",
+        ),
+        pytest.param(
+            "<b><table><tr><th>a</th></tr><tr><td>b</td><td>c</td></tr></table></b>",
+            "<table><tbody><tr><th><strong>a</strong></th></tr><tr><td><strong>b</strong></td>"
+            "<td><strong>c</strong></td></tr></tbody></table>",
+            id="marker-around-raw-table",
+        ),
+        pytest.param("<p><a>one<p>two", "one\n\ntwo", id="link-without-href"),
+        pytest.param(
+            "<p><code>x<pre>y</pre><pre>z</pre>", "`x`\n\n```\ny\n```\n\n```\nz\n```", id="fence-without-language"
+        ),
+    ],
+)
+def test_markdown_link_and_fence_shapes(source: str, expected: str) -> None:
+    assert parse(source).to_markdown() == expected
+
+
+def test_image_html_in_a_cell_keeps_its_tag() -> None:
+    source = "<table><tr><td><img src=/a.png alt=a></td></tr></table>"
+    assert parse(source).to_markdown(Markdown(images=Markdown.Images(mode="html"))) == (
+        '| <img src="/a.png" alt="a"> |\n| --- |'
+    )
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        pytest.param(lambda document: document.html, id="html"),
+        pytest.param(lambda document: document.serialize(), id="serialize"),
+        pytest.param(lambda document: "".join(document.serialize_iter()), id="serialize-iter"),
+    ],
+)
+def test_html_writers_keep_element_attributes(write: Callable[[Document], str]) -> None:
+    assert write(parse("<p class=x>y")) == '<html><head></head><body><p class="x">y</p></body></html>'
+
+
+@pytest.mark.parametrize(
+    ("source", "links", "expected"),
+    [
+        pytest.param("<p><a href=/u>one<p>two", "inline", "one (/u)\n\ntwo (/u)", id="allowance-pays"),
+        pytest.param(
+            f"<a href={_LONG_TARGET}><p>moved</a>",
+            "inline",
+            f" ({_LONG_TARGET})\n\nmoved ({_LONG_TARGET})",
+            id="start-tag-pays",
+        ),
+        pytest.param(
+            f"<p><a href={_LONG_TARGET}>one<p>two<p>three",
+            "footnote",
+            f"one[1]\n\ntwo[2]\n\nthree\n\n[1] {_LONG_TARGET}\n[2] {_LONG_TARGET}",
+            id="link-unpaid",
+        ),
+        pytest.param(
+            f"<p><a href={_LONG_TARGET}>one<p>two<p>{'w' * 300}<p>four",
+            "inline",
+            f"one ({_LONG_TARGET})\n\ntwo ({_LONG_TARGET})\n\n{'w' * 300}\n\nfour ({_LONG_TARGET})",
+            id="text-pays",
+        ),
+        pytest.param("<p><a href=/u>one<p>two", "none", "one\n\ntwo", id="links-none"),
+        pytest.param("<p><a>one<p>two", "inline", "one\n\ntwo", id="link-without-href"),
+    ],
+)
+def test_text_clone_href_spends_the_padding_budget(
+    source: str, links: Literal["inline", "footnote", "none"], expected: str
+) -> None:
+    assert parse(source).to_text(PlainText(links=links)) == expected
 
 
 def test_google_doc_margin_indent_stops_at_the_nesting_cap() -> None:

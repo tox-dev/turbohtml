@@ -1317,14 +1317,145 @@ int sel_no_sibling(th_node *node, int from_end, int of_type) {
     return 1;
 }
 
-/* The 1-based position of node among its element siblings (from the end when
-   from_end), counting only same-type siblings when of_type. */
-static int sel_sibling_index(th_node *node, int from_end, int of_type) {
-    int index = 1;
+/* A position walk this short runs without the memo, as the sibling walks of the general
+   sibling combinator do (SEL_SIBLING_MEMO_MIN_RUN). */
+#define SEL_POSITION_MEMO_MIN_RUN 32
+
+typedef struct {
+    const th_node *node;
+    size_t order;
+} sel_position_item;
+
+/* Group elements by type, in any total order that agrees with sel_same_type, and keep the
+   walk order inside a type. */
+static int sel_position_cmp(const void *left, const void *right) {
+    const sel_position_item *left_item = left;
+    const sel_position_item *right_item = right;
+    const th_node *left_node = left_item->node;
+    const th_node *right_node = right_item->node;
+    if (left_node->ns != right_node->ns) {
+        return left_node->ns < right_node->ns ? -1 : 1;
+    }
+    if (left_node->atom != right_node->atom) {
+        return left_node->atom < right_node->atom ? -1 : 1;
+    }
+    if (left_node->atom == TH_TAG_UNKNOWN) {
+        if (left_node->text_len != right_node->text_len) {
+            return left_node->text_len < right_node->text_len ? -1 : 1;
+        }
+        for (Py_ssize_t index = 0; index < left_node->text_len; index++) {
+            if (left_node->text[index] != right_node->text[index]) {
+                return left_node->text[index] < right_node->text[index] ? -1 : 1;
+            }
+        }
+    }
+    /* Walk order is the final key, so the siblings of one type keep their order. Branch-free:
+       which of the two a qsort passes on the left depends on the libc. */
+    return (left_item->order > right_item->order) - (left_item->order < right_item->order);
+}
+
+/* Store the position of every element sibling of node in map and return node's own, or 0
+   when an allocation fails and the caller keeps its direct walk. Same-type positions come
+   from sorting the siblings by type instead of comparing each with all the others, so the
+   pass costs n log n however many types the list mixes. */
+static Py_ssize_t sel_position_index(th_node_map *map, const th_node *node, int from_end, int of_type) {
+    const th_node *start = node;
+    for (const th_node *sibling = from_end ? node->next_sibling : node->prev_sibling; sibling != NULL;
+         sibling = from_end ? sibling->next_sibling : sibling->prev_sibling) {
+        start = sibling;
+    }
+    size_t count = 0;
+    for (const th_node *sibling = start; sibling != NULL;
+         sibling = from_end ? sibling->prev_sibling : sibling->next_sibling) {
+        count += sibling->type == TH_NODE_ELEMENT;
+    }
+    sel_position_item *items = PyMem_Malloc(count * sizeof(sel_position_item));
+    /* GCOVR_EXCL_START: allocation failure cannot be forced from a test */
+    if (items == NULL || th_node_map_reserve(map, map->count + count) < 0) {
+        PyMem_Free(items);
+        return 0;
+    }
+    /* GCOVR_EXCL_STOP */
+    size_t filled = 0;
+    for (const th_node *sibling = start; sibling != NULL;
+         sibling = from_end ? sibling->prev_sibling : sibling->next_sibling) {
+        if (sibling->type == TH_NODE_ELEMENT) {
+            items[filled] = (sel_position_item){sibling, filled};
+            filled++;
+        }
+    }
+    if (of_type) {
+        qsort(items, count, sizeof(sel_position_item), sel_position_cmp);
+    }
+    Py_ssize_t position = 0;
+    for (size_t index = 0; index < count; index++) {
+        const int same_run = index > 0 && (!of_type || sel_same_type(items[index - 1].node, items[index].node));
+        position = same_run ? position + 1 : 1;
+        (void)th_node_map_insert(map, items[index].node, position); /* reserved above, so it cannot fail */
+    }
+    PyMem_Free(items);
+    return th_node_map_find(map, node);
+}
+
+/* The memoized sel_sibling_index of node, indexing node's sibling list on a miss, or 0
+   without a memo (single-element matching) and when indexing could not allocate. */
+static int sel_position(const sel_ctx *ctx, const th_node *node, int from_end, int of_type) {
+    if (ctx->position_memo == NULL) {
+        return 0;
+    }
+    th_node_map *map = &ctx->position_memo->index[from_end][of_type];
+    const Py_ssize_t position = th_node_map_find(map, node);
+    return (int)(position != 0 ? position : sel_position_index(map, node, from_end, of_type));
+}
+
+void sel_position_memo_free(sel_position_memo *memo) {
+    for (int from_end = 0; from_end < 2; from_end++) {
+        for (int of_type = 0; of_type < 2; of_type++) {
+            PyMem_Free(memo->index[from_end][of_type].entries);
+            memo->index[from_end][of_type] = (th_node_map){0};
+        }
+    }
+}
+
+/* sel_no_sibling for the same-type question. A sibling of another type does not end the
+   walk, so among siblings of many types every candidate would walk to the end of the list:
+   past SEL_POSITION_MEMO_MIN_RUN siblings the position memo answers instead. */
+static int sel_no_type_sibling(th_node *node, int from_end, const sel_ctx *ctx) {
+    int walked = 0;
     for (th_node *sibling = from_end ? node->next_sibling : node->prev_sibling; sibling != NULL;
          sibling = from_end ? sibling->next_sibling : sibling->prev_sibling) {
+        TH_WORK_STEP();
+        if (sibling->type == TH_NODE_ELEMENT && sel_same_type(node, sibling)) {
+            return 0;
+        }
+        if (++walked == SEL_POSITION_MEMO_MIN_RUN) {
+            const int position = sel_position(ctx, node, from_end, 1);
+            if (position != 0) {
+                return position == 1;
+            }
+        }
+    }
+    return 1;
+}
+
+/* The 1-based position of node among its element siblings (from the end when
+   from_end), counting only same-type siblings when of_type. Past
+   SEL_POSITION_MEMO_MIN_RUN siblings the position memo answers, so a query that has to
+   count for many siblings of one long list walks it once. */
+static int sel_sibling_index(th_node *node, int from_end, int of_type, const sel_ctx *ctx) {
+    int index = 1;
+    int walked = 0;
+    for (th_node *sibling = from_end ? node->next_sibling : node->prev_sibling; sibling != NULL;
+         sibling = from_end ? sibling->next_sibling : sibling->prev_sibling) {
+        TH_WORK_STEP();
         if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling))) {
             index++;
+        }
+        if (++walked == SEL_POSITION_MEMO_MIN_RUN) {
+            const int position = sel_position(ctx, node, from_end, of_type);
+            if (position != 0) {
+                return position;
+            }
         }
     }
     return index;
@@ -1353,9 +1484,17 @@ static int sel_nth_index(th_node *node, int direction, int of_type, const sel_si
         sel_nth_memo *previous = ctx->nth_memo;
         if (previous->simple == simple && (simple->sub == NULL || previous->scope == ctx->scope) &&
             (!of_type || sel_same_type(previous->node, node))) {
+            /* Only a sibling of node's type, or the previous candidate, stops these walks, so
+               past SEL_POSITION_MEMO_MIN_RUN siblings sel_sibling_index takes over and answers
+               from the position memo; the walks of an "of S" argument have no memo to fall to. */
+            const int walk_limit = simple->sub == NULL ? SEL_POSITION_MEMO_MIN_RUN : INT_MAX;
+            int walked = 0;
             th_node *before = node->prev_sibling;
             while (before != NULL && before != previous->node &&
                    (before->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, before)))) {
+                if (++walked == walk_limit) {
+                    goto walk;
+                }
                 before = before->prev_sibling;
             }
             if (previous->node == before) {
@@ -1367,6 +1506,9 @@ static int sel_nth_index(th_node *node, int direction, int of_type, const sel_si
             th_node *after = node->next_sibling;
             while (after != NULL && after != previous->node &&
                    (after->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, after)))) {
+                if (++walked == walk_limit) {
+                    goto walk;
+                }
                 after = after->next_sibling;
             }
             if (previous->node == after) {
@@ -1383,6 +1525,9 @@ static int sel_nth_index(th_node *node, int direction, int of_type, const sel_si
                 int distance = 0;
                 for (th_node *sibling = previous->node->next_sibling; sibling != NULL;
                      sibling = sibling->next_sibling) {
+                    if (++walked == walk_limit) {
+                        goto walk;
+                    }
                     if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling)) &&
                         (simple->sub == NULL || sel_matches_alts(sibling, simple->sub, simple->sub_count, ctx))) {
                         distance++;
@@ -1396,7 +1541,8 @@ static int sel_nth_index(th_node *node, int direction, int of_type, const sel_si
             }
         }
     }
-    const int index = simple->sub == NULL ? sel_sibling_index(node, direction < 0, of_type)
+walk:;
+    const int index = simple->sub == NULL ? sel_sibling_index(node, direction < 0, of_type, ctx)
                                           : sel_nth_of_index(node, direction < 0, simple, ctx);
     if (ctx->nth_memo != NULL) {
         *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
@@ -1904,11 +2050,11 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_ONLY_CHILD:
         return sel_no_sibling(node, 0, 0) && sel_no_sibling(node, 1, 0);
     case PSEUDO_FIRST_OF_TYPE:
-        return sel_no_sibling(node, 0, 1);
+        return sel_no_type_sibling(node, 0, ctx);
     case PSEUDO_LAST_OF_TYPE:
-        return sel_no_sibling(node, 1, 1);
+        return sel_no_type_sibling(node, 1, ctx);
     case PSEUDO_ONLY_OF_TYPE:
-        return sel_no_sibling(node, 0, 1) && sel_no_sibling(node, 1, 1);
+        return sel_no_type_sibling(node, 0, ctx) && sel_no_type_sibling(node, 1, ctx);
     case PSEUDO_NTH_CHILD:
         if (simple->sub != NULL) {
             int of_index = sel_nth_index(node, 1, 0, simple, ctx);
@@ -2537,8 +2683,9 @@ static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const 
     /* rest lives in this frame, so it must not key the :has() memo; the sibling memo keys a
        relative selector by its first compound instead, which outlives the frame. Without
        :scope in rel, nothing below depends on the scope, so the sibling memo carries over. */
-    sel_ctx scoped = {ctx->tree,         anchor,          ctx->quirks, NULL, ctx->nth_memo, ctx->default_memo,
-                      ctx->sibling_memo, ctx->legend_memo};
+    sel_ctx scoped = *ctx;
+    scoped.scope = anchor;
+    scoped.has_memo = NULL;
     sel_memo *memo = lead == '~' ? &ctx->sibling_memo->table : NULL;
     const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
     th_node *memo_from = NULL;
@@ -2579,8 +2726,9 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
     /* inside a :has() relative selector the scope element is the anchor, so a written
        :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431),
        and sibling answers memoized under the outer scope do not carry over */
-    sel_ctx scoped = {ctx->tree,         anchor, ctx->quirks,     ctx->has_memo, ctx->nth_memo,
-                      ctx->default_memo, NULL,   ctx->legend_memo};
+    sel_ctx scoped = *ctx;
+    scoped.scope = anchor;
+    scoped.sibling_memo = NULL;
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
@@ -2656,7 +2804,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 /* scope is the element :scope matches: the node the query was rooted at. A single
    test builds a throwaway context with no :has() memo (nothing to amortize over). */
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
 

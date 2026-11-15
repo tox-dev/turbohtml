@@ -11,6 +11,7 @@
 
 #include "core/ascii.h"
 #include "core/fuzzing.h"
+#include "core/node_map.h"
 #include "dom/tree.h"
 
 enum sel_attr_op { OP_EXISTS, OP_EQ, OP_INCLUDE, OP_DASH, OP_PREFIX, OP_SUFFIX, OP_SUBSTR };
@@ -160,6 +161,18 @@ typedef struct {
     th_node *first;
 } sel_default_memo;
 
+/* Sibling positions, which hold for the whole query: index[from_end][of_type] maps an
+   element to its 1-based position among its element siblings, counted from the last one
+   when from_end and over the siblings of its own type when of_type. sel_nth_memo follows a
+   walk only from one sibling to the next of its type, and :first-of-type, :last-of-type and
+   :only-of-type walk until they meet a sibling of the candidate's type, so a long sibling
+   list that mixes types (each custom tag name is a type of its own) costs one walk per
+   candidate, O(n^2) for the list. A map takes a sibling list whole the first time a walk
+   over it runs long; a query whose walks all stay short allocates nothing. */
+typedef struct {
+    th_node_map index[2][2];
+} sel_position_memo;
+
 /* Single-element matching has no query walk to reuse, so memo pointers can be NULL. The
    sibling memo assumes one scope element for its whole life: a driver that rebinds scope
    per candidate passes it only for a selector without :scope. The legend memo holds which
@@ -175,6 +188,7 @@ typedef struct {
     sel_default_memo *default_memo;
     sel_sibling_memo *sibling_memo;
     sel_memo *legend_memo;
+    sel_position_memo *position_memo;
 } sel_ctx;
 
 typedef struct {
@@ -220,6 +234,7 @@ int selector_uses_has_memo(const sel_compiled *compiled);
 /* Whether the selector writes :scope anywhere, so a match depends on the scope element. */
 int selector_uses_scope(const sel_compiled *compiled);
 void sel_memo_free(sel_memo *memo);
+void sel_position_memo_free(sel_position_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
 void sel_free_alts(sel_complex *alts, int count);
 int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, int nested, int relative, int forgiving);
