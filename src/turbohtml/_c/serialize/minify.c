@@ -469,7 +469,7 @@ static int mini_end_passes_child(const th_node *node) {
 
 /* The WHATWG optional-tag rule for node's end tag, evaluated against next (the next
    content sibling, stripped comments already skipped). The formatting-reconstruction
-   guard is applied separately, in mini_omit_end_tag.
+   guard is applied separately, in ser_end_tag_omissible.
    "No more content in the parent" is next == NULL; for the special p it also needs a
    parent whose end tag closes it on reparse (mini_end_closes_child), for li and dd
    one that is not itself an item (mini_end_closes_item), and for rt, rp, optgroup and
@@ -521,15 +521,16 @@ static int mini_end_tag_rule(th_tree *tree, th_node *node, th_node *next, int qu
 /* Whether node's end tag may be omitted: the WHATWG rule, blocked whenever a
    formatting element is open as an ancestor (formatting_depth), lies on node's
    trailing path (trailing_formatting), or is the following sibling, since the
-   reparse would then reconstruct it across the boundary. */
-static int mini_omit_end_tag(th_tree *tree, th_node *node, const th_minify_opts *opts, int formatting_depth,
-                             int trailing_formatting, int quirks) {
+   reparse would then reconstruct it across the boundary. Shared with the lossless
+   serializer, which asks it before leaving out an end tag the source did not spell. */
+int ser_end_tag_omissible(th_tree *tree, th_node *node, int strip_comments, int formatting_depth,
+                          int trailing_formatting, int quirks) {
     /* the rule only fires when next is empty or a specific non-formatting element, so a
        reconstructed formatting element can only be reached through the trailing path */
     if (node->ns != TH_NS_HTML || formatting_depth > 0 || trailing_formatting) {
         return 0;
     }
-    return mini_end_tag_rule(tree, node, mini_next_content(node, opts->strip_comments), quirks);
+    return mini_end_tag_rule(tree, node, mini_next_content(node, strip_comments), quirks);
 }
 
 /* Whether node's start tag may be omitted. An element carrying attributes never
@@ -864,8 +865,9 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                     formatting++;
                 }
                 descend = node->first_child;
-            } else if (!(st->inner && node == root) && !(opts->omit_optional_tags && node != root &&
-                                                         mini_omit_end_tag(tree, node, opts, formatting, 0, quirks))) {
+            } else if (!(st->inner && node == root) &&
+                       !(opts->omit_optional_tags && node != root &&
+                         ser_end_tag_omissible(tree, node, opts->strip_comments, formatting, 0, quirks))) {
                 ser_close_tag(out, node);
             }
             break;
@@ -936,7 +938,8 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 }
                 if (!after_plaintext && !(st->inner && node == root) &&
                     !(opts->omit_optional_tags && node != root &&
-                      mini_omit_end_tag(tree, node, opts, formatting, trailing_formatting, quirks))) {
+                      ser_end_tag_omissible(tree, node, opts->strip_comments, formatting, trailing_formatting,
+                                            quirks))) {
                     ser_close_tag(out, node);
                     last_was_space = 0;
                 }

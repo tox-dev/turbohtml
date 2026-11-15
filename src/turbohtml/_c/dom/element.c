@@ -1834,6 +1834,8 @@ void handle_drop_index(PyObject *handle_obj) {
     handle->path_ids = NULL;
     path_positions_free(handle->path_positions);
     handle->path_positions = NULL;
+    th_markdown_ordinals_free(handle->md_ordinals);
+    handle->md_ordinals = NULL;
     path_positions_free(handle->path_child_positions);
     handle->path_child_positions = NULL;
 }

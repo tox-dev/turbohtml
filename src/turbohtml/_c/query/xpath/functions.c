@@ -1135,6 +1135,15 @@ static int case_convert(struct th_tree *tree, xp_result *arg, int to_upper, xp_r
     return 0;
 }
 
+/* Charge `copies` strings of `length` characters that a replace, join or padding adds beyond its inputs. */
+static int charge_growth(xp_ctx *ctx, Py_ssize_t length, Py_ssize_t copies) {
+    xr_cache *cache = xp_regex_cache(ctx);
+    if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    return xr_charge_growth(cache, length, copies);
+}
+
 /* string-join(seq, sep): the string-values of the node-set members joined by the
    separator -- the XPath-1.0-engine reading of fn:string-join, where a node-set is the
    sequence (antchfx does the same). A non-node-set first argument is the lone item, so
@@ -1148,6 +1157,11 @@ static int string_join(xp_ctx *ctx, xp_result *args, xp_result *out) {
     }
     int is_set = args[0].kind == XP_NODESET;
     Py_ssize_t count = is_set ? args[0].nodes.len : 1;
+    /* the first copy is the separator itself, an input already; the copies after it can come from empty members */
+    if (count > 2 && sep_len > 0 && charge_growth(ctx, sep_len, count - 2) < 0) {
+        PyMem_Free(sep);
+        return -1;
+    }
     Py_UCS4 **parts = PyMem_Calloc((size_t)count, sizeof(Py_UCS4 *));
     Py_ssize_t *lens = PyMem_Calloc((size_t)count, sizeof(Py_ssize_t));
     if (parts == NULL || lens == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -1158,6 +1172,7 @@ static int string_join(xp_ctx *ctx, xp_result *args, xp_result *out) {
     }
     int rc = 0;
     Py_ssize_t total = count > 0 ? sep_len * (count - 1) : 0;
+    Py_ssize_t text_total = 0;
     xp_gather seen;
     for (Py_ssize_t index = 0; index < count; index++) {
         parts[index] = is_set ? item_string(tree, args[0].nodes.items[index], &lens[index])
@@ -1166,9 +1181,10 @@ static int string_join(xp_ctx *ctx, xp_result *args, xp_result *out) {
             rc = -1;                /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         total += lens[index];
-        if (is_set && total > XP_GATHER_ALLOWANCE &&
+        text_total += lens[index];
+        if (is_set && text_total > XP_GATHER_ALLOWANCE &&
             charge_repeated(&seen, ctx, &args[0].nodes, NULL, index, lens[index],
-                            total - lens[index] <= XP_GATHER_ALLOWANCE) < 0) {
+                            text_total - lens[index] <= XP_GATHER_ALLOWANCE) < 0) {
             rc = -1;
             break;
         }
@@ -1502,7 +1518,8 @@ static int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
    `search` in `string` swapped for `replace`. An empty `search` leaves the input
    untouched (no zero-width match loop). Out of line, so its match loop keeps its own registers: inlined, it shares
    them with all of eval_function and moves a pointer to the stack whenever another function there changes. */
-static TH_NOINLINE int str_replace(struct th_tree *tree, const xp_result *args, xp_result *out) {
+static TH_NOINLINE int str_replace(xp_ctx *ctx, const xp_result *args, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
     Py_ssize_t src_len;
     Py_ssize_t search_len;
     Py_ssize_t repl_len;
@@ -1539,6 +1556,12 @@ static TH_NOINLINE int str_replace(struct th_tree *tree, const xp_result *args, 
         return -1;          /* GCOVR_EXCL_LINE: allocation size overflow */
     }
     const Py_ssize_t out_len = (Py_ssize_t)(retained + (size_t)count * (size_t)repl_len);
+    if (out_len > src_len && charge_growth(ctx, out_len - src_len, 1) < 0) {
+        PyMem_Free(src);
+        PyMem_Free(search);
+        PyMem_Free(repl);
+        return -1;
+    }
     Py_UCS4 *buf = PyMem_Malloc((size_t)(out_len > 0 ? out_len : 1) * sizeof(Py_UCS4));
     if (buf == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyMem_Free(src);    /* GCOVR_EXCL_LINE */
@@ -1566,7 +1589,8 @@ static TH_NOINLINE int str_replace(struct th_tree *tree, const xp_result *args, 
 
 /* str:padding(length, pattern?): a string of `length` characters built by cycling
    `pattern` (a single space by default). An empty pattern pads with spaces. */
-static int str_padding(struct th_tree *tree, const xp_result *args, int argc, xp_result *out) {
+static int str_padding(xp_ctx *ctx, const xp_result *args, int argc, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
     double requested = round(to_number(tree, &args[0]));
     /* source data can supply the length, so a tiny document could size a huge allocation; the ceiling is libexslt's
        (strings.c, df878571), raised as an error since truncating would contradict the EXSLT definition */
@@ -1590,6 +1614,10 @@ static int str_padding(struct th_tree *tree, const xp_result *args, int argc, xp
             return -1;             /* GCOVR_EXCL_LINE */
         }
         pattern = pattern_buf;
+    }
+    if (target > pattern_len && charge_growth(ctx, target - pattern_len, 1) < 0) {
+        PyMem_Free(pattern_buf);
+        return -1;
     }
     Py_UCS4 *buf = PyMem_Malloc((size_t)target * sizeof(Py_UCS4));
     if (buf == NULL) {           /* GCOVR_EXCL_BR_LINE: alloc */
@@ -2114,9 +2142,9 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             rc = str_concat(ctx, &args[0], out);
         }
     } else if (func_is(fn, "str:replace")) {
-        rc = str_replace(ctx->tree, args, out);
+        rc = str_replace(ctx, args, out);
     } else if (func_is(fn, "str:padding")) {
-        rc = str_padding(ctx->tree, args, argc, out);
+        rc = str_padding(ctx, args, argc, out);
     } else if (func_is(fn, "str:align")) {
         rc = str_align(ctx->tree, args, argc, out);
     } else if (func_is(fn, "math:min") || func_is(fn, "math:max") || func_is(fn, "math:highest") ||

@@ -196,6 +196,22 @@ def test_data_param_patterns_share_the_state_budget() -> None:
         RelaxNG(schema)
 
 
+def test_data_param_class_of_many_ranges_matches_in_linear_steps(work_steps: WorkSteps) -> None:
+    def build(members: int) -> Callable[[], object]:
+        pattern: Final = f"[{'a-c' * members}]*"
+        schema: Final = RelaxNG(
+            grammar(
+                f'<start><element name="s"><data type="string"><param name="pattern">{pattern}</param></data>'
+                "</element></start>",
+                attrs=f'datatypeLibrary="{_DT}"',
+            )
+        )
+        document: Final = parse_xml(f"<s>{'b' * members}</s>")
+        return partial(schema.is_valid, document)
+
+    work_steps.assert_linear(build, (500, 2000))
+
+
 def test_list_pattern() -> None:
     schema = grammar(
         '<start><element name="nums"><list><oneOrMore><data type="int"/></oneOrMore></list></element></start>',
@@ -2432,6 +2448,18 @@ def test_shared_schema_validates_distinct_documents(name: str) -> None:
     with ThreadPoolExecutor(max_workers=4) as executor:
         results: Final = list(executor.map(schema.validate, documents))
     assert [result.valid for result in results] == [child == name for child in children]
+
+
+def test_rng_routing_leaves_the_compiled_schema_unchanged(work_steps: WorkSteps) -> None:
+    # the first token takes enough steps to start routing, which adopts what it derived: the compiled <optional>
+    values: Final = "".join(f"<value>v{index}</value>" for index in range(100))
+    optional: Final = "<optional><value>a</value><value>b</value><empty/></optional>"
+    schema: Final = RelaxNG(wrap(f"<list><choice>{values}</choice>{optional}</list>"))
+    document: Final = parse_xml("<doc>v5 a b</doc>")
+    steps: Final = [work_steps(partial(schema.validate, document)) for _ in range(2)]
+    assert steps[0] > 0
+    assert steps[1] == steps[0]
+    assert schema.is_valid(document)
 
 
 @pytest.mark.parametrize(

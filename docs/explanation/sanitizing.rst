@@ -127,10 +127,12 @@ well-formedness, which HTML does not require and XML does: an empty element self
 follow the XML escaping rules, a foreign root declares its namespace, and the two constructs HTML tolerates but XML
 forbids are neutralized in the serializer, not the walk -- a comment's ``--`` and trailing ``-`` gain a space, and a
 character outside XML's ``Char`` production (a C0 control, a lone surrogate) is dropped, along with an attribute whose
-name is not a valid XML name. Because this is a property of the one serialization pass rather than a second reparse, the
-sanitizer keeps its parse-once-serialize-once shape: the tree the walk cleared is emitted directly as XML, with no round
-trip for a mutation-XSS vector to re-enter through. Every DOMPurify corpus vector, serialized this way, reparses through
-:func:`turbohtml.parse_xml` without error.
+name is not a valid XML name. Dropping a character joins the two around it, so every check that reads a value, in either
+mode, judges it both as written and without those characters and keeps it only when both forms pass: a tree sanitized
+under one mode stays safe when written in the other. Because this is a property of the one serialization pass rather
+than a second reparse, the sanitizer keeps its parse-once-serialize-once shape: the tree the walk cleared is emitted
+directly as XML, with no round trip for a mutation-XSS vector to re-enter through. Every DOMPurify corpus vector,
+serialized this way, reparses through :func:`turbohtml.parse_xml` without error.
 
 **A tree in, a tree out.** The walk never needed a string: :func:`~turbohtml.clean.sanitize` parses one, and
 :func:`~turbohtml.clean.sanitize_node` takes a parsed node instead and returns the sanitized copy as a tree, in its own

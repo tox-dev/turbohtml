@@ -1050,6 +1050,28 @@ def test_a_reusable_linker_offers_the_node_form() -> None:
     assert document.serialize().count("<a ") == 2
 
 
+def test_the_node_form_drops_what_the_tree_remembered() -> None:
+    root: Final = parse_fragment(
+        "<p>See https://example.com</p><p><a href='/y'><i>y</i></a></p>"
+        "<ol><li>a</li><a href='/x'><div><li>b</li></div></a><li>c</li></ol>"
+    )
+    last: Final = root.select("li")[-1]
+    assert len(root.select("a")) == 2  # builds the element index the queries below would read
+    assert last.to_markdown() == "2. c"  # the list does not look for items inside the link
+
+    def edit(link: LinkCandidate) -> LinkCandidate | None:
+        if link.url == "/x":
+            return None
+        if link.url == "/y":
+            link.text = "z"
+        return link
+
+    linkify_node(root, Linkify(callbacks=[edit], process_existing=True))
+    assert [anchor.attrs["href"] for anchor in root.select("a")] == ["https://example.com", "/y"]
+    assert root.select("i") == []
+    assert last.to_markdown() == "3. c"
+
+
 def test_the_node_form_refuses_a_str() -> None:
     with pytest.raises(TypeError, match="pass a str to linkify instead"):
         linkify_node(_TEXT)  # ty: ignore[invalid-argument-type]  # the argument check is the point
