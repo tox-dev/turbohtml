@@ -776,6 +776,51 @@ def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
     assert results == [True, False, False]
 
 
+def test_xsd_child_declares_its_own_namespace() -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} targetNamespace="urn:a" xmlns="urn:a" elementFormDefault="qualified">'
+        '<xs:element name="root"><xs:complexType><xs:sequence>'
+        '<xs:element name="c" type="xs:string"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+    )
+    assert schema.validate(parse_xml('<root xmlns="urn:a"><c xmlns="urn:a">x</c></root>')).valid
+    assert not schema.validate(parse_xml('<root xmlns="urn:a"><c xmlns="">x</c></root>')).valid
+
+
+def test_xsd_element_below_the_root_sees_declarations_above_it() -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} targetNamespace="urn:x" xmlns="urn:x"><xs:element name="b" type="xs:string"/></xs:schema>'
+    )
+    element: Final = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
+    assert schema.validate(element).valid
+
+
+def test_xsd_prefix_skips_a_same_length_neighbor() -> None:
+    # the type's prefix "tn" must find its own declaration past "ts", which is as long and binds another namespace
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS} xmlns:ts="urn:s" xmlns:tn="urn:t" targetNamespace="urn:t" elementFormDefault="qualified">'
+        '<xs:complexType name="T"><xs:sequence><xs:element name="c" type="xs:string"/></xs:sequence></xs:complexType>'
+        '<xs:element name="root" type="tn:T"/></xs:schema>'
+    )
+    assert schema.validate(parse_xml('<tn:root xmlns:tn="urn:t"><tn:c>x</tn:c></tn:root>')).valid
+    assert not schema.validate(parse_xml('<tn:root xmlns:tn="urn:t"><c>x</c></tn:root>')).valid
+
+
+def test_xsd_many_attributes_and_children_scale_linearly(work_steps: WorkSteps) -> None:
+    # each child's name resolves against the namespace declarations of the element holding it, which must cost the same
+    # whatever that element's attribute count
+    def build(count: int) -> Callable[[], ValidationResult]:
+        attributes = "".join(f'<xs:attribute name="a{index}" type="xs:string"/>' for index in range(count))
+        schema: Final = XMLSchema(
+            f'<xs:schema {_XS}><xs:element name="root"><xs:complexType><xs:sequence>'
+            '<xs:element name="c" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>'
+            f"</xs:sequence>{attributes}</xs:complexType></xs:element></xs:schema>"
+        )
+        attrs = "".join(f' a{index}="x"' for index in range(count))
+        return partial(schema.validate, parse_xml(f"<root{attrs}>{'<c>x</c>' * count}</root>"))
+
+    work_steps.assert_linear(build, (250, 1000))
+
+
 def test_nested_repeats_of_an_empty_group_scale_linearly(work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], XMLSchema]:
         return partial(XMLSchema, restricted(f'<xs:pattern value="((){{{count}}}a){{{count}}}"/>'))
