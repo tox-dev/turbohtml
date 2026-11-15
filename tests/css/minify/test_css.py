@@ -1242,6 +1242,7 @@ _HEX_ESCAPE_END: Final[list[pytest.ParameterSet]] = [
     pytest.param("~;@-}\\\\", "~@- \\\\", "@-", id="stray-join-hyphen-before-escape"),
     pytest.param("+;@- u+}0--\\1", "+@- u+ 0--\\1 ", "@- u+", id="stray-join-number-before-escaped-unit"),
     pytest.param("5;@\\2d\\2d}\\", "5@\\-- \ufffd", "@\\--", id="stray-join-after-escaped-hyphens"),
+    pytest.param("0}@d );\\31", "0@d )\\31 ", "", id="stray-join-respells-without-merge"),
     pytest.param('""{--:9\\feff/**/r', '""{--:9\\feff /**/r}', '""{--:9\\feff /**/r}', id="comment-after-hex-escape"),
     pytest.param("0\\f/**/\\0{-:u", "0\\f /**/\ufffd{-:u}", "0\\f /**/\ufffd{-:u}", id="selector-comment-after-escape"),
     pytest.param("\\2c \t\\2d{b:1", "\\, \\-{b:1}", "\\, \\-{b:1}", id="selector-space-after-escaped-comma"),
