@@ -1765,6 +1765,14 @@ def test_regex_nesting_needs_no_c_stack(shape: str, expected: str) -> None:
             r"search a shorter string or drop the back-reference$",
             id="trail",
         ),
+        pytest.param(
+            "x" * 2000,
+            # a group under {0} emits no instruction, so only unsetting its slots for each search spends steps
+            "replace(/r, concat('(x)\\1', str:padding(40000, '(){0}')), '')",
+            r"regular expression back-references need more than 10200000 backtracking steps \(10000000 plus 100 per "
+            r"character searched in this XPath evaluation\); simplify the pattern or drop the back-reference$",
+            id="group-slots",
+        ),
     ],
 )
 def test_regex_backreference_backtracking_limit_raises(
@@ -2254,6 +2262,15 @@ def test_regex_cache_bounds_what_its_programs_hold_together(
     assert peak < limit << 20
 
 
+def test_regex_backreference_search_grows_linearly(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_padded_backreference, (250, 1000))
+
+
+def _padded_backreference(size: int) -> Callable[[], object]:
+    expression: Final = f"matches(str:padding({size}, 'x'), concat('x(y)\\1', str:padding({size}, '(){{0}}')))"
+    return partial(parse_xml("<r/>").xpath, expression)
+
+
 def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFixture) -> None:
     expected: Final = re.compile(
         re.escape(
@@ -2279,6 +2296,8 @@ def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFix
         pytest.param("((((((((((((a))))))))))))", "\\12|\\123|\\128", "a", id="two-digit-group"),
         pytest.param("(a)", "\\g<01>", "a", id="zero-padded-number"),
         pytest.param("(a)|b", "[\\1]", "ab", id="unmatched-group"),
+        pytest.param("(a)\\1|b", "[\\1]", "aab", id="unmatched-group-after-backreference-match"),
+        pytest.param("(a)\\1c|b", "[\\1]", "aab", id="unmatched-group-after-failed-start"),
         pytest.param("x*", "-", "abc", id="empty-matches"),
         pytest.param("", "$", "ab", id="dollar-literal"),
     ],

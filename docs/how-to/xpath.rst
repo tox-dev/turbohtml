@@ -152,7 +152,8 @@ limits:
   stay far below 100 steps a character. A pattern with counted repeats nested inside each other, or a ``replace`` that
   scans the remaining text again after every match, can exceed that.
 - Back-references such as ``(\w+) \1`` run on a backtracking matcher that keeps at most 655,360 saved positions (10
-  MiB). A back-reference costs a step for each character it compares.
+  MiB). A back-reference costs a step for each character it compares, and each search spends two steps for each group in
+  the pattern before it starts.
 - One XPath evaluation keeps up to 64 compiled patterns for reuse, holding at most 220 MiB together besides the one in
   use: room for four patterns at every limit above. A pattern that does not fit is compiled again each time the
   expression returns to it.

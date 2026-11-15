@@ -282,44 +282,263 @@ static const Py_UCS4 *xml_namespace_uri(void) {
     return xml_uri;
 }
 
-static void resolve_ns(th_tree *tree, th_node *node, const Py_UCS4 *prefix, Py_ssize_t prefix_len, const Py_UCS4 **uri,
-                       Py_ssize_t *uri_len) {
+/* A lookup whose walk to the root would read more attributes than this answers from the attribute scope instead. The
+   elements above a node of ordinary markup carry fewer between them, so there a lookup costs what the walk always did,
+   while N lookups below elements carrying M attributes cost one probe each instead of M reads. */
+#define ATTR_SCOPE_MIN_WALK 32
+
+/* The attributes in force at one node of a tree: for each attribute name, the one the nearest ancestor-or-self element
+   carries. It holds the path from the top of the tree down to the node last asked about and, by attribute atom, the
+   innermost attribute of that name on the path, so asking about the next node re-reads only the elements the two
+   paths do not share. */
+typedef struct {
+    th_node *node;
+    Py_ssize_t mark; /* the undo entries from here up are this node's own attributes */
+} attr_frame;
+
+typedef struct {
+    uint32_t atom;
+    const th_node_attr *outer; /* what the name was bound to above the element */
+} attr_undo;
+
+typedef struct {
+    th_tree *tree;
+    arena *mem;
+    attr_frame *frames; /* the path, the top of the tree first */
+    Py_ssize_t len, cap;
+    const th_node_attr **bound; /* by attribute atom, for the first `atoms` of them */
+    Py_ssize_t atoms;
+    attr_undo *undo;
+    Py_ssize_t undo_len, undo_cap;
+    unsigned char *key; /* "xmlns:" and the UTF-8 prefix being resolved */
+    Py_ssize_t key_cap;
+    uint64_t attr_version; /* the tree's when the path was read; a RELAX NG include edits the schema tree */
+} attr_scope;
+
+/* `items` moved to a larger arena block with room for `need` entries of `size` bytes, the first `used` kept and the
+   rest zeroed, or NULL with the arena marked out of memory. */
+static void *attr_scope_grow(arena *mem, const void *items, Py_ssize_t used, Py_ssize_t *cap, Py_ssize_t need,
+                             size_t size) {
+    size_t grown, bytes;
+    if (!th_grow_cap((size_t)need, (size_t)*cap, 8, size, &grown, &bytes)) { /* GCOVR_EXCL_BR_LINE: bounded by tree */
+        mem->no_memory = 1;                                                  /* GCOVR_EXCL_LINE */
+        return NULL;                                                         /* GCOVR_EXCL_LINE */
+    }
+    unsigned char *fresh = arena_alloc(mem, bytes);
+    if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    if (used > 0) {
+        memcpy(fresh, items, (size_t)used * size);
+    }
+    memset(fresh + (size_t)used * size, 0, bytes - (size_t)used * size);
+    *cap = (Py_ssize_t)grown;
+    return fresh;
+}
+
+/* Make `bound` hold an entry for atom; -1 when the arena is out of memory. */
+static int attr_scope_cover(attr_scope *scope, uint32_t atom) {
+    if ((Py_ssize_t)atom < scope->atoms) {
+        return 0;
+    }
+    const th_node_attr **bound = attr_scope_grow(scope->mem, scope->bound, scope->atoms, &scope->atoms,
+                                                 (Py_ssize_t)atom + 1, sizeof(th_node_attr *));
+    if (bound == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    scope->bound = bound;
+    return 0;
+}
+
+static void attr_scope_unwind(attr_scope *scope, Py_ssize_t mark) {
+    while (scope->undo_len > mark) {
+        const attr_undo *entry = &scope->undo[--scope->undo_len];
+        scope->bound[entry->atom] = entry->outer;
+    }
+}
+
+/* Extend the path by the node its next frame names, binding that node's attributes over the ones above it. */
+static int attr_scope_push(attr_scope *scope) {
+    attr_frame *frame = &scope->frames[scope->len];
+    const th_node *node = frame->node;
+    Py_ssize_t count = node->type == TH_NODE_ELEMENT ? node->attr_count : 0;
+    Py_ssize_t mark = scope->undo_len;
+    if (mark + count > scope->undo_cap) {
+        attr_undo *undo =
+            attr_scope_grow(scope->mem, scope->undo, mark, &scope->undo_cap, mark + count, sizeof(attr_undo));
+        if (undo == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        scope->undo = undo;
+    }
+    /* last to first, so the first of two attributes with one name is the one bound, as a forward scan finds it */
+    for (Py_ssize_t index = count - 1; index >= 0; index--) {
+        TH_WORK_STEP();
+        const th_node_attr *attr = &node->attrs[index];
+        if (attr_scope_cover(scope, attr->name_atom) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            attr_scope_unwind(scope, mark);                 /* GCOVR_EXCL_LINE */
+            return -1;                                      /* GCOVR_EXCL_LINE */
+        }
+        scope->undo[scope->undo_len++] = (attr_undo){attr->name_atom, scope->bound[attr->name_atom]};
+        scope->bound[attr->name_atom] = attr;
+    }
+    frame->mark = mark;
+    scope->len++;
+    return 0;
+}
+
+/* Make the path end at node: keep the frames of the ancestors it shares with the last node, drop the rest and read the
+   nodes below them. The whole path is compared, not only its end, so a node moved since is read again. */
+static int attr_scope_enter(attr_scope *scope, th_node *node) {
+    uint64_t version = th_tree_attr_version(scope->tree);
+    if (scope->attr_version != version) {
+        attr_scope_unwind(scope, 0);
+        scope->len = 0;
+        scope->attr_version = version;
+    }
+    Py_ssize_t depth = 0;
+    for (const th_node *walk = node->parent; walk != NULL; walk = walk->parent) {
+        TH_WORK_STEP();
+        depth++;
+    }
+    if (depth >= scope->cap) {
+        attr_frame *frames =
+            attr_scope_grow(scope->mem, scope->frames, scope->len, &scope->cap, depth + 1, sizeof(attr_frame));
+        if (frames == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        scope->frames = frames;
+    }
+    /* from node up, name the path in every frame that differs from it; the topmost of those is where it diverges */
+    Py_ssize_t shared = depth + 1;
+    for (Py_ssize_t level = depth; level >= 0; level--, node = node->parent) {
+        if (level >= scope->len || scope->frames[level].node != node) {
+            scope->frames[level].node = node;
+            shared = level;
+        }
+    }
+    if (shared < scope->len) {
+        attr_scope_unwind(scope, scope->frames[shared].mark);
+        scope->len = shared;
+    }
+    while (scope->len <= depth) {
+        if (attr_scope_push(scope) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+/* The attribute called name in force at node, or NULL; NULL as well when the arena runs out, which fails the call.
+   Attribute names are interned per tree, so a name no element carries is answered without reading the path. */
+static const th_node_attr *attr_scope_find(attr_scope *scope, th_node *node, const char *name, Py_ssize_t nlen) {
+    uint32_t atom = th_attr_lookup(scope->tree, name, nlen);
+    if (atom == UINT32_MAX) {
+        return NULL;
+    }
+    /* GCOVR_EXCL_BR_START: arena OOM is unforceable */
+    if (attr_scope_enter(scope, node) < 0 || attr_scope_cover(scope, atom) < 0) {
+        /* GCOVR_EXCL_BR_STOP */
+        return NULL; /* GCOVR_EXCL_LINE */
+    }
+    return scope->bound[atom];
+}
+
+/* The attribute called name on node or on its nearest ancestor element that carries one, or NULL. */
+static const th_node_attr *inherited_attr(attr_scope *scope, th_node *node, const char *name, Py_ssize_t nlen) {
+    th_tree *tree = scope->tree;
+    Py_ssize_t walked = 0;
+    for (th_node *walk = node; walk != NULL; walk = walk->parent) {
+        if (walk->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        walked += walk->attr_count;
+        if (walked > ATTR_SCOPE_MIN_WALK) {
+            return attr_scope_find(scope, node, name, nlen);
+        }
+        for (Py_ssize_t index = 0; index < walk->attr_count; index++) {
+            TH_WORK_STEP();
+            Py_ssize_t alen = 0;
+            const char *abytes = th_attr_name(tree, walk->attrs[index].name_atom, &alen);
+            if (alen == nlen && memcmp(abytes, name, (size_t)nlen) == 0) {
+                return &walk->attrs[index];
+            }
+        }
+    }
+    return NULL;
+}
+
+/* resolve_ns from the attribute scope. The declaration of a prefix is the attribute named "xmlns:" and the prefix's
+   UTF-8 bytes, which is how u_eq_utf8 pairs the two on the walk. Out of line so the walk, which runs for every name,
+   keeps its registers. */
+static TH_NOINLINE const th_node_attr *xmlns_scoped(attr_scope *scope, th_node *node, const Py_UCS4 *prefix,
+                                                    Py_ssize_t prefix_len) {
+    Py_ssize_t need = utf8_length(prefix, prefix_len) + 6;
+    if (need > scope->key_cap) {
+        unsigned char *key = attr_scope_grow(scope->mem, NULL, 0, &scope->key_cap, need, 1);
+        if (key == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return NULL;   /* GCOVR_EXCL_LINE */
+        }
+        static const unsigned char xmlns_colon[6] = {'x', 'm', 'l', 'n', 's', ':'};
+        memcpy(key, xmlns_colon, sizeof(xmlns_colon));
+        scope->key = key;
+    }
+    Py_ssize_t nlen = 6;
+    for (Py_ssize_t index = 0; index < prefix_len; index++) {
+        nlen += utf8_encode(prefix[index], scope->key + nlen);
+    }
+    /* no prefix looks up the bare xmlns that binds the default namespace */
+    return attr_scope_find(scope, node, (const char *)scope->key, prefix_len == 0 ? 5 : nlen);
+}
+
+/* The declaration binding prefix at node, read from the ancestors while they carry at most ATTR_SCOPE_MIN_WALK
+   attributes and from the scope past that. Inlined once for the empty prefix, so the common default-namespace lookup
+   compares one fixed name. */
+static inline const th_node_attr *xmlns_decl(attr_scope *scope, th_node *node, const Py_UCS4 *prefix,
+                                             Py_ssize_t prefix_len) {
+    Py_ssize_t prefix_bytes = utf8_length(prefix, prefix_len);
+    Py_ssize_t walked = 0;
+    for (th_node *walk = node; walk != NULL; walk = walk->parent) {
+        if (walk->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        walked += walk->attr_count;
+        if (walked > ATTR_SCOPE_MIN_WALK) {
+            return xmlns_scoped(scope, node, prefix, prefix_len);
+        }
+        for (Py_ssize_t index = 0; index < walk->attr_count; index++) {
+            TH_WORK_STEP();
+            Py_ssize_t alen = 0;
+            const char *abytes = th_attr_name(scope->tree, walk->attrs[index].name_atom, &alen);
+            if (prefix_len == 0 ? alen == 5 && memcmp(abytes, "xmlns", 5) == 0
+                                : alen == prefix_bytes + 6 && memcmp(abytes, "xmlns:", 6) == 0 &&
+                                      u_eq_utf8(prefix, prefix_len, abytes + 6, alen - 6)) {
+                return &walk->attrs[index];
+            }
+        }
+    }
+    return NULL;
+}
+
+static void resolve_ns(attr_scope *scope, th_node *node, const Py_UCS4 *prefix, Py_ssize_t prefix_len,
+                       const Py_UCS4 **uri, Py_ssize_t *uri_len) {
     if (prefix_len == 3 && u_eq_ascii(prefix, 3, "xml")) {
         *uri = xml_namespace_uri();
         *uri_len = sizeof("http://www.w3.org/XML/1998/namespace") - 1;
         return;
     }
-    Py_ssize_t prefix_bytes = utf8_length(prefix, prefix_len);
-    for (th_node *walk = node; walk != NULL; walk = walk->parent) {
-        if (walk->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        for (Py_ssize_t index = 0; index < walk->attr_count; index++) {
-            Py_ssize_t alen = 0;
-            const char *abytes = th_attr_name(tree, walk->attrs[index].name_atom, &alen);
-            if (prefix_len == 0 && alen == 5 && memcmp(abytes, "xmlns", 5) == 0) {
-                *uri = walk->attrs[index].value;
-                *uri_len = walk->attrs[index].value_len;
-                return;
-            }
-            if (prefix_len != 0 && alen == prefix_bytes + 6 && memcmp(abytes, "xmlns:", 6) == 0 &&
-                u_eq_utf8(prefix, prefix_len, abytes + 6, alen - 6)) {
-                *uri = walk->attrs[index].value;
-                *uri_len = walk->attrs[index].value_len;
-                return;
-            }
-        }
-    }
-    *uri = NULL;
-    *uri_len = 0;
+    const th_node_attr *decl =
+        prefix_len == 0 ? xmlns_decl(scope, node, NULL, 0) : xmlns_decl(scope, node, prefix, prefix_len);
+    *uri = decl == NULL ? NULL : decl->value;
+    *uri_len = decl == NULL ? 0 : decl->value_len;
 }
 
-static qname node_qname(th_tree *tree, th_node *element, const Py_UCS4 *name, Py_ssize_t name_len) {
+static qname node_qname(attr_scope *scope, th_node *element, const Py_UCS4 *name, Py_ssize_t name_len) {
     const Py_UCS4 *local, *prefix;
     Py_ssize_t local_len = 0, prefix_len = 0;
     split_prefix(name, name_len, &local, &local_len, &prefix, &prefix_len);
     qname out = {local, local_len, NULL, 0};
-    resolve_ns(tree, element, prefix, prefix_len, &out.uri, &out.uri_len);
+    resolve_ns(scope, element, prefix, prefix_len, &out.uri, &out.uri_len);
     return out;
 }
 
@@ -715,6 +934,9 @@ typedef struct th_schema {
                                 once a merge ran past it */
     Py_ssize_t event_work;   /* merge steps and memoized derivatives of the event in progress, against the limit
                                 rng_event_spend() takes from the choice limit */
+    /* the schema tree's attribute scope; a compile and every validate() call bring their own, so a schema shared
+       across threads stays read-only */
+    attr_scope *tree_ns;
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
@@ -754,7 +976,7 @@ typedef struct th_schema {
    element node of the schema tree before any classification runs, and is_schema_el only ever
    asks about schema element nodes, so the search always hits. */
 static qname schema_direct_qname(const struct th_schema *schema, th_node *node) {
-    return node_qname(schema->tree, node, node->text, node->text_len);
+    return node_qname(schema->tree_ns, node, node->text, node->text_len);
 }
 
 static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
@@ -1395,6 +1617,8 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
     schema->tree = tree;
     schema->source = Py_NewRef(source);
     schema->root = document_root(tree);
+    attr_scope tree_ns = {.tree = tree, .mem = &schema->mem};
+    schema->tree_ns = &tree_ns;
     /* The cache repays its build through the XSD content-model matcher, which re-classifies the same schema
        elements on every particle step; RELAX NG's derivative walk never revisits at that rate, and the gated
        compile benchmark showed the eager build as a pure 8% loss there, so RNG resolves names directly. */
@@ -1406,6 +1630,7 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
     arena_free(&schema->names_mem);
     /* a pattern that exceeds the regex limits sets a ValueError */
     ok = ok && regex_cache_schema(schema, schema->root) == 0;
+    schema->tree_ns = NULL;
     /* a build that lost an arena allocation is partial even when it raised nothing */
     if (schema->mem.no_memory && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: arena OOM */
         PyErr_NoMemory();                             /* GCOVR_EXCL_LINE */
@@ -1462,6 +1687,8 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     local.edecl_items = NULL;
     local.edecl_cap = 0;
     local.attr_names = (named_vec){0};
+    attr_scope tree_ns = {.tree = local.tree, .mem = &local.mem};
+    local.tree_ns = &tree_ns;
     if (local.defines.len > 0) {
         const size_t bytes = (size_t)local.defines.len * sizeof(def_entry);
         local.defines.items = arena_alloc(&local.mem, bytes);
