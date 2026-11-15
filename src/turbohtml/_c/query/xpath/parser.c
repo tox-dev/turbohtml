@@ -1020,8 +1020,21 @@ static int is_bound(const xp_namespace *items, Py_ssize_t len, const Py_UCS4 *pr
     return 0;
 }
 
+static int has_prefixed_name(const xp_program *prog) {
+    for (int32_t index = 0; index < prog->count; index++) {
+        const xn *node = &prog->nodes[index];
+        if (node->kind == XN_STEP && node->test == NT_NAME && node->prefix_len > 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int xp_bind_namespaces(xp_program *prog, xp_prefix_resolve_fn resolve, void *context) {
     bindings_free(&prog->bound);
+    if (!has_prefixed_name(prog)) {
+        return 0;
+    }
     xp_namespace *items = PyMem_Calloc((size_t)prog->count + 1, sizeof(*items));
     if (items == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
@@ -1055,8 +1068,4 @@ int xp_bind_namespaces(xp_program *prog, xp_prefix_resolve_fn resolve, void *con
         bindings_free(&prog->bound);
     }
     return failed ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure */
-}
-
-const xp_namespaces *xp_program_namespaces(const xp_program *prog) {
-    return prog->bound.len > 0 ? &prog->bound : NULL;
 }

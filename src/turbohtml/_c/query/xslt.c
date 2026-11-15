@@ -2060,13 +2060,11 @@ static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *c
     if (prog->has_variables) {
         scope_bindings(eng, bindings, &vars);
     }
-    const xp_namespaces *namespaces = xp_program_namespaces(prog);
     const char *feature = NULL;
-    int status = condition
-                     ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, namespaces,
-                                            xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature)
-                     : xp_eval_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, namespaces,
-                                  xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature);
+    int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
+                                                  xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature)
+                           : xp_eval_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
+                                        xslt_extension, eng, &eng->src_langs, &eng->src_ids, out, &feature);
     if (bindings != storage) {
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }

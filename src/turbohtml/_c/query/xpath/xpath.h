@@ -143,8 +143,6 @@ typedef int (*xp_prefix_resolve_fn)(void *context, const Py_UCS4 *prefix, Py_ssi
    whose prefixes are all unbound, keeps none. Replaces any earlier binding. Returns 0, or -1 with a Python error
    set. */
 int xp_bind_namespaces(xp_program *prog, xp_prefix_resolve_fn resolve, void *context);
-/* The bindings xp_bind_namespaces kept, or NULL when there are none. */
-const xp_namespaces *xp_program_namespaces(const xp_program *prog);
 
 /* A user extension-function call: resolve `name` against the registered
    extensions and run it over `args` with the context item (`context.node`, or the
