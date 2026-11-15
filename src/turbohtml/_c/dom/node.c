@@ -1529,7 +1529,8 @@ TH_NODE_API(static, PyObject *, node_rewrite_links, (PyObject * self, PyObject *
 
 PyDoc_STRVAR(resolve_links_doc, "resolve_links(base_url, /)\n--\n\n"
                                 "Rewrite every link in this node and its subtree to an absolute URL, in\n"
-                                "place, using stdlib urllib.parse.urljoin.\n\n"
+                                "place, as urllib.parse.urljoin does except for the authority forms a browser reads\n"
+                                "differently.\n\n"
                                 ":param base_url: the base each relative URL is resolved against.");
 
 TH_NODE_API(static, PyObject *, node_resolve_links, (PyObject * self, PyObject *base_url), (self, base_url),

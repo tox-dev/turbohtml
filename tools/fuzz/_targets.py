@@ -35,6 +35,7 @@ from turbohtml import clean
 # the harness targets the private URL/IDNA C bindings (th_url_split/join/percent, th_url_to_ascii) by design
 from turbohtml._html import (  # ruff:ignore[import-private-name]  # simplint: ignore[private-import-path]  # native fuzz probes
     _url_join,
+    _url_join_link,
     _url_percent_decode,
     _url_percent_encode,
     _url_split,
@@ -255,6 +256,8 @@ def _url(data: bytes) -> None:
         _url_percent_encode(text, set_id)
     _url_join("https://a.example/b/c?d#e", text)
     _url_join(text, "https://a.example/b/c?d#e")
+    _url_join_link("https://a.example/b/c?d#e", text)
+    _url_join_link(text, "https://a.example/b/c?d#e")
     linkify(text)
 
 
