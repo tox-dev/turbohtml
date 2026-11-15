@@ -902,7 +902,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
                 break; /* void elements have no children or end tag */
             }
-            if (!(st->inner && node == root) && ser_needs_leading_newline(tree, node)) {
+            if (!(st->inner && node == root) && ser_leading_newline_at(tree, node, opts->strip_comments)) {
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node, tree->scripting)) {
@@ -991,8 +991,11 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
            build, since nothing caps its depth. */
         int trailing_formatting = node->last_child != NULL && mini_trailing_formatting(node);
         while (node != root) {
-            if (node->next_sibling != NULL) {
-                node = node->next_sibling;
+            /* a stripped comment is invisible to the reparse, so the walk steps over it instead of
+               resetting the trailing state */
+            th_node *sibling = mini_next_content(node, opts->strip_comments);
+            if (sibling != NULL) {
+                node = sibling;
                 break;
             }
             trailing_formatting |= node->type == TH_NODE_ELEMENT && (node->tag_flags & TH_TAG_FORMATTING);

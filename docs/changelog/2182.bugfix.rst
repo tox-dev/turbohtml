@@ -1,0 +1,2 @@
+Minifying a document again no longer changes the output: end tags and the body start tag stay where the reparse needs
+them.
