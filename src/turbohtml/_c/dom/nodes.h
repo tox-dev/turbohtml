@@ -709,6 +709,7 @@ static inline Py_ssize_t find_attr_index(th_tree *tree, th_node *node, const cha
 /* The attribute carrying name_atom on a node, or NULL when absent. */
 static inline const th_node_attr *find_node_attr(th_node *node, uint32_t atom) {
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        TH_WORK_STEP();
         if (node->attrs[index].name_atom == atom) {
             return &node->attrs[index];
         }
