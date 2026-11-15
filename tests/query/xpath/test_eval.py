@@ -905,6 +905,96 @@ def test_position_test_from_many_contexts_below_the_node_limit() -> None:
     assert len(node_list(_siblings(2000).xpath("//c/following-sibling::c[position() mod 2 = 0]"))) == 1998
 
 
+_SIBLING_COUNT: Final[int] = 12
+
+
+def test_five_disjoint_runs_from_many_contexts_keep_the_odd_offsets() -> None:
+    # five ordering runs in one predicate fill the run list past its first capacity; each context keeps the siblings
+    # at the odd offsets 1 to 9 from it, and the walks share those members
+    count: Final = 12
+    runs: Final = " or ".join(f"(position() > {low} and position() < {low + 2})" for low in (0, 2, 4, 6, 8))
+    kept: Final = sorted({
+        context + offset for context in range(count) for offset in (1, 3, 5, 7, 9) if context + offset < count
+    })
+    result = node_list(_siblings(count).xpath(f"//c/following-sibling::c[{runs}]"))
+    assert sorted(_k_attributes(result)) == sorted(str(index) for index in kept)
+
+
+def _k_attributes(result: XPathResult) -> list[str]:
+    # the k attribute of each element in a node-set, in the order the expression returned them
+    return [str(node.attrs["k"]) for node in node_list(result) if isinstance(node, Element)]
+
+
+@pytest.mark.parametrize(
+    ("predicate", "value_predicate"),
+    [
+        pytest.param("position() > 1 and position() < $v", "position() > 1 and position() < 4", id="second-operand"),
+        pytest.param("position() < $v and position() > 1", "position() < 4 and position() > 1", id="first-operand"),
+        pytest.param("not(position() < $v)", "not(position() < 4)", id="negated"),
+    ],
+)
+def test_node_set_operand_in_a_positional_test_matches_its_value(predicate: str, value_predicate: str) -> None:
+    # a node-set compares by the string values of its members, which the per-context evaluation reads as the number 4
+    children: Final = "".join(f'<c k="{index}"/>' for index in range(_SIBLING_COUNT))
+    doc: Final = parse_xml(f"<r><v>4</v>{children}</r>")
+    bound: Final = one(doc, "//v")
+    result = doc.xpath(f"//c/following-sibling::c[{predicate}]", v=bound)
+    expected = doc.xpath(f"//c/following-sibling::c[{value_predicate}]")
+    assert _k_attributes(result) == _k_attributes(expected)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "keep"),
+    [
+        pytest.param("position() < 3 or (position() > 2 and position() < 4)", lambda k: k < 4, id="adjacent-runs"),
+        pytest.param("position() < 6 or (position() > 1 and position() < 4)", lambda k: k < 6, id="contained-run"),
+        pytest.param("position() < 4 or (position() > 1 and position() < 7)", lambda k: k < 7, id="overlapping-runs"),
+        pytest.param("position() < 2 or position() > 3", lambda k: k < 2 or k > 3, id="gap-between-runs"),
+        pytest.param("position() > 9 or position() < 2", lambda k: k < 2 or k > 9, id="late-run-first"),
+        pytest.param(
+            "position() < 3 or (position() > 4 and position() < 6) or position() > 8",
+            lambda k: k < 3 or 4 < k < 6 or k > 8,
+            id="three-runs",
+        ),
+        pytest.param("(position() + 1) < 4", lambda k: k + 1 < 4, id="add-left"),
+        pytest.param("2 < (position() + 1)", lambda k: k + 1 > 2, id="add-right"),
+        pytest.param("(position() - 1) < 3", lambda k: k - 1 < 3, id="subtract-left"),
+        pytest.param("(2 * position()) < 8", lambda k: 2 * k < 8, id="multiply-left"),
+        pytest.param("position() div 2 < 2", lambda k: k / 2 < 2, id="divide-left"),
+        pytest.param("10 - position() < 7", lambda k: 10 - k < 7, id="subtract-from-constant"),
+        pytest.param("-position() < -2", lambda k: -k < -2, id="negate-left"),
+        pytest.param("3 >= position()", lambda k: k <= 3, id="flipped-ge"),
+        pytest.param("2 <= position()", lambda k: k >= 2, id="flipped-le"),
+        pytest.param("4 > position()", lambda k: k < 4, id="flipped-gt"),
+        pytest.param("2 < position()", lambda k: k > 2, id="flipped-lt"),
+        pytest.param("position() <= 1", lambda k: k <= 1, id="le-first"),
+        pytest.param("position() >= 5", lambda k: k >= 5, id="ge-tail"),
+    ],
+)
+def test_ordering_predicate_over_overlapping_siblings_keeps_its_offsets(
+    predicate: str, keep: Callable[[int], bool]
+) -> None:
+    # a predicate of ordering comparisons and arithmetic, with unions of runs, from every context of a shared walk
+    kept: Final = {
+        index + offset for index in range(_SIBLING_COUNT) for offset in range(1, _SIBLING_COUNT - index) if keep(offset)
+    }
+    result = _siblings(_SIBLING_COUNT).xpath(f"//c/following-sibling::c[{predicate}]")
+    assert sorted(_k_attributes(result)) == sorted(str(index) for index in kept)
+
+
+def test_chained_predicates_over_overlapping_siblings_keep_their_offsets() -> None:
+    # the second predicate counts the positions the first one kept, in each context's stretch: all but the first
+    expected: Final = sorted({
+        index + offset
+        for index in range(_SIBLING_COUNT)
+        for offset in sorted(k for k in range(1, _SIBLING_COUNT - index) if k < 2 or k > 4)[1:]
+    })
+    result = _siblings(_SIBLING_COUNT).xpath(
+        "//c/following-sibling::c[position() < 2 or position() > 4][position() > 1]"
+    )
+    assert sorted(_k_attributes(result)) == sorted(str(index) for index in expected)
+
+
 @pytest.mark.parametrize(
     "axis",
     [
@@ -930,6 +1020,35 @@ def test_failing_predicate_in_a_shared_walk_raises(axis: str, predicates: str) -
     # the regular expression fails to compile on each node, which the walk reports from the predicate it is in
     with pytest.raises(re.error):
         _siblings(12).xpath(f"//*/{axis}{predicates}")
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "following::*",
+        "following-sibling::*",
+        "preceding::*",
+        "preceding-sibling::*",
+        "ancestor::*",
+        "ancestor-or-self::*",
+        "descendant::*",
+        "descendant-or-self::*",
+        "descendant-or-self::node()",
+        "ancestor-or-self::node()",
+    ],
+)
+def test_unbound_variable_in_a_predicate_ahead_of_a_position_test_raises(axis: str) -> None:
+    # the predicate ahead of the position test runs on each node without a Python call, so the walk reports the unbound
+    # variable from the predicate it is in, rather than a per-context evaluation
+    with pytest.raises(ValueError, match="unbound variable"):
+        _siblings(12).xpath(f"//*/{axis}[true() and $missing][position() < 5]")
+
+
+@pytest.mark.parametrize("step", ["descendant-or-self::node()", "ancestor-or-self::node()"])
+def test_unbound_variable_on_an_attribute_stretch_raises(step: str) -> None:
+    # an attribute's own stretch holds only the attribute, which the predicate ahead of the position test judges
+    with pytest.raises(ValueError, match="unbound variable"):
+        _siblings(12).xpath(f"//@k/{step}[true() and $missing][position() < 5]")
 
 
 def test_context_relative(doc: turbohtml.Node) -> None:
