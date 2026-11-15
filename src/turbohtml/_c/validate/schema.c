@@ -349,6 +349,7 @@ static int is_schema_el(const struct th_schema *schema, th_node *node, const cha
    `local`, or NULL. */
 static th_node *first_schema_child(const struct th_schema *schema, th_node *node, const char *ns, const char *local) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
         if (is_schema_el(schema, child, ns, local)) {
             return child;
         }
@@ -733,6 +734,9 @@ typedef struct th_schema {
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
     struct xall_entry *all_entries;
     size_t all_count, all_cap;
+    /* the children XSD validation asks a schema element for, sorted by node pointer for xsd_child_entry */
+    struct xchild_entry *child_entries;
+    size_t child_count, child_cap;
     /* the xmlns declarations in scope on the instance walk of one validate() call */
     nsscope ns;
     int named_all; /* a content model reaches an xs:all through a group ref, so validation resolves group refs */

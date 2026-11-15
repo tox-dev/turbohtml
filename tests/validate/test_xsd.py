@@ -852,6 +852,134 @@ def test_nested_repeats_of_an_empty_group_scale_linearly(work_steps: WorkSteps) 
 
 
 @pytest.mark.parametrize(
+    ("declaration", "definitions", "item"),
+    [
+        pytest.param("<xs:complexType>{children}<xs:sequence/></xs:complexType>", "", "<g/>", id="content-model"),
+        pytest.param(
+            '<xs:complexType><xs:sequence>{children}<xs:element name="x" minOccurs="0"/></xs:sequence>'
+            "</xs:complexType>",
+            "",
+            "<g/>",
+            id="sequence-children",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:choice>{children}<xs:element name="x" minOccurs="0"/></xs:choice></xs:complexType>',
+            "",
+            "<g/>",
+            id="choice-children",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:complexContent>{children}<xs:extension base="base"/></xs:complexContent>'
+            "</xs:complexType>",
+            '<xs:complexType name="base"/>',
+            "<g/>",
+            id="complex-content",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:simpleContent>{children}<xs:extension base="xs:string"/></xs:simpleContent>'
+            "</xs:complexType>",
+            "",
+            "<g>text</g>",
+            id="simple-content",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:group ref="group"/></xs:complexType>',
+            '<xs:group name="group">{children}<xs:sequence/></xs:group>',
+            "<g/>",
+            id="group-definition",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:attributeGroup ref="group"/></xs:complexType>',
+            '<xs:attributeGroup name="group">{children}<xs:attribute name="a"/></xs:attributeGroup>',
+            '<g a=""/>',
+            id="attribute-group-definition",
+        ),
+        pytest.param(
+            '<xs:complexType><xs:attribute name="a">{children}<xs:simpleType><xs:restriction base="xs:int"/>'
+            "</xs:simpleType></xs:attribute></xs:complexType>",
+            "",
+            '<g a="1"/>',
+            id="attribute-declaration",
+        ),
+        pytest.param("{children}<xs:complexType/>", "", "<g/>", id="element-declaration"),
+    ],
+)
+def test_schema_children_are_not_searched_per_element(
+    work_steps: WorkSteps, declaration: str, definitions: str, item: str
+) -> None:
+    # Each <g> reads the children of its declaration and of the definitions it reaches. With as many unrelated children
+    # as there are <g> elements, a scan per <g> grows as the square of the count. The schema is compiled inside the
+    # measured call as well, so the count still grows on a path whose validation counts no steps.
+    def build(count: int) -> Callable[[], None]:
+        children = "<ignored/>" * count
+        source: Final = (
+            f'<xs:schema {_XS}>{definitions.format(children=children)}<xs:element name="r">'
+            "<xs:complexType><xs:sequence>"
+            f'<xs:element name="g" maxOccurs="unbounded">{declaration.format(children=children)}</xs:element>'
+            "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+        )
+        document: Final = parse_xml(f"<r>{item * count}</r>")
+
+        def validate() -> None:
+            assert XMLSchema(source).validate(document).valid
+
+        return validate
+
+    work_steps.assert_linear(build, (100, 400))
+
+
+@pytest.mark.parametrize(
+    ("content", "xml", "messages"),
+    [
+        pytest.param(
+            '<xs:choice><xs:element name="b"/></xs:choice><ignored/><xs:sequence><xs:element name="a"/></xs:sequence>'
+            '<xs:sequence><xs:element name="c"/></xs:sequence>',
+            "<r><a/></r>",
+            [],
+            id="first-sequence-before-a-choice",
+        ),
+        pytest.param(
+            '<xs:group ref="late"/><xs:all><xs:element name="a"/></xs:all>',
+            "<r><b/></r>",
+            ["element 'b' is not allowed here", "required element 'a' is missing"],
+            id="all-before-a-group",
+        ),
+        pytest.param(
+            '<xs:annotation/><xs:group ref="late"/><!-- the model --><xs:group ref="unused"/>',
+            "<r><b/></r>",
+            [],
+            id="first-group",
+        ),
+        pytest.param(
+            '<xs:attribute name="z" use="required"/><ignored/>text<xs:attributeGroup ref="attrs"/><xs:complexContent>'
+            '<xs:restriction base="other"/><xs:extension base="base"/></xs:complexContent>'
+            '<xs:attribute name="a" use="required"/>',
+            "<r/>",
+            [
+                "required attribute 'z' is missing",
+                "required attribute 'grouped' is missing",
+                "required attribute 'inherited' is missing",
+                "required attribute 'a' is missing",
+            ],
+            id="attribute-declarations-in-document-order",
+        ),
+    ],
+)
+def test_schema_children_found_as_the_schema_orders_them(content: str, xml: str, messages: list[str]) -> None:
+    result: Final = check(
+        f'<xs:schema {_XS}><xs:group name="late"><ignored/><xs:choice><xs:element name="b"/></xs:choice>'
+        '<xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:group name="unused"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
+        '<xs:complexType name="base"><xs:attribute name="inherited" use="required"/></xs:complexType>'
+        '<xs:complexType name="other"><xs:attribute name="skipped" use="required"/></xs:complexType>'
+        '<xs:attributeGroup name="attrs"><xs:attribute name="grouped" use="required"/></xs:attributeGroup>'
+        f'<xs:element name="r"><xs:complexType>{content}</xs:complexType></xs:element></xs:schema>',
+        xml,
+    )
+    assert [error.message for error in result.errors] == messages
+
+
+@pytest.mark.parametrize(
     ("value", "valid"),
     [
         pytest.param("", True, id="matches-every-pattern"),

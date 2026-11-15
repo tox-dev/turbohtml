@@ -144,8 +144,75 @@ static int qname_eq(const qname *name, const edecl *want) {
     return u_eq_u(name->uri, name->uri_len, want->uri, want->uri_len);
 }
 
-/* Resolve a group ref particle to the group's model-group child (sequence/choice/all). */
-static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
+/* The children validation asks a schema element for by name. xsd_cache_facets enters each one under its parent, so a
+   lookup no longer scans the parent's children, which cost every instance element that looked as many steps as the
+   schema had children. */
+enum {
+    XSD_COMPLEX_TYPE,
+    XSD_SIMPLE_TYPE,
+    XSD_COMPLEX_CONTENT,
+    XSD_SIMPLE_CONTENT,
+    XSD_EXTENSION,
+    XSD_RESTRICTION,
+    XSD_SEQUENCE, /* the content models, in the order xsd_content_model prefers them */
+    XSD_CHOICE,
+    XSD_ALL,
+    XSD_GROUP,
+    XSD_ELEMENT,
+    XSD_ANY,
+    XSD_ATTRIBUTE,
+    XSD_ATTRIBUTE_GROUP,
+    XSD_CHILD_KINDS
+};
+
+static const char *const XSD_CHILD_NAMES[XSD_CHILD_KINDS] = {
+    "complexType", "simpleType", "complexContent", "simpleContent", "extension", "restriction", "sequence",
+    "choice",      "all",        "group",          "element",       "any",       "attribute",   "attributeGroup"};
+
+#define XSD_NO_ENTRY SIZE_MAX
+
+/* A child of a schema element that validation reads, with the kind it was classified under. */
+typedef struct {
+    th_node *node;
+    int kind;
+} xchild;
+
+typedef struct xchild_entry {
+    th_node *node;
+    th_node *first[XSD_CHILD_KINDS]; /* the first child of each name */
+    th_node *model_group;            /* the first sequence, choice or all child, whichever leads */
+    xchild *particles;               /* the element, model group, group and any children, in document order */
+    size_t particle_count, particle_cap;
+    xchild *attrs; /* every child xsd_collect_attrs reads, in document order */
+    size_t attr_count, attr_cap;
+} xchild_entry;
+
+/* The entry of a schema element; a node with none of these children has no entry and reads as the empty one. The
+   entries are sorted by node once xsd_cache_facets has filled them, so only validation may ask after that. */
+static const xchild_entry *xsd_child_entry(const th_schema *schema, const th_node *node) {
+    static const xchild_entry childless = {0};
+    size_t low = 0, high = schema->child_count;
+    while (low < high) {
+        const size_t middle = low + (high - low) / 2;
+        if ((uintptr_t)schema->child_entries[middle].node < (uintptr_t)node) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    if (low < schema->child_count && schema->child_entries[low].node == node) {
+        return &schema->child_entries[low];
+    }
+    return &childless;
+}
+
+/* The first XSD child of `node` of the kind XSD_CHILD_NAMES names, or NULL. */
+static th_node *xsd_child(const th_schema *schema, const th_node *node, int kind) {
+    return xsd_child_entry(schema, node)->first[kind];
+}
+
+/* The named group a group ref particle resolves to, or NULL for a group without ref, which has no model group. */
+static th_node *xsd_group_target(th_schema *schema, th_node *group_ref) {
     Py_ssize_t ref_len = 0;
     const Py_UCS4 *ref = xsd_attr(schema->tree, group_ref, "ref", &ref_len);
     if (ref == NULL) { /* compile accepts a group without ref, which has no model group to resolve */
@@ -155,13 +222,28 @@ static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
     Py_ssize_t local_len = 0, prefix_len = 0;
     split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
     /* xsd_compile has already rejected a group ref that resolves to nothing */
-    th_node *group = named_find(&schema->groups, local, local_len);
+    return named_find(&schema->groups, local, local_len);
+}
+
+/* The model group of a group ref particle, found by scanning the group's children. The compile walks ask before the
+   child entries are sorted, so they cannot use xsd_group_model. */
+static th_node *xsd_scan_group_model(th_schema *schema, th_node *group_ref) {
+    th_node *group = xsd_group_target(schema, group_ref);
+    if (group == NULL) {
+        return NULL;
+    }
     for (th_node *child = group->first_child; child != NULL; child = child->next_sibling) {
         if (xsd_is_particle(schema, child, XSD_MODEL_GROUPS, 3)) {
             return child;
         }
     } /* GCOVR_EXCL_LINE: llvm miscredits this loop-exit brace when the group has no model group */
     return NULL;
+}
+
+/* Resolve a group ref particle to the group's model-group child (sequence/choice/all). */
+static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
+    th_node *group = xsd_group_target(schema, group_ref);
+    return group == NULL ? NULL : xsd_child_entry(schema, group)->model_group;
 }
 
 /* The xs:all a group ref resolves to, or NULL when its model group is not an xs:all. */
@@ -203,9 +285,10 @@ static void xsd_collect_edecls(th_schema *schema, th_node *particle, edecl_vec *
         }
         return;
     }
-    for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
-        if (xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
-            xsd_collect_edecls(schema, child, vec);
+    const xchild_entry *members = xsd_child_entry(schema, particle);
+    for (size_t index = 0; index < members->particle_count; index++) {
+        if (members->particles[index].kind != XSD_ANY) {
+            xsd_collect_edecls(schema, members->particles[index].node, vec);
         }
     }
 }
@@ -435,17 +518,14 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         if (branch.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return;                  /* GCOVR_EXCL_LINE */
         }
-        for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
+        const xchild_entry *members = xsd_child_entry(schema, particle);
+        for (size_t index = 0; index < members->particle_count; index++) {
             /* wildcards are not matched: xs:any stays the branch that consumes nothing, without a descent */
-            if (is_schema_el(schema, child, XSD_NS, "any")) {
+            if (members->particles[index].kind == XSD_ANY) {
                 posset_or(out, in);
                 continue;
             }
-            /* an annotation is no branch, and xsd_check_chains bounds only the group refs that particles reach */
-            if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
-                continue;
-            }
-            xsd_match_occurs(schema, inst, child, children, in, &branch, 0);
+            xsd_match_occurs(schema, inst, members->particles[index].node, children, in, &branch, 0);
             posset_or(out, &branch);
         }
         posset_free(schema, &branch);
@@ -459,11 +539,12 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
     }
     posset_copy(&cur, in);
     const int in_all = is_schema_el(schema, particle, XSD_NS, "all");
-    for (th_node *child = particle->first_child; child != NULL; child = child->next_sibling) {
-        if (!xsd_is_particle(schema, child, XSD_PARTICLES, 5)) {
+    const xchild_entry *members = xsd_child_entry(schema, particle);
+    for (size_t index = 0; index < members->particle_count; index++) {
+        if (members->particles[index].kind == XSD_ANY) {
             continue;
         }
-        xsd_match_occurs(schema, inst, child, children, &cur, &next, in_all);
+        xsd_match_occurs(schema, inst, members->particles[index].node, children, &cur, &next, in_all);
         posset spare = cur;
         cur = next;
         next = spare;
@@ -800,11 +881,14 @@ static int xsd_gather_facets(th_schema *schema, xfacet_entry *entry, int content
 static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
 static int xsd_check_all_slot(th_schema *schema, th_node *node);
 static int xsd_record_facets(th_schema *schema, th_node *node, int content);
+static int xsd_child_kind(const qname *name);
+static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int kind);
 
 /* XSD 1.0 All Group Limited: an xs:all particle, written or reached through a group ref, occurs once, because its
    members are matched once. */
 static int xsd_check_all_occurs(th_schema *schema, th_node *particle) {
-    th_node *model = is_schema_el(schema, particle, XSD_NS, "group") ? xsd_group_model(schema, particle) : particle;
+    th_node *model =
+        is_schema_el(schema, particle, XSD_NS, "group") ? xsd_scan_group_model(schema, particle) : particle;
     if (model == NULL || !is_schema_el(schema, model, XSD_NS, "all") || xsd_occurs_max(schema->tree, particle) == 1) {
         return 0;
     }
@@ -833,13 +917,20 @@ static int xsd_check_group_model(th_schema *schema, th_node *group) {
     return 0;
 }
 
-/* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
-static int xsd_cache_facets(th_schema *schema, th_node *node) {
+/* The reference checks and the child entries ride the facet walk so each node's cached qname (kind 0 always builds it)
+   is looked up once. indexed says whether validation reads the children of node's parent, so only those are entered
+   under it; parent_entry is the slot xsd_record_child keeps for that entry. */
+static int xsd_cache_facets(th_schema *schema, th_node *node, size_t *parent_entry, int indexed) {
     const qname *name = schema_node_qname(schema, node);
     const int xsd = is_xsd_uri(name->uri, name->uri_len);
+    const int kind = xsd ? xsd_child_kind(name) : XSD_CHILD_KINDS;
     if (xsd) {
         if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
             return -1;
+        }
+        const int recorded = indexed && kind != XSD_CHILD_KINDS;
+        if (recorded && xsd_record_child(schema, parent_entry, node, kind) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;                                                            /* GCOVR_EXCL_LINE */
         }
         const int content = u_eq_ascii(name->local, name->local_len, "simpleContent");
         if (content || u_eq_ascii(name->local, name->local_len, "simpleType")) {
@@ -856,8 +947,10 @@ static int xsd_cache_facets(th_schema *schema, th_node *node) {
         }
     }
     const int group = xsd && u_eq_ascii(name->local, name->local_len, "group");
+    const int lookups = kind != XSD_CHILD_KINDS && kind != XSD_SIMPLE_TYPE && kind != XSD_ANY;
+    size_t entry = XSD_NO_ENTRY;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && xsd_cache_facets(schema, child) < 0) {
+        if (child->type == TH_NODE_ELEMENT && xsd_cache_facets(schema, child, &entry, lookups) < 0) {
             return -1;
         }
     }
@@ -883,7 +976,8 @@ static int xsd_is_content_slot(th_schema *schema, th_node *node) {
 static int xsd_check_all_slot(th_schema *schema, th_node *node) {
     th_node *parent = node->parent;
     if (is_schema_el(schema, node, XSD_NS, "group")) {
-        if (xsd_group_all(schema, node) == NULL) {
+        th_node *model = xsd_scan_group_model(schema, node);
+        if (model == NULL || !is_schema_el(schema, model, XSD_NS, "all")) {
             return 0;
         }
         if (xsd_is_content_slot(schema, parent)) {
@@ -1047,6 +1141,87 @@ static int xsd_record_facets(th_schema *schema, th_node *node, int content) {
     xfacet_entry *entry = &schema->facet_entries[schema->facet_count++];
     *entry = (xfacet_entry){.node = node, .base_id = -1};
     return xsd_gather_facets(schema, entry, content);
+}
+
+/* Room for one more element in an arena array that doubles; NULL when the arena or the size arithmetic fails. */
+static void *xsd_grow(th_schema *schema, void *items, size_t count, size_t *cap, size_t elem_size) {
+    if (count < *cap) {
+        return items;
+    }
+    size_t capacity, bytes;
+    if (!th_grow_cap(count + 1, *cap, 8, elem_size, &capacity, &bytes)) { /* GCOVR_EXCL_BR_LINE: size overflow */
+        return NULL;                                                      /* GCOVR_EXCL_LINE */
+    }
+    void *grown = arena_alloc(&schema->mem, bytes);
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    if (count > 0) {
+        memcpy(grown, items, count * elem_size);
+    }
+    *cap = capacity;
+    return grown;
+}
+
+/* The XSD_CHILD_NAMES kind of an XSD element's local name, or XSD_CHILD_KINDS for a name validation never looks up. */
+static int xsd_child_kind(const qname *name) {
+    for (int kind = 0; kind < XSD_CHILD_KINDS; kind++) {
+        if ((Py_UCS4)(unsigned char)XSD_CHILD_NAMES[kind][0] == name->local[0] &&
+            u_eq_ascii(name->local, name->local_len, XSD_CHILD_NAMES[kind])) {
+            return kind;
+        }
+    }
+    return XSD_CHILD_KINDS;
+}
+
+static int xsd_push_child(th_schema *schema, xchild **items, size_t *count, size_t *cap, th_node *child, int kind) {
+    xchild *grown = xsd_grow(schema, *items, *count, cap, sizeof(xchild));
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    *items = grown;
+    grown[*count].node = child;
+    grown[*count].kind = kind;
+    (*count)++;
+    return 0;
+}
+
+/* Enter `child`, an XSD element of this name, into its parent's entry when validation looks for that name. *slot is the
+   index of that entry, XSD_NO_ENTRY until the parent's first such child opens it. */
+static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int kind) {
+    if (*slot == XSD_NO_ENTRY) {
+        xchild_entry *entries =
+            xsd_grow(schema, schema->child_entries, schema->child_count, &schema->child_cap, sizeof(xchild_entry));
+        if (entries == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+        schema->child_entries = entries;
+        *slot = schema->child_count++;
+        memset(&entries[*slot], 0, sizeof(xchild_entry));
+        entries[*slot].node = child->parent;
+    }
+    xchild_entry *entry = &schema->child_entries[*slot];
+    if (entry->first[kind] == NULL) {
+        entry->first[kind] = child;
+    }
+    if (entry->model_group == NULL && (kind == XSD_SEQUENCE || kind == XSD_CHOICE || kind == XSD_ALL)) {
+        entry->model_group = child;
+    }
+    if (kind == XSD_ATTRIBUTE || kind == XSD_ATTRIBUTE_GROUP || kind == XSD_COMPLEX_CONTENT ||
+        kind == XSD_SIMPLE_CONTENT) {
+        return xsd_push_child(schema, &entry->attrs, &entry->attr_count, &entry->attr_cap, child, kind);
+    }
+    if (kind == XSD_ELEMENT || kind == XSD_ANY || kind == XSD_SEQUENCE || kind == XSD_CHOICE || kind == XSD_ALL ||
+        kind == XSD_GROUP) {
+        return xsd_push_child(schema, &entry->particles, &entry->particle_count, &entry->particle_cap, child, kind);
+    }
+    return 0;
+}
+
+static int xsd_child_order(const void *left, const void *right) {
+    const uintptr_t left_node = (uintptr_t)((const xchild_entry *)left)->node;
+    const uintptr_t right_node = (uintptr_t)((const xchild_entry *)right)->node;
+    return (left_node > right_node) - (left_node < right_node);
 }
 
 static int xsd_facet_order(const void *left, const void *right) {
@@ -1335,7 +1510,7 @@ static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl
     }
     Py_ssize_t type_len = 0;
     const Py_UCS4 *type = xsd_attr(tree, effective, "type", &type_len);
-    th_node *inline_type = first_schema_child(schema, effective, XSD_NS, "simpleType");
+    th_node *inline_type = xsd_child(schema, effective, XSD_SIMPLE_TYPE);
     if (type != NULL) {
         th_node *named = NULL;
         const Py_UCS4 *local, *prefix, *uri;
@@ -1371,8 +1546,16 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
     th_tree *tree = schema->tree;
     /* Only a complexType has a base. An attribute group or a derivation holds attributes and attribute group refs, so
        from there the walk follows nothing but the refs the attribute group cycle check covers. */
-    for (th_node *child = scope->first_child; child != NULL; child = child->next_sibling) {
-        if (is_schema_el(schema, child, XSD_NS, "attribute")) {
+    const xchild_entry *children = xsd_child_entry(schema, scope);
+    th_node *content = NULL;
+    if (is_schema_el(schema, scope, XSD_NS, "complexType")) { /* the one xsd_type_content picks */
+        content = children->first[XSD_COMPLEX_CONTENT] != NULL ? children->first[XSD_COMPLEX_CONTENT]
+                                                               : children->first[XSD_SIMPLE_CONTENT];
+    }
+    for (size_t index = 0; index < children->attr_count; index++) {
+        th_node *child = children->attrs[index].node;
+        const int kind = children->attrs[index].kind;
+        if (kind == XSD_ATTRIBUTE) {
             xsd_validate_attr_decl(ctx, instance, child, attrs);
             th_node *eff = child;
             Py_ssize_t ref_len = 0;
@@ -1390,7 +1573,7 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 edecl item = {NULL, 0, name, name_len, eff};
                 edecl_push(schema, declared, &item);
             }
-        } else if (is_schema_el(schema, child, XSD_NS, "attributeGroup")) {
+        } else if (kind == XSD_ATTRIBUTE_GROUP) {
             Py_ssize_t ref_len = 0;
             const Py_UCS4 *ref = xsd_attr(tree, child, "ref", &ref_len);
             if (ref != NULL) {
@@ -1400,12 +1583,10 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 /* xsd_compile has already rejected an attributeGroup ref that resolves to nothing */
                 xsd_collect_attrs(ctx, instance, named_find(&schema->attr_groups, local, local_len), declared, attrs);
             }
-        } else if ((is_schema_el(schema, child, XSD_NS, "complexContent") ||
-                    is_schema_el(schema, child, XSD_NS, "simpleContent")) &&
-                   is_schema_el(schema, scope, XSD_NS, "complexType") && child == xsd_type_content(schema, scope)) {
-            th_node *derivation = first_schema_child(schema, child, XSD_NS, "extension");
+        } else if (child == content) {
+            th_node *derivation = xsd_child(schema, child, XSD_EXTENSION);
             if (derivation == NULL) {
-                derivation = first_schema_child(schema, child, XSD_NS, "restriction");
+                derivation = xsd_child(schema, child, XSD_RESTRICTION);
             }
             if (derivation != NULL) {
                 Py_ssize_t base_len = 0;
@@ -1498,11 +1679,10 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
 /* ---- complex-type content ---- */
 
 static th_node *xsd_content_model(const th_schema *schema, th_node *scope) {
-    static const char *const models[] = {"sequence", "choice", "all", "group"};
-    for (size_t index = 0; index < sizeof(models) / sizeof(models[0]); index++) {
-        th_node *model = first_schema_child(schema, scope, XSD_NS, models[index]);
-        if (model != NULL) {
-            return model;
+    const xchild_entry *children = xsd_child_entry(schema, scope);
+    for (int kind = XSD_SEQUENCE; kind <= XSD_GROUP; kind++) {
+        if (children->first[kind] != NULL) {
+            return children->first[kind];
         }
     }
     return NULL;
@@ -1513,11 +1693,10 @@ static th_node *xsd_content_model(const th_schema *schema, th_node *scope) {
 static th_node *xsd_effective_model(th_schema *schema, th_node *ctype, th_node **base_model_out) {
     th_tree *tree = schema->tree;
     *base_model_out = NULL;
-    th_node *complex_content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
+    th_node *complex_content = xsd_child(schema, ctype, XSD_COMPLEX_CONTENT);
     if (complex_content != NULL) {
-        th_node *extension = first_schema_child(schema, complex_content, XSD_NS, "extension");
-        th_node *derivation =
-            extension != NULL ? extension : first_schema_child(schema, complex_content, XSD_NS, "restriction");
+        th_node *extension = xsd_child(schema, complex_content, XSD_EXTENSION);
+        th_node *derivation = extension != NULL ? extension : xsd_child(schema, complex_content, XSD_RESTRICTION);
         if (derivation == NULL) {
             return NULL;
         }
@@ -1545,7 +1724,7 @@ static int xsd_is_mixed(const th_schema *schema, th_node *ctype) {
     if (xsd_attr_is(tree, ctype, "mixed", "true")) {
         return 1;
     }
-    th_node *complex_content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
+    th_node *complex_content = xsd_child(schema, ctype, XSD_COMPLEX_CONTENT);
     if (complex_content != NULL) {
         return xsd_attr_is(tree, complex_content, "mixed", "true");
     }
@@ -1560,7 +1739,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
     edecl_vec declared = {NULL, 0, 0};
     xsd_validate_attrs(ctx, instance, ctype, &declared);
 
-    th_node *simple_content = first_schema_child(schema, ctype, XSD_NS, "simpleContent");
+    th_node *simple_content = xsd_child(schema, ctype, XSD_SIMPLE_CONTENT);
     if (simple_content != NULL) {
         for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
             if (child->type == TH_NODE_ELEMENT) {
@@ -1721,8 +1900,8 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
 
     Py_ssize_t type_len = 0;
     const Py_UCS4 *type = xsd_attr(tree, decl, "type", &type_len);
-    th_node *inline_complex = first_schema_child(schema, decl, XSD_NS, "complexType");
-    th_node *inline_simple = first_schema_child(schema, decl, XSD_NS, "simpleType");
+    th_node *inline_complex = xsd_child(schema, decl, XSD_COMPLEX_TYPE);
+    th_node *inline_simple = xsd_child(schema, decl, XSD_SIMPLE_TYPE);
     if (type != NULL) {
         const Py_UCS4 *local, *prefix, *uri;
         Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
@@ -1862,11 +2041,14 @@ static int xsd_compile(th_schema *schema) {
         }
     }
     /* the cycle checks below assume every group, attributeGroup and base ref resolves */
-    if (xsd_cache_facets(schema, schema->root) < 0) {
+    if (xsd_cache_facets(schema, schema->root, NULL, 0) < 0) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only an arena OOM returns without an exception set */
             PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
         return 0;
+    }
+    if (schema->child_count > 1) {
+        qsort(schema->child_entries, schema->child_count, sizeof(xchild_entry), xsd_child_order);
     }
     if (xsd_check_chains(schema, CHAIN_GROUP) < 0 || xsd_check_chains(schema, CHAIN_ATTRGROUP) < 0 ||
         xsd_check_chains(schema, CHAIN_TYPE) < 0 || xsd_check_expansion(schema) < 0) {
