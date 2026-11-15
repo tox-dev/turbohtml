@@ -1255,6 +1255,120 @@ def test_feed_atom_xhtml_namespace_lookup_stays_linear(build: Callable[[int], st
     work_steps.assert_linear(lambda count: partial(parse_feed, build(count)), (500, 2000))
 
 
+def _declarations(count: int) -> str:
+    return "".join(f' xmlns:p{index}="urn:{index}"' for index in range(count))
+
+
+def _prefixed(local: str, count: int) -> str:
+    return f"<p{count - 1}:{local}/>" * count
+
+
+def _rss_channel_prefixed(count: int) -> str:
+    return (
+        f'<rss version="2.0"{_declarations(count)}><channel>{_prefixed("title", count)}'
+        "<item><title>i</title></item></channel></rss>"
+    )
+
+
+def _atom_entry_prefixed(count: int) -> str:
+    return (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"{_declarations(count)}>'
+        f"<entry>{_prefixed('title', count)}</entry></feed>"
+    )
+
+
+def _atom_source_prefixed(count: int) -> str:
+    return (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"{_declarations(count)}><entry><source>'
+        f"{_prefixed('author', count)}</source></entry></feed>"
+    )
+
+
+def _atom_author_prefixed(count: int) -> str:
+    return (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"{_declarations(count)}>'
+        f"<author>{_prefixed('name', count)}</author><entry><title>e</title></entry></feed>"
+    )
+
+
+def _atom_root_prefixed(count: int) -> str:
+    return f'<feed xmlns="http://www.w3.org/2005/Atom"{_declarations(count)}>{_prefixed("entry", count)}</feed>'
+
+
+def _rdf_item_prefixed_about(count: int) -> str:
+    attributes = "".join(f' p{index}:about="v"' for index in range(count))
+    return (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"'
+        f"{_declarations(count)}><channel><title>c</title></channel>"
+        f"<item{attributes}><title>i</title></item></rdf:RDF>"
+    )
+
+
+def _rss_item_relative_links(count: int) -> str:
+    link = '<link rel="self" href="b"/>'
+    return (
+        f'<rss version="2.0"{_declarations(count)} xml:base="https://example.org/a/"><channel>'
+        f"<item><title>i</title>{link * count}</item></channel></rss>"
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_rss_channel_prefixed, id="rss-channel"),
+        pytest.param(_atom_entry_prefixed, id="atom-entry"),
+        pytest.param(_atom_source_prefixed, id="atom-source"),
+        pytest.param(_atom_author_prefixed, id="atom-author"),
+        pytest.param(_atom_root_prefixed, id="atom-root"),
+        pytest.param(_rdf_item_prefixed_about, id="rdf-item"),
+        pytest.param(_rss_item_relative_links, id="xml-base-links"),
+    ],
+)
+def test_feed_prefixed_lookup_stays_linear_under_wide_ancestors(
+    build: Callable[[int], str], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda count: partial(parse_feed, build(count)), (500, 2000))
+
+
+@pytest.mark.parametrize(
+    ("entry_uri", "expected"),
+    [
+        pytest.param("urn:other", None, id="entry-redeclares-prefix"),
+        pytest.param("http://www.w3.org/2005/Atom", "Shadowed", id="entry-declares-atom"),
+    ],
+)
+def test_feed_atom_prefix_nearest_declaration_on_wide_entry(entry_uri: str, expected: str | None) -> None:
+    attributes = "".join(f' a{index}="x"' for index in range(10))
+    xml = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="http://www.w3.org/2005/Atom">'
+        f'<entry{attributes} xmlns:p="{entry_uri}"><p:title>Shadowed</p:title></entry></feed>'
+    )
+    assert parse_feed(xml).entries[0].title == expected
+
+
+def test_feed_atom_prefix_lookup_on_element_with_many_attributes() -> None:
+    attributes = "".join(f' a{index}="x"' for index in range(60))
+    declarations = "".join(f' xmlns:q{index}="urn:q{index}"' for index in range(20))
+    xml = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="http://www.w3.org/2005/Atom">'
+        f"<entry{attributes}{declarations}><p:title>Wide</p:title></entry></feed>"
+    )
+    assert parse_feed(xml).entries[0].title == "Wide"
+
+
+def test_feed_atom_many_wide_entries_resolve_prefixes() -> None:
+    attributes = "".join(f' a{index}="x"' for index in range(9))
+    entries = "".join(f"<entry{attributes}><p:title>e{index}</p:title></entry>" for index in range(10))
+    xml = f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="http://www.w3.org/2005/Atom">{entries}</feed>'
+    assert [entry.title for entry in parse_feed(xml).entries] == [f"e{index}" for index in range(10)]
+
+
+def test_feed_rss_xml_base_on_wide_ancestor_resolves_link() -> None:
+    attributes = "".join(f' a{index}="x"' for index in range(10))
+    xml = f'<rss version="2.0"{attributes} xml:base="https://example.org/a/"><channel><item><link>b</link></item></channel></rss>'
+    assert parse_feed(xml).entries[0].link == "https://example.org/a/b"
+
+
 def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
     xml: Final = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
