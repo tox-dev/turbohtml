@@ -3550,7 +3550,8 @@ def _long_tag(count: int, prefix: str) -> str:
     return f"<p{names}>"
 
 
-def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
+# every name in turn: one name's probe run depends on the hash seed, the sweep averages over the table
+def test_removing_and_setting_each_name_in_turn_on_a_long_tag_scans_in_linear_time(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(
         lambda count: partial(rewrite, _long_tag(count, "a"), elements=[("p", _toggler(count))]), (500, 2000)
     )
@@ -3558,9 +3559,9 @@ def test_removing_and_setting_one_name_repeatedly_on_a_long_tag_scans_in_linear_
 
 def _toggler(count: int) -> Callable[[Element], None]:
     def toggle(element: Element) -> None:
-        for _ in range(count):
-            element.remove_attribute("a0")
-            element.set_attribute("a0", "v")
+        for index in range(count):
+            element.remove_attribute(f"a{index}")
+            element.set_attribute(f"a{index}", "v")
 
     return toggle
 
