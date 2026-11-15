@@ -110,6 +110,9 @@ typedef struct {
     /* 1 when a match walks ancestors, as far as the tree nests: a descendant combinator, :lang() or :dir() somewhere;
        2 when a match walks ancestors from each ancestor such a walk passes, a square of how far the tree nests */
     int climbs;
+    /* the most compounds a match recurses through: one complex selector's compounds plus the longest chain of a
+       functional pseudo-class list nested in them (sel_alts_chain) */
+    Py_ssize_t chain;
 } sel_compiled;
 
 /* One memoized bit: key names the question (a :has() argument, or the compound a general
@@ -223,6 +226,7 @@ typedef struct {
     int depth;              /* nesting level of the functional-pseudo lists being parsed */
     Py_ssize_t err_pos;     /* the position the failing token starts at, for the error message */
     const char *err_reason; /* a human-readable reason for the failure */
+    Py_ssize_t compounds;   /* every compound parsed, nested lists included: no chain is longer than this */
 } sel_parser;
 
 /* The deepest functional-pseudo nesting (:is()/:where()/:has()/:not(), and the 'of S'
@@ -231,6 +235,20 @@ typedef struct {
    stack rather than raising a clean error (issue #421). Real selectors nest a handful
    of levels, far below this. */
 #define SEL_MAX_DEPTH TH_DEPTH_LIMIT(128)
+
+/* A selector whose chain is at most this long matches without checking the C stack: its recursion fits in the margin
+   core/stack.h keeps below every checked frame. */
+#define SEL_CHAIN_CHECK 64
+
+/* Whether the calling thread's C stack holds a match that recurses through chain compounds. Returns 0, or -1 with
+   RecursionError set. */
+int sel_stack_check_chain(Py_ssize_t chain);
+
+/* A driver asks this once per call before it matches a selector of this chain, since a compiled selector may be cached
+   on one thread and matched on another. */
+static inline int sel_stack_check(Py_ssize_t chain) {
+    return chain > SEL_CHAIN_CHECK ? sel_stack_check_chain(chain) : 0;
+}
 
 /* Entry points compiled once in selector.c; the rest of the matcher and parser
    stays static there. query/methods.c drives the query bindings and to_xpath.c
