@@ -2370,7 +2370,8 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
                               NULL,
                               NULL,
                               NULL,
-                              NULL};
+                              NULL,
+                              0};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2722,7 +2723,8 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                               NULL,
                               NULL,
                               NULL,
-                              NULL};
+                              NULL,
+                              0};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

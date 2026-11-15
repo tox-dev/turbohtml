@@ -133,9 +133,16 @@ struct th_node {
     uint8_t afe_listed : 1;
     /* Character data only: no other node reads this run of the arena buffer, so a Range edit may rewrite it in place.
        Unset until such an edit takes a private copy, because a parsed node can share its buffer (a select's
-       selectedcontent mirror reuses the option's text). The bit field shares its byte with afe_listed, which only the
-       tree builder writes, so no read path writes that byte; this keeps the node at 96 bytes. */
+       selectedcontent mirror reuses the option's text). The bit fields share their byte with afe_listed, which only the
+       tree builder writes; this keeps the node at 96 bytes. */
     uint8_t text_exclusive : 1;
+    /* Text only: this text, written alone as a script's content, leaves a re-parse outside the script data double
+       escaped state, so the serializer skips that scan (ser_end_script_double_escape). The tree builder sets it on
+       the text of a script its end tag closed, the serializer after a scan under the tree's lock, and th_node_set_data,
+       th_node_delete_data and normalize clear it. A whitespace collapse (clean/transforms.c) keeps it: it leaves one
+       space of each run, and the scan's answer depends on whitespace only as a tag-name end and a break in a "-" run,
+       which one space still is. */
+    uint8_t script_text_closes : 1;
     /* An attribute value buffer of this element is also the value of another element: a clone takes its source's
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
@@ -888,6 +895,8 @@ typedef struct {
     th_xml_xlink_walk *xml_xlink;  /* the xlink walk of an XML tree written as XML; NULL for an HTML tree */
     th_xml_ns_spend *xml_ns_spend; /* set when every xml_scope boundary child carries its own copy */
     th_xml_unwrap *xml_unwrap;     /* set by the serializer whenever xml is */
+    int in_rawtext;                /* set while writing the text of a raw-text element: a script nested there ends
+                                      with text, so the element that holds it decides its end tag */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the
