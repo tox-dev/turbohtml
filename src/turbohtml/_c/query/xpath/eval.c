@@ -366,13 +366,16 @@ struct th_node *tree_root(struct th_tree *tree, struct th_node *node) {
     return node;
 }
 
-static int is_ancestor_of(struct th_node *candidate, struct th_node *node) {
-    for (struct th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
-        if (parent == candidate) {
-            return 1;
-        }
+/* Pre-order predecessor over the whole tree, or NULL before the first node. */
+static struct th_node *document_previous(struct th_node *node) {
+    if (node->prev_sibling == NULL) {
+        return node->parent;
     }
-    return 0;
+    node = node->prev_sibling;
+    while (node->last_child != NULL) {
+        node = node->last_child;
+    }
+    return node;
 }
 
 /* Reverse the items in [from, out->len) in place (turns the document-order run a
@@ -504,23 +507,22 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, c
         return 0;
     }
     case AX_PRECEDING: {
-        /* everything before ctx in document order except its ancestors; collected
-           forward, then reversed into the axis's reverse-document proximity order unless the path wants document order
-         */
-        struct th_node *root = ctx;
-        while (root->parent != NULL) {
-            root = root->parent;
-        }
+        /* everything before ctx in document order except its ancestors, walked backward
+           so it lands in the axis's reverse-document proximity order; that walk meets the
+           ancestors nearest first, so the next one due is the only node to test against */
+        struct th_node *ancestor = ctx->parent;
         Py_ssize_t from = out->len;
-        for (struct th_node *node = root; node != ctx; node = document_next(node)) {
-            if (is_ancestor_of(node, ctx)) {
+        for (struct th_node *node = document_previous(ctx); node != NULL; node = document_previous(node)) {
+            TH_WORK_STEP();
+            if (node == ancestor) {
+                ancestor = node->parent;
                 continue;
             }
             if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                 return -1;                                   /* GCOVR_EXCL_LINE */
             }
         }
-        if (!match->document_order) {
+        if (match->document_order) {
             reverse_items(out, from);
         }
         return 0;
@@ -580,18 +582,6 @@ static int apply_owned_step(xp_nodeset *out, xp_item item, const xn *step, const
     default: /* the child, descendant, sibling, attribute, and namespace axes are empty */
         return 0;
     }
-}
-
-/* Pre-order predecessor over the whole tree, or NULL before the first node. */
-static struct th_node *document_previous(struct th_node *node) {
-    if (node->prev_sibling == NULL) {
-        return node->parent;
-    }
-    node = node->prev_sibling;
-    while (node->last_child != NULL) {
-        node = node->last_child;
-    }
-    return node;
 }
 
 /* Push the first node the step selects from item, where apply_step and apply_owned_step push them all, for the axes

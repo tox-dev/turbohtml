@@ -297,7 +297,20 @@ static int node_matches(module_state *state, th_node *node, const query_t *query
     return 1;
 }
 
-static th_node *axis_first(th_node *node, enum th_axis axis) {
+/* The candidate loops and the axis walks are forced inline: GCC keeps a helper with several callers out of line, which
+   measured slower per candidate. A debug build keeps one copy of each, which the coverage gates need. */
+#if defined(_MSC_VER)
+#define TH_FORCEINLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_FORCEINLINE inline __attribute__((always_inline))
+#else
+#define TH_FORCEINLINE
+#endif
+
+/* The preceding axis moves *origin up past the origin's ancestors as the walk passes them (preceding_skip), so each
+   walk hands axis_first and axis_next its own copy of the origin; the other axes leave it alone. */
+static TH_FORCEINLINE th_node *axis_first(th_node **origin, enum th_axis axis) {
+    th_node *node = *origin;
     switch (axis) {
     case TH_AXIS_ANCESTORS:
         return node->parent;
@@ -308,13 +321,13 @@ static th_node *axis_first(th_node *node, enum th_axis axis) {
     case TH_AXIS_FOLLOWING:
         return subtree_next(node);
     case TH_AXIS_PRECEDING:
-        return preceding_skip(previous_element(node), node);
+        return preceding_skip(previous_element(node), origin);
     default: /* DESCENDANTS and CHILDREN both start at the first child */
         return node->first_child;
     }
 }
 
-static th_node *axis_next(th_node *current, th_node *origin, enum th_axis axis) {
+static TH_FORCEINLINE th_node *axis_next(th_node *current, th_node **origin, enum th_axis axis) {
     switch (axis) {
     case TH_AXIS_CHILDREN:
     case TH_AXIS_NEXT_SIBLINGS:
@@ -328,7 +341,7 @@ static th_node *axis_next(th_node *current, th_node *origin, enum th_axis axis) 
     case TH_AXIS_PRECEDING:
         return preceding_skip(previous_element(current), origin);
     default: /* DESCENDANTS: pre-order, bounded to the origin's subtree */
-        return preorder_next(current, origin);
+        return preorder_next(current, *origin);
     }
 }
 
@@ -602,7 +615,8 @@ static int snapshot_text_candidates(PyObject *self, const query_t *query, th_nod
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     Py_ssize_t capacity = 0;
-    for (th_node *node = axis_first(origin, query->axis); node != NULL; node = axis_next(node, origin, query->axis)) {
+    th_node *anchor = origin;
+    for (th_node *node = axis_first(&anchor, query->axis); node != NULL; node = axis_next(node, &anchor, query->axis)) {
         if (text_candidate(query, node)) {
             capacity++;
         }
@@ -613,8 +627,9 @@ static int snapshot_text_candidates(PyObject *self, const query_t *query, th_nod
         if (nodes == NULL || texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced from a test */
             error = 1;                        /* GCOVR_EXCL_LINE: allocation-failure path */
         } else {                              /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
-            for (th_node *node = axis_first(origin, query->axis); node != NULL;
-                 node = axis_next(node, origin, query->axis)) {
+            anchor = origin;
+            for (th_node *node = axis_first(&anchor, query->axis); node != NULL;
+                 node = axis_next(node, &anchor, query->axis)) {
                 if (!text_candidate(query, node)) {
                     continue;
                 }
@@ -712,17 +727,6 @@ static int ucs4_contains_kmp(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UC
     PyMem_Free(prefix);
     return 0;
 }
-
-/* The candidate loop is forced inline once per scan, and the reads and the substring test are forced inline into each
-   copy and into text_scan_moved: GCC keeps them out of line once they have several callers, which measured slower per
-   candidate. A debug build keeps one copy of each, which the coverage gates need. */
-#if defined(_MSC_VER)
-#define TH_FORCEINLINE __forceinline
-#elif defined(__OPTIMIZE__)
-#define TH_FORCEINLINE inline __attribute__((always_inline))
-#else
-#define TH_FORCEINLINE
-#endif
 
 static TH_FORCEINLINE int ucs4_contains(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UCS4 *needle,
                                         Py_ssize_t needle_len) {
@@ -1065,10 +1069,10 @@ TH_NOINLINE static int text_scan_moved(th_node *node, query_t *query) {
    candidate the index does not hold. The index is dropped, and the candidate is read from its own subtree; that read is
    weighed like any other, so a new index is built once the reads have spent enough. Returns the candidate to go on
    from, or NULL once the search is over. */
-TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *handle, th_node *origin, th_node *node,
+TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *handle, th_node **anchor, th_node *node,
                                               query_t *query, int want_all, text_index *index, PyObject *result,
                                               th_node **found, int *error) {
-    for (int filtered = 1; node != NULL; node = axis_next(node, origin, query->axis), filtered = 0) {
+    for (int filtered = 1; node != NULL; node = axis_next(node, anchor, query->axis), filtered = 0) {
         if (!filtered) {
             if (want_all && query->limit >= 0 && PyList_GET_SIZE(result) >= query->limit) {
                 break;
@@ -1124,9 +1128,10 @@ static TH_FORCEINLINE int text_scan_candidates(module_state *state, PyObject *ha
     Py_UCS4 *scratch = NULL;
     Py_ssize_t scratch_cap = 0;
     int error = 0;
+    th_node *anchor = origin;
     /* only an append grows the result, so the limit is tested there rather than once per element */
-    th_node *first = want_all && query->limit == 0 ? NULL : axis_first(origin, query->axis);
-    for (th_node *node = first; node != NULL; node = axis_next(node, origin, query->axis)) {
+    th_node *first = want_all && query->limit == 0 ? NULL : axis_first(&anchor, query->axis);
+    for (th_node *node = first; node != NULL; node = axis_next(node, &anchor, query->axis)) {
         int matched = node_matches(state, node, query);
         if (matched < 0) {
             error = 1;
@@ -1139,8 +1144,11 @@ static TH_FORCEINLINE int text_scan_candidates(module_state *state, PyObject *ha
                                         : text_scan_contains(tree, node, query, &scratch, &scratch_cap);
         if (passed < 0) {
             if (query->text_index->slices != NULL) { /* GCOVR_EXCL_BR_LINE: otherwise allocation failed, unforceable */
-                node = text_index_search(state, handle, origin, node, query, want_all, query->text_index, result, found,
-                                         &error);
+                /* the out-of-line search takes the anchor's address, so the loop keeps a copy in a register */
+                th_node *shared = anchor;
+                node = text_index_search(state, handle, &shared, node, query, want_all, query->text_index, result,
+                                         found, &error);
+                anchor = shared;
                 if (node == NULL) {
                     break;
                 }
@@ -1331,7 +1339,8 @@ TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject 
             }
         }
     } else {
-        for (th_node *node = axis_first(origin, query.axis); node != NULL; node = axis_next(node, origin, query.axis)) {
+        for (th_node *node = axis_first(&origin, query.axis); node != NULL;
+             node = axis_next(node, &origin, query.axis)) {
             int matched = node_matches(state, node, &query);
             if (matched < 0) {
                 error = 1;
@@ -1475,7 +1484,8 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
             }
         }
     } else {
-        for (th_node *node = axis_first(origin, query.axis); node != NULL; node = axis_next(node, origin, query.axis)) {
+        for (th_node *node = axis_first(&origin, query.axis); node != NULL;
+             node = axis_next(node, &origin, query.axis)) {
             if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
                 break;
             }
