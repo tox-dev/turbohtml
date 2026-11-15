@@ -146,10 +146,10 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
    quote the output adds would land inside that token or be escaped. Spelled gets the input with that `\` read as CSS
    Syntax 3 reads it (nothing inside a string, §4.3.5; U+FFFD elsewhere, §4.3.7), then the quote and `)` the open token
    needs: consuming a string or url (§4.3.5, §4.3.6) returns the token at the end of input. Returns whether it spelled
-   anything. A url's quote state mirrors css_tokenize: a quote opens a quoted stretch only when the url's argument is
-   quoted, and a newline ends one, leaving the url bad but still running to the next `)`, so a bad url the input leaves
-   open needs one too. A comment the input leaves open (§4.3.2 ends it at the end of input) gets its closing star and
-   slash, or the closers would land inside it. */
+   anything. A url's quote state mirrors css_scan_url, which reads a string only where it opens the url: after that
+   string the token holds no `)` but the one ending it, comments aside, and an unquoted url, bad or not, runs to the
+   first `)` no escape covers. A comment the input leaves open (§4.3.2 ends it at the end of input) gets its closing
+   star and slash, or the closers would land inside it. */
 static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled) {
     const css_char *text = last->text;
     Py_ssize_t len = last->text_len + last->unit_len; /* a dimension's unit follows its number */
@@ -162,18 +162,18 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
         quote = text[0];
     }
     int open_comment = last->kind == CSS_COMMENT && (len < 4 || text[len - 2] != '*' || text[len - 1] != '/');
-    Py_ssize_t argument = 4;
-    while (argument < len && css_is_ws(text[argument])) {
-        argument++;
-    }
-    int quoted_argument = argument < len && (text[argument] == '"' || text[argument] == '\'');
+    int quoted_url = open_url && css_url_quoted(text + 4, len - 4);
     for (Py_ssize_t pos = 4; open_url && pos < len; pos++) {
         css_char character = text[pos];
         if (character == '\\') {
             pos = css_scan_quoted_escape(text, pos, len) - 1;
         } else if (quote != 0) {
-            quote = character == quote || css_quoted_stop[character] == CSS_QUOTED_NEWLINE ? 0 : quote;
-        } else if ((character == '"' || character == '\'') && quoted_argument) {
+            if (character == quote) {
+                quote = 0;
+                open_url = text[len - 1] != ')';
+                break;
+            }
+        } else if (quoted_url && (character == '"' || character == '\'')) {
             quote = character;
         } else {
             open_url = character != ')';

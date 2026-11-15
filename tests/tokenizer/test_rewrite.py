@@ -638,6 +638,67 @@ def test_rewrite_unwrapped_raw_text_prepend_is_not_checked() -> None:
     assert rewrite("<script>x</script>", elements=[("script", handler)], text=note) == "x<!--x-->"
 
 
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda element: element.set_content("</script><em>"), id="set-content"),
+        pytest.param(lambda element: element.prepend("</script><em>"), id="prepend"),
+        pytest.param(lambda element: element.append("</script><em>"), id="append"),
+        pytest.param(lambda element: element.append("/script>"), id="completes-source-text"),
+    ],
+)
+def test_rewrite_raw_content_that_ends_an_unclosed_element_raises(edit: Callable[[Element], None]) -> None:
+    # no end tag arrives to run the check, so it runs when the input ends
+    with pytest.raises(ValueError, match="must not contain '</script'"):
+        rewrite("<section><script>a<", elements=[("script", edit)])
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(_set_text("</script><em>"), id="set-text"),
+        pytest.param(lambda text: text.replace("</script><em>"), id="replace"),
+        pytest.param(lambda text: text.after("</script><em>"), id="after"),
+    ],
+)
+def test_rewrite_raw_text_edit_that_ends_an_unclosed_element_raises(edit: Callable[[Element], None]) -> None:
+    with pytest.raises(ValueError, match="must not contain '</script'"):
+        rewrite("<section><script>a", text=edit)
+
+
+def test_rewrite_raw_content_that_ends_a_slashed_html_script_raises() -> None:
+    # a browser ignores the slash on an HTML start tag, so <script/> opens a script like any other
+    edit = [("script", lambda element: element.set_content("</script><em>"))]
+    with pytest.raises(ValueError, match="must not contain '</script'"):
+        rewrite("<script/>b</script>", elements=edit)
+
+
+def test_rewrite_raw_text_in_unclosed_element_is_literal() -> None:
+    edit = [("script", lambda element: element.set_content("x < y"))]
+    assert rewrite("<script>a", elements=edit) == "<script>x < y"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        # neither start tag opens a raw-text element or switches the tokenizer, so nothing checks the text
+        pytest.param(
+            "<svg><g><script/></g></svg>",
+            "<svg><g><script/>&lt;/script&gt;&lt;em&gt;</g></svg>",
+            id="self-closed-foreign",
+        ),
+        pytest.param(
+            f"{'<div>' * 8300}<script>a</script>",
+            f"{'<div>' * 8300}<script>&lt;/script&gt;&lt;em&gt;a</script>",
+            id="beyond-depth-guard",
+        ),
+    ],
+)
+def test_rewrite_untracked_raw_text_tag_content_is_escaped(html: str, expected: str) -> None:
+    edit = [("script", lambda element: element.set_content("</script><em>"))]
+    assert rewrite(html, elements=edit) == expected
+
+
 def test_rewrite_text_normalized_run_verbatim() -> None:
     # a NUL in text becomes a buffered (non-slice) run; it must still round-trip
     assert rewrite("<p>a\x00b</p>") == "<p>a\x00b</p>"
@@ -921,6 +982,15 @@ def test_rewrite_eof_unclosed_dropped_element() -> None:
         element.set_content("Z")
 
     assert rewrite("<div>tail", elements=[("div", handler)]) == "<div>Z"
+
+
+def test_rewrite_eof_unclosed_dropped_element_flushes_after() -> None:
+    def handler(element: Element) -> None:
+        element.set_content("Z")
+        element.after("!")
+
+    # the unclosed <span> inside the dropped content emits nothing; the <div> flushes as it would at its end tag
+    assert rewrite("<div><span>rest", elements=[("div", handler)]) == "<div>Z!"
 
 
 def test_rewrite_stray_end_tag_inside_removed_region() -> None:

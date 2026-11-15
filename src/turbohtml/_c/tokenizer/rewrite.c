@@ -1869,8 +1869,10 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         return;                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
+    /* a start tag past the depth cap is not pushed, so it switches no content model and nothing checks the text
+       written into it: that text is escaped like any other */
     rw_open open = {.node = node,
-                    .model = (int8_t)model,
+                    .model = ctx->depth < RW_MAX_DEPTH ? (int8_t)model : -1,
                     .ns = ns,
                     .shadow = shadow,
                     .line = (uint32_t)token->line,
@@ -2448,13 +2450,17 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
 
     /* an unclosed element at EOF: flush its trailing edits and free the spine */
     while (ctx.depth > 0 && !ctx.error) {
-        rw_open *open = &ctx.stack[--ctx.depth];
-        int emit = ctx.suppress <= 0;
+        rw_open *open = &ctx.stack[ctx.depth - 1];
         if (open->drop_content) {
             ctx.suppress--;
         }
+        int emit = ctx.suppress <= 0;
         if (emit && open->append_html != NULL) {
             rw_out_str(&ctx.out, open->append_html);
+        }
+        /* PLAINTEXT has no end tag, so nothing written into it can end it */
+        if (emit && open->literal && open->model != TH_INIT_PLAINTEXT && rw_raw_content_closes_early(&ctx, open)) {
+            break; /* still on the spine, so rw_ctx_clear frees it */
         }
         if (emit && open->after_html != NULL) {
             rw_out_str(&ctx.out, open->after_html);
@@ -2463,6 +2469,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         Py_XDECREF(open->after_html);
         ctx.open_len -= open->long_values;
         rw_free_node(&ctx, open->node);
+        ctx.depth--;
     }
 
     PyObject *result = NULL;

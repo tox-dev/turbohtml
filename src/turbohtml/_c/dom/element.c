@@ -1834,6 +1834,8 @@ void handle_drop_index(PyObject *handle_obj) {
     handle->path_ids = NULL;
     path_positions_free(handle->path_positions);
     handle->path_positions = NULL;
+    path_positions_free(handle->path_child_positions);
+    handle->path_child_positions = NULL;
 }
 
 PyDoc_STRVAR(element_doc, "An element node: a tag, a namespace, attributes, and child nodes.\n\n"
@@ -2524,6 +2526,36 @@ static int path_step_index(HandleObject *handle, th_node *node, int alone, int *
     return (int)(value >> 1);
 }
 
+/* The 1-based position of node among all its element siblings, the index of the "*[n]" step xpath_path writes for a
+   tag name XPath cannot spell. Cached like path_step_index, and a miss places every element of the child list in one
+   pass, so taking the path of every child stays linear in any order. Returns -1 on allocation failure. */
+static Py_ssize_t path_child_index(HandleObject *handle, th_node *node) {
+    th_node_map *map = handle->path_child_positions;
+    if (map == NULL) {
+        map = PyMem_Calloc(1, sizeof(*map));
+        if (map == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;     /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        handle->path_child_positions = map;
+    }
+    Py_ssize_t value = th_node_map_find(map, node);
+    if (value == 0) {
+        const th_node *first = node->parent == NULL ? node : node->parent->first_child;
+        Py_ssize_t position = 0;
+        for (const th_node *sibling = first; sibling != NULL; sibling = sibling->next_sibling) {
+            if (sibling->type != TH_NODE_ELEMENT) {
+                continue;
+            }
+            position++;
+            if (th_node_map_insert(map, sibling, position) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                        /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            value = sibling == node ? position : value;
+        }
+    }
+    return value;
+}
+
 /* Snapshot the element ancestor chain, node first up to the topmost element
    (its parent is the document or a non-element). Returns the count, fills *out
    with a PyMem array the caller frees, or -1 on allocation failure. */
@@ -2652,8 +2684,10 @@ PyDoc_STRVAR(xpath_path_doc, "xpath_path()\n--\n\n"
                              "Return the positional XPath that locates this element from the document\n"
                              "root, like lxml's getroottree().getpath(). Each step is the tag name with a\n"
                              "1-based [n] index among same-name siblings when more than one exists\n"
-                             "(\"/html/body/div[2]/p[3]\"). Feeding the result back to xpath() on the\n"
-                             "document returns exactly this element.");
+                             "(\"/html/body/div[2]/p[3]\"). A tag name XPath cannot write as a name test,\n"
+                             "one with a namespace prefix or a character of XPath syntax, becomes ``*[n]``,\n"
+                             "the position among all element siblings. Feeding the result back to xpath()\n"
+                             "on the document returns exactly this element.");
 
 TH_NODE_API(static, PyObject *, element_xpath_path, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
@@ -2671,9 +2705,18 @@ TH_NODE_API(static, PyObject *, element_xpath_path, (PyObject * self, PyObject *
         for (Py_ssize_t index = count - 1; index >= 0; index--) {
             th_node *element = chain[index];
             path_puts(&buf, "/");
-            path_put_ucs4(&buf, element->text, element->text_len);
-            int needs_index;
-            int sibling_index = path_step_index(handle, element, alone, &needs_index);
+            /* the tokenizer lets XPath syntax into a tag name ("|", "[", "(", ":", "*", "=", quotes) and XPath cannot
+               escape it, so only a name the lexer reads back verbatim is written, which every builtin name is; any
+               other takes a positional "*[n]" step, the form lxml's getpath uses for a name it cannot write */
+            int needs_index = 1;
+            Py_ssize_t sibling_index;
+            if (element->atom != TH_TAG_UNKNOWN || xp_is_plain_name(element->text, element->text_len)) {
+                path_put_ucs4(&buf, element->text, element->text_len);
+                sibling_index = path_step_index(handle, element, alone, &needs_index);
+            } else {
+                path_puts(&buf, "*");
+                sibling_index = path_child_index(handle, element);
+            }
             if (sibling_index < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 error = 1;           /* GCOVR_EXCL_LINE: allocation failure */
                 break;               /* GCOVR_EXCL_LINE: allocation failure */

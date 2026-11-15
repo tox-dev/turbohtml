@@ -2510,28 +2510,24 @@ static void md_cell_flat_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
    becomes the alt (CommonMark 6.4), so an emphasis delimiter, or a `<` or `&` that
    would open raw HTML or a character reference, is escaped as prose escapes it, and
    a line break, which could open a block on the next line, is written as its numeric
-   reference (6.5). The plain alt-only image mode passes escape=0 since it emits no
-   brackets to protect. */
-static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int escape) {
+   reference (6.5). The alt-only image mode writes no description: there the alt
+   text is prose (md_emit_image). */
+static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len) {
     if (alt != NULL) {
-        if (escape) {
-            for (Py_ssize_t index = 0; index < alt_len; index++) {
-                Py_UCS4 ch = alt[index];
-                uint8_t kind = ch < 0x80 ? MD_ASCII[ch] : 0;
-                if (kind != 0) { /* a character in no class needs no escape */
-                    if (ch == '\n' || ch == '\r') {
-                        sbuf_puts(&ctx->out, ch == '\n' ? "&#10;" : "&#13;");
-                        continue;
-                    }
-                    if (ch == '[' || ch == ']' || ch == '\\' || ch == '`' || (kind & ctx->escape_mask) ||
-                        ((kind & MD_CH_CONTEXT) && ctx->escape_prose && md_escape_by_context(alt, index, alt_len))) {
-                        sbuf_putc(&ctx->out, '\\');
-                    }
+        for (Py_ssize_t index = 0; index < alt_len; index++) {
+            Py_UCS4 ch = alt[index];
+            uint8_t kind = ch < 0x80 ? MD_ASCII[ch] : 0;
+            if (kind != 0) { /* a character in no class needs no escape */
+                if (ch == '\n' || ch == '\r') {
+                    sbuf_puts(&ctx->out, ch == '\n' ? "&#10;" : "&#13;");
+                    continue;
                 }
-                md_put_literal(ctx, ch);
+                if (ch == '[' || ch == ']' || ch == '\\' || ch == '`' || (kind & ctx->escape_mask) ||
+                    ((kind & MD_CH_CONTEXT) && ctx->escape_prose && md_escape_by_context(alt, index, alt_len))) {
+                    sbuf_putc(&ctx->out, '\\');
+                }
             }
-        } else {
-            md_put_run(ctx, alt, alt_len);
+            md_put_literal(ctx, ch);
         }
     } else {
         md_puts8(&ctx->out, ctx->opt->default_image_alt);
@@ -2586,9 +2582,43 @@ static int md_attr_has_space_run(const Py_UCS4 *value, Py_ssize_t len) {
     return 0;
 }
 
+/* Alt text the prose writer would copy unchanged is written as one run. Empty alt text
+   leaves a reference open across the image, which the prose writer would close. A digit
+   only matters as the first character, where it may start a line-numbered list item. */
+static int md_alt_is_plain(const md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len) {
+    if (alt_len == 0) {
+        return 1;
+    }
+    if (is_ascii_digit(alt[0]) || ctx->opt->transliterate || ctx->opt->wrap_width > 0 || ctx->amp_open ||
+        ctx->line_number_start > 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < alt_len; index++) {
+        if (alt[index] >= 0x80 || MD_ASCII[alt[index]] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void md_emit_image(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
     if (opt->image_mode == TH_MD_IMAGE_IGNORE) {
+        return;
+    }
+    Py_ssize_t alt_len;
+    const Py_UCS4 *alt = md_attr(ctx->tree, node, "alt", &alt_len);
+    if (opt->image_mode == TH_MD_IMAGE_ALT && alt != NULL) {
+        /* with no brackets around it the alt text joins the prose, and a reader parses it as it does any text */
+        if (md_alt_is_plain(ctx, alt, alt_len)) {
+            md_before_visible(ctx);
+            md_put_run(ctx, alt, alt_len);
+            ctx->line_has_content = 1;
+            ctx->clone_budget += alt_len;
+            ctx->tags_left += alt_len;
+        } else {
+            md_emit_text(ctx, node, alt, alt_len);
+        }
         return;
     }
     md_before_visible(ctx);
@@ -2596,10 +2626,8 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
         md_emit_raw_html(ctx, node);
         return;
     }
-    Py_ssize_t alt_len;
-    const Py_UCS4 *alt = md_attr(ctx->tree, node, "alt", &alt_len);
     if (opt->image_mode == TH_MD_IMAGE_ALT) {
-        md_emit_alt(ctx, alt, alt_len, 0);
+        md_emit_alt(ctx, NULL, 0); /* no alt text: the configured default */
         return;
     }
     Py_ssize_t src_len;
@@ -2634,7 +2662,7 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
         return;
     }
     sbuf_puts(&ctx->out, "![");
-    md_emit_alt(ctx, alt, alt_len, 1);
+    md_emit_alt(ctx, alt, alt_len);
     sbuf_puts(&ctx->out, "](");
     if (src != NULL) {
         int relative = *opt->base_url != '\0' && !md_href_absolute(src, src_len) && !md_href_internal(src);

@@ -13,6 +13,17 @@ static int xp_is_name_char(Py_UCS4 ch) {
     return xp_is_name_start(ch) || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.';
 }
 
+/* Whether the lexer reads text back whole as one unprefixed name, so a path builder can write it as a name test.
+   XPath 1.0 has no escape that would spell any other name. */
+int xp_is_plain_name(const Py_UCS4 *text, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (!(index == 0 ? xp_is_name_start(text[index]) : xp_is_name_char(text[index]))) {
+            return 0;
+        }
+    }
+    return len > 0;
+}
+
 int xp_name_eq(const lexer *lx, const char *kw) {
     Py_ssize_t index = 0;
     for (; kw[index] != '\0'; index++) {

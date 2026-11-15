@@ -7689,3 +7689,39 @@ def test_transform_literal_text_shared_compiled_snapshot() -> None:
         results: Final = list(executor.map(run, range(4)))
 
     assert results == [f"{'literal 日本語' * 512}{index}" for index in range(4)]
+
+
+@pytest.mark.parametrize(
+    ("instruction", "expected"),
+    [
+        pytest.param("""<xsl:if test="lang('de')">d</xsl:if>""", "d" * 100, id="test"),
+        pytest.param("""<xsl:if test="lang('nl')">n</xsl:if>""", "n" * 80, id="test-redeclared"),
+        pytest.param(
+            """<xsl:value-of select="count(ancestor-or-self::*[lang('nl')])"/>,""",
+            "".join(f"{max(level - 99, 0)}," for level in range(180)),
+            id="select",
+        ),
+        pytest.param("""<xsl:if test="text()[lang('nl')]">t</xsl:if>""", "t", id="text-kept-by-the-strip"),
+    ],
+)
+def test_transform_lang_per_node_of_a_deep_source(instruction: str, expected: str) -> None:
+    # each instruction is its own evaluation, and lang() answers past the first ancestors from what the run resolved
+    opened: Final = f"{'<e>' * 100}<e xml:lang='nl'>{'<e>' * 79}"
+    source: Final = f'<r xml:lang="de">{opened}y{"</e>" * 180} <g/> </r>'
+    body: Final = (
+        '<xsl:strip-space elements="r"/>'
+        f'<xsl:template match="/"><xsl:for-each select="//e">{instruction}</xsl:for-each></xsl:template>'
+    )
+    assert _run(source, body) == expected
+
+
+def test_transform_lang_per_node_grows_linearly(work_steps: WorkSteps) -> None:
+    sheet: Final = Transform(
+        _sheet(
+            """<xsl:template match="/"><xsl:for-each select="//s"><xsl:if test="lang('de')">.</xsl:if>"""
+            "</xsl:for-each></xsl:template>"
+        )
+    )
+    work_steps.assert_linear(
+        lambda size: partial(sheet, parse_xml(f"<doc xml:lang='de'>{'<s>' * size}{'</s>' * size}</doc>")), (500, 2000)
+    )
