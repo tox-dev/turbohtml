@@ -3712,7 +3712,7 @@ def _pypy_interpreter_overruns_stack() -> bool:
 
 
 @pytest.mark.skipif(
-    _repeat_check_unreachable() or _pypy_interpreter_overruns_stack(),
+    _pypy_interpreter_overruns_stack() or _repeat_check_unreachable(),
     reason="this platform never reaches the repeat check with the json sweep, or PyPy's interpreter overruns the "
     "thread stack first; the C coverage gate runs elsewhere",
 )
