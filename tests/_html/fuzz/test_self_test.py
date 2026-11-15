@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypeAlias, TypeVar, cast
 
 import pytest
 from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
@@ -58,6 +58,11 @@ from turbohtml.rewrite import rewrite
 from turbohtml.transform import Transform, strparam
 from turbohtml.treebuild import parse_into
 from turbohtml.validate import RelaxNG, XMLSchema
+
+pytestmark: Final[pytest.MarkDecorator] = pytest.mark.skipif(
+    not hasattr(_html, "_fuzz_inject_failure"),
+    reason="needs the fuzz-only build: meson setup -Dfuzzing=true",
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -334,8 +339,6 @@ def test_tokenizer_consumer_allocation_failure_raises_memory_error(
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = _html._fuzz_verify_broken
-
 
 @pytest.mark.fuzz_build
 @pytest.mark.parametrize(
@@ -351,13 +354,13 @@ _VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = _html._fuzz_
 def test_tree_verify_reports_a_broken_tree_without_walking_into_it(
     kind: str, expected: tuple[int, int, int, int]
 ) -> None:
-    assert _VERIFY_BROKEN(kind) == expected
+    assert _html._fuzz_verify_broken(kind) == expected
 
 
 @pytest.mark.fuzz_build
 def test_tree_verify_breakage_rejects_an_unknown_kind() -> None:
     with pytest.raises(ValueError, match="unknown breakage"):
-        _VERIFY_BROKEN("bogus")
+        _html._fuzz_verify_broken("bogus")
 
 
 if TYPE_CHECKING:
@@ -447,16 +450,16 @@ def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: _Sw
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from turbohtml import Node
-
-_ESCAPE_ITERATORS: Final[Callable[[Node], int]] = _html._fuzz_escape_iterators
-
 
 @pytest.mark.fuzz_build
 def test_tree_verify_counts_an_iterator_reference_outside_its_root() -> None:
     document: Final = parse("<p><b></b></p>")
     iterator: Final = NodeIterator(document.select("p")[0])
-    assert (_ESCAPE_ITERATORS(document), _tree_verify(document), iterator.reference_node) == (1, (0, 0, 1, 0), document)
+    assert (_html._fuzz_escape_iterators(document), _tree_verify(document), iterator.reference_node) == (
+        1,
+        (0, 0, 1, 0),
+        document,
+    )
 
 
 if TYPE_CHECKING:
@@ -991,6 +994,35 @@ def test_lazy_text_allocation_failure_raises_or_keeps_result(
     outcomes: Final = set(alloc_sweep(call, setup, valid=lambda result: result == expected))
     assert outcomes <= {"MemoryError", "result"}
     assert "MemoryError" in outcomes
+
+
+_METADATA: Final[str] = (
+    '<html lang="en"><head><title>T</title><meta name="keywords" content="a, b">'
+    '<meta property="og:url" content="https://example.com/a"></head>'
+    f"<body><article><p>{_BIG},</p></article></body></html>"
+)
+
+
+@pytest.mark.fuzz_build
+def test_article_metadata_allocation_failure_raises_or_keeps_result(alloc_sweep: _Sweep) -> None:
+    expected: Final = _article_fields(parse(_METADATA))
+    outcomes: Final = set(
+        alloc_sweep(_article_fields, lambda: parse(_METADATA), valid=lambda result: result == expected)
+    )
+    assert outcomes <= {"MemoryError", "result"}
+    assert "MemoryError" in outcomes
+
+
+def _article_fields(document: turbohtml.Document) -> _ArticleFields:
+    article = document.article()
+    return _ArticleFields(article.title, article.lang, article.canonical, article.tags)
+
+
+class _ArticleFields(NamedTuple):
+    title: str | None
+    lang: str | None
+    canonical: str | None
+    tags: tuple[str, ...]
 
 
 if TYPE_CHECKING:

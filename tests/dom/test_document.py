@@ -1054,6 +1054,21 @@ def test_pickled_shadow_root_is_a_shadow_root(mode: str) -> None:
     assert (clone.mode, clone.html, clone.host.html) == (mode, "<b></b>", '<div id="h">light</div>')
 
 
+@pytest.mark.parametrize("duplicate", [pytest.param(copy.copy, id="copy"), pytest.param(copy.deepcopy, id="deepcopy")])
+@pytest.mark.parametrize("mode", ["open", "closed"])
+def test_copied_shadow_root_is_a_plain_fragment(duplicate: Callable[[Node], Node], mode: str) -> None:
+    # the copy lives in a tree of its own where no host links it, so it is a fragment holding the same children
+    root = Element("div", {}, [Text("light")]).attach_shadow(mode)
+    root.append(Element("slot"))
+    root.append(Element("i"))
+    clone = duplicate(root)
+    assert type(clone) is DocumentFragment
+    clone.append(clone.children[0])
+    assert (clone.html, _roundtrip(clone).html) == ("<i></i><slot></slot>", "<i></i><slot></slot>")
+    assert [child.html for child in clone.flattened_children] == ["<i></i>", "<slot></slot>"]
+    assert (type(root), root.html, root.host.html) == (ShadowRoot, "<slot></slot><i></i>", "<div>light</div>")
+
+
 @pytest.mark.parametrize(
     "markup",
     [

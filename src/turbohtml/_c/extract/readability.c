@@ -510,11 +510,13 @@ th_node *th_node_main_content(th_tree *tree, th_node *root) {
 /* Copy [text, text+len) into a fresh PyMem buffer with each run of HTML whitespace
    folded to a single space and the ends trimmed; *out_len receives the length.
    Returns NULL (with *out_len 0) when the trimmed value is empty, so a present but
-   blank field reads the same as an absent one. */
-static Py_UCS4 *read_normalize(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t *out_len) {
+   blank field reads the same as an absent one. An allocation failure also returns NULL,
+   and flags the tree failed so the boundary raises MemoryError instead of a missing field. */
+static Py_UCS4 *read_normalize(th_tree *tree, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t *out_len) {
     *out_len = 0;
     Py_UCS4 *buffer = PyMem_Malloc((size_t)(len > 0 ? len : 1) * sizeof(Py_UCS4));
     if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t written = 0;
@@ -545,10 +547,11 @@ static Py_UCS4 *read_element_text(th_tree *tree, th_node *node, Py_ssize_t *out_
     *out_len = 0;
     Py_ssize_t raw_len = 0;
     Py_UCS4 *raw = th_node_text(tree, node, &raw_len);
-    if (raw == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (raw == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_UCS4 *normalized = read_normalize(raw, raw_len, out_len);
+    Py_UCS4 *normalized = read_normalize(tree, raw, raw_len, out_len);
     PyMem_Free(raw);
     return normalized;
 }
@@ -634,7 +637,7 @@ static Py_UCS4 *read_meta_content(th_tree *tree, th_node *root, const char *key,
     if (content < 0) {
         return NULL;
     }
-    return read_normalize(meta->attrs[content].value, meta->attrs[content].value_len, out_len);
+    return read_normalize(tree, meta->attrs[content].value, meta->attrs[content].value_len, out_len);
 }
 
 /* The normalized value of node's named attribute, or NULL when absent or empty. A
@@ -647,7 +650,7 @@ static Py_UCS4 *read_attr_value(th_tree *tree, th_node *node, const char *name, 
     if (found < 0) {
         return NULL;
     }
-    return read_normalize(node->attrs[found].value, node->attrs[found].value_len, out_len);
+    return read_normalize(tree, node->attrs[found].value, node->attrs[found].value_len, out_len);
 }
 
 /* Title: the first <h1>'s text, else the og:title meta, else the <title>'s text. */
@@ -739,10 +742,10 @@ static Py_UCS4 *read_harvest_lang(th_tree *tree, th_node *root, Py_ssize_t *out_
 /* Append the normalized [text, text+len) run to the tags array, growing it as needed.
    A run that normalizes to empty is skipped so a blank keyword reads as no tag. Returns
    -1 only on the excluded allocation-failure path. */
-static int read_tags_append(th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap, const Py_UCS4 *text,
-                            Py_ssize_t len) {
+static int read_tags_append(th_tree *tree, th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap,
+                            const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t norm_len = 0;
-    Py_UCS4 *norm = read_normalize(text, len, &norm_len);
+    Py_UCS4 *norm = read_normalize(tree, text, len, &norm_len);
     if (norm == NULL) {
         return 0;
     }
@@ -752,11 +755,13 @@ static int read_tags_append(th_article_tag **items, Py_ssize_t *count, Py_ssize_
         int grew = th_grow_cap((size_t)(*count + 1), (size_t)*cap, 4, sizeof(th_article_tag), &new_cap, &bytes);
         if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
             PyMem_Free(norm); /* GCOVR_EXCL_LINE: size-overflow path */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         th_article_tag *grown = PyMem_Realloc(*items, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyMem_Free(norm); /* GCOVR_EXCL_LINE: allocation-failure path */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         *items = grown;
@@ -770,12 +775,12 @@ static int read_tags_append(th_article_tag **items, Py_ssize_t *count, Py_ssize_
 
 /* Append each comma-separated segment of a keywords content run as its own tag.
    Returns -1 only on the excluded allocation-failure path. */
-static int read_tags_split(th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap, const Py_UCS4 *value,
-                           Py_ssize_t value_len) {
+static int read_tags_split(th_tree *tree, th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap,
+                           const Py_UCS4 *value, Py_ssize_t value_len) {
     Py_ssize_t start = 0;
     for (Py_ssize_t index = 0; index <= value_len; index++) {
         if (index == value_len || value[index] == (Py_UCS4)',') {
-            if (read_tags_append(items, count, cap, value + start, index - start) < 0) { /* GCOVR_EXCL_BR_LINE:
+            if (read_tags_append(tree, items, count, cap, value + start, index - start) < 0) { /* GCOVR_EXCL_BR_LINE:
                                                                                         allocation-failure path */
                 return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
             }
@@ -834,10 +839,10 @@ static int read_social_visit_meta(th_tree *tree, th_node *meta, read_social *out
     const Py_UCS4 *value = meta->attrs[content].value;
     Py_ssize_t value_len = meta->attrs[content].value_len;
     if (read_is_meta(tree, meta, "keywords")) {
-        return read_tags_split(&out->tags, &out->tags_count, &out->tags_cap, value, value_len);
+        return read_tags_split(tree, &out->tags, &out->tags_count, &out->tags_cap, value, value_len);
     }
     if (read_is_meta(tree, meta, "article:tag")) {
-        return read_tags_append(&out->tags, &out->tags_count, &out->tags_cap, value, value_len);
+        return read_tags_append(tree, &out->tags, &out->tags_count, &out->tags_cap, value, value_len);
     }
     for (size_t index = 0; index < sizeof(read_social_keys) / sizeof(read_social_keys[0]); index++) {
         const read_social_key *entry = &read_social_keys[index];
@@ -846,7 +851,7 @@ static int read_social_visit_meta(th_tree *tree, th_node *meta, read_social *out
         }
         Py_UCS4 **field = (Py_UCS4 **)((char *)out + entry->field_offset);
         if (*field == NULL) {
-            *field = read_normalize(value, value_len, (Py_ssize_t *)((char *)out + entry->len_offset));
+            *field = read_normalize(tree, value, value_len, (Py_ssize_t *)((char *)out + entry->len_offset));
         }
         break;
     }
@@ -910,8 +915,8 @@ static void read_apply_social(read_social *social, th_article_meta *meta) {
 
 /* Harvest canonical, site_name, tags, and image in one crawl of the <head> subtree. A
    page with no head (a fragment or hand-built element) has nothing to harvest. On the
-   excluded allocation-failure path every gathered buffer is freed and the fields stay
-   absent, the way an empty head reads. */
+   excluded allocation-failure path every gathered buffer is freed and the tree is flagged
+   failed, so the caller raises MemoryError rather than returning the partial metadata. */
 static void read_harvest_social(th_tree *tree, th_node *root, th_article_meta *meta) {
     uint16_t head_atom = TH_TAG_HEAD;
     th_node *head = read_find(tree, root, read_is_tag, &head_atom);
