@@ -440,7 +440,11 @@ static inline PyObject *str_from_accessor(Py_UCS4 *(*accessor)(th_tree *, th_nod
                                           th_node *node) {
     Py_ssize_t len;
     Py_UCS4 *buf = accessor(tree, node, &len);
-    if (buf == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (buf == NULL) {
+        /* inner_xml leaves its ValueError set; a bare NULL with no exception is the unforceable allocation failure */
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the no-exception NULL is an unforceable allocation failure */
+            return NULL;
+        }
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *result = ucs4_to_str(buf, len);
