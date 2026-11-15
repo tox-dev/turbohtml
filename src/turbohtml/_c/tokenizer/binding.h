@@ -75,7 +75,6 @@ typedef struct {
     PyObject *serialize_iter_type;    /* _SerializeIterator (serialize_iter chunk stream) */
     PyObject *sax_events_type;        /* _SaxEvents (the O(depth) event walk behind saxparse) */
     PyObject *rewrite_handle_type;    /* _RewriteHandle (the node handle a streaming rewrite handler edits) */
-    uint64_t rewrite_attr_salt;       /* per-process salt of the rewrite attribute index, drawn from the OS at load */
     PyObject *phone_config_type;      /* _PhoneConfig (a compiled PhoneNumbers configuration) */
     PyObject *namespace_enum;         /* Namespace (enum.Enum) */
     PyObject *namespaces[3];          /* cached Namespace members, indexed by enum th_ns */
