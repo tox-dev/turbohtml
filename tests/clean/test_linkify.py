@@ -1685,3 +1685,27 @@ def test_linkify_wide_invalid_email() -> None:
 @pytest.mark.parametrize("prefix", [pytest.param("中文 ", id="ucs2"), pytest.param("😀 ", id="ucs4")])
 def test_linkify_wide_presence(prefix: str) -> None:
     assert LinkDetector().has_link(f"{prefix}https://example.com")
+
+
+@pytest.mark.parametrize(
+    "template", [pytest.param("<a {}></a>", id="html"), pytest.param("<math><a {}></a></math>", id="math")]
+)
+def test_process_existing_anchor_writes_back_every_attribute(template: str) -> None:
+    names = [f"data-k{index}" for index in range(100)]
+    assert linkify(template.format(" ".join(names)), Linkify(process_existing=True)) == template.format(
+        " ".join(f'{name}=""' for name in names)
+    )
+
+
+@pytest.mark.parametrize(
+    "template", [pytest.param("<a {}></a>", id="html"), pytest.param("<math><a {}></a></math>", id="math")]
+)
+def test_process_existing_anchor_with_many_attributes_stays_linear(template: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda count: partial(
+            linkify,
+            template.format(" ".join(f"data-k{index}" for index in range(count))),
+            Linkify(process_existing=True),
+        ),
+        (1000, 4000),
+    )
