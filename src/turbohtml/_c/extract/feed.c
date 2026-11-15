@@ -857,6 +857,9 @@ static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *u
             continue;
         }
         th_node_attr *attr = &node->attrs[index];
+        if (attr->value_len > TH_BASE_URL_MAX) {
+            continue; /* as for <base href>: every link of the feed would carry it, so one this long is ignored */
+        }
         PyObject *joined = base_uri == NULL
                                ? PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len)
                                : th_url_join_c14n_raw(attr->value, attr->value_len, base_uri);
@@ -866,6 +869,11 @@ static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *u
             return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         base_uri = joined;
+        if (PyUnicode_GET_LENGTH(base_uri) > TH_BASE_URL_MAX) {
+            /* nested relative values that add up past the limit: stop before the next level joins onto them */
+            Py_DECREF(base_uri);
+            return url;
+        }
     }
     if (base_uri == NULL) {
         return url;

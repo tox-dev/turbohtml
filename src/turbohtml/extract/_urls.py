@@ -208,9 +208,9 @@ def extract_links(
     The document is parsed with the WHATWG tree builder, so links are read from the real DOM rather than regex
     matches. An anchor (``<a>``/``<area>``) contributes its ``href`` unless its ``rel`` carries ``nofollow`` or, with
     a ``language`` filter active, its ``hreflang`` names another language (``x-default`` passes). Each candidate is
-    resolved against the document base URL (a ``<base href>`` wins over ``base_url``, per HTML spec 4.2.3), cleaned
-    through :func:`clean_url`, and deduplicated across trivial variants (the ``http``/``https`` twin and the
-    trailing-slash twin), the first occurrence in document order winning.
+    resolved against the document base URL (a ``<base href>`` wins over ``base_url``, per HTML spec 4.2.3, unless it
+    resolves to more than 2,048 characters), cleaned through :func:`clean_url`, and deduplicated across trivial
+    variants (the ``http``/``https`` twin and the trailing-slash twin), the first occurrence in document order winning.
 
     :param html: the page markup.
     :param base_url: the URL the page was fetched from; relative links resolve against it, and it anchors the

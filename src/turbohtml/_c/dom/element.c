@@ -719,26 +719,91 @@ static PyObject *option_value_str(th_tree *tree, th_node *option) {
     return result;
 }
 
-/* The next option element after current within root's subtree, in document order. */
-static th_node *next_option(th_node *current, th_node *root) {
-    for (th_node *node = preorder_next(current, root); node != NULL; node = preorder_next(node, root)) {
+/* The optgroups an option walk is inside and has already asked for their disabled attribute, outermost first. Every
+   option asks its parent group, so without this a group's attribute list is searched once per option; with it, once
+   per group. It is a stack, not one remembered group, because groups nest (the parser builds
+   <optgroup><div><optgroup>) and an inner group's options then sit between two of the outer group's. Entries are
+   compared and never dereferenced. A tree built by hand can nest groups deeper than the tree builder's cap; the groups
+   past it are searched per option. */
+typedef struct {
+    uint64_t attr_version; /* the tree's attribute version the answers were read at */
+    Py_ssize_t count;
+    const th_node *groups[TH_MAX_TREE_DEPTH];
+    uint8_t disabled[TH_MAX_TREE_DEPTH];
+} optgroup_memo;
+
+/* A walk starts with no answers; option_disabled records the version when it reads the first. */
+static void optgroup_memo_init(optgroup_memo *memo) {
+    memo->attr_version = 0;
+    memo->count = 0;
+}
+
+/* Whether a select's list of options (HTML Standard) leaves out everything below node: an option under another
+   option, a datalist, an hr, or a template's content has no nearest ancestor select, and one under a nested select
+   belongs to that select, as option_nearest_select() has it in the tree builder. Matched by atom alone, like the
+   options themselves. */
+static int ends_option_descent(const th_node *node) {
+    return node->atom == TH_TAG_OPTION || node->atom == TH_TAG_SELECT || node->atom == TH_TAG_DATALIST ||
+           node->atom == TH_TAG_HR || node->type == TH_NODE_CONTENT;
+}
+
+/* The next option after current in root's list of options, in document order. An option belongs to one select and
+   no listed option holds another, so nested selects and nested options are each read once, not once per level. A walk
+   that calls option_disabled passes its memo, which drops each optgroup as the walk climbs out of it; any other walk
+   passes NULL. */
+static th_node *next_option(th_node *current, th_node *root, optgroup_memo *memo) {
+    th_node *node = current;
+    for (;;) {
+        if (node->first_child != NULL && (node == root || !ends_option_descent(node))) {
+            node = node->first_child;
+        } else {
+            /* step over node's subtree; as in preorder_next, the climb meets NULL when the cursor was detached
+               (extract()) mid-walk */
+            while (node != NULL && node != root && node->next_sibling == NULL) { /* GCOVR_EXCL_BR_LINE: NULL as above */
+                node = node->parent;
+                if (memo != NULL && memo->count > 0 && memo->groups[memo->count - 1] == node) {
+                    memo->count--;
+                }
+            }
+            if (node == NULL || node == root) { /* GCOVR_EXCL_BR_LINE: NULL as above */
+                return NULL;
+            }
+            node = node->next_sibling;
+        }
         if (node->atom == TH_TAG_OPTION) { /* only option elements carry this atom (text nodes are TH_TAG_UNKNOWN) */
             return node;
         }
     }
-    return NULL;
 }
 
 /* WHATWG: an option is disabled if its own disabled attribute is present or it is a
-   child of an optgroup whose disabled attribute is present. */
-static int option_disabled(th_node *option) {
+   child of an optgroup whose disabled attribute is present. The memo belongs to the walk
+   that reached the option and remembers the group's answer for its later options. */
+static int option_disabled(th_tree *tree, th_node *option, optgroup_memo *memo) {
     if (find_node_attr(option, TH_ATTR_DISABLED) != NULL) {
         return 1;
     }
     /* an option enumerated within a select always has a parent; only optgroup elements
        carry this atom (text and content nodes are TH_TAG_UNKNOWN) */
     th_node *group = option->parent;
-    return group->atom == TH_TAG_OPTGROUP && find_node_attr(group, TH_ATTR_DISABLED) != NULL;
+    if (group->atom != TH_TAG_OPTGROUP) {
+        return 0;
+    }
+    /* Pair allocation can run callbacks, so drop the answers read before an attribute was last written. */
+    uint64_t attr_version = th_tree_attr_version(tree);
+    if (memo->attr_version != attr_version) {
+        memo->attr_version = attr_version;
+        memo->count = 0;
+    }
+    if (memo->count > 0 && memo->groups[memo->count - 1] == group) {
+        return memo->disabled[memo->count - 1];
+    }
+    int disabled = find_node_attr(group, TH_ATTR_DISABLED) != NULL;
+    if (memo->count < TH_MAX_TREE_DEPTH) {
+        memo->groups[memo->count] = group;
+        memo->disabled[memo->count++] = (uint8_t)disabled;
+    }
+    return disabled;
 }
 
 /* WHATWG display size of a single (non-multiple) select: the parsed non-negative
@@ -778,11 +843,14 @@ static Py_ssize_t single_select_display_size(th_tree *tree, th_node *select) {
 static th_node *single_select_selection(th_tree *tree, th_node *select) {
     th_node *selected = NULL;
     th_node *first_enabled = NULL;
-    for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
+    optgroup_memo memo;
+    optgroup_memo_init(&memo);
+    for (th_node *option = next_option(select, select, &memo); option != NULL;
+         option = next_option(option, select, &memo)) {
         if (find_node_attr(option, TH_ATTR_SELECTED) != NULL) {
             selected = option;
         }
-        if (first_enabled == NULL && !option_disabled(option)) {
+        if (first_enabled == NULL && !option_disabled(tree, option, &memo)) {
             first_enabled = option;
         }
     }
@@ -802,7 +870,8 @@ static PyObject *select_value(th_tree *tree, th_node *select) {
         if (values == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
+        for (th_node *option = next_option(select, select, NULL); option != NULL;
+             option = next_option(option, select, NULL)) {
             if (find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
                 continue;
             }
@@ -978,7 +1047,8 @@ static int set_select_value(PyObject *self, th_node *select, PyObject *value) {
     int error = 0;
     int selected_one = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
+    for (th_node *option = next_option(select, select, NULL); option != NULL;
+         option = next_option(option, select, NULL)) {
         PyObject *option_value = option_value_str(tree, option);
         if (option_value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             error = 1;              /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1488,6 +1558,8 @@ static int emit_pair(form_pairs *pairs, const th_node_attr *name, PyObject *valu
 /* Append the submitted option(s) of a select as (name, value) pairs: every selected
    non-disabled option for a multiple select, else the resolved single selection. */
 static int collect_select(th_tree *tree, th_node *select, const th_node_attr *name, form_pairs *pairs) {
+    optgroup_memo memo;
+    optgroup_memo_init(&memo);
     if (find_node_attr(select, TH_ATTR_MULTIPLE) != NULL) {
         /* One name str shared by every pair: a copy per selected option costs options x name length. */
         PyObject *name_obj = ucs4_to_str(name->value, name->value_len);
@@ -1495,8 +1567,9 @@ static int collect_select(th_tree *tree, th_node *select, const th_node_attr *na
             return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         int rc = 0;
-        for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
-            if (option_disabled(option) || find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
+        for (th_node *option = next_option(select, select, &memo); option != NULL;
+             option = next_option(option, select, &memo)) {
+            if (option_disabled(tree, option, &memo) || find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
                 continue;
             }
             rc = emit_named_pair(pairs, name_obj, option_value_str(tree, option));
@@ -1508,7 +1581,7 @@ static int collect_select(th_tree *tree, th_node *select, const th_node_attr *na
         return rc;
     }
     th_node *use = single_select_selection(tree, select);
-    if (use == NULL || option_disabled(use)) { /* a disabled resolved option is not submittable */
+    if (use == NULL || option_disabled(tree, use, &memo)) { /* a disabled resolved option is not submittable */
         return 0;
     }
     return emit_pair(pairs, name, option_value_str(tree, use));
@@ -1563,6 +1636,19 @@ PyDoc_STRVAR(form_data_doc, "form_data()\n--\n\n"
                             "excluded. Controls are matched by containment in the form.\n\n"
                             ":returns: the (name, value) pairs in document order.");
 
+/* Whether no legend precedes this one among its siblings. Only the first legend of a disabled fieldset is walked
+   into, so only it needs the fieldset's disabled attribute looked up before its later siblings are skipped; asking
+   this first keeps that search to one per fieldset, not one per legend. Each legend looks back no further than the
+   legend before it. */
+static int legend_is_first(const th_node *legend) {
+    for (const th_node *earlier = legend->prev_sibling; earlier != NULL; earlier = earlier->prev_sibling) {
+        if (earlier->atom == TH_TAG_LEGEND) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static th_node *next_form_control(th_node *current, th_node *form) {
     if (current->atom == TH_TAG_FIELDSET && find_node_attr(current, TH_ATTR_DISABLED) != NULL) {
         th_node *legend = fieldset_first_legend(current);
@@ -1580,8 +1666,9 @@ static th_node *next_form_control(th_node *current, th_node *form) {
 #endif
         th_node *parent = current->parent;
         /* Pair allocation can run callbacks, so re-read fieldset state before skipping siblings. */
-        if (current->next_sibling != NULL && !(current->atom == TH_TAG_LEGEND && parent->atom == TH_TAG_FIELDSET &&
-                                               find_node_attr(parent, TH_ATTR_DISABLED) != NULL)) {
+        if (current->next_sibling != NULL &&
+            !(current->atom == TH_TAG_LEGEND && parent->atom == TH_TAG_FIELDSET && legend_is_first(current) &&
+              find_node_attr(parent, TH_ATTR_DISABLED) != NULL)) {
             return current->next_sibling;
         }
         current = parent;

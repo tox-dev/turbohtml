@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
-from typing import Final
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 import turbohtml
 from turbohtml import Document, Element, RdfaItem, StructuredData, Text, parse
 from turbohtml.extract import MicrodataItem, OpenGraph, microdata, opengraph
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 
 @pytest.fixture
@@ -770,6 +774,11 @@ def test_opengraph_malformed_base_href_falls_back_to_base_url() -> None:
     assert parse(html).opengraph(base_url="http://ex.com/d/") == {"image": "http://ex.com/d/a.png"}
 
 
+def test_opengraph_overlong_base_href_falls_back_to_base_url() -> None:
+    html = f'<base href="http://b.com/{"c" * (2048 + 1)}/"><meta property="og:image" content="a.png">'
+    assert parse(html).opengraph(base_url="http://ex.com/d/") == {"image": "http://ex.com/d/a.png"}
+
+
 def test_opengraph_base_url_none_is_verbatim() -> None:
     html = '<meta property="og:image" content="/a.png">'
     assert parse(html).opengraph(base_url=None) == {"image": "/a.png"}
@@ -1322,6 +1331,24 @@ def test_microdata_wide_item_keeps_all_values() -> None:
     assert document.microdata() == [
         MicrodataItem(type=None, id=None, properties={"name": [str(index) for index in range(1_000)]})
     ]
+
+
+def test_microdata_itemref_crawl_of_crowded_elements_stays_linear(work_steps: WorkSteps) -> None:
+    assert parse(_crowded_itemref_markup(40)).microdata() == [MicrodataItem(type=None, id=None, properties={})]
+    work_steps.assert_linear(lambda n: partial(parse(_crowded_itemref_markup(n)).microdata), (1000, 4000))
+
+
+def _crowded_itemref_markup(elements: int) -> str:
+    # The itemref crawl keys the elements it visits by creation order, and comments take an order number without
+    # entering the node map, so the markup picks which numbers become keys and places them in the lowest eighth of
+    # the table.
+    nodes: list[str] = []
+    placed = 0
+    while placed < elements:
+        crowded = len(nodes) * 0x61C88647 % 2**32 < 2**29
+        nodes.append("<span></span>" if crowded else "<!---->")
+        placed += crowded
+    return f"<p itemscope itemref=x><div id=x>{''.join(nodes)}"
 
 
 @pytest.mark.parametrize("reference", [pytest.param("", id="local"), pytest.param("itemref=hidden", id="referenced")])

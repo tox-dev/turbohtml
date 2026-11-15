@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse
+from turbohtml.detect import detect
 
 
 @pytest.mark.parametrize(
@@ -69,3 +70,27 @@ def test_a_repeated_content_attribute_is_ignored() -> None:
         b'<meta http-equiv=content-type content="text/html;charset=utf-8" content="text/html;charset=windows-1251">'
     )
     assert parse(markup).encoding == "UTF-8"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(b'<meta charset="big5\x00">', id="quoted-charset-value"),
+        pytest.param(b"<meta charset=big5\x00q>", id="unquoted-charset-value"),
+        pytest.param(b'<meta charset\x00q="big5">', id="charset-name"),
+        pytest.param(b'<meta http-equiv="content-type" content="text/html; charset=big5\x00q">', id="content-label"),
+        pytest.param(b'<meta http-equiv="content-type\x00q" content="text/html; charset=big5">', id="http-equiv-value"),
+        pytest.param(b'<meta http-equiv\x00q="content-type" content="text/html; charset=big5">', id="http-equiv-name"),
+        pytest.param(b'<meta content\x00q="text/html; charset=big5" http-equiv="content-type">', id="content-name"),
+    ],
+)
+def test_a_nul_byte_does_not_end_a_name_or_a_value(markup: bytes) -> None:
+    # the spec compares whole names and values, so a NUL must not cut them short
+    assert parse(markup).encoding == "windows-1252"
+    assert detect(markup).encoding == "windows-1252"
+
+
+def test_a_nul_byte_does_not_hide_the_rest_of_a_content_value() -> None:
+    # detect() is the prescan alone; parse() would find the same label again in the tree's own <meta>
+    markup = b'<meta http-equiv="content-type" content="\x00text/html; charset=big5">'
+    assert detect(markup).encoding == "Big5"

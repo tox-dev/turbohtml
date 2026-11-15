@@ -1160,7 +1160,8 @@ static PyObject *refresh_fallback(PyObject *fallback) {
 }
 
 PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
-                           "Resolve this document's base URL from its first <base href>.\n\n"
+                           "Resolve this document's base URL from its first <base href>. A base that resolves to\n"
+                           "more than 2,048 characters is ignored.\n\n"
                            ":param fallback: the URL the <base href> is resolved against, and the result\n"
                            "    itself when the document has no <base href>.\n"
                            ":returns: the document's base URL.");
@@ -1277,7 +1278,8 @@ static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
 }
 
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none or the href fails URL parsing (HTML spec 2.4.3). The extraction methods share it. */
+   when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
+   TH_BASE_URL_MAX. The extraction methods share it. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
@@ -1312,7 +1314,7 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         PyErr_Clear();
         result = Py_NewRef(fallback);
     }
-    if (base_has_forbidden_scheme(result)) {
+    if (base_has_forbidden_scheme(result) || PyUnicode_GET_LENGTH(result) > TH_BASE_URL_MAX) {
         Py_SETREF(result, Py_NewRef(fallback));
     }
     Py_DECREF(input);
@@ -3153,6 +3155,51 @@ static PyObject *reconstruct_shadow_root(module_state *state, PyObject *data) {
     return node_wrap(state, ((NodeObject *)host)->handle, root);
 }
 
+/* Pickle rebuilds each node in a fresh tree, and linking a child from another tree copies its subtree. Taking the new
+   childless node into the largest child's tree instead leaves only the smaller siblings to copy, each into a tree at
+   least twice the size of the one it leaves, so a node is copied at most log2(nodes) times. A child that still has a
+   parent, is a shadow root or has another XML flag is copied as before. Returns 0, or -1 with an exception on
+   allocation failure. */
+static int join_largest_child(module_state *state, PyObject *children, PyObject **slot) {
+    th_tree *tree = tree_of(*slot);
+    th_node *node = ((NodeObject *)*slot)->node;
+    int as_root = node->type == TH_NODE_CONTENT && node == th_tree_document(tree);
+    if (node->type != TH_NODE_ELEMENT && !as_root) {
+        return 0;
+    }
+    NodeObject *largest = NULL;
+    uint32_t most = th_tree_node_count(tree);
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(children); index++) {
+        PyObject *item = PyList_GET_ITEM(children, index);
+        if (!PyObject_TypeCheck(item, (PyTypeObject *)state->node_type)) {
+            continue; /* the caller's linking loop raises for it */
+        }
+        NodeObject *child = (NodeObject *)item;
+        th_tree *child_tree = tree_of(item);
+        th_node *root = th_tree_document(child_tree);
+        int rootless = root == NULL || (!as_root && root == child->node && root->type == TH_NODE_CONTENT);
+        if (rootless && child->node->parent == NULL && !th_node_is_shadow_root(child->node) &&
+            th_tree_is_xml(child_tree) == th_tree_is_xml(tree) && th_tree_node_count(child_tree) > most) {
+            most = th_tree_node_count(child_tree);
+            largest = child;
+        }
+    }
+    if (largest == NULL) {
+        return 0;
+    }
+    th_tree *joined = tree_of((PyObject *)largest);
+    /* the import rebinds an element's wrapper to its copy and swaps a fragment's for that of a new fragment there */
+    if (import_foreign_node(largest->handle, slot) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        return -1;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (as_root) {
+        th_tree_set_document(joined, ((NodeObject *)*slot)->node);
+    } else if (largest->node == th_tree_document(joined)) {
+        th_tree_set_document(joined, NULL);
+    }
+    return 0;
+}
+
 PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
     int kind;
     PyObject *data;
@@ -3206,6 +3253,10 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
     }
     if (node == NULL) {
         return NULL;
+    }
+    if (join_largest_child(state, children, &node) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        Py_DECREF(node);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* link each rebuilt child straight into the node: a document has no append(), and a fragment child (a template's
        contents) must land as a child rather than be spliced */

@@ -41,6 +41,10 @@ static const char RNG_NS[] = "http://relaxng.org/ns/structure/1.0";
    the smallest supported thread stack that those walks cannot exhaust it. */
 #define TH_VALIDATE_MAX_DEPTH TH_DEPTH_LIMIT(400)
 
+/* Each collected error keeps its own copy of the path, so the errors and the names in the paths are both capped. */
+#define TH_VALIDATE_MAX_PATH_NAME 64
+#define TH_VALIDATE_MAX_ERRORS 1000
+
 /* ======================= bump arena ======================= */
 
 typedef struct arena_block {
@@ -303,11 +307,7 @@ static int path_reserve(pathbuf *path, Py_ssize_t extra) {
     return 0;
 }
 
-static int path_push(pathbuf *path, const Py_UCS4 *local, Py_ssize_t local_len) {
-    if (path_reserve(path, local_len * 4 + 1) < 0) { /* GCOVR_EXCL_BR_LINE: reserve only fails on OOM */
-        return -1;                                   /* GCOVR_EXCL_LINE */
-    }
-    path->data[path->len++] = '/';
+static void path_encode(pathbuf *path, const Py_UCS4 *local, Py_ssize_t local_len) {
     for (Py_ssize_t index = 0; index < local_len; index++) {
         Py_UCS4 codepoint = local[index];
         if (codepoint < 0x80) {
@@ -326,6 +326,29 @@ static int path_push(pathbuf *path, const Py_UCS4 *local, Py_ssize_t local_len) 
             path->data[path->len++] = (char)(0x80 | (codepoint & 0x3F));
         }
     }
+}
+
+static int path_push_cut(pathbuf *path, const Py_UCS4 *local) {
+    if (path_reserve(path, TH_VALIDATE_MAX_PATH_NAME * 4 + 4) < 0) { /* GCOVR_EXCL_BR_LINE: reserve only fails on OOM */
+        return -1;                                                   /* GCOVR_EXCL_LINE */
+    }
+    path->data[path->len++] = '/';
+    path_encode(path, local, TH_VALIDATE_MAX_PATH_NAME);
+    /* U+2026 occurs in no XML name, so a cut cannot be mistaken for part of a name */
+    memcpy(path->data + path->len, "\xE2\x80\xA6", 3);
+    path->len += 3;
+    return 0;
+}
+
+static int path_push(pathbuf *path, const Py_UCS4 *local, Py_ssize_t local_len) {
+    if (local_len > TH_VALIDATE_MAX_PATH_NAME) {
+        return path_push_cut(path, local);
+    }
+    if (path_reserve(path, local_len * 4 + 1) < 0) { /* GCOVR_EXCL_BR_LINE: reserve only fails on OOM */
+        return -1;                                   /* GCOVR_EXCL_LINE */
+    }
+    path->data[path->len++] = '/';
+    path_encode(path, local, local_len);
     return 0;
 }
 
@@ -346,7 +369,7 @@ static void report(valctx *ctx, th_node *node, const char *type, const char *fmt
         return;        /* GCOVR_EXCL_LINE */
     }
     ctx->error_count++;
-    if (!ctx->collect_errors) {
+    if (!ctx->collect_errors || ctx->error_count > TH_VALIDATE_MAX_ERRORS) {
         return;
     }
     va_list args;
@@ -552,7 +575,10 @@ typedef struct th_schema {
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
-    struct rpattern *regex_patterns;
+    /* every pattern facet and RELAX NG pattern param in document order, and the distinct ones sorted by text for
+       regex_full_match to search */
+    struct rpattern *regex_patterns, **regex_sorted;
+    size_t regex_count, regex_cap, regex_distinct;
     size_t regex_max_states;        /* states in the largest compiled pattern, sizing the match buffers */
     struct rscratch *regex_scratch; /* match buffers of one validate() call, built on its first pattern check */
     /* the buffer one validate() call normalizes whitespace into, and the characters it holds; see dt_normalize_ws */

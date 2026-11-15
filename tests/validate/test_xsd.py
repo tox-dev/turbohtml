@@ -757,6 +757,80 @@ def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        pytest.param("", True, id="matches-every-pattern"),
+        pytest.param("z", True, id="matches-every-pattern-by-its-first-branch"),
+        pytest.param("00007", False, id="matches-one-pattern"),
+        pytest.param("b", False, id="matches-no-pattern"),
+    ],
+)
+def test_regex_many_patterns_on_one_type(value: str, *, valid: bool) -> None:
+    assert check(restricted(_many_pattern_facets(240)), f"<v>{value}</v>").valid is valid
+
+
+def _many_pattern_facets(count: int) -> str:
+    return "".join(f'<xs:pattern value="z?|{number:05d}"/>' for number in range(count))
+
+
+def test_regex_many_patterns_compile_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: lambda: XMLSchema(restricted(_many_pattern_facets(count))), (150, 600))
+
+
+def test_regex_many_patterns_validate_in_linear_steps(work_steps: WorkSteps) -> None:
+    def build(count: int) -> Callable[[], object]:
+        schema: Final = XMLSchema(
+            f'<xs:schema {_XS}><xs:simpleType name="t"><xs:restriction base="xs:string">'
+            f"{_many_pattern_facets(count)}</xs:restriction></xs:simpleType>"
+            '<xs:element name="r"><xs:complexType><xs:sequence>'
+            '<xs:element name="v" type="t" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>'
+            "</xs:schema>"
+        )
+        document: Final = parse_xml(f"<r>{'<v/>' * 20}</r>")
+
+        def validate() -> None:
+            assert schema.is_valid(document)
+
+        return validate
+
+    work_steps.assert_linear(build, (150, 600))
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        pytest.param("ab", True, id="every-pattern"),
+        pytest.param("b", False, id="fails-a-repeated-pattern"),
+        pytest.param("abab", False, id="fails-a-single-pattern"),
+    ],
+)
+def test_regex_repeated_patterns_on_one_type(value: str, *, valid: bool) -> None:
+    # equal texts compile once, and every facet that repeats one finds that compiled form
+    patterns: Final = ("(ab)+", "a.*", "[ab]{1,4}", ".+", "a.*", "(ab)+", "ab|c", ".b", "a.*", "[ab]{1,4}", "(ab)?")
+    facets: Final = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
+    assert check(restricted(facets), f"<v>{value}</v>").valid is valid
+
+
+def test_regex_empty_pattern_matches_only_the_empty_string() -> None:
+    schema: Final = XMLSchema(restricted('<xs:pattern value=""/><xs:pattern value="a*"/><xs:pattern value=""/>'))
+    assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("", "a")] == [True, False]
+
+
+@pytest.mark.parametrize(
+    ("patterns", "message"),
+    [
+        pytest.param(("a", "(", "[z-a]"), "schema pattern has an unmatched parenthesis", id="shorter-first"),
+        pytest.param(("[z-a]", "a", "("), "schema pattern has an invalid character range", id="longer-first"),
+        pytest.param(("b{2,1}", "a", "a{3,1}"), "schema pattern quantifier {2,1} at offset 1", id="greater-first"),
+    ],
+)
+def test_regex_first_invalid_pattern_in_document_order_is_reported(patterns: tuple[str, ...], message: str) -> None:
+    facets: Final = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}"):
+        XMLSchema(restricted(facets))
+
+
+@pytest.mark.parametrize(
     ("pattern", "value"),
     [
         pytest.param("a{150000}", "a" * 150000, id="large-repeat"),
@@ -937,7 +1011,8 @@ def test_all_children_naming_no_member_scale_linearly(work_steps: WorkSteps) -> 
         return partial(_all_schema(_optional_members(count)).validate, parse_xml(f"<r>{'<zz/>' * count}</r>"))
 
     work_steps.assert_linear(build, _LINEAR_SIZES)
-    assert len(build(_LINEAR_SIZES[1])().errors) == _LINEAR_SIZES[1]
+    # validate() lists at most 1,000 of the errors
+    assert len(build(_LINEAR_SIZES[1])().errors) == 1_000
 
 
 def test_all_groups_scale_linearly(work_steps: WorkSteps) -> None:

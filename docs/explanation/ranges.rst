@@ -40,11 +40,12 @@ shift a range you happen to be holding, because the tree's mutators do not track
 drive, not an observer that follows edits made elsewhere. When such an edit shortens a text node past a boundary offset
 in it, the content operations, :meth:`~turbohtml.Range.insert_node`, and
 :attr:`~turbohtml.Range.common_ancestor_container` raise :exc:`IndexError`; when it moves the two boundaries into
-separate trees or puts the start after the end, they raise :exc:`ValueError`. Reset the boundaries to use the range
-again. A child offset past the last child is tolerated and reads as the end of the container. Second,
-:class:`~turbohtml.StaticRange` is the immutable counterpart the spec defines for exactly that observer case: it stores
-the four boundary values verbatim with no ordering, bounds, or same-root guarantee, so it is a cheap snapshot to hand
-around rather than a handle to operate through.
+separate trees or puts the start after the end, they raise :exc:`ValueError`. The comparison methods raise
+:exc:`ValueError` for boundaries in separate trees too. Reset the boundaries to use the range again. A child offset past
+the last child is tolerated and reads as the end of the container. Second, :class:`~turbohtml.StaticRange` is the
+immutable counterpart the spec defines for exactly that observer case: it stores the four boundary values verbatim with
+no ordering, bounds, or same-root guarantee, so it is a cheap snapshot to hand around rather than a handle to operate
+through.
 
 Every boundary, comparison, and content operation is validated against jsdom, which passes the WPT ``dom/ranges`` suite:
 :file:`tests/conformance/test_dom_jsdom_differential.py` replays the same sequences through both libraries over shared

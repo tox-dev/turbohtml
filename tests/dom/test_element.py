@@ -658,6 +658,14 @@ def test_multiple_select_returns_the_selected_list() -> None:
     assert select.field_value == ["a", "c"]
 
 
+def test_multiple_select_lists_an_option_nested_in_an_option_once() -> None:
+    select = _tree_field_value_control(
+        "<select multiple><option selected>a<div><option selected>b</div></option><option selected>c</select>",
+        "select",
+    )
+    assert select.field_value == ["ab", "c"]
+
+
 def test_multiple_select_with_no_selection_is_empty() -> None:
     select = _tree_field_value_control("<select multiple><option value=a>A<option value=b>B</select>", "select")
     assert select.field_value == []
@@ -754,6 +762,35 @@ def test_set_multiple_select_deselects_the_rest() -> None:
     )
     select.field_value = ["a"]
     assert select.field_value == ["a"]
+
+
+def test_set_multiple_select_leaves_an_option_nested_in_an_option_alone() -> None:
+    select = _tree_field_value_control(
+        "<select multiple><option>a<div><option>b</div></option><option>c</select>", "select"
+    )
+    select.field_value = ["b", "c"]
+    assert ["selected" in option.attrs for option in select.find_all("option")] == [False, False, True]
+
+
+def test_set_multiple_select_stops_at_an_option_detached_during_the_walk() -> None:
+    select = _tree_field_value_control("<select multiple><option>a<option>b</select>", "select")
+    option = select.find_all("option")[0]
+
+    class Detaching(str):  # ruff:ignore[subclass-builtin]  # the wanted-value set compares real str members
+        __slots__ = ()
+
+        def __eq__(self, other: object) -> bool:
+            option.extract()
+            return str(self) == other
+
+        __hash__ = str.__hash__
+
+    select.field_value = [Detaching("a"), "b"]
+    assert (option.parent, option.html, select.html) == (
+        None,
+        '<option selected="">a</option>',
+        '<select multiple=""><option>b</option></select>',
+    )
 
 
 def test_set_multiple_select_rejects_a_bare_str() -> None:
@@ -934,6 +971,105 @@ def test_multiple_select_skips_optgroup_disabled_options() -> None:
 
 
 @pytest.mark.parametrize(
+    ("outer", "inner", "expected"),
+    [
+        pytest.param("", "", ["a", "b", "c", "d"], id="neither"),
+        pytest.param(" disabled", "", ["b", "d"], id="outer"),
+        pytest.param("", " disabled", ["a", "c", "d"], id="inner"),
+        pytest.param(" disabled", " disabled", ["d"], id="both"),
+    ],
+)
+def test_select_reads_each_option_against_its_own_optgroup_when_groups_nest(
+    outer: str, inner: str, expected: list[str]
+) -> None:
+    # the second optgroup sits inside the first one through a div, so its option comes between two of the first's
+    form: Final = _form(
+        f"<form><select name=t multiple><optgroup{outer}><option value=a selected></option><div><optgroup{inner}>"
+        "<option value=b selected></optgroup></div><option value=c selected></optgroup><option value=d selected>"
+        "</select></form>"
+    )
+    select: Final = form.find("select")
+    assert select is not None
+    options: Final = form.find_all("option")
+    groups: Final = form.find_all("optgroup")
+    assert [option.parent for option in options] == [groups[0], groups[1], groups[0], select]
+    assert form.form_data() == [("t", value) for value in expected]
+    del select.attrs["multiple"]
+    for option in options:
+        del option.attrs["selected"]
+    assert form.form_data() == [("t", expected[0])]
+    assert select.field_value == expected[0]
+
+
+def test_select_reads_optgroups_nested_deeper_than_the_parser_builds() -> None:
+    # each group holds an option, the next group, and another option; every third group is disabled
+    depth: Final = 600
+    group: Element = Element("optgroup", {}, [])
+    for level in reversed(range(depth)):
+        children: list[Node] = [
+            Element("option", {"value": f"before{level}", "selected": None}),
+            group,
+            Element("option", {"value": f"after{level}", "selected": None}),
+        ]
+        group = Element("optgroup", {"disabled": None} if level % 3 == 0 else {}, children)
+    form: Final = Element("form", {}, [Element("select", {"name": "t", "multiple": None}, [group])])
+    enabled: Final = [level for level in range(depth) if level % 3]
+    assert form.form_data() == [
+        *(("t", f"before{level}") for level in enabled),
+        *(("t", f"after{level}") for level in reversed(enabled)),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("multiple", "expected"),
+    [pytest.param(True, [], id="multiple"), pytest.param(False, None, id="single")],
+)
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param("<option>", id="one-group"),
+        pytest.param("<option></option><div><optgroup disabled><option></optgroup></div>", id="nested-groups"),
+    ],
+)
+def test_select_with_many_optgroup_attributes_is_read_in_linear_time(
+    work_steps: WorkSteps, options: str, *, multiple: bool, expected: list[str] | None
+) -> None:
+    assert _disabled_group_select(2, options, multiple=multiple)() == ([], expected)
+    work_steps.assert_linear(lambda count: _disabled_group_select(count, options, multiple=multiple), (500, 2000))
+
+
+def _disabled_group_select(count: int, options: str, *, multiple: bool) -> Callable[[], object]:
+    attributes: Final = " ".join(f"a{index}" for index in range(count))
+    form: Final = _form(f"<form><select multiple name=s><optgroup {attributes} disabled>{options * count}</select>")
+    select: Final = form.find("select")
+    assert select is not None
+    if not multiple:  # parsed as a multiple select either way, which the tree builder resolves no default option for
+        del select.attrs["multiple"]
+    return lambda: (form.form_data(), select.field_value)
+
+
+def test_form_data_with_many_fieldset_attributes_and_legends_is_linear_time(work_steps: WorkSteps) -> None:
+    assert _fieldset_with_legends(2)() == [("a", "1")]
+    work_steps.assert_linear(_fieldset_with_legends, (500, 2000))
+
+
+def _fieldset_with_legends(count: int) -> Callable[[], object]:
+    attributes: Final = " ".join(f"a{index}" for index in range(count))
+    form: Final = _form(f"<form><fieldset {attributes}>{'<legend></legend>' * count}<input name=a value=1></form>")
+    return form.form_data
+
+
+def test_form_data_skips_a_disabled_fieldset_after_its_first_legend_only() -> None:
+    form: Final = _form(
+        "<form><fieldset disabled><input name=a><legend><input name=b></legend><input name=c>"
+        "<legend><input name=d></legend><input name=e></fieldset>"
+        "<fieldset><legend><input name=f></legend><input name=g><legend><input name=h></legend><input name=i>"
+        "</fieldset><input name=j></form>"
+    )
+    assert [name for name, _value in form.form_data()] == ["b", "f", "g", "h", "i", "j"]
+
+
+@pytest.mark.parametrize(
     ("attr", "expected"),
     [
         pytest.param("size=1", [("s", "a")], id="display-size-1"),
@@ -976,6 +1112,64 @@ def test_form_data_ignores_controls_nested_deep_inside_a_template() -> None:
 def test_form_data_skips_a_trailing_template() -> None:
     form = _form("<form><input name=a value=2><template><input name=t value=1></template></form>")
     assert form.form_data() == [("a", "2")]
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<select multiple name=s><option selected>a<div><option selected>b",
+            [("s", "ab")],
+            id="option-in-option",
+        ),
+        pytest.param(
+            "<select multiple name=s><optgroup><option selected>a<div><option selected>b</div></option></optgroup>"
+            "<option selected>c",
+            [("s", "ab"), ("s", "c")],
+            id="option-in-grouped-option",
+        ),
+        pytest.param(
+            "<select name=s><option>a<div><option selected>b</div></option><option>c",
+            [("s", "ab")],
+            id="option-in-option-single",
+        ),
+        pytest.param(
+            "<select multiple name=s><object><select multiple name=t><option selected>a</select></object>"
+            "<option selected>b",
+            [("s", "b"), ("t", "a")],
+            id="select-in-select",
+        ),
+        pytest.param(
+            "<select multiple name=s><datalist><option selected>a</datalist><option selected>b",
+            [("s", "b")],
+            id="option-in-datalist",
+        ),
+        pytest.param(
+            "<select multiple name=s><template><option selected>a</template><option selected>b",
+            [("s", "b")],
+            id="option-in-template",
+        ),
+    ],
+)
+def test_form_data_submits_an_option_for_its_nearest_select_only(markup: str, expected: list[tuple[str, str]]) -> None:
+    assert _form(f"<form>{markup}").form_data() == expected
+
+
+def test_form_data_skips_an_option_inside_an_hr() -> None:
+    form = _form("<form><select multiple name=s><hr><option selected>b</select></form>")
+    form.select("hr")[0].append(Element("option", {"selected": "", "value": "a"}))
+    assert form.form_data() == [("s", "b")]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(f"{'<select multiple name=s><object>' * 100}{'<option selected><div>' * 100}x", id="html"),
+        pytest.param(f"<svg>{'<select multiple name=s>' * 200}{'<option selected>' * 200}x", id="svg"),
+    ],
+)
+def test_form_data_does_not_multiply_nested_selects_by_nested_options(markup: str) -> None:
+    assert _form(f"<form>{markup}").form_data() == [("s", "x")]
 
 
 def test_option_value_falls_back_to_text() -> None:
@@ -2455,6 +2649,42 @@ def test_form_data_handles_legend_changes_during_collection(
     assert count in counts
     assert (changed, legend.parent == fieldset, legend.parent is None) == (True, replaced, not replaced)
     assert pairs == [*expected, *suffix]
+
+
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
+def test_form_data_rereads_an_optgroup_disabled_during_collection() -> None:
+    options: Final = "".join(f'<option selected value="v{index}">' for index in range(256))
+    form: Final = parse(
+        f'<form><select multiple name="s"><optgroup>{options}</optgroup></select><input name="tail" value="ok"></form>'
+    ).select("form")[0]
+    group: Final = form.select("optgroup")[0]
+    collect: Final = form.form_data
+    thresholds: Final = gc.get_threshold()
+    restore_gc: Final = {True: gc.enable, False: gc.disable}[gc.isenabled()]
+    changed = False
+
+    def disable_group(phase: str, _info: dict[str, int]) -> None:
+        nonlocal changed
+        if phase == "start" and not changed:
+            changed = True
+            group.attrs["disabled"] = ""
+
+    gc.disable()
+    gc.collect()
+    gc.callbacks.append(disable_group)
+    try:
+        gc.set_threshold(gc.get_count()[0] + 64, thresholds[1], thresholds[2])
+        gc.enable()
+        pairs: Final = collect()
+        gc.collect()
+    finally:
+        gc.disable()
+        gc.callbacks.remove(disable_group)
+        gc.set_threshold(*thresholds)
+        restore_gc()
+    count: Final = sum(name == "s" for name, _value in pairs)
+    assert count == 256 if sys.version_info >= (3, 12) else 0 < count < 256
+    assert (changed, pairs) == (True, [*(("s", f"v{index}") for index in range(count)), ("tail", "ok")])
 
 
 @pytest.fixture

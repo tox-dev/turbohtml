@@ -13,7 +13,7 @@ from weakref import finalize, ref
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_xml
+from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_fragment, parse_xml
 from turbohtml.convert import css_to_xpath
 from turbohtml.query import XPathDepthError
 
@@ -955,6 +955,14 @@ def _groups(count: int) -> Document:
     return parse_xml(f"<r>{f'<g><h>{children}</h>{children}</g>' * count}</r>")
 
 
+def _clustered(count: int) -> Document:
+    # The creation-sequence table places a node at its sequence times 0x61C88647 scaled to the table, so members whose
+    # products fall in the lowest eighth of the range crowd one eighth of it and every probe walks that crowd.
+    members: Final = {index for index in range(count * 8) if index * 0x61C88647 % 2**32 < 2**29}
+    children: Final = "".join("<b/>" if index in members else "<x/>" for index in range(count * 8))
+    return parse_xml(f"<r>{children}<c/><c/></r>")
+
+
 def _element_ancestors(node: Element) -> list[Element]:
     return [ancestor for ancestor in node.ancestors if isinstance(ancestor, Element)]
 
@@ -1156,12 +1164,18 @@ def test_union_after_a_callback_reorders_the_tree() -> None:
         ),
         pytest.param(_chain, "(//d)[position() mod 2 = 0] | //e", id="deep-merge"),
         pytest.param(_chain, "//d[last()]/ancestor::d", id="deep-ancestors"),
+        pytest.param(_clustered, "//c/preceding-sibling::b", id="clustered-members"),
     ],
 )
 def test_document_order_grows_linearly(
     build: Callable[[int], Document], expression: str, work_steps: WorkSteps
 ) -> None:
     work_steps.assert_linear(lambda size: partial(build(size).xpath, expression), (1000, 4000))
+
+
+def test_clustered_members_come_back_in_document_order() -> None:
+    document: Final = _clustered(200)
+    assert document.xpath("//c/preceding-sibling::b") == document.xpath("//b")
 
 
 @pytest.mark.parametrize("context", ["//*", "//@*", "//text()", "//*/namespace::*"])
@@ -1640,6 +1654,28 @@ def test_node_set_variable_rejects_bad_node_sets(
 ) -> None:
     with pytest.raises(exc, match=match):
         variable_doc.xpath("$items", items=make_items(variable_doc))
+
+
+@pytest.mark.parametrize(
+    "evaluate",
+    [
+        pytest.param(lambda node, items: node.xpath("$items/text()", items=items), id="node-xpath"),
+        pytest.param(lambda node, items: XPath("$items/text()")(node, items=items), id="compiled"),
+    ],
+)
+def test_node_set_variable_iterable_moving_the_context_node_to_another_tree(
+    evaluate: Callable[[Element, Iterator[Element]], object],
+) -> None:
+    fragment: Final = parse_fragment("<p><a>one</a></p>")
+    host: Final = Element("div")
+
+    def anchors() -> Iterator[Element]:
+        yield from fragment.select("a")
+        host.append(fragment)  # fragment is the only wrapper of its tree, so the move drops the tree's last owner
+
+    with pytest.raises(ValueError, match="context node moved to a different tree"):
+        evaluate(fragment, anchors())
+    assert fragment.parent == host
 
 
 @pytest.mark.parametrize(

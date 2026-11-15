@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 
-from turbohtml import Document, Element, SelectorSyntaxError, parse, parse_xml
+from turbohtml import Document, Element, SelectorSyntaxError, Text, parse, parse_xml
 from turbohtml.clean import linkify_node
 
 if TYPE_CHECKING:
@@ -879,22 +879,25 @@ def _chain_grown_after_query(depth: int) -> Element:
     return root
 
 
-def test_has_memo_links_nested_by_linkify(work_steps: WorkSteps) -> None:
-    document: Final = _links_nested_by_linkify(_NESTED_DEPTH)
-    assert len(document.select("a:has(a)")) == _NESTED_DEPTH - 1
-    assert document.select("a:has(entry)") == []
+def test_has_memo_deep_chain_linkified(work_steps: WorkSteps) -> None:
+    document: Final = _deep_chain_linkified(_NESTED_DEPTH)
+    assert len(document.select("span:has(a)")) == _NESTED_DEPTH
+    assert document.select("span:has(entry)") == []
     work_steps.assert_linear(
-        lambda size: partial(_links_nested_by_linkify(size).select, "a:has(entry)"), (1000, _NESTED_DEPTH)
+        lambda size: partial(_deep_chain_linkified(size).select, "span:has(entry)"), (1000, _NESTED_DEPTH)
     )
 
 
-def _links_nested_by_linkify(depth: int) -> Document:
-    document: Final = parse("<p>https://example.com</p>")
-    owner = document.find("p")
+def _deep_chain_linkified(depth: int) -> Document:
+    document: Final = parse("<p>shallow</p>")
+    innermost = document.find("body")
+    assert innermost is not None
     for _ in range(depth):
-        assert owner is not None
-        linkify_node(owner)
-        owner = owner.find("a")
+        child = Element("span")
+        innermost.append(child)
+        innermost = child
+    innermost.append(Text("see https://example.com"))
+    linkify_node(innermost)
     return document
 
 
