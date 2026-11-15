@@ -1167,6 +1167,67 @@ def test_attribute_name_index_is_rebuilt_for_each_element() -> None:
     assert [error.message for error in undeclared.errors] == ["attribute 'a0' is not declared"]
 
 
+_OPTIONAL_A: Final[str] = '<xs:element name="a" minOccurs="0"/>'
+_OPTIONAL_PAIR: Final[str] = f'<xs:sequence minOccurs="0">{_A_ELEMENT * 2}</xs:sequence>'
+_EMPTIABLE_BODIES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(_OPTIONAL_A, id="optional-element"),
+    pytest.param(f'<xs:sequence minOccurs="0">{_A_ELEMENT}</xs:sequence>', id="optional-sequence"),
+    pytest.param(
+        '<xs:choice minOccurs="0"><xs:element name="a"/><xs:element name="b"/></xs:choice>', id="optional-choice"
+    ),
+    pytest.param("<xs:sequence/>", id="empty-sequence"),
+]
+_REPEAT_OCCURS: Final[list[pytest.ParameterSet]] = [
+    pytest.param('minOccurs="2" maxOccurs="unbounded"', id="at-least-two"),
+    pytest.param('minOccurs="2" maxOccurs="2"', id="exactly-two"),
+    pytest.param('minOccurs="3" maxOccurs="5"', id="three-to-five"),
+    pytest.param('minOccurs="1000" maxOccurs="unbounded"', id="a-thousand-or-more"),
+]
+
+
+@pytest.mark.parametrize("occurs", _REPEAT_OCCURS)
+@pytest.mark.parametrize("body", _EMPTIABLE_BODIES)
+def test_emptiable_repeated_particle_accepts_no_children(occurs: str, body: str) -> None:
+    assert check(_repeated_schema(f"<xs:sequence {occurs}>{body}</xs:sequence>"), "<r/>").valid
+
+
+@pytest.mark.parametrize(
+    ("occurs", "count", "valid"),
+    [
+        pytest.param('minOccurs="2" maxOccurs="2"', 2, True, id="two-of-two"),
+        pytest.param('minOccurs="2" maxOccurs="2"', 3, False, id="three-above-two"),
+        pytest.param('minOccurs="3" maxOccurs="5"', 5, True, id="five-of-five"),
+        pytest.param('minOccurs="3" maxOccurs="5"', 6, False, id="six-above-five"),
+        pytest.param('minOccurs="2" maxOccurs="unbounded"', 7, True, id="unbounded-run"),
+    ],
+)
+def test_optional_element_repeated_within_occurs(occurs: str, count: int, *, valid: bool) -> None:
+    schema = _repeated_schema(f"<xs:sequence {occurs}>{_OPTIONAL_A}</xs:sequence>")
+    assert check(schema, f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("count", "valid"),
+    [
+        pytest.param(0, True, id="no-pair"),
+        pytest.param(1, False, id="one-of-a-pair"),
+        pytest.param(2, True, id="one-pair"),
+        pytest.param(3, False, id="pair-and-one"),
+        pytest.param(4, True, id="two-pairs"),
+        pytest.param(5, False, id="two-pairs-and-one"),
+    ],
+)
+def test_optional_pair_repeated_twice(count: int, *, valid: bool) -> None:
+    model = f'<xs:sequence minOccurs="2" maxOccurs="2">{_OPTIONAL_PAIR}</xs:sequence>'
+    assert check(_repeated_schema(model), f"<r>{'<a/>' * count}</r>").valid is valid
+
+
+@pytest.mark.parametrize("count", [0, 1, 3])
+def test_minimum_above_maximum_matches_nothing(count: int) -> None:
+    model = '<xs:sequence minOccurs="3" maxOccurs="2"><xs:element name="a"/></xs:sequence>'
+    assert not check(_repeated_schema(model), f"<r>{'<a/>' * count}</r>").valid
+
+
 def test_all_any_order_and_missing() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all>'

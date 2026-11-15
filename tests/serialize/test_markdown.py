@@ -1966,6 +1966,69 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
+        pytest.param("<q><pre>x</pre></q>", '"\n\n```\nx\n```\n\n"', id="code-block"),
+        pytest.param("<q>a<pre>x</pre></q> b", '"a\n\n```\nx\n```\n\n" b', id="code-block-after-text"),
+        pytest.param("<b><q><pre>x</pre></q></b>", '**"**\n\n```\nx\n```\n\n**"**', id="code-block-in-emphasis"),
+        pytest.param("<ul><li><q><pre>x</pre></q></li></ul>", '- "\n  ```\n  x\n  ```\n  "', id="code-block-in-item"),
+        pytest.param(
+            "<p>a</p><blockquote><q><pre>x</pre></q></blockquote>",
+            'a\n\n> "\n>\n> ```\n> x\n> ```\n>\n> "',
+            id="code-block-in-block-quote",
+        ),
+        pytest.param("<pre>x</pre><q><p>a</p></q>", '```\nx\n```\n\n"\n\na\n\n"', id="paragraph-after-code-block"),
+        pytest.param("<q><ul><li>a</li></ul></q>", '"\n\n- a\n\n"', id="list"),
+        pytest.param("<q>a </q>b", '"a" b', id="inline-content-keeps-owed-space-outside"),
+    ],
+)
+def test_quote_marks_stay_off_the_lines_of_a_block(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<q><pre>&lt;b&gt;</pre></q>", id="opening-mark-before-fence"),
+        pytest.param("<p>x</p><ul><li><q><pre>&lt;b&gt;</pre></q></li></ul>", id="opening-mark-on-item-marker-line"),
+        pytest.param("<p>x</p><blockquote><q><pre>&lt;b&gt;</pre></q></blockquote>", id="opening-mark-on-quote-line"),
+        pytest.param("<pre>x</pre><q><p>a</p></q><pre>&lt;b&gt;</pre>", id="opening-mark-after-fence"),
+        pytest.param("<q>a<pre>x</pre></q><pre>&lt;b&gt;</pre>", id="closing-mark-after-fence"),
+    ],
+)
+def test_code_block_beside_a_quote_mark_stays_code(html: str) -> None:
+    assert "<b>" not in MarkdownIt("commonmark").render(md(html))
+
+
+@pytest.mark.parametrize(
+    ("html", "opts", "expected"),
+    [
+        pytest.param("<p>a</p><q><pre>x</pre></q>", Markdown(strip=["q"]), "a\n\n```\nx\n```", id="stripped"),
+        pytest.param(
+            "<p>a</p><q><pre>x</pre></q><p>b</p>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="")),
+            "a\n\n```\nx\n```\n\nb",
+            id="empty-marks",
+        ),
+        pytest.param(
+            "<p>a</p><q><pre>x</pre></q>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="»")),
+            "a\n\n```\nx\n```\n\n»",
+            id="closing-mark-only",
+        ),
+        pytest.param(
+            "<p>a</p><q></q>",
+            Markdown(inline=Markdown.Inline(quote_open="", quote_close="»")),
+            "a\n\n»",
+            id="closing-mark-only-on-empty-quote",
+        ),
+    ],
+)
+def test_quote_around_a_block_opens_a_line_only_for_a_mark_it_writes(html: str, opts: Markdown, expected: str) -> None:
+    assert parse(html).to_markdown(opts) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
         pytest.param(
             "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>",
             "| A | B |\n| --- | --- |\n| 1 | 2 |",
