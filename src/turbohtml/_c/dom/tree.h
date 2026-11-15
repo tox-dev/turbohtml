@@ -237,9 +237,10 @@ typedef struct th_tree th_tree;
 /* One character-encoding declaration a <meta> element carried, recorded in document
    order while the tree is built. text is the charset attribute's value, or -- when
    from_content is set -- the whole http-equiv="content-type" content value, whose
-   charset= token still has to be extracted. Both are the raw declaration: resolving a
-   label to an encoding is dom/document.c's job, because only the first label that
-   resolves decides, exactly as the prescan's fall-through does. */
+   charset= token still has to be extracted. A <meta> that carries both records its
+   charset value first. Both are the raw declaration: resolving a label to an encoding
+   is dom/document.c's job, because only the first label that resolves decides, exactly
+   as the prescan's fall-through does. */
 typedef struct {
     const char *text;
     int from_content;
