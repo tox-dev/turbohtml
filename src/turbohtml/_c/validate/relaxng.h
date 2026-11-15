@@ -201,6 +201,22 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
 #define MEMO_FREE_STEPS 1024
 #endif
 
+/* Leaves a choice built during validation may hold for each element of the schema, and at least the floor. A residual
+   with two levels of nested ambiguity stays under it; one that doubles with each define passes it within a few. */
+#define RNG_CHOICE_PER_NODE 24
+#define RNG_CHOICE_FLOOR 256
+
+/* The schema document holds each define once, including those a grammar builds only during validation. The first
+   merge wide enough to need the limit computes it, so a validation that never builds a wide choice pays nothing. */
+static RNG_NOINLINE Py_ssize_t rng_choice_limit(th_schema *schema) {
+    if (schema->choice_limit == 0) {
+        Py_ssize_t nodes = schema_count_elements(th_tree_document(schema->tree));
+        schema->choice_limit =
+            nodes * RNG_CHOICE_PER_NODE > RNG_CHOICE_FLOOR ? nodes * RNG_CHOICE_PER_NODE : RNG_CHOICE_FLOOR;
+    }
+    return schema->choice_limit;
+}
+
 typedef struct memo_key {
     pattern *p;
     const Py_UCS4 *value;
@@ -388,7 +404,11 @@ static pattern *pat_choice_node(th_schema *schema, pattern *p1, pattern *p2) {
 }
 
 /* A canonical choice holds non-choice leaves sorted by address and free of duplicates: a right-leaning chain of up to
-   RNG_CHAIN_JOIN of them, a balanced tree of more. */
+   RNG_CHAIN_JOIN of them, a balanced tree of more.
+
+   The memo derives each node once per event, but a content model whose places double with each define still leaves a
+   residual choice with one leaf per place. A merge is the only step that grows a choice past two leaves, so past the
+   limit it yields NotAllowed and marks the arena, and validate() raises; a limit of -1 marks that this happened. */
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t total = choice_leaf_count(p1) + choice_leaf_count(p2);
     pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
@@ -406,6 +426,12 @@ static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
         }
     }
     if (len > RNG_CHAIN_JOIN) {
+        /* the limit is never below RNG_CHOICE_FLOOR, so a chain of RNG_CHAIN_JOIN leaves needs no check */
+        if (len > rng_choice_limit(schema)) {
+            schema->choice_limit = -1;
+            schema->mem.no_memory = 1;
+            return schema->p_notallowed;
+        }
         return pat_fold(schema, pat_choice_node, leaves, len);
     }
     pattern *result = leaves[len - 1];

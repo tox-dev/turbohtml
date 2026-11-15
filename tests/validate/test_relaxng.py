@@ -4,6 +4,7 @@ import json
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the tests run a fixed command in a subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
@@ -1613,6 +1614,134 @@ def test_rng_shared_defines_scale_linearly(leaf: str, content: str, xml: str, wo
     work_steps.assert_linear(
         lambda n: partial(RelaxNG(_crossed_chain(leaf, content, "group", count=n)).validate, document), (12, 20)
     )
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param('<r><v a="1"/><v/>tail</r>', True, id="elements-then-text"),
+        pytest.param(f"<r>{'<v/>' * 40}</r>", True, id="many-elements"),
+        pytest.param('<r><v b="1"/></r>', False, id="unknown-attribute"),
+        pytest.param("<r><w/></r>", False, id="unknown-element"),
+        pytest.param("<r><v>x</v></r>", False, id="text-inside-empty"),
+    ],
+)
+def test_rng_many_places_for_one_element_decide(xml: str, *, valid: bool) -> None:
+    leaf = '<optional><element name="v"><optional><attribute name="a"/></optional></element></optional>'
+    schema = _crossed_chain(leaf, '<group><ref name="d0"/><text/></group>', "group", count=6)
+    assert rng_ok(schema, xml) is valid
+
+
+def _nested_places(outer: int, inner: int) -> str:
+    leaf = '<optional><element name="v"><optional><attribute name="a"/></optional></element></optional>'
+    holder = '<optional><element name="a"><ref name="i0"/></element></optional>'
+    return rgrammar(
+        f'<start><element name="r"><ref name="o0"/></element></start>{_doubling("o", outer, holder)}'
+        f"{_doubling('i', inner, leaf)}"
+    )
+
+
+def _doubling(prefix: str, count: int, last: str) -> str:
+    defines = "".join(
+        f'<define name="{prefix}{index}"><ref name="{prefix}{index + 1}"/><ref name="{prefix}{index + 1}"/></define>'
+        for index in range(count)
+    )
+    return f'{defines}<define name="{prefix}{count}">{last}</define>'
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r><a><v/></a></r>", True, id="inner-element"),
+        pytest.param('<r><a><v a="1"/><v/></a><a/></r>', True, id="siblings-at-both-levels"),
+        pytest.param("<r><a><w/></a></r>", False, id="unknown-inner-element"),
+        pytest.param("<r><v/></r>", False, id="inner-element-outside"),
+    ],
+)
+def test_rng_nested_places_below_the_limit_decide(xml: str, *, valid: bool) -> None:
+    assert rng_ok(_nested_places(6, 3), xml) is valid
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(_nested_places(7, 4), id="many-outer-places"),
+        pytest.param(_nested_places(4, 7), id="many-inner-places"),
+    ],
+)
+def test_rng_too_many_nested_places_raise(schema: str) -> None:
+    with pytest.raises(ValueError, match="too ambiguous"):
+        RelaxNG(schema).validate(parse_xml('<r><a><v a="2"/></a></r>'))
+
+
+def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
+    document = parse_xml("<r><a><v/></a></r>")
+    work_steps.assert_linear(lambda n: partial(_validate_until_raised, RelaxNG(_nested_places(6, n)), document), (5, 6))
+
+
+def _validate_until_raised(schema: RelaxNG, document: Document) -> None:
+    with suppress(ValueError):
+        schema.validate(document)
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r><b/></r>", True, id="one-level"),
+        pytest.param("<r><a><b/><b/></a><a/></r>", True, id="two-levels"),
+        pytest.param("<r><a><c/></a></r>", False, id="unknown-element"),
+    ],
+)
+def test_rng_two_levels_of_optional_places_validate(xml: str, *, valid: bool) -> None:
+    inner = '<optional><element name="b"><empty/></element></optional>' * 24
+    outer = '<optional><element name="a"><ref name="b"/></element></optional>' * 24
+    schema = rgrammar(
+        f'<start><element name="r"><ref name="b"/>{outer}</element></start><define name="b">{inner}</define>'
+    )
+    assert rng_ok(schema, xml) is valid
+
+
+@pytest.mark.parametrize(
+    ("xml", "valid"),
+    [
+        pytest.param("<r/>", True, id="empty"),
+        pytest.param("<r><e399/><e0/></r>", True, id="first-and-last"),
+        pytest.param("<r><x/></r>", False, id="unknown-element"),
+    ],
+)
+def test_rng_wide_define_validates(xml: str, *, valid: bool) -> None:
+    alternatives = "".join(f'<element name="e{index}"><empty/></element>' for index in range(400))
+    schema = rgrammar(
+        '<start><element name="r"><zeroOrMore><ref name="any"/></zeroOrMore></element></start>'
+        f'<define name="any"><choice>{alternatives}</choice></define>'
+    )
+    assert rng_ok(schema, xml) is valid
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        pytest.param("t c19", True, id="last-value-of-last-choice"),
+        pytest.param("t a0", True, id="first-value"),
+        pytest.param("t", True, id="optional-absent"),
+        pytest.param("t d3", False, id="unknown-value"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("holder", "document"),
+    [
+        pytest.param("{}", "<doc>{}</doc>", id="element"),
+        pytest.param('<attribute name="t">{}</attribute>', '<doc t="{}"/>', id="attribute"),
+    ],
+)
+def test_rng_list_choice_of_optional_choices(holder: str, document: str, value: str, *, valid: bool) -> None:
+    alternatives = "".join(
+        f"<group><value>t</value><optional><choice><value>a{index}</value><value>b{index}</value>"
+        f"<value>c{index}</value></choice></optional></group>"
+        for index in range(20)
+    )
+    content = holder.format(f"<list><choice>{alternatives}</choice></list>")
+    assert rng_ok(rwrap(content), document.format(value)) is valid
 
 
 @pytest.mark.parametrize(

@@ -43,7 +43,9 @@ def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["r
     Minify a JavaScript source string, returning the shortest equivalent program.
 
     Every transform preserves semantics, so the result evaluates identically to ``source``.
-    ``options`` defaults to the full pipeline (fold and mangle).
+    ``options`` defaults to the full pipeline (fold and mangle). A rewrite that would nest the tree past the depth
+    limit the passes are sized for is skipped, so a very long or deeply nested input can keep more of its original
+    form than a short one.
 
     ``on_error`` chooses what happens when the parser cannot handle the script. The default
     ``"raise"`` fails loudly; ``"passthrough"`` returns ``source`` unchanged instead, the

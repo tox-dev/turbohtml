@@ -649,6 +649,87 @@ def _resolved_href(href: str, base: str) -> str:
 
 
 @pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("///elsewhere.test/x", id="three-slashes"),
+        pytest.param("////elsewhere.test/x", id="four-slashes"),
+        pytest.param("/\\/elsewhere.test/x", id="slash-backslash-slash"),
+        pytest.param("//\\elsewhere.test/x", id="third-backslash"),
+        pytest.param("\\\\\\elsewhere.test/x", id="three-backslashes"),
+        pytest.param("///\\//\\//elsewhere.test/x", id="mixed-extra-slashes"),
+        pytest.param("https:///elsewhere.test/x", id="same-scheme-three-slashes"),
+        pytest.param("HTTPS:///elsewhere.test/x", id="same-scheme-uppercase"),
+        pytest.param("https:/\\/elsewhere.test/x", id="same-scheme-slash-backslash-slash"),
+        pytest.param("https://\\elsewhere.test/x", id="same-scheme-third-backslash"),
+    ],
+)
+def test_resolve_links_attributes_extra_authority_slashes_to_the_real_host(href: str) -> None:
+    # unlike stdlib urljoin, resolve_links skips the slashes after a special-scheme "//" before the host, as a browser
+    # does, so the link does not land as a path on the page's own host
+    assert _resolved_href(href, _RESOLVE_BASE) == "https://elsewhere.test/x"
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            '<img src="///elsewhere.test/i" srcset="///elsewhere.test/a 1x, ////elsewhere.test/b 2x">',
+            '<img src="https://elsewhere.test/i" srcset="https://elsewhere.test/a 1x, https://elsewhere.test/b 2x">',
+            id="src-and-srcset",
+        ),
+        pytest.param(
+            '<form action="///elsewhere.test/post"></form>',
+            '<form action="https://elsewhere.test/post"></form>',
+            id="action",
+        ),
+        pytest.param(
+            '<meta http-equiv="refresh" content="0; url=///elsewhere.test/next">',
+            '<meta http-equiv="refresh" content="0; url=https://elsewhere.test/next">',
+            id="meta-refresh",
+        ),
+        pytest.param(
+            '<p style="background:url(///elsewhere.test/bg.png)"></p>',
+            '<p style="background:url(https://elsewhere.test/bg.png)"></p>',
+            id="css-url",
+        ),
+    ],
+)
+def test_resolve_links_skips_extra_authority_slashes_in_every_location(markup: str, expected: str) -> None:
+    assert _resolved(markup) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("ftp://f.test/g/", "///elsewhere.test/x", "ftp://elsewhere.test/x", id="ftp-base"),
+        pytest.param("ws://w.test/a", "ws:///elsewhere.test/x", "ws://elsewhere.test/x", id="ws-base-same-scheme"),
+        pytest.param(_RESOLVE_BASE, "///elsewhere.test", "https://elsewhere.test", id="host-only"),
+        pytest.param(_RESOLVE_BASE, "///elsewhere.test?q#f", "https://elsewhere.test?q#f", id="host-then-query"),
+        pytest.param(
+            _RESOLVE_BASE, "///u@elsewhere.test:8443/x", "https://u@elsewhere.test:8443/x", id="userinfo-and-port"
+        ),
+        pytest.param(_RESOLVE_BASE, "///[::1]/x", "https://[::1]/x", id="ipv6-host"),
+        pytest.param(_RESOLVE_BASE, "///", "https://example.com/", id="no-host"),
+        pytest.param(_RESOLVE_BASE, "///?q", "https://example.com/?q", id="no-host-before-query"),
+        pytest.param(_RESOLVE_BASE, "https:///", "https://example.com/", id="same-scheme-no-host"),
+        pytest.param(
+            _RESOLVE_BASE, "///[elsewhere.test/x", "https://example.com/[elsewhere.test/x", id="unclosed-ipv6-host"
+        ),
+        pytest.param(
+            _RESOLVE_BASE, "/elsewhere.test/x", "https://example.com/elsewhere.test/x", id="one-slash-is-a-path"
+        ),
+        pytest.param(
+            _RESOLVE_BASE, "https:/elsewhere.test", "https://example.com/elsewhere.test", id="same-scheme-one-slash"
+        ),
+        pytest.param("file:///srv/www/page.html", "///etc/hosts", "file:///etc/hosts", id="file-base-empty-host"),
+        pytest.param("sftp://s.test/a/b", "///c/d", "sftp://s.test/c/d", id="non-special-base"),
+    ],
+)
+def test_resolve_links_keeps_extra_authority_slash_boundaries(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
+@pytest.mark.parametrize(
     "html",
     [
         pytest.param('<a href="">x</a>', id="empty-href"),
@@ -685,7 +766,6 @@ def test_resolve_links_requires_a_string_base() -> None:
         pytest.param(_HTTPS, "https:opaque", id="same-scheme-no-slashes-rejoined"),
         pytest.param(_HTTPS, "https:", id="same-scheme-bare-rejoined"),
         pytest.param(_HTTPS, "https://", id="same-scheme-empty-authority-rejoined"),
-        pytest.param(_HTTPS, "https:///path", id="same-scheme-empty-authority-slash-rejoined"),
         pytest.param(_HTTPS, "https://?q", id="same-scheme-empty-authority-query-rejoined"),
         pytest.param(_HTTPS, "https://#f", id="same-scheme-empty-authority-fragment-rejoined"),
         pytest.param(_HTTPS, "/root", id="relative-root"),
