@@ -1870,6 +1870,94 @@ def test_disabled_fieldset_late_legend_scales_linearly(work_steps: WorkSteps) ->
     work_steps.assert_linear(build, (500, 2000))
 
 
+# A single matches() or closest() call has no query memo, so the first-legend answers must last for that one call:
+# every test of a late legend's controls would otherwise walk the fieldset's children again.
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(
+            lambda page: partial(page.select("#o")[0].matches, ":has(input:disabled)"),
+            id="matches-has",
+        ),
+        pytest.param(
+            lambda page: partial(page.select("#o input")[-1].matches, ":disabled ~ input"),
+            id="matches-sibling",
+        ),
+        pytest.param(
+            lambda page: partial(page.select("#o input")[0].closest, ":has(input:disabled)"),
+            id="closest-has",
+        ),
+    ],
+)
+def test_disabled_fieldset_late_legend_single_call_scales_linearly(
+    query: Callable[[Document], Callable[[], object]], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda width: query(_late_legend(width)), (500, 2000))
+
+
+def _late_legend(width: int) -> Document:
+    markup = f"{'<div></div>' * width}<legend>{'<input>' * width}</legend>"
+    return parse(f"<div id=o><fieldset disabled>{markup}</fieldset></div>")
+
+
+def test_disabled_fieldset_single_call_answers_match_the_legend_rule() -> None:
+    page = parse("<fieldset disabled><input id=c><legend><input disabled id=a><input id=b></legend></fieldset>")
+    before_legend, disabled_in_legend, exempt_in_legend = page.select("input")
+    assert (
+        before_legend.matches(":disabled"),
+        disabled_in_legend.matches(":disabled"),
+        exempt_in_legend.matches(":enabled"),
+    ) == (True, True, True)
+    assert exempt_in_legend.matches(":disabled ~ input")
+    legend = exempt_in_legend.closest(":has(input:disabled)")
+    assert legend is not None
+    assert legend.tag == "legend"
+
+
+# Level i is a legend (L) or a div (D) that holds input in{i} and the next level. A control is enabled only when every
+# level above it is a legend, since the first legend is the one exempt child of its fieldset.
+@pytest.mark.parametrize(
+    ("kinds", "enabled"),
+    [
+        pytest.param("L" * 40, list(range(40)), id="legends-only"),
+        pytest.param(f"{'L' * 35}D{'L' * 4}", list(range(35)), id="div-below-memo-climb"),
+        pytest.param(f"D{'L' * 39}", [], id="div-outermost"),
+    ],
+)
+def test_disabled_fieldset_levels_enable_only_below_legends(kinds: str, enabled: list[int]) -> None:
+    document = parse(_fieldset_levels(kinds))
+    expected = [f"in{index}" for index in enabled]
+    assert [e.attrs.get("id") for e in document.select("input:enabled")] == expected
+    assert [e.attrs.get("id") for e in document.select("input") if e.matches(":enabled")] == expected
+
+
+def _fieldset_levels(kinds: str) -> str:
+    markup = ""
+    for index in reversed(range(len(kinds))):
+        wrap = "legend" if kinds[index] == "L" else "div"
+        markup = f"<fieldset disabled><{wrap}><input id=in{index}>{markup}</{wrap}></fieldset>"
+    return markup
+
+
+# Every control at the bottom of a chain of legend-held fieldsets climbs past all of them. Without a memo of the climb
+# each control costs the chain's depth, so depth times controls is quadratic in the nesting.
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda page: page.select("input:enabled"), id="select"),
+        pytest.param(lambda page: page.select("fieldset")[0].matches(":has(input:disabled)"), id="matches-has"),
+    ],
+)
+def test_disabled_fieldset_legend_chain_scales_linearly(
+    query: Callable[[Document], object], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda depth: partial(query, _legend_chain(depth)), (50, 150))
+
+
+def _legend_chain(depth: int) -> Document:
+    return parse("<fieldset disabled><legend>" * depth + "<input>" * depth + "</legend></fieldset>" * depth)
+
+
 def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:
     # an element with no parent walks to NULL: :lang() finds no language, :dir()
     # falls back to the document default
