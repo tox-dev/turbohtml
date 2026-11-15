@@ -21,7 +21,7 @@ from turbohtml import Document, Element, Text, XPath, parse, parse_xml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
-    from types import SimpleNamespace
+    from types import ModuleType, SimpleNamespace
 
     from pytest_mock import MockerFixture
     from work_steps import WorkSteps
@@ -1961,6 +1961,68 @@ def test_regex_oversized_pattern_raises_value_error(mocker: MockerFixture, patte
     _forbid_python_re(mocker)
     with pytest.raises(ValueError, match=expected):
         _REGEX_TEST(parse_xml("<r/>"), text="ab", pattern=pattern, flags="")
+
+
+_NEAR_CAP: Final[str] = "(?:(?:a?){500}){640}"  # 640,000 of the 655,360 instructions one program may have
+_MANY_GROUPS: Final[str] = "(a?)" * 260  # about 8 MiB of capture slots once a replace runs it
+_TAILS: Final[str] = string.ascii_letters  # each ends a pattern in a cache slot of its own
+
+
+@pytest.mark.parametrize(
+    ("expression", "text", "expected", "limit"),
+    [
+        pytest.param(
+            f"""string({" and ".join(f"matches('a', '{_NEAR_CAP}{tail}?')" for tail in _TAILS[:16])})""",
+            "",
+            "true",
+            400,
+            id="instructions",
+        ),
+        pytest.param(
+            f"""string({" and ".join(f"matches('a', '{_NEAR_CAP}{tail}?')" for tail in _TAILS[:12] * 2)})""",
+            "",
+            "true",
+            400,
+            id="instructions-compiled-again",
+        ),
+        pytest.param(
+            f"""concat({", ".join(f"replace('a', '{_MANY_GROUPS}{tail}?', '$1')" for tail in _TAILS[:48])})""",
+            "",
+            "a" * 48,
+            320,
+            id="capture-slots",
+        ),
+        pytest.param(
+            f"""concat({", ".join(f"matches('a', '{_MANY_GROUPS}{tail}?')" for tail in _TAILS[:48])}, """
+            f"""{", ".join(f"replace('a', '{_MANY_GROUPS}{tail}?', '$1')" for tail in _TAILS[:48])})""",
+            "",
+            f"{'true' * 48}{'a' * 48}",
+            320,
+            id="capture-slots-on-reuse",
+        ),
+        pytest.param(
+            f"""string({" and ".join(f"matches($text, '(?P<b>b?)a*(?P=b){tail}?')" for tail in _TAILS[:48])})""",
+            "a" * 500_000,
+            "true",
+            320,
+            id="saved-positions",
+        ),
+    ],
+)
+def test_regex_cache_bounds_what_its_programs_hold_together(
+    mocker: MockerFixture, expression: str, text: str, expected: str, limit: int
+) -> None:
+    # each pattern keeps to the per-program caps and lands in a slot of its own, so without a bound on the cache a
+    # case keeps all its programs until the evaluation ends, well past the four programs at every cap the bound allows
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy has no tracemalloc
+    _forbid_python_re(mocker)
+    tracing.start()
+    try:
+        assert parse_xml("<r/>").xpath(expression, text=text) == expected
+        peak: Final = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert peak < limit << 20
 
 
 def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFixture) -> None:

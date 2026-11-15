@@ -144,6 +144,9 @@ limits:
 - Back-references such as ``(\w+) \1`` run on a backtracking matcher. One XPath evaluation may spend 10,000,000 steps
   plus 100 for each character it searches, and keep 655,360 saved positions (10 MiB), before it raises
   :class:`ValueError`. A back-reference costs a step for each character it compares.
+- One XPath evaluation keeps up to 64 compiled patterns for reuse, holding at most 220 MiB together besides the one in
+  use: room for four patterns at every limit above. A pattern that does not fit is compiled again each time the
+  expression returns to it.
 - In ``replace``, ``$N`` takes the longest run of its digits that names a group and leaves the remaining digits as text.
   A single digit past the last group stands for nothing. ``re:replace`` reads ``\1`` and ``\g<name>`` instead.
 - ``\B`` matches the empty string, and ``\b`` never does.
