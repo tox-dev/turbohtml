@@ -737,6 +737,18 @@ CSS_NOINLINE static void css_close_prelude_blocks(token_vec *vec, Py_ssize_t sta
    so the blocks it leaves apart stay apart on the next pass. */
 #define CSS_MAX_MEDIA_MERGE_DEPTH 8
 
+/* Encoding sniffing reads `@charset "` only from a stylesheet's first bytes (CSS Syntax 3 §3.2), and browsers drop a
+   @charset anywhere else. Rendering lowercases the name and respaces it, so a rule whose source does not open with
+   those exact bytes reads as `@charset "` in the output. css_parse_rules drops such a rule only where it would open
+   the output. A rendered prefix of `@charset "` puts the name at eight bytes, so the first token and the two tokens
+   after it cover the bytes compared. */
+static int css_unsniffed_charset(const css_buf *piece, const token_vec *vec, const css_token *at) {
+    if (piece->len < 10 || memcmp(piece->data, "@charset \"", 10) != 0) {
+        return 0;
+    }
+    return at != vec->items || vec->len < 3 || memcmp(vec->items[0].text, "@charset \"", 10) != 0;
+}
+
 /* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of the header (name,
    prelude and '{') of an @media block that may merge with a same-query sibling, or 0 for another at-rule with a
    block. */
@@ -989,8 +1001,9 @@ typedef struct {
         Py_ssize_t prev_live;
     };
     Py_ssize_t text_len;
-    int at_statement;
-    int dropped;
+    unsigned at_statement : 1;
+    unsigned dropped : 1;
+    unsigned unsniffed : 1;
 } rule_item;
 
 typedef struct {
@@ -2157,6 +2170,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
                 item.text_off = pool_run(pool, piece.data, piece.len);
                 item.text_len = piece.len;
                 item.at_statement = kind < 0;
+                item.unsniffed = css_unsniffed_charset(&piece, cur->vec, token);
                 rule_vec_push(&items, item);
             }
             cbuf_free(&piece);
@@ -2201,7 +2215,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
     int delim_written = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
-        if (item->dropped) {
+        if (item->dropped || (item->unsniffed && top && out->len == 0)) {
             continue;
         }
         if (prev_at_statement && !after_stray) {
