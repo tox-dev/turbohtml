@@ -205,3 +205,22 @@ def test_values_moved_one_call_at_a_time_stay_independent() -> None:
         {"data-x": "changed", "title": "t"},
         {"title": "t"},
     ]
+
+
+def test_a_source_value_changed_between_imports_is_copied_as_changed() -> None:
+    # a source keeps each value until it is freed and its values never share an address, so a later import reads the
+    # value the source holds now, not the one an earlier import copied from the same address
+    value: Final = "A" * 40
+    page: Final = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
+    children: Final = list(_found(page, "body").children)
+    target: Final = Element("div")
+    target.append(children[0])
+    _found(children[1], "a").attrs["data-x"] = "short"
+    del _found(children[2], "a").attrs["data-x"]
+    target.append(children[1])
+    target.append(children[2])
+    assert [dict(anchor.attrs) for anchor in target.select("a")] == [
+        {"data-x": value, "title": "t"},
+        {"data-x": "short", "title": "t"},
+        {"title": "t"},
+    ]

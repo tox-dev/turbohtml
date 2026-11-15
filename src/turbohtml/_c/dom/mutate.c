@@ -1264,6 +1264,9 @@ static int convert_element_kind(th_tree *dest, th_node *node) {
     return 0;
 }
 
+/* Within one source identity an address names one value: the source keeps each attribute value in its arena until the
+   handle is freed, and two live values never start at one address (the parser stores an empty value as NULL, and
+   every other value gets its own allocation). The address and the identity are therefore enough to find a copy. */
 struct th_copied_value {
     uint64_t source;     /* the memo's source identity when the copy was made */
     const Py_UCS4 *from; /* an attribute value in the source arena */
