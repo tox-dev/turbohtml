@@ -123,32 +123,28 @@ static inline int srcset_descriptors_checked(const uint32_t *value, ptrdiff_t le
     return valid && (!height || width);
 }
 
-/* Reads the descriptors of the candidate whose URL ended at *pos, leaving *pos on the comma that ends it (or at len).
-   Returns 0 when a descriptor is invalid, a width or density repeats or the two are mixed, or an h has no w. Nearly
-   every candidate has no descriptor or one integer width or density, which this decides while skipping it; any other
-   list goes through srcset_descriptors_checked. */
+/* Reads the descriptors of the candidate whose URL ended at *pos, on a whitespace character or at len, leaving *pos on
+   the comma that ends the candidate (or at len). Returns 0 when a descriptor is invalid, a width or density repeats or
+   the two are mixed, or an h has no w. Nearly every candidate is a URL, one space and one integer width or density
+   right before the comma, which this decides while skipping it; any other list goes through
+   srcset_descriptors_checked. */
 static inline int srcset_descriptors_valid(const uint32_t *value, ptrdiff_t len, ptrdiff_t *pos) {
-    ptrdiff_t cursor = *pos;
-    while (cursor < len && is_space(value[cursor])) {
-        cursor++;
+    if (*pos == len) {
+        return 1;
     }
-    ptrdiff_t digits = cursor;
+    ptrdiff_t digits = *pos + 1;
+    ptrdiff_t cursor = digits;
     while (cursor < len && is_ascii_digit(value[cursor])) {
         cursor++;
     }
     if (cursor > digits && cursor < len && (value[cursor] == 'x' || (value[cursor] == 'w' && value[digits] != '0'))) {
         cursor++;
-        while (cursor < len && is_space(value[cursor])) {
-            cursor++;
+        if (cursor == len || value[cursor] == ',') {
+            *pos = cursor;
+            return 1;
         }
-    } else if (cursor > digits) {
-        return srcset_descriptors_checked(value, len, pos);
     }
-    if (cursor < len && value[cursor] != ',') {
-        return srcset_descriptors_checked(value, len, pos);
-    }
-    *pos = cursor;
-    return 1;
+    return srcset_descriptors_checked(value, len, pos);
 }
 
 #endif
