@@ -331,6 +331,9 @@ th_tree *th_tree_new(void);
 /* Whether the tree was parsed under XML rules, so name lookups are case-sensitive
    rather than folded to the HTML parser's lowercased names. */
 int th_tree_is_xml(const th_tree *tree);
+/* Whether the tree builder reads this attribute of an element in ns while building, so changing it can change the
+   tree. Every other attribute only reaches the DOM. */
+int th_builder_reads_attr(uint8_t ns, uint16_t tag, const char *name, Py_ssize_t len);
 
 /* Carry the XML mode onto a tree built by copying nodes out of an XML one, so the
    copy keeps case-sensitive name lookups. */
@@ -616,6 +619,20 @@ int th_shadow_catch_up(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_
 /* Run the token sm just produced through tree construction, then set sm up for the next one. A TH_CHARREF counts as
    its decoded text. Returns 0, or -1 on allocation failure. */
 int th_shadow_step(th_shadow *shadow, th_token *token);
+
+/* Whether the token th_shadow_step read last built a node. A start tag the tree builder ignores builds none, while a
+   void element it inserts and closes at once builds one that is no longer open. */
+int th_shadow_built(const th_shadow *shadow);
+
+/* Whether the token th_shadow_step read last detached the body, which a frameset does when it replaces one. */
+int th_shadow_discarded(const th_shadow *shadow);
+
+/* Whether the tree has opened a body, and if so, stores the line and column of the token that opened it. */
+int th_shadow_body(const th_shadow *shadow, Py_ssize_t *line, Py_ssize_t *col);
+
+/* th_shadow_catch_up, but the replay stops once a body is open, the shadow parked after the token that opened it.
+   Returns 1 when it stopped there, 0 when it reached offset without one, or -1 on allocation failure. */
+int th_shadow_catch_body(th_shadow *shadow, Py_ssize_t offset, th_node **refs, Py_ssize_t count, size_t stride);
 
 /* Once the tree has grown well past what tree construction can still reach, replace it by a copy of that part, so
    the shadow holds memory for the open elements and active formatting elements, not for the document. Each of the
