@@ -1297,11 +1297,30 @@ static int holds_text_only(th_tree *tree, const th_node *node) {
     return (th_tag_flags(node->atom) & (TH_TAG_RAWTEXT | TH_TAG_RCDATA)) != 0;
 }
 
-TH_NODE_API(static, PyObject *, collect_targets,
-            (PyObject * module, PyObject *owner, int process_existing, PyObject *skip_tags),
-            (module, owner, process_existing, skip_tags),
-            (PyObject * module, PyObject *owner, int process_existing, PyObject *skip_tags), (NodeObject *)owner,
-            NULL) {
+/* Nothing under an <a>, the owner included, is a link target: a new <a> there would nest inside the existing one. */
+static int inside_anchor(const th_node *node) {
+    for (; node != NULL; node = node->parent) {
+        if (node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_A) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* subtree_after() without its entry test: the walk only ever leaves a node strictly below root. */
+static inline th_node *after_descendant(th_node *node, const th_node *root) {
+    while (node->next_sibling == NULL) {
+        node = node->parent;
+        if (node == root) {
+            return NULL;
+        }
+    }
+    return node->next_sibling;
+}
+
+TH_NODE_API(static, PyObject *, collect_targets, (PyObject * owner, int process_existing, PyObject *skip_tags),
+            (owner, process_existing, skip_tags), (PyObject * owner, int process_existing, PyObject *skip_tags),
+            (NodeObject *)owner, NULL) {
     PyObject *targets = PyList_New(0);
     if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list allocation cannot be forced from a test */
         return NULL;       /* GCOVR_EXCL_LINE */
@@ -1310,29 +1329,32 @@ TH_NODE_API(static, PyObject *, collect_targets,
     PyObject *handle = turbohtml_node_handle(owner);
     (void)handle;
     Py_BEGIN_CRITICAL_SECTION(handle);
-    th_tree *tree;
-    th_node *root;
-    (void)turbohtml_node_borrow(module, owner, &tree, &root);
-    th_node *node = root->first_child;
+    /* the caller already checked that owner is a node, so read its tree and node without checking again */
+    th_tree *tree = ((HandleObject *)handle)->tree;
+    th_node *root = ((NodeObject *)owner)->node;
+    th_node *node = inside_anchor(root) ? NULL : root->first_child;
     while (node != NULL) {
         if (node->type == TH_NODE_TEXT) {
             if (append_target(targets, owner, node) < 0) { /* GCOVR_EXCL_BR_LINE: wrapper/list allocation */
                 error = 1;                                 /* GCOVR_EXCL_LINE */
                 break;                                     /* GCOVR_EXCL_LINE */
             }
-        } else if (node->type == TH_NODE_ELEMENT &&
-                   (node->atom == TH_TAG_A || node->atom == TH_TAG_SCRIPT || node->atom == TH_TAG_STYLE ||
-                    holds_text_only(tree, node) || tag_in_tuple(node, skip_tags))) {
+            node = after_descendant(node, root);
+            continue;
+        }
+        if (node->type == TH_NODE_ELEMENT &&
+            (node->atom == TH_TAG_A || node->atom == TH_TAG_SCRIPT || node->atom == TH_TAG_STYLE ||
+             holds_text_only(tree, node) || tag_in_tuple(node, skip_tags))) {
             if (process_existing && node->atom == TH_TAG_A) {
                 if (append_target(targets, owner, node) < 0) { /* GCOVR_EXCL_BR_LINE: wrapper/list allocation */
                     error = 1;                                 /* GCOVR_EXCL_LINE */
                     break;                                     /* GCOVR_EXCL_LINE */
                 }
             }
-            node = subtree_after(node, root);
+            node = after_descendant(node, root);
             continue;
         }
-        node = node->first_child != NULL ? node->first_child : subtree_after(node, root);
+        node = node->first_child != NULL ? node->first_child : after_descendant(node, root);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {            /* GCOVR_EXCL_BR_LINE: target wrapper/list allocation cannot be forced from a test */
@@ -1827,7 +1849,7 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
         PyErr_SetString(PyExc_TypeError, "expected a turbohtml element");
         return NULL;
     }
-    PyObject *targets = collect_targets(module, owner, process_existing_flag, skip_tags);
+    PyObject *targets = collect_targets(owner, process_existing_flag, skip_tags);
     if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list/wrapper allocation */
         return NULL;       /* GCOVR_EXCL_LINE */
     }
