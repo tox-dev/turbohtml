@@ -13,13 +13,15 @@
 #include <math.h>
 #include <string.h>
 
-/* The pattern walk calls the step helpers too; forced inline keeps them inlined into the forward path's step loop. */
+/* The pattern walk calls the step helpers too, and with a second caller link-time optimization stopped inlining them
+   into the forward path's step loop, so they are forced inline; a debug build keeps one copy, which the coverage gates
+   need. */
 #if defined(_MSC_VER)
 #define XP_STEP_INLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
+#elif defined(__OPTIMIZE__)
 #define XP_STEP_INLINE inline __attribute__((always_inline))
 #else
-#define XP_STEP_INLINE inline
+#define XP_STEP_INLINE
 #endif
 
 typedef struct {
