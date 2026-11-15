@@ -775,6 +775,9 @@ def test_markdown_unsupported_element() -> None:
         pytest.param('<img src="a\nb" alt="ok" odd"="">', id="image-url-line-break"),
         pytest.param(f"{'<strong>' * 9}<p>alpha</p><p>beta</p>{'</strong>' * 9}", id="deep-emphasis-paragraphs"),
         pytest.param(f"{'<strong>' * 9}<p>alpha</p>beta{'</strong>' * 9}", id="deep-emphasis-trailing-text"),
+        pytest.param(f"{'<strong>' * 9}{'<p>x</p>' * 12}{'</strong>' * 9}", id="deep-emphasis-unfunded-paragraphs"),
+        pytest.param(f"{'<b><i>' * 6}<table>{'<tr><td>x</td></tr>' * 12}", id="deep-emphasis-unfunded-cells"),
+        pytest.param(f"{'<b>' * 9}<table><td><td><tr><td><", id="deep-emphasis-irregular-table"),
     ],
 )
 def test_markdown_supported_html_meaning(markup: str) -> None:

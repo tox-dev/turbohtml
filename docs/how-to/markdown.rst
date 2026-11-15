@@ -98,6 +98,12 @@ that the start tag and the document's text fund, so a copy they cannot pay for k
 language. Content passed through as HTML draws on the same budget: there a copy keeps its tag and drops the attributes
 the budget does not cover.
 
+Emphasis around several blocks closes at the end of each block and reopens in the next, since a delimiter run pairs only
+within one block. With more than eight runs open around a block, emphasis is written as HTML tags, and reopening them
+draws on a budget that the document's text funds. Where deep nesting holds many blocks or table cells with little text,
+each one keeps the outermost ``<strong>``, ``<em>`` or strikethrough run and drops the runs nested inside one of their
+own kind, which reads the same.
+
 A pipe table holds one line of inline content per cell, so a table or a list *inside* a cell has no Markdown spelling of
 its own; the GFM spec is explicit that "block-level elements cannot be inserted in a table". Both keep their source
 HTML, which is legal in a cell and renders as the real thing wherever a reader takes embedded HTML, and a ``<br>`` in a
