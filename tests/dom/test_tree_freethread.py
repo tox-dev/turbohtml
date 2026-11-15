@@ -9,6 +9,7 @@ import pytest
 import turbohtml
 from turbohtml.clean import sanitize_node
 from turbohtml.conformance import check
+from turbohtml.etree import fromstring, strip_elements
 from turbohtml.mutations import MutationObserver
 from turbohtml.query import Query
 from turbohtml.transform import Transform
@@ -340,6 +341,25 @@ def test_concurrent_strip_tags_and_reads_are_memory_safe() -> None:
     _run(reader, selector, stripper)
     assert doc.find_all("div") == []  # every <div> was unwrapped
     assert len(doc.find_all("p")) == 400  # its children survived
+
+
+def test_concurrent_etree_strip_elements_and_moves_keep_every_match() -> None:
+    tree = fromstring(f"<div>{'<b>x</b><i>y</i>' * 2000}</div>")
+    matches = list(tree.iter("b"))
+    target = fromstring("<main/>")
+    start = threading.Barrier(2)
+
+    def mover() -> None:
+        start.wait()
+        for match in reversed(matches):
+            target.append(match)  # moves each match out of the tree, before or after the strip reaches it
+
+    def stripper() -> None:
+        start.wait()
+        strip_elements(tree, "b")
+
+    _run(mover, stripper)
+    assert (len(list(tree.iter("b"))), len(list(target.iter("b")))) == (0, 2000)  # none stays, none is lost
 
 
 def test_concurrent_main_content_extraction_is_memory_safe() -> None:
