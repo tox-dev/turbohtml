@@ -1332,6 +1332,47 @@ def test_formatting_reconstruction_reopens_nested_elements(source: str, expected
     assert [(bold.text, [italic.text for italic in bold.find_all("i")]) for bold in root.find_all("b")] == expected
 
 
+# Each lookup for an element that is off the list walked every entry the markers left behind, once per tag. Membership
+# is a flag on the element now, so these inputs stay linear in the number of tags.
+def _cell_markers(count: int) -> str:
+    return f"<table><tr>{'<th><object></th>' * count}<th>"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(lambda count: _cell_markers(count) + "<a>" * count, id="second-a"),
+        pytest.param(
+            lambda count: f"{'<div>' * (_DEPTH_CAP - 4)}{'<p><em><a><object>' * count}<p>{'<a>' * count}",
+            id="second-a-past-depth-cap",
+        ),
+        pytest.param(
+            lambda count: _cell_markers(count) + f"<i>{'<label>' * 6}<p></i></p></i>" * count,
+            id="adoption-walks-unlisted",
+        ),
+        pytest.param(
+            lambda count: _cell_markers(count) + f"{'<b>' * 199}{'</b>' * 199}" * count,
+            id="unlisted-current",
+        ),
+        pytest.param(
+            lambda count: f"<em>{_cell_markers(count)}</table>{'<p><em></p></em>' * count}",
+            id="current-below-markers",
+        ),
+    ],
+)
+def test_formatting_list_lookup_is_linear_in_tags(source: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+
+
+def test_formatting_end_tag_keeps_current_node_listed_below_marker() -> None:
+    # the outer em is listed below the marker the cell left, so the </em> after the paragraph closes the inner one
+    body = parse("<em><table><tr><th><object></th></table><p><em></p></em>y").find("body")
+    assert body is not None
+    assert (
+        body.inner_html == "<em><table><tbody><tr><th><object></object></th></tr></tbody></table><p><em></em></p>y</em>"
+    )
+
+
 @pytest.mark.parametrize(
     ("markup", "parent_tag", "expected"),
     [
