@@ -3514,6 +3514,12 @@ _ATTRIBUTE_GROUPS: Final[str] = "".join(f'<group><attribute name="x{index}"/>' f
             id="one-or-more-element",
         ),
         pytest.param(
+            wrap(f"{'<oneOrMore>' * _DEEP}{_LEAF_A}{'</oneOrMore>' * _DEEP}"),
+            "<doc><a/></doc>",
+            16,
+            id="one-or-more-element-tiny-stack",
+        ),
+        pytest.param(
             wrap(f"<oneOrMore><group>{'<group>' * 59}{'<text/>' * 300}{'</group>' * 60}</oneOrMore>"),
             "<doc>xy xy xy</doc>",
             128,
@@ -3573,6 +3579,45 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
 @pytest.mark.skipif(
     sys.platform == "win32", reason="drives the repeat check for the C coverage gate, which Windows does not run"
 )
+def test_rng_start_tag_open_fires_on_the_smallest_thread_stack() -> None:
+    # every nesting depth from 1 to the cap runs the start-tag walk down the repeat nest on the smallest stack the
+    # platform accepts: shallow depths validate, deep ones raise RecursionError. The walk closes the nest before it
+    # opens it, so the depth where the open walk alone runs out of stack lies between two depths, and the sweep crosses
+    # it on any build.
+    code: Final = (
+        "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
+        "data = json.load(sys.stdin)\n"
+        "for kib in range(16, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
+        "    except ValueError:\n        continue\n    break\n"
+        "outcomes = []\n"
+        "def run():\n"
+        "    document = parse_xml(data['xml'])\n"
+        "    for depth in range(1, data['depths'] + 1):\n"
+        "        nest = '<oneOrMore>' * depth + data['leaf'] + '</oneOrMore>' * depth\n"
+        "        try:\n"
+        '            schema = RelaxNG(f\'<element name="doc" xmlns="{data["ns"]}">{nest}</element>\')\n'
+        "            outcomes.append('valid' if schema.validate(document).valid else 'invalid')\n"
+        "        except RecursionError:\n"
+        "            outcomes.append('RecursionError')\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+        "print(' '.join(outcomes))\n"
+    )
+    result: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code],
+        input=json.dumps({"ns": _RELAXNG_NS, "leaf": _LEAF_A, "depths": _DEEP, "xml": "<doc><a/></doc>"}),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    outcomes: Final = result.stdout.split()
+    assert len(outcomes) == _DEEP, result.stderr
+    assert set(outcomes) <= {"valid", "invalid", "RecursionError"}, result.stdout
+    assert "RecursionError" in outcomes, result.stdout
+
+
 def test_rng_repeat_cover_check_fires_on_the_smallest_thread_stack() -> None:
     # the repeat check recurses on the C stack that is left, so it fires only once the walk above it has used most of
     # the thread's stack; json's encoder nests one C level per depth and calls the validation from its innermost level,
