@@ -696,7 +696,10 @@ static void css_minify_url(css_buf *pool, const css_char *text, Py_ssize_t len, 
     while (inner_start < inner_end && css_is_ws(text[inner_start])) {
         inner_start++;
     }
-    while (inner_end > inner_start && css_is_ws(text[inner_end - 1])) {
+    /* a whitespace after an unescaped `\` is not trailing: a space or tab there is escaped and part of the url, a
+       newline makes the url bad (CSS Syntax 3 §4.3.6). Trimming it would leave the `\` to escape the `)`, and the url
+       would run on into whatever follows it */
+    while (inner_end > inner_start && css_is_ws(text[inner_end - 1]) && !css_escapes(text, inner_end - 1)) {
         inner_end--;
     }
     Py_ssize_t inner_len = inner_end - inner_start;
