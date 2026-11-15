@@ -9,6 +9,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Both scanners run srcset_descriptors_valid once per candidate, and GCC kept it out of line, which measured slower than
+   inlining its fast path and leaving the full check as a call. The coverage build compiles at -O0, where an inlined copy
+   lands in every call site and gcc counts its branches once per copy, so it keeps one copy there. */
+#if defined(_MSC_VER)
+#define SRCSET_INLINE __forceinline
+#define SRCSET_OUTLINE __declspec(noinline)
+#elif defined(__OPTIMIZE__)
+#define SRCSET_INLINE inline __attribute__((always_inline))
+#define SRCSET_OUTLINE __attribute__((noinline))
+#else
+#define SRCSET_INLINE inline
+#define SRCSET_OUTLINE
+#endif
+
 typedef enum {
     SRCSET_INVALID,
     SRCSET_WIDTH,
@@ -86,7 +100,7 @@ static inline srcset_kind srcset_classify(const uint32_t *value, ptrdiff_t start
 
 /* srcset_descriptors_valid for any descriptor list: tokenizes it and classifies each token. A parenthesised group is
    one descriptor up to its close parenthesis, so a comma or space inside it does not end the candidate. */
-static inline int srcset_descriptors_checked(const uint32_t *value, ptrdiff_t len, ptrdiff_t *pos) {
+static SRCSET_OUTLINE int srcset_descriptors_checked(const uint32_t *value, ptrdiff_t len, ptrdiff_t *pos) {
     int valid = 1;
     int width = 0;
     int density = 0;
@@ -128,7 +142,7 @@ static inline int srcset_descriptors_checked(const uint32_t *value, ptrdiff_t le
    the two are mixed, or an h has no w. Nearly every candidate is a URL, one space and one integer width or density
    right before the comma, which this decides while skipping it; any other list goes through
    srcset_descriptors_checked. */
-static inline int srcset_descriptors_valid(const uint32_t *value, ptrdiff_t len, ptrdiff_t *pos) {
+static SRCSET_INLINE int srcset_descriptors_valid(const uint32_t *value, ptrdiff_t len, ptrdiff_t *pos) {
     if (*pos == len) {
         return 1;
     }
