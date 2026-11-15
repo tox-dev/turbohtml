@@ -260,12 +260,11 @@ static RNG_NOINLINE int rng_event_over(th_schema *schema) {
         return 0;
     }
     schema->choice_limit = -1;
-    schema->mem.no_memory = 1;
     return 1;
 }
 
-/* Charges the event in progress; true once it has spent more than the schema allows, which marks the arena like a
-   merge past the choice limit. Under the floor the limit cannot be reached, so the common event never computes it. */
+/* Charges the event in progress; true once it has spent more than the schema allows, which marks the choice limit
+   like a merge past it. Under the floor the limit cannot be reached, so the common event never computes it. */
 static RNG_FORCEINLINE int rng_event_spend(th_schema *schema, Py_ssize_t units) {
     schema->event_work += units;
     return schema->event_work > (Py_ssize_t)RNG_CHOICE_FLOOR * RNG_EVENT_WORK_PER_LEAF && rng_event_over(schema);
@@ -594,9 +593,8 @@ static pattern *trie_of(th_schema *schema, pattern *p, Py_ssize_t *work) {
 
 /* The memo derives each node once per event, but a content model whose places double with each define still leaves a
    residual choice with one leaf per place. A merge is the only step that grows a choice past two leaves, so past the
-   limit it yields NotAllowed and marks the arena, and validate() raises; a limit of -1 marks that this happened. A
-   merge also charges the event its work, which bounds what one event spends on choices that each stay under the
-   limit. */
+   limit it yields NotAllowed and sets the choice limit to -1, and validate() raises. A merge also charges the event
+   its work, which bounds what one event spends on choices that each stay under the limit. */
 static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t work = 0;
     pattern *merged = trie_union(schema, trie_of(schema, p1, &work), trie_of(schema, p2, &work), &work);
@@ -607,7 +605,6 @@ static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pa
     /* the limit is never below RNG_CHOICE_FLOOR, so a smaller choice needs no check */
     if (trie_size(merged) > RNG_CHOICE_FLOOR && trie_size(merged) > rng_choice_limit(schema)) {
         schema->choice_limit = -1;
-        schema->mem.no_memory = 1;
         return schema->p_notallowed;
     }
     return merged;
