@@ -13,7 +13,7 @@ from bench.ci import benchmarks
 from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
-from turbohtml import parse_xml
+from turbohtml import parse, parse_xml
 from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult, XMLSchema
 
 if TYPE_CHECKING:
@@ -1343,6 +1343,31 @@ def test_all_each_member_once_is_valid() -> None:
     schema = _type_schema('<xs:all><xs:element name="a" minOccurs="0"/><xs:element name="b"/></xs:all>')
     assert check(schema, "<r><b/><a/></r>").valid
     assert check(schema, "<r><b/></r>").valid
+
+
+@pytest.mark.parametrize(
+    ("positions", "line"),
+    [
+        pytest.param(True, 4, id="tracked"),
+        pytest.param(False, 0, id="untracked"),
+    ],
+)
+def test_all_missing_member_reports_its_element_line(*, positions: bool, line: int) -> None:
+    # the schema's xs:all node carries no source position, so the line must come from the element that lacks the member
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:all>'
+        '<xs:element name="head" minOccurs="0"/><xs:element name="body"><xs:complexType><xs:all>'
+        '<xs:element name="section"><xs:complexType><xs:all><xs:element name="h1"/><xs:element name="p"/>'
+        "</xs:all></xs:complexType></xs:element>"
+        "</xs:all></xs:complexType></xs:element></xs:all></xs:complexType></xs:element></xs:schema>"
+    )
+    document = parse(
+        "<!doctype html>\n<html>\n<body>\n<section><p></p></section>\n</body>\n</html>", positions=positions
+    )
+    errors = XMLSchema(schema).validate(document).errors
+    assert [(error.message, error.path, error.line) for error in errors] == [
+        ("required element 'h1' is missing", "/html/body/section", line)
+    ]
 
 
 _OPTIONAL_ALL: Final[str] = f'<xs:all minOccurs="0">{_AB}</xs:all>'
