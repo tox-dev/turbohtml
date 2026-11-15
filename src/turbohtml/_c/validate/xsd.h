@@ -640,9 +640,10 @@ static int xsd_hit_member_order(const void *left, const void *right) {
 typedef struct {
     th_node **children;
     Py_ssize_t nchildren, next;
-    edecl_vec decls;             /* the declarations the content model reaches, typing a child by name */
-    th_node *all;                /* the `all` group when that is the content model: it types the children itself */
-    const xall_entry *group;     /* that group's members by name */
+    edecl_vec decls;         /* the declarations the content model reaches, typing a child by name */
+    th_node *all;            /* the `all` group when that is the content model: it types the children itself */
+    th_node *instance;       /* the element a missing member is reported on: schema nodes carry no source position */
+    const xall_entry *group; /* that group's members by name */
     const xall_member **matched; /* the member each child is validated against, NULL for one naming none or a repeat */
     xall_hit *hits;              /* the children naming a member, sorted by member then position */
     size_t hit_count;
@@ -705,7 +706,7 @@ static void xsd_all_missing(valctx *ctx, xsd_frame *frame) {
             continue;
         }
         char buffer[256];
-        report(ctx, frame->all, "structure", "required element '%s' is missing",
+        report(ctx, frame->instance, "structure", "required element '%s' is missing",
                name_utf8(member->want.local, member->want.local_len, buffer, sizeof(buffer)));
     }
 }
@@ -1621,6 +1622,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
     if (all != NULL) {
         /* an optional xs:all, direct or through a group ref, is satisfied by empty content */
         if (nchildren > 0 || xsd_occurs_min(schema->tree, model) != 0) {
+            frame->instance = instance;
             xsd_all_match(ctx, frame, all, children, nchildren);
         }
         return;
