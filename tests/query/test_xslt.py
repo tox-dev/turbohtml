@@ -21,7 +21,7 @@ from turbohtml import Comment, DocumentFragment, Element, Text, parse_fragment, 
 from turbohtml.transform import Transform, strparam, transform
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from work_steps import WorkSteps
 
@@ -6161,6 +6161,173 @@ def test_number_pattern_reading_current_node_scales_linearly(
         return partial(transform, parse_xml(f"<book>{markup}</book>"))
 
     work_steps.assert_linear(build, (300, 1200))
+
+
+@pytest.mark.parametrize(
+    ("select", "number", "declarations"),
+    [
+        pytest.param("//*[not(*)]", '<xsl:number count="part"/>', "", id="single"),
+        pytest.param("//*[not(*)]", '<xsl:number count="part" from="doc"/>', "", id="single-from"),
+        pytest.param(
+            "//*[not(*)]", '<xsl:number count="q:part" xmlns:q="urn:q"/>', ' xmlns="urn:q"', id="single-prefixed"
+        ),
+        pytest.param("//*[not(*)]", '<xsl:number level="multiple" count="part|mark"/>', "", id="multiple"),
+        pytest.param(
+            "//*[not(*)]", '<xsl:number level="multiple" count="part|mark" from="doc"/>', "", id="multiple-from"
+        ),
+        pytest.param(
+            "//*[not(*)]",
+            '<xsl:number level="multiple" count="q:part|q:mark" xmlns:q="urn:q"/>',
+            ' xmlns="urn:q"',
+            id="multiple-prefixed",
+        ),
+        pytest.param("//*[not(*)]", '<xsl:number level="multiple"/>', "", id="multiple-default"),
+        pytest.param("//*[not(*)]", '<xsl:number level="multiple" from="doc"/>', "", id="multiple-default-from"),
+        pytest.param(
+            "//*[not(*)]", '<xsl:number level="multiple"/>', ' xmlns:q="urn:q"', id="multiple-default-namespaced"
+        ),
+        pytest.param("//text()", '<xsl:number level="multiple"/>', "", id="multiple-default-text"),
+        pytest.param(
+            "//*[not(*)]",
+            '<xsl:number level="any" count="q:mark" xmlns:q="urn:q"/>',
+            ' xmlns="urn:q"',
+            id="any-prefixed",
+        ),
+    ],
+)
+def test_number_deep_chain_scales_linearly(
+    select: str,
+    number: str,
+    declarations: str,
+    prefix_transform: Callable[[str, str], Transform],
+    work_steps: WorkSteps,
+) -> None:
+    transform: Final = prefix_transform(f'<xsl:for-each select="{select}">{number}|</xsl:for-each>', "")
+
+    def build(depth: int) -> Callable[[], object]:
+        return partial(transform, parse_xml(_number_chain(("item",) * depth, text="t", declarations=declarations)))
+
+    work_steps.assert_linear(build, (150, 600))
+
+
+def _number_chain(names: tuple[str, ...], *, text: str = "", declarations: str = "") -> str:
+    # One element per name, each nested in the one before it and holding a <mark/> after its nested element.
+    opened = "".join(f"<{name}>{text}" for name in names)
+    closed = "".join(f"<mark/></{name.split()[0]}>" for name in reversed(names))
+    return f"<doc{declarations}><part>{opened}{closed}</part></doc>"
+
+
+_CHAIN_DEPTH: Final[int] = 80
+_CHAIN_BOX: Final[int] = 40
+_CHAIN: Final[tuple[str, ...]] = ("item",) * _CHAIN_BOX + ('box f="1"',) + ("item",) * (_CHAIN_DEPTH - _CHAIN_BOX - 1)
+
+
+def _numbers(counts: Iterable[int]) -> str:
+    # One number per count, each that many levels of 1 joined by periods and closed by a bar.
+    return "".join(f"{'.'.join('1' * count)}|" for count in counts)
+
+
+@pytest.mark.parametrize(
+    ("select", "number", "expected"),
+    [
+        pytest.param("//mark", '<xsl:number count="part"/>', "1|" * _CHAIN_DEPTH, id="single"),
+        pytest.param(
+            "//mark",
+            '<xsl:number count="part" from="box"/>',
+            "|" * (_CHAIN_DEPTH - _CHAIN_BOX) + "1|" * _CHAIN_BOX,
+            id="single-from",
+        ),
+        pytest.param("//mark", '<xsl:number count="none"/>', "|" * _CHAIN_DEPTH, id="single-unmatched"),
+        pytest.param(
+            "//mark", '<xsl:number level="multiple" count="part|mark"/>', "1.1|" * _CHAIN_DEPTH, id="multiple"
+        ),
+        pytest.param(
+            "//mark",
+            '<xsl:number level="multiple" count="part|mark" from="box"/>',
+            "1|" * (_CHAIN_DEPTH - _CHAIN_BOX) + "1.1|" * _CHAIN_BOX,
+            id="multiple-from",
+        ),
+        pytest.param(
+            "//mark",
+            '<xsl:number level="multiple" count="item|box"/>',
+            _numbers(range(_CHAIN_DEPTH, 0, -1)),
+            id="multiple-every-level",
+        ),
+        pytest.param(
+            "//item",
+            '<xsl:number level="multiple"/>',
+            _numbers((*range(1, _CHAIN_BOX + 1), *range(_CHAIN_BOX + 1, _CHAIN_DEPTH))),
+            id="multiple-default",
+        ),
+        pytest.param(
+            "//item",
+            '<xsl:number level="multiple" from="box"/>',
+            _numbers((*range(1, _CHAIN_BOX + 1), *range(1, _CHAIN_DEPTH - _CHAIN_BOX))),
+            id="multiple-default-from",
+        ),
+        pytest.param(
+            "//item",
+            '<xsl:number level="multiple" from="part/item"/>',
+            _numbers((0, *range(1, _CHAIN_BOX), *range(_CHAIN_BOX, _CHAIN_DEPTH - 1))),
+            id="multiple-default-from-same-name",
+        ),
+        pytest.param(
+            "//mark",
+            '<xsl:number level="multiple" count="*[name()=name(current())]"/>',
+            "1|" * _CHAIN_DEPTH,
+            id="multiple-count-reads-current",
+        ),
+        pytest.param(
+            "//mark",
+            '<xsl:number count="part" from="box[name()=name(current())]"/>',
+            "1|" * _CHAIN_DEPTH,
+            id="single-from-reads-current",
+        ),
+    ],
+)
+def test_number_deep_chain(
+    select: str, number: str, expected: str, prefix_transform: Callable[[str, str], Transform]
+) -> None:
+    transform: Final = prefix_transform(f'<xsl:for-each select="{select}">{number}|</xsl:for-each>', "")
+    assert transform(parse_xml(_number_chain(_CHAIN))) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "declarations"),
+    [
+        pytest.param("", "", id="plain"),
+        pytest.param("t", "", id="text"),
+        pytest.param("", ' xmlns:q="urn:q"', id="namespaced"),
+    ],
+)
+def test_number_deep_chain_default_count_then_prefixed_name(
+    text: str, declarations: str, prefix_transform: Callable[[str, str], Transform]
+) -> None:
+    # The xml:note numbered last is the first prefixed name, so the names resolved before it change representation.
+    transform: Final = prefix_transform(
+        '<xsl:for-each select="//item | /doc/*[last()]"><xsl:number level="multiple"/>|</xsl:for-each>', ""
+    )
+    source: Final = _number_chain(_CHAIN, text=text, declarations=declarations).replace("</doc>", "<xml:note/></doc>")
+    items: Final = _numbers((*range(1, _CHAIN_BOX + 1), *range(_CHAIN_BOX + 1, _CHAIN_DEPTH)))
+    assert transform(parse_xml(source)) == f"{items}1|"
+
+
+def test_number_deep_chain_answers_each_source() -> None:
+    transform: Final = Transform(
+        _sheet(
+            '<xsl:template match="/"><xsl:for-each select="//mark">'
+            '<xsl:number level="multiple" count="item|box" from="box"/>|</xsl:for-each></xsl:template>'
+        )
+    )
+    source: Final = parse_xml(_number_chain(("item",) * _CHAIN_DEPTH))
+    first: Final = transform(source)
+    root: Final = source.root
+    added: Final = parse_xml(_number_chain(("box", *("item",) * _CHAIN_DEPTH))).root
+    assert isinstance(root, Element)
+    assert isinstance(added, Element)
+    root.append(added)
+    assert first ==_numbers(range(_CHAIN_DEPTH, 0, -1))
+    assert transform(source) == f"{first}{_numbers(range(_CHAIN_DEPTH, -1, -1))}"
 
 
 @pytest.mark.parametrize(
