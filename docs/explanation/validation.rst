@@ -26,8 +26,9 @@ restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, 
 ``elementFormDefault="qualified"`` validate correctly. The compiler resolves each reference up front and raises
 :class:`ValueError` for a ``ref``, ``type``, or ``base`` that names no component, for a cycle through ``group``,
 ``attributeGroup``, or complex-type derivation, for an identity constraint the validator does not enforce, for an
-``xs:all`` that occurs more than once, and for an extension that adds particles to an ``xs:all`` content model. A schema
-with such a gap fails to compile, so it cannot accept a document it was written to reject.
+``xs:all`` group outside a complex type's content model, for an ``xs:all`` that occurs more than once, and for an
+extension that adds particles to an ``xs:all`` content model. A schema with such a gap fails to compile, so it cannot
+accept a document it was written to reject.
 
 **RELAX NG** is a pattern algebra -- ``element``, ``attribute``, ``group``, ``choice``, ``interleave``, ``oneOrMore``,
 ``text``, ``data``, ``value``, ``list``, and ``ref`` -- and it is validated by James Clark's *derivative* algorithm
@@ -49,7 +50,9 @@ list token may also spend at most eight work units for each alternative the cap 
 residual choices or one shared pattern evaluated past the step allowance. An event that spends more raises the same
 :class:`ValueError`. The compiler enforces the specification's schema restrictions: it raises :class:`ValueError` for a
 ``<ref>`` with no name, for a reference cycle that never crosses an ``element``, and for an ``interleave`` whose
-branches compete for an element name or for text.
+branches compete for an element name or for text. It also raises for a ``group`` or ``interleave`` whose attributes have
+overlapping names, and for an ``anyName`` or ``nsName`` attribute outside ``oneOrMore`` or ``zeroOrMore`` within its
+element.
 
 A RELAX NG schema can span files through ``include`` and ``externalRef``. The compiler resolves both as the
 specification's simplification steps describe: each ``href`` resolves against the element's base URI, the referenced
