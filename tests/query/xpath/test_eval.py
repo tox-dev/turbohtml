@@ -2247,7 +2247,15 @@ def test_xpath_callback_result_finalizer_adopts_node() -> None:
     assert child.attrs["live"] == "yes"
 
 
-def test_xpath_callback_preserves_text_parent() -> None:
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("text() | adopt() | empty()", id="flat"),
+        pytest.param(f"text() | empty() | {'self::node()[' * 8}adopt(){']' * 8}", id="nested"),
+        pytest.param(f"text() | {'self::node()[' * 8}adopt(){']' * 8} | empty()", id="after-nested"),
+    ],
+)
+def test_xpath_callback_preserves_text_parent(expression: str) -> None:
     source: Final = Element("section", children=[Text("body")])
     target: Final = Element("main")
 
@@ -2259,7 +2267,7 @@ def test_xpath_callback_preserves_text_parent() -> None:
         return []
 
     result: Final = source.xpath(
-        "text() | adopt() | empty()", extensions={(None, "adopt"): adopt, (None, "empty"): empty}, smart_strings=True
+        expression, extensions={(None, "adopt"): adopt, (None, "empty"): empty}, smart_strings=True
     )
     assert isinstance(result, list)
     assert isinstance(result[0], XPathString)
@@ -2544,9 +2552,39 @@ def test_arguments_stored_before_a_python_call_are_pinned_once(
     work_steps.assert_linear(build, (250, 1000))
 
 
+def test_nested_predicates_find_pinned_nodes_in_linear_time(work_steps: WorkSteps) -> None:
+    def expression(depth: int) -> str:
+        # matches() lets Python run, so each comparison pins its node-sets under the frames nesting it; the `0 = 1`
+        # between two `//li` comparisons pins no list item, so the next one looks every item up again
+        compared = " or 0 = 1 or ".join(f"//li = '{letter}'" for letter in "abc")
+        return f"{'self::node()[' * depth}{compared} or true(){']' * depth} and matches('', '')"
+
+    def build(size: int, depth: int) -> Callable[[], object]:
+        return partial(parse("<li>" * size).xpath, expression(depth))
+
+    assert build(8, 10)() is True
+    work_steps.assert_linear(lambda size: build(size, 10), (300, 1200))
+    work_steps.assert_within(build(1200, 10), build(1200, 0), factor=1.5)
+
+
+def test_nested_predicates_pair_live_frames_in_linear_time(work_steps: WorkSteps) -> None:
+    document: Final = parse("<li>" * 200)
+
+    def build(depth: int) -> Callable[[], object]:
+        # each item's comparison lets Python run under `depth` predicates whose frames are new for every item
+        return partial(document.xpath, f"count(//li[{'self::li[' * depth}. != 'z'{']' * depth}]) and matches('', '')")
+
+    assert build(16)() is True
+    work_steps.assert_linear(build, (4, 16))
+
+
 @pytest.mark.parametrize(
     "expression",
-    [pytest.param("div/b[adopt()]", id="contexts"), pytest.param("div[seen()]/b[adopt()]", id="steps")],
+    [
+        pytest.param("div/b[adopt()]", id="contexts"),
+        pytest.param("div[seen()]/b[adopt()]", id="steps"),
+        pytest.param(f"div/b[{'self::b[' * 8}adopt(){']' * 8}]", id="nested"),
+    ],
 )
 def test_xpath_frame_path_candidates_keep_adopted_nodes(expression: str) -> None:
     source: Final = Element(
