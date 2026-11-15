@@ -15,6 +15,7 @@ from turbohtml.clean import collapse_whitespace_node
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
     from typing import TypeAlias
 
     from work_steps import WorkSteps
@@ -859,6 +860,110 @@ def test_text_python_path_filter_adds_candidates(
 
     assert query(document, keep) == expected
     assert len(document.find_all("a")) == 80
+
+
+_TEST_TEXT_NESTED_SNAPSHOT_PATTERN: Final[re.Pattern[str]] = re.compile(r"^warn\b")
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda root, _leaf: root.find(text=_TEST_TEXT_NESTED_SNAPSHOT_PATTERN), id="find-regex"),
+        pytest.param(lambda root, _leaf: root.find_all(text=lambda value: value == "warn"), id="find-all-callable"),
+        pytest.param(lambda root, _leaf: root.find_all(text=[_TEST_TEXT_NESTED_SNAPSHOT_PATTERN]), id="find-all-list"),
+        pytest.param(
+            lambda _root, leaf: leaf.find(text=_TEST_TEXT_NESTED_SNAPSHOT_PATTERN, axis=Axis.ANCESTORS),
+            id="find-ancestors",
+        ),
+    ],
+)
+def test_text_predicate_snapshot_shares_nested_text(query: Callable[[Document, Element], object]) -> None:
+    # PyPy has no tracemalloc
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    depth: Final = 1_500
+    document: Final = parse_xml(f"<list>{'<node>item' * depth}{'</node>' * depth}</list>")
+    leaf: Final = document.find_all("node")[-1]
+    tracing.start()
+    try:
+        assert not query(document, leaf)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    # each node collects the text of every node nested in it: a copy per candidate is about 4.5 MB here, while the
+    # snapshot holds the outermost node's 6,000 code points once and cuts the rest from it
+    assert peak < 512 * 1024
+
+
+@pytest.mark.parametrize("axis", list(Axis), ids=lambda axis: axis.name.lower())
+@pytest.mark.parametrize("tag", [pytest.param(None, id="any"), pytest.param("div", id="tag")])
+def test_text_predicate_receives_each_candidates_text(axis: Axis, tag: str | None) -> None:
+    # nested candidates share one copy of their text in the snapshot; each still reads as its own
+    document: Final = parse(
+        "<header>a<div>b<div>c</div><em>d</em></div></header>"
+        "<main>e<div>f<div>g<i>h</i></div><!--x-->i</div>j<br><div>k<b>l</b></div>m</main>"
+        "<footer>n<div>o<u>p</u></div>q</footer>"
+    )
+    origin: Final = _el(document.find("main"))
+    seen: Final[list[str | None]] = []
+
+    def record(value: str | None) -> bool:
+        seen.append(value)
+        return True
+
+    matches: Final = origin.find_all(tag, text=record, axis=axis)
+    assert matches == origin.find_all(tag, axis=axis)
+    assert seen == [element.text for element in matches]
+
+
+def test_text_predicate_receives_empty_text_of_textless_tree() -> None:
+    # no candidate has any text, so the snapshot holds no text at all
+    seen: Final[list[str | None]] = []
+
+    def record(value: str | None) -> bool:
+        seen.append(value)
+        return False
+
+    assert parse_xml("<r><a/><b/></r>").find_all(text=record) == []
+    assert seen == ["", "", ""]
+
+
+def test_text_predicate_runs_over_text_as_of_search_start() -> None:
+    # the candidates and their text are fixed before the first call, whatever a predicate edits
+    section: Final = _el(parse("<section><p>one</p><p>two</p></section>").find("section"))
+    last: Final = section.children[1]
+    assert isinstance(last, Element)
+    seen: Final[list[str | None]] = []
+
+    def edit(value: str | None) -> bool:
+        seen.append(value)
+        last.append(Text("!"))
+        section.append(Element("p", children=[Text("late")]))
+        return False
+
+    assert section.find_all(text=edit) == []
+    assert (seen, last.text) == (["one", "two"], "two!!")
+
+
+def test_text_predicate_keeps_text_as_of_search_start_when_a_filter_reorders_nested_candidates() -> None:
+    document: Final = parse_xml('<r><x k="1">a<x k="2">b</x><x k="3">c</x></x></r>')
+    outer, middle, _ = document.find_all("x")
+    seen: Final[list[str | None]] = []
+
+    def reorder(value: str | None) -> bool:
+        if value == "1":
+            middle.extract()
+            outer.append(middle)
+        return True
+
+    def record(value: str | None) -> bool:
+        seen.append(value)
+        return True
+
+    # the callable moves the middle candidate after the last one once the candidates are gathered, so each one keeps the
+    # text it had when the search started
+    matches: Final = document.find_all("x", k=reorder, text=record)
+    assert [element.attrs["k"] for element in matches] == ["1", "2", "3"]
+    assert seen == ["abc", "b", "c"]
 
 
 @pytest.mark.parametrize("tag", ["div", "DIV", "custom", "Custom"])
