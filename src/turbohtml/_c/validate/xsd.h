@@ -20,7 +20,7 @@
 #endif
 
 /* An expected element name plus the declaration that supplies its type. */
-typedef struct {
+typedef struct edecl {
     const Py_UCS4 *uri;
     Py_ssize_t uri_len;
     const Py_UCS4 *local;
@@ -170,6 +170,12 @@ static th_node *xsd_group_all(th_schema *schema, th_node *group_ref) {
     return model != NULL && is_schema_el(schema, model, XSD_NS, "all") ? model : NULL;
 }
 
+/* The one list of a validate() call that each element refills with its attribute and element declarations: a list per
+   instance would stay in the arena, which frees nothing until validation ends. */
+static edecl_vec edecl_list(const th_schema *schema) {
+    return (edecl_vec){schema->edecl_items, 0, schema->edecl_cap};
+}
+
 static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
     if (vec->count == vec->cap) {
         Py_ssize_t next = vec->cap ? vec->cap * 2 : TH_INITIAL_CAPACITY(8);
@@ -182,6 +188,8 @@ static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
         }
         vec->items = grown;
         vec->cap = next;
+        schema->edecl_items = grown;
+        schema->edecl_cap = next;
     }
     vec->items[vec->count++] = *item;
     return 0;
@@ -629,7 +637,7 @@ static int xsd_hit_member_order(const void *left, const void *right) {
 typedef struct {
     th_node **children;
     Py_ssize_t nchildren, next;
-    edecl_vec decls;             /* the declarations the content model reaches, typing a child by name */
+    th_node **decls;             /* the declaration typing each child, NULL for one the content model does not name */
     th_node *all;                /* the `all` group when that is the content model: it types the children itself */
     const xall_entry *group;     /* that group's members by name */
     const xall_member **matched; /* the member each child is validated against, NULL for one naming none or a repeat */
@@ -1424,6 +1432,8 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
     xsd_collect_attrs(ctx, instance, scope, declared, &attrs);
     named_vec names = {0};
     if (declared->count >= 32 && instance->attr_count >= 32) {
+        names = ctx->schema->attr_names; /* the buffers of the element indexed before this one */
+        names.len = 0;
         for (Py_ssize_t index = 0; index < declared->count; index++) {
             edecl *item = &declared->items[index];
             /* GCOVR_EXCL_BR_START: arena allocation failure */
@@ -1439,6 +1449,7 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
             PyErr_NoMemory();                       /* GCOVR_EXCL_LINE */
             return;                                 /* GCOVR_EXCL_LINE */
         }
+        ctx->schema->attr_names = names;
     }
     for (Py_ssize_t index = 0; index < instance->attr_count; index++) {
         Py_ssize_t alen = 0;
@@ -1546,7 +1557,7 @@ static int xsd_is_mixed(const th_schema *schema, th_node *ctype) {
 static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype, xsd_frame *frame) {
     th_schema *schema = ctx->schema;
     th_tree *inst = ctx->tree;
-    edecl_vec declared = {NULL, 0, 0};
+    edecl_vec declared = edecl_list(schema);
     xsd_validate_attrs(ctx, instance, ctype, &declared);
 
     th_node *simple_content = first_schema_child(schema, ctype, XSD_NS, "simpleContent");
@@ -1646,16 +1657,34 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
         report(ctx, instance, "structure", "content of element does not match its content model");
     }
 
-    edecl_vec decls = {NULL, 0, 0};
+    if (nchildren == 0) {
+        return;
+    }
+    /* Each child's declaration is found before any child is validated, since validating one refills the list. */
+    th_node **child_decls = arena_alloc(&schema->mem, (size_t)nchildren * sizeof(th_node *));
+    if (child_decls == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;                /* GCOVR_EXCL_LINE */
+    }
+    edecl_vec decls = edecl_list(schema);
     if (base_model != NULL) {
         xsd_collect_edecls(schema, base_model, &decls);
     }
     if (model != NULL) {
         xsd_collect_edecls(schema, model, &decls);
     }
+    for (Py_ssize_t index = 0; index < nchildren; index++) {
+        qname name = element_qname_scoped(schema, inst, children[index]);
+        child_decls[index] = NULL;
+        for (Py_ssize_t decl = 0; decl < decls.count; decl++) {
+            if (qname_eq(&name, &decls.items[decl])) {
+                child_decls[index] = decls.items[decl].decl;
+                break;
+            }
+        }
+    }
     frame->children = children;
     frame->nchildren = nchildren;
-    frame->decls = decls;
+    frame->decls = child_decls;
 }
 
 /* ---- element ---- */
@@ -1677,12 +1706,9 @@ static th_node *xsd_frame_next(valctx *ctx, xsd_frame *frame, th_node **decl) {
             *decl = frame->matched[position]->want.decl;
             return child;
         }
-        qname name = element_qname_scoped(ctx->schema, ctx->tree, child);
-        for (Py_ssize_t index = 0; index < frame->decls.count; index++) {
-            if (qname_eq(&name, &frame->decls.items[index])) {
-                *decl = frame->decls.items[index].decl;
-                return child;
-            }
+        *decl = frame->decls[position];
+        if (*decl != NULL) {
+            return child;
         }
     }
     if (frame->all != NULL) {

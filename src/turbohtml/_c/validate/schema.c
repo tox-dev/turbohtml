@@ -655,6 +655,11 @@ typedef struct th_schema {
     /* XSD position sets of one validate() call that no matcher holds, and the length they were made for */
     struct posset_spare *posset_spares;
     Py_ssize_t posset_size;
+    /* XSD name lookup list of one validate() call, refilled for each element, and the index over it that an element
+       with many attributes builds */
+    struct edecl *edecl_items;
+    Py_ssize_t edecl_cap;
+    named_vec attr_names;
     struct xfacet_entry *facet_entries;
     size_t facet_count, facet_cap;
     /* every xs:all group's members indexed by name, sorted by the group's node pointer */
@@ -854,11 +859,11 @@ static int named_index(th_schema *schema, named_vec *vec) {
     if (vec->len < 8) {
         return 0;
     }
-    size_t cap = 8;
+    size_t cap = vec->slot_cap > 8 ? vec->slot_cap : 8; /* a vector indexed again keeps the table it has */
     while (cap < (size_t)vec->len * 2) {
         cap *= 2;
     }
-    named_node **slots = arena_alloc(&schema->mem, cap * sizeof(named_node *));
+    named_node **slots = cap == vec->slot_cap ? vec->slots : arena_alloc(&schema->mem, cap * sizeof(named_node *));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;       /* GCOVR_EXCL_LINE */
     }
@@ -1304,6 +1309,9 @@ TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObjec
     local.ws_buffer = NULL;
     local.ws_cap = 0;
     local.posset_spares = NULL;
+    local.edecl_items = NULL;
+    local.edecl_cap = 0;
+    local.attr_names = (named_vec){0};
     if (local.defines.len > 0) {
         const size_t bytes = (size_t)local.defines.len * sizeof(def_entry);
         local.defines.items = arena_alloc(&local.mem, bytes);
