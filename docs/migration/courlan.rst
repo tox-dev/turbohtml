@@ -56,7 +56,7 @@ The URL-hygiene surface ports 1:1:
 
 - ``courlan.clean_url(url)`` -> :func:`turbohtml.extract.clean_url`, with ``scrub_url``'s markup-damage recovery folded
   in (whitespace and control-character stripping, ``<![CDATA[]]>`` unwrap, ``&amp;`` un-escape, truncation at a stray
-  ``<``/``>``/``"``).
+  ``<``/``>``/``"`` that does not rename the host).
 - ``courlan.normalize_url(url, strict=..., language=..., trailing_slash=...)`` ->
   :func:`~turbohtml.extract.normalize_url` with a :class:`~turbohtml.extract.UrlCleaning` config: query sorting, tracker
   removal, the strict content-parameter allowlist, trailing-slash folding.

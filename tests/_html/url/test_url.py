@@ -797,6 +797,27 @@ _C0_AND_SPACE: Final[str] = "".join(map(chr, range(0x21)))
 
 
 _MARKUP_DELIMITER: Final[re.Pattern[str]] = re.compile(r'[<>"]')
+# what the split reads as the authority: past a scheme, the slashes after it, up to the next path, query or fragment
+_THROUGH_AUTHORITY: Final[re.Pattern[str]] = re.compile(
+    r"""
+    [\x00-\x20]*                  # the edge controls the scrub strips before the scheme
+    (?:[A-Za-z][A-Za-z0-9+.-]*:   # a scheme,
+    [/\\]*                        # then the slashes after it,
+    [^/\\?#]*)?                   # then the authority, up to the next path, query or fragment
+    """,
+    re.VERBOSE,
+)
+# what places the host elsewhere if it is cut off the authority: credentials, or with no "<" or ">" to make the URL
+# parser reject the host, a dot or an encoding of one
+_HOST_TEXT: Final[re.Pattern[str]] = re.compile(
+    r"""
+    @                             # credentials, which put the host elsewhere
+    | ^[^<>]*                     # or no "<" or ">" to make the URL parser reject the host,
+      [.%\x80-\U0010ffff]         # a dot, an encoding of one or a non-ASCII code point,
+      [^<>]*$                     # and nothing else
+    """,
+    re.VERBOSE,
+)
 
 
 # CPython's str whitespace (Py_UNICODE_ISSPACE), pinned because PyPy's str.split() disagrees on the C0 separators
@@ -825,6 +846,7 @@ _PY_WHITESPACE: Final[frozenset[str]] = frozenset(
 # a separator), a non-whitespace C0 control that survives in the middle, and the CDATA, markup, and escape shapes.
 _PIECES: Final[tuple[str, ...]] = (
     "https://x.example/p",
+    "https://x.example",
     " ",
     "\t",
     "\n",
@@ -871,6 +893,13 @@ def _scrub_corpus() -> list[str]:
         "https://x.example/a<script>",
         "https://x.example/a>b",
         'https://x.example/p"junk',
+        'https://x.example"@y.example/p"junk',
+        '<![CDATA[\x01https://x.example"@y.example/p"junk',
+        'https://x.example">link</a>',
+        'https://x.example">y.example</a>',
+        'https://x.example">y.example@z.example/p"junk',
+        'https://x.example"%2ey.example/p"junk',
+        'https://x.example"。y。example/p"junk',
         "https://x.example/a&amp;b&amp;c",
         "https://x.example/path/&amp;",
         "https://x.example/path/&",
@@ -890,7 +919,11 @@ def _oracle_scrub(url: str) -> str:
     remainder = "".join(char for char in url.strip(_C0_AND_SPACE) if char not in _PY_WHITESPACE)
     if remainder.startswith("<![CDATA["):
         remainder = remainder.removeprefix("<![CDATA[").removesuffix("]]>")
-    remainder = _MARKUP_DELIMITER.split(remainder, maxsplit=1)[0].replace("&amp;", "&")
+    kept: Final = len(_THROUGH_AUTHORITY.findall(remainder)[0])  # the pattern matches at the start, if only emptily
+    head, *cut = _MARKUP_DELIMITER.split(remainder[:kept], maxsplit=1)
+    if not cut or _HOST_TEXT.search(cut[0]):
+        head = remainder[:kept] + _MARKUP_DELIMITER.split(remainder[kept:], maxsplit=1)[0]
+    remainder = head.replace("&amp;", "&")
     trimmed: Final = remainder.rstrip(_C0_AND_SPACE)
     if trimmed != remainder:
         remainder = trimmed
@@ -919,6 +952,20 @@ def _oracle_scrub(url: str) -> str:
         pytest.param("https://x/a<b", "https://x/a", id="truncate-at-lt"),
         pytest.param("https://x/a>b", "https://x/a", id="truncate-at-gt"),
         pytest.param('https://x/a"b', "https://x/a", id="truncate-at-quote"),
+        pytest.param('https://x"@y/a"b', 'https://x"@y/a', id="authority-kept-to-slash"),
+        pytest.param("https:\\\\x<@y\\a<b", "https:\\\\x<@y\\a", id="authority-kept-to-backslash"),
+        pytest.param('http:x"%2ey?a"b', 'http:x"%2ey?a', id="authority-kept-to-query"),
+        pytest.param('https://x".y/a>b', 'https://x".y/a', id="authority-kept-then-gt-in-path"),
+        pytest.param('https://x">.y/a"b', "https://x", id="authority-cut-at-forbidden-host-code-point"),
+        pytest.param('https://x".y<z/a"b', "https://x", id="authority-cut-before-forbidden-host-code-point"),
+        pytest.param('https://x">.y@z/a"b', 'https://x">.y@z/a', id="authority-kept-with-credentials"),
+        pytest.param('https://x".y#a"b', 'https://x".y#a', id="authority-kept-to-fragment"),
+        pytest.param('https://x"。y', 'https://x"。y', id="authority-kept-to-end"),
+        pytest.param('https://x"y', "https://x", id="authority-cut-to-end"),
+        pytest.param('https://x">y</a>', "https://x", id="authority-cut-to-slash"),
+        pytest.param('https://x:80"y?a', "https://x:80", id="authority-cut-after-port"),
+        pytest.param("https://", "https://", id="scheme-and-slashes-only"),
+        pytest.param('<![CDATA[\x01https://x"@y/a"b', '\x01https://x"@y/a', id="authority-kept-after-cdata-control"),
         pytest.param("https://x/a&amp;b", "https://x/a&b", id="amp-unescaped"),
         pytest.param("https://x/&amp;a&amp;b", "https://x/&a&b", id="amp-unescaped-multiple"),
         pytest.param("https://x/p/&amp;", "https://x/p/", id="trailing-slash-amp-dropped"),
