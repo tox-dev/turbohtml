@@ -51,6 +51,12 @@ inner and outer output are equivalent. This operation does not mutate the tree.
 the same options and scope; do not mutate a tree while its iterator is live. The ``inner_xml`` accessor retains its
 well-formed XML handling. This addition does not change XML settings or minification semantics.
 
+Inner XML output of a ``parse_xml`` tree repeats on each child the namespace declarations it uses from the ancestors, so
+every child reads on its own. The rest of the output funds those copies, 32 characters of declaration for each character
+written otherwise on top of a 65,536-character base. ``inner_xml``, ``serialize``, ``encode`` and ``serialize_iter``
+raise :exc:`ValueError` when a long namespace name above many short children would outgrow that, and an iterator that
+raised is finished. Serialize the element itself to write each declaration once.
+
 Turn a tree back into markup or text. Each renderer takes one configuration object: :meth:`Node.serialize` and
 :meth:`Node.encode` produce HTML under an :class:`Html` config (a :class:`Formatter` picks the escape policy, an
 :class:`Indent` or :class:`Minify` picks the whitespace, and ``xml=True`` switches to XML/XHTML syntax), and
