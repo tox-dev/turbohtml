@@ -103,7 +103,8 @@ struct pattern {
         const Py_UCS4 *value;
         struct {
             int hi;
-            int derived; /* route only: a derivative made it, so it holds no more than those operands do */
+            int derived; /* route only: a derivative made it, so it holds no more than those operands do; with
+                            RNG_REFUSED, rng_covers found a join of the route over those operands not covering it */
         };
     };
     union {
@@ -1279,6 +1280,16 @@ static RNG_FORCEINLINE int rng_routed(const th_schema *schema, const pattern *p)
     return schema->routing != NULL && p->route != NULL;
 }
 
+/* The mark rng_covers leaves on a derived group or interleave that a join of its route over the same operands does
+   not cover (see rng_counterpart). */
+#define RNG_REFUSED 2
+
+/* Whether the side `p` of a group or interleave of `route` carries RNG_REFUSED: the join's counterpart covers it only
+   side by side, so it does not cover the join either. */
+static RNG_FORCEINLINE int route_side_refused(const pattern *p, const rng_route *route) {
+    return ((RNG_JOIN_TYPES >> p->type) & 1) && p->route == route && (p->derived & RNG_REFUSED);
+}
+
 /* Gives `node`, the join of `p1` and `p2` by the operator of `src`, each a side of `src` or derived from one, the
    operand ranges of `src` when it has them: a derivative of a side matches nothing the side could not. A join that
    absorbed a side, or a shared node already routed, stays as it is. */
@@ -1288,7 +1299,10 @@ static RNG_FORCEINLINE pattern *route_inherit(pattern *node, const pattern *src,
         node->lo = src->lo;
         node->mid = src->mid;
         node->hi = src->hi;
-        node->derived = 1;
+        node->derived =
+            node->type != P_CHOICE && (route_side_refused(p1, src->route) || route_side_refused(p2, src->route))
+                ? 1 | RNG_REFUSED
+                : 1;
     }
     return node;
 }
@@ -1371,8 +1385,12 @@ static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget);
 /* Whether `x` covered by the side of the join `y` that holds operand `index` of its route means `y` covers it. */
 static int rng_covers_side(th_schema *schema, pattern *x, pattern *y, int index, int *budget) {
     int first = index < y->mid;
+    pattern *side = first ? y->p1 : y->p2;
     pattern *other = first ? y->p2 : y->p1;
-    return (y->type == P_CHOICE || rng_nullable(schema, other)) && rng_covers(schema, x, first ? y->p1 : y->p2, budget);
+    if (y->type != P_CHOICE && !rng_nullable(schema, other)) {
+        return 0;
+    }
+    return rng_covers(schema, x, side, budget);
 }
 
 /* Whether `x` and `y` join by one operator and each side of `y` covers the side of `x` it faces. */
@@ -1403,20 +1421,7 @@ static int rng_covers_join(th_schema *schema, pattern *x, pattern *y, int *budge
            (rng_nullable(schema, y->p1) && rng_covers(schema, x, y->p2, budget));
 }
 
-/* Whether every string `x` matches, `y` matches too, judged by structure: true only when that holds, false when it
-   does not or the check runs out of `budget`. A join covers a join of the same operator side by side, and a side
-   whose sibling is nullable; a choice covers what either side covers. */
-static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
-    if (x == y) {
-        return 1;
-    }
-    if (x->type == P_EMPTY) {
-        return rng_nullable(schema, y);
-    }
-    if (!((RNG_COVER_TYPES >> y->type) & 1) || --*budget < 0) {
-        return 0;
-    }
-    TH_WORK_STEP();
+static int rng_covers_walk(th_schema *schema, pattern *x, pattern *y, int *budget) {
     if (x->type == P_CHOICE) {
         return rng_covers(schema, x->p1, y, budget) && rng_covers(schema, x->p2, y, budget);
     }
@@ -1429,6 +1434,44 @@ static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
     return rng_covers_join(schema, x, y, budget);
 }
 
+/* Whether the derived group or interleave `x` and the join `y` stand for the same operands of one route, so that
+   RNG_REFUSED on `x` answers for `y`. The checks compare a round with the content of its repeat, so the joins over
+   one range that `x` meets are the same join. */
+static RNG_FORCEINLINE int rng_counterpart(const pattern *x, const pattern *y) {
+    return x->type != P_CHOICE && ((RNG_JOIN_TYPES >> x->type) & 1) && x->route != NULL && x->derived &&
+           ((RNG_JOIN_TYPES >> y->type) & 1) && x->route == y->route && x->lo == y->lo && x->hi == y->hi;
+}
+
+static RNG_FORCEINLINE int rng_refused(const pattern *x, const pattern *y) {
+    return rng_counterpart(x, y) && (x->derived & RNG_REFUSED);
+}
+
+/* Whether every string `x` matches, `y` matches too, judged by structure: true only when that holds, false when it
+   does not or the check runs out of `budget`. A join covers a join of the same operator side by side, and a side
+   whose sibling is nullable; a choice covers what either side covers. A derived group or interleave that its
+   counterpart does not cover keeps RNG_REFUSED, and route_inherit passes the mark to the joins built over it: a
+   restarted round rebuilds one path and shares the rest with the round it came from, so rng_repeat_absorbs refuses
+   it at once.
+   A mark can only refuse, and a refusal keeps a group the residual could have dropped, so it never changes a
+   verdict. */
+static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    if (x == y) {
+        return 1;
+    }
+    if (x->type == P_EMPTY) {
+        return rng_nullable(schema, y);
+    }
+    if (!((RNG_COVER_TYPES >> y->type) & 1) || --*budget < 0) {
+        return 0;
+    }
+    TH_WORK_STEP();
+    int covered = rng_covers_walk(schema, x, y, budget);
+    if (!covered && rng_counterpart(x, y)) {
+        x->derived |= RNG_REFUSED;
+    }
+    return covered;
+}
+
 /* Whether group(`head`, `rest`) is `rest` alone, which holds when `rest` repeats some p zero or more times and `head`
    is nullable and covered by p: p* then matches what head, p* does. A derivative of a repeat whose content is nullable
    restarts the repeat at every event, so without this the residual keeps one such group for each place the current
@@ -1437,7 +1480,7 @@ static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
    entry stops the event. */
 static RNG_NOINLINE int rng_repeat_absorbs(th_schema *schema, pattern *head, const pattern *rest) {
     pattern *repeat = rest->p1->type == P_EMPTY ? rest->p2 : rest->p2->type == P_EMPTY ? rest->p1 : NULL;
-    if (repeat == NULL || repeat->type != P_ONEMORE || !rng_nullable(schema, head)) {
+    if (repeat == NULL || repeat->type != P_ONEMORE || rng_refused(head, repeat->p1) || !rng_nullable(schema, head)) {
         return 0;
     }
     int budget = RNG_COVER_STEPS;
@@ -2610,7 +2653,8 @@ static RNG_NOINLINE pattern *route_close(th_schema *schema, pattern *p) {
 }
 
 /* Adoption keys an entry by a node, with no `sub`, holding the route the node last failed to join; or by a route and
-   one of its operands, holding the operand's position, with no `sub` once the route's operands are in. */
+   one of its operands, holding the operand's position, with no `sub` once the route's operands are in. Two routes key
+   where route_locate found the inner one. */
 typedef struct route_pair {
     const void *key; /* NULL marks a free slot */
     const void *sub;

@@ -3717,6 +3717,10 @@ def _repeated_round(count: int) -> tuple[str, str]:
     return wrap(f"<oneOrMore>{_round(count)}</oneOrMore>"), _leaves("reverse", count)
 
 
+def _repeated_round_in_order(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore>{_round(count)}</oneOrMore>"), _leaves("schema", count)
+
+
 def _optional_repeated_round(count: int) -> tuple[str, str]:
     return wrap(f"<zeroOrMore>{_round(count)}</zeroOrMore>"), _leaves("alternating", count)
 
@@ -3732,6 +3736,10 @@ def _nested_repeated_rounds(count: int) -> tuple[str, str]:
 
 def _round_in_group(count: int) -> tuple[str, str]:
     return wrap(f"<oneOrMore><group>{_round(count)}{_Z}</group></oneOrMore>"), _leaves("reverse", count)
+
+
+def _round_after_optional(count: int) -> tuple[str, str]:
+    return wrap(f"<oneOrMore><group>{_Z}{_round(count)}</group></oneOrMore>"), _leaves("reverse", count)
 
 
 def _optional_round(count: int) -> tuple[str, str]:
@@ -3788,10 +3796,12 @@ def _referenced_halves(count: int) -> tuple[str, str]:
     "build",
     [
         pytest.param(_repeated_round, id="one-or-more"),
+        pytest.param(_repeated_round_in_order, id="one-or-more-in-order"),
         pytest.param(_optional_repeated_round, id="zero-or-more"),
         pytest.param(_round_of_empty_choices, id="choice-with-empty"),
         pytest.param(_nested_repeated_rounds, id="nested-repeats"),
         pytest.param(_round_in_group, id="round-in-group"),
+        pytest.param(_round_after_optional, id="round-after-optional"),
         pytest.param(_optional_round, id="optional-round"),
         pytest.param(_rounds_in_choice_repeated, id="rounds-in-choice"),
         pytest.param(_round_in_nested_groups, id="round-in-nested-groups"),
