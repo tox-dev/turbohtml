@@ -117,8 +117,6 @@ struct th_tree {
     Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
-    th_node *merged_text_node;
-    size_t merged_text_capacity;
     Py_ssize_t afe_stack_hint;
     uint64_t *afe_hashes;
     size_t afe_hash_count, afe_hash_capacity;

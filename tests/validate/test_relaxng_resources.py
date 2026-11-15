@@ -20,6 +20,7 @@ _ELEMENT: Final[str] = f'<element {_NS} name="foo"><empty/></element>'
 _LONG: Final[str] = "p" * 260
 _OVERLONG: Final[str] = "dir/" * (32_767 // 4 + 1)
 _START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
+_EXTERNAL_REF: Final[str] = '<externalRef href="x"/>'
 
 
 @pytest.mark.parametrize(
@@ -317,6 +318,18 @@ def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> R
             id="directory-target",
         ),
         pytest.param(
+            {"main.rng": f"<choice {_NS}>{_EXTERNAL_REF * 1025}</choice>", "x": _ELEMENT},
+            ValueError,
+            "RELAX NG references exceed the limit of 1024 files",
+            id="too-many-references",
+        ),
+        pytest.param(
+            {"main.rng": f'<externalRef {_NS} href="x"/>', "x": _ELEMENT + " " * (8 << 20)},
+            ValueError,
+            "RELAX NG references exceed the limit of 8 MiB",
+            id="too-many-bytes",
+        ),
+        pytest.param(
             {"main.rng": f'<externalRef {_NS} href="missing"/>'},
             FileNotFoundError,
             "missing",
@@ -342,6 +355,15 @@ def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> R
             RecursionError,
             "schema compilation does not support trees nested 400 levels",
             id="deep-graft",
+        ),
+        pytest.param(
+            {
+                "main.rng": f'<element {_NS} name="doc"><externalRef href="x"/><externalRef href="x"/></element>',
+                "x": f'<attribute {_NS} name="id"/>',
+            },
+            ValueError,
+            "attributes whose names overlap",
+            id="external-attribute-twice",
         ),
     ],
 )
