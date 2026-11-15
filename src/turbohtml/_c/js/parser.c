@@ -13,9 +13,9 @@
    NULL and the caller emits the original source unchanged, so partial coverage can
    never corrupt a script. */
 
-/* glibc declares pthread_getattr_np, which core/stack.h reads the thread's stack bounds with, only for GNU code, and
-   its <stdint.h> fixes the feature set before Python.h would ask for it */
-#if defined(__linux__) && !defined(_GNU_SOURCE)
+/* glibc declares pthread_getattr_np, which core/stack.h reads the thread's stack bounds with, only for GNU code. The
+   extension build gets that from pyconfig.h; the standalone build has no Python.h to ask for it. */
+#if defined(JM_STANDALONE) && defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE 1
 #endif
 

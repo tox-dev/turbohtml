@@ -62,7 +62,7 @@ __declspec(dllimport) void __stdcall GetCurrentThreadStackLimits(th_ulong_ptr *l
 /* The lowest address a checked frame may run at on the calling thread: the low end of its stack plus TH_STACK_MARGIN,
    or plus half the stack when that is less; 1 when the stack has no limit to keep under. A thread's stack never
    moves, and glibc reads /proc/self/maps to answer for the main thread, so each thread asks once. */
-static inline TH_NOINLINE uintptr_t th_stack_floor(void) {
+static TH_NOINLINE uintptr_t th_stack_floor(void) {
     static TH_STACK_THREAD_LOCAL uintptr_t known;
     if (known != 0) {
         return known;

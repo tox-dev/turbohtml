@@ -9,8 +9,6 @@
 #ifndef TURBOHTML_SERIALIZE_JS_TYPES_H
 #define TURBOHTML_SERIALIZE_JS_TYPES_H
 
-#include "core/vec.h"
-
 #ifdef JM_STANDALONE
 
 #include <stddef.h>
@@ -27,6 +25,7 @@ typedef ptrdiff_t Py_ssize_t;
 
 #else
 
+/* first, before any system header: pyconfig.h picks the feature macros the C library reads once */
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
@@ -38,5 +37,7 @@ typedef ptrdiff_t Py_ssize_t;
 #define jm_calloc(count, size) PyMem_Calloc((count), (size))
 
 #endif
+
+#include "core/vec.h"
 
 #endif /* TURBOHTML_SERIALIZE_JS_TYPES_H */
