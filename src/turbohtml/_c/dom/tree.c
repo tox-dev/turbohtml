@@ -856,13 +856,14 @@ static th_node *build_element(th_tree *tree, const th_token *token) {
 
 /* The start tag's attribute with this lowercased ASCII name (tokenizer names are
    already lowercased), or NULL. Used for the boolean shadowroot* attributes, to
-   read shadowrootmode's value, and to read a <meta> encoding declaration. A wider-kind
-   name of the same length holds interleaved zero bytes for its ASCII runs, so the byte
-   compare against an all-ASCII literal can never spuriously match. */
+   read shadowrootmode's value, and to read a <meta> encoding declaration. A wider name
+   stores its code units in more than one byte, so its bytes can equal the literal's
+   without the name being it; only a one-byte name is compared. */
 static const th_attr *token_attr(const th_token *token, const char *name, Py_ssize_t name_len) {
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         const th_attr *attr = &token->attrs[index];
-        if (attr->name.len == name_len && memcmp(attr->name.data, name, (size_t)name_len) == 0) {
+        if (attr->name.len == name_len && attr->name.kind == PyUnicode_1BYTE_KIND &&
+            memcmp(attr->name.data, name, (size_t)name_len) == 0) {
             return attr;
         }
     }
