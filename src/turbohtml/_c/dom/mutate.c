@@ -215,6 +215,7 @@ int th_node_rename(th_tree *tree, th_node *node, const Py_UCS4 *tag, Py_ssize_t 
     }
     node->atom = atom;
     node->css_name_safety = 0;
+    node->xml_name_wellformed = 0;
     th_src_loc *loc = tree->track_locations ? *node_loc(node) : NULL;
     if (loc != NULL) {
         loc->start_dirty = 1;
