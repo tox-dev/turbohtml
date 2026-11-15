@@ -224,8 +224,8 @@ static void rw_out_utf8(rw_out *out, const char *bytes, Py_ssize_t len) {
 
 /* The verbatim source slice a token came from, appended untouched. Every markup token
    carries a source span under capture_source, and so does the text of a CDATA section;
-   any other text run is a borrowed input slice. */
-static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token *token) {
+   any other text run is a borrowed input slice. Returns 0 when the output could not grow. */
+static int rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token *token) {
     int kind;
     const char *base = th_tok_input_data(sm, &kind);
     if (token->is_slice) {
@@ -233,24 +233,24 @@ static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token
             rw_out_make_room(out, token->src_len, PyUnicode_READ(kind, base, token->src_start));
         }
         if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            return 0;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         for (Py_ssize_t index = 0; index < token->src_len; index++) {
             out->data[out->len++] = PyUnicode_READ(kind, base, token->src_start + index);
         }
-        return;
+        return 1;
     }
     if (token->has_source) {
         if (out->len + token->src_span > out->room) {
             rw_out_make_room(out, token->src_span, PyUnicode_READ(kind, base, token->src_off));
         }
         if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            return 0;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         for (Py_ssize_t index = 0; index < token->src_span; index++) {
             out->data[out->len++] = PyUnicode_READ(kind, base, token->src_off + index);
         }
-        return;
+        return 1;
     }
     /* a text/comment run the tokenizer normalized (so it is neither a borrowed slice nor
        a captured span): emit its buffered code points */
@@ -258,11 +258,12 @@ static void rw_emit_verbatim(rw_out *out, const th_tokenizer *sm, const th_token
         rw_out_make_room(out, token->text.len, buf_read(&token->text, 0));
     }
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        return 0;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t index = 0; index < token->text.len; index++) {
         out->data[out->len++] = PyUnicode_READ(token->text.kind, token->text.data, index);
     }
+    return 1;
 }
 
 /* Encode a code-point run to lowercased UTF-8 in buf, which holds four bytes per code point, returning the byte
@@ -2550,14 +2551,16 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
 /* Hold the tail of source text written as read for rw_out_make_room to settle: a `<` at its end, or in RCDATA an
    end tag cut short, read as text there because what followed in the source ended it, but a handler can drop or
    change what follows, and what it writes in its place, or the markup a dropped node exposes, would join the tail
-   into a tag. Raw text reads `<` as text whatever follows it. */
-static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, Py_ssize_t start) {
+   into a tag. Raw text reads `<` as text whatever follows it, and a comment, doctype or CDATA section ends in one only
+   at the end of the input. */
+static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, const th_token *token) {
     const rw_open *top = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
     int rcdata = top != NULL && top->model == TH_INIT_RCDATA;
-    if (top != NULL && top->model >= 0 && !rcdata) {
+    if (token->kind != TH_TEXT || token->has_source || (top != NULL && top->model >= 0 && !rcdata)) {
         return;
     }
     rw_out *out = &ctx->out;
+    Py_ssize_t start = out->len - (token->is_slice ? token->src_len : token->text.len);
     Py_ssize_t lt = out->len - 1;
     if (out->data[lt] != '<') {
         Py_ssize_t slash = lt;
@@ -2576,18 +2579,13 @@ static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, Py_ssize_t start) {
 
 /* Write an unedited leaf token as it was read. */
 static void rw_emit_read_leaf(rw_ctx *ctx, const th_token *token) {
-    Py_ssize_t start = ctx->out.len;
-    rw_emit_verbatim(&ctx->out, ctx->sm, token);
-    if (token->kind != TH_TEXT || token->has_source) {
-        return;
-    }
-    if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: an output allocation failure cannot be forced from a test */
-        return;            /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (!rw_emit_verbatim(&ctx->out, ctx->sm, token)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_UCS4 last = ctx->out.data[ctx->out.len - 1];
     if (last == '<' || last == '/' ||
         (is_ascii_alpha(last) && ctx->depth > 0 && ctx->stack[ctx->depth - 1].model == TH_INIT_RCDATA)) {
-        rw_hold_tail(ctx, start);
+        rw_hold_tail(ctx, token);
     }
 }
 

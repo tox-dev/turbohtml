@@ -2424,6 +2424,7 @@ def test_rewrite_source_lt_stays_text_whatever_follows_it(
         pytest.param("<p>a</", id="end-tag-open-at-the-end"),
         pytest.param("<p>a<<b>c", id="lt-before-tag"),
         pytest.param("<p>abc<!--c-->", id="comment"),
+        pytest.param("<p><!--a<", id="comment-at-the-end"),
         pytest.param("<svg><![CDATA[a<]]><![CDATA[b<", id="cdata"),
         pytest.param("abc", id="top-level"),
         pytest.param("<title>&amp;abc", id="rcdata-letters"),
