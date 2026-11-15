@@ -31,6 +31,10 @@ static int rule_compare(const Py_UCS4 *candidate, Py_ssize_t length, const char 
 /* Is the single label [cand, cand+len) an IANA TLD? Bucketed on its first byte in tld_table.h, matched
    case-insensitively; a digit-led label (an IPv4 octet) buckets into an empty range and falls through to 0. */
 static int is_iana_tld(const Py_UCS4 *cand, Py_ssize_t len) {
+    /* an empty last label has no first code point to bucket on */
+    if (len == 0) {
+        return 0;
+    }
     Py_UCS4 first = cand[0];
     /* a non-ASCII first code point starts no IANA TLD (all ASCII / punycode) and would index past th_tld_first[257] */
     if (first > 255) {
@@ -123,7 +127,8 @@ static Py_ssize_t public_suffix_labels(const Py_UCS4 *host, Py_ssize_t host_len,
 }
 
 /* _registrable_domain(host) -> str: the eTLD+1 of a lowercased ASCII host, or the whole host when it carries no known
-   public suffix (an IP literal, an unregistered TLD) or is itself a public suffix. Empty in, empty out. */
+   public suffix (an IP literal, an unregistered TLD) or is itself a public suffix. A host's trailing dot stays on the
+   answer. Empty in, empty out. */
 PyObject *turbohtml_registrable_domain(PyObject *Py_UNUSED(module), PyObject *arg) {
     Py_ssize_t host_len = PyUnicode_GET_LENGTH(arg);
     if (host_len == 0) {
@@ -149,7 +154,15 @@ PyObject *turbohtml_registrable_domain(PyObject *Py_UNUSED(module), PyObject *ar
             label_start[count++] = index + 1;
         }
     }
-    Py_ssize_t suffix = public_suffix_labels(host, host_len, label_start, count, scratch);
+    /* a trailing dot names the DNS root and opens no further label: the suffix rules are matched on the host without
+       it and the answer keeps it (https://url.spec.whatwg.org/#host-registrable-domain), so www.example.com. and
+       shop.example.com. share example.com. */
+    Py_ssize_t name_len = host_len;
+    if (label_start[count - 1] == host_len) {
+        name_len--;
+        count--;
+    }
+    Py_ssize_t suffix = public_suffix_labels(host, name_len, label_start, count, scratch);
     Py_ssize_t keep = suffix > 0 && count > suffix ? suffix + 1 : count;
     Py_ssize_t start = label_start[count - keep];
     PyObject *result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, host + start, host_len - start);
