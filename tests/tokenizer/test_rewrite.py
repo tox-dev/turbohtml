@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from work_steps import WorkSteps
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
-    from turbohtml import Document, ShadowRoot
+    from turbohtml import Document, ShadowRoot, SourceLocation
 from typing import Final
 
 _Read = str | bool | None | tuple[tuple[str, str | None], ...]
@@ -1836,9 +1836,7 @@ def _misread(source: str) -> list[str]:
     ] + [
         f"handler call at {starts[inside]} inside the text of <{element.tag}>"
         for element, location in located
-        if element.namespace is Namespace.HTML and element.tag in _RAW_TEXT
-        if (inside := bisect_left(starts, location.start_tag.end_offset))
-        < bisect_left(starts, len(source) if location.end_tag is None else location.end_tag.start_offset)
+        if (inside := _call_inside_raw_text(element, location, starts, len(source))) is not None
     ]
 
 
@@ -1848,6 +1846,14 @@ def _parsed_elements(node: Document | ParsedElement | ShadowRoot) -> Iterator[Pa
             yield child
             if child.shadow_root is not None:
                 yield from _parsed_elements(child.shadow_root)
+
+
+def _call_inside_raw_text(element: ParsedElement, location: SourceLocation, starts: list[int], end: int) -> int | None:
+    if element.namespace is not Namespace.HTML or element.tag not in _RAW_TEXT:
+        return None
+    inside = bisect_left(starts, location.start_tag.end_offset)
+    text_end = end if location.end_tag is None else location.end_tag.start_offset
+    return inside if inside < bisect_left(starts, text_end) else None
 
 
 _BREAKOUT_RUN: Final[str] = "<svg><g><p></b><i></g>"
