@@ -236,6 +236,8 @@ static th_node *rng_read_reference(rng_loader *loader, PyObject *path, int inclu
         return NULL;
     }
     rng_prune_annotations(schema, copy);
+    /* the pruning walk flags attribute children; an externalRef whose whole pattern is one attribute needs this */
+    schema->rng_attributes |= is_schema_el(schema, copy, RNG_NS, "attribute");
     PyObject *uri = PyObject_CallMethod(path, "as_uri", NULL);
     if (uri == NULL) { /* GCOVR_EXCL_BR_LINE: a resolved path is absolute, so as_uri cannot fail */
         return NULL;   /* GCOVR_EXCL_LINE */

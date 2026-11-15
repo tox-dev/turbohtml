@@ -317,8 +317,8 @@ class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public
         remain.
 
         A ``<style>`` inside a ``<textarea>`` or an HTML-namespace ``<svg>`` or ``<math>`` is not kept, because a
-        reparse does not read its body as raw text there.
-
+        reparse does not read its body as raw text there. Nor is one inside a kept ``<select>``: a parser without
+        customizable ``<select>`` support ignores its start tag there and reads the stylesheet as markup.
     :param attribute_prefixes: allow any attribute whose name starts with one of these prefixes (e.g. ``"data-"`` for
         every ``data-*``), on top of the exact-name and ``"*"`` matches in ``attributes``.
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;
