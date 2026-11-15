@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import random
 from bisect import bisect_left
+from collections import Counter
 from difflib import SequenceMatcher
 from functools import partial
 from operator import methodcaller
@@ -2437,6 +2439,107 @@ def test_rewrite_source_lt_stays_text_whatever_follows_it(
 )
 def test_rewrite_source_lt_unedited_is_kept(source: str) -> None:
     assert rewrite(source, elements=[("*", lambda _: None)], text=lambda _: None, comments=lambda _: None) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "handlers", "leaves", "expected"),
+    [
+        pytest.param("<p>a<</>b</p>", [], {}, "<p>a&lt;b</p>", id="empty-end-tag-before-letter"),
+        pytest.param("<p>x<</>!y</p>", [], {}, "<p>x&lt;!y</p>", id="empty-end-tag-before-bang"),
+        pytest.param("<p>x<</>?y</p>", [], {}, "<p>x&lt;?y</p>", id="empty-end-tag-before-question"),
+        pytest.param("<p>x<</>/y</p>", [], {}, "<p>x&lt;/y</p>", id="empty-end-tag-before-solidus"),
+        pytest.param("<p>a<</>b<</>c</p>", [], {}, "<p>a&lt;b&lt;c</p>", id="several-empty-end-tags"),
+        pytest.param("<p>a<</> b</p>", [], {}, "<p>a< b</p>", id="lt-before-space-kept"),
+        pytest.param("<p>a</>b<</p>", [], {}, "<p>ab<</p>", id="lt-at-the-end-of-the-run-kept"),
+        pytest.param("<p><</>/</i>x</p>", [], {}, "<p>&lt;/</i>x</p>", id="solidus-before-stray-end-tag"),
+        pytest.param("<p>a<<!x>b</p>", [], {"comments": _remove}, "<p>a&lt;b</p>", id="bogus-comment-removed"),
+        pytest.param("<p>a<<!--c-->b</p>", [], {"comments": _remove}, "<p>a&lt;b</p>", id="comment-removed"),
+        pytest.param("<p>a<<b>c</b>d</p>", [("b", _remove)], {}, "<p>a&lt;d</p>", id="element-removed"),
+        pytest.param("<p>a<<b>c</b>d</p>", [("b", _unwrap)], {}, "<p>a&lt;cd</p>", id="element-unwrapped"),
+        pytest.param("<p>a<<xmp>b</xmp>c</p>", [("xmp", _remove)], {}, "<p>a&lt;c</p>", id="raw-text-removed"),
+        pytest.param("<p>a<<xmp>b<</xmp>c</p>", [("xmp", _unwrap)], {}, "<p>a&lt;b&lt;c</p>", id="raw-text-unwrapped"),
+    ],
+)
+def test_rewrite_text_joined_across_a_dropped_token_escapes_its_lt(
+    source: str,
+    handlers: list[tuple[str, Callable[[Element], None]]],
+    leaves: dict[str, Callable[[Element], None]],
+    expected: str,
+) -> None:
+    result = rewrite(source, elements=handlers, **leaves)
+    assert result == expected
+    assert not _element_counts(result) - _element_counts(source)
+
+
+def _element_counts(markup: str) -> Counter[str]:
+    return Counter(element.tag for element in parse(markup).select("*"))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<style>a\x00<b</style>", "<style>a�<b</style>", id="style"),
+        pytest.param("<title>a\x00<b</title>", "<title>a�<b</title>", id="rcdata"),
+    ],
+)
+def test_rewrite_gathered_raw_text_is_read_as_raw(source: str, expected: str) -> None:
+    assert rewrite(source) == expected
+
+
+@pytest.mark.parametrize(
+    "prefix", [pytest.param("", id="html"), pytest.param("<svg><foreignObject>", id="integration-point")]
+)
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param("<script>a\x00<b</script>", "<script>a\ufffd<b</script>", id="raw-text-kept"),
+        pytest.param("<script><</>/script><img src=x>", "<script><</>/script><img src=x>", id="raw-text-not-joined"),
+        pytest.param("<script>a</script><</>script>run()", "<script>a</script>&lt;script>run()", id="data-after-raw"),
+    ],
+)
+def test_rewrite_past_the_depth_guard_reads_raw_text_as_raw(prefix: str, body: str, expected: str) -> None:
+    assert rewrite(f"{prefix}{'<div>' * 9000}{body}").endswith(expected)
+
+
+@pytest.mark.parametrize("seed", range(16))
+def test_rewrite_passthrough_adds_no_element_the_source_lacks(seed: int) -> None:
+    pieces: Final = (
+        "<",
+        "<",
+        "</>",
+        "</",
+        "/",
+        "!",
+        "?",
+        "x",
+        "script>",
+        "<b>",
+        "</b>",
+        "<script>",
+        "</script>",
+        "<xmp>",
+        "</xmp>",
+        "<!x>",
+        "<!--c-->",
+        "<?p>",
+        "<p>",
+        "</p>",
+        "<img src=x>",
+        "<title>",
+        "</title>",
+        "&amp;",
+        "\x00",
+    )
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed generated corpus
+    for _ in range(40):
+        source = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 14)))
+        before = _element_counts(source)
+        for result in (
+            rewrite(source),
+            rewrite(source, elements=[("script", _remove)], comments=_remove),
+            rewrite(source, elements=[("img", _set("loading", "lazy"))]),
+        ):
+            assert not _element_counts(result) - before, (source, result)
 
 
 def test_rewrite_follows_the_tree_builder_in_linear_time(work_steps: WorkSteps) -> None:

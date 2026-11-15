@@ -79,12 +79,17 @@ typedef struct {
     int failed;
 } rw_out;
 
+/* Whether a `<` in data text reads as the start of markup when `next` follows it. */
+static int rw_lt_joins(Py_UCS4 next) {
+    return is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+}
+
 /* Whether the pending tail, `<` and what follows it to the end of the output, reads as the start of markup once
    `next` is written after it. The source read it as text because what followed there ended it. */
 static int rw_tail_joins(const rw_out *out, Py_UCS4 next) {
     Py_ssize_t len = out->len - (out->tail - 1);
     if (!out->rcdata) {
-        return len == 2 || is_ascii_alpha(next) || next == '/' || next == '!' || next == '?';
+        return len == 2 || rw_lt_joins(next);
     }
     if (len == 1) {
         return next == '/';
@@ -410,7 +415,8 @@ typedef struct {
     Py_ssize_t closing_cap;
     /* a handler edit may change how a parse reads the markup after it (see rw_note_element_edits) */
     int edited;
-    int frameset_hazard;    /* a removed element would have made a parse ignore a later <frameset> */
+    int frameset_hazard; /* a removed element would have made a parse ignore a later <frameset> */
+    int untracked_raw;   /* a raw-text or RCDATA element past the depth guard is open, which the spine does not track */
     Py_ssize_t *attr_index; /* position + 1 per slot, 0 when free; NULL until a by-name call needs it */
     size_t attr_index_cap;  /* power-of-two slot count, at least twice the attribute slots */
     uint64_t attr_seed;     /* salt so chosen attribute names cannot flood one slot */
@@ -2317,7 +2323,13 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
 
     if (ctx->depth >= RW_MAX_DEPTH) {
         /* keep the spine bounded: emit the element's content inline but do not track it,
-           so it never nests deeper than the guard (its end tag streams as a stray) */
+           so it never nests deeper than the guard (its end tag streams as a stray). Its raw text is still raw for a
+           browser, so the tokenizer reads it as such. */
+        if (ctx->shadow == NULL) { /* a th_shadow switched it already */
+            th_tok_switch(ctx->sm, model < 0 ? TH_INIT_DATA : (enum th_initial_state)model);
+        }
+        const th_buf *end_tag;
+        ctx->untracked_raw = th_tok_content_model(ctx->sm, &end_tag) != TH_INIT_DATA;
         Py_XDECREF(open.append_html);
         rw_free_node(ctx, node);
         return; /* at the limit nothing was popped either, so the CDATA state stands */
@@ -2470,6 +2482,8 @@ static TH_NOINLINE Py_ssize_t rw_foreign_end(rw_ctx *ctx, th_token *token, uint1
 }
 
 static void rw_handle_end(rw_ctx *ctx, th_token *token) {
+    /* the tokenizer emits an end tag inside raw text only for the element's own end tag, so this closes it */
+    ctx->untracked_raw = 0;
     if (ctx->mirror != NULL) {
         rw_mirror_before(ctx, token);
     }
@@ -2577,10 +2591,35 @@ static TH_NOINLINE void rw_hold_tail(rw_ctx *ctx, const th_token *token) {
     out->room = out->len;
 }
 
+/* Whether the output at this point is content the tokenizer reads as data, outside any raw-text or RCDATA element. */
+static int rw_data_context(const rw_ctx *ctx) {
+    return !ctx->untracked_raw && (ctx->depth == 0 || ctx->stack[ctx->depth - 1].model < 0);
+}
+
+/* Write a text run gathered from several source spans. A token dropped between the pieces (an empty end tag, or one a
+   handler removed) can leave a `<` in front of letters, `/`, `!` or `?`, which the output reads as markup, so such a
+   `<` is escaped. A `<` or `</` at the end of the run is left to the tail, which the next write settles. */
+static TH_NOINLINE int rw_emit_gathered(rw_out *out, const th_buf *text) {
+    Py_ssize_t len = text->len;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = buf_read(text, index);
+        Py_UCS4 next = index + 1 < len ? buf_read(text, index + 1) : 0;
+        if (ch == '<' && rw_lt_joins(next) && (next != '/' || index + 2 < len)) {
+            rw_out_ascii(out, "&lt;");
+        } else {
+            rw_out_char(out, ch);
+        }
+    }
+    return !out->failed;
+}
+
 /* Write an unedited leaf token as it was read. */
 static void rw_emit_read_leaf(rw_ctx *ctx, const th_token *token) {
-    if (!rw_emit_verbatim(&ctx->out, ctx->sm, token)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        return;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+    int written = token->kind == TH_TEXT && !token->is_slice && !token->has_source && rw_data_context(ctx)
+                      ? rw_emit_gathered(&ctx->out, &token->text)
+                      : rw_emit_verbatim(&ctx->out, ctx->sm, token);
+    if (!written) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_UCS4 last = ctx->out.data[ctx->out.len - 1];
     if (last == '<' || last == '/' ||
