@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from typing import Final
+import unicodedata
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml.extract import normalize_url
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 
 def test_normalize_url_punycodes_a_unicode_host() -> None:
@@ -41,17 +46,18 @@ def test_idna_shared_public_target(host: str, expected: str) -> None:
 
 
 # A label whose punycode delta would overflow the 32-bit accumulator: a long run of one code point, then a distant one.
-# The first case trips the pre-multiply guard, the second lands the accumulator just under the limit so the following
-# increments trip the per-code-point guard. Both stay under the 16384-code-point input cap and use CJK code points UTS
-# #46 keeps, so they reach the encoder rather than the disallowed-code-point or input-cap rejection.
+# In the first case the jump between the two code points alone passes the limit, in the second it lands just under and
+# the distant code point's position in the label carries it over. Both stay under the 16384-code-point input cap and
+# use CJK code points UTS #46 keeps, so they reach the encoder rather than the disallowed-code-point or input-cap
+# rejection.
 _OVERFLOW_LABELS: Final[tuple[str, ...]] = ("\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab")
 
 
 @pytest.mark.parametrize(
     "label",
     [
-        pytest.param(_OVERFLOW_LABELS[0], id="pre-multiply-guard"),
-        pytest.param(_OVERFLOW_LABELS[1], id="increment-guard"),
+        pytest.param(_OVERFLOW_LABELS[0], id="code-point-jump"),
+        pytest.param(_OVERFLOW_LABELS[1], id="jump-plus-position"),
     ],
 )
 def test_punycode_delta_overflow_is_rejected(label: str) -> None:
@@ -84,4 +90,87 @@ def test_oversize_host_keeps_its_unicode_form() -> None:
 def test_disallowed_code_point_host_is_not_punycode_encoded(code_point: int) -> None:
     # UTS #46 validity criterion 6 rejects a disallowed code point, so the host keeps its Unicode form.
     url: Final = f"http://a{chr(code_point)}b.example/"
+    assert normalize_url(url) == url
+
+
+_ACUTE: Final[str] = "\u0301"
+_GRAVE_BELOW: Final[str] = "\u0316"
+_DIALYTIKA: Final[str] = "\u0344"
+_TIBETAN_II: Final[str] = "\u0f73"
+_FFI: Final[str] = "\ufb03"
+_INPUT_CAP: Final[int] = 16384
+_FFI_PREFIX: Final[str] = "\u4e00\u4e8c\u4e09\u56db"
+
+
+def test_host_mapped_to_the_input_cap_still_encodes() -> None:
+    # U+FB03 maps to "ffi", so the host is exactly at the cap after the mapping
+    host: Final = f"{_FFI_PREFIX}{_FFI * ((_INPUT_CAP - len(_FFI_PREFIX)) // 3)}"
+    assert normalize_url(f"http://{host}/").startswith("http://xn--ffiffi")
+
+
+def test_misordered_marks_at_the_input_cap_reorder_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(normalize_url, f"http://{_ACUTE * n}{_GRAVE_BELOW * n}/"), (1500, 6000))
+
+
+@pytest.mark.parametrize("length", [*range(56, 72), 300])
+def test_punycode_matches_the_rfc_3492_sample_codec_on_both_sides_of_the_sorted_switch(length: int) -> None:
+    # Labels from 64 code points (and payloads from 64 digits) up take the sorted encoder and decoder. The stdlib codec
+    # is the RFC 3492 sample, so both paths must agree with it, and decoding then re-encoding must give the ACE label
+    # back. The trailing non-ASCII label sends the host through ToASCII, which an all-ASCII host skips. The label mixes
+    # out-of-order and repeated code points from three scripts with letters, digits and hyphens.
+    pool: Final = "ab7-\u03b1\u03c3\u03c2\u03c9\uac00\ud7a3\u4e00\u9fa5\u5c71"
+    label: Final = f"{''.join(pool[(index * 7 + index // 3) % len(pool)] for index in range(length - 1))}\u03b2"
+    ace: Final = f"xn--{label.encode('punycode').decode('ascii')}"
+    assert normalize_url(f"http://{label}.\u00e9/") == f"http://{ace}.xn--9ca/"
+    assert normalize_url(f"http://{ace}.\u00e9/") == f"http://{ace}.xn--9ca/"
+
+
+def test_label_of_distinct_code_points_encodes_in_linear_steps(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(
+        lambda n: partial(normalize_url, f"http://{''.join(chr(0x4E00 + offset) for offset in range(n))}/"),
+        (1500, 6000),
+    )
+
+
+def test_punycode_label_decodes_in_linear_steps(work_steps: WorkSteps) -> None:
+    # descending code points: the decoder inserts each one in front of all it decoded before
+    def host(count: int) -> str:
+        label = "".join(chr(0x4E00 + count - offset) for offset in range(count))
+        return f"http://xn--{label.encode('punycode').decode('ascii')}.\u00e9/"
+
+    work_steps.assert_linear(lambda n: partial(normalize_url, host(n)), (1000, 4000))
+
+
+@pytest.mark.parametrize(
+    ("host", "ordered"),
+    [
+        pytest.param(f"a{(_ACUTE + _GRAVE_BELOW) * 20}", f"a{_GRAVE_BELOW * 20}{_ACUTE * 20}", id="one-long-run"),
+        pytest.param(
+            f"a{_ACUTE * 40}{_GRAVE_BELOW}b{_ACUTE}{_GRAVE_BELOW}",
+            f"a{_GRAVE_BELOW}{_ACUTE * 40}b{_GRAVE_BELOW}{_ACUTE}",
+            id="long-run-then-short-run",
+        ),
+        pytest.param(f"{_ACUTE * 33}{_GRAVE_BELOW}", f"{_GRAVE_BELOW}{_ACUTE * 33}", id="run-opens-the-host"),
+        pytest.param(f"a{_ACUTE * 31}{_GRAVE_BELOW}", f"a{_GRAVE_BELOW}{_ACUTE * 31}", id="run-just-under-the-switch"),
+    ],
+)
+def test_long_mark_runs_reorder_like_short_ones(host: str, ordered: str) -> None:
+    assert normalize_url(f"http://{host}/") == normalize_url(f"http://{ordered}/")
+    assert unicodedata.normalize("NFC", host) == unicodedata.normalize("NFC", ordered)
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        pytest.param(f"{_FFI_PREFIX}{_FFI * ((_INPUT_CAP - len(_FFI_PREFIX)) // 3 + 1)}", id="mapping-ligature"),
+        # U+3300 maps to four code points, so the host passes the input check and exceeds the cap once mapped
+        pytest.param("\u3300" * (_INPUT_CAP // 4 + 5), id="mapping-expansion"),
+        # U+0344 and U+0F73 each map to two combining marks, so this host is past the cap once mapped
+        pytest.param(f"a{_DIALYTIKA * 6000}{_TIBETAN_II * 5000}", id="mapping-reorder"),
+        # U+01D8 is u + U+0308 + U+0301; U+0323 sorts before both and composes with the u, leaving three code points
+        pytest.param("\u01d8\u0323" * (_INPUT_CAP // 3 + 11), id="normalization"),
+    ],
+)
+def test_host_lengthened_past_the_input_cap_keeps_its_unicode_form(host: str) -> None:
+    url: Final = f"http://{host}/"
     assert normalize_url(url) == url

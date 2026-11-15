@@ -804,6 +804,25 @@ def _deep_xml(depth: int) -> Document:
     return parse_xml(f"{'<group>' * depth}<item/>{'</group>' * depth}")
 
 
+# each element's attribute value sits next to it in the tree's arena, so the value's length sets how far apart the
+# elements lie in memory; a memo hashed by address put every element of a chain this far apart in one probe run
+def _deep_xml_spaced(depth: int) -> Document:
+    start: Final = f'<group pad="{"x" * 262}">'
+    return parse_xml(f"{start * depth}<item/>{'</group>' * depth}")
+
+
+# every node takes the next creation sequence, so comments steer which sequences the nested elements get; these are
+# the ones whose product with the node maps' Fibonacci multiplier lands in its lowest eighth, which gives the
+# elements' memo entries home slots in one run of the table at every size
+def _deep_xml_sequence_clustered(depth: int) -> Document:
+    parts: Final[list[str]] = []
+    sequence = 0
+    while len(parts) - parts.count("<!---->") < depth:
+        sequence += 1
+        parts.append("<group>" if sequence * 0x61C88647 % 2**32 < 2**29 else "<!---->")
+    return parse_xml(f"{''.join(parts)}<item/>{'</group>' * depth}")
+
+
 def _deep_appended(depth: int) -> Element:
     root: Final = Element("root")
     innermost = root
@@ -845,6 +864,8 @@ _NESTED_DEPTH: Final[int] = 4_000
     "build",
     [
         pytest.param(_deep_xml, id="parse-xml"),
+        pytest.param(_deep_xml_spaced, id="parse-xml-spaced-in-memory"),
+        pytest.param(_deep_xml_sequence_clustered, id="parse-xml-clustered-in-sequence"),
         pytest.param(_deep_appended, id="mutation-api"),
         pytest.param(_deep_xml_in_parsed_html, id="appended-to-parsed-html"),
         pytest.param(_deep_xml_imported_into_parsed_html, id="imported-into-parsed-html"),
@@ -1868,6 +1889,94 @@ def test_disabled_fieldset_late_legend_scales_linearly(work_steps: WorkSteps) ->
 
     assert len(build(3)()) == 3
     work_steps.assert_linear(build, (500, 2000))
+
+
+# A single matches() or closest() call has no query memo, so the first-legend answers must last for that one call:
+# every test of a late legend's controls would otherwise walk the fieldset's children again.
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(
+            lambda page: partial(page.select("#o")[0].matches, ":has(input:disabled)"),
+            id="matches-has",
+        ),
+        pytest.param(
+            lambda page: partial(page.select("#o input")[-1].matches, ":disabled ~ input"),
+            id="matches-sibling",
+        ),
+        pytest.param(
+            lambda page: partial(page.select("#o input")[0].closest, ":has(input:disabled)"),
+            id="closest-has",
+        ),
+    ],
+)
+def test_disabled_fieldset_late_legend_single_call_scales_linearly(
+    query: Callable[[Document], Callable[[], object]], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda width: query(_late_legend(width)), (500, 2000))
+
+
+def _late_legend(width: int) -> Document:
+    markup = f"{'<div></div>' * width}<legend>{'<input>' * width}</legend>"
+    return parse(f"<div id=o><fieldset disabled>{markup}</fieldset></div>")
+
+
+def test_disabled_fieldset_single_call_answers_match_the_legend_rule() -> None:
+    page = parse("<fieldset disabled><input id=c><legend><input disabled id=a><input id=b></legend></fieldset>")
+    before_legend, disabled_in_legend, exempt_in_legend = page.select("input")
+    assert (
+        before_legend.matches(":disabled"),
+        disabled_in_legend.matches(":disabled"),
+        exempt_in_legend.matches(":enabled"),
+    ) == (True, True, True)
+    assert exempt_in_legend.matches(":disabled ~ input")
+    legend = exempt_in_legend.closest(":has(input:disabled)")
+    assert legend is not None
+    assert legend.tag == "legend"
+
+
+# Level i is a legend (L) or a div (D) that holds input in{i} and the next level. A control is enabled only when every
+# level above it is a legend, since the first legend is the one exempt child of its fieldset.
+@pytest.mark.parametrize(
+    ("kinds", "enabled"),
+    [
+        pytest.param("L" * 40, list(range(40)), id="legends-only"),
+        pytest.param(f"{'L' * 35}D{'L' * 4}", list(range(35)), id="div-below-memo-climb"),
+        pytest.param(f"D{'L' * 39}", [], id="div-outermost"),
+    ],
+)
+def test_disabled_fieldset_levels_enable_only_below_legends(kinds: str, enabled: list[int]) -> None:
+    document = parse(_fieldset_levels(kinds))
+    expected = [f"in{index}" for index in enabled]
+    assert [e.attrs.get("id") for e in document.select("input:enabled")] == expected
+    assert [e.attrs.get("id") for e in document.select("input") if e.matches(":enabled")] == expected
+
+
+def _fieldset_levels(kinds: str) -> str:
+    markup = ""
+    for index in reversed(range(len(kinds))):
+        wrap = "legend" if kinds[index] == "L" else "div"
+        markup = f"<fieldset disabled><{wrap}><input id=in{index}>{markup}</{wrap}></fieldset>"
+    return markup
+
+
+# Every control at the bottom of a chain of legend-held fieldsets climbs past all of them. Without a memo of the climb
+# each control costs the chain's depth, so depth times controls is quadratic in the nesting.
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda page: page.select("input:enabled"), id="select"),
+        pytest.param(lambda page: page.select("fieldset")[0].matches(":has(input:disabled)"), id="matches-has"),
+    ],
+)
+def test_disabled_fieldset_legend_chain_scales_linearly(
+    query: Callable[[Document], object], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda depth: partial(query, _legend_chain(depth)), (50, 150))
+
+
+def _legend_chain(depth: int) -> Document:
+    return parse("<fieldset disabled><legend>" * depth + "<input>" * depth + "</legend></fieldset>" * depth)
 
 
 def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:

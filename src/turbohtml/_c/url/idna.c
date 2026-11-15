@@ -10,7 +10,7 @@
    canonicalize it, and a label the decoder rejects is kept verbatim (an advisory error the best-effort cleaner
    ignores), so the mechanical output matches the UTS #46 conformance vectors' toASCII column for every well-formed,
    in-limit host. The host fails, and the shim falls back to the lowercased form, on a disallowed code point, an
-   unpaired surrogate, or an input past TH_IDNA_MAX_INPUT. */
+   unpaired surrogate, or an input that is past TH_IDNA_MAX_INPUT or that mapping and normalizing lengthen past it. */
 
 /* The ToASCII core (map_host, nfc, puny_encode/decode, emit_label) is pure Py_UCS4 buffer arithmetic and touches
    CPython only through the two boundary functions at the foot of the file. Defining TH_IDNA_STANDALONE swaps the
@@ -31,6 +31,7 @@ typedef ptrdiff_t Py_ssize_t;
 #define TH_IDNA_FREE PyMem_Free
 #endif
 
+#include "core/work_steps.h"
 #include "data/idna_table.h"
 
 /* RFC 3492 (Punycode) bootstring parameters for the IDNA profile, plus the sentinel bound its integer arithmetic must
@@ -61,11 +62,24 @@ enum {
     HANGUL_SCOUNT = HANGUL_LCOUNT * HANGUL_NCOUNT,
 };
 
-/* The longest host ToASCII accepts. nfc_order and puny_encode are O(n^2) in the label length (a 32,000-code-point
-   label took ~0.9 s), and the URL Standard leaves overlong labels undefined (whatwg/url#824), so this matches ada's
-   max_domain_input_bytes = 16384 DoS bound, counted in code points, the unit the quadratic work scales in. It is three
-   orders of magnitude above the 253 octets DNS allows, so it refuses no real host. */
+/* The longest host ToASCII accepts. The URL Standard leaves overlong labels undefined (whatwg/url#824), so this matches
+   ada's max_domain_input_bytes = 16384 DoS bound, counted in code points, the unit the work and the buffers scale in.
+   It is three orders of magnitude above the 253 octets DNS allows, so it refuses no real host. The UTS #46 mapping
+   turns one code point into up to 18 and NFC can lengthen its output again, so idna_to_ascii holds the host to the cap
+   after each of the two as well: those are the lengths the punycode passes run on. */
 enum { TH_IDNA_MAX_INPUT = 16384 };
+
+/* The shortest label the punycode passes handle by sorting rather than by the RFC 3492 sample loops, which cost
+   O(n^2) in the label length. DNS caps a label at 63 octets, so a host a resolver accepts never takes the sorted
+   path, and below this length the sample loops are cheaper than the sort's setup. */
+enum { PUNY_SORTED_MIN = 64 };
+
+/* What puny_encode and puny_decode return in place of a length (PUNY_INVALID: a label that cannot be encoded, or a
+   malformed payload), and emit_encoded and emit_label in place of a write offset. */
+enum {
+    PUNY_INVALID = -1,
+    PUNY_NO_MEMORY = -2,
+};
 
 /* The UTS #46 mapping row covering `cp`: the ranges tile the code space with no gap the loader leaves, so a code point
    above the last row (past U+10FFFF cannot occur) resolves to that row's keep status. Binary search over first/last. */
@@ -256,19 +270,57 @@ static Py_ssize_t nfc_decompose(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS4
     return at;
 }
 
-/* Put each maximal run of combining marks (non-zero class) into canonical order: a stable sort by combining class, done
-   as insertion sort so equal-class marks keep their input order (Unicode canonical ordering, spec 3.11). */
-static void nfc_order(Py_UCS4 *seq, Py_ssize_t len) {
+/* Equal combining classes must retain input order (Unicode canonical ordering, spec 3.11). `ordered` holds `len` code
+   points. */
+static void nfc_order_run(Py_UCS4 *seq, Py_ssize_t len, Py_UCS4 *ordered) {
+    Py_ssize_t offsets[256] = {0};
+    for (Py_ssize_t index = 0; index < len; index++) {
+        offsets[ccc_of(seq[index])]++;
+    }
+    Py_ssize_t total = 0;
+    for (size_t klass = 0; klass < 256; klass++) {
+        const Py_ssize_t count = offsets[klass];
+        offsets[klass] = total;
+        total += count;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        TH_WORK_STEP();
+        ordered[offsets[ccc_of(seq[index])]++] = seq[index];
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        seq[index] = ordered[index];
+    }
+}
+
+/* Put each maximal run of combining marks (non-zero class) into canonical order: a stable sort by combining class, so
+   equal-class marks keep their input order (Unicode canonical ordering, spec 3.11). The two or three marks real text
+   has in a row take an insertion sort; a long run found out of order takes nfc_order_run, as in unicode/normalize.c,
+   because the insertion sort is O(n^2) in the run and a host can be one run. `scratch` holds `len` code points. */
+static void nfc_order(Py_UCS4 *seq, Py_ssize_t len, Py_UCS4 *scratch) {
+    Py_ssize_t run_start = 0;
     for (Py_ssize_t index = 1; index < len; index++) {
         Py_UCS4 cp = seq[index];
         uint8_t klass = ccc_of(cp);
         if (klass == 0) {
+            run_start = index + 1;
             continue;
         }
         Py_ssize_t back = index;
-        while (back > 0 && ccc_of(seq[back - 1]) > klass) {
-            seq[back] = seq[back - 1];
-            back--;
+        if (ccc_of(seq[index - 1]) > klass) {
+            if (index - run_start >= 32) {
+                Py_ssize_t end = index + 1;
+                while (end < len && ccc_of(seq[end]) != 0) {
+                    end++;
+                }
+                nfc_order_run(seq + run_start, end - run_start, scratch);
+                index = end - 1;
+                continue;
+            }
+            do {
+                TH_WORK_STEP();
+                seq[back] = seq[back - 1];
+                back--;
+            } while (back > 0 && ccc_of(seq[back - 1]) > klass);
         }
         seq[back] = cp;
     }
@@ -301,11 +353,11 @@ static Py_ssize_t nfc_compose(Py_UCS4 *seq, Py_ssize_t len) {
     return out_len;
 }
 
-/* Normalize map-output input[0,in_len) to NFC in `out` (holding at most in_len * longest-decomposition code points);
-   returns the normalized length. */
+/* Normalize map-output input[0,in_len) to NFC in `out` (holding at most in_len * longest-decomposition code points,
+   and as many again past them for nfc_order's scratch); returns the normalized length. */
 static Py_ssize_t nfc(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS4 *out) {
     Py_ssize_t len = nfc_decompose(input, in_len, out);
-    nfc_order(out, len);
+    nfc_order(out, len, out + len);
     return nfc_compose(out, len);
 }
 
@@ -332,14 +384,96 @@ static Py_ssize_t puny_threshold(Py_ssize_t k, Py_ssize_t bias) {
     return k - bias;
 }
 
-/* Encode label[0,len) with RFC 3492 into `out` as ASCII code points (no "xn--" prefix); returns the output length, or
-   -1 when a code point is an unpaired surrogate or the arithmetic would overflow (the A3 punycode failure). */
+/* Write `q` into out at `at` as a generalized variable-length integer under `bias`; returns the new write offset. */
+static inline Py_ssize_t puny_write_delta(Py_UCS4 *out, Py_ssize_t at, Py_ssize_t q, Py_ssize_t bias) {
+    for (Py_ssize_t k = PUNY_BASE;; k += PUNY_BASE) {
+        Py_ssize_t t = puny_threshold(k, bias);
+        if (q < t) {
+            break;
+        }
+        Py_ssize_t digit = t + (q - t) % (PUNY_BASE - t);
+        out[at++] = digit < 26 ? (Py_UCS4)('a' + digit) : (Py_UCS4)('0' + digit - 26);
+        q = (q - t) / (PUNY_BASE - t);
+    }
+    out[at++] = (Py_UCS4)('a' + q); /* the loop broke on q < t <= TMAX, so the final digit is a letter */
+    return at;
+}
+
+/* qsort order of puny_encode_sorted's keys, ascending. */
+static int puny_key_order(const void *left, const void *right) {
+    uint64_t first = *(const uint64_t *)left;
+    uint64_t second = *(const uint64_t *)right;
+    return (first > second) - (first < second);
+}
+
+/* puny_encode for a label of at least PUNY_SORTED_MIN code points, with the `basic` code points already written to
+   out[0,at). It visits the non-basic code points in the order the decoder inserts them, by value and then by position
+   (`keys`, sorted once), and writes for each the distance the decoder's state <n, i> travels from the previous one:
+   (value - n) * (handled + 1) + rank - i, where rank counts the already handled code points left of it. `left_of` is a
+   binary indexed tree over the positions that answers rank, so a label costs O(len log len). */
+static Py_ssize_t puny_encode_sorted(const Py_UCS4 *label, Py_ssize_t len, Py_ssize_t basic, Py_UCS4 *out,
+                                     Py_ssize_t at) {
+    uint64_t *keys = TH_IDNA_ALLOC((size_t)len * sizeof(uint64_t) + (size_t)(len + 1) * sizeof(uint32_t));
+    if (keys == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PUNY_NO_MEMORY; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    uint32_t *left_of = (uint32_t *)(keys + len);
+    Py_ssize_t pending = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        left_of[index + 1] = label[index] < PUNY_INITIAL_N; /* the basic code points are handled from the start */
+        if (label[index] >= PUNY_INITIAL_N) {
+            keys[pending++] = ((uint64_t)label[index] << 32) | (uint64_t)index;
+        }
+    }
+    for (Py_ssize_t node = 1; node <= len; node++) { /* fold each node into its parent: the tree, built in O(len) */
+        Py_ssize_t parent = node + (node & -node);
+        if (parent <= len) {
+            left_of[parent] += left_of[node];
+        }
+    }
+    qsort(keys, (size_t)pending, sizeof(uint64_t), puny_key_order);
+    Py_UCS4 n = PUNY_INITIAL_N;
+    Py_ssize_t i = 0;
+    Py_ssize_t bias = PUNY_INITIAL_BIAS;
+    Py_ssize_t handled = basic;
+    for (Py_ssize_t turn = 0; turn < pending; turn++) {
+        TH_WORK_STEP();
+        Py_UCS4 value = (Py_UCS4)(keys[turn] >> 32);
+        Py_ssize_t index = (Py_ssize_t)(keys[turn] & 0xFFFFFFFF);
+        Py_ssize_t rank = 0;
+        for (Py_ssize_t node = index; node > 0; node -= node & -node) {
+            rank += left_of[node];
+        }
+        /* The sample encoder reaches the same sum by adding non-negative terms and fails once the running total passes
+           PUNY_MAXINT, which is when the whole does; under 2^21 * 2^15, it fits 64 bits. */
+        int64_t delta = (int64_t)(value - n) * (handled + 1) + rank - i;
+        if (delta > PUNY_MAXINT) {
+            at = PUNY_INVALID;
+            break;
+        }
+        at = puny_write_delta(out, at, (Py_ssize_t)delta, bias);
+        bias = puny_adapt((Py_ssize_t)delta, handled + 1, handled == basic);
+        for (Py_ssize_t node = index + 1; node <= len; node += node & -node) {
+            left_of[node]++;
+        }
+        n = value;
+        i = rank + 1;
+        handled++;
+    }
+    TH_IDNA_FREE(keys);
+    return at;
+}
+
+/* Encode label[0,len) with RFC 3492 into `out` as ASCII code points (no "xn--" prefix); returns the output length,
+   PUNY_INVALID when a code point is an unpaired surrogate or the arithmetic would overflow (the A3 punycode
+   failure), or PUNY_NO_MEMORY. The sample loop below rescans the label for each distinct code point, so a long label
+   goes to puny_encode_sorted. */
 static Py_ssize_t puny_encode(const Py_UCS4 *label, Py_ssize_t len, Py_UCS4 *out) {
     Py_ssize_t at = 0;
     Py_ssize_t handled = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         if (label[index] >= 0xD800 && label[index] <= 0xDFFF) {
-            return -1; /* an unpaired surrogate has no scalar value to encode */
+            return PUNY_INVALID; /* an unpaired surrogate has no scalar value to encode */
         }
         if (label[index] < PUNY_INITIAL_N) {
             out[at++] = label[index];
@@ -350,6 +484,11 @@ static Py_ssize_t puny_encode(const Py_UCS4 *label, Py_ssize_t len, Py_UCS4 *out
     if (basic > 0) {
         out[at++] = PUNY_DELIMITER;
     }
+    if (len >= PUNY_SORTED_MIN) {
+        return puny_encode_sorted(label, len, basic, out, at);
+    }
+    /* Under PUNY_SORTED_MIN code points a delta stays below 0x110000 * PUNY_SORTED_MIN + PUNY_SORTED_MIN, far from
+       PUNY_MAXINT, so this loop needs no overflow check. */
     Py_UCS4 n = PUNY_INITIAL_N;
     Py_ssize_t delta = 0;
     Py_ssize_t bias = PUNY_INITIAL_BIAS;
@@ -360,28 +499,14 @@ static Py_ssize_t puny_encode(const Py_UCS4 *label, Py_ssize_t len, Py_UCS4 *out
                 smallest = label[index];
             }
         }
-        if (smallest - n > (PUNY_MAXINT - delta) / (handled + 1)) {
-            return -1;
-        }
         delta += (smallest - n) * (handled + 1);
         n = smallest;
         for (Py_ssize_t index = 0; index < len; index++) {
+            TH_WORK_STEP();
             if (label[index] < n) {
-                if (++delta > PUNY_MAXINT) {
-                    return -1;
-                }
+                delta++;
             } else if (label[index] == n) {
-                Py_ssize_t q = delta;
-                for (Py_ssize_t k = PUNY_BASE;; k += PUNY_BASE) {
-                    Py_ssize_t t = puny_threshold(k, bias);
-                    if (q < t) {
-                        break;
-                    }
-                    Py_ssize_t digit = t + (q - t) % (PUNY_BASE - t);
-                    out[at++] = digit < 26 ? (Py_UCS4)('a' + digit) : (Py_UCS4)('0' + digit - 26);
-                    q = (q - t) / (PUNY_BASE - t);
-                }
-                out[at++] = (Py_UCS4)('a' + q); /* the loop broke on q < t <= TMAX, so the final digit is a letter */
+                at = puny_write_delta(out, at, delta, bias);
                 bias = puny_adapt(delta, handled + 1, handled == basic);
                 delta = 0;
                 handled++;
@@ -405,10 +530,109 @@ static int puny_digit(Py_UCS4 cp) {
     return -1;
 }
 
+/* The RFC 3492 decoder loop over input[read,len), growing a decoded label of `at` code points; returns its final
+   length, or PUNY_INVALID on malformed input (a non-digit, an overflow, a decoded code point out of range). With
+   `inserts` NULL each code point is inserted into `out` at its position, shifting the ones after it, which is O(n^2)
+   in the label; otherwise insertion number k is recorded as inserts[k] = position << 32 | code point for puny_place. */
+static Py_ssize_t puny_decode_run(const Py_UCS4 *input, Py_ssize_t len, Py_ssize_t read, Py_ssize_t at, Py_UCS4 *out,
+                                  uint64_t *inserts) {
+    Py_ssize_t basic = at;
+    Py_UCS4 n = PUNY_INITIAL_N;
+    Py_ssize_t i = 0;
+    Py_ssize_t bias = PUNY_INITIAL_BIAS;
+    while (read < len) {
+        Py_ssize_t old_i = i;
+        Py_ssize_t w = 1;
+        for (Py_ssize_t k = PUNY_BASE;; k += PUNY_BASE) {
+            if (read >= len) {
+                return PUNY_INVALID;
+            }
+            int digit = puny_digit(input[read++]);
+            if (digit < 0 || digit > (PUNY_MAXINT - i) / w) {
+                return PUNY_INVALID;
+            }
+            i += digit * w;
+            Py_ssize_t t = puny_threshold(k, bias);
+            if (digit < t) {
+                break;
+            }
+            /* GCOVR_EXCL_START: the digit-overflow guard above fires first for any w this large -- reaching here needs
+               digit >= t >= 1, yet that guard already caps digit at (PUNY_MAXINT - i) / w, which is < 1 once w passes
+               PUNY_MAXINT, so w never grows enough to overflow this multiply. */
+            if (w > PUNY_MAXINT / (PUNY_BASE - t)) {
+                return PUNY_INVALID;
+            }
+            /* GCOVR_EXCL_STOP */
+            w *= PUNY_BASE - t;
+        }
+        Py_ssize_t out_len = at + 1;
+        bias = puny_adapt(i - old_i, out_len, old_i == 0);
+        n += (Py_UCS4)(i / out_len);
+        i %= out_len;
+        if (n > 0x10FFFF || (n >= 0xD800 && n <= 0xDFFF)) {
+            return PUNY_INVALID;
+        }
+        if (inserts != NULL) {
+            inserts[at - basic] = ((uint64_t)i << 32) | n;
+        } else {
+            for (Py_ssize_t shift = at; shift > i; shift--) {
+                TH_WORK_STEP();
+                out[shift] = out[shift - 1];
+            }
+            out[i] = n;
+        }
+        i++;
+        at++;
+    }
+    return at;
+}
+
+/* No decoded code point is this large, so puny_place uses it to mark a slot no insertion has taken. */
+enum { PUNY_FREE_SLOT = 0xFFFFFFFF };
+
+/* Lay a decoded label of `total` code points out in out[0,total) from the `count` insertions puny_decode_run recorded,
+   in the order its shifting inserts leave. Taking out every later insertion gives the label as it stood right after
+   this one, where it sat at its recorded position, so walking the insertions last to first, each takes the free slot
+   that position counts to. `free_slots` is a binary indexed tree over the slots, so each lookup costs O(log total).
+   The basic code points `basic` fill the slots left over, in order. */
+static void puny_place(const Py_UCS4 *basic, const uint64_t *inserts, Py_ssize_t count, Py_ssize_t total,
+                       uint32_t *free_slots, Py_UCS4 *out) {
+    Py_ssize_t top = 1;
+    while (top * 2 <= total) {
+        top *= 2;
+    }
+    for (Py_ssize_t node = 1; node <= total; node++) {
+        free_slots[node] = (uint32_t)(node & -node); /* every slot free: node covers lowbit(node) slots */
+        out[node - 1] = PUNY_FREE_SLOT;
+    }
+    for (Py_ssize_t turn = count - 1; turn >= 0; turn--) {
+        TH_WORK_STEP();
+        Py_ssize_t wanted = (Py_ssize_t)(inserts[turn] >> 32) + 1;
+        Py_ssize_t slot = 0;
+        for (Py_ssize_t step = top; step > 0; step /= 2) {
+            if (slot + step <= total && (Py_ssize_t)free_slots[slot + step] < wanted) {
+                slot += step;
+                wanted -= (Py_ssize_t)free_slots[slot];
+            }
+        }
+        out[slot] = (Py_UCS4)(inserts[turn] & 0xFFFFFFFF);
+        for (Py_ssize_t node = slot + 1; node <= total; node += node & -node) {
+            free_slots[node]--;
+        }
+    }
+    Py_ssize_t next = 0;
+    for (Py_ssize_t index = 0; index < total; index++) {
+        if (out[index] == PUNY_FREE_SLOT) {
+            out[index] = basic[next++];
+        }
+    }
+}
+
 /* Decode the RFC 3492 payload input[0,len) (the ASCII code points after "xn--") into `out`; returns the decoded length,
-   or -1 on any malformed input (a non-digit, an overflow, a decoded code point out of range). The caller only decodes
-   an all-ASCII label, so the basic run is copied without a range check. `out` holds at most len+1 code points, since
-   decoding never emits more code points than the input has. */
+   PUNY_INVALID on any malformed input, or PUNY_NO_MEMORY. The caller only decodes an all-ASCII label, so the basic run
+   is copied without a range check. `out` holds at most len+1 code points, since decoding never emits more code points
+   than the input has. A payload of PUNY_SORTED_MIN code points or more records its insertions and lays them out with
+   puny_place instead of shifting the label on each one. */
 static Py_ssize_t puny_decode(const Py_UCS4 *input, Py_ssize_t len, Py_UCS4 *out) {
     Py_ssize_t at = 0;
     Py_ssize_t last_delim = -1;
@@ -424,48 +648,19 @@ static Py_ssize_t puny_decode(const Py_UCS4 *input, Py_ssize_t len, Py_UCS4 *out
         }
         read = last_delim + 1;
     }
-    Py_UCS4 n = PUNY_INITIAL_N;
-    Py_ssize_t i = 0;
-    Py_ssize_t bias = PUNY_INITIAL_BIAS;
-    while (read < len) {
-        Py_ssize_t old_i = i;
-        Py_ssize_t w = 1;
-        for (Py_ssize_t k = PUNY_BASE;; k += PUNY_BASE) {
-            if (read >= len) {
-                return -1;
-            }
-            int digit = puny_digit(input[read++]);
-            if (digit < 0 || digit > (PUNY_MAXINT - i) / w) {
-                return -1;
-            }
-            i += digit * w;
-            Py_ssize_t t = puny_threshold(k, bias);
-            if (digit < t) {
-                break;
-            }
-            /* GCOVR_EXCL_START: the digit-overflow guard above fires first for any w this large -- reaching here needs
-               digit >= t >= 1, yet that guard already caps digit at (PUNY_MAXINT - i) / w, which is < 1 once w passes
-               PUNY_MAXINT, so w never grows enough to overflow this multiply. */
-            if (w > PUNY_MAXINT / (PUNY_BASE - t)) {
-                return -1;
-            }
-            /* GCOVR_EXCL_STOP */
-            w *= PUNY_BASE - t;
-        }
-        Py_ssize_t out_len = at + 1;
-        bias = puny_adapt(i - old_i, out_len, old_i == 0);
-        n += (Py_UCS4)(i / out_len);
-        i %= out_len;
-        if (n > 0x10FFFF || (n >= 0xD800 && n <= 0xDFFF)) {
-            return -1;
-        }
-        for (Py_ssize_t shift = at; shift > i; shift--) {
-            out[shift] = out[shift - 1];
-        }
-        out[i++] = n;
-        at++;
+    if (len < PUNY_SORTED_MIN) {
+        return puny_decode_run(input, len, read, at, out, NULL);
     }
-    return at;
+    uint64_t *inserts = TH_IDNA_ALLOC((size_t)len * sizeof(uint64_t) + (size_t)(len + 1) * sizeof(uint32_t));
+    if (inserts == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PUNY_NO_MEMORY; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t total = puny_decode_run(input, len, read, at, out, inserts);
+    if (total >= 0) {
+        puny_place(input, inserts, total - at, total, (uint32_t *)(inserts + len), out);
+    }
+    TH_IDNA_FREE(inserts);
+    return total;
 }
 
 /* Whether span[0,len) is a code-point-for-code-point ASCII "xn--" prefix (mapping has already lowercased any letters).
@@ -492,12 +687,12 @@ static Py_ssize_t emit_span(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, Py
     return at;
 }
 
-/* Encode the non-ASCII label span[0,len) as "xn--"+punycode into out at `at`; returns the new write offset, or -1 when
-   punycode cannot encode it. */
+/* Encode the non-ASCII label span[0,len) as "xn--"+punycode into out at `at`; returns the new write offset, or
+   puny_encode's failure. */
 static Py_ssize_t emit_encoded(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, Py_ssize_t len, Py_UCS4 *scratch) {
     Py_ssize_t encoded = puny_encode(span, len, scratch);
     if (encoded < 0) {
-        return -1;
+        return encoded;
     }
     out[at++] = 'x';
     out[at++] = 'n';
@@ -506,9 +701,10 @@ static Py_ssize_t emit_encoded(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span,
     return emit_span(out, at, scratch, encoded);
 }
 
-/* Convert one label span[0,len) to ASCII, writing into out at `at`; returns the new write offset, or -1 when the label
-   holds a code point punycode cannot encode. A non-ASCII label is encoded; an ASCII "xn--" label is decoded to validate
-   and canonicalize it (kept verbatim when the decoder rejects it); any other ASCII label passes through. */
+/* Convert one label span[0,len) to ASCII, writing into out at `at`; returns the new write offset, PUNY_INVALID when the
+   label holds a code point punycode cannot encode, or PUNY_NO_MEMORY. A non-ASCII label is encoded; an ASCII "xn--"
+   label is decoded to validate and canonicalize it (kept verbatim when the decoder rejects it); any other ASCII label
+   passes through. */
 static Py_ssize_t emit_label(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, Py_ssize_t len, Py_UCS4 *scratch) {
     if (!span_is_ascii(span, len)) {
         return emit_encoded(out, at, span, len, scratch);
@@ -517,6 +713,9 @@ static Py_ssize_t emit_label(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, P
         return emit_span(out, at, span, len);
     }
     Py_ssize_t decoded = puny_decode(span + 4, len - 4, scratch);
+    if (decoded == PUNY_NO_MEMORY) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PUNY_NO_MEMORY;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     if (decoded < 0) {
         return emit_span(out, at, span, len); /* the decoder rejected it: keep the label verbatim (advisory error) */
     }
@@ -535,6 +734,7 @@ typedef enum {
     IDNA_OK,
     IDNA_DISALLOWED,
     IDNA_ENCODING,
+    IDNA_TOO_LONG,
     IDNA_NO_MEMORY,
 } idna_status;
 
@@ -548,16 +748,25 @@ static idna_status idna_to_ascii(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS
         TH_IDNA_FREE(mapped);
         return IDNA_DISALLOWED;
     }
+    if (norm_len > TH_IDNA_MAX_INPUT) { /* the mapped length is the one normalization allocates and works in */
+        TH_IDNA_FREE(mapped);
+        return IDNA_TOO_LONG;
+    }
     const Py_UCS4 *norm = mapped;
     Py_UCS4 *normalized = NULL;
     if (!nfc_is_normalized(mapped, norm_len)) {
-        normalized = TH_IDNA_ALLOC((size_t)(norm_len * 4 + 1) * sizeof(Py_UCS4));
+        normalized = TH_IDNA_ALLOC((size_t)(norm_len * 8 + 1) * sizeof(Py_UCS4));
         if (normalized == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             TH_IDNA_FREE(mapped);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return IDNA_NO_MEMORY; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         norm_len = nfc(mapped, norm_len, normalized);
         norm = normalized;
+        if (norm_len > TH_IDNA_MAX_INPUT) { /* the normalized length is the one the punycode passes work in */
+            TH_IDNA_FREE(mapped);
+            TH_IDNA_FREE(normalized);
+            return IDNA_TOO_LONG;
+        }
     }
     /* 16x bounds both punycode expansion and decoded ACE re-encoding scratch. */
     Py_UCS4 *out = TH_IDNA_ALLOC((size_t)(norm_len * 16 + 64) * sizeof(Py_UCS4));
@@ -581,7 +790,7 @@ static idna_status idna_to_ascii(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS
         }
         at = emit_label(out, at, norm + label_start, index - label_start, scratch);
         if (at < 0) {
-            status = IDNA_ENCODING;
+            status = at == PUNY_NO_MEMORY ? IDNA_NO_MEMORY : IDNA_ENCODING; /* GCOVR_EXCL_BR_LINE: allocation failure */
             break;
         }
         label_start = index + 1;
@@ -625,6 +834,11 @@ PyObject *th_url_to_ascii(PyObject *host) {
     }
     if (status == IDNA_ENCODING) {
         PyErr_SetString(PyExc_ValueError, "host cannot be encoded to ASCII");
+        return NULL;
+    }
+    if (status == IDNA_TOO_LONG) {
+        PyErr_Format(PyExc_ValueError, "host maps past the IDNA input limit of %d code points; shorten the host",
+                     TH_IDNA_MAX_INPUT);
         return NULL;
     }
     if (status == IDNA_NO_MEMORY) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

@@ -30,6 +30,17 @@
 #include <string.h>
 
 #define STRUCTURED_DATA_MAX_ITEM_DEPTH ((Py_ssize_t)TH_DEPTH_LIMIT(400))
+/* itemref lets several items claim one nested item, and each claim builds a fresh record of it, so layers of shared
+   items double the records a handful of elements ask for. A call may build one record per itemscope element, which
+   covers every item nobody shares whatever the size of the page, plus this allowance for the repeats of shared ones:
+   a thousand listings that each reuse ten items fit, and spending all of it takes about ten milliseconds. */
+#define STRUCTURED_DATA_MAX_ITEM_REPEATS ((Py_ssize_t)10000)
+/* itemref also lets any number of items claim one plain property, and every record of a shared item collects that
+   item's own properties again, so items x properties values can come out of a page that holds items + properties
+   elements. A property element is valued at most twice per call and later claims take the cached value; this is how
+   many such later claims a call hands out. A page that shares nothing through itemref spends none: two thousand
+   listings that each reuse a block of twenty properties fit. */
+#define STRUCTURED_DATA_MAX_VALUE_REPEATS ((Py_ssize_t)100000)
 
 /* The longest @vocab or @prefix IRI, in code points, that declares a mapping. Every term in scope gets its own copy of
    the mapping, so the limit caps how far one short term grows. The RDFa 1.1 initial context's longest IRI is 48. */
@@ -215,12 +226,35 @@ typedef struct {
     Py_ssize_t cap;
 } node_stack;
 
+/* The property elements of the document, indexed once for every item that claims some through itemref. An item names
+   elements by id and takes the properties each one holds: the element itself and its descendants, down to but not into
+   a nested item. What an element holds is the same for every item that names it, so it is read off here instead of
+   crawled per item, and the order of two properties is a comparison of their ranks instead of a walk between them. */
+typedef struct {
+    th_node_map ranks; /* property element -> its 1-based position among the document's properties in tree order */
+    node_stack claims; /* the property elements, ordered so that those one element holds are one run */
+    th_node_map first; /* element with an id -> 1-based start of its run in claims */
+    th_node_map past;  /* element with an id -> 1-based end of its run in claims */
+    int built;
+} micro_prop_index;
+
 typedef struct {
     module_state *state;
     th_tree *tree;
+    th_node *document; /* the node microdata() was called on: the items, the ids and the properties all lie under it */
     PyObject *base;
     micro_id_index ids;
+    micro_prop_index props;
     node_stack active_items;
+    const Py_UCS4 *named_value;   /* the itemref value resolve_named_runs resolved last, by its buffer */
+    struct micro_run *named_runs; /* that value's runs of props.claims */
+    Py_ssize_t named_count;
+    Py_ssize_t walk_budget; /* work the item walks may still do; negative once the call uses the property index */
+    Py_ssize_t records_left;
+    int funded;         /* whether the document's itemscope elements have topped up records_left */
+    Py_ssize_t *valued; /* node seq of a property element -> 1-based index into values, once itemref is in play */
+    PyObject *values;   /* list of those values: each a str, or None for a property microdata_text leaves out */
+    Py_ssize_t value_repeats_left;
 } micro_ctx;
 
 static PyObject *build_item(micro_ctx *ctx, th_node *element);
@@ -315,6 +349,7 @@ static PyObject *attr_value_or_none(const th_node_attr *attr) {
    (base is NULL otherwise, leaving values verbatim). None for text content microdata_text refuses. NULL only on the
    excluded allocation-failure path. */
 static PyObject *microdata_value(micro_ctx *ctx, th_node *element) {
+    TH_WORK_STEP();
     if (find_node_attr(element, TH_ATTR_ITEMSCOPE) != NULL) {
         return build_item(ctx, element);
     }
@@ -360,13 +395,15 @@ static int token_repeats(PyObject *tokens, Py_ssize_t index) {
 }
 
 /* Append `value` under every distinct whitespace-separated name in the itemprop run to the properties dict, each name
-   mapping to a list of values in document order. -1 only on the excluded allocation-failure path. */
-static int add_property(PyObject *properties, const Py_UCS4 *names, Py_ssize_t names_len, PyObject *value) {
+   mapping to a list of values in document order. Returns the number of names it filed the value under, or -1 only on
+   the excluded allocation-failure path. */
+static Py_ssize_t add_property(PyObject *properties, const Py_UCS4 *names, Py_ssize_t names_len, PyObject *value) {
     PyObject *tokens = split_token_list(names, names_len);
     if (tokens == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t count = PyList_GET_SIZE(tokens);
+    Py_ssize_t added = 0;
     for (Py_ssize_t index = 0; index < count; index++) {
         if (token_repeats(tokens, index)) {
             continue;
@@ -393,9 +430,10 @@ static int add_property(PyObject *properties, const Py_UCS4 *names, Py_ssize_t n
         if (append_failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
             goto error;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        added++;
     }
     Py_DECREF(tokens);
-    return 0;
+    return added;
 error:                 /* GCOVR_EXCL_LINE: shared cleanup for the unreachable allocation-failure arms */
     Py_DECREF(tokens); /* GCOVR_EXCL_LINE */
     return -1;         /* GCOVR_EXCL_LINE */
@@ -514,7 +552,6 @@ static int micro_id_index_find(micro_id_index *index, th_node *document, const P
 static int push_itemref_targets(micro_ctx *ctx, const th_node_attr *itemref, node_stack *pending) {
     const Py_UCS4 *const value = itemref->value;
     const Py_ssize_t value_len = itemref->value_len;
-    th_node *document = th_tree_document(ctx->tree);
     Py_ssize_t cursor = 0;
     while (cursor < value_len) {
         while (cursor < value_len && is_space(value[cursor])) {
@@ -526,7 +563,7 @@ static int push_itemref_targets(micro_ctx *ctx, const th_node_attr *itemref, nod
         }
         if (cursor > start) {
             th_node *target;
-            int found = micro_id_index_find(&ctx->ids, document, &value[start], cursor - start, &target);
+            int found = micro_id_index_find(&ctx->ids, ctx->document, &value[start], cursor - start, &target);
             if (found < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
                 return -1;   /* GCOVR_EXCL_LINE: allocation-failure path */
             }
@@ -540,154 +577,132 @@ static int push_itemref_targets(micro_ctx *ctx, const th_node_attr *itemref, nod
     return 0;
 }
 
-/* Add the element children of `parent` to `pending`. -1 only on the excluded allocation-failure path. */
-static int push_element_children(th_node *parent, node_stack *pending) {
-    for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT) {
-            if (node_stack_push(pending, child) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-        }
+/* Whether itemref can name the node: the id index holds only elements whose id has a value. */
+static int has_id(th_node *node) {
+    if (node->type != TH_NODE_ELEMENT) {
+        return 0;
     }
-    return 0;
+    const th_node_attr *const id = find_node_attr(node, TH_ATTR_ID);
+    return id != NULL && id->value != NULL;
 }
 
-/* Gather the property elements of the item rooted at `root` into `results`, following the WHATWG "the properties of an
-   item" algorithm: crawl root's descendants plus every element its itemref names, stopping at a nested itemscope
-   (whose descendants belong to that nested item) and visiting each element at most once so an itemref cycle
-   terminates. -1 only on the excluded allocation-failure path. */
-static int crawl_item_properties(micro_ctx *ctx, th_node *root, const th_node_attr *itemref, node_stack *results) {
-    th_node_map memory = {0};
-    node_stack pending = {NULL, 0, 0};
+/* Whether the element is a property. An empty (itemprop="") or valueless (itemprop) attribute carries value == NULL,
+   so a non-NULL value already names at least one property; no separate length check is needed. */
+static int names_property(th_node *element) {
+    const th_node_attr *const itemprop = find_node_attr(element, TH_ATTR_ITEMPROP);
+    return itemprop != NULL && itemprop->value != NULL;
+}
+
+/* Index the properties under `document`. The crawl that collects an element's properties descends through element
+   children and stops at an itemscope, whose descendants belong to that nested item, so the elements fall into trees
+   that start below the document, below each item and below each node that is not an element (a template's contents).
+   Walking one such tree at a time puts the properties of every subtree of it side by side in claims: the run of an
+   element opens when the walk enters it and closes when the walk leaves it. A node is visited once for the ranks and
+   once for the runs, so the index costs two passes over the document however many items share what it records. -1
+   only on the excluded allocation-failure path. */
+static int micro_prop_index_build(micro_prop_index *index, th_node *document) {
+    node_stack scopes = {NULL, 0, 0};
     int status = -1;
-    if (th_node_map_insert(&memory, root, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        goto done;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (push_element_children(root, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        goto done;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (push_itemref_targets(ctx, itemref, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        goto done;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    while (pending.len > 0) {
-        th_node *current = pending.items[--pending.len];
-        if (th_node_map_find(&memory, current) != 0) {
-            continue; /* already crawled: a microdata error the spec skips */
-        }
-        if (th_node_map_insert(&memory, current, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            goto done;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (find_node_attr(current, TH_ATTR_ITEMSCOPE) == NULL) {
-            if (push_element_children(current, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                goto done;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+    index->built = 1;
+    Py_ssize_t rank = 0;
+    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
+        if (node->type == TH_NODE_ELEMENT && names_property(node)) {
+            if (th_node_map_insert(&index->ranks, node, ++rank) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                goto done;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
-        const th_node_attr *itemprop = find_node_attr(current, TH_ATTR_ITEMPROP);
-        /* an empty (itemprop="") or valueless (itemprop) attribute carries value == NULL, so a non-NULL value already
-           names at least one property; no separate length check is needed */
-        if (itemprop != NULL && itemprop->value != NULL) {
-            if (node_stack_push(results, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                goto done;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (node_stack_push(&scopes, document) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    while (scopes.len > 0) {
+        th_node *const scope = scopes.items[--scopes.len];
+        th_node *current = scope->first_child;
+        while (current != NULL) {
+            int descend = 0;
+            if (current->type == TH_NODE_ELEMENT) {
+                /* GCOVR_EXCL_BR_START: allocation failure */
+                if ((has_id(current) && th_node_map_insert(&index->first, current, index->claims.len + 1) < 0) ||
+                    (names_property(current) && node_stack_push(&index->claims, current) < 0)) {
+                    goto done; /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                /* GCOVR_EXCL_BR_STOP */
+                descend = find_node_attr(current, TH_ATTR_ITEMSCOPE) == NULL;
+            }
+            if (current->first_child != NULL) {
+                if (descend) {
+                    current = current->first_child;
+                    continue;
+                }
+                if (node_stack_push(&scopes, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    goto done;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+            }
+            for (;;) { /* the walk leaves current, then every parent whose last child it was */
+                /* GCOVR_EXCL_BR_START: allocation failure */
+                if (has_id(current) && th_node_map_insert(&index->past, current, index->claims.len + 1) < 0) {
+                    goto done; /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                /* GCOVR_EXCL_BR_STOP */
+                if (current->next_sibling != NULL) {
+                    current = current->next_sibling;
+                    break;
+                }
+                current = current->parent;
+                if (current == scope) {
+                    current = NULL;
+                    break;
+                }
             }
         }
     }
     status = 0;
 done:
-    PyMem_Free(memory.entries);
-    PyMem_Free(pending.items);
+    PyMem_Free(scopes.items);
     return status;
 }
 
-/* Depth of `node` below the document root, its number of ancestors. */
-static Py_ssize_t node_depth(th_node *node) {
-    Py_ssize_t depth = 0;
-    for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
-        depth++;
-    }
-    return depth;
+/* A run of micro_prop_index.claims, and a property with its rank: the two records the item crawl sorts, each by the
+   Py_ssize_t it leads with. */
+typedef struct micro_run {
+    Py_ssize_t first;
+    Py_ssize_t past;
+} micro_run;
+
+typedef struct {
+    Py_ssize_t rank;
+    th_node *node;
+} ranked_node;
+
+static int leading_ssize_cmp(const void *left, const void *right) {
+    const Py_ssize_t left_key = *(const Py_ssize_t *)left;
+    const Py_ssize_t right_key = *(const Py_ssize_t *)right;
+    return (left_key > right_key) - (left_key < right_key);
 }
 
-static int node_before(th_node *left, th_node *right) {
-    if (left == right) { /* GCOVR_EXCL_BR_LINE: qsort may compare an entry with itself; collected nodes are unique */
-        return 0;        /* GCOVR_EXCL_LINE: platform-dependent qsort self-comparison */
+/* Put `results` in tree order, the order the spec sorts an item's properties into, and drop the repeats: a property
+   under the item that its itemref names as well. -1 only on the excluded allocation-failure path. */
+static int sort_properties(const micro_prop_index *index, node_stack *results) {
+    ranked_node *ranked = PyMem_Malloc((size_t)results->len * sizeof(ranked_node));
+    if (ranked == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (left->next_sibling == right || left->first_child == right) {
-        return -1;
+    int ordered = 1;
+    for (Py_ssize_t at = 0; at < results->len; at++) {
+        ranked[at] = (ranked_node){th_node_map_find(&index->ranks, results->items[at]), results->items[at]};
+        ordered &= at == 0 || ranked[at - 1].rank < ranked[at].rank;
     }
-    if (right->next_sibling == left || right->first_child == left) {
-        return 1;
-    }
-    Py_ssize_t left_depth = node_depth(left);
-    Py_ssize_t right_depth = node_depth(right);
-    th_node *walk_left = left;
-    th_node *walk_right = right;
-    for (Py_ssize_t index = left_depth; index > right_depth; index--) {
-        walk_left = walk_left->parent;
-    }
-    for (Py_ssize_t index = right_depth; index > left_depth; index--) {
-        walk_right = walk_right->parent;
-    }
-    if (walk_left == walk_right) {
-        return left_depth < right_depth ? -1 : 1;
-    }
-    while (walk_left->parent != walk_right->parent) {
-        walk_left = walk_left->parent;
-        walk_right = walk_right->parent;
-    }
-    for (th_node *sibling = walk_left->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
-        if (sibling == walk_right) {
-            return -1;
+    if (!ordered) {
+        qsort(ranked, (size_t)results->len, sizeof(ranked_node), leading_ssize_cmp);
+        Py_ssize_t kept = 0;
+        for (Py_ssize_t at = 0; at < results->len; at++) {
+            if (at == 0 || ranked[at - 1].rank != ranked[at].rank) {
+                results->items[kept++] = ranked[at].node;
+            }
         }
+        results->len = kept;
     }
-    return 1;
-}
-
-static int node_ptr_before(const void *left, const void *right) {
-    return node_before(*(th_node *const *)left, *(th_node *const *)right);
-}
-
-static int sort_properties(node_stack *results) {
-    if (results->len < 2) {
-        return 0;
-    }
-    const int direction = node_before(results->items[0], results->items[1]);
-    for (Py_ssize_t index = 2; index < results->len; index++) {
-        if (node_before(results->items[index - 1], results->items[index]) != direction) {
-            if (results->len < 32) {
-                qsort(results->items, (size_t)results->len, sizeof(th_node *), node_ptr_before);
-                return 0;
-            }
-            th_node_map selected = {0};
-            for (Py_ssize_t property = 0; property < results->len; property++) {
-                /* GCOVR_EXCL_BR_START: allocation failure */
-                if (th_node_map_insert(&selected, results->items[property], 1) < 0) {
-                    PyMem_Free(selected.entries); /* GCOVR_EXCL_LINE */
-                    PyErr_NoMemory();             /* GCOVR_EXCL_LINE */
-                    return -1;                    /* GCOVR_EXCL_LINE */
-                }
-                /* GCOVR_EXCL_BR_STOP */
-            }
-            th_node *root = results->items[0];
-            while (root->parent != NULL) {
-                root = root->parent;
-            }
-            Py_ssize_t written = 0;
-            for (th_node *node = root; written < results->len; node = preorder_next(node, root)) {
-                if (th_node_map_find(&selected, node)) {
-                    results->items[written++] = node;
-                }
-            }
-            PyMem_Free(selected.entries);
-            return 0;
-        }
-    }
-    if (direction > 0) {
-        for (Py_ssize_t index = 0; index < results->len / 2; index++) {
-            th_node *const node = results->items[index];
-            results->items[index] = results->items[results->len - index - 1];
-            results->items[results->len - index - 1] = node;
-        }
-    }
+    PyMem_Free(ranked);
     return 0;
 }
 
@@ -715,9 +730,330 @@ static int crawl_local_properties(th_node *root, node_stack *results) {
     return 0;
 }
 
+/* Resolve an itemref value to the runs of the property index its tokens name, as their union: sorted, disjoint and
+   non-empty, so walking them costs the properties they hold and nothing per token. The result is kept in `ctx` for the
+   next item that carries the same value buffer: the tree builder reopens an unclosed formatting element in every block
+   that follows it, each clone borrows the start tag's attribute values, and resolving a long itemref again for every
+   clone is items x tokens. -1 only on the excluded allocation-failure path. */
+static int resolve_named_runs(micro_ctx *ctx, const th_node_attr *itemref) {
+    micro_prop_index *const index = &ctx->props;
+    node_stack targets = {NULL, 0, 0};
+    micro_run *runs = NULL;
+    Py_ssize_t merged = 0;
+    int status = -1;
+    if (push_itemref_targets(ctx, itemref, &targets) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (targets.len > 1) {
+        /* an itemref may name one element any number of times; a run per token would be sorted for each */
+        th_node_map named = {0};
+        Py_ssize_t kept = 0;
+        for (Py_ssize_t at = 0; at < targets.len; at++) {
+            if (th_node_map_find(&named, targets.items[at]) != 0) {
+                continue;
+            }
+            if (th_node_map_insert(&named, targets.items[at], 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyMem_Free(named.entries);                              /* GCOVR_EXCL_LINE */
+                goto done;                                              /* GCOVR_EXCL_LINE */
+            }
+            targets.items[kept++] = targets.items[at];
+        }
+        PyMem_Free(named.entries);
+        targets.len = kept;
+    }
+    if (targets.len > 0) {
+        if (!index->built && micro_prop_index_build(index, ctx->document) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+            goto done;                                                           /* GCOVR_EXCL_LINE */
+        }
+        runs = PyMem_Malloc((size_t)targets.len * sizeof(micro_run));
+        if (runs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        for (Py_ssize_t at = 0; at < targets.len; at++) {
+            runs[at].first = th_node_map_find(&index->first, targets.items[at]) - 1;
+            runs[at].past = th_node_map_find(&index->past, targets.items[at]) - 1;
+        }
+        /* Runs nest when one named element holds another, so take their union: sorted by start, each run adds only
+           what lies past the runs before it. */
+        qsort(runs, (size_t)targets.len, sizeof(micro_run), leading_ssize_cmp);
+        Py_ssize_t covered = 0;
+        for (Py_ssize_t at = 0; at < targets.len; at++) {
+            const Py_ssize_t first = runs[at].first > covered ? runs[at].first : covered;
+            if (first < runs[at].past) {
+                covered = runs[at].past;
+                runs[merged++] = (micro_run){first, covered};
+            }
+        }
+    }
+    PyMem_Free(ctx->named_runs);
+    ctx->named_runs = runs;
+    ctx->named_count = merged;
+    ctx->named_value = itemref->value;
+    runs = NULL;
+    status = 0;
+done:
+    PyMem_Free(targets.items);
+    PyMem_Free(runs);
+    return status;
+}
+
+/* The item walks of one call may do this much work per node of the tree, counting the nodes they visit, the children
+   they scan, the itemref characters they read and the nodes they step over to order properties. Building the property
+   index reads a few attributes of every node in two passes, so walks that cost more than that hand over to it. */
+#define STRUCTURED_DATA_WALK_BUDGET_PER_NODE ((Py_ssize_t)4)
+
+/* Take `units` of work from the call's walk budget; nonzero once the budget is spent. */
+static int walk_spend(micro_ctx *ctx, Py_ssize_t units) {
+    TH_WORK_STEPS_ADD(units);
+    ctx->walk_budget -= units;
+    return ctx->walk_budget < 0;
+}
+
+/* Depth of `node` below the document root, its number of ancestors. */
+static Py_ssize_t node_depth(th_node *node) {
+    Py_ssize_t depth = 0;
+    for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
+        depth++;
+    }
+    return depth;
+}
+
+/* Whether `left` precedes `right` in tree order, -1 or 1: two distinct nodes of one document. The ancestors and
+   siblings it steps over come out of the walk budget. */
+static int node_before(micro_ctx *ctx, th_node *left, th_node *right) {
+    if (left->next_sibling == right || left->first_child == right) {
+        return -1;
+    }
+    if (right->next_sibling == left || right->first_child == left) {
+        return 1;
+    }
+    Py_ssize_t left_depth = node_depth(left);
+    Py_ssize_t right_depth = node_depth(right);
+    walk_spend(ctx, left_depth + right_depth);
+    th_node *walk_left = left;
+    th_node *walk_right = right;
+    for (Py_ssize_t index = left_depth; index > right_depth; index--) {
+        walk_left = walk_left->parent;
+    }
+    for (Py_ssize_t index = right_depth; index > left_depth; index--) {
+        walk_right = walk_right->parent;
+    }
+    if (walk_left == walk_right) {
+        return left_depth < right_depth ? -1 : 1;
+    }
+    while (walk_left->parent != walk_right->parent) {
+        walk_left = walk_left->parent;
+        walk_right = walk_right->parent;
+    }
+    for (th_node *sibling = walk_left->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+        walk_spend(ctx, 1);
+        if (sibling == walk_right) {
+            return -1;
+        }
+    }
+    return 1;
+}
+
+/* Add the element children of `parent` to `pending`, paying for each child out of the walk budget. -1 only on the
+   excluded allocation-failure path. */
+static int push_element_children(micro_ctx *ctx, th_node *parent, node_stack *pending) {
+    for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
+        walk_spend(ctx, 1);
+        if (child->type == TH_NODE_ELEMENT) {
+            if (node_stack_push(pending, child) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    return 0;
+}
+
+/* Below this many properties a walk out of tree order is sorted by insertion; a longer one is left to the index. */
+#define STRUCTURED_DATA_MAX_INSERTION_SORT ((Py_ssize_t)32)
+
+/* Put the walked `results` into tree order. The walk's stack hands them over in or against tree order unless a named
+   element holds or precedes another, so one pass over neighbors settles the common case. Returns 1, with `results` to
+   be discarded, for a long list in neither order or once the comparisons spend the walk budget. */
+static int order_walked_properties(micro_ctx *ctx, node_stack *results) {
+    th_node **const items = results->items;
+    const Py_ssize_t len = results->len;
+    if (len < 2) {
+        return 0;
+    }
+    const int direction = node_before(ctx, items[0], items[1]);
+    Py_ssize_t at = 2;
+    while (at < len && ctx->walk_budget >= 0 && node_before(ctx, items[at - 1], items[at]) == direction) {
+        at++;
+    }
+    if (at == len) {
+        for (Py_ssize_t low = 0, high = len - 1; direction > 0 && low < high; low++, high--) {
+            th_node *const node = items[low];
+            items[low] = items[high];
+            items[high] = node;
+        }
+        return ctx->walk_budget < 0;
+    }
+    if (len >= STRUCTURED_DATA_MAX_INSERTION_SORT) {
+        return 1;
+    }
+    for (Py_ssize_t next = 1; next < len; next++) {
+        th_node *const node = items[next];
+        Py_ssize_t slot = next;
+        while (slot > 0 && ctx->walk_budget >= 0 && node_before(ctx, items[slot - 1], node) > 0) {
+            items[slot] = items[slot - 1];
+            slot--;
+        }
+        items[slot] = node;
+    }
+    return ctx->walk_budget < 0;
+}
+
+/* The item's properties by walking its subtree and the elements its itemref names, into `results` in tree order: the
+   spec's crawl, paid for out of the call's walk budget. Returns 1, with `results` to be discarded, once the budget is
+   spent or the order needs the index; -1 only on the excluded allocation-failure path. */
+static int walk_item_properties(micro_ctx *ctx, th_node *root, const th_node_attr *itemref, node_stack *results) {
+    if (walk_spend(ctx, itemref->value_len)) {
+        return 1;
+    }
+    th_node_map memory = {0};
+    node_stack pending = {NULL, 0, 0};
+    int status = -1;
+    if (th_node_map_insert(&memory, root, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (push_element_children(ctx, root, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (push_itemref_targets(ctx, itemref, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    while (pending.len > 0) {
+        if (walk_spend(ctx, 1)) {
+            status = 1;
+            goto done;
+        }
+        th_node *current = pending.items[--pending.len];
+        if (th_node_map_find(&memory, current) != 0) {
+            continue; /* already walked: an itemref cycle, or an element named twice */
+        }
+        if (th_node_map_insert(&memory, current, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            goto done;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (find_node_attr(current, TH_ATTR_ITEMSCOPE) == NULL) {
+            if (push_element_children(ctx, current, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                goto done;                                           /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        const th_node_attr *itemprop = find_node_attr(current, TH_ATTR_ITEMPROP);
+        if (itemprop != NULL && itemprop->value != NULL) {
+            if (node_stack_push(results, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                goto done;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    status = order_walked_properties(ctx, results);
+done:
+    PyMem_Free(memory.entries);
+    PyMem_Free(pending.items);
+    return status;
+}
+
+/* Gather the property elements of the item rooted at `root` into `results`, following the WHATWG "the properties of an
+   item" algorithm: crawl root's descendants plus every element its itemref names, stopping at a nested itemscope
+   (whose descendants belong to that nested item), taking each element at most once and never root itself, then sort
+   into tree order. While the call's walk budget lasts, the walk answers the item alone; once a walk spends it, that
+   item and every later one take the property index, where a named element adds its run of the index, so an item costs
+   its own subtree and the properties it receives, not the size of the subtrees it names or of the document between
+   them. -1 only on the excluded allocation-failure path. */
+static int crawl_item_properties(micro_ctx *ctx, th_node *root, const th_node_attr *itemref, node_stack *results) {
+    if (ctx->walk_budget >= 0) {
+        const int walked = walk_item_properties(ctx, root, itemref, results);
+        if (walked < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (walked == 0) {
+            return 0;
+        }
+        ctx->walk_budget = -1;
+        results->len = 0;
+    }
+    if (crawl_local_properties(root, results) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* a value buffer is allocated once with its length and not rewritten during the call, so its address alone
+       names the value */
+    if (itemref->value != ctx->named_value) {
+        if (resolve_named_runs(ctx, itemref) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    if (ctx->named_count == 0) {
+        return 0; /* nothing is named, and the local crawl is in tree order already */
+    }
+    for (Py_ssize_t at = 0; at < ctx->named_count; at++) {
+        for (Py_ssize_t claim = ctx->named_runs[at].first; claim < ctx->named_runs[at].past; claim++) {
+            th_node *const property = ctx->props.claims.items[claim];
+            /* an item is not its own property, though an element its itemref names may hold it */
+            if (property != root && node_stack_push(results, property) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+                return -1;                                                    /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return sort_properties(&ctx->props, results);
+}
+
+/* Take `count` repeated values out of the call's allowance. -1 with RecursionError set when fewer are left. */
+static int spend_value_repeats(micro_ctx *ctx, Py_ssize_t count) {
+    if (count > ctx->value_repeats_left) {
+        PyErr_Format(PyExc_RecursionError,
+                     "microdata() supports at most %zd repeats of property values shared through itemref",
+                     STRUCTURED_DATA_MAX_VALUE_REPEATS);
+        return -1;
+    }
+    ctx->value_repeats_left -= count;
+    return 0;
+}
+
+/* The value of a property that is no item. Once itemref is in play, a claim after the first valuation takes the cached
+   str instead of walking and copying the subtree again, out of the STRUCTURED_DATA_MAX_VALUE_REPEATS allowance;
+   *repeat tells such a claim. A property valued before the first itemref lookup is not cached, so its first shared
+   claim values it again. NULL with RecursionError set once the allowance is spent, and on the excluded
+   allocation-failure path. */
+static PyObject *shared_microdata_value(micro_ctx *ctx, th_node *property, int *repeat) {
+    if (ctx->valued == NULL) {
+        ctx->valued = PyMem_Calloc((size_t)th_tree_node_count(ctx->tree), sizeof(Py_ssize_t));
+        if (ctx->valued == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    const Py_ssize_t known = ctx->valued[property->seq];
+    *repeat = known != 0;
+    if (known != 0) {
+        if (spend_value_repeats(ctx, 1) < 0) {
+            return NULL;
+        }
+        return Py_NewRef(PyList_GET_ITEM(ctx->values, known - 1));
+    }
+    PyObject *value = microdata_value(ctx, property);
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: a value that is no item fails only on allocation */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (ctx->values == NULL) {
+        ctx->values = PyList_New(0);
+    }
+    /* GCOVR_EXCL_BR_START: the list fails only on allocation */
+    if (ctx->values == NULL || PyList_Append(ctx->values, value) < 0) {
+        Py_DECREF(value); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    ctx->valued[property->seq] = PyList_GET_SIZE(ctx->values);
+    return value;
+}
+
 /* Crawl the properties of the item rooted at `element` into `properties`, in document (tree) order per the spec's
    final sort, each itemprop name mapping to its list of values. A property whose text content microdata_text refuses
-   is left out. -1 only on the excluded allocation-failure path. */
+   is left out. -1 with RecursionError set past a limit of the call, or on the excluded allocation-failure path. */
 static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *properties) {
     node_stack results = {NULL, 0, 0};
     int status = -1;
@@ -731,24 +1067,28 @@ static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *proper
         if (crawled < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             goto done;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        if (sort_properties(&results) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            goto done;                       /* GCOVR_EXCL_LINE */
-        }
     }
     for (Py_ssize_t index = 0; index < results.len; index++) {
         th_node *property = results.items[index];
         const th_node_attr *itemprop = find_node_attr(property, TH_ATTR_ITEMPROP);
-        PyObject *value = microdata_value(ctx, property);
+        /* only itemref gives a property a second claimant, and the first lookup of one builds the id index */
+        const int shareable = ctx->ids.built && find_node_attr(property, TH_ATTR_ITEMSCOPE) == NULL;
+        int repeat = 0;
+        PyObject *value = shareable ? shared_microdata_value(ctx, property, &repeat) : microdata_value(ctx, property);
         if (value == NULL) {
             goto done;
         }
-        int failed = 0;
+        Py_ssize_t added = 0;
         if (value != Py_None) {
-            failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
+            added = add_property(properties, itemprop->value, itemprop->value_len, value);
         }
         Py_DECREF(value);
-        if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            goto done; /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            goto done;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        /* the claim paid for one entry; an element that names several properties adds one per further name */
+        if (repeat && added > 1 && spend_value_repeats(ctx, added - 1) < 0) {
+            goto done;
         }
     }
     status = 0;
@@ -769,8 +1109,26 @@ static int tuple_set_or_fail(PyObject *tuple, Py_ssize_t index, PyObject *value)
     return 0;
 }
 
+/* Take one record out of the call's budget, 0 once it is spent. The budget starts as the shared-item allowance, which
+   few pages exhaust, so only the first time it runs dry do the document's itemscope elements top it up with the one
+   record each builds when nobody shares it. */
+static int claim_record(micro_ctx *ctx) {
+    if (ctx->records_left == 0 && !ctx->funded) {
+        ctx->funded = 1;
+        for (th_node *node = ctx->document->first_child; node != NULL; node = preorder_next(node, ctx->document)) {
+            ctx->records_left += node->type == TH_NODE_ELEMENT && find_node_attr(node, TH_ATTR_ITEMSCOPE) != NULL;
+        }
+    }
+    if (ctx->records_left == 0) {
+        return 0;
+    }
+    ctx->records_left--;
+    return 1;
+}
+
 /* Build one MicrodataItem(type, id, properties), bounding the item graph rather than the DOM depth because itemref can
-   connect shallow elements into a recursive graph. */
+   connect shallow elements into a recursive graph, and the records of the call because itemref can reach one element
+   along many paths of that graph. */
 static PyObject *build_item(micro_ctx *ctx, th_node *element) {
     if (node_stack_contains(&ctx->active_items, element)) {
         PyErr_SetString(PyExc_RecursionError, "microdata() found a cyclic nested item graph");
@@ -779,6 +1137,11 @@ static PyObject *build_item(micro_ctx *ctx, th_node *element) {
     if (ctx->active_items.len >= STRUCTURED_DATA_MAX_ITEM_DEPTH) {
         PyErr_Format(PyExc_RecursionError, "microdata() supports at most %zd nested items",
                      STRUCTURED_DATA_MAX_ITEM_DEPTH);
+        return NULL;
+    }
+    if (!claim_record(ctx)) {
+        PyErr_Format(PyExc_RecursionError, "microdata() supports at most %zd repeats of items shared through itemref",
+                     STRUCTURED_DATA_MAX_ITEM_REPEATS);
         return NULL;
     }
     if (node_stack_push(&ctx->active_items, element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -943,7 +1306,22 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     }
     th_tree *tree = tree_of(self);
     th_node *root = ((NodeObject *)self)->node;
-    micro_ctx ctx = {state_of(self), tree, base, {NULL, 0, 0}, {NULL, 0, 0}};
+    micro_ctx ctx = {state_of(self),
+                     tree,
+                     root,
+                     base,
+                     {NULL, 0, 0},
+                     {{NULL, 0, 0}, {NULL, 0, 0}, {NULL, 0, 0}, {NULL, 0, 0}, 0},
+                     {NULL, 0, 0},
+                     NULL,
+                     NULL,
+                     0,
+                     STRUCTURED_DATA_WALK_BUDGET_PER_NODE * (Py_ssize_t)th_tree_node_count(tree),
+                     STRUCTURED_DATA_MAX_ITEM_REPEATS,
+                     0,
+                     NULL,
+                     NULL,
+                     STRUCTURED_DATA_MAX_VALUE_REPEATS};
     int failed = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
@@ -965,6 +1343,13 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     }
     Py_END_CRITICAL_SECTION();
     PyMem_Free(ctx.ids.slots);
+    PyMem_Free(ctx.props.ranks.entries);
+    PyMem_Free(ctx.props.claims.items);
+    PyMem_Free(ctx.props.first.entries);
+    PyMem_Free(ctx.props.past.entries);
+    PyMem_Free(ctx.named_runs);
+    PyMem_Free(ctx.valued);
+    Py_XDECREF(ctx.values);
     PyMem_Free(ctx.active_items.items);
     if (failed) {
         Py_DECREF(items);

@@ -1112,6 +1112,17 @@ _LOOSE_NAV_HTML: Final[str] = (
             "1. \n   1. x",
             id="nested-list-in-a-non-item-wrapper-stays-nested",
         ),
+        pytest.param("<ol><ul><li>a</li></ul></ol>", "- a", id="list-before-any-item-is-not-indented"),
+        pytest.param(
+            "<ul><ul><li>a</li></ul><li>b</li><ul><ol><li>c</li></ol></ul></ul>",
+            "- a\n- b\n  1. c",
+            id="list-indents-under-the-item-before-it-only",
+        ),
+        pytest.param(
+            "<p>x</p><ol><ul><pre>&lt;i&gt;\n\ny</pre></ul></ol>",
+            "x\n\n```\n<i>\n\ny\n```",
+            id="fence-in-lists-without-items-opens-its-own-block",
+        ),
         pytest.param(
             "<ul><li>a</li></ul><p><span><br></span></p><ul><li>b</li></ul>",
             "- a\n\n\n\n* b",
@@ -1261,6 +1272,15 @@ def test_trailing_break_before_nested_list_keeps_items(html: str) -> None:
 def _render(markdown: str) -> str:
 
     return MarkdownIt("gfm-like", {"linkify": False}).render(markdown)
+
+
+@pytest.mark.parametrize("depth", [4, 5, 7, 9])
+def test_code_in_lists_without_items_stays_code(depth: int) -> None:
+    # no marker accounts for an indent here: four columns of it and a reader takes the fence for paragraph text
+    html: Final = f"<p>x</p>{'<ul>' * depth}<pre>&lt;em&gt;y&lt;/em&gt;\n\nz</pre>{'</ul>' * depth}"
+    rendered: Final = parse_fragment(MarkdownIt("commonmark").render(parse_fragment(html).to_markdown()))
+    assert rendered.select("em") == []
+    assert [code.text for code in rendered.select("pre > code")] == ["<em>y</em>\n\nz\n"]
 
 
 def test_loose_list_nested_heading_and_link_stay_structural() -> None:
