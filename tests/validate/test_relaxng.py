@@ -3683,9 +3683,17 @@ def _repeat_check_unreachable() -> bool:
     return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
 
 
+def _pypy_interpreter_overruns_stack() -> bool:
+    # PyPy's json encoder recurses in its own interpreter, whose frames no turbohtml floor bounds: on the thread the
+    # sweep starts with, the interpreter's frames fill the stack before the first validation check, and the process
+    # dies in turbohtml's entry point. CPython's interpreter keeps no such frames, so there a crash stays a failure
+    return sys.implementation.name == "pypy" and _repeat_check_sweep().returncode < 0
+
+
 @pytest.mark.skipif(
-    _repeat_check_unreachable(),
-    reason="this platform never reaches the repeat check with the json sweep; the C coverage gate runs elsewhere",
+    _repeat_check_unreachable() or _pypy_interpreter_overruns_stack(),
+    reason="this platform never reaches the repeat check with the json sweep, or PyPy's interpreter overruns the "
+    "thread stack first; the C coverage gate runs elsewhere",
 )
 def test_rng_repeat_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
     # the sweep is the parent-side probe above: where it completes without RecursionError the test is skipped, and
