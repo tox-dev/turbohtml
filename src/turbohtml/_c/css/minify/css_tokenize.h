@@ -451,6 +451,19 @@ CSS_NOINLINE static Py_ssize_t css_scan_escape(const css_char *source, Py_ssize_
     return scan;
 }
 
+/* The end of what the `\` at pos opens inside a quoted string (CSS Syntax 3 §4.3.5): a line continuation, a CRLF
+   counting as one newline (§3.3), or else an escape. A hex escape takes the whitespace after it, so a newline there
+   belongs to the escape and does not cut the string short. */
+static inline Py_ssize_t css_scan_quoted_escape(const css_char *source, Py_ssize_t pos, Py_ssize_t length) {
+    if (pos + 2 < length && source[pos + 1] == '\r' && source[pos + 2] == '\n') {
+        return pos + 3;
+    }
+    if (pos + 1 < length && !css_is_hex(source[pos + 1])) {
+        return pos + 2;
+    }
+    return css_scan_escape(source, pos, length);
+}
+
 /* Whether source[pos], a byte the caller has read, is a `\` before a newline. That pair is no escape (CSS Syntax 3
    §4.3.8), so the `\` ends a name and is a delimiter, and a new token starts after the newline. */
 static inline int css_is_bad_escape(const css_char *source, Py_ssize_t pos, Py_ssize_t length) {
@@ -558,8 +571,8 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                     scan++;
                     continue;
                 }
-                if (stop == CSS_QUOTED_ESCAPE && scan + 1 < length) {
-                    scan += (source[scan + 1] == '\r' && scan + 2 < length && source[scan + 2] == '\n') ? 3 : 2;
+                if (stop == CSS_QUOTED_ESCAPE) {
+                    scan = css_scan_quoted_escape(source, scan, length);
                     continue;
                 }
                 if (stop == CSS_QUOTED_NEWLINE) {
@@ -657,11 +670,22 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                          css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(';
             if (is_url) {
                 /* scan to the closing ')', but skip over a quoted argument so a ')' inside a quoted data URI
-                   (e.g. an SVG transform="rotate(45)") does not terminate the token early */
+                   (e.g. an SVG transform="rotate(45)") does not terminate the token early. An unquoted url holding a
+                   quote is a bad url (CSS Syntax 3 §4.3.6): its quote opens no string, and it ends at the first ')' */
                 Py_ssize_t end = scan + 1;
                 token.kind = CSS_URL;
+                while (end < length && css_is_ws(source[end])) {
+                    end++;
+                }
+                int quoted = end < length && (source[end] == '"' || source[end] == '\'');
                 while (end < length && source[end] != ')') {
                     if (source[end] == '"' || source[end] == '\'') {
+                        if (!quoted) {
+                            token.kind = CSS_BAD;
+                            vec->bad = 1;
+                            end++;
+                            continue;
+                        }
                         css_char quote = source[end];
                         end++;
                         while (end < length) {
@@ -680,9 +704,8 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                             }
                             if (stop == CSS_QUOTED_ESCAPE && end + 1 < length) {
                                 vec->escapes = 1;
-                                end++;
                             }
-                            end++;
+                            end = stop == CSS_QUOTED_ESCAPE ? css_scan_quoted_escape(source, end, length) : end + 1;
                         }
                         if (end < length) {
                             end++;

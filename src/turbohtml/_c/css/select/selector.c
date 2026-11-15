@@ -1088,34 +1088,45 @@ void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parse
 /* Whether any compound in the list carries a :has(), recursing through the nested
    lists of :is()/:where()/:not()/:has() so a :has() buried inside them still counts.
    The result drives whether a query allocates the :has() subtree memo at all. */
-static int sel_alts_have_has(const sel_complex *alts, int count);
+typedef int (*sel_pseudo_test)(int pseudo);
 
-static int sel_compound_has_has(const sel_compound *compound) {
+static int sel_alts_have_pseudo(const sel_complex *alts, int count, sel_pseudo_test wanted);
+
+static int sel_compound_has_pseudo(const sel_compound *compound, sel_pseudo_test wanted) {
     for (int index = 0; index < compound->count; index++) {
         const sel_simple *simple = &compound->simples[index];
         if (simple->kind != ':') {
             continue;
         }
-        if (simple->pseudo == PSEUDO_HAS) {
+        if (wanted(simple->pseudo)) {
             return 1;
         }
-        if (simple->sub != NULL && sel_alts_have_has(simple->sub, simple->sub_count)) {
+        if (simple->sub != NULL && sel_alts_have_pseudo(simple->sub, simple->sub_count, wanted)) {
             return 1;
         }
     }
     return 0;
 }
 
-static int sel_alts_have_has(const sel_complex *alts, int count) {
+static int sel_alts_have_pseudo(const sel_complex *alts, int count, sel_pseudo_test wanted) {
     for (int index = 0; index < count; index++) {
         const sel_complex *complex = &alts[index];
         for (int compound = 0; compound < complex->count; compound++) {
-            if (sel_compound_has_has(&complex->compounds[compound])) {
+            if (sel_compound_has_pseudo(&complex->compounds[compound], wanted)) {
                 return 1;
             }
         }
     }
     return 0;
+}
+
+static int sel_is_has_pseudo(int pseudo) {
+    return pseudo == PSEUDO_HAS;
+}
+
+static int sel_is_legend_pseudo(int pseudo) {
+    return pseudo == PSEUDO_DISABLED || pseudo == PSEUDO_ENABLED || pseudo == PSEUDO_READ_ONLY ||
+           pseudo == PSEUDO_READ_WRITE;
 }
 
 /* Compile a selector string against the tree it will run on. Returns NULL with a
@@ -1139,7 +1150,8 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
         PyMem_Free(compiled);
         return NULL;
     }
-    compiled->has_relational = sel_alts_have_has(compiled->alts, compiled->count);
+    compiled->has_relational = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_has_pseudo);
+    compiled->reads_legend = sel_alts_have_pseudo(compiled->alts, compiled->count, sel_is_legend_pseudo);
     return compiled;
 }
 
@@ -1611,9 +1623,10 @@ static int sel_is_disableable(th_node *node) {
     }
 }
 
-/* Keys the first-legend answers in a memo that also holds :has() and sibling answers,
+/* Keys the first-legend and fieldset-climb answers in a memo that also holds :has() and sibling answers,
    which key by their own selector objects. */
 static const char SEL_FIRST_LEGEND_KEY = 0;
+static const char SEL_FIELDSET_CLIMB_KEY = 0;
 
 /* Whether child, the child of a fieldset that a control is or sits under, is that
    fieldset's first legend, whose contents a disabled fieldset does not disable (HTML "the
@@ -1632,7 +1645,7 @@ static int sel_is_first_legend(th_node *child, sel_memo *memo) {
         return 0;
     }
     int first = 1;
-    if (memo != NULL && sel_memo_get(memo, &SEL_FIRST_LEGEND_KEY, child, &first)) {
+    if (sel_memo_get(memo, &SEL_FIRST_LEGEND_KEY, child, &first)) {
         return first;
     }
     for (th_node *earlier = child->prev_sibling; earlier != NULL; earlier = earlier->prev_sibling) {
@@ -1642,10 +1655,40 @@ static int sel_is_first_legend(th_node *child, sel_memo *memo) {
             break;
         }
     }
-    if (memo != NULL) {
-        sel_memo_put(memo, &SEL_FIRST_LEGEND_KEY, child, first);
-    }
+    sel_memo_put(memo, &SEL_FIRST_LEGEND_KEY, child, first);
     return first;
+}
+
+/* Whether a disabled fieldset above node disables it: one whose first legend does not hold
+   the child the climb came through. Past SEL_POSITION_MEMO_MIN_RUN levels the answer is
+   memoized for every node the climb passed, so the controls under one deep run of fieldsets
+   stop at the first memoized ancestor instead of each climbing to the root. */
+static int sel_fieldset_disables(th_node *node, sel_memo *memo) {
+    int disabled = 0;
+    int climbed = 0;
+    th_node *child = node;
+    for (th_node *ancestor = node->parent; ancestor != NULL; child = ancestor, ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        climbed++;
+        /* a fieldset-atom ancestor is necessarily HTML; the type guard skips the
+           document node that ends the chain */
+        if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == TH_TAG_FIELDSET &&
+            sel_has_attr(ancestor, TH_ATTR_DISABLED) && !sel_is_first_legend(child, memo)) {
+            disabled = 1;
+            break;
+        }
+        if (climbed >= SEL_POSITION_MEMO_MIN_RUN && sel_memo_get(memo, &SEL_FIELDSET_CLIMB_KEY, ancestor, &disabled)) {
+            break;
+        }
+    }
+    if (climbed > SEL_POSITION_MEMO_MIN_RUN) {
+        th_node *passed = node;
+        for (int index = 0; index < climbed; index++) {
+            sel_memo_put(memo, &SEL_FIELDSET_CLIMB_KEY, passed, disabled);
+            passed = passed->parent;
+        }
+    }
+    return disabled;
 }
 
 /* Whether node is actually disabled: its own disabled attribute, an option whose
@@ -1666,18 +1709,7 @@ static int sel_is_disabled(th_node *node, sel_memo *memo) {
     if (node->atom == TH_TAG_OPTGROUP || node->atom == TH_TAG_FIELDSET) {
         return 0; /* an optgroup/fieldset is disabled only by its own attribute */
     }
-    /* child trails ancestor up the chain, so each disabled fieldset is handed the child
-       node sits under and never has to look for it among its children */
-    th_node *child = node;
-    for (th_node *ancestor = node->parent; ancestor != NULL; child = ancestor, ancestor = ancestor->parent) {
-        /* a fieldset-atom ancestor is necessarily HTML; the type guard skips the
-           document node that ends the chain */
-        if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == TH_TAG_FIELDSET &&
-            sel_has_attr(ancestor, TH_ATTR_DISABLED) && !sel_is_first_legend(child, memo)) {
-            return 1;
-        }
-    }
-    return 0;
+    return sel_fieldset_disables(node, memo);
 }
 
 /* :checked: a checked checkbox/radio input or a selected option. */
@@ -2035,10 +2067,11 @@ static int sel_subtree_dir(th_tree *tree, th_node *root, sel_memo *memo) {
     }
 }
 
-/* The legend table of a single test (selector_matches, rewrite rules), which builds its
-   context with no memo. Only this per-thread table outlives that context, so the matcher
-   binds it on the first dir=auto read rather than selector_matches setting up and freeing
-   one for every call; binding empties what the previous test left. */
+/* The legend table of a context built without one: a single test (selector_matches,
+   rewrite rules) of a selector without a :disabled-family pseudo-class, or a driver that
+   needs no table of its own. Only this per-thread table outlives such a context, so the
+   matcher binds it on the first dir=auto read rather than every caller setting up and
+   freeing one; binding empties what the previous context left. */
 static _Thread_local sel_memo sel_single_test_memo;
 
 /* The direction a dir=auto element resolves to (HTML "the directionality of an
@@ -2891,8 +2924,21 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 }
 
 /* scope is the element :scope matches: the node the query was rooted at. A single
-   test builds a throwaway context with no :has() memo (nothing to amortize over). */
+   test builds a throwaway context with no :has() memo (nothing to amortize over). A
+   selector that reads a :disabled-family pseudo-class gets a legend memo, since one :has()
+   or sibling walk tests many controls under one fieldset. */
+static TH_NOINLINE int sel_matches_with_legend(th_node *node, const sel_compiled *compiled, th_node *scope) {
+    sel_memo legend_memo = {0};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, &legend_memo, NULL};
+    const int matched = sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
+    sel_memo_free(&legend_memo);
+    return matched;
+}
+
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
+    if (compiled->reads_legend) {
+        return sel_matches_with_legend(node, compiled, scope);
+    }
     sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
