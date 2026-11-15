@@ -122,7 +122,9 @@ _LONG_TEXT: Final[str] = "a" * 8192
 # arena block
 _INPUT: Final[str] = "<input a0=1 a1=1 a2=1>"
 _RADIO: Final[str] = "<form id=f></form><input type=radio name=r form=f a=1 b=2 c=3 d=4 e=5 f=6 g=7>"
-_SELECT: Final[str] = "<select><option value=a a0=1 a1=1></option></select>"
+# 8192 attributes fill the option's attribute array, so selected doubles it to 384 KiB, past the arena's 256 KiB cap,
+# so the arena asks PyMem for a block of its own whatever slack the tree's blocks have
+_SELECT: Final[str] = f"<select><option value=a {''.join(f'a{index}=1 ' for index in range(8191))}></option></select>"
 
 
 @pytest.mark.fuzz_build
@@ -148,7 +150,9 @@ _SELECT: Final[str] = "<select><option value=a a0=1 a1=1></option></select>"
 def test_dom_construction_allocation_failure_raises_memory_error(
     alloc_sweep: _Sweep, markup: str, call: Callable[[turbohtml.Node], object]
 ) -> None:
-    assert set(alloc_sweep(call, lambda: turbohtml.parse_fragment(markup))) == {"MemoryError"}
+    outcomes = alloc_sweep(call, lambda: turbohtml.parse_fragment(markup))
+    assert outcomes, "the call allocated nothing, so the sweep injected no failure"
+    assert set(outcomes) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
