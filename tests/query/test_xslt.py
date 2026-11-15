@@ -1078,6 +1078,43 @@ def test_transform_bad_select_expression_raises() -> None:
         _run("<r/>", '<xsl:template match="/"><xsl:value-of select="@("/></xsl:template>')
 
 
+@pytest.mark.parametrize(
+    "test",
+    [
+        pytest.param("/r/@main = @id", id="absolute"),
+        pytest.param("$main = @id and /r", id="variable-first"),
+        pytest.param("current()/@id = /r/@main", id="current-first"),
+        pytest.param("key('by-id', @id)[/r/@main = @id]", id="key-first"),
+    ],
+)
+def test_transform_absolute_path_inside_for_each_starts_at_the_source_root(test: str) -> None:
+    body: Final = (
+        '<xsl:key name="by-id" match="a" use="@id"/><xsl:variable name="main" select="/r/@main"/>'
+        '<xsl:template match="/"><xsl:for-each select="//a">'
+        f'<xsl:if test="{test}"><xsl:value-of select="count(/r//a[/r])"/></xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    source: Final = turbohtml.parse_xml("<r main='2'><a id='1'><a id='2'/></a></r>")
+    assert Transform(_sheet(body))(source) == "2"
+    inner: Final = source.xpath_one("//a/a")
+    assert isinstance(inner, Element)
+    assert Transform(_sheet(body))(inner) == "2"
+
+
+def test_transform_absolute_path_on_deep_current_nodes_stays_linear(work_steps: WorkSteps) -> None:
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="//e">'
+        '<xsl:if test="current()/@id = /e/@main">x</xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    stylesheet: Final = Transform(_sheet(body))
+
+    def build(size: int) -> Callable[[], object]:
+        return partial(stylesheet, turbohtml.parse_xml("<e>" * size + "</e>" * size))
+
+    work_steps.assert_linear(build, (1000, 4000))
+
+
 def test_transform_for_each_on_non_node_set_raises() -> None:
     with pytest.raises(ValueError, match="not a node-set"):
         _run("<r/>", '<xsl:template match="/"><xsl:for-each select="1 + 1">x</xsl:for-each></xsl:template>')

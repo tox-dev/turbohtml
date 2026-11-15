@@ -1892,10 +1892,10 @@ static int eval_program_as(engine *eng, const xp_program *prog, th_node *context
         scope_bindings(eng, bindings, &vars);
     }
     const char *feature = NULL;
-    int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, pos, size, &vars, NULL, xslt_extension,
-                                                  eng, out, &feature)
-                           : xp_eval_at(prog, eng->src_tree, context, pos, size, &vars, NULL, xslt_extension, eng, out,
-                                        &feature);
+    int status = condition ? xp_eval_condition_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
+                                                  xslt_extension, eng, out, &feature)
+                           : xp_eval_at(prog, eng->src_tree, context, eng->src_root, pos, size, &vars, NULL,
+                                        xslt_extension, eng, out, &feature);
     if (bindings != storage) {
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
@@ -1935,8 +1935,8 @@ static int fill_key(engine *eng, xslt_key *key) {
     if (status == 1) {
         status = xml ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
                                           callback ? pattern_name_test : NULL, &scope, &matched, &feature)
-                     : xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, NULL, NULL, &matched,
-                                  &feature);
+                     : xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, eng->src_root, 1, 1, NULL, NULL, NULL,
+                                  NULL, &matched, &feature);
     }
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
@@ -2089,8 +2089,8 @@ TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
                      ? xp_eval_pattern_at(rule->prog, eng->src_tree, eng->src_root, xslt_extension, eng,
                                           pattern_callback_needed(eng, rule->prog) ? pattern_name_test : NULL, &scope,
                                           &matched, &feature)
-                     : xp_eval_at(rule->prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng,
-                                  &matched, &feature);
+                     : xp_eval_at(rule->prog, eng->src_tree, eng->src_root, eng->src_root, 1, 1, NULL, NULL,
+                                  xslt_extension, eng, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {   /* GCOVR_EXCL_BR_LINE: pattern evaluation sets an exception only on allocation */
             if (feature == NULL) { /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
@@ -3636,8 +3636,8 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
                          ? xp_eval_pattern_at(prog, eng->src_tree, eng->src_root, xslt_extension, eng,
                                               pattern_callback_needed(eng, prog) ? pattern_name_test : NULL, &scope,
                                               &matched, &feature)
-                         : xp_eval_at(prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng,
-                                      &matched, &feature);
+                         : xp_eval_at(prog, eng->src_tree, eng->src_root, eng->src_root, 1, 1, NULL, NULL,
+                                      xslt_extension, eng, &matched, &feature);
         if (status < 0) {
             if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */

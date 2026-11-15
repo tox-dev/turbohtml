@@ -196,6 +196,17 @@ typedef struct xp_caches xp_caches;
 /* Drop the sibling positions once Python runs, since Python can move nodes. */
 void xp_order_forget(xp_caches *caches);
 
+/* The root `/` and id() start from, found once per top-level evaluation instead of climbed to from every predicate's
+   context node. Outside a parsed fragment (see tree_root) every node an axis reaches has the root of the node the
+   evaluation started at. A variable, or an extension function that can return or move nodes, can bring in a node of
+   another subtree, so from then on `mixed` is set and every context node is climbed from again. The XSLT engine
+   evaluates over its source tree only, which nothing edits during a transform, so the root it passes is `fixed`. */
+typedef struct {
+    struct th_node *node; /* NULL until found, unless the caller of xp_eval_at supplied it */
+    int mixed;
+    int fixed;
+} xp_root;
+
 typedef struct {
     struct th_tree *tree;
     struct th_node *node;
@@ -214,6 +225,7 @@ typedef struct {
     xp_name_test_fn name_test;
     void *name_test_ctx;
     int strict_no_ns;
+    xp_root *root; /* shared by the predicate contexts of one top-level evaluation */
 #ifdef TH_OPERATION_LIMIT
     size_t *operations; /* shared by the predicate contexts of one top-level evaluation */
 #endif
@@ -295,10 +307,10 @@ static inline Py_ssize_t xp_order_budget(Py_ssize_t len) {
 int xp_node_order(xp_caches **caches, struct th_node *left, struct th_node *right, Py_ssize_t *budget);
 Py_ssize_t xp_first_out_of_order(xp_caches **caches, const xp_nodeset *set, Py_ssize_t start);
 
-/* The root node XPath's `/` selects for node: the tree's document (or parsed
-   fragment root) when node sits under it, else the top of node's own subtree, the
+/* The root node XPath's `/` selects for the context node: the tree's document (or parsed
+   fragment root) when the node sits under it, else the top of the node's own subtree, the
    way DOM's getRootNode() answers for a node built outside any document. */
-struct th_node *tree_root(struct th_tree *tree, struct th_node *node);
+struct th_node *tree_root(xp_ctx *ctx);
 
 /* The XPath string-value of a node-set member, freshly allocated. */
 Py_UCS4 *item_string(struct th_tree *tree, xp_item item, Py_ssize_t *len);
