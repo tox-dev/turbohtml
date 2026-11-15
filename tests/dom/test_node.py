@@ -94,6 +94,7 @@ def test_parse_fragment_context_with_lone_surrogate_is_rejected() -> None:
         pytest.param("zzznotatag", id="typo"),
         pytest.param("my-widget", id="custom-element"),
         pytest.param("z" * 40, id="overlong"),
+        pytest.param("", id="empty"),
     ],
 )
 def test_parse_fragment_rejects_unknown_context(context: str) -> None:

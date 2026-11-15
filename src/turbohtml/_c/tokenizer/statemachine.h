@@ -81,13 +81,14 @@ typedef struct {
     Py_ssize_t src_start;
     Py_ssize_t src_len;
     th_buf name; /* tag name (lowercased) or DOCTYPE name */
-    /* The tree builder interns name to an atom once per tag token and caches it
-       here, so the insertion-mode dispatch and insert_element read a field
-       instead of re-interning the same name. Set by the builder, not the
-       tokenizer; meaningful only for start/end tags. */
+    /* The machine interns name to an atom (data/tag_atom.h) once per tag token
+       and caches it here with its category flags, so the tree builder, the
+       Tokenizer and the rewriter read a field instead of re-interning the same
+       name. Meaningful only for start/end tags. */
     uint16_t atom;
     uint8_t tag_flags;
-    th_buf text; /* TEXT run or COMMENT data */
+    uint64_t name_key; /* name packed by th_tag_key, 0 for one it does not pack; set with atom */
+    th_buf text;       /* TEXT run or COMMENT data */
     th_attr *attrs;
     th_attr_loc *attr_locs;
     Py_ssize_t attr_count;
@@ -235,6 +236,11 @@ void th_tok_reset(th_tokenizer *self);
    token's verbatim span (including processing instructions); capture_attributes retains tag attributes. The options
    survive th_tok_reset because they are configuration rather than input state. */
 void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source, int capture_attributes);
+
+/* Turn capture_attributes on or off for the tags that follow, leaving the other options alone. The public tokenizer
+   flips it between tokens: tree construction reads a start tag's attributes in foreign content, so the machine keeps
+   them there even for a caller who asked for none. */
+void th_tok_capture_attributes(th_tokenizer *self, int on);
 
 /* Record the granular source spans parse5's sourceCodeLocationInfo exposes: each
    tag's end position (past its '>') and each attribute's name/value span. Off by
