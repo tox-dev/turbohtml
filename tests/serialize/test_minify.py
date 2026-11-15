@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from functools import partial
 from typing import TYPE_CHECKING, Final
 
@@ -686,9 +687,28 @@ def test_body_start_kept_before_comment() -> None:
     assert parse("<body><!--c-->x</body>").serialize(Html(layout=Minify(strip_comments=False))) == "<body><!--c-->x"
 
 
-@pytest.mark.parametrize("tag", [pytest.param(t, id=t) for t in ("meta", "link", "script", "style", "template")])
+_HEAD_ROUTED: Final[tuple[str, ...]] = (
+    "base",
+    "basefont",
+    "bgsound",
+    "link",
+    "meta",
+    "noframes",
+    "noscript",
+    "script",
+    "style",
+    "template",
+    "title",
+)
+
+
+@pytest.mark.parametrize("tag", [pytest.param(t, id=t) for t in _HEAD_ROUTED])
 def test_body_start_kept_before_head_element(tag: str) -> None:
-    assert parse(f"<body><{tag}></{tag}>x</body>").serialize(Html(layout=Minify())).startswith(f"<body><{tag}")
+    # without the body start tag the "after head" insertion mode files the element under <head>
+    source: Final = f"<body><{tag}></{tag}>x</body>"
+    once: Final = parse(source).serialize(Html(layout=Minify()))
+    assert once.startswith(f"<body><{tag}")
+    assert parse(once).serialize(Html()) == parse(source).serialize(Html())
 
 
 def test_empty_element_as_root_keeps_end_tag() -> None:
@@ -1249,6 +1269,78 @@ def test_minify_keep_quotes_retains_attribute_quotes() -> None:
 def test_minify_is_idempotent(source: str) -> None:
     once = minify(source)
     assert minify(once) == once
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<p><b>a</b><!--c--></p>", "<p><b>a</b></p></body></html>", id="p-formatting-then-comment"),
+        pytest.param("<p><b>a</b></p><!--c-->", "<p><b>a</b></p></body></html>", id="p-comment-after-end"),
+        pytest.param("<em></em><!-- c -->", "<em></em></body></html>", id="body-formatting-then-comment"),
+        pytest.param("<div><font></div><!-- end -->", "<div><font></font></div></body></html>", id="div-font"),
+        pytest.param("<b></body><!-- end -->", "<b></b></body></html>", id="body-end-then-comment"),
+        pytest.param("<nobr></body><!--d-->", "<nobr></nobr></body></html>", id="body-end-nobr"),
+        pytest.param("<ul><font></ul><!-- end -->", "<ul><font></font></ul></body></html>", id="ul-font"),
+        pytest.param("<body><b>x</b></body><!--c-->", "<b>x</b></body></html>", id="body-b-comment-after"),
+        pytest.param("<div><p><b>a</b><!--c--></p></div>", "<div><p><b>a</b></p></div></body></html>", id="nested-p"),
+        pytest.param(
+            "<table><td><b></table><!-- c -->",
+            "<table><tbody><tr><td><b></b></td></tr></tbody></table></body></html>",
+            id="table-cell",
+        ),
+    ],
+)
+def test_minify_keeps_end_tag_guarded_by_trailing_formatting(source: str, expected: str) -> None:
+    # a stripped comment is invisible to the reparse, so the formatting element before it still ends the parent
+    once: Final = minify(source)
+    assert once == expected
+    assert minify(once) == once
+
+
+def test_minify_is_idempotent_over_seeded_documents() -> None:
+    tokens = (
+        "x",
+        " ",
+        "<!-- c -->",
+        "<p>",
+        "</p>",
+        "<li>",
+        "</li>",
+        "<b>",
+        "</b>",
+        "<i>",
+        "</i>",
+        "<em>",
+        "</em>",
+        "<font>",
+        "</font>",
+        "<nobr>",
+        "</nobr>",
+        "<div>",
+        "</div>",
+        "<ul>",
+        "</ul>",
+        "<table>",
+        "<td>",
+        "</table>",
+        "<span>",
+        "</span>",
+        "<body>",
+        "</body>",
+        "</html>",
+        "<title>t</title>",
+        "<base href=x>",
+        "<noscript>",
+        "</noscript>",
+    )
+    rng: Final = random.Random(4)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed
+    documents: Final = ["".join(rng.choice(tokens) for _ in range(rng.randint(1, 12))) for _ in range(2000)]
+    failures: Final = [
+        f"{document!r}\n  once:  {minify(document)!r}\n  twice: {minify(minify(document))!r}"
+        for document in documents
+        if _plain_roundtrips(document) and not _minify_idempotent(document, Minify())
+    ]
+    assert not failures, f"{len(failures)} non-idempotent\n\n" + "\n\n".join(failures[:5])
 
 
 def test_minify_shrinks_documents() -> None:

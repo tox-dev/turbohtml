@@ -551,7 +551,7 @@ static int mini_omit_start_tag(th_tree *tree, th_node *node, int strip_comments)
         return first == NULL || first->type == TH_NODE_ELEMENT;
     }
     /* body: omit when empty or when the first thing is not whitespace, a comment, or
-       one of the elements the WHATWG rule keeps the body tag before */
+       one of the head elements the parser routes to the head when no body tag precedes them */
     if (first == NULL) {
         return 1;
     }
@@ -559,8 +559,10 @@ static int mini_omit_start_tag(th_tree *tree, th_node *node, int strip_comments)
         return 0;
     }
     return !(first->type == TH_NODE_ELEMENT &&
-             (first->atom == TH_TAG_META || first->atom == TH_TAG_LINK || first->atom == TH_TAG_SCRIPT ||
-              first->atom == TH_TAG_STYLE || first->atom == TH_TAG_TEMPLATE));
+             (first->atom == TH_TAG_BASE || first->atom == TH_TAG_BASEFONT || first->atom == TH_TAG_BGSOUND ||
+              first->atom == TH_TAG_LINK || first->atom == TH_TAG_META || first->atom == TH_TAG_NOFRAMES ||
+              first->atom == TH_TAG_NOSCRIPT || first->atom == TH_TAG_SCRIPT || first->atom == TH_TAG_STYLE ||
+              first->atom == TH_TAG_TEMPLATE || first->atom == TH_TAG_TITLE));
 }
 
 /* Whether a <script>'s type marks it as JavaScript the minifier may rewrite: 2 for "module", 1 for
@@ -926,8 +928,11 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
            build, since nothing caps its depth. */
         int trailing_formatting = node->last_child != NULL && mini_trailing_formatting(node);
         while (node != root) {
-            if (node->next_sibling != NULL) {
-                node = node->next_sibling;
+            /* a stripped comment is invisible to the reparse, so the walk steps over it instead of
+               resetting the trailing state */
+            th_node *sibling = mini_next_content(node, opts->strip_comments);
+            if (sibling != NULL) {
+                node = sibling;
                 break;
             }
             trailing_formatting |= node->type == TH_NODE_ELEMENT && (node->tag_flags & TH_TAG_FORMATTING);
