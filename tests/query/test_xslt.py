@@ -3288,11 +3288,111 @@ def test_transform_exclude_result_prefixes_drops_only_listed() -> None:
     assert _collapse(result) == '<out xmlns:keep="urn:k"/>'
 
 
-def test_transform_exclude_result_prefixes_default_namespace() -> None:
-    body = '<xsl:template match="/"><out/></xsl:template>'
-    declare = 'xmlns="urn:def" exclude-result-prefixes="#default"'
-    result = transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>"))
-    assert _collapse(result) == "<out/>"
+@pytest.mark.parametrize(
+    ("declare", "body", "expected"),
+    [
+        pytest.param(
+            'xmlns="urn:def" exclude-result-prefixes="#default"',
+            "<out/>",
+            '<out xmlns="urn:def"/>',
+            id="default-element",
+        ),
+        pytest.param(
+            'xmlns="urn:def" exclude-result-prefixes="#default"',
+            "<a><b/></a>",
+            '<a xmlns="urn:def"><b/></a>',
+            id="default-nested",
+        ),
+        pytest.param(
+            'xmlns="urn:def" exclude-result-prefixes="#default"',
+            '<a><b xmlns=""/></a>',
+            '<a xmlns="urn:def"><b xmlns=""/></a>',
+            id="default-undeclared-child",
+        ),
+        pytest.param(
+            'xmlns="urn:def" exclude-result-prefixes="#default"',
+            '<out xmlns="urn:other"/>',
+            '<out xmlns="urn:other"/>',
+            id="default-redeclared-element",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            "<p:out/>",
+            '<p:out xmlns:p="urn:p"/>',
+            id="prefixed-element",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            "<out><p:x/></out>",
+            '<out><p:x xmlns:p="urn:p"/></out>',
+            id="prefixed-child",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            '<out xmlns:p="urn:p"><p:c/></out>',
+            '<out><p:c xmlns:p="urn:p"/></out>',
+            id="prefixed-child-of-redeclared-parent",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            '<out><p:c xsl:exclude-result-prefixes="p"/></out>',
+            '<out><p:c xmlns:p="urn:p"/></out>',
+            id="prefixed-child-with-literal-exclusion",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            '<p:out xmlns:p="urn:p" xsl:exclude-result-prefixes="p"/>',
+            '<p:out xmlns:p="urn:p"/>',
+            id="literal-exclusion-own-prefix",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            '<out p:a="1"/>',
+            '<out xmlns:p="urn:p" p:a="1"/>',
+            id="prefixed-attribute",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            '<p:out p:a="1"/>',
+            '<p:out xmlns:p="urn:p" p:a="1"/>',
+            id="prefixed-element-and-attribute",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" xmlns:pq="urn:pq" exclude-result-prefixes="p"',
+            '<out pq:a="1"/>',
+            '<out xmlns:pq="urn:pq" pq:a="1"/>',
+            id="unused-prefix-with-longer-attribute-prefix",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" xmlns:q="urn:q" exclude-result-prefixes="p"',
+            '<out q:a="1"/>',
+            '<out xmlns:q="urn:q" q:a="1"/>',
+            id="unused-prefix-with-same-length-attribute-prefix",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" exclude-result-prefixes="p"',
+            '<out a="1"/>',
+            '<out a="1"/>',
+            id="unprefixed-attribute",
+        ),
+        pytest.param(
+            'exclude-result-prefixes="xsl"',
+            '<out xsl:exclude-result-prefixes="p"/>',
+            "<out/>",
+            id="xslt-directive-does-not-keep-xslt-namespace",
+        ),
+        pytest.param(
+            'xmlns:q="urn:q" exclude-result-prefixes="#default q"',
+            "<out/>",
+            "<out/>",
+            id="unused-excluded-prefixes-dropped",
+        ),
+    ],
+)
+def test_transform_exclude_result_prefixes_keeps_used_declarations(declare: str, body: str, expected: str) -> None:
+    template = f'<xsl:template match="/">{body}</xsl:template>'
+    result = transform(_sheet(template, method="xml", declare=declare), turbohtml.parse_xml("<r/>"))
+    assert _collapse(result) == expected
 
 
 _XHTML_ROOT: Final[str] = (

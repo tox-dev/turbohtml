@@ -1,0 +1,2 @@
+Literal result elements keep the namespace declarations their own names and attributes need, even when
+``exclude-result-prefixes`` lists those prefixes.
