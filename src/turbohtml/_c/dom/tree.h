@@ -134,6 +134,9 @@ struct th_node {
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */
     uint8_t attr_values_shared;
+    /* Text node: log2 of the capacity the tree builder's insert_text grew the payload to, zero while the payload is
+       exact-sized; nothing reads it once the tree is built. */
+    uint8_t text_capacity_shift;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
