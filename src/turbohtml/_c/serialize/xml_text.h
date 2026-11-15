@@ -60,15 +60,20 @@ static inline int xml_text_stop(Py_UCS4 character, int in_attr) {
 #define C14N_TEXT_STOPS (0xFFFFF9FFULL | 1ULL << '&' | 1ULL << '<' | 1ULL << '>')
 #define C14N_ATTR_STOPS (0xFFFFFFFFULL | 1ULL << '"' | 1ULL << '&' | 1ULL << '<')
 
-/* The first c14n stop at or after index, or len. Every stop below the surrogates lies below `?`, so most code points
-   pass on the first compare alone, as in a scan for the markup characters only; past it a second compare leaves out
-   all but the code points XML forbids. */
+/* Whether a code point stops a c14n run. Every stop below the surrogates lies below `?`, so most code points pass on
+   the first compare alone, as in a scan for the markup characters only; past it a second compare leaves out all but
+   the code points XML forbids. */
+static inline int c14n_stop(Py_UCS4 character, uint64_t ascii_stops) {
+    if (character < 0x3F) {
+        return (int)((ascii_stops >> character) & 1u);
+    }
+    return character >= 0xD800 && xml_char_invalid(character);
+}
+
+/* The first c14n stop at or after index, or len. */
 static inline Py_ssize_t c14n_find_stop(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len, uint64_t ascii_stops) {
-    for (; index < len; index++) {
-        Py_UCS4 character = text[index];
-        if (character < 0x3F ? (ascii_stops >> character) & 1u : character >= 0xD800 && xml_char_invalid(character)) {
-            break;
-        }
+    while (index < len && !c14n_stop(text[index], ascii_stops)) {
+        index++;
     }
     return index;
 }

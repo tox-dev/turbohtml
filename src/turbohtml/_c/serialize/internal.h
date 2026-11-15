@@ -229,10 +229,9 @@ static inline Py_ssize_t sbuf_find_special(const Py_UCS4 *text, Py_ssize_t index
 /* A surrogate or U+FFFE/U+FFFF lane, tested on the 32-bit lanes because the saturating pack folds them together with
    every other code point at or above 0x8000. */
 static inline __m128i c14n_wide_invalid(__m128i lanes) {
-    __m128i surrogate = _mm_and_si128(_mm_cmpgt_epi32(lanes, _mm_set1_epi32(0xD7FF)),
-                                      _mm_cmplt_epi32(lanes, _mm_set1_epi32(0xE000)));
-    return _mm_or_si128(surrogate,
-                        _mm_cmpeq_epi32(_mm_or_si128(lanes, _mm_set1_epi32(1)), _mm_set1_epi32(0xFFFF)));
+    __m128i surrogate =
+        _mm_and_si128(_mm_cmpgt_epi32(lanes, _mm_set1_epi32(0xD7FF)), _mm_cmplt_epi32(lanes, _mm_set1_epi32(0xE000)));
+    return _mm_or_si128(surrogate, _mm_cmpeq_epi32(_mm_or_si128(lanes, _mm_set1_epi32(1)), _mm_set1_epi32(0xFFFF)));
 }
 
 /* The packed 16-bit lanes and mask layout of sbuf_block_special_bits. Tab and newline are flagged with the other
@@ -341,7 +340,7 @@ static inline Py_ssize_t c14n_find_text_stop(const Py_UCS4 *text, Py_ssize_t ind
                 continue;
             }
         }
-        if (c14n_find_stop(text, index, index + 1, C14N_TEXT_STOPS) == index) {
+        if (c14n_stop(text[index], C14N_TEXT_STOPS)) {
             return index;
         }
         index++;
