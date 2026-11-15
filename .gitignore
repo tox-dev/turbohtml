@@ -6,6 +6,8 @@ dist
 *.egg
 .eggs
 *.py[codz]
+*.py[codz].*
+__pycache__
 *$py.class
 *.so
 *.gcda
