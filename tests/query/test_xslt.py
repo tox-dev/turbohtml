@@ -3483,6 +3483,247 @@ def _deep_flat_copy(depth: int) -> Callable[[], object]:
     return partial(Transform(_sheet(body, method="xml")), source)
 
 
+_COPY_ELEMENT: Final[str] = '<xsl:template match="*"><xsl:copy/></xsl:template>'
+_IDENTITY: Final[str] = (
+    '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*|node()"/></xsl:copy></xsl:template>'
+)
+_COPY_PREFIXED: Final[str] = "<xsl:template match=\"*[name()='p:n']\"><xsl:copy/></xsl:template>"
+
+
+@pytest.mark.parametrize(
+    ("source", "body", "select", "declare", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:p="urn:p"><p:n/></r>', _COPY_PREFIXED, "r/*", "", '<p:n xmlns:p="urn:p"/>', id="prefixed-element"
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n/></r>', _COPY_ELEMENT, "r/*", "", '<n xmlns:p="urn:p"/>', id="unused-ancestor-prefix"
+        ),
+        pytest.param('<r><n xmlns:p="urn:p"/></r>', _COPY_ELEMENT, "r/*", "", '<n xmlns:p="urn:p"/>', id="own-prefix"),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n xmlns:p="urn:q"/></r>',
+            _COPY_ELEMENT,
+            "r/*",
+            "",
+            '<n xmlns:p="urn:q"/>',
+            id="redeclared-prefix",
+        ),
+        pytest.param(
+            '<r xmlns="urn:s"><n/></r>', _COPY_ELEMENT, "*/*", "", '<n xmlns="urn:s"/>', id="default-from-ancestor"
+        ),
+        pytest.param(
+            '<r xmlns="urn:s"><n xmlns=""/></r>', _COPY_ELEMENT, "r/*", "", "<n/>", id="empty-default-shadows"
+        ),
+        pytest.param(
+            '<r xmlns:xml="http://www.w3.org/XML/1998/namespace"><n/></r>',
+            _COPY_ELEMENT,
+            "r/*",
+            "",
+            "<n/>",
+            id="xml-prefix-declaration",
+        ),
+        pytest.param(
+            '<r xmlns:abc="urn:x"><n/></r>',
+            _COPY_ELEMENT,
+            "r/*",
+            "",
+            '<n xmlns:abc="urn:x"/>',
+            id="three-letter-prefix",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n><p:m/></n></r>',
+            _COPY_ELEMENT,
+            "r/*",
+            "",
+            '<n xmlns:p="urn:p"/>',
+            id="shallow-copy-leaves-children",
+        ),
+    ],
+)
+def test_transform_copy_carries_namespace_nodes(
+    source: str, body: str, select: str, declare: str, expected: str
+) -> None:
+    text = f'<xsl:template match="/"><xsl:apply-templates select="{select}"/></xsl:template>{body}'
+    assert transform(_sheet(text, method="xml", declare=declare), turbohtml.parse_xml(source)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "select", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:p="urn:p"><n><p:m/></n></r>',
+            "r/n",
+            '<n xmlns:p="urn:p"><p:m/></n>',
+            id="ancestor-prefix",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n p:a="1"/></r>',
+            "r/n",
+            '<n p:a="1" xmlns:p="urn:p"/>',
+            id="prefixed-attribute",
+        ),
+        pytest.param(
+            '<r><n xmlns:p="urn:p"/></r>',
+            "r/n",
+            '<n xmlns:p="urn:p"/>',
+            id="own-prefix-once",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n p:attribute="1"/></r>',
+            "r/n",
+            '<n p:attribute="1" xmlns:p="urn:p"/>',
+            id="long-prefixed-attribute",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n p:abc="1"/></r>',
+            "r/n",
+            '<n p:abc="1" xmlns:p="urn:p"/>',
+            id="five-letter-prefixed-attribute",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n>t</n></r>',
+            "r/n/text()",
+            "t",
+            id="text-node",
+        ),
+    ],
+)
+def test_transform_copy_of_carries_namespace_nodes(source: str, select: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:copy-of select="{select}"/></xsl:template>'
+    assert transform(_sheet(body, method="xml"), turbohtml.parse_xml(source)) == expected
+
+
+def test_transform_identity_keeps_namespace_declarations_once() -> None:
+    source = '<r xmlns="urn:s" xmlns:p="urn:p"><p:a><b/><p:c x="1"/></p:a></r>'
+    assert _run(source, _IDENTITY, method="xml") == source
+
+
+def test_transform_copy_under_copied_parent_binding_does_not_repeat_declaration() -> None:
+    body = (
+        f'<xsl:template match="r"><xsl:copy><xsl:apply-templates select="*"/></xsl:copy></xsl:template>{_COPY_PREFIXED}'
+    )
+    assert _run('<r xmlns:p="urn:p"><p:n/></r>', body, method="xml") == '<r xmlns:p="urn:p"><p:n/></r>'
+
+
+def test_transform_copy_under_literal_binding_same_uri_does_not_repeat_declaration() -> None:
+    body = (
+        '<xsl:template match="/"><x xmlns:p="urn:p"><xsl:apply-templates select="r/*"/></x></xsl:template>'
+        f"{_COPY_PREFIXED}"
+    )
+    assert _run('<r xmlns:p="urn:p"><p:n/></r>', body, method="xml") == '<x xmlns:p="urn:p"><p:n/></x>'
+
+
+def test_transform_copy_under_literal_binding_other_uri_declares_source_uri() -> None:
+    body = (
+        '<xsl:template match="/"><x xmlns:p="urn:other"><xsl:apply-templates select="r/*"/></x></xsl:template>'
+        f"{_COPY_PREFIXED}"
+    )
+    assert _run('<r xmlns:p="urn:p"><p:n/></r>', body, method="xml") == (
+        '<x xmlns:p="urn:other"><p:n xmlns:p="urn:p"/></x>'
+    )
+
+
+def test_transform_verbatim_copy_of_under_copied_parent_is_not_repeated() -> None:
+    body = '<xsl:template match="r"><xsl:copy><xsl:copy-of select="n"/></xsl:copy></xsl:template>'
+    assert _run('<r xmlns:p="urn:p"><n p:a="1"/></r>', body, method="xml") == ('<r xmlns:p="urn:p"><n p:a="1"/></r>')
+
+
+def test_transform_copy_from_outside_the_copied_parent_declares_once() -> None:
+    body = (
+        '<xsl:template match="r"><xsl:copy>'
+        "<xsl:apply-templates select=\"//*[name()='p:c']\"/></xsl:copy></xsl:template>"
+        "<xsl:template match=\"*[name()='p:c']\"><xsl:copy/></xsl:template>"
+    )
+    assert _run('<r xmlns:p="urn:p"><a><p:c/></a></r>', body, method="xml") == '<r xmlns:p="urn:p"><p:c/></r>'
+
+
+def test_transform_copy_nearest_default_namespace_wins() -> None:
+    body = (
+        '<xsl:template match="/"><out><xsl:for-each select="//*[local-name()=\'m\']"><xsl:copy/></xsl:for-each></out>'
+        "</xsl:template>"
+    )
+    assert _run('<r xmlns="urn:s"><n xmlns="urn:t"><m/></n></r>', body, method="xml") == (
+        '<out><m xmlns="urn:t"/></out>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '<r xmlns="urn:s"><n/></r>',
+            '<html xmlns="http://www.w3.org/1999/xhtml"><n xmlns="urn:s"/></html>',
+            id="namespaced-under-literal-default",
+        ),
+        pytest.param(
+            '<r xmlns="urn:s"><n xmlns=""/></r>',
+            '<html xmlns="http://www.w3.org/1999/xhtml"><n xmlns=""/></html>',
+            id="no-namespace-under-literal-default",
+        ),
+    ],
+)
+def test_transform_copy_default_namespace_under_literal_default(source: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><html xmlns="http://www.w3.org/1999/xhtml">'
+        '<xsl:apply-templates select="*/*"/></html></xsl:template>'
+        f"{_COPY_ELEMENT}"
+    )
+    assert _run(source, body, method="xml") == expected
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:variable name="v"><xsl:apply-templates select="r/*"/></xsl:variable>'
+            '<xsl:copy-of select="$v"/></xsl:template>',
+            '<p:n xmlns:p="urn:p"/>',
+            id="variable",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><out><xsl:element name="1x"><xsl:apply-templates select="r/*"/>'
+            "</xsl:element></out></xsl:template>",
+            '<out><p:n xmlns:p="urn:p"/></out>',
+            id="invalid-element-name",
+        ),
+    ],
+)
+def test_transform_copy_in_detached_content_keeps_declarations(body: str, expected: str) -> None:
+    sheet = _sheet(body + _COPY_PREFIXED, method="xml")
+    assert transform(sheet, turbohtml.parse_xml('<r xmlns:p="urn:p"><p:n/></r>')) == expected
+
+
+def test_transform_copy_in_attribute_value_contributes_its_string_value() -> None:
+    body = (
+        '<xsl:template match="/"><out><xsl:attribute name="a"><xsl:apply-templates select="r/*"/></xsl:attribute>'
+        "</out></xsl:template>"
+    )
+    sheet = _sheet(body + _COPY_PREFIXED, method="xml")
+    assert transform(sheet, turbohtml.parse_xml('<r xmlns:p="urn:p"><p:n>t</p:n></r>')) == '<out a=""/>'
+
+
+def test_transform_copy_under_prefixed_declaration_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_deep_prefixed_copy, (500, 2000))
+
+
+def _deep_prefixed_copy(depth: int) -> Callable[[], object]:
+    source = turbohtml.parse_xml(f'<r xmlns:p="urn:p">{"<e>" * depth}{"</e>" * depth}</r>')
+    body = (
+        '<xsl:template match="/"><html xmlns="http://www.w3.org/1999/xhtml">'
+        '<xsl:for-each select="//e"><xsl:copy/></xsl:for-each></html></xsl:template>'
+    )
+    return partial(Transform(_sheet(body, method="xml")), source)
+
+
+def test_transform_identity_under_redeclared_prefix_stays_linear(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(_deep_redeclared_identity, (25, 100))
+
+
+def _deep_redeclared_identity(depth: int) -> Callable[[], object]:
+    nested = '<a xmlns:p="urn:p">' * depth + "</a>" * depth
+    return partial(transform, _sheet(_IDENTITY, method="xml"), turbohtml.parse_xml(f'<r xmlns:p="urn:p">{nested}</r>'))
+
+
 def test_transform_namespace_dedup_skips_non_matching_ancestor_attributes() -> None:
     # The output parent carries an unrelated attribute and a same-length but different xmlns, so
     # scope lookup scans past both and the child still declares its own prefix.
