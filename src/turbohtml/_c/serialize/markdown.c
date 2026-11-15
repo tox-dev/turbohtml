@@ -292,6 +292,7 @@ typedef struct {
     sbuf out;
     th_tree *tree;
     const md_opts *opt;
+    void **ordinals;  /* the handle's md_ordinal_cache slot, for a root that is an ordered-list item */
     sbuf prefix;      /* what every continuation line starts with: list indent + "> " quotes */
     md_frame *frames; /* the elements being rendered, outermost first */
     md_frame *inline_frames;
@@ -3718,6 +3719,7 @@ static int md_is_item_wrapper(th_node *node) {
         return 0;
     }
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
         if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_LI) {
             return 1;
         }
@@ -4097,26 +4099,110 @@ static void md_leave_list(md_ctx *ctx, md_frame *frame) {
     }
 }
 
+/* Kept on the handle between to_markdown() calls, so converting a list item by item does not recount the list for each
+   item. An item maps to the complement of its number, which is never zero and so marks an absent node. The numbers read
+   the start and value attributes, so an attribute write drops the cache; a structural change drops it through
+   handle_drop_index. */
+typedef struct {
+    th_node_map map;
+    th_node_map wrappers; /* 1 where md_is_item_wrapper holds, 2 where it does not */
+    uint64_t attr_version;
+} md_ordinal_cache;
+
+void th_markdown_ordinals_free(void *ordinals) {
+    md_ordinal_cache *const cache = ordinals;
+    if (cache != NULL) {
+        PyMem_Free(cache->map.entries);
+        PyMem_Free(cache->wrappers.entries);
+        PyMem_Free(cache);
+    }
+}
+
+static md_ordinal_cache *md_ordinal_cache_get(md_ctx *ctx) {
+    md_ordinal_cache *cache = *ctx->ordinals;
+    if (cache != NULL && cache->attr_version != ctx->tree->attr_version) {
+        th_markdown_ordinals_free(cache);
+        *ctx->ordinals = cache = NULL;
+    }
+    if (cache == NULL) {
+        *ctx->ordinals = cache = PyMem_Calloc(1, sizeof(*cache));
+        if (cache == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        cache->attr_version = ctx->tree->attr_version;
+    }
+    return cache;
+}
+
+static int md_is_item(const th_node *node) {
+    return node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == TH_TAG_LI;
+}
+
+static int md_is_list_atom(uint16_t atom) {
+    return atom == TH_TAG_UL || atom == TH_TAG_OL || atom == TH_TAG_MENU;
+}
+
+/* Walk back from target over the items md_list_number_before counts for container, in the reverse of its order, to
+   the nearest one whose number map holds; NULL when no item before target has one. An item inside a list that scan
+   enters as a wrapper does not qualify: the scan counts it, but what map holds for it is its number in that list. */
+static th_node *md_numbered_item_before(const th_node_map *map, const th_node *container, th_node *target) {
+    th_node *node = target;
+    Py_ssize_t nested = 0; /* the lists among the wrappers the walk is inside */
+    for (;;) {
+        while (node->prev_sibling == NULL) {
+            node = node->parent;
+            if (node == container) {
+                return NULL;
+            }
+            nested -= md_is_list_atom(node->atom);
+        }
+        node = node->prev_sibling;
+        TH_WORK_STEP();
+        while (!md_is_item(node) && md_is_item_wrapper(node)) {
+            nested += md_is_list_atom(node->atom);
+            node = node->last_child;
+        }
+        if (nested == 0 && md_is_item(node) && th_node_map_find(map, node) != 0) {
+            return node;
+        }
+    }
+}
+
 /* Count the ordinals of the items before target, looking through item wrappers. The
-   caller found container by climbing from target through those wrappers, so the scan
-   reaches target before it runs out of container. */
-static void md_list_number_before(md_ctx *ctx, th_node *container, th_node *target, Py_ssize_t *number) {
-    th_node *parent = container;
-    th_node *child = container->first_child;
+   scan starts at from, an item before target whose number *number holds, or at the top
+   of container when from is NULL. The caller found container by climbing from target
+   through those wrappers, so the scan reaches target before it runs out of container.
+   With a map, each item passed after from enters it with the number before that item,
+   unless the scan is inside a list it entered as a wrapper: it counts those items, but
+   they number from their own list. Returns 0, or -1 when map cannot grow. */
+static int md_list_number_before(md_ctx *ctx, th_node *container, th_node *from, th_node *target, Py_ssize_t *number,
+                                 th_node_map *map) {
+    th_node *parent = from != NULL ? from->parent : container;
+    th_node *child = from != NULL ? from : container->first_child;
+    Py_ssize_t nested = 0; /* the lists among the wrappers the scan is inside */
     for (;;) {
         while (child == NULL) {
+            nested -= md_is_list_atom(parent->atom);
             child = parent->next_sibling;
             parent = parent->parent;
         }
         if (child == target) {
-            return;
+            return 0;
         }
-        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_LI) {
+        TH_WORK_STEP();
+        if (md_is_item(child)) {
+            if (map != NULL && nested == 0 && child != from) {
+                if (th_node_map_insert(map, child, ~*number) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                                      /* GCOVR_EXCL_LINE: allocation failure */
+                }
+            }
             *number = md_list_number_attr(ctx, child, "value", *number);
             if (*number < PY_SSIZE_T_MAX) {
                 (*number)++;
             }
         } else if (md_is_item_wrapper(child)) {
+            nested += md_is_list_atom(child->atom);
             parent = child;
             child = child->first_child;
             continue;
@@ -4125,21 +4211,62 @@ static void md_list_number_before(md_ctx *ctx, th_node *container, th_node *targ
     }
 }
 
+/* A number not yet known counts on from the nearest earlier item that has one, and the items passed on the way keep
+   theirs. The first item counted after a change keeps only its own, so one conversion does not pay for numbers nobody
+   asks for. */
+static Py_ssize_t md_root_item_number(md_ctx *ctx, md_ordinal_cache *cache, th_node *list, th_node *node) {
+    Py_ssize_t known = th_node_map_find(&cache->map, node);
+    if (known != 0) {
+        return ~known;
+    }
+    th_node_map *passed = cache->map.count > 0 ? &cache->map : NULL; /* where the items passed go, if anywhere */
+    th_node *from = passed != NULL ? md_numbered_item_before(passed, list, node) : NULL;
+    Py_ssize_t number = from != NULL ? ~th_node_map_find(passed, from) : md_list_number_attr(ctx, list, "start", 1);
+    int failed = md_list_number_before(ctx, list, from, node, &number, passed) < 0;
+    failed |= th_node_map_insert(&cache->map, node, ~number) < 0;
+    if (failed) {                         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_markdown_ordinals_free(cache); /* GCOVR_EXCL_LINE: allocation-failure path */
+        *ctx->ordinals = NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        ctx->out.failed = 1;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return number;
+}
+
+/* md_is_item_wrapper, remembered on the handle: the climb from an item asks each wrapper it passes, and a wrapper with
+   many children that are not items would otherwise be scanned once for every item behind it. */
+static int md_is_item_wrapper_cached(md_ctx *ctx, th_node *node) {
+    md_ordinal_cache *cache = md_ordinal_cache_get(ctx);
+    if (cache == NULL) {                 /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return md_is_item_wrapper(node); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t known = th_node_map_find(&cache->wrappers, node);
+    if (known != 0) {
+        return known == 1;
+    }
+    int wrapper = md_is_item_wrapper(node);
+    if (th_node_map_insert(&cache->wrappers, node, wrapper ? 1 : 2) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return wrapper;
+}
+
 static void md_render_root_item(md_ctx *ctx, th_node *node) {
     th_node *list = node->parent;
-    /* an item is never a wrapper, even around an item the parser foster-parented into it: the list
-       renders and counts that item and looks for none inside, so climbing through it would name a list
-       whose scan cannot reach node */
+    /* an item is never a wrapper, even around an item the parser foster-parented into it: the list renders and counts
+       that item and looks for none inside, so climbing through it would name a list whose scan cannot reach node.
+       The parent holds node, so it is a wrapper without a scan. */
     while (list != NULL && list->atom != TH_TAG_UL && list->atom != TH_TAG_OL && list->atom != TH_TAG_MENU &&
-           list->atom != TH_TAG_LI && md_is_item_wrapper(list)) {
+           list->atom != TH_TAG_LI &&
+           (list == node->parent ? list->ns == TH_NS_HTML : md_is_item_wrapper_cached(ctx, list))) {
         list = list->parent;
     }
     int in_list = list != NULL && list->ns == TH_NS_HTML &&
                   (list->atom == TH_TAG_UL || list->atom == TH_TAG_OL || list->atom == TH_TAG_MENU);
     int ordered = in_list && md_list_ordered(ctx, list);
-    Py_ssize_t number = ordered ? md_list_number_attr(ctx, list, "start", 1) : 1;
-    if (ordered) {
-        md_list_number_before(ctx, list, node, &number);
+    md_ordinal_cache *cache = ordered ? md_ordinal_cache_get(ctx) : NULL;
+    Py_ssize_t number = 1;
+    if (cache != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        number = md_root_item_number(ctx, cache, list, node);
     }
     Py_ssize_t depth = 0;
     for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
@@ -5284,12 +5411,13 @@ static int md_inherited_whitespace(md_ctx *ctx, th_node *node) {
     return TH_WS_NORMAL;
 }
 
-Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_ssize_t *out_len) {
+Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, void **ordinals, Py_ssize_t *out_len) {
     md_frame inline_frames[MD_INLINE_FRAMES];
     md_marker inline_markers[MD_INLINE_MARKERS];
     md_ctx ctx = {0};
     ctx.tree = tree;
     ctx.opt = opt;
+    ctx.ordinals = ordinals;
     ctx.frames = ctx.inline_frames = inline_frames;
     ctx.frame_cap = MD_INLINE_FRAMES;
     ctx.markers = ctx.inline_markers = inline_markers;

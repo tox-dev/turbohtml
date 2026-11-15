@@ -407,6 +407,19 @@ def test_ordered_range_facets_inherited(value: str, messages: list[str]) -> None
         pytest.param(r"[\w-[\d]]", "1", False, id="builtin-class-subtract-digit"),
         pytest.param(r"[\d-[0-9]]", "\u0660", True, id="unicode-digit-subtract-ascii"),
         pytest.param(r"[\d-[0-9]]", "1", False, id="ascii-digit-subtracted"),
+        pytest.param("[a-cb-d]", "d", True, id="class-overlapping-ranges-match-their-union"),
+        pytest.param("[a-cb-d]", "e", False, id="class-overlapping-ranges-reject-past-their-union"),
+        pytest.param("[a-bc-d]", "c", True, id="class-adjacent-ranges-join"),
+        pytest.param("[a-bd-e]", "c", False, id="class-ranges-with-a-gap-keep-the-gap"),
+        pytest.param("[a-zc-d]", "q", True, id="class-range-inside-a-wider-range"),
+        pytest.param("[za-c]", "b", True, id="class-members-out-of-order"),
+        pytest.param("[^a-cb-d]", "c", False, id="negated-class-overlapping-ranges-reject-the-union"),
+        pytest.param("[^a-cb-d]", "e", True, id="negated-class-overlapping-ranges-accept-past-the-union"),
+        pytest.param("[a-z-[b-dc-e]]", "a", True, id="class-subtract-overlapping-ranges-keeps-outside"),
+        pytest.param("[a-z-[b-dc-e]]", "c", False, id="class-subtract-overlapping-ranges-drops-inside"),
+        pytest.param(
+            r"[\p{IsBasicLatin}\P{IsBasicLatin}]", "中", True, id="complementary-blocks-cover-every-character"
+        ),
         pytest.param(r"\p{Lu}", "A", True, id="category-uppercase"),
         pytest.param(r"\p{Lu}", "a", False, id="category-uppercase-rejects-lowercase"),
         pytest.param(r"a\p{Lu}", "bA", False, id="category-with-mismatched-prefix"),
@@ -889,6 +902,25 @@ def test_regex_many_patterns_validate_in_linear_steps(work_steps: WorkSteps) -> 
         return validate
 
     work_steps.assert_linear(build, (150, 600))
+
+
+@pytest.mark.parametrize(
+    ("template", "value"),
+    [
+        pytest.param("[{}]*", "b", id="class"),
+        pytest.param("[^{}]*", "z", id="negated-class"),
+        pytest.param(r"[\w-[{}]]*", "z", id="class-subtracting-the-ranges"),
+        pytest.param(r"[\p{{Lu}}{}]*", "b", id="class-with-category"),
+    ],
+)
+def test_regex_class_of_many_ranges_matches_in_linear_steps(template: str, value: str, work_steps: WorkSteps) -> None:
+    def build(members: int) -> Callable[[], object]:
+        pattern: Final = template.format("a-c" * members)
+        schema: Final = XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+        document: Final = parse_xml(f"<v>{value * members}</v>")
+        return partial(schema.is_valid, document)
+
+    work_steps.assert_linear(build, (500, 2000))
 
 
 @pytest.mark.parametrize(

@@ -586,6 +586,13 @@ static inline th_node *rawtext_markup_child(const th_node *node) {
 void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *element, th_node *from, const th_serialize_opts *opts,
                             int strip_comments);
 
+/* Whether a reparse closes node where the tree does once its end tag is left out: the WHATWG optional-tag rule on the
+   tree as it stands, for the minifier and for the lossless serializer. formatting_depth counts the formatting elements
+   open around node, trailing_formatting says one lies on node's last-child path, quirks is the mode the output
+   reparses in. */
+int ser_end_tag_omissible(th_tree *tree, th_node *node, int strip_comments, int formatting_depth,
+                          int trailing_formatting, int quirks);
+
 /* The WHATWG fragment-serialization void set extends the parser's void elements
    with `frame`: it is emitted as a start tag only, never an end tag. `frame` is
    absent from is_void_atom because, unlike a true void element, it is a normal
