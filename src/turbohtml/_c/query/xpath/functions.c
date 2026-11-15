@@ -4,6 +4,7 @@
 #include "core/common.h"
 #include "core/hash.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "dom/tree.h"
 #include "query/xpath/internal.h"
 #include "query/xpath/regex.h"
@@ -12,6 +13,14 @@
 
 #include <math.h>
 #include <string.h>
+
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
 
 /* XPath 1.0 round(): the integer closest to the argument, ties resolved toward
    positive infinity (§4.4, so round(-2.5) is -2, not the -3 that C round() gives
@@ -728,6 +737,150 @@ static inline struct th_node *id_token_scan(const xp_id_token *slots, size_t mas
     return NULL;
 }
 
+/* How far a function that gathers the string-value of each member has read its node-set. */
+typedef struct {
+    xp_caches **caches;
+    const xp_nodeset *set;
+    Py_ssize_t budget;      /* the steps comparing positions may still walk, as many as a sort of the set may */
+    th_node *top;           /* the last member that no earlier member contains */
+    th_node *at;            /* how far the walk of top's subtree has come: the last member met, NULL before the first */
+    Py_ssize_t last;        /* the index of the last member the walk met */
+    Py_ssize_t reach;       /* how far past top's subtree to look for the next member before comparing positions */
+    Py_ssize_t settled;     /* once the set is ranked, the index of its first member out of place; 0 before */
+    int unordered;          /* a member came before the one ahead of it, so the walk cannot tell what the rest repeat */
+    Py_ssize_t repeated;    /* characters the members inside one another have repeated so far */
+    Py_ssize_t next;        /* the index of the first member the walk has not read */
+    const xp_nodeset *kept; /* the members whose text the caller kept, when it keeps only some */
+    Py_ssize_t kept_at;     /* how many of the kept members the walk has read */
+} xp_gather;
+
+/* Whether the member at index lies past the subtree of top, which the walk left at end: the place of the next member
+   of a set in document order that is not inside top; -1 with MemoryError. It is mostly a few nodes on, so look ahead
+   before comparing its position with that of the member before it, since that climbs from both. Looking as far as the
+   deepest climb keeps the cost of the two in step where the tree is deep and the members lie far apart. The
+   comparisons share the budget a sort of the set has, and once they spend it the set is ranked once, as the sort
+   does, which settles the rest. */
+static int gather_follows(xp_gather *seen, th_node *end, Py_ssize_t index) {
+    if (seen->settled > 0) {
+        return index < seen->settled;
+    }
+    th_node *node = seen->set->items[index].node;
+    th_node *ahead = preorder_next(end, NULL);
+    for (Py_ssize_t steps = 0; ahead != NULL && ahead != node && steps < seen->reach; steps++) {
+        TH_WORK_STEP();
+        ahead = preorder_next(ahead, NULL);
+    }
+    if (ahead == NULL || ahead == node) {
+        return ahead == node;
+    }
+    Py_ssize_t depth = 0;
+    for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
+        TH_WORK_STEP();
+        depth++;
+    }
+    if (depth > seen->reach) {
+        seen->reach = depth;
+    }
+    int order = xp_node_order(seen->caches, seen->set->items[seen->last].node, node, &seen->budget);
+    if (order != XP_ORDER_UNKNOWN) {
+        return order < 0;
+    }
+    seen->settled = xp_first_out_of_order(seen->caches, seen->set, seen->last);
+    if (seen->settled < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;           /* GCOVR_EXCL_LINE */
+    }
+    return index < seen->settled;
+}
+
+/* Whether an earlier member's string-value already holds the text of the member at index, as it does for a member
+   inside it; -1 with MemoryError. An element's string-value is the text of its whole subtree, so the values of nested
+   elements add up to the depth times the text, and the document chooses both: the callers charge what repeats to the
+   call's allowance. A node-set is in document order, so the members inside one follow it directly, and one walk of its
+   subtree, which reading its string-value makes as well, meets them all. The result of an extension function keeps the
+   order the function gave it; from the first member out of place on, every member counts as repeating. */
+static int gather_repeats(xp_gather *seen, Py_ssize_t index) {
+    if (seen->unordered) {
+        return 1;
+    }
+    xp_item item = seen->set->items[index];
+    if (item.attr != -1) {
+        return 0; /* no element's string-value holds an attribute or a namespace node */
+    }
+    th_node *end = seen->at;
+    while (seen->at != NULL && seen->at != item.node) {
+        TH_WORK_STEP();
+        end = seen->at;
+        seen->at = preorder_next(seen->at, seen->top);
+    }
+    if (seen->at != NULL) {
+        seen->last = index;
+        return item.node->type != TH_NODE_COMMENT; /* nor a comment */
+    }
+    int follows = end == NULL ? 1 : gather_follows(seen, end, index);
+    if (follows < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    if (!follows) {
+        seen->unordered = 1;
+        return 1;
+    }
+    seen->top = item.node;
+    seen->at = item.node;
+    seen->last = index;
+    return 0;
+}
+
+/* What one call may gather of the text its members repeat: 10 MiB, the ceiling the regex engine puts on its buffers.
+   The text that the members of a set do not share is no longer than the document, so a call holds at most that plus
+   the allowance. The allowance is per call and not per evaluation: the result is a string or a set of existing nodes,
+   never members for another gathering call, so calls cannot multiply one another, and a predicate that gathers a
+   little for each of many candidates frees it between them. */
+#define XP_GATHER_ALLOWANCE (((Py_ssize_t)10 << 20) / (Py_ssize_t)sizeof(Py_UCS4))
+
+/* Count len characters against the allowance when the member at index of set repeats text; -1 with ValueError past
+   it, or with MemoryError. A caller only starts once it holds more than the allowance in all, since members cannot
+   repeat more than the call holds, which keeps the walk off every call that gathers less, and from then on calls for
+   each member it keeps. The first of those calls passes start, which sets seen up, so the callers' loops neither set
+   it up nor test whether it is. The members up to index the walk has not read yet are read here first, each
+   repeating one charged its string-value; when kept is not NULL it lists the members whose text the caller kept,
+   ending with the one at index, as set:distinct keeps only the first of equal values, and only those are charged. */
+static TH_NOINLINE int charge_repeated(xp_gather *seen, xp_ctx *ctx, const xp_nodeset *set, const xp_nodeset *kept,
+                                       Py_ssize_t index, Py_ssize_t len, int start) {
+    if (start) {
+        *seen = (xp_gather){.caches = ctx->caches, .set = set, .budget = xp_order_budget(set->len), .kept = kept};
+    }
+    struct th_tree *tree = ctx->tree;
+    for (; seen->next <= index; seen->next++) {
+        xp_item item = seen->set->items[seen->next];
+        int counted = seen->kept == NULL || xp_item_equal(seen->kept->items[seen->kept_at], item);
+        seen->kept_at += counted; /* unread when kept is NULL */
+        int repeats = gather_repeats(seen, seen->next);
+        if (repeats < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;     /* GCOVR_EXCL_LINE */
+        }
+        if (!repeats || !counted) {
+            continue;
+        }
+        Py_ssize_t each = len;
+        if (seen->next < index) {
+            Py_UCS4 *text = item_string(tree, item, &each);
+            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;      /* GCOVR_EXCL_LINE */
+            }
+            PyMem_Free(text);
+        }
+        if (each > XP_GATHER_ALLOWANCE - seen->repeated) {
+            PyErr_Format(PyExc_ValueError,
+                         "xpath: node-set members inside one another repeat more than %zd characters (10 MiB) of text; "
+                         "select nodes that do not contain one another",
+                         XP_GATHER_ALLOWANCE);
+            return -1;
+        }
+        seen->repeated += each;
+    }
+    return 0;
+}
+
 /* id(object): the elements whose id attribute is one of the whitespace-separated
    tokens in the argument's string-value (a node-set argument contributes the
    string-value of each member). Out of line, so its lookup loop keeps its registers instead of sharing
@@ -739,6 +892,7 @@ static TH_NOINLINE int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     Py_ssize_t list_len = 0;
     size_t capacity = 0;
     if (arg->kind == XP_NODESET) {
+        xp_gather seen;
         for (Py_ssize_t index = 0; index < arg->nodes.len; index++) {
             Py_ssize_t each;
             Py_UCS4 *text = item_string(ctx->tree, arg->nodes.items[index], &each);
@@ -746,11 +900,19 @@ static TH_NOINLINE int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
                 PyMem_Free(list); /* GCOVR_EXCL_LINE */
                 return -1;        /* GCOVR_EXCL_LINE */
             }
-            const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
-            if ((size_t)each + 1 > limit - (size_t)list_len) { /* GCOVR_EXCL_BR_LINE: alloc */
-                PyMem_Free(text);                              /* GCOVR_EXCL_LINE */
-                PyMem_Free(list);                              /* GCOVR_EXCL_LINE */
-                return -1;                                     /* GCOVR_EXCL_LINE */
+            /* an overflow is past the allowance too, so the common short list checks once; >= counts the separator */
+            if (each >= XP_GATHER_ALLOWANCE - list_len) {
+                if (charge_repeated(&seen, ctx, &arg->nodes, NULL, index, each, list_len <= XP_GATHER_ALLOWANCE) < 0) {
+                    PyMem_Free(text);
+                    PyMem_Free(list);
+                    return -1;
+                }
+                const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
+                if ((size_t)each + 1 > limit - (size_t)list_len) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    PyMem_Free(text);                              /* GCOVR_EXCL_LINE */
+                    PyMem_Free(list);                              /* GCOVR_EXCL_LINE */
+                    return -1;                                     /* GCOVR_EXCL_LINE */
+                }
             }
             const size_t needed = (size_t)list_len + (size_t)each + 1;
             if (needed > capacity) {
@@ -964,7 +1126,8 @@ static int case_convert(struct th_tree *tree, xp_result *arg, int to_upper, xp_r
    separator -- the XPath-1.0-engine reading of fn:string-join, where a node-set is the
    sequence (antchfx does the same). A non-node-set first argument is the lone item, so
    its string-value passes through unseparated. */
-static int string_join(struct th_tree *tree, xp_result *args, xp_result *out) {
+static int string_join(xp_ctx *ctx, xp_result *args, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
     Py_ssize_t sep_len;
     Py_UCS4 *sep = to_string(tree, &args[1], &sep_len);
     if (sep == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -982,6 +1145,7 @@ static int string_join(struct th_tree *tree, xp_result *args, xp_result *out) {
     }
     int rc = 0;
     Py_ssize_t total = count > 0 ? sep_len * (count - 1) : 0;
+    xp_gather seen;
     for (Py_ssize_t index = 0; index < count; index++) {
         parts[index] = is_set ? item_string(tree, args[0].nodes.items[index], &lens[index])
                               : to_string(tree, &args[0], &lens[index]);
@@ -989,8 +1153,14 @@ static int string_join(struct th_tree *tree, xp_result *args, xp_result *out) {
             rc = -1;                /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         total += lens[index];
+        if (is_set && total > XP_GATHER_ALLOWANCE &&
+            charge_repeated(&seen, ctx, &args[0].nodes, NULL, index, lens[index],
+                            total - lens[index] <= XP_GATHER_ALLOWANCE) < 0) {
+            rc = -1;
+            break;
+        }
     }
-    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+    if (rc == 0) {
         Py_UCS4 *buf = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
         if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             rc = -1;       /* GCOVR_EXCL_LINE */
@@ -1114,8 +1284,10 @@ static int set_has_same_node(const xp_result *args, xp_result *out) {
     return 0;
 }
 
+static int concat_item_view(th_tree *tree, xp_item item, const Py_UCS4 **part, Py_ssize_t *len, Py_UCS4 **owned);
+
 /* set:distinct: the first member, in document order, of every distinct string-value. */
-static int set_distinct(struct th_tree *tree, const xp_result *arg, xp_result *out) {
+static int set_distinct(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
     memset(out, 0, sizeof(*out));
     out->kind = XP_NODESET;
     const xp_nodeset *nodes = &arg->nodes;
@@ -1129,16 +1301,22 @@ static int set_distinct(struct th_tree *tree, const xp_result *arg, xp_result *o
     if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;      /* GCOVR_EXCL_LINE: allocation failure */
     }
+    struct th_tree *tree = ctx->tree;
     int rc = 0;
+    xp_gather walk;
+    Py_ssize_t spare = XP_GATHER_ALLOWANCE;
     for (Py_ssize_t index = 0; index < nodes->len; index++) {
         Py_ssize_t candidate_len;
-        Py_UCS4 *candidate = item_string(tree, nodes->items[index], &candidate_len);
-        if (candidate == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-            rc = -1;             /* GCOVR_EXCL_LINE */
-            break;               /* GCOVR_EXCL_LINE */
+        Py_UCS4 *owned;
+        const Py_UCS4 *candidate;
+        /* GCOVR_EXCL_BR_START: allocation failure cannot be forced */
+        if (concat_item_view(tree, nodes->items[index], &candidate, &candidate_len, &owned) < 0) {
+            rc = -1; /* GCOVR_EXCL_LINE: allocation failure */
+            break;   /* GCOVR_EXCL_LINE: allocation failure */
         }
+        /* GCOVR_EXCL_BR_STOP */
         PyObject *text = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, candidate, candidate_len);
-        PyMem_Free(candidate);
+        PyMem_Free(owned);
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             rc = -1;        /* GCOVR_EXCL_LINE: allocation failure */
             break;          /* GCOVR_EXCL_LINE: allocation failure */
@@ -1155,12 +1333,19 @@ static int set_distinct(struct th_tree *tree, const xp_result *arg, xp_result *o
                 rc = -1;                                              /* GCOVR_EXCL_LINE */
                 break;                                                /* GCOVR_EXCL_LINE: allocation failure */
             } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+            /* the set keeps each distinct value until the end, so those of nested members add up as well */
+            spare -= candidate_len;
+            if (spare < 0 &&
+                charge_repeated(&walk, ctx, nodes, &out->nodes, index, candidate_len, spare + candidate_len >= 0) < 0) {
+                rc = -1;
+                break;
+            }
         }
     }
     Py_DECREF(seen);
-    if (rc < 0) {                     /* GCOVR_EXCL_BR_LINE: alloc */
-        xp_nodeset_free(&out->nodes); /* GCOVR_EXCL_LINE */
-    } /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+    if (rc < 0) {
+        xp_nodeset_free(&out->nodes);
+    }
     return rc;
 }
 
@@ -1237,11 +1422,13 @@ static int concat_item_view(th_tree *tree, xp_item item, const Py_UCS4 **part, P
 }
 
 /* str:concat(node-set): the string-values of every member joined in document order. */
-static int str_concat(struct th_tree *tree, const xp_result *arg, xp_result *out) {
+static int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
     const xp_nodeset *nodes = &arg->nodes;
     Py_UCS4 *buf = NULL;
     Py_ssize_t total = 0;
     size_t capacity = 0;
+    xp_gather seen;
     for (Py_ssize_t index = 0; index < nodes->len; index++) {
         Py_ssize_t part_len;
         Py_UCS4 *owned;
@@ -1250,11 +1437,19 @@ static int str_concat(struct th_tree *tree, const xp_result *arg, xp_result *out
             PyMem_Free(buf);                                                             /* GCOVR_EXCL_LINE */
             return -1;                                                                   /* GCOVR_EXCL_LINE */
         }
-        const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
-        if ((size_t)part_len > limit - (size_t)total) { /* GCOVR_EXCL_BR_LINE: alloc */
-            PyMem_Free(owned);                          /* GCOVR_EXCL_LINE */
-            PyMem_Free(buf);                            /* GCOVR_EXCL_LINE */
-            return -1;                                  /* GCOVR_EXCL_LINE */
+        /* an overflow is past the allowance too, so the common short total checks once */
+        if (part_len > XP_GATHER_ALLOWANCE - total) {
+            if (charge_repeated(&seen, ctx, nodes, NULL, index, part_len, total <= XP_GATHER_ALLOWANCE) < 0) {
+                PyMem_Free(owned);
+                PyMem_Free(buf);
+                return -1;
+            }
+            const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
+            if ((size_t)part_len > limit - (size_t)total) { /* GCOVR_EXCL_BR_LINE: alloc */
+                PyMem_Free(owned);                          /* GCOVR_EXCL_LINE */
+                PyMem_Free(buf);                            /* GCOVR_EXCL_LINE */
+                return -1;                                  /* GCOVR_EXCL_LINE */
+            }
         }
         const size_t needed = (size_t)total + (size_t)part_len;
         if (needed > capacity) {
@@ -1292,8 +1487,9 @@ static int str_concat(struct th_tree *tree, const xp_result *arg, xp_result *out
 
 /* str:replace(string, search, replace): every non-overlapping literal occurrence of
    `search` in `string` swapped for `replace`. An empty `search` leaves the input
-   untouched (no zero-width match loop). */
-static int str_replace(struct th_tree *tree, const xp_result *args, xp_result *out) {
+   untouched (no zero-width match loop). Out of line, so its match loop keeps its own registers: inlined, it shares
+   them with all of eval_function and moves a pointer to the stack whenever another function there changes. */
+static TH_NOINLINE int str_replace(struct th_tree *tree, const xp_result *args, xp_result *out) {
     Py_ssize_t src_len;
     Py_ssize_t search_len;
     Py_ssize_t repl_len;
@@ -1895,14 +2091,14 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             *ctx->feature = "set:distinct on a non-node-set";
             rc = -4;
         } else if ((rc = xp_before_python(ctx)) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            rc = set_distinct(ctx->tree, &args[0], out);
+            rc = set_distinct(ctx, &args[0], out);
         }
     } else if (func_is(fn, "str:concat")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "str:concat on a non-node-set";
             rc = -4;
         } else {
-            rc = str_concat(ctx->tree, &args[0], out);
+            rc = str_concat(ctx, &args[0], out);
         }
     } else if (func_is(fn, "str:replace")) {
         rc = str_replace(ctx->tree, args, out);
@@ -2005,7 +2201,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         PyMem_Free(hay);
         PyMem_Free(needle);
     } else if (func_is(fn, "string-join")) {
-        rc = string_join(ctx->tree, args, out);
+        rc = string_join(ctx, args, out);
     } else if (func_is(fn, "lower-case") || func_is(fn, "upper-case")) {
         if ((rc = xp_before_python(ctx)) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             rc = case_convert(ctx->tree, &args[0], func_is(fn, "upper-case"), out);
