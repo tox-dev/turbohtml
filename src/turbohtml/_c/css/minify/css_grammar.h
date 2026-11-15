@@ -2018,6 +2018,16 @@ static int css_joins_comment_delim(const css_char *out, Py_ssize_t out_len, cons
     return len > 2 && text[0] == '!' && text[1] == '-' && text[2] == '-' && last == '<';
 }
 
+/* Whether text opens with an ident followed by `(`, or with `(`: written straight after a name, that `(` makes the two
+   one function token (CSS Syntax 3 §4.3.4). */
+static int css_opens_function(const css_char *text, Py_ssize_t len) {
+    Py_ssize_t pos = 0;
+    while (pos < len && css_is_ident(text[pos])) {
+        pos++;
+    }
+    return pos < len && text[pos] == '(';
+}
+
 /* Write the separator stray text needs after the node or stray text before it. Kept out of line: only stray text
    reaches it. */
 CSS_NOINLINE static void css_join_stray(css_buf *out, int prev_stray, const css_char *text, Py_ssize_t text_len) {
@@ -2027,10 +2037,13 @@ CSS_NOINLINE static void css_join_stray(css_buf *out, int prev_stray, const css_
     }
     if ((prev_stray && css_joins_comment_delim(out->data, out->len, text, text_len)) ||
         ((prev_stray || css_join_respells(out->data, out->len, text, text_len)) &&
-         css_would_merge_escaped(out->data, out->len, css_ends_in_name(out->data, out->len), text, text_len))) {
+         css_would_merge_escaped(out->data, out->len, css_ends_in_name(out->data, out->len), text, text_len)) ||
+        ((css_ends_in_name(out->data, out->len) || css_is_ident(out->data[out->len - 1])) &&
+         css_opens_function(text, text_len))) {
         /* nothing separates a node from the stray text before it, and the next pass reads the two as one stray text:
            a token the two would form there gets spelled as a whole. After an at-statement the two join the same way,
-           which keeps the joined name's spelling unless css_join_respells changes it */
+           which keeps the joined name's spelling unless css_join_respells changes it. A name joined to a `(` is spaced
+           too: the two form a function token, which takes in the text after it */
         cbuf_putc(out, ' ');
     }
 }

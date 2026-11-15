@@ -2757,6 +2757,58 @@ def test_minify_css_stray_top_delimiter_is_a_fixed_point(source: str, expected: 
     assert minify_css(minify_css(source)) == expected
 
 
+# A stray bracket, or an ident the input wrote apart from a `(`, must come out of the first pass in the form a second
+# pass keeps. A name that opens a block is no declaration (CSS Syntax 3 §5.4.5), and an ident joined to a `(` makes a
+# function token that takes in the text after it. The sheet column is a stylesheet's output, the inline column a
+# style="" value's.
+_STRAY_BRACKET: Final[list[pytest.ParameterSet]] = [
+    pytest.param("(:);", "(:)", "", id="paren-name-semicolon"),
+    pytest.param("(:)", "(:)", "", id="paren-name"),
+    pytest.param("[:];", "[:]", "", id="bracket-name-semicolon"),
+    pytest.param("[:]}", "[:]", "", id="bracket-name-before-brace"),
+    pytest.param("(url:);", "(url:)", "", id="paren-name-with-ident"),
+    pytest.param("(:)url;", "(:)url", "", id="paren-name-then-ident"),
+    pytest.param("(:);(", "(:)(", "", id="paren-name-then-open-paren"),
+    pytest.param("zoom(:1);color:red", "zoom(:1)color:red", "color:red", id="function-name"),
+    pytest.param("a{(:);b:c}", "a{b:c}", "a{b:c}", id="paren-name-in-rule"),
+    pytest.param("a{b:c;(:)}", "a{b:c}", "a{b:c}", id="paren-name-last-in-rule"),
+    pytest.param("a{*(:);b:c}", "a{b:c}", "a{b:c}", id="star-paren-name"),
+    pytest.param("*zoom:1px", "*zoom:1px", "*zoom:1px", id="star-hack-kept"),
+    pytest.param("url;(", "url (", "", id="ident-then-open-paren"),
+    pytest.param("url}(", "url (", "", id="ident-then-open-paren-after-brace"),
+    pytest.param("url;[", "url[", "", id="ident-then-open-bracket"),
+    pytest.param("a:b;(", "a:b (", "a:b", id="declaration-then-open-paren"),
+    pytest.param("b;@b ur;l(", "b@b ur l(", "@b ur", id="ident-after-at-statement-then-function"),
+    pytest.param("x;@a b;c(", "x@a b c(", "@a b", id="ident-after-at-statement-then-open-paren"),
+    pytest.param("a{b:calc(calc(1", "a{b:1}", "a{b:1}", id="nested-calc-open-at-eof"),
+    pytest.param("a{b:calc((1", "a{b:1}", "a{b:1}", id="nested-paren-calc-open-at-eof"),
+    pytest.param("a{b:(<!--\\2d", "a{b:(<!--\\2d )}", "a{b:(<!--\\2d )}", id="hex-escape-before-closer"),
+    pytest.param("a{b:[<!--\\2d", "a{b:[<!--\\2d ]}", "a{b:[<!--\\2d ]}", id="hex-escape-before-bracket-closer"),
+    pytest.param("a:(<!--\\2d", "a:(<!--\\2d", "a:(<!--\\2d )", id="declaration-hex-escape-before-closer"),
+]
+
+
+@pytest.mark.parametrize(("source", "stylesheet", "inline"), _STRAY_BRACKET)
+def test_minify_stray_bracket(source: str, stylesheet: str, inline: str) -> None:
+    assert (minify_css(source), minify_css_inline(source)) == (stylesheet, inline)
+
+
+@pytest.mark.parametrize(("source", "stylesheet", "inline"), _STRAY_BRACKET)
+def test_minify_stray_bracket_is_a_fixed_point(source: str, stylesheet: str, inline: str) -> None:
+    assert (minify_css(minify_css(source)), minify_css_inline(minify_css_inline(source))) == (stylesheet, inline)
+
+
+@pytest.mark.parametrize("seed", range(2000))
+def test_minify_stray_bracket_output_is_a_fixed_point(seed: int) -> None:
+    segments = ("(:)", "[:]", "(", "[", "{", ")", "]", "}", "url", "b", ":", ";", " ", "(:", "url(", "ur", "l(", "(;")
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    source = "".join(rng.choice(segments) for _ in range(rng.randint(1, 6)))
+    stylesheet = minify_css(source)
+    inline = minify_css_inline(source)
+    assert minify_css(stylesheet) == stylesheet
+    assert minify_css_inline(inline) == inline
+
+
 # The sheet's top level decides which at-statements a browser honors (CSS Syntax 3 §5.4.1): a `}` there closes nothing,
 # so a statement reads on to `;` or a block; `<!--` and `-->` are skipped; and @import, @namespace and @charset count
 # only ahead of every other valid rule, so a rule that minifies away keeps its place in front of one. A name spelled

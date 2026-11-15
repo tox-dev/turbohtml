@@ -1,0 +1,2 @@
+Minifying CSS with stray brackets now gives the same output on a second pass, drops declarations whose name holds a
+bracket, and folds a nested ``calc()`` left open at the end.
