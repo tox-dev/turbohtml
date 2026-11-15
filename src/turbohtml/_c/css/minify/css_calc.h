@@ -684,7 +684,8 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
         }
         /* a lone '-' tokenizes as an identifier, never a delim, so only '+' appears as a delim operator here */
         if (!is_var && keep_ws && token->kind == CSS_DELIM && token->delim == '+') {
-            if (out->len > 0 && out->data[out->len - 1] != ' ') {
+            if (out->len > 0 &&
+                (out->data[out->len - 1] != ' ' || (vec->escapes && css_ends_in_escape(out->data, out->len)))) {
                 cbuf_putc(out, ' ');
             }
             cbuf_putc(out, token->delim);

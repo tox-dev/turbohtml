@@ -1043,6 +1043,49 @@ def test_minify_css_inline_url_escaped_whitespace_kept() -> None:
     assert minify_css_inline(source) == source
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(r"a{b:f(c\, url(x))}", r"a{b:f(c\, url(x))}", id="function-escaped-comma"),
+        pytest.param(r"a{b:f(c\( url(x))}", r"a{b:f(c\( url(x))}", id="function-escaped-paren"),
+        pytest.param(r"a{b:f(1c\,/**/d)}", r"a{b:f(1c\, d)}", id="function-escaped-comma-then-comment"),
+        pytest.param(r"a{b:f(c\,+0)}", r"a{b:f(c\, 0)}", id="function-escaped-comma-then-short-number"),
+        pytest.param(r"a{b:calc(c\  + 1px)}", r"a{b:calc(c\  + 1px)}", id="calc-escaped-space-then-operator"),
+        pytest.param(r"a{b:calc(\31  + 1px)}", r"a{b:calc(\31  + 1px)}", id="calc-hex-escape-space-then-operator"),
+        pytest.param(
+            r"a{b:calc(1em +  + 2px) \31 x}", r"a{b:calc(1em + + 2px)\31x}", id="calc-operator-after-operator"
+        ),
+        pytest.param(r"a{b:f(c\\, d)}", r"a{b:f(c\\,d)}", id="function-comma-after-escaped-backslash"),
+        pytest.param(r"a{b:@c\, url(x)}", r"a{b:@c\, url(x)}", id="value-at-keyword-escaped-comma"),
+        pytest.param(r"a{--b:1c\,/**/url(x)}", r"a{--b:1c\,/**/url(x)}", id="custom-property-escaped-comma"),
+        pytest.param(r"a{filter:@c\, d}", r"a{filter:@c\, d}", id="filter-at-keyword-escaped-comma"),
+        pytest.param(r"a{filter:drop-shadow(1c\, d)}", r"a{filter:drop-shadow(1c\, d)}", id="filter-escaped-comma"),
+        pytest.param(r"a\> b{c:d}", r"a\> b{c:d}", id="selector-escaped-combinator"),
+        pytest.param(r"a\( url(x){c:d}", r"a\( url(x){c:d}", id="selector-escaped-paren"),
+        pytest.param(r"[a\= b]{c:d}", r"[a\= b]{c:d}", id="attribute-selector-escaped-matcher"),
+        pytest.param(r"#a\,/**/b{c:d}", r"#a\,/**/b{c:d}", id="selector-escaped-comma-then-comment"),
+        pytest.param(r"a\\> b{c:d}", r"a\\>b{c:d}", id="selector-combinator-after-escaped-backslash"),
+        pytest.param(r"@media a\, url(x){b{c:d}}", r"@media a\, url(x){b{c:d}}", id="prelude-escaped-comma-then-url"),
+        pytest.param(r"@media a\, (b){c{d:e}}", r"@media a\, (b){c{d:e}}", id="prelude-escaped-comma-then-paren"),
+        pytest.param(r"@media a\: b{c{d:e}}", r"@media a\: b{c{d:e}}", id="prelude-escaped-colon"),
+        pytest.param(r"@media a\,+0{c{d:e}}", r"@media a\, 0{c{d:e}}", id="prelude-escaped-comma-then-short-number"),
+        pytest.param(r"@media a\) and (b){c{d:e}}", r"@media a\) and (b){c{d:e}}", id="prelude-escaped-close-paren"),
+    ],
+)
+def test_minify_css_escaped_delimiter_ends_a_name(source: str, expected: str) -> None:
+    # an escaped delimiter is a name's last code point, not the delimiter: the space or comment after it still keeps
+    # the next token out of the name (`c\, url(x)` glued is the function `c\,url(`)
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
+def test_minify_css_inline_escaped_delimiter_keeps_url_token() -> None:
+    # glued to `a\,`, `url(` would name a function `a\,url(`, whose `/*` opens a comment that swallows the next string's
+    # opening quote and leaves the rest of that string as declarations
+    source: Final = r'b:f(a\, url(x/*));c:"*/));d:e;y:"'
+    assert minify_css_inline(source) == source
+
+
 _ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\7b x}", "a{e:\\{x}", id="leading-brace"),
     pytest.param("a{e:\\fec0}", "a{e:\ufec0}", id="non-bom-final-byte"),
