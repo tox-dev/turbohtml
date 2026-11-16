@@ -612,7 +612,7 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
 static void css_put_folded(css_buf *out, const css_char *text, Py_ssize_t len, token_vec *vec, Py_ssize_t next,
                            Py_ssize_t end) {
     if (out->len > 0 && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' &&
-        css_would_merge(out->data[out->len - 1], 0, text, len)) {
+        css_would_merge_after(vec->escapes, out->data, out->len, 0, text, len)) {
         cbuf_putc(out, ' ');
     }
     cbuf_put_run(out, text, len);
@@ -620,8 +620,7 @@ static void css_put_folded(css_buf *out, const css_char *text, Py_ssize_t len, t
         return;
     }
     const css_token *token = &vec->items[next];
-    if ((token->kind == CSS_IDENT || token->kind == CSS_URL || token->kind == CSS_URANGE || token->kind == CSS_DELIM) &&
-        css_would_merge(text[len - 1], 0, token->text, token->text_len)) {
+    if (css_would_merge_after(vec->escapes, text, len, 0, token->text, token->text_len)) {
         cbuf_putc(out, ' ');
     }
 }
