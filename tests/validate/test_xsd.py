@@ -220,6 +220,39 @@ def test_builtin_date_calendar_day(type_name: str, value: str, *, valid: bool) -
         pytest.param('<xs:fractionDigits value="1"/>', "xs:decimal", "1.23", False, id="fractionDigits-bad"),
         pytest.param('<xs:fractionDigits value="2"/>', "xs:decimal", "1.2", True, id="fractionDigits-ok"),
         pytest.param('<xs:whiteSpace value="collapse"/>', "xs:string", "  a  ", True, id="whiteSpace-collapse"),
+        pytest.param(
+            '<xs:maxLength value="9007199254740993"/>', "xs:string", "abc", True, id="maxLength-beyond-double"
+        ),
+        pytest.param(
+            '<xs:minLength value="9007199254740993"/>', "xs:string", "abc", False, id="minLength-beyond-double"
+        ),
+        pytest.param('<xs:length value="4294967299"/>', "xs:string", "abc", False, id="length-beyond-int"),
+        pytest.param(
+            '<xs:maxLength value="99999999999999999999"/>', "xs:string", "abc", True, id="maxLength-beyond-ssize"
+        ),
+        pytest.param(
+            '<xs:minLength value="-99999999999999999999"/>',
+            "xs:string",
+            "abc",
+            True,
+            id="minLength-negative-beyond-ssize",
+        ),
+        pytest.param('<xs:maxLength value=" 3 "/>', "xs:string", "abc", True, id="maxLength-surrounded-by-space"),
+        pytest.param('<xs:maxLength value="+3"/>', "xs:string", "abc", True, id="maxLength-plus-sign"),
+        pytest.param('<xs:maxLength value="3.7"/>', "xs:string", "abcd", False, id="maxLength-fraction-ignored"),
+        pytest.param('<xs:maxLength value="abcd"/>', "xs:string", "ab", False, id="maxLength-not-a-number"),
+        pytest.param('<xs:maxLength value="   "/>', "xs:string", "abc", False, id="maxLength-blank-reads-zero"),
+        pytest.param('<xs:minLength value="-1"/>', "xs:string", "", True, id="minLength-negative"),
+        pytest.param(
+            '<xs:totalDigits value="9007199254740993"/>', "xs:decimal", "1" * 20, True, id="totalDigits-beyond-double"
+        ),
+        pytest.param(
+            '<xs:fractionDigits value="9007199254740993"/>',
+            "xs:decimal",
+            "1.5",
+            True,
+            id="fractionDigits-beyond-double",
+        ),
     ],
 )
 def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site

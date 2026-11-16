@@ -1,0 +1,1 @@
+XSD length, minLength, maxLength, totalDigits and fractionDigits facets now apply their limits exactly, where large limits used to be distorted.

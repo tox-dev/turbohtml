@@ -1127,16 +1127,15 @@ typedef struct {
 typedef struct {
     int base_id;
     int ws;
-    int has_length, length;
-    int has_min_length, min_length;
-    int has_max_length, max_length;
+    int has_length, has_min_length, has_max_length;
+    Py_ssize_t length, min_length, max_length;
     int has_min_inclusive, has_max_inclusive, has_min_exclusive, has_max_exclusive;
     double min_inclusive, max_inclusive, min_exclusive, max_exclusive;
     /* the bounds as the schema wrote them, by RANGE_ slot: a date's, time's or duration's order is not a double's.
        Held in the arena so the facetset that every simple value zeroes stays small. */
     strspan *range_text;
-    int has_total_digits, total_digits;
-    int has_fraction_digits, fraction_digits;
+    int has_total_digits, has_fraction_digits;
+    Py_ssize_t total_digits, fraction_digits;
     strspan *enums;
     Py_ssize_t enum_count, enum_cap;
     strspan *patterns;
@@ -1181,6 +1180,25 @@ static int facet_range_text(arena *mem, facetset *facets, int slot, const Py_UCS
     return 0;
 }
 
+/* A length or digit-count limit, read as the integer it starts with. A limit past Py_ssize_t saturates: no value has
+   that many characters or digits, so the verdict is unchanged. */
+static Py_ssize_t facet_limit(const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t index = 0;
+    while (index < len && is_xml_space(value[index])) {
+        index++;
+    }
+    const int negative = index < len && value[index] == '-';
+    if (index < len && (value[index] == '+' || value[index] == '-')) {
+        index++;
+    }
+    Py_ssize_t limit = 0;
+    while (index < len && is_digit(value[index])) {
+        const Py_ssize_t digit = value[index++] - '0';
+        limit = limit > (PY_SSIZE_T_MAX - digit) / 10 ? PY_SSIZE_T_MAX : limit * 10 + digit;
+    }
+    return negative ? -limit : limit;
+}
+
 /* Fold one facet (name, value) into the set. */
 static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len) {
@@ -1194,13 +1212,13 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
         facets->ws = u_eq_ascii(value, value_len, "replace") ? 1 : (u_eq_ascii(value, value_len, "collapse") ? 2 : 0);
     } else if (u_eq_ascii(name, name_len, "length")) {
         facets->has_length = 1;
-        facets->length = (int)dt_to_double(mem, value, value_len);
+        facets->length = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "minLength")) {
         facets->has_min_length = 1;
-        facets->min_length = (int)dt_to_double(mem, value, value_len);
+        facets->min_length = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "maxLength")) {
         facets->has_max_length = 1;
-        facets->max_length = (int)dt_to_double(mem, value, value_len);
+        facets->max_length = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "minInclusive")) {
         if (facet_range_text(mem, facets, RANGE_MIN_INCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1;                                                                  /* GCOVR_EXCL_LINE */
@@ -1227,10 +1245,10 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
         facets->max_exclusive = dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "totalDigits")) {
         facets->has_total_digits = 1;
-        facets->total_digits = (int)dt_to_double(mem, value, value_len);
+        facets->total_digits = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "fractionDigits")) {
         facets->has_fraction_digits = 1;
-        facets->fraction_digits = (int)dt_to_double(mem, value, value_len);
+        facets->fraction_digits = facet_limit(value, value_len);
     }
     return 0;
 }
@@ -1297,7 +1315,7 @@ static int facet_bound_ok(int id, const Py_UCS4 *value, Py_ssize_t len, strspan 
     return order == side || (inclusive && order == 0);
 }
 
-static void count_digits(const Py_UCS4 *value, Py_ssize_t len, int *total, int *fraction) {
+static void count_digits(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *total, Py_ssize_t *fraction) {
     *total = 0;
     *fraction = 0;
     int after_point = 0;
@@ -1330,15 +1348,15 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
                        const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t units) {
     int ok = 1;
     if (facets->has_length && units != facets->length) {
-        report(ctx, node, "facet", "value length %zd does not equal length facet %d", units, facets->length);
+        report(ctx, node, "facet", "value length %zd does not equal length facet %zd", units, facets->length);
         ok = 0;
     }
     if (facets->has_min_length && units < facets->min_length) {
-        report(ctx, node, "facet", "value length %zd is below minLength %d", units, facets->min_length);
+        report(ctx, node, "facet", "value length %zd is below minLength %zd", units, facets->min_length);
         ok = 0;
     }
     if (facets->has_max_length && units > facets->max_length) {
-        report(ctx, node, "facet", "value length %zd exceeds maxLength %d", units, facets->max_length);
+        report(ctx, node, "facet", "value length %zd exceeds maxLength %zd", units, facets->max_length);
         ok = 0;
     }
     if (dt_is_numeric(facets->base_id) && (facets->has_min_inclusive || facets->has_max_inclusive ||
@@ -1385,14 +1403,14 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
         }
     }
     if (facets->has_total_digits || facets->has_fraction_digits) {
-        int total, fraction;
+        Py_ssize_t total, fraction;
         count_digits(value, len, &total, &fraction);
         if (facets->has_total_digits && total > facets->total_digits) {
-            report(ctx, node, "facet", "value has more than totalDigits %d significant digits", facets->total_digits);
+            report(ctx, node, "facet", "value has more than totalDigits %zd significant digits", facets->total_digits);
             ok = 0;
         }
         if (facets->has_fraction_digits && fraction > facets->fraction_digits) {
-            report(ctx, node, "facet", "value has more than fractionDigits %d fraction digits",
+            report(ctx, node, "facet", "value has more than fractionDigits %zd fraction digits",
                    facets->fraction_digits);
             ok = 0;
         }
