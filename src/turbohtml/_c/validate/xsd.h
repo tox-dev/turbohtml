@@ -1322,6 +1322,11 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
             return -1;
         }
     } else if (kind == XSD_GROUP) {
+        Py_ssize_t ref_len = 0;
+        if (node->parent != schema->root && xsd_attr(schema->tree, node, "ref", &ref_len) == NULL) {
+            PyErr_SetString(PyExc_ValueError, "a group in a content model must have a ref attribute");
+            return -1;
+        }
         if (xsd_require_ref(schema, node, &schema->groups, "group") < 0) {
             return -1;
         }

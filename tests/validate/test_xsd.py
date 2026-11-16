@@ -2203,13 +2203,6 @@ def test_named_group_model_occurs_raises(model: str, compositor: str) -> None:
         XMLSchema(schema)
 
 
-def test_unnamed_group_model_occurs_raises() -> None:
-    schema = _type_schema('<xs:group><xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence></xs:group>')
-    message = "xs:sequence in an xs:group cannot declare minOccurs or maxOccurs"
-    with pytest.raises(ValueError, match=f"^{message}; set them on the xs:group reference$"):
-        XMLSchema(schema)
-
-
 def test_named_group_nested_particle_occurs_compiles() -> None:
     schema = (
         f'<xs:schema {_XS}><xs:group name="g"><xs:sequence>'
@@ -3787,28 +3780,42 @@ def test_xsd_attribute_group_without_ref_is_skipped() -> None:
 
 
 @pytest.mark.parametrize(
-    ("model", "xml", "ok"),
+    "model",
     [
-        pytest.param("<xs:sequence><xs:group/></xs:sequence>", "<r/>", False, id="sequence"),
-        pytest.param("<xs:group/>", "<r/>", False, id="content-model"),
-        pytest.param('<xs:group name="g"/>', "<r/>", False, id="misplaced-definition"),
+        pytest.param("<xs:sequence><xs:group/></xs:sequence>", id="sequence"),
+        pytest.param("<xs:group/>", id="content-model"),
+        pytest.param('<xs:group name="g"/>', id="misplaced-definition"),
         pytest.param(
             '<xs:sequence><xs:group minOccurs="0"/><xs:element name="a" type="xs:int"/></xs:sequence>',
-            "<r><a>1</a></r>",
-            True,
             id="optional",
         ),
         pytest.param(
             '<xs:choice><xs:group/><xs:element name="a" type="xs:int"/></xs:choice>',
-            "<r><a>1</a></r>",
-            True,
             id="choice-sibling",
+        ),
+        pytest.param('<xs:sequence><xs:group name="h"/></xs:sequence>', id="named-reference"),
+        pytest.param(
+            '<xs:group><xs:sequence minOccurs="0"><xs:element name="a"/></xs:sequence></xs:group>',
+            id="unnamed-group-with-occurs",
         ),
     ],
 )
-def test_xsd_group_without_ref_matches_nothing(model: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
-    schema = f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
-    assert xsd_ok(schema, xml) is ok
+def test_xsd_group_reference_without_ref_raises(model: str) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:sequence><xs:element name="a"/></xs:sequence></xs:group>'
+        f'<xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
+    )
+    with pytest.raises(ValueError, match="a group in a content model must have a ref attribute"):
+        XMLSchema(schema)
+
+
+def test_xsd_group_definition_without_ref_still_compiles() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:group name="g"><xs:sequence><xs:element name="a" type="xs:int"/>'
+        "</xs:sequence></xs:group>"
+        '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert xsd_ok(schema, "<r><a>1</a></r>")
 
 
 @pytest.mark.parametrize("xml", ["<r><e/></r>", "<r><e><a/></e></r>"])
