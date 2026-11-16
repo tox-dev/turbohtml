@@ -781,7 +781,7 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 if (roots[index].processed || !node_owned_by(candidate, handle)) {
                     continue;
                 }
-                th_node *passed;
+                th_node *passed = NULL;
                 th_node *top = climb_levels(candidate->node, &passed);
                 if (top == NULL) {
                     /* group holds the tops of the deep roots until the roots are grouped */

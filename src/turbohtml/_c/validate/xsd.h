@@ -3137,7 +3137,7 @@ static xexp_frame *xsd_expansion_push(th_schema *schema, xexp_frame *stack, cons
    schema at every hop, so the scopes and particles under way sit on an explicit stack. -1 when out of memory. */
 static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo) {
     static const char *const models[] = {"sequence", "choice", "all", "group"};
-    xexp_frame local[16];
+    xexp_frame local[16] = {0};
     xexp_frame *stack = local;
     Py_ssize_t depth = 0, cap = 16;
     int result = -1;

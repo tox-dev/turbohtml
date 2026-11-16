@@ -714,7 +714,7 @@ static int32_t xr_parse_named(xr_parser *parser, Py_ssize_t start) {
     if (kind != '<' && kind != '=') {
         return xr_fail(parser, "unknown extension ?P", start);
     }
-    PyObject *name;
+    PyObject *name = NULL;
     if (xr_group_name(parser, kind == '<' ? '>' : ')', &name) < 0) {
         return -1;
     }

@@ -3607,7 +3607,7 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     }
     Py_ssize_t colon = qname_colon(name, resolved_len);
     Py_UCS4 *evaluated;
-    const Py_UCS4 *uri;
+    const Py_UCS4 *uri = NULL;
     Py_ssize_t uri_len = 0;
     int rc = element_namespace(eng, instruction, name, colon, &evaluated, &uri, &uri_len);
     if (rc == 0) {
