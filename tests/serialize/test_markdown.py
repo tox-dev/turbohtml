@@ -5322,7 +5322,7 @@ def test_alt_image_with_empty_alt_opens_no_emphasis() -> None:
         pytest.param(
             '<table><td><a href="a  b">x</a>',
             Markdown(links=Markdown.Links(base_url="http://s/")),
-            "| [x](<http://s/a b>) |\n| --- |",
+            "| [x](<http://s/a&#32;&#32;b>) |\n| --- |",
             id="cell-link-base-url",
         ),
         pytest.param(
@@ -5346,8 +5346,68 @@ def test_alt_image_with_empty_alt_opens_no_emphasis() -> None:
         pytest.param(
             '<table><td><a href="  ">x</a>',
             Markdown(links=Markdown.Links(title=True)),
-            '| [x](< > " ") |\n| --- |',
+            '| [x](<&#32;&#32;> "&#32;&#32;") |\n| --- |',
             id="cell-link-title",
+        ),
+        pytest.param(
+            '<table><td><a href="x" title="a  b">y</a>',
+            Markdown(),
+            '| [y](x "a&#32;&#32;b") |\n| --- |',
+            id="cell-link-title-space-run",
+        ),
+        pytest.param(
+            '<table><td><a href="x" title="a  b"></a>',
+            Markdown(),
+            '| [](x "a&#32;&#32;b") |\n| --- |',
+            id="cell-link-title-space-run-no-text",
+        ),
+        pytest.param(
+            '<table><th><a href="x" title="  a">y</a>',
+            Markdown(),
+            '| [y](x "&#32;&#32;a") |\n| --- |',
+            id="cell-link-title-leading-space-run-in-header",
+        ),
+        pytest.param(
+            '<table><td><a href="x" title="a  ">y</a>',
+            Markdown(),
+            '| [y](x "a&#32;&#32;") |\n| --- |',
+            id="cell-link-title-trailing-space-run",
+        ),
+        pytest.param(
+            '<table><td><a href="x" title="a  |b">y</a>',
+            Markdown(),
+            '| [y](x "a&#32;&#32;\\|b") |\n| --- |',
+            id="cell-link-title-space-run-pipe",
+        ),
+        pytest.param(
+            '<table><td><b><a href="x" title="a  b">y</a></b>',
+            Markdown(),
+            '| **[y](x "a&#32;&#32;b")** |\n| --- |',
+            id="cell-link-title-space-run-in-emphasis",
+        ),
+        pytest.param(
+            '<table><td><a href="x" title="a b">y</a>',
+            Markdown(),
+            '| [y](x "a b") |\n| --- |',
+            id="cell-link-title-single-space-kept",
+        ),
+        pytest.param(
+            '<table><td><a href="x" title="a ">y</a>',
+            Markdown(),
+            '| [y](x "a ") |\n| --- |',
+            id="cell-link-title-trailing-single-space-kept",
+        ),
+        pytest.param(
+            '<table><td><a href="a  b">y</a>',
+            Markdown(links=Markdown.Links(title=True)),
+            '| [y](<a&#32;&#32;b> "a&#32;&#32;b") |\n| --- |',
+            id="cell-link-title-option-space-run",
+        ),
+        pytest.param(
+            '<table><td><a href="a b">y</a>',
+            Markdown(links=Markdown.Links(title=True)),
+            '| [y](<a b> "a b") |\n| --- |',
+            id="cell-link-title-option-single-space-kept",
         ),
         pytest.param(
             '<table><td><ol><li><a href="  ">x</a></li></ol>',
