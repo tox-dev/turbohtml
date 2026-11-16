@@ -2119,6 +2119,10 @@ static const uint8_t MD_URL[128] = {
     [0x1f] = MD_URL_ANGLE, [0x7f] = MD_URL_ANGLE,
 };
 
+static int md_space_in_run(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t index) {
+    return (index > 0 && text[index - 1] == ' ') || (index + 1 < len && text[index + 1] == ' ');
+}
+
 /* Write a link destination (CommonMark 6.3) after an optional base prefix. A bare
    destination cannot hold a space or an ASCII control character or start with `<`,
    and takes parentheses only in balanced pairs; anything else goes in the `<...>`
@@ -2162,6 +2166,10 @@ static void md_emit_url(md_ctx *ctx, const char *base, const Py_UCS4 *url, Py_ss
     for (Py_ssize_t index = 0; index < len; index++) {
         TH_WORK_STEP();
         Py_UCS4 ch = url[index];
+        if (ctx->in_cell && ch == ' ' && md_space_in_run(url, len, index)) {
+            sbuf_puts(&ctx->out, "&#32;");
+            continue;
+        }
         int bracket = ch == '<' || (angle ? ch == '>' : unbalanced && (ch == '(' || ch == ')'));
         if (bracket || ch == '\\' || (ch == '&' && md_starts_reference(url, index, len))) {
             sbuf_putc(&ctx->out, '\\');
@@ -2197,12 +2205,17 @@ static void md_emit_url_without_breaks(md_ctx *ctx, const char *base, const Py_U
    escapes it: a reader that does not take the link reads the title as running text,
    where that `<` would open raw HTML. A line break is written as its numeric
    reference, which a title decodes (CommonMark 6.3): written raw, the next line could
-   open a block (a `>` quote, a `#` heading) and end the paragraph mid-link. */
+   open a block (a `>` quote, a `#` heading) and end the paragraph mid-link. A cell's
+   copy-out collapses a space run, so a space in one is a reference too (CommonMark 2.5). */
 static void md_emit_title(md_ctx *ctx, const Py_UCS4 *title, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         TH_WORK_STEP();
         if (title[index] == '\n' || title[index] == '\r') {
             sbuf_puts(&ctx->out, title[index] == '\n' ? "&#10;" : "&#13;");
+            continue;
+        }
+        if (ctx->in_cell && title[index] == ' ' && md_space_in_run(title, len, index)) {
+            sbuf_puts(&ctx->out, "&#32;");
             continue;
         }
         if (title[index] == '"' || title[index] == '\\' ||

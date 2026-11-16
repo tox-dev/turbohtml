@@ -147,6 +147,12 @@ def test_css_whitespace_table_cell(attributes: str, expected: str) -> None:
     assert parse(f"<table><tr><td {attributes}>one  two\n&lt;&amp;&gt;|</td></tr></table>").to_markdown() == expected
 
 
+@pytest.mark.parametrize("title", ["a  b", "  a", "a  ", "a  |b", "a   b"])
+def test_cell_link_title_space_run_reads_back(title: str) -> None:
+    markdown: Final = parse(f'<table><td><a href="x" title="{title}">y</a>').to_markdown()
+    assert f'title="{title}"' in MarkdownIt().enable("table").render(markdown)
+
+
 def test_css_whitespace_deep_tree() -> None:
     source: Final = f'<div style="white-space:pre">{"<span>" * 1000}one\ntwo{"</span>" * 1000}</div>'
     assert parse(source).to_markdown() == "```\none\ntwo\n```"
