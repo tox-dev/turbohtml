@@ -1073,6 +1073,17 @@ static Py_ssize_t css_filter_closer(token_vec *vec, Py_ssize_t start, Py_ssize_t
     return (*closers)[open_paren - start];
 }
 
+/* The end of the source a function spans through its closing `)`: the one it has, or, where the value ends before it,
+   the one css_close_raw_blocks writes after the last token. A fold is measured against this span, so an unclosed
+   function folds as it does once that closer is in the input, which is how the next minification reads it. */
+static const css_char *css_filter_closed_span(token_vec *vec, Py_ssize_t end, Py_ssize_t close_index) {
+    if (close_index < end) {
+        return vec->items[close_index].text + vec->items[close_index].text_len;
+    }
+    const css_token *last = &vec->items[end - 1];
+    return last->text + last->text_len + last->unit_len + 1;
+}
+
 /* Append a color-function-style filter value (progid alpha shortening), returning 1 when handled. */
 static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *prop,
                               Py_ssize_t prop_len, css_buf *out) {
@@ -1108,22 +1119,20 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
                    vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
                    token->text_len <= 5 && css_is_math_func(token->text, token->text_len)) {
             Py_ssize_t close_index = css_filter_closer(vec, start, end, index + 1, &closers);
-            if (close_index < end) {
-                if (index >= keep_ws_end) {
-                    keep_ws_end = close_index;
-                }
-                if (token->text_len == 4 && css_run_ieq(token->text, token->text_len, "calc")) {
-                    css_calc_context context = {prop, prop_len, 0, 0};
-                    Py_ssize_t off;
-                    Py_ssize_t len;
-                    css_compkind kind;
-                    if (css_try_calc(pool, vec, index + 2, close_index, &context, &off, &len, &kind) &&
-                        len < vec->items[close_index].text + vec->items[close_index].text_len - token->text) {
-                        css_put_folded(&joined, pool->data + off, len, vec, close_index + 1, end);
-                        index = close_index;
-                        last_is_ident = 0;
-                        continue;
-                    }
+            if (close_index < end && index >= keep_ws_end) {
+                keep_ws_end = close_index;
+            }
+            if (token->text_len == 4 && css_run_ieq(token->text, token->text_len, "calc")) {
+                css_calc_context context = {prop, prop_len, 0, 0};
+                Py_ssize_t off;
+                Py_ssize_t len;
+                css_compkind kind;
+                if (css_try_calc(pool, vec, index + 2, close_index, &context, &off, &len, &kind) &&
+                    len < css_filter_closed_span(vec, end, close_index) - token->text) {
+                    css_put_folded(&joined, pool->data + off, len, vec, close_index + 1, end);
+                    index = close_index;
+                    last_is_ident = 0;
+                    continue;
                 }
             }
         }

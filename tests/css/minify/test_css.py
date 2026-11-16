@@ -6814,3 +6814,66 @@ def _string_values(
         elif node.type == "function":
             values.extend(_string_values(node.arguments))
     return values
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:drop-shadow(calc(0\\}", "a{filter:drop-shadow(0\\}))}", id="unclosed-calc-after-escape"),
+        pytest.param("a{b:calc(1px)2\\}1px}", "a{b:1px 2\\}1px}", id="folded-value-before-number"),
+        pytest.param("a{b:calc(2\\31 )a}", "a{b:2\\31  a}", id="hex-escape-folded-before-identifier"),
+        pytest.param(
+            "a{filter:drop-shadow(calc(2\\31 )a)}",
+            "a{filter:drop-shadow(2\\31  a)}",
+            id="filter-hex-escape-before-ident",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(drop-shadow(min(calc(calc(202\\31 )0",
+            "a{filter:drop-shadow(drop-shadow(min(calc(202\\31  0))))}",
+            id="hex-escape-closes-folded-calc",
+        ),
+    ],
+)
+def test_minify_css_unclosed_filter_function_output(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("a{filter:drop-shadow(calc(0\\}", id="unclosed-calc-after-escape"),
+        pytest.param(
+            "a{filter:  2px/**/+1px3transparent  *drop-shadow(  calc(0\\}", id="unclosed-calc-after-operators"
+        ),
+        pytest.param("a{filter:f( 0px,calc( 0\\}/**/)-\\},\\\\,1\\}}\n", id="escaped-brace-before-dash"),
+        pytest.param("a{filter:drop-shadow(calc(1px\\})\\31 \\}\\\\)", id="escaped-brace-before-hex-escape"),
+        pytest.param(
+            "a{filter:drop-shadow(calc(2\\31 )\\31 drop-shadow(\\31 \\31 /**/\\drop-shadow(",
+            id="hex-escape-before-nested-function",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(drop-shadow(min(calc(calc(202\\31 )0", id="hex-escape-in-nested-unclosed-calc"
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(1px0drop-shadow(min(calc(calc(calc(1px)2\\}1px",
+            id="folded-nested-calc-before-number",
+        ),
+        pytest.param("a{filter:drop-shadow(calc(0\\31 /**/)min(calc(\\}", id="hex-escape-then-min"),
+        pytest.param("a{b:calc(1px)2\\}1px}", id="folded-calc-before-number"),
+    ],
+)
+def test_minify_css_second_pass_keeps_unclosed_filter_functions(source: str) -> None:
+    once = minify_css(source)
+    assert minify_css(once) == once
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_minify_css_filter_value_with_escapes_is_idempotent(seed: int) -> None:
+    words: Final[tuple[str, ...]] = (
+        "drop-shadow(", "calc(", "min(", "max(", "clamp(", "blur(", "(", ")", " ", "/**/", "+", "-", "*", "1px", "0",
+        "2", "\\}", "\\)", "\\31 ", "\\", "red", "#fff", ",", "var(--c)",
+    )  # fmt: skip
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    body = "".join(rng.choice(words) for _ in range(rng.randint(2, 14)))
+    once = minify_css(f"a{{filter:{body}")
+    assert minify_css(once) == once, body
