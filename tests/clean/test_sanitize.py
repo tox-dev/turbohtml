@@ -2986,7 +2986,7 @@ def test_attribute_compaction_copies_source(policy: Policy) -> None:
     [
         pytest.param(0, "<p>x</p>", id="rejected"),
         pytest.param(1, f"""<p{"".join(f' data-{index}="x"' for index in range(1_024))}>x</p>""", id="allowed"),
-        pytest.param(2, '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>', id="tiny"),
+        pytest.param(2, '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>' * 112, id="112-elements"),
     ],
 )
 def test_sanitize_attribute_benchmark(case: int, expected: str) -> None:

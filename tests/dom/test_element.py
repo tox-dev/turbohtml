@@ -2670,8 +2670,8 @@ def test_empty_tail_benchmark_preserves_first_node() -> None:
     operation.run(root)
     assert (tuple(root), tuple(node.text for node in before), [node.parent for node in before[1:]]) == (
         (before[0],),
-        ("word", *("",) * 1000),
-        [None] * 1000,
+        ("word", *("",) * 50_000),
+        [None] * 50_000,
     )
 
 
@@ -3005,9 +3005,9 @@ def test_radio_group_index_preserves_attribute_observer_order() -> None:
     ("case", "selected"),
     [
         pytest.param(0, 15, id="document-radios"),
-        pytest.param(1, 0, id="unindexed-change"),
+        pytest.param(1, 9, id="unindexed-change"),
         pytest.param(2, 15, id="many-forms"),
-        pytest.param(3, 7, id="invalidation"),
+        pytest.param(3, 1, id="invalidation"),
     ],
 )
 def test_radio_group_benchmark_output(case: int, selected: int) -> None:

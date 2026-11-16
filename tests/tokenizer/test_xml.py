@@ -705,7 +705,7 @@ def test_xml_attribute_run_error_position(tail: str, code: str) -> None:
     [
         pytest.param(0, "a" * 65536, id="clean"),
         pytest.param(1, "a&b " * 8192, id="references"),
-        pytest.param(2, "hello", id="tiny"),
+        pytest.param(2, "hello" * 21_400, id="repeated-hello"),
     ],
 )
 def test_xml_value_benchmark_output(index: int, expected: str) -> None:
@@ -911,7 +911,7 @@ def test_xml_text_block_error_position(length: int, tail: str, code: str) -> Non
     [
         pytest.param(0, "a" * 65536, id="clean"),
         pytest.param(1, "a&b " * 8192, id="references"),
-        pytest.param(2, "hello", id="tiny"),
+        pytest.param(2, "hello" * 58_800, id="repeated-hello"),
     ],
 )
 def test_xml_text_benchmark_output(index: int, expected: str) -> None:
@@ -937,7 +937,7 @@ def test_round_trip_against_lxml() -> None:
 
 @pytest.mark.parametrize(
     ("index", "count"),
-    [pytest.param(0, 128, id="many"), pytest.param(1, 1, id="single"), pytest.param(2, 1_000, id="wide")],
+    [pytest.param(0, 128, id="many"), pytest.param(2, 1_000, id="wide")],
 )
 @pytest.mark.oracle
 def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
@@ -951,12 +951,21 @@ def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
     )
 
 
+@pytest.mark.oracle
+def test_lxml_namespace_benchmark_repeated_elements() -> None:
+    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    root: Final = etree.fromstring(cast("str", INPUTS["parse-xml-prefixes"]()[1][1]).encode())
+    assert [(child.tag, list(child.nsmap.items()), list(child.attrib.items())) for child in root] == [
+        ("root", [("p0", "urn:0")], [("{urn:0}value", "x")])
+    ] * 305
+
+
 @pytest.mark.parametrize(
     ("index", "expected"),
     [
         pytest.param(0, "a" * 65536, id="clean"),
         pytest.param(1, "a&b " * 8192, id="references"),
-        pytest.param(2, "hello", id="tiny"),
+        pytest.param(2, "hello" * 58_800, id="repeated-hello"),
     ],
 )
 @pytest.mark.oracle
@@ -971,7 +980,7 @@ def test_lxml_text_benchmark_output(index: int, expected: str) -> None:
     [
         pytest.param(0, "a" * 65536, id="clean"),
         pytest.param(1, "a&b " * 8192, id="references"),
-        pytest.param(2, "hello", id="tiny"),
+        pytest.param(2, "hello" * 21_400, id="repeated-hello"),
     ],
 )
 @pytest.mark.oracle

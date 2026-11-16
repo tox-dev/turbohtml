@@ -4041,22 +4041,22 @@ def test_minify_css_merged_media_is_a_fixed_point(source: str, expected: str) ->
 
 @pytest.mark.parametrize(
     "case_index",
-    [pytest.param(0, id="media10"), pytest.param(1, id="media100"), pytest.param(2, id="media1000")],
+    [pytest.param(0, id="media256"), pytest.param(1, id="media100"), pytest.param(2, id="media1000")],
 )
 def test_minify_css_merge_shared_inputs_media(case_index: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
-    count: Final = (10, 100, 1_000)[case_index]
+    count: Final = (256, 100, 1_000)[case_index]
     expected: Final = f"@media screen{{{','.join(f'.a{index}' for index in range(count))}{{color:red}}}}"
     assert minify_css(source) == expected
 
 
 @pytest.mark.parametrize(
     "case_index",
-    [pytest.param(3, id="selectors10"), pytest.param(4, id="selectors100"), pytest.param(5, id="selectors1000")],
+    [pytest.param(3, id="selectors256"), pytest.param(4, id="selectors100"), pytest.param(5, id="selectors1000")],
 )
 def test_minify_css_merge_shared_inputs_selectors(case_index: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
-    count: Final = (10, 100, 1_000)[case_index % 3]
+    count: Final = (256, 100, 1_000)[case_index % 3]
     expected: Final = f"{','.join(f'.a{index}' for index in range(count))}{{color:red}}"
     assert minify_css(source) == expected
 
@@ -4103,9 +4103,9 @@ _BENCHMARK_MINIFIERS: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize(
     ("case", "media"),
     [
-        pytest.param(0, "screen", id="media10"),
+        pytest.param(0, "screen", id="media256"),
         pytest.param(2, "screen", id="media1000"),
-        pytest.param(3, "all", id="selectors10"),
+        pytest.param(3, "all", id="selectors256"),
         pytest.param(5, "all", id="selectors1000"),
         pytest.param(7, "all", id="comments"),
     ],
@@ -4113,7 +4113,7 @@ _BENCHMARK_MINIFIERS: Final[list[pytest.ParameterSet]] = [
 def test_merge_benchmark_preserves_fixture_cascade(module: str, case: int, media: str) -> None:
     minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case][1])
-    count: Final = (10, 100, 1_000, 10, 100, 1_000, 100, 100)[case]
+    count: Final = (256, 100, 1_000, 256, 100, 1_000, 200, 200)[case]
     expected: Final = {(media, f".a{index}"): {"color": "red"} for index in range(count)}
     assert _merge_fixture_cascade(minimize(source)) == expected
 
@@ -4160,7 +4160,7 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
 def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
     minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
     source: Final = cast("str", INPUTS["minify-css-merges"]()[6][1])
-    expected: Final = {(("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(100)}
+    expected: Final = {(("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(200)}
     assert _merge_fixture_cascade(minimize(source)) == expected
 
 
@@ -4170,7 +4170,7 @@ def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
     [
         pytest.param(0, 32, 128, id="long-values"),
         pytest.param(1, 32, 1, id="short-values"),
-        pytest.param(2, 2, 1, id="single-pair"),
+        pytest.param(2, 224, 1, id="single-pair"),
     ],
 )
 def test_merge_benchmark_preserves_conflicting_declarations(
