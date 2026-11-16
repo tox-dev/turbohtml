@@ -1,0 +1,3 @@
+``Node.resolve_links()`` now resolves links against the base as a browser parses it, so an upper-case host, a default
+port or dot segments in the base no longer carry into the link: ``https://H.Example/a/b`` with ``x`` becomes
+``https://h.example/a/x``.
