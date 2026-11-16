@@ -6699,23 +6699,21 @@ static int output_ns_in_scope(engine *eng, th_node *start, const char *name, Py_
     return 0;
 }
 
-/* Whether `prefix` appears in the stylesheet's exclude-result-prefixes list (a whitespace-
-   separated set of prefixes; the default namespace is named "#default"), so its namespace
-   node is not copied to the output. */
-static int prefix_excluded(const engine *eng, const char *prefix, Py_ssize_t prefix_len) {
+/* Whether `prefix` is named in a whitespace-separated exclude-result-prefixes list, where the default namespace is
+   named "#default". */
+static int prefix_listed(const Py_UCS4 *list, Py_ssize_t list_len, const char *prefix, Py_ssize_t prefix_len) {
     Py_ssize_t index = 0;
-    while (index < eng->exclude_prefixes_len) {
-        while (index < eng->exclude_prefixes_len && ucs4_blank(&eng->exclude_prefixes[index], 1)) {
+    while (index < list_len) {
+        while (index < list_len && ucs4_blank(&list[index], 1)) {
             index++;
         }
         Py_ssize_t start = index;
-        while (index < eng->exclude_prefixes_len && !ucs4_blank(&eng->exclude_prefixes[index], 1)) {
+        while (index < list_len && !ucs4_blank(&list[index], 1)) {
             index++;
         }
         if (index - start == prefix_len) {
             Py_ssize_t offset = 0;
-            while (offset < prefix_len &&
-                   eng->exclude_prefixes[start + offset] == (Py_UCS4)(unsigned char)prefix[offset]) {
+            while (offset < prefix_len && list[start + offset] == (Py_UCS4)(unsigned char)prefix[offset]) {
                 offset++;
             }
             if (offset == prefix_len) {
@@ -6724,6 +6722,22 @@ static int prefix_excluded(const engine *eng, const char *prefix, Py_ssize_t pre
         }
     }
     return 0;
+}
+
+static const Py_UCS4 *xsl_prefixed_attr(const engine *eng, const th_node *node, const char *local, Py_ssize_t *out_len);
+
+/* Whether the namespace node `prefix` is excluded at the literal result element `lre` (XSLT 1.0 7.1.1): the
+   stylesheet's exclude-result-prefixes, and those of each literal result element from the root down to `lre`, apply
+   to it and its descendants, so its namespace node is not copied to the output. */
+static int prefix_excluded(const engine *eng, const th_node *lre, const char *prefix, Py_ssize_t prefix_len) {
+    for (const th_node *node = lre; node != NULL; node = node->parent) {
+        Py_ssize_t list_len = 0;
+        const Py_UCS4 *list = xsl_prefixed_attr(eng, node, "exclude-result-prefixes", &list_len);
+        if (list != NULL && prefix_listed(list, list_len, prefix, prefix_len)) {
+            return 1;
+        }
+    }
+    return prefix_listed(eng->exclude_prefixes, eng->exclude_prefixes_len, prefix, prefix_len);
 }
 
 /* Whether the xmlns declaration named `name` binds the literal result element's own prefix,
@@ -6780,7 +6794,7 @@ static int lre_uses_decl(const engine *eng, const th_node *lre, const char *name
 
 static int cache_ns_decl(engine *eng, th_node *lre, th_node *anc, const th_node_attr *attr, const char *name,
                          Py_ssize_t name_len, int prefixed) {
-    if ((prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8)) &&
+    if ((prefixed ? prefix_excluded(eng, lre, name + 6, name_len - 6) : prefix_excluded(eng, lre, "#default", 8)) &&
         !lre_uses_decl(eng, lre, name, name_len, prefixed)) {
         return 0;
     }
