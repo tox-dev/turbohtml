@@ -1,0 +1,2 @@
+``Node.resolve_links()`` now writes an internationalized host name in its ASCII form, as browsers do, so
+``https://例.jp/p`` becomes ``https://xn--fsq.jp/p``.
