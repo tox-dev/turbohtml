@@ -2110,10 +2110,19 @@ def _crossed_places(start: str, combine: str, count: int) -> str:
     )
 
 
-@pytest.mark.parametrize("start", _CROSSED_STARTS)
-def test_rng_crossed_places_past_the_work_limit_raise(start: str) -> None:
-    with pytest.raises(ValueError, match="too ambiguous"):
-        RelaxNG(_crossed_places(start, "group", 11)).validate(parse_xml("<r><v/><v/><v/></r>"))
+@pytest.mark.parametrize(
+    ("start", "tail"),
+    [
+        pytest.param('<ref name="d0"/>', "", id="alone"),
+        pytest.param(
+            '<interleave><ref name="d0"/><element name="a"><empty/></element></interleave>', "<a/>", id="interleaved"
+        ),
+    ],
+)
+def test_rng_crossed_group_places_accept_up_to_their_count(start: str, tail: str) -> None:
+    schema = RelaxNG(_crossed_places(start, "group", 11))
+    assert schema.validate(parse_xml(f"<r>{'<v/>' * 2048}{tail}</r>")).valid
+    assert not schema.validate(parse_xml(f"<r>{'<v/>' * 2049}{tail}</r>")).valid
 
 
 @pytest.mark.parametrize(
@@ -2160,9 +2169,10 @@ def test_rng_repeated_optional_places_below_the_work_limit_decide(xml: str, *, v
     assert rng_ok(rwrap(_OPTIONAL_V * 200), xml) is valid
 
 
-def test_rng_repeated_optional_places_past_the_work_limit_raise() -> None:
-    with pytest.raises(ValueError, match="too ambiguous"):
-        RelaxNG(rwrap(_OPTIONAL_V * 800)).validate(parse_xml("<doc><v/><v/><v/></doc>"))
+def test_rng_repeated_optional_places_accept_up_to_their_count() -> None:
+    schema = RelaxNG(rwrap(_OPTIONAL_V * 800))
+    assert schema.validate(parse_xml(f"<doc>{'<v/>' * 800}</doc>")).valid
+    assert not schema.validate(parse_xml(f"<doc>{'<v/>' * 801}</doc>")).valid
 
 
 @pytest.mark.parametrize(
@@ -2212,15 +2222,74 @@ def test_rng_nested_places_below_the_limit_decide(xml: str, *, valid: bool) -> N
 
 
 @pytest.mark.parametrize(
-    "schema",
+    ("schema", "at_limit", "past_limit"),
     [
-        pytest.param(_nested_places(7, 4), id="many-outer-places"),
-        pytest.param(_nested_places(4, 7), id="many-inner-places"),
+        pytest.param(
+            _nested_places(7, 4),
+            f"<r>{'<a><v/></a>' * 128}</r>",
+            f"<r>{'<a><v/></a>' * 129}</r>",
+            id="many-outer-places",
+        ),
+        pytest.param(
+            _nested_places(4, 7),
+            f"<r><a>{'<v/>' * 128}</a></r>",
+            f"<r><a>{'<v/>' * 129}</a></r>",
+            id="many-inner-places",
+        ),
     ],
 )
-def test_rng_too_many_nested_places_raise(schema: str) -> None:
-    with pytest.raises(ValueError, match="too ambiguous"):
-        RelaxNG(schema).validate(parse_xml('<r><a><v a="2"/></a></r>'))
+def test_rng_nested_places_accept_up_to_their_count(schema: str, at_limit: str, past_limit: str) -> None:
+    assert RelaxNG(schema).validate(parse_xml(at_limit)).valid
+    assert not RelaxNG(schema).validate(parse_xml(past_limit)).valid
+
+
+_DOUBLING_SHAPES: Final[list[pytest.ParameterSet]] = [
+    pytest.param("<group>{r}{r}</group>", lambda depth: 1 << depth, id="group"),
+    pytest.param("<group><group>{r}</group><group>{r}</group></group>", lambda depth: 1 << depth, id="nested-group"),
+    pytest.param("<optional><group>{r}{r}</group></optional>", lambda depth: 1 << depth, id="optional-group"),
+    pytest.param(
+        "<choice><group>{r}{r}</group><group>{r}{r}</group></choice>", lambda depth: 1 << depth, id="choice-of-groups"
+    ),
+]
+_DOUBLED_SHAPES: Final[list[pytest.ParameterSet]] = [
+    *_DOUBLING_SHAPES,
+    pytest.param("<choice>{r}{r}</choice>", lambda _depth: 1, id="choice"),
+    pytest.param("<optional>{r}</optional>", lambda _depth: 1, id="optional"),
+    pytest.param("<oneOrMore>{r}{r}</oneOrMore>", lambda _depth: None, id="one-or-more"),
+    pytest.param("<zeroOrMore>{r}{r}</zeroOrMore>", lambda _depth: None, id="zero-or-more"),
+]
+
+
+@pytest.mark.parametrize(("body", "bound"), _DOUBLED_SHAPES)
+@pytest.mark.parametrize("depth", [1, 2, 3, 4])
+def test_rng_doubled_places_match_their_count(body: str, bound: Callable[[int], int | None], depth: int) -> None:
+    schema = RelaxNG(_doubled_grammar(body, depth))
+    limit = bound(depth)
+    for count in range(2**depth + 2):
+        assert schema.validate(parse_xml(f"<r>{'<e/>' * count}</r>")).valid is (limit is None or count <= limit)
+
+
+def _doubled_grammar(body: str, depth: int) -> str:
+    defines = ['<define name="d0"><optional><element name="e"><empty/></element></optional></define>']
+    for level in range(1, depth + 1):
+        ref = f'<ref name="d{level - 1}"/>'
+        defines.append(f'<define name="d{level}">{body.format(r=ref)}</define>')
+    return rgrammar(f'<start><element name="r"><ref name="d{depth}"/></element></start>{"".join(defines)}')
+
+
+@pytest.mark.parametrize(("body", "bound"), _DOUBLING_SHAPES)
+def test_rng_doubled_places_at_depth_eight_accept_their_count(body: str, bound: Callable[[int], int | None]) -> None:
+    schema = RelaxNG(_doubled_grammar(body, 8))
+    assert bound(8) == 256
+    assert schema.validate(parse_xml(f"<r>{'<e/>' * 256}</r>")).valid
+    assert not schema.validate(parse_xml(f"<r>{'<e/>' * 257}</r>")).valid
+
+
+def test_rng_doubled_group_chain_scales_linearly(work_steps: WorkSteps) -> None:
+    schema = _doubled_grammar("<group>{r}{r}</group>", 10)
+    work_steps.assert_linear(
+        lambda n: partial(RelaxNG(schema).validate, parse_xml(f"<r>{'<e/>' * n}</r>")), (256, 1024)
+    )
 
 
 def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
@@ -3635,15 +3704,14 @@ def _routed_chain(depth: int) -> str:
     return grammar(start + "".join(defs))
 
 
-def test_rng_small_schema_nested_places_raise() -> None:
+def test_rng_small_schema_nested_repeats_validate() -> None:
     schema = RelaxNG(
         grammar(
             '<start><ref name="x"/></start><define name="x"><element name="a">'
             '<zeroOrMore><ref name="x"/></zeroOrMore><zeroOrMore><ref name="x"/></zeroOrMore></element></define>'
         )
     )
-    with pytest.raises(ValueError, match="too ambiguous"):
-        schema.validate(parse_xml("<a>" * 12 + "</a>" * 12))
+    assert schema.validate(parse_xml("<a>" * 12 + "</a>" * 12)).valid
 
 
 @cache

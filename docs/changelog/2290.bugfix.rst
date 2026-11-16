@@ -1,0 +1,2 @@
+RELAX NG schemas that nest ``group`` pairs of optional elements now accept valid documents instead of raising
+``ValueError`` as too ambiguous.
