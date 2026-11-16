@@ -967,6 +967,26 @@ def test_attribute_escaping(value: str, expected: str) -> None:
     assert Element("p", {"title": value}).serialize(_XML) == f'<p title="{expected}"/>'
 
 
+@pytest.mark.parametrize("tag", ["script", "style", "xmp", "iframe", "noembed", "noframes"])
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("a\rb", "a\nb", id="cr"),
+        pytest.param("a\r\nb", "a\nb", id="crlf"),
+        pytest.param("a\r\r\nb", "a\n\nb", id="cr-then-crlf"),
+        pytest.param("a\r", "a\n", id="trailing-cr"),
+        pytest.param("ab\r", "ab\n", id="odd-trailing-cr"),
+        pytest.param("abc\rd", "abc\nd", id="cr-in-later-pair"),
+        pytest.param("ab\nc", "ab\nc", id="lf-even-length"),
+        pytest.param("a\nb", "a\nb", id="lf-stays"),
+    ],
+)
+def test_raw_text_carriage_return_is_written_as_line_feed(tag: str, text: str, expected: str) -> None:
+    out = Element(tag, children=[Text(text)]).serialize()
+    assert out == f"<{tag}>{expected}</{tag}>"
+    assert _fragment(out, tag).serialize() == out
+
+
 def test_script_content_is_escaped_not_raw() -> None:
     node = _fragment("<script>if(a<b){}</script>", "script")
     assert node.serialize(_XML) == "<script>if(a&lt;b){}</script>"
@@ -2135,6 +2155,96 @@ def test_meta_charset_with_minify_normalizes_existing_meta() -> None:
 def test_encode_meta_charset_uses_target_encoding() -> None:
     out: Final = parse("<p>x").encode("iso-8859-1", Html(meta_charset=True))
     assert out == ('<html><head><meta charset="windows-1252"></head><body><p>x</p></body></html>'.encode("latin-1"))
+
+
+@pytest.mark.parametrize("encoding", [pytest.param("latin-1", id="latin-1"), pytest.param("iso-8859-1", id="alias")])
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<p>\x80</p>", id="text-first-c1"),
+        pytest.param("<p>\x85</p>", id="text-ellipsis-slot"),
+        pytest.param("<p>\x9f</p>", id="text-last-c1"),
+        pytest.param('<p title="\x85">x</p>', id="attribute-value"),
+        pytest.param("<!--\x85--><p>x</p>", id="comment"),
+    ],
+)
+def test_encode_meta_charset_refuses_c1_controls_under_windows_1252(markup: str, encoding: str) -> None:
+    with pytest.raises(ValueError, match="windows-1252"):
+        parse(markup).encode(encoding, Html(meta_charset=True))
+
+
+@pytest.mark.parametrize(
+    "character",
+    [
+        pytest.param("\x81", id="unassigned-81"),
+        pytest.param("\x8d", id="unassigned-8d"),
+        pytest.param("\x8f", id="unassigned-8f"),
+        pytest.param("\x90", id="unassigned-90"),
+        pytest.param("\x9d", id="unassigned-9d"),
+    ],
+)
+def test_encode_meta_charset_keeps_c1_windows_1252_reads_back(character: str) -> None:
+    # windows-1252 maps these five bytes to the same C1 code points, so the declared label reads them back as written
+    out: Final = parse(f"<p>{character}</p>").encode("latin-1", Html(meta_charset=True))
+    assert out == f'<html><head><meta charset="windows-1252"></head><body><p>{character}</p></body></html>'.encode(
+        "latin-1"
+    )
+
+
+@pytest.mark.parametrize("encoding", [pytest.param("iso-8859-9", id="latin5"), pytest.param("latin5", id="alias")])
+def test_encode_meta_charset_refuses_c1_under_windows_1254(encoding: str) -> None:
+    # the WHATWG label of ISO-8859-9 is windows-1254, which reads 0x85 as an ellipsis
+    with pytest.raises(ValueError, match="windows-1254"):
+        parse("<p>\x85</p>").encode(encoding, Html(meta_charset=True))
+
+
+@pytest.mark.parametrize(
+    ("encoding", "character", "label"),
+    [
+        pytest.param("koi8-u", "\u255d", "KOI8-U", id="koi8-u-box-drawing"),
+        pytest.param("tis-620", "\x80", "windows-874", id="tis-620-windows-874"),
+        pytest.param("big5", "\u0430", "Big5", id="big5-cyrillic"),
+        pytest.param("cp932", "\uf8f1", "Shift_JIS", id="cp932-user-defined"),
+    ],
+)
+def test_encode_meta_charset_refuses_text_the_declared_label_misreads(encoding: str, character: str, label: str) -> None:
+    # Python's codec writes bytes that the WHATWG decoder of the declared label reads as other characters
+    with pytest.raises(ValueError, match=re.escape(f"meta_charset cannot declare {label}")):
+        parse(f"<p>{character}</p>").encode(encoding, Html(meta_charset=True))
+
+
+def test_encode_meta_charset_iso2022_shift_code_raises_the_codec_error() -> None:
+    # the declared ISO-2022-JP label is valid, but its codec refuses the shift code the text holds
+    with pytest.raises(UnicodeEncodeError, match="iso2022_jp"):
+        parse("<p>\x1b</p>").encode("iso2022_jp", Html(meta_charset=True))
+
+
+def test_encode_meta_charset_utf8_keeps_c1_controls() -> None:
+    out: Final = parse("<p>\x85</p>").encode("utf-8", Html(meta_charset=True))
+    assert out.decode("utf-8").endswith("<p>\x85</p></body></html>")
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param("<p>\x7f</p>", "<p>\x7f</p>", id="delete"),
+        pytest.param("<p>\xff</p>", "<p>\xff</p>", id="latin-small-y-diaeresis"),
+        pytest.param("<p>\xa0</p>", "<p>&nbsp;</p>", id="no-break-space"),
+    ],
+)
+def test_encode_meta_charset_keeps_latin1_outside_c1(markup: str, body: str) -> None:
+    out: Final = parse(markup).encode("latin-1", Html(meta_charset=True))
+    assert out == f'<html><head><meta charset="windows-1252"></head><body>{body}</body></html>'.encode("latin-1")
+
+
+def test_encode_without_meta_charset_writes_c1_bytes_unchanged() -> None:
+    assert parse("<p>\x85</p>").encode("latin-1") == b"<html><head></head><body><p>\x85</p></body></html>"
+
+
+def test_encode_meta_charset_inner_writes_no_declaration_so_c1_is_kept() -> None:
+    element: Final = parse("<p>\x85</p>").find("p")
+    assert element is not None
+    assert element.encode("latin-1", Html(meta_charset=True), inner=True) == b"\x85"
 
 
 @pytest.mark.parametrize(

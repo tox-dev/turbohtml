@@ -41,8 +41,8 @@ void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize_t end)
 }
 
 /* The WHATWG-conformant escaping the reserialized parts fall back to. */
-static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    0, 0, NULL, 0,
-                                                NULL,          NULL, NULL, NULL, NULL, 0};
+static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    0, 0,   NULL, 0,
+                                                NULL,          NULL, NULL, NULL, NULL, 0, NULL};
 
 /* Whether the source code points [start, end) hold a "<" or "&", which element content reads back as markup or a
    character reference. A span is whatever slice of the input the tokenizer left untouched, not only data-state text: a
@@ -90,13 +90,13 @@ static int lossless_in_rawtext(th_tree *tree, const th_node *node, const th_node
 
 /* Emit a raw-text element's child: its verbatim source span while it is still the
    zero-copy slice the parse left, else its current code points literally
-   (raw-text content is never escaped, so both paths emit the bytes unchanged). */
+   (raw-text content is never escaped, and a CR a caller wrote there is folded to LF, as sbuf_put_rawtext does). */
 static void lossless_put_rawtext(sbuf *out, th_tree *tree, th_node *node) {
     if (text_is_span(node)) {
         Py_ssize_t offset = text_span_offset(node);
         sbuf_put_source(out, tree, offset, offset + node->text_len);
     } else {
-        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_put_rawtext(out, node->text, node->text_len);
     }
 }
 

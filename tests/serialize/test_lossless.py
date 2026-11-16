@@ -175,6 +175,14 @@ def test_inserting_a_raw_text_element_keeps_its_content_literal() -> None:
     assert doc.to_source() == _DOC.format("<p>x</p><style>a < b</style>")
 
 
+def test_inserted_raw_text_carriage_return_is_written_as_line_feed() -> None:
+    doc = parse(_DOC.format("<p>x</p>"), source_locations=True)
+    body = doc.select_one("body")
+    assert body is not None
+    body.append(Element("script", children=[Text("a\rb")]))
+    assert doc.to_source() == _DOC.format("<p>x</p><script>a\nb</script>")
+
+
 def test_editing_raw_text_content_is_reflected() -> None:
     doc = parse(_DOC.format("<style>old</style>"), source_locations=True)
     node = doc.select_one("style")

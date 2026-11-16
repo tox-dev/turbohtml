@@ -1,0 +1,2 @@
+Schemas with a top-level group, complex type, simple type, attribute or attribute group that has no name now fail to
+compile with ``ValueError``.

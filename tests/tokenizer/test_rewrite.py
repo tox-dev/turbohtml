@@ -587,6 +587,42 @@ def test_rewrite_text_node_replace_in_raw_text_is_literal() -> None:
 
 
 @pytest.mark.parametrize(
+    ("html", "edit", "expected"),
+    [
+        pytest.param(
+            "<script>x</script>", lambda e: e.set_content("a\rb"), "<script>a\nb</script>", id="raw-set-content"
+        ),
+        pytest.param("<xmp>x</xmp>", lambda e: e.set_content("a\r\nb"), "<xmp>a\nb</xmp>", id="raw-crlf"),
+        pytest.param("<xmp>x</xmp>", lambda e: e.set_content("a\r"), "<xmp>a\n</xmp>", id="raw-trailing-cr"),
+        pytest.param("<script>x</script>", lambda e: e.append("a\rb"), "<script>xa\nb</script>", id="raw-append"),
+        pytest.param("<p>x</p>", lambda e: e.set_content("a\rb"), "<p>a&#13;b</p>", id="text-set-content"),
+        pytest.param("<p>x</p>", lambda e: e.append("a\rb"), "<p>xa&#13;b</p>", id="text-append"),
+        pytest.param(
+            "<textarea>x</textarea>", lambda e: e.set_content("a\rb"), "<textarea>a&#13;b</textarea>", id="rcdata"
+        ),
+        pytest.param("<p>x</p>", lambda e: e.append("a\rb", html=True), "<p>xa\nb</p>", id="html-markup"),
+    ],
+)
+def test_rewrite_carriage_return_in_written_content(html: str, edit: Callable[[Element], None], expected: str) -> None:
+    assert rewrite(html, elements=[("*", edit)]) == expected
+
+
+def test_rewrite_carriage_return_in_raw_text_handler_is_line_feed() -> None:
+    assert rewrite("<script>x</script>", text=lambda text: text.set_text("a\rb")) == "<script>a\nb</script>"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<textarea>&#13;x</textarea>", "&#13;x", id="decoded-reference"),
+        pytest.param("<textarea>a\rb</textarea>", "a\nb", id="source-cr"),
+    ],
+)
+def test_rewrite_unwrapped_rcdata_carriage_return_keeps_its_meaning(html: str, expected: str) -> None:
+    assert rewrite(html, elements=[("textarea", _unwrap)]) == expected
+
+
+@pytest.mark.parametrize(
     "edit",
     [
         pytest.param(lambda element: element.append("a<b"), id="append"),

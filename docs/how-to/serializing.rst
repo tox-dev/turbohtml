@@ -88,7 +88,10 @@ as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the enc
 ``encode`` declares the WHATWG name of the encoding it writes, the name a browser reads the bytes with, so Latin-1 is
 declared as ``windows-1252`` and UTF-8 as ``utf-8``, as ``serialize`` does. A codec no WHATWG label names, such as
 ``iso2022_jp_2`` or ``utf-16``, raises :exc:`ValueError` under ``meta_charset`` when the output would declare it,
-because the declaration would be wrong; encode without the option instead:
+because the declaration would be wrong. ``encode`` also checks that the bytes it writes read back as the same text
+under the declared label, and raises :exc:`ValueError` when they do not. Latin-1 is declared as ``windows-1252``, which
+reads the bytes ``0x80``, ``0x85`` and ``0x9F``, for example, as other characters, so Latin-1 output holding those code
+points is refused. Encode without the option instead:
 
 .. testcode::
 
