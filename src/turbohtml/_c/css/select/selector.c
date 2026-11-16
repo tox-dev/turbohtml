@@ -3495,7 +3495,42 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
     }
 }
 
-static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx) {
+/* Whether rel reaches its subject through child and sibling combinators alone, from compound `first` on (a :scope that
+   pins compounds[0] to the anchor leaves the lead to compounds[1]). Only a descendant combinator can put the subject
+   deeper than rel->count levels below the anchor, so the walk for any other argument stops there. */
+static int sel_rel_levels_bounded(const sel_complex *rel, int first) {
+    for (int index = first; index < rel->count; index++) {
+        if (rel->compounds[index].combinator == ' ') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* sel_has_subtree for a rel bounded by sel_rel_levels_bounded: the walk visits the elements `levels` levels below node
+   and no deeper, so each child recurses only while a level remains. */
+static int sel_has_levels(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx,
+                          int levels) {
+    for (th_node *current = sel_first_element_child(node); current != NULL;
+         current = sel_next_element_sibling(current)) {
+        TH_WORK_STEP();
+        if (sel_match_compound(current, &rel->compounds[subject], ctx) &&
+            sel_match_from(current, rel, subject, anchor, ctx) == SEL_MATCHES) {
+            return 1;
+        }
+        if (levels > 1 && sel_has_levels(current, rel, subject, anchor, ctx, levels - 1)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* levels is 0 for a rel with a descendant combinator, which can reach any depth. */
+static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx,
+                           int levels) {
+    if (levels != 0) {
+        return sel_has_levels(node, rel, subject, anchor, ctx, levels);
+    }
     th_node *current = sel_first_element_child(node);
     while (current != NULL) {
         TH_WORK_STEP();
@@ -3638,12 +3673,11 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
            selector scans the subtree, a sibling one the following siblings. An explicit
            leading :scope pins compound[0] to the anchor, so the reach is set by the
            combinator after it (:has(:scope + x) equals :has(+ x)) (issue #431) */
-        char lead = rel->compounds[0].combinator;
-        if (rel->count > 1 && sel_compound_has_scope(&rel->compounds[0])) {
-            lead = rel->compounds[1].combinator;
-        }
+        const int pinned = rel->count > 1 && sel_compound_has_scope(&rel->compounds[0]);
+        const char lead = rel->compounds[pinned].combinator;
+        const int levels = rel->count > 1 && sel_rel_levels_bounded(rel, pinned) ? rel->count : 0;
         if (lead != '+' && lead != '~') {
-            if (sel_has_subtree(anchor, rel, subject, anchor, &scoped)) {
+            if (sel_has_subtree(anchor, rel, subject, anchor, &scoped, levels)) {
                 return 1;
             }
             continue;
@@ -3663,7 +3697,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
             }
             if ((sel_match_compound(sibling, &rel->compounds[subject], &scoped) &&
                  sel_match_from(sibling, rel, subject, anchor, &scoped) == SEL_MATCHES) ||
-                sel_has_subtree(sibling, rel, subject, anchor, &scoped)) {
+                sel_has_subtree(sibling, rel, subject, anchor, &scoped, levels)) {
                 return 1;
             }
         }
