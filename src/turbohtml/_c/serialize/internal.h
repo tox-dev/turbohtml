@@ -1593,60 +1593,24 @@ static inline Py_ssize_t ser_clone_start(const sbuf *out, const th_node *node) {
     return node->tag_flags & TH_ELEM_IMPLIED ? out->len : -1;
 }
 
-static inline Py_ssize_t ser_clone_seen_slot(const uint64_t *slots, Py_ssize_t cap, uint64_t key) {
-    Py_ssize_t index = (Py_ssize_t)(th_key_mix(key) & (uint64_t)(cap - 1));
-    while (slots[index] != 0 && slots[index] != key) {
-        index = (index + 1) & (cap - 1);
-    }
-    return index;
-}
-
-/* Record values_seq as written by a clone of this output: 1 when it was new, 0 when an earlier clone wrote it, -1 when
-   the table cannot grow. Keys are th_key_mix hashed, so a document cannot choose the slots a value set lands in. */
-static inline int ser_clone_seen_add(struct th_clone_seen **seen_slot, uint32_t values_seq) {
-    if (*seen_slot == NULL) {
-        *seen_slot = PyMem_Calloc(1, sizeof(struct th_clone_seen));
-        if (*seen_slot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-    }
-    struct th_clone_seen *seen = *seen_slot;
-    if ((seen->len + 1) * 2 > seen->cap) {
-        Py_ssize_t cap = seen->cap == 0 ? 8 : seen->cap * 2;
-        uint64_t *slots = PyMem_Calloc((size_t)cap, sizeof(uint64_t));
-        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        for (Py_ssize_t index = 0; index < seen->cap; index++) {
-            if (seen->slots[index] != 0) {
-                slots[ser_clone_seen_slot(slots, cap, seen->slots[index])] = seen->slots[index];
-            }
-        }
-        PyMem_Free(seen->slots);
-        seen->slots = slots;
-        seen->cap = cap;
-    }
-    uint64_t key = (uint64_t)values_seq + 1;
-    Py_ssize_t index = ser_clone_seen_slot(seen->slots, seen->cap, key);
-    if (seen->slots[index] == key) {
-        return 0;
-    }
-    seen->slots[index] = key;
-    seen->len++;
-    return 1;
-}
-
-/* Whether a clone whose attributes cost cost characters writes all of them, charged as ser_clone_settle charges them.
-   The first clone an output meets for a value set writes them free: the tree holds that set once, so the cost stays
-   linear in the tree's own memory. A later clone of the same set fits while the allowance and the output fund it, less
-   the clone attributes already written, which count once as output and once as spent. */
-static inline int ser_clone_admit(sbuf *out, Py_ssize_t start, const th_node *node, Py_ssize_t cost) {
-    int added = ser_clone_seen_add(&out->clone_seen, th_node_values_seq(node));
+static inline int ser_clone_first(sbuf *out, const th_node *node) {
+    int added = th_clone_seen_add(&out->clone_seen, th_node_values_seq(node));
     if (added < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return added || cost <= TH_CLONE_ALLOWANCE + out->clone_credit + out->len - 2 * (out->len - start);
+    return added;
+}
+
+static inline int ser_clone_fits(const sbuf *out, Py_ssize_t start, Py_ssize_t cost) {
+    return cost <= TH_CLONE_ALLOWANCE + out->clone_credit + out->len - 2 * (out->len - start);
+}
+
+static inline int ser_clone_admit(sbuf *out, Py_ssize_t start, const th_node *node, Py_ssize_t cost) {
+    int added = ser_clone_first(out, node);
+    if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return 0;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return added || ser_clone_fits(out, start, cost);
 }
 
 /* Charge the attributes the clone wrote since start, free or not, so each one is spent once as output and once as the
@@ -1693,6 +1657,17 @@ static inline Py_ssize_t ser_open_attrs_cost(th_tree *tree, const th_node *node,
     return cost;
 }
 
+/* Whether a clone's start tag is left without its attributes: a first copy of a value set keeps them, and a repeat
+   keeps them only when the allowance covers them. Out of line, so ordinary elements never reach it. */
+static TH_NOINLINE int ser_open_clone_refused(sbuf *out, Py_ssize_t start, th_tree *tree, const th_node *node,
+                                              const th_serialize_opts *opts, xml_ns_emitted emitted) {
+    int added = ser_clone_first(out, node);
+    if (added != 0) {
+        return added < 0;
+    }
+    return !ser_clone_fits(out, start, ser_open_attrs_cost(tree, node, opts, emitted));
+}
+
 /* Write an element's start tag up to but not including its closing delimiter,
    "<tag attrs...": attributes in source order, or in name order when opts asks;
    values double-quoted and escaped under the formatter (or the XML rules when
@@ -1712,7 +1687,7 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
     /* Markdown's raw HTML spends the budget its prose funds instead */
     Py_ssize_t clone_start = opts->clone_budget == NULL ? ser_clone_start(out, node) : -1;
     Py_ssize_t attr_count = node->attr_count;
-    if (clone_start >= 0 && !ser_clone_admit(out, clone_start, node, ser_open_attrs_cost(tree, node, opts, emitted))) {
+    if (clone_start >= 0 && ser_open_clone_refused(out, clone_start, tree, node, opts, emitted)) {
         attr_count = 0;
     }
     for (Py_ssize_t position = 0; position < attr_count; position++) {

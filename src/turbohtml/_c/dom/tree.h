@@ -915,6 +915,10 @@ struct th_clone_seen;
 /* Free a seen set; NULL is a no-op. */
 void th_clone_seen_free(struct th_clone_seen *seen);
 
+/* Record values_seq as written by a clone of this output (serialize/document.c): 1 when new, 0 when present, -1 when
+ * the table cannot grow. */
+int th_clone_seen_add(struct th_clone_seen **seen_slot, uint32_t values_seq);
+
 /* The namespace declarations in scope where a subtree is cut out of an XML tree (serialize/internal.h). */
 typedef struct th_xml_ns_scope th_xml_ns_scope;
 

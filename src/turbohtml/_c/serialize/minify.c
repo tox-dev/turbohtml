@@ -197,6 +197,16 @@ static Py_UCS4 *mini_style_attr_css(sbuf *out, const Py_UCS4 *value, Py_ssize_t 
    order and charset normalization come from the shared output options (a normalized
    charset value always keeps its quotes). A style="" value is minified when minify_css
    is set, before the quote decision so the shorter value can also shed its quotes. */
+/* Whether a clone's attributes are left out. A first copy of a value set keeps them, so the cost is only summed for a
+   repeat; out of line, so an element the source wrote never reaches it. */
+static TH_NOINLINE int ser_clone_attrs_refused(sbuf *out, Py_ssize_t start, th_tree *tree, const th_node *node) {
+    int added = ser_clone_first(out, node);
+    if (added != 0) {
+        return added < 0;
+    }
+    return !ser_clone_fits(out, start, ser_clone_attrs_cost(tree, node));
+}
+
 static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_serialize_opts *opts, int unquote,
                           int minify_css, int css_baseline) {
     sbuf_putc(out, '<');
@@ -206,7 +216,7 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
     int charset_kind = opts->inject_meta ? ser_meta_charset_kind(tree, node) : 0;
     Py_ssize_t clone_start = ser_clone_start(out, node);
     Py_ssize_t attr_count = node->attr_count;
-    if (clone_start >= 0 && !ser_clone_admit(out, clone_start, node, ser_clone_attrs_cost(tree, node))) {
+    if (clone_start >= 0 && ser_clone_attrs_refused(out, clone_start, tree, node)) {
         attr_count = 0;
     }
     for (Py_ssize_t position = 0; position < attr_count; position++) {

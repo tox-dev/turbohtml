@@ -271,6 +271,52 @@ void th_xml_unwrap_free(th_xml_unwrap *unwrap) {
     PyMem_Free(unwrap->decls);
 }
 
+static Py_ssize_t th_clone_seen_slot(const uint64_t *slots, Py_ssize_t cap, uint64_t key) {
+    Py_ssize_t index = (Py_ssize_t)(th_key_mix(key) & (uint64_t)(cap - 1));
+    while (slots[index] != 0 && slots[index] != key) {
+        index = (index + 1) & (cap - 1);
+    }
+    return index;
+}
+
+int th_clone_seen_add(struct th_clone_seen **seen_slot, uint32_t values_seq) {
+    if (*seen_slot == NULL) {
+        *seen_slot = PyMem_Calloc(1, sizeof(struct th_clone_seen));
+        if (*seen_slot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    struct th_clone_seen *seen = *seen_slot;
+    if ((seen->len + 1) * 2 > seen->cap) {
+        Py_ssize_t cap = seen->cap == 0 ? 8 : seen->cap * 2;
+        uint64_t *slots = PyMem_Calloc((size_t)cap, sizeof(uint64_t));
+        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        for (Py_ssize_t index = 0; index < seen->cap; index++) {
+            if (seen->slots[index] != 0) {
+                slots[th_clone_seen_slot(slots, cap, seen->slots[index])] = seen->slots[index];
+            }
+        }
+        PyMem_Free(seen->slots);
+        seen->slots = slots;
+        seen->cap = cap;
+    }
+    uint64_t key = (uint64_t)values_seq + 1;
+    Py_ssize_t index = th_clone_seen_slot(seen->slots, seen->cap, key);
+    if (seen->slots[index] == key) {
+        return 0;
+    }
+    seen->slots[index] = key;
+    seen->len++;
+    return 1;
+}
+
+/* Whether a clone whose attributes cost cost characters writes all of them, charged as ser_clone_settle charges them.
+   The first clone an output meets for a value set writes them free: the tree holds that set once, so the cost stays
+   linear in the tree's own memory. A later clone of the same set fits while the allowance and the output fund it, less
+   the clone attributes already written, which count once as output and once as spent. */
+
 void th_clone_seen_free(struct th_clone_seen *seen) {
     if (seen != NULL) {
         PyMem_Free(seen->slots);

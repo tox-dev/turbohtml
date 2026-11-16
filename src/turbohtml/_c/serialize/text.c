@@ -481,7 +481,7 @@ static void text_render_block(text_ctx *ctx, th_node *node);
    value set writes it free, since the tree holds that set once; a later clone takes its length from the padding, or
    keeps its text alone when the padding does not cover it. */
 static int text_clone_admit(text_ctx *ctx, const th_node *node, Py_ssize_t href_len) {
-    int added = ser_clone_seen_add(&ctx->clone_seen, th_node_values_seq(node));
+    int added = th_clone_seen_add(&ctx->clone_seen, th_node_values_seq(node));
     if (added < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */

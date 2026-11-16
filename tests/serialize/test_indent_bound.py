@@ -285,8 +285,8 @@ def test_prefix_declared_clone_past_the_budget_writes_none_of_its_start_tag() ->
 
 
 def test_xml_clone_leaves_out_an_attribute_name_xml_cannot_hold() -> None:
-    text = parse('<p><a a"b=1 href=/u>one<p>two').serialize(Html(xml=True))
-    assert text.count("href") == 2
+    text = parse('<p><a a"b=1 href=/u>one<p>two<p>three').serialize(Html(xml=True))
+    assert text.count("href") == 3
     assert 'a"b' not in text
 
 
