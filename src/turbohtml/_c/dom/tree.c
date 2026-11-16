@@ -5508,9 +5508,13 @@ static enum mode fragment_mode(uint16_t ctx) {
    truncated, which only affects the interned atom (every real context name fits). */
 #define MAX_CONTEXT_NAME 32
 
+int th_node_is_html_annotation_xml(const th_node *node) {
+    return is_html_annotation_xml(node);
+}
+
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
                                 Py_ssize_t context_len, int positions, int locations, int scripting,
-                                int declarative_shadow) {
+                                int declarative_shadow, int html_integration) {
     th_tree *tree = PyMem_Calloc(1, sizeof(th_tree));
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -5595,6 +5599,7 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
     if (ctx_ns != TH_NS_HTML) {
         root->ns = ctx_ns;
         root->atom = ctx_atom;
+        root->html_integration = html_integration;
     }
 
     th_tokenizer *sm = th_tok_new();

@@ -4584,8 +4584,9 @@ static th_tree *parse_fragment_in_context(PyObject *self, th_node *context, PyOb
     memcpy(name + prefix_len, tag_utf8, (size_t)tag_len);
     name[name_len] = '\0';
     Py_DECREF(tag);
-    th_tree *fragment = th_tree_parse_fragment(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html),
-                                               name, name_len, 0, 0, scripting, 0);
+    th_tree *fragment =
+        th_tree_parse_fragment(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html), name, name_len,
+                               0, 0, scripting, 0, th_node_is_html_annotation_xml(context));
     PyMem_Free(name);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */

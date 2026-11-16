@@ -201,6 +201,11 @@ static int annotation_xml_encoding_is_html(const th_node *node) {
     return 0;
 }
 
+/* Reads the live attributes, so a fragment context matches what a reparse of the element's start tag sees. */
+static int is_html_annotation_xml(const th_node *node) {
+    return node->ns == TH_NS_MATHML && node->atom == TH_TAG_ANNOTATION_XML && annotation_xml_encoding_is_html(node);
+}
+
 static int is_html_integration(const th_node *node) {
     if (node->ns == TH_NS_SVG) {
         return node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE;
@@ -231,8 +236,7 @@ static th_node *insert_foreign(th_tree *tree, th_token *token, uint8_t ns) {
                   (ns == TH_NS_SVG &&
                    (node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE));
     node->tag_flags = special ? TH_TAG_SPECIAL : 0;
-    node->html_integration =
-        ns == TH_NS_MATHML && node->atom == TH_TAG_ANNOTATION_XML && annotation_xml_encoding_is_html(node);
+    node->html_integration = is_html_annotation_xml(node);
     /* reset_insertion_mode matches the html atom without its namespace, so re-parsing the output can take a foreign
        <html> for the root and open head/body under it */
     tree->reparse_hazard |= node->atom == TH_TAG_HTML;

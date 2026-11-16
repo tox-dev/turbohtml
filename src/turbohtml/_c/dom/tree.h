@@ -569,10 +569,15 @@ int th_node_normalize(th_tree *tree, th_node *root);
    children. context is a NUL-free ASCII name; context_len its length. positions
    records element source line/column, scripting sets the WHATWG scripting flag, and
    declarative_shadow allows `<template shadowrootmode>` to attach a shadow root to the
-   context element, all as in th_tree_parse. */
+   context element, all as in th_tree_parse. html_integration marks a foreign context
+   as an HTML integration point (an annotation-xml with an HTML encoding, see
+   th_node_is_html_annotation_xml), so its children parse as HTML. */
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
                                 Py_ssize_t context_len, int positions, int locations, int scripting,
-                                int declarative_shadow);
+                                int declarative_shadow, int html_integration);
+
+/* Whether node is an annotation-xml whose encoding attribute, as it stands, makes it an HTML integration point. */
+int th_node_is_html_annotation_xml(const th_node *node);
 
 /* Whether context names a real element the public parse_fragment() accepts: a known
    HTML tag, or any explicitly namespaced (svg/math) foreign element. */

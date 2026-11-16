@@ -5578,7 +5578,7 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
         s.bleach_raw_urls =
             s.bleach_url_policy && PyUnicode_FindChar(source, '&', 0, PyUnicode_GET_LENGTH(source), 1) >= 0;
         s.tree = th_tree_parse_fragment(PyUnicode_KIND(source), PyUnicode_DATA(source), PyUnicode_GET_LENGTH(source),
-                                        "div", 3, 0, s.bleach_raw_values || s.bleach_raw_urls, 0, 0);
+                                        "div", 3, 0, s.bleach_raw_values || s.bleach_raw_urls, 0, 0, 0);
         if (s.tree == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
