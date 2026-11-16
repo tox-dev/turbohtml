@@ -1279,17 +1279,20 @@ typedef struct {
 } facet_range;
 
 typedef struct {
+    Py_ssize_t length, min_length, max_length, total_digits, fraction_digits;
+} facet_limits;
+
+typedef struct {
     int base_id;
     int ws;
     int has_length, has_min_length, has_max_length;
-    Py_ssize_t length, min_length, max_length;
     int has_min_inclusive, has_max_inclusive, has_min_exclusive, has_max_exclusive;
     double min_inclusive, max_inclusive, min_exclusive, max_exclusive;
     /* the bounds as the schema wrote them, by RANGE_ slot: a date's, time's or duration's order is not a double's.
        Held in the arena so the facetset that every simple value zeroes stays small. */
     facet_range *ranges;
+    facet_limits *limits;
     int has_total_digits, has_fraction_digits;
-    Py_ssize_t total_digits, fraction_digits;
     strspan *enums;
     Py_ssize_t enum_count, enum_cap;
     strspan *patterns;
@@ -1353,6 +1356,17 @@ static Py_ssize_t facet_limit(const Py_UCS4 *value, Py_ssize_t len) {
     return negative ? -limit : limit;
 }
 
+/* The length and digit-count limits of a facetset, allocated on the first of them it takes. */
+static int facet_limits_at(arena *mem, facetset *facets) {
+    if (facets->limits == NULL) {
+        facets->limits = arena_alloc(mem, sizeof(facet_limits));
+        if (facets->limits == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
 /* Fold one facet (name, value) into the set. */
 static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len) {
@@ -1365,14 +1379,23 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
     if (u_eq_ascii(name, name_len, "whiteSpace")) {
         facets->ws = u_eq_ascii(value, value_len, "replace") ? 1 : (u_eq_ascii(value, value_len, "collapse") ? 2 : 0);
     } else if (u_eq_ascii(name, name_len, "length")) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_length = 1;
-        facets->length = facet_limit(value, value_len);
+        facets->limits->length = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "minLength")) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_min_length = 1;
-        facets->min_length = facet_limit(value, value_len);
+        facets->limits->min_length = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "maxLength")) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_max_length = 1;
-        facets->max_length = facet_limit(value, value_len);
+        facets->limits->max_length = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "minInclusive")) {
         if (facet_range_text(mem, facets, RANGE_MIN_INCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
             return -1;                                                                  /* GCOVR_EXCL_LINE */
@@ -1398,11 +1421,17 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
         facets->has_max_exclusive = 1;
         facets->max_exclusive = dt_to_double(mem, value, value_len);
     } else if (u_eq_ascii(name, name_len, "totalDigits")) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_total_digits = 1;
-        facets->total_digits = facet_limit(value, value_len);
+        facets->limits->total_digits = facet_limit(value, value_len);
     } else if (u_eq_ascii(name, name_len, "fractionDigits")) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_fraction_digits = 1;
-        facets->fraction_digits = facet_limit(value, value_len);
+        facets->limits->fraction_digits = facet_limit(value, value_len);
     }
     return 0;
 }
@@ -1420,16 +1449,25 @@ static int facet_inherit(arena *mem, facetset *facets, const facetset *own) {
         facets->ws = own->ws;
     }
     if (own->has_length) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_length = 1;
-        facets->length = own->length;
+        facets->limits->length = own->limits->length;
     }
     if (own->has_min_length) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_min_length = 1;
-        facets->min_length = own->min_length;
+        facets->limits->min_length = own->limits->min_length;
     }
     if (own->has_max_length) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_max_length = 1;
-        facets->max_length = own->max_length;
+        facets->limits->max_length = own->limits->max_length;
     }
     if (own->has_min_inclusive) {
         facets->has_min_inclusive = 1;
@@ -1452,12 +1490,18 @@ static int facet_inherit(arena *mem, facetset *facets, const facetset *own) {
         facets->ranges[RANGE_MAX_EXCLUSIVE] = own->ranges[RANGE_MAX_EXCLUSIVE];
     }
     if (own->has_total_digits) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_total_digits = 1;
-        facets->total_digits = own->total_digits;
+        facets->limits->total_digits = own->limits->total_digits;
     }
     if (own->has_fraction_digits) {
+        if (facet_limits_at(mem, facets) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                          /* GCOVR_EXCL_LINE */
+        }
         facets->has_fraction_digits = 1;
-        facets->fraction_digits = own->fraction_digits;
+        facets->limits->fraction_digits = own->limits->fraction_digits;
     }
     return 0;
 }
@@ -1508,16 +1552,16 @@ typedef struct {
 static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const facet_levels *levels,
                        const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t units) {
     int ok = 1;
-    if (facets->has_length && units != facets->length) {
-        report(ctx, node, "facet", "value length %zd does not equal length facet %zd", units, facets->length);
+    if (facets->has_length && units != facets->limits->length) {
+        report(ctx, node, "facet", "value length %zd does not equal length facet %zd", units, facets->limits->length);
         ok = 0;
     }
-    if (facets->has_min_length && units < facets->min_length) {
-        report(ctx, node, "facet", "value length %zd is below minLength %zd", units, facets->min_length);
+    if (facets->has_min_length && units < facets->limits->min_length) {
+        report(ctx, node, "facet", "value length %zd is below minLength %zd", units, facets->limits->min_length);
         ok = 0;
     }
-    if (facets->has_max_length && units > facets->max_length) {
-        report(ctx, node, "facet", "value length %zd exceeds maxLength %zd", units, facets->max_length);
+    if (facets->has_max_length && units > facets->limits->max_length) {
+        report(ctx, node, "facet", "value length %zd exceeds maxLength %zd", units, facets->limits->max_length);
         ok = 0;
     }
     if (dt_is_float(facets->base_id) && (facets->has_min_inclusive || facets->has_max_inclusive ||
@@ -1563,13 +1607,14 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
     if (facets->has_total_digits || facets->has_fraction_digits) {
         Py_ssize_t total, fraction;
         count_digits(value, len, &total, &fraction);
-        if (facets->has_total_digits && total > facets->total_digits) {
-            report(ctx, node, "facet", "value has more than totalDigits %zd significant digits", facets->total_digits);
+        if (facets->has_total_digits && total > facets->limits->total_digits) {
+            report(ctx, node, "facet", "value has more than totalDigits %zd significant digits",
+                   facets->limits->total_digits);
             ok = 0;
         }
-        if (facets->has_fraction_digits && fraction > facets->fraction_digits) {
+        if (facets->has_fraction_digits && fraction > facets->limits->fraction_digits) {
             report(ctx, node, "facet", "value has more than fractionDigits %zd fraction digits",
-                   facets->fraction_digits);
+                   facets->limits->fraction_digits);
             ok = 0;
         }
     }
