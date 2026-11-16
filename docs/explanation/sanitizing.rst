@@ -32,7 +32,8 @@ handlers, ``<script>``, and ``javascript:`` URLs are dropped below the allowlist
 checks each rewritten value again. This pass covers handlers, URL, ``srcset`` and meta refresh schemes, CSS, template
 markers, configured value sets, media hosts, and named-property isolation. The serializer receives the checked result.
 Callbacks can narrow or rewrite policy output without gaining a route around the baseline. The extra scan runs only when
-a callback or matching ``set_attributes`` rule wrote a value, so configuring one tag does not rescan unrelated elements.
+a callback or matching ``set_attributes`` rule wrote a value, or a ``<meta>`` lost an attribute during the walk, because
+its refresh decision reads its first ``http-equiv``. Configuring one tag does not rescan unrelated elements.
 
 ``transform_tags`` is the one step that *adds* rather than removes -- it renames an element and can inject attributes --
 so its placement is what keeps the model intact. The rename runs at the very top, before the allowlist reads the tag,
