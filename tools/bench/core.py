@@ -1357,14 +1357,15 @@ def _run_radio_group(run: Callable[[], tuple[bool, ...]]) -> tuple[bool, ...]:
     return run()
 
 
-def _range_boundary_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _range_boundary_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.extend(turbohtml.Element("i") for _ in range(count))
     offset: Final = count if variant == "end" else 0
 
     def run() -> None:
-        _Range(root, offset)
+        for _ in range(repeats):
+            _Range(root, offset)
 
     return run
 
@@ -1373,24 +1374,25 @@ def _run_prepared(run: Callable[[], None]) -> None:
     run()
 
 
-def _range_contained_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _range_contained_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.extend(turbohtml.Element("i") for _ in range(count))
     boundary: Final = _Range(root)
     boundary.set_end(root, count)
 
     def run() -> None:
-        if variant == "extract":
-            boundary.extract_contents()
-        else:
-            boundary.clone_contents()
+        for _ in range(repeats):
+            if variant == "extract":
+                boundary.extract_contents()
+            else:
+                boundary.clone_contents()
 
     return run
 
 
-def _range_partial_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _range_partial_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.set_inner_html(f"<section>abcdef{'<i></i>' * count}</section>tail")
     selected: Final = root.children[0].children[0]
@@ -1399,10 +1401,11 @@ def _range_partial_setup(case: tuple[int, str]) -> Callable[[], None]:
     boundary.set_end(selected, 3)
 
     def run() -> None:
-        if variant == "extract":
-            boundary.extract_contents()
-        else:
-            boundary.clone_contents()
+        for _ in range(repeats):
+            if variant == "extract":
+                boundary.extract_contents()
+            else:
+                boundary.clone_contents()
 
     return run
 
