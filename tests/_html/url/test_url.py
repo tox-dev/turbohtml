@@ -421,7 +421,12 @@ def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
     for base, reference in _corpus():
         scheme = reference.partition(":")[0].lower()
         foreign = scheme in _SPECIAL_SCHEMES and scheme != base.partition(":")[0]
-        if not reference.startswith("///") and not foreign:
+        opaque_fragment = (
+            reference.startswith("#")
+            and base.partition(":")[0].lower() not in _SPECIAL_SCHEMES
+            and (":" in base and not base.partition(":")[2].startswith("/"))
+        )
+        if not reference.startswith("///") and not foreign and not opaque_fragment:
             assert _join_link(base, reference) == _join(base, reference), (base, reference)
 
 

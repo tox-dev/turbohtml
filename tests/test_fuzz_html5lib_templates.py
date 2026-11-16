@@ -130,6 +130,8 @@ from fuzz.generation_targets import encoding_observation
         pytest.param("<table/><r><table>", "", id="template-cover-06"),
         pytest.param("<table><b></table>y", "y", id="template-cover-07"),
         pytest.param("<table><template><table>", "", id="template-cover-08"),
+        pytest.param("<template><svg></head><script><!", "", id="template-foreign-head-end-keeps-template"),
+        pytest.param("<table >\t<d><tbody><p ><template ><div><<", "<<\t", id="template-scope-stops-paragraph-search"),
     ],
 )
 def test_encoding_oracle_template_shapes(markup: str, expected: str) -> None:

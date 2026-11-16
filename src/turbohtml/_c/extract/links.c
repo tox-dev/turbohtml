@@ -815,17 +815,15 @@ static Py_ssize_t url_find_char(const Py_UCS4 *value, Py_ssize_t start, Py_ssize
 }
 
 /* Whether a '.' or '%' that follows a '/' in value[from,end) starts a dot segment; only such a '/' reaches the segment
-   check, so the common path costs two memchr scans. */
+   check, so a path without a '/' costs one memchr scan. */
 static int url_path_has_dot_candidate(const Py_UCS4 *value, Py_ssize_t from, Py_ssize_t end) {
-    static const Py_UCS4 starts[] = {'.', '%'};
-    for (size_t choice = 0; choice < sizeof(starts) / sizeof(starts[0]); choice++) {
-        Py_ssize_t at = from;
-        while ((at = url_find_char(value, at, end, starts[choice])) >= 0) {
-            if (value[at - 1] == '/' && url_path_has_dot_segment(value, from, end)) {
-                return 1;
-            }
-            at++;
+    Py_ssize_t at = from;
+    while ((at = url_find_char(value, at, end, '/')) >= 0) {
+        if (at + 1 < end && (value[at + 1] == '.' || value[at + 1] == '%') &&
+            url_path_has_dot_segment(value, from, end)) {
+            return 1;
         }
+        at++;
     }
     return 0;
 }
@@ -840,6 +838,7 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     Py_ssize_t host = stop;
     Py_ssize_t last_colon = -1;
     int upper = 0;
+    int escaped = 0;
     for (; stop < end; stop++) {
         Py_UCS4 c = value[stop];
         if (c == '/' || c == '?' || c == '#' || c == '\\') {
@@ -850,15 +849,17 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         }
         if (c == '@') {
             upper = 0;
+            escaped = 0;
             last_colon = -1;
             host = stop + 1;
         } else if (c == ':') {
             last_colon = stop;
         } else {
             upper |= c >= 'A' && c <= 'Z';
+            escaped |= c == '%' || c >= 0x80;
         }
     }
-    if (upper) {
+    if (upper || escaped) {
         return 0;
     }
     if (last_colon >= 0 && url_drops_port(value, start, colon, stop)) {
@@ -899,10 +900,11 @@ static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
 /* True when resolve_links can prove urljoin(base, [start, end)) returns the URL byte-for-byte, so the urljoin call (the
    bulk of resolve's cost, stdlib Python) is skipped for an already-absolute link. Mirrors CPython urllib.parse.urljoin:
    a reference with a scheme differing from the base's (case-insensitively) is returned verbatim, unless it is a special
-   scheme the link join rewrites (url_special_link_plain); a same-scheme absolute reference (scheme://netloc...) is
-   reserialized, which reproduces the input only when the scheme is already lowercase, an authority is present, and no
-   tab/CR/LF (which urlsplit strips) or backslash appears. The same-scheme case is enabled only for an http/https base,
-   whose scheme reserializes through urlunsplit's netloc branch. */
+   scheme the link join rewrites (url_special_link_plain) or a non-special one whose path has a dot segment; a
+   same-scheme absolute reference (scheme://netloc...) is reserialized, which reproduces the input only when the scheme
+   is already lowercase, an authority is present, and no tab/CR/LF (which urlsplit strips) or backslash appears. The
+   same-scheme case is enabled only for an http/https base, whose scheme reserializes through urlunsplit's netloc
+   branch. */
 static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, const char *base_scheme,
                                   Py_ssize_t base_scheme_len, int base_netloc_scheme) {
     if (!is_ascii_alpha(value[start])) { /* a scheme starts with a letter; a span is never empty (start < end) */
@@ -925,7 +927,8 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         same_scheme = lower_ascii(value[start + index]) == (Py_UCS4)(unsigned char)base_scheme[index];
     }
     if (!same_scheme) {
-        return url_special_link_plain(value, start, colon, end) || !th_url_scheme_special(value, start, colon);
+        return url_special_link_plain(value, start, colon, end) ||
+               (!th_url_scheme_special(value, start, colon) && !url_path_has_dot_candidate(value, colon + 1, end));
     }
     if (!base_netloc_scheme) {
         return 0;

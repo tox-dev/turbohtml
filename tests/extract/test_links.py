@@ -1383,8 +1383,113 @@ def test_resolve_links_keeps_a_host_the_ipv4_parser_rejects(href: str) -> None:
     assert _resolved_href(href, _HTTPS) == href
 
 
-def test_resolve_links_keeps_an_escaped_registered_name_as_written() -> None:
-    assert _resolved_href("https://%41.com:443/p", _HTTPS) == "https://%41.com/p"
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://%41.com:443/p", "https://a.com/p", id="escaped-name-decoded"),
+        pytest.param("https://A%42.com/p", "https://ab.com/p", id="escaped-and-upper-case"),
+        pytest.param("https://%61%62.com/p", "https://ab.com/p", id="escaped-letters"),
+        pytest.param("https://x.%41/p", "https://x.a/p", id="escaped-last-label"),
+        pytest.param("https://%41.%42.%43/p", "https://a.b.c/p", id="escaped-every-label"),
+        pytest.param("https://a%2E/p", "https://a./p", id="escaped-dot-kept-as-trailing-dot"),
+        pytest.param("https://%2e%2e.com/p", "https://...com/p", id="escaped-dot-in-label"),
+        pytest.param("https://u%41@%41.com:443/p", "https://u%41@a.com/p", id="userinfo-kept"),
+        pytest.param("https://%41%42/p", "https://ab/p", id="single-label"),
+        pytest.param("https://%41.com/a/../b", "https://a.com/b", id="escaped-host-with-dot-segment"),
+    ],
+)
+def test_resolve_links_decodes_a_percent_encoded_registered_name(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
+@pytest.mark.parametrize("href", ["https://%20.com/p", "https://%zz.com/p", "https://a%2Fb.com/p"])
+def test_resolve_links_keeps_an_escaped_name_with_a_forbidden_code_point(href: str) -> None:
+    assert _resolved_href(href, _HTTPS) == href
+
+
+# WHATWG removes the dot segments of a path under every scheme, not only the special ones
+# (https://url.spec.whatwg.org/#path-state), and keeps an opaque path (no slash after the scheme) as written. A path
+# that starts with two slashes keeps its root segment, so "//" is not lost, and a URL without a host gets "/." in front.
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("foo://example.com/a/b", "/x/../y", "foo://example.com/y", id="rooted-dot-dot"),
+        pytest.param("foo://example.com/a/b", "/x/./y", "foo://example.com/x/y", id="rooted-dot"),
+        pytest.param("foo://example.com/a/b", "/x/%2e%2E/y", "foo://example.com/y", id="encoded-dot-dot"),
+        pytest.param("foo://example.com/a/b", "/x/%2E/y", "foo://example.com/x/y", id="encoded-dot"),
+        pytest.param("foo://example.com/a/b", "/x/.%2e/z", "foo://example.com/z", id="mixed-encoded-dot-dot"),
+        pytest.param("foo://example.com/a/b", "x/../y", "foo://example.com/a/y", id="relative-dot-dot"),
+        pytest.param("foo://example.com/a/b", "../y", "foo://example.com/y", id="relative-climbs-to-root"),
+        pytest.param("foo://example.com/a/b", "./y", "foo://example.com/a/y", id="relative-dot"),
+        pytest.param("foo://example.com/a/b", "/x/..", "foo://example.com/", id="dot-dot-to-root"),
+        pytest.param("foo://example.com/a/b", "/x/.", "foo://example.com/x/", id="dot-to-directory"),
+        pytest.param("foo://example.com/a/b", "/x/y/..?q", "foo://example.com/x/?q", id="dot-dot-before-query"),
+        pytest.param("foo://example.com/a/b", "?q", "foo://example.com/a/b?q", id="query-keeps-path"),
+        pytest.param("foo://example.com/a/b", "#f", "foo://example.com/a/b#f", id="fragment-keeps-path"),
+        pytest.param("foo://example.com/a/b", "\\x/../y", "foo://example.com/a/y", id="backslash-is-not-a-separator"),
+        pytest.param("foo://example.com/a/b", "/x/..x/y", "foo://example.com/x/..x/y", id="dot-prefixed-name"),
+        pytest.param("foo://example.com/a/b", "/x/a%2e/b", "foo://example.com/x/a%2e/b", id="encoded-dot-in-name"),
+        pytest.param("foo://example.com/a/b", "//host/x/../y", "foo://host/y", id="network-path"),
+        pytest.param("foo://example.com/a/b", "/a/..//b", "foo://example.com//b", id="root-kept-before-slash"),
+        pytest.param("foo://example.com/a/b", "/..//path", "foo://example.com//path", id="root-kept-at-start"),
+        pytest.param("foo:/a/b", "/x/../y", "foo:/y", id="no-host-rooted"),
+        pytest.param("foo:/a/b", "x/../y", "foo:/a/y", id="no-host-relative"),
+        pytest.param("foo:/a/b", "//host/x/../y", "foo://host/y", id="no-host-network-path"),
+        pytest.param("foo:a/b", "/x/../y", "/x/../y", id="opaque-base-kept"),
+        pytest.param("sftp://h/a/b/c", "/x/%2e%2E/y", "sftp://h/y", id="sftp-encoded-dot-dot"),
+        pytest.param("sftp://h/a/b/c", "../y", "sftp://h/a/y", id="sftp-relative-dot-dot"),
+        pytest.param("sftp://h/a/b/c", "x/../y", "sftp://h/a/b/y", id="sftp-relative-dot-dot-in-directory"),
+        pytest.param(_HTTPS, "sftp://h/x/../y", "sftp://h/y", id="other-scheme-absolute"),
+        pytest.param(_HTTPS, "sftp://h/x/%2E/y", "sftp://h/x/y", id="other-scheme-absolute-encoded-dot"),
+        pytest.param(_HTTPS, "sftp:/x/../y", "sftp:/y", id="other-scheme-no-host"),
+        pytest.param(_HTTPS, "/..//path", "https://example.com//path", id="special-root-kept"),
+        pytest.param(_HTTPS, "//x/..//p", "https://x//p", id="special-network-path-root-kept"),
+        pytest.param("foo://example.com/a/b", "foo:/x/../y", "foo:/y", id="same-scheme-no-host"),
+        pytest.param("foo://example.com/a/b", "foo://h/x/../y", "foo://h/y", id="same-scheme-absolute"),
+        pytest.param("foo://example.com/a/b", "foo://UPPER:22/x/../y", "foo://UPPER:22/y", id="host-and-port-kept"),
+        pytest.param("foo://example.com/a/b", "foo:x/../y", "foo:x/../y", id="same-scheme-opaque-kept"),
+        pytest.param("foo://example.com/a/b", "foo://h/x/./y?q#f", "foo://h/x/y?q#f", id="query-and-fragment-kept"),
+        pytest.param("foo://example.com/a/b", "foo://h", "foo://h", id="empty-path-unchanged"),
+        pytest.param("foo://example.com/a/b", "foo://h/a/../../..", "foo://h/", id="climbing-past-root"),
+        pytest.param("foo://example.com/a/b", "sftp://h/x/../y", "sftp://h/y", id="other-non-special-absolute"),
+        pytest.param(
+            "foo://example.com/a/b", "https://h/x/../y", "https://h/y", id="special-absolute-under-non-special"
+        ),
+        pytest.param("foo://example.com/a/b", "sftp://h/", "sftp://h/", id="non-special-trailing-slash"),
+        pytest.param("non-spec:/a/b", "//x/..//p", "non-spec://x//p", id="non-special-root-kept-with-host"),
+        pytest.param(
+            "foo://example.com/a/b",
+            "/a/../b/%2e%2e/c/./d",
+            "foo://example.com/c/d",
+            id="several-dot-segments",
+        ),
+    ],
+)
+def test_resolve_links_removes_dot_segments_under_any_scheme(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
+# A fragment-only reference keeps an opaque base's path and query and takes the reference's fragment
+# (https://url.spec.whatwg.org/#path-state); a reference with a path or query under an opaque base is rejected and kept.
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("foo:a/b", "#f", "foo:a/b#f", id="fragment"),
+        pytest.param("foo:a/b#old", "#f", "foo:a/b#f", id="replaces-base-fragment"),
+        pytest.param("foo:a/b?q#old", "#f", "foo:a/b?q#f", id="keeps-base-query"),
+        pytest.param("foo:a/b?q", "#", "foo:a/b?q#", id="empty-fragment"),
+        pytest.param("foo:a/b", "#a#b", "foo:a/b#a#b", id="second-hash-kept"),
+        pytest.param("foo:a/b", "#f?q", "foo:a/b#f?q", id="question-mark-in-fragment"),
+        pytest.param("mailto:x@x.com", "#x", "mailto:x@x.com#x", id="mailto-base"),
+        pytest.param("data:,", "#", "data:,#", id="data-base"),
+        pytest.param("about:blank", "#x", "about:blank#x", id="about-base"),
+        pytest.param("foo:/a/b", "#f", "foo:/a/b#f", id="hierarchical-base-unchanged"),
+        pytest.param("foo:a/b", "?q#f", "?q#f", id="query-rejected-kept"),
+        pytest.param("foo:a/b", "x", "x", id="path-rejected-kept"),
+    ],
+)
+def test_resolve_links_resolves_a_fragment_against_an_opaque_base(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
 
 
 # A tab/CR/LF inside an otherwise-skippable absolute link forces the rejoin urlsplit would strip it in; a character
