@@ -1653,7 +1653,8 @@ static int32_t parse_object(P *parser) {
                 is_set = kw(parser, "set");
                 is_async = kw(parser, "async");
                 advance(parser);
-                if (at(parser, JT_COLON) || at(parser, JT_COMMA) || at(parser, JT_RBRACE) || at(parser, JT_LPAREN)) {
+                if (at(parser, JT_COLON) || at(parser, JT_COMMA) || at(parser, JT_RBRACE) || at(parser, JT_LPAREN) ||
+                    at(parser, JT_ASSIGN)) {
                     reset(parser, save); /* it was actually a property named get/set/async */
                     is_get = is_set = is_async = 0;
                 }
