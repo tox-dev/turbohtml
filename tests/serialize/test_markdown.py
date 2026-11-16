@@ -2531,6 +2531,41 @@ def test_comments_stay_in_a_raw_html_block() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<table><td><table><tr><td>a<?php x?>b</td></tr></table></td></table>",
+            "| <table><tr><td>ab</td></tr></table> |\n| --- |",
+            id="table-pi-in-cell",
+        ),
+        pytest.param(
+            "<table><td><ul><li>a<?php x?>b</li></ul></td></table>",
+            "| <ul><li>ab</li></ul> |\n| --- |",
+            id="ul-pi-in-cell",
+        ),
+        pytest.param(
+            "<table><td><ol><li>a<?php x?>b</li></ol></td></table>",
+            "| <ol><li>ab</li></ol> |\n| --- |",
+            id="ol-pi-in-cell",
+        ),
+    ],
+)
+def test_processing_instructions_are_dropped_from_cell_html(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_processing_instruction_in_raw_table_stays_html() -> None:
+    markdown = md("<b><table><tr><td>a<?php x?>b</td></tr><tr><td>c</td><td>d</td></tr></table></b>")
+    assert markdown == (
+        "<table><tbody><tr><td><strong>a<?php x>b</strong></td></tr>"
+        "<tr><td><strong>c</strong></td><td><strong>d</strong></td></tr></tbody></table>"
+    )
+    rendered = MarkdownIt("commonmark").render(markdown)
+    assert "<?php x>" in rendered
+    assert "&lt;?php" not in rendered
+
+
 def test_raw_table_respects_ignored_emphasis() -> None:
     options: Final = Markdown(inline=Markdown.Inline(ignore_emphasis=True))
     assert parse("<b><table><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></table></b>").to_markdown(options) == (
