@@ -135,7 +135,7 @@ def test_google_style_inside_deep_block_keeps_both_blocks() -> None:
 def test_deep_list_keeps_paragraph_inside_innermost_item() -> None:
     source: Final = f"{'<ul><li>' * 9}s<p>1</p>"
     result: Final = parse_fragment(source).to_markdown()
-    assert result.endswith("<ul><li>s<p>1</p></li></ul>")
+    assert result == f"{'<ul><li>' * 9}s<p>1</p>{'</li></ul>' * 9}"
     assert MarkdownIt().render(result).count("<ul>") == 9
 
 
@@ -169,11 +169,10 @@ def test_emphasis_around_google_doc_hidden_output_stays_linear(work_steps: WorkS
     )
 
 
-def test_deep_list_with_attributes_keeps_markdown_output() -> None:
+def test_deep_list_with_attributes_is_written_as_html() -> None:
     source: Final = f"{'<ul><li>' * 8}<ul class=x><li>s<p>1</p>"
     result: Final = parse_fragment(source).to_markdown()
-    assert "<ul" not in result
-    assert result.endswith("- s\n\n                1")
+    assert result == f'{"<ul><li>" * 8}<ul class="x"><li>s<p>1</p></li></ul>{"</li></ul>" * 8}'
 
 
 def test_many_trailing_breaks_keep_visible_text() -> None:
@@ -1465,7 +1464,7 @@ def _render(markdown: str) -> str:
     return MarkdownIt("gfm-like", {"linkify": False}).render(markdown)
 
 
-@pytest.mark.parametrize("depth", [4, 5, 7, 9])
+@pytest.mark.parametrize("depth", [4, 5, 7])
 def test_code_in_lists_without_items_stays_code(depth: int) -> None:
     # no marker accounts for an indent here: four columns of it and a reader takes the fence for paragraph text
     html: Final = f"<p>x</p>{'<ul>' * depth}<pre>&lt;em&gt;y&lt;/em&gt;\n\nz</pre>{'</ul>' * depth}"
@@ -4806,12 +4805,11 @@ _INDENTED_SINGLE: Final[Markdown] = Markdown(
         pytest.param("<pre> \n&lt;b&gt;</pre>", _INDENTED, "```\n \n<b>\n```", id="space-first-line"),
         pytest.param("<pre> </pre>", _INDENTED, "```\n \n```", id="space-only"),
         pytest.param("<pre></pre>", _INDENTED, "```\n```", id="empty"),
-        # past the indent cap the prefix no longer puts the lines inside the item
+        # past the indent cap the outermost list is written as HTML, so the block keeps its item
         pytest.param(
             f"{'<ul><li>' * 10}<pre>&lt;b&gt;</pre>{'</li></ul>' * 10}",
             _INDENTED,
-            "".join(f"{'  ' * min(depth, 8)}- \n" for depth in range(10))
-            + f"{' ' * 16}```\n{' ' * 16}<b>\n{' ' * 16}```",
+            f"{'<ul><li>' * 10}<pre>&lt;b&gt;</pre>{'</li></ul>' * 10}",
             id="past-indent-cap",
         ),
     ],
@@ -4826,7 +4824,6 @@ def test_indented_code_block_position(html: str, opts: Markdown, expected: str) 
         pytest.param("<ul><li>a<pre>{}</pre></li></ul>", _INDENTED, id="tight-item"),
         pytest.param("text<pre>{}</pre>", _INDENTED_SINGLE, id="single-spacing"),
         pytest.param("<ul><li>a</li><li>b</li></ul><pre>{}</pre>", _INDENTED, id="after-list"),
-        pytest.param(f"{'<ul><li>' * 10}<pre>{{}}</pre>{'</li></ul>' * 10}", _INDENTED, id="past-indent-cap"),
         pytest.param(
             "<ul><li><blockquote>a</blockquote><blockquote><pre>{}</pre></blockquote></li></ul>",
             _INDENTED,

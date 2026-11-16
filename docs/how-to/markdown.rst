@@ -108,6 +108,11 @@ draws on a budget that the document's text funds. Where deep nesting holds many 
 each one keeps the outermost ``<strong>``, ``<em>`` or strikethrough run and drops the runs nested inside one of their
 own kind, which reads the same.
 
+Markdown indents nested lists and block quotes only so far: past eight levels of lists or seventeen block quotes, the
+outermost list or quote that holds the deeper content is written as one raw HTML block, which a reader takes verbatim,
+so the nesting survives. Each list item adds two levels and each block quote one, so mixed nesting reaches the limit
+sooner.
+
 A pipe table holds one line of inline content per cell, so a table or a list *inside* a cell has no Markdown spelling of
 its own; the GFM spec is explicit that "block-level elements cannot be inserted in a table". Both keep their source HTML
 without its comments, which is legal in a cell and renders as the real thing wherever a reader takes embedded HTML, and

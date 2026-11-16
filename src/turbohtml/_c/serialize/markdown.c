@@ -4131,7 +4131,40 @@ static TH_NOINLINE th_node *md_list_first_item(th_node *list) {
     return item != NULL && item->ns == TH_NS_HTML && item->atom == TH_TAG_LI ? item : NULL;
 }
 
+/* Whether a container under parent needs more indent levels than the prefix can hold, so a block there would sit
+   outside its own column. An item adds two levels and a block quote one; a child of a list that is not an item is
+   indented by two more (md_list_child). Past TH_MAX_INDENT_LEVELS the prefix stops growing, so the outermost
+   container that does not fit is written as one raw HTML block instead. */
+static int md_nesting_exceeds(th_node *parent, int in_list, int room) {
+    for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
+        int step = in_list ? 2 : 0;
+        int child_in_list = 0;
+        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML) {
+            if (child->atom == TH_TAG_LI) {
+                step = 2;
+            } else if (child->atom == TH_TAG_BLOCKQUOTE) {
+                step += 1;
+            } else if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
+                child_in_list = 1;
+            } else if (md_is_item_wrapper(child)) {
+                step = 0;
+                child_in_list = in_list;
+            }
+        }
+        if (step > room || md_nesting_exceeds(child, child_in_list, room - step)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void md_enter_list(md_ctx *ctx, th_node *node) {
+    if (md_nesting_exceeds(node, 1, TH_MAX_INDENT_LEVELS - ctx->indent_levels)) {
+        md_block_line(ctx, 0);
+        md_emit_raw_html(ctx, node);
+        return;
+    }
     int ordered = md_list_ordered(ctx, node);
     Py_ssize_t number = ordered ? md_list_number_attr(ctx, node, "start", 1) : 1;
     int preserve_ordinals = node->atom == TH_TAG_OL && ctx->opt->raw_list_html;
@@ -4141,11 +4174,6 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
     if (raw_html && !md_list_raw_safe(ctx->tree, node)) {
         raw_html = 0;
         loose = md_list_layout(ctx, node, 0, &raw_html);
-    }
-    if (ctx->indent_levels >= TH_MAX_INDENT_LEVELS - 1 && loose && md_list_raw_safe(ctx->tree, node)) {
-        md_block_line(ctx, 0);
-        md_emit_raw_html(ctx, node);
-        return;
     }
     if (raw_html) {
         md_block_line(ctx, 1);
@@ -5288,6 +5316,11 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         md_enter_table(ctx, node);
         return;
     case TH_TAG_BLOCKQUOTE: {
+        if (md_nesting_exceeds(node, 0, TH_MAX_INDENT_LEVELS - ctx->indent_levels - 1)) {
+            md_block_line(ctx, 0);
+            md_emit_raw_html(ctx, node);
+            return;
+        }
         /* the quote opens its lines here rather than through md_block_line, so it closes
            the runs before it (CommonMark 6.2 pairs them within one block) and takes the
            block start an inner block left pending */
