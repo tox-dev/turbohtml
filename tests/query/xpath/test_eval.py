@@ -3038,6 +3038,8 @@ _LXML_EXPRS: Final[tuple[str, ...]] = (
     "count(//p)",
     "count(//li)",
     "count(//article)",
+    "count(self::*)",
+    "count(ancestor-or-self::*)",
     "string(//title)",
     "//p[count(//article)=2]",
     "boolean(//p)",
@@ -3060,10 +3062,17 @@ _LXML_SCALAR_EXPRS: Final[list[str]] = [expr for expr in _LXML_EXPRS if expr.sta
 def test_matches_lxml(doc_name: str, expr: str) -> None:
     lxml_html: Final = pytest.importorskip("lxml.html")
     html: Final = _LXML_DOCS[doc_name]
-    ours: Final = turbohtml.parse(html).xpath(expr)
+    ours: Final = _root_element(html).xpath(expr)
     assert isinstance(ours, list)
     theirs: Final = lxml_html.document_fromstring(html).xpath(expr)
     assert _normalize_lxml(ours) == _normalize_lxml(theirs)
+
+
+def _root_element(html: str) -> Element:
+    # lxml evaluates XPath from the root element, not the document node, so the turbohtml side does too.
+    root: Final = parse(html).root
+    assert root is not None
+    return root
 
 
 @pytest.mark.oracle
@@ -3084,7 +3093,7 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
 def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
     lxml_html: Final = pytest.importorskip("lxml.html")
     html: Final = _LXML_DOCS[doc_name]
-    assert turbohtml.parse(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
+    assert _root_element(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
 
 
 class _Evaluate(Protocol):
