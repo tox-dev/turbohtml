@@ -2207,7 +2207,7 @@ def test_canonicalize_scope_after_attribute_mutation() -> None:
 
 
 def test_canonicalize_shared_sparse_xlink_input() -> None:
-    source = INPUTS["canonicalize-deep"]()[1][1]
+    source = cast("tuple[str, int]", INPUTS["canonicalize-deep"]()[1][1])[0]
     assert isinstance(source, str)
     assert (
         parse(source).canonicalize()
@@ -2224,7 +2224,7 @@ def test_canonicalize_shared_sparse_xlink_input() -> None:
 @pytest.mark.oracle
 def test_canonicalize_benchmark_html_parser_difference(case: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree")
-    source: Final = cast("str", INPUTS["canonicalize-deep"]()[case][1])
+    source: Final = cast("tuple[str, int]", INPUTS["canonicalize-deep"]()[case][1])[0]
     expected: Final = parse(source).canonicalize()
     assert etree.tostring(etree.HTML(source), method="c14n") == (
         expected

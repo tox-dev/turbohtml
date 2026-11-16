@@ -559,19 +559,19 @@ def test_jsminify_is_frozen_and_comparable() -> None:
 
 _CALLBACK_ORDER_ROWS: Final[tuple[tuple[str, int, tuple[int, int], str], ...]] = (
     ("minify-js-propagation", 0, (256, 2), "propagation-interleaved"),
-    ("minify-js-propagation", 1, (1, 2), "propagation-single"),
+    ("minify-js-propagation", 1, (96, 2), "propagation-interleaved-96"),
     ("minify-js-propagation", 2, (256, 2), "propagation-grouped"),
     ("minify-js-var-initialization", 0, (256, 2), "var-many"),
-    ("minify-js-var-initialization", 1, (1, 2), "var-one"),
+    ("minify-js-var-initialization", 1, (80, 2), "var-80"),
     ("minify-js-var-initialization", 2, (256, 1), "var-early"),
     ("minify-js-unlink", 0, (256, 3), "unlink-grouped"),
     ("minify-js-unlink", 1, (256, 3), "unlink-separated"),
-    ("minify-js-unlink", 2, (1, 3), "unlink-single"),
+    ("minify-js-unlink", 2, (64, 3), "unlink-one-declaration-64"),
     ("minify-js-unused-declarations", 0, (256, 0), "unused-many"),
-    ("minify-js-unused-declarations", 1, (1, 0), "unused-one"),
+    ("minify-js-unused-declarations", 1, (96, 0), "unused-96"),
     ("minify-js-single-use", 0, (256, 1), "single-use-grouped"),
     ("minify-js-single-use", 1, (256, 1), "single-use-separated"),
-    ("minify-js-single-use", 2, (1, 1), "single-use-single"),
+    ("minify-js-single-use", 2, (128, 1), "single-use-one-declaration-128"),
 )
 _CALLBACK_ORDER_MINIFIERS: Final[tuple[tuple[str, str | None, str], ...]] = (
     ("bench.core", None, "turbohtml"),
@@ -673,7 +673,7 @@ def test_minifiers_calmjs_rejects_const(operation: str, case: int) -> None:
     [
         pytest.param(0, 4096, 10, 1, id="plain"),
         pytest.param(1, 4096, 1000, 0, id="trailing-zeros"),
-        pytest.param(2, 1, 10, 1, id="tiny"),
+        pytest.param(2, 1_024, 10, 1, id="no-trailing-zeros-1024"),
     ],
 )
 def test_integer_benchmark_preserves_values(case: int, count: int, scale: int, offset: int) -> None:
