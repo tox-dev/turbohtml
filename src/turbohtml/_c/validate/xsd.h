@@ -660,7 +660,10 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         return;
     }
     posset_clear(out);
-    if (is_schema_el(schema, particle, XSD_NS, "element")) {
+    /* xsd_cache_facets classified the particle at compile time, so a visit reads its kind rather than comparing
+       names */
+    const int kind = xsd_xnode(schema, schema_node_qname(schema, particle))->kind;
+    if (kind == XSD_ELEMENT) {
         edecl want;
         xsd_element_name(schema, particle, &want);
         for (Py_ssize_t index = 0; index < in->count; index++) {
@@ -676,14 +679,14 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         }
         return;
     }
-    if (is_schema_el(schema, particle, XSD_NS, "group")) {
+    if (kind == XSD_GROUP) {
         th_node *model = xsd_group_model(schema, particle);
         if (model != NULL) {
             xsd_match_once(schema, inst, model, children, in, out);
         }
         return;
     }
-    if (is_schema_el(schema, particle, XSD_NS, "any")) {
+    if (kind == XSD_ANY) {
         for (Py_ssize_t index = 0; index < in->count; index++) {
             TH_WORK_STEP();
             Py_ssize_t pos = in->items[index];
@@ -698,7 +701,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
         }
         return;
     }
-    if (is_schema_el(schema, particle, XSD_NS, "choice")) {
+    if (kind == XSD_CHOICE) {
         posset branch = posset_alloc(schema, in->size);
         if (branch.member == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return;                  /* GCOVR_EXCL_LINE */
