@@ -1197,6 +1197,8 @@ static void rw_emit_start_tag(rw_ctx *ctx, th_node *node, int self_closing) {
                     rw_out_ascii(&ctx->out, "&lt;");
                 } else if (ch == '>') {
                     rw_out_ascii(&ctx->out, "&gt;");
+                } else if (ch == '\r') {
+                    rw_out_ascii(&ctx->out, "&#13;");
                 } else {
                     rw_out_char(&ctx->out, ch);
                 }
@@ -3257,7 +3259,7 @@ static inline void rw_call_leaf_handler(rw_ctx *ctx, const th_token *token, PyOb
     } else if (handle->set_text != NULL) {
         if (kind == RW_COMMENT) {
             rw_out_ascii(&ctx->out, "<!--");
-            rw_out_str(&ctx->out, handle->set_text);
+            rw_out_raw(&ctx->out, handle->set_text);
             rw_out_ascii(&ctx->out, "-->");
         } else {
             rw_out_content(&ctx->out, handle->set_text, handle->set_text_raw);

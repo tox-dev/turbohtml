@@ -522,6 +522,18 @@ static inline void sbuf_put_rawtext(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
     sbuf_put_ucs4_tail(out, text, start, len);
 }
 
+/* A raw-text child's text. A parsed text node is a span of the normalized input (the HTML tree builder and the XML
+   parser both fold CR before a span is taken), so it holds no CR and only owned text is scanned. */
+static inline void sbuf_put_rawtext_node(sbuf *out, th_tree *tree, th_node *node) {
+    int parsed = text_is_span(node);
+    Py_UCS4 *text = need_text(tree, node);
+    if (parsed) {
+        sbuf_put_ucs4(out, text, node->text_len);
+    } else {
+        sbuf_put_rawtext(out, text, node->text_len);
+    }
+}
+
 /* The HTML tokenizer also ends a comment at `-->` or `--!>`; parsed data does not hold these, DOM-built data can. */
 static inline void sbuf_put_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     sbuf_put_comment_start(out, text, len);

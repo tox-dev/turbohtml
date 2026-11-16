@@ -987,6 +987,11 @@ def test_raw_text_carriage_return_is_written_as_line_feed(tag: str, text: str, e
     assert _fragment(out, tag).serialize() == out
 
 
+@pytest.mark.parametrize("tag", ["script", "style", "xmp", "iframe", "noembed", "noframes"])
+def test_parsed_raw_text_carriage_return_is_line_feed(tag: str) -> None:
+    assert _fragment(f"<{tag}>a\rb\r\nc</{tag}>", tag).serialize() == f"<{tag}>a\nb\nc</{tag}>"
+
+
 def test_script_content_is_escaped_not_raw() -> None:
     node = _fragment("<script>if(a<b){}</script>", "script")
     assert node.serialize(_XML) == "<script>if(a&lt;b){}</script>"
