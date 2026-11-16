@@ -24,12 +24,14 @@ def parse_reference(markup: str) -> _Untyped:
 def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
     parser: Final = html5lib.HTMLParser(**kwargs)
     in_body: Final = type(parser.phases["inBody"])
+    end_handlers: Final = _with_method(in_body, "endTagHandler", in_body.endTagFormatting, _adoption_agency)
+    end_handlers["br"] = _end_tag_br
     parser.phases["inBody"] = type(
         "CorrectedInBodyPhase",
         (in_body,),
         {
             "endTagFormatting": _adoption_agency,
-            "endTagHandler": _with_method(in_body, "endTagHandler", in_body.endTagFormatting, _adoption_agency),
+            "endTagHandler": end_handlers,
             "startTagHandler": _with_method(in_body, "startTagHandler", in_body.startTagListItem, _start_tag_list_item),
             "processStartTag": _any_token_ends_newline_drop(in_body.processStartTag),
             "processEndTag": _any_token_ends_newline_drop(in_body.processEndTag),
@@ -48,6 +50,10 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
     parser.phases["inTable"] = type("CorrectedInTablePhase", (in_table,), {"startTagHandler": table_handlers})(
         parser, parser.tree
     )
+    in_frameset: Final = type(parser.phases["inFrameset"])
+    parser.phases["inFrameset"] = type(
+        "CorrectedInFramesetPhase", (in_frameset,), {"processCharacters": _insert_frameset_whitespace}
+    )(parser, parser.tree)
     in_select: Final = type(parser.phases["inSelect"])
     select_handlers: Final = copy.copy(inspect.getattr_static(in_select, "startTagHandler"))
     select_handlers.update(
@@ -57,6 +63,13 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
         parser, parser.tree
     )
     return parser
+
+
+def _with_method(phase: _Untyped, dispatcher_name: str, original: _Untyped, replacement: _Untyped) -> _Untyped:
+    dispatcher: Final = inspect.getattr_static(phase, dispatcher_name)
+    handlers: Final = copy.copy(dispatcher)
+    handlers.update({name: replacement for name, method in dispatcher.items() if method is original})
+    return handlers
 
 
 def _adoption_agency(self: _Untyped, token: _Token) -> None:
@@ -137,11 +150,14 @@ def _reinsert(
     self.tree.openElements.insert(self.tree.openElements.index(furthest_block) + 1, clone)
 
 
-def _with_method(phase: _Untyped, dispatcher_name: str, original: _Untyped, replacement: _Untyped) -> _Untyped:
-    dispatcher: Final = inspect.getattr_static(phase, dispatcher_name)
-    handlers: Final = copy.copy(dispatcher)
-    handlers.update({name: replacement for name, method in dispatcher.items() if method is original})
-    return handlers
+def _end_tag_br(self: _Untyped, token: _Token) -> None:
+    # WHATWG treats </br> as a <br> start tag, which sets the frameset-ok flag to not ok; html5lib's endTagBr leaves
+    # the flag alone, so a frameset start tag after </br> is accepted instead of ignored.
+    self.parser.parseError("unexpected-end-tag-treated-as", {"originalName": token["name"], "newName": "br element"})
+    self.tree.reconstructActiveFormattingElements()
+    self.tree.insertElement(impliedTagToken("br", "StartTag"))
+    self.tree.openElements.pop()
+    self.parser.framesetOK = False
 
 
 def _start_tag_list_item(self: _Untyped, token: _Token) -> None:
@@ -187,6 +203,14 @@ def _in_table_start_tag_other(self: _Untyped, token: _Token) -> _Token | None:
     reprocess = self.parser.phases["inBody"].processStartTag(token)
     self.tree.insertFromTable = False
     return reprocess
+
+
+def _insert_frameset_whitespace(self: _Untyped, token: _Token) -> None:
+    # WHATWG "in frameset" inserts each whitespace character and ignores the rest, but html5lib drops a character token
+    # that mixes letters with whitespace, so the whitespace after the first letter is lost.
+    whitespace: Final = "".join(character for character in token["data"] if character in "\t\n\f\r ")
+    if whitespace:
+        self.tree.insertText(whitespace)
 
 
 def _close_select_for_table_start(self: _Untyped, token: _Token) -> _Token:
