@@ -52,7 +52,10 @@ inclusive ``NaN`` bound admits only ``NaN``, and an exclusive ``NaN`` bound admi
 An ``xs:any`` particle matches one child element for each occurrence its ``minOccurs`` and ``maxOccurs`` allow, when the
 ``namespace`` attribute admits the element's namespace. ``processContents="strict"``, the default, requires a global
 element declaration for the matched element, ``lax`` validates it only when one exists, and ``skip`` does not validate
-it. An ``xs:anyAttribute`` admits undeclared unprefixed attributes the same way; prefixed attributes are not checked.
+it. An ``xs:anyAttribute`` admits an attribute whose namespace its ``namespace`` attribute allows, with the same
+``processContents`` rules. Prefixed attributes match a declaration or wildcard by the namespace their prefix binds. A
+prefix with no declaration in scope leaves the whole name as an attribute in no namespace. The ``xsi:type``,
+``xsi:nil``, ``xsi:schemaLocation`` and ``xsi:noNamespaceSchemaLocation`` are not checked.
 
 Compiling a RELAX NG schema raises :class:`ValueError` for a grammar the RELAX NG specification forbids: a ``<ref>``
 with no ``name`` attribute (section 4.10), a reference cycle whose expansion never passes through an ``element``

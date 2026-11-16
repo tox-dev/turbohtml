@@ -1482,6 +1482,287 @@ def test_any_attribute_of_base_and_extension_admits_undeclared_attributes() -> N
     assert check(schema, '<r y="1" z="2"/>').valid
 
 
+@pytest.mark.parametrize(
+    ("namespace", "attribute", "processing", "valid"),
+    [
+        pytest.param("##any", "x:a='1'", "strict", False, id="any-strict-needs-declaration"),
+        pytest.param("##any", "x:a='1'", "lax", True, id="any-lax-admits-undeclared"),
+        pytest.param("##any", "x:a='1'", "skip", True, id="any-skip-admits-undeclared"),
+        pytest.param("##any", "t:g='zz'", "skip", True, id="any-skip-ignores-declaration"),
+        pytest.param("##any", "t:g='zz'", "lax", False, id="any-lax-validates-declaration"),
+        pytest.param("##any", "t:g='12'", "strict", True, id="any-strict-admits-valid-declaration"),
+        pytest.param("##any", "xml:lang='en'", "strict", False, id="any-strict-xml-needs-declaration"),
+        pytest.param("##any", "xml:lang='en'", "skip", True, id="any-skip-xml-admitted"),
+        pytest.param("##other", "x:a='1'", "skip", True, id="other-admits-foreign-namespace"),
+        pytest.param("##other", "t:g='zz'", "skip", False, id="other-rejects-target-namespace"),
+        pytest.param("##other", "a='1'", "skip", False, id="other-rejects-absent-namespace"),
+        pytest.param("##local", "a='1'", "skip", True, id="local-admits-unprefixed"),
+        pytest.param("##local", "x:a='1'", "skip", False, id="local-rejects-prefixed"),
+        pytest.param("##targetNamespace", "t:g='12'", "strict", True, id="target-strict-admits-declaration"),
+        pytest.param("##targetNamespace", "t:g='zz'", "lax", False, id="target-lax-validates-declaration"),
+        pytest.param("##targetNamespace", "x:a='1'", "skip", False, id="target-rejects-foreign-namespace"),
+        pytest.param("urn:x", "x:a='1'", "skip", True, id="uri-admits-its-namespace"),
+        pytest.param("urn:x", "t:g='zz'", "skip", False, id="uri-rejects-other-namespace"),
+        pytest.param("urn:y urn:x", "x:a='1'", "strict", False, id="uri-list-admits-listed-namespace-strict"),
+        pytest.param("##any", "g='zz'", "lax", True, id="any-lax-unprefixed-ignores-target-declaration"),
+    ],
+)
+def test_prefixed_attribute_follows_any_attribute_namespace_and_processing(
+    namespace: str, attribute: str, processing: str, *, valid: bool
+) -> None:
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:attribute name="g" type="xs:int"/>'
+        '<xs:element name="r"><xs:complexType><xs:sequence/>'
+        f'<xs:anyAttribute namespace="{namespace}" processContents="{processing}"/></xs:complexType>'
+        "</xs:element></xs:schema>"
+    )
+    assert check(schema, f"<t:r xmlns:t='urn:t' xmlns:x='urn:x' {attribute}/>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("declaration", "attribute", "valid"),
+    [
+        pytest.param('<xs:attribute ref="t:g"/>', "t:g='12'", True, id="ref-valid-value"),
+        pytest.param('<xs:attribute ref="t:g"/>', "t:g='zz'", False, id="ref-invalid-value"),
+        pytest.param('<xs:attribute ref="t:g" use="required"/>', "", False, id="ref-required-missing"),
+        pytest.param('<xs:attribute ref="t:g" use="required"/>', "t:g='12'", True, id="ref-required-present"),
+        pytest.param('<xs:attribute ref="t:g" use="prohibited"/>', "t:g='12'", False, id="ref-prohibited-present"),
+        pytest.param('<xs:attribute name="l" type="xs:int" form="qualified"/>', "t:l='12'", True, id="form-qualified"),
+        pytest.param(
+            '<xs:attribute name="l" type="xs:int" form="qualified"/>', "t:l='zz'", False, id="form-qualified-value"
+        ),
+        pytest.param(
+            '<xs:attribute name="l" type="xs:int" form="qualified"/>', "l='12'", False, id="form-qualified-rejects-bare"
+        ),
+        pytest.param('<xs:attribute name="l" type="xs:int"/>', "l='12'", True, id="unqualified-by-default"),
+        pytest.param('<xs:attribute name="l" type="xs:int"/>', "t:l='12'", False, id="unqualified-rejects-prefixed"),
+        pytest.param(
+            '<xs:attribute name="l" type="xs:int" form="unqualified"/>',
+            "t:l='12'",
+            False,
+            id="form-unqualified-rejects-prefixed",
+        ),
+    ],
+)
+def test_declared_prefixed_attribute_is_validated(declaration: str, attribute: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:attribute name="g" type="xs:int"/>'
+        f'<xs:element name="r"><xs:complexType><xs:sequence/>{declaration}</xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, f"<t:r xmlns:t='urn:t' {attribute}/>").valid is valid
+
+
+def test_attribute_form_default_qualifies_local_declarations() -> None:
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t" attributeFormDefault="qualified">'
+        '<xs:element name="r"><xs:complexType><xs:sequence/><xs:attribute name="l" type="xs:int"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, "<t:r xmlns:t='urn:t' t:l='12'/>").valid
+    assert not check(schema, "<t:r xmlns:t='urn:t' l='12'/>").valid
+
+
+@pytest.mark.parametrize(
+    ("attribute", "valid"),
+    [
+        pytest.param("t:g='12'", True, id="wildcard-declaration-valid"),
+        pytest.param("t:g='zz'", False, id="wildcard-declaration-invalid"),
+    ],
+)
+def test_wide_type_validates_wildcard_admitted_global_declaration(attribute: str, *, valid: bool) -> None:
+    declarations = "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:attribute name="g" type="xs:int"/>'
+        f'<xs:element name="r"><xs:complexType><xs:sequence/>{declarations}'
+        '<xs:anyAttribute namespace="urn:t urn:x" processContents="lax"/></xs:complexType></xs:element></xs:schema>'
+    )
+    items = " ".join(f'item{index}="text"' for index in range(32))
+    assert check(schema, f"<t:r xmlns:t='urn:t' xmlns:x='urn:x' {items} x:da='1' {attribute}/>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("attribute", "valid"),
+    [
+        pytest.param("t:g='12'", True, id="declared-prefixed-valid"),
+        pytest.param("t:g='zz'", False, id="declared-prefixed-invalid"),
+        pytest.param("", False, id="declared-prefixed-required-missing"),
+        pytest.param("t:g='12' t:item0='text'", False, id="same-local-name-in-another-namespace"),
+        pytest.param("x:g='zz' t:g='12'", True, id="same-local-name-in-another-namespace-probed-first"),
+        pytest.param("g='zz' t:g='12'", True, id="same-local-name-without-namespace-probed-first"),
+    ],
+)
+def test_wide_type_matches_prefixed_declaration(attribute: str, *, valid: bool) -> None:
+    declarations = "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:attribute name="g" type="xs:int"/>'
+        f'<xs:element name="r"><xs:complexType><xs:sequence/>{declarations}'
+        '<xs:attribute ref="t:g" use="required"/><xs:anyAttribute namespace="urn:x ##local" processContents="skip"/>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    items = " ".join(f'item{index}="text"' for index in range(32))
+    assert check(schema, f"<t:r xmlns:t='urn:t' xmlns:x='urn:x' {items} {attribute}/>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("attribute", "valid"),
+    [
+        pytest.param("xsi:type='xs:int'", True, id="type"),
+        pytest.param("xsi:nil='true'", True, id="nil"),
+        pytest.param("xsi:schemaLocation='urn:x a.xsd'", True, id="schema-location"),
+        pytest.param("xsi:noNamespaceSchemaLocation='a.xsd'", True, id="no-namespace-schema-location"),
+        pytest.param("xsi:other='1'", False, id="other-xsi-attribute-is-checked"),
+        pytest.param("xmlns:x='urn:x'", True, id="namespace-declaration-exempt"),
+        pytest.param("xsi:kind='1'", False, id="same-length-xsi-attribute-is-checked"),
+        pytest.param("xml:lang='en'", False, id="xml-attribute-is-checked"),
+    ],
+)
+def test_exempt_and_checked_namespace_attributes(attribute: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence/></xs:complexType>'
+        "</xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' {attribute}/>").valid is valid
+
+
+def test_prefix_bound_only_in_an_earlier_sibling_has_no_namespace() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:sequence>'
+        '<xs:element name="head" minOccurs="0"><xs:complexType/></xs:element>'
+        '<xs:element name="body"><xs:complexType><xs:sequence>'
+        '<xs:element name="c" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
+        '<xs:anyAttribute namespace="##local" processContents="skip"/></xs:complexType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element>"
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert (
+        XMLSchema(schema)
+        .validate(parse("<html><head></head><body><c xmlns:p='urn:p'></c><c p:a='1'></c></body></html>"))
+        .valid
+    )
+
+
+def test_unbound_prefixed_attribute_does_not_match_a_declaration() -> None:
+    declarations = "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))
+    schema = (
+        f'<xs:schema {_XS}><xs:attribute name="g" type="xs:int"/>'
+        f'<xs:element name="html"><xs:complexType><xs:sequence>'
+        '<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>'
+        f"{declarations}"
+        '<xs:attribute ref="g" use="required"/></xs:complexType></xs:element></xs:schema>'
+    )
+    items = " ".join(f'item{index}="text"' for index in range(32))
+    assert not XMLSchema(schema).validate(parse(f"<html {items} p:g='12'></html>")).valid
+
+
+@pytest.mark.parametrize(
+    ("wildcard", "valid"),
+    [
+        pytest.param('<xs:anyAttribute namespace="##local" processContents="skip"/>', True, id="local-skip-admits"),
+        pytest.param('<xs:anyAttribute namespace="##any" processContents="skip"/>', True, id="any-skip-admits"),
+        pytest.param('<xs:anyAttribute namespace="##local" processContents="lax"/>', True, id="local-lax-undeclared"),
+        pytest.param(
+            '<xs:anyAttribute namespace="##local" processContents="strict"/>', False, id="local-strict-undeclared"
+        ),
+        pytest.param('<xs:anyAttribute namespace="##other" processContents="skip"/>', False, id="other-rejects-absent"),
+        pytest.param('<xs:anyAttribute namespace="urn:p" processContents="skip"/>', False, id="uri-rejects-absent"),
+        pytest.param("", False, id="no-wildcard-rejects"),
+    ],
+)
+def test_unbound_prefixed_attribute_is_a_no_namespace_attribute(wildcard: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:sequence>'
+        '<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>'
+        f"{wildcard}</xs:complexType></xs:element></xs:schema>"
+    )
+    assert XMLSchema(schema).validate(parse("<html p:a='1'></html>")).valid is valid
+
+
+@pytest.mark.parametrize(
+    ("attributes", "valid"),
+    [
+        pytest.param("a='12'", True, id="unprefixed-declaration"),
+        pytest.param("a='12' p:a='zz'", False, id="prefixed-name-is-not-the-declaration"),
+    ],
+)
+def test_unbound_prefixed_attribute_never_takes_a_declaration(attributes: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:sequence>'
+        '<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>'
+        '<xs:attribute name="a" type="xs:int"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert XMLSchema(schema).validate(parse(f"<html {attributes}></html>")).valid is valid
+
+
+@pytest.mark.parametrize(
+    ("schema", "document", "valid"),
+    [
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:o="urn:other"><xs:element name="v"><xs:complexType>'
+            '<xs:anyAttribute namespace="urn:ok" processContents="skip"/></xs:complexType></xs:element></xs:schema>',
+            '<v xmlns:o="urn:other" o:a="1"/>',
+            False,
+            id="namespace-outside-the-constraint",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:k="urn:ok"><xs:element name="v"><xs:complexType>'
+            '<xs:anyAttribute namespace="urn:ok" processContents="skip"/></xs:complexType></xs:element></xs:schema>',
+            '<v xmlns:k="urn:ok" k:a="1"/>',
+            True,
+            id="namespace-inside-the-constraint",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:o="urn:other"><xs:element name="v"><xs:complexType>'
+            '<xs:anyAttribute namespace="##other" processContents="skip"/></xs:complexType></xs:element></xs:schema>',
+            '<v xmlns:o="urn:other" o:a="1"/>',
+            True,
+            id="other-admits-third-namespace",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:o="urn:other"><xs:element name="v"><xs:complexType/></xs:element></xs:schema>',
+            '<v xmlns:o="urn:other" o:a="1"/>',
+            False,
+            id="no-wildcard-rejects-prefixed",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:p="urn:p" targetNamespace="urn:p"><xs:attribute name="n" type="xs:integer"/>'
+            '<xs:element name="v"><xs:complexType><xs:attribute ref="p:n"/></xs:complexType></xs:element></xs:schema>',
+            '<p:v xmlns:p="urn:p" p:n="bad"/>',
+            False,
+            id="declared-prefixed-bad-value",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS} xmlns:p="urn:p" targetNamespace="urn:p"><xs:attribute name="n" type="xs:integer"/>'
+            '<xs:element name="v"><xs:complexType><xs:attribute ref="p:n"/></xs:complexType></xs:element></xs:schema>',
+            '<p:v xmlns:p="urn:p" p:n="12"/>',
+            True,
+            id="declared-prefixed-valid-value",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="v"><xs:complexType>'
+            '<xs:anyAttribute processContents="strict"/></xs:complexType></xs:element></xs:schema>',
+            '<v zz="1"/>',
+            False,
+            id="unprefixed-strict-needs-declaration",
+        ),
+    ],
+)
+def test_prefixed_attribute_verdicts_match_xmllint(schema: str, document: str, *, valid: bool) -> None:
+    assert check(schema, document).valid is valid
+
+
+@pytest.mark.parametrize(("attribute", "valid"), [("x:a='zz'", True), ("b='1'", False)])
+def test_first_admitting_any_attribute_applies(attribute: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:sequence/>'
+        '<xs:anyAttribute namespace="##local" processContents="strict"/></xs:complexType>'
+        '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"><xs:sequence/>'
+        '<xs:anyAttribute namespace="urn:x" processContents="skip"/></xs:extension></xs:complexContent>'
+        "</xs:complexType>"
+        "</xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r xmlns:x='urn:x' {attribute}/>").valid is valid
+
+
 _REPEATED_MODELS: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         '<xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="a"/><xs:element name="b"/></xs:choice>',
@@ -4771,7 +5052,9 @@ def test_declaration_benchmark_output(name: str) -> None:
             ["attribute 'fixed' must equal its fixed value"],
             id="fixed",
         ),
-        pytest.param("", 'xmlns:f="urn:foreign" f:unknown="x"', [], id="foreign-attribute"),
+        pytest.param(
+            "", 'xmlns:f="urn:foreign" f:unknown="x"', ["attribute 'f:unknown' is not declared"], id="foreign-attribute"
+        ),
         pytest.param('<xs:attribute name="item0"/>', "", [], id="duplicate-declaration"),
     ],
 )

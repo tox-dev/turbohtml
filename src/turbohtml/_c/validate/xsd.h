@@ -1966,6 +1966,79 @@ typedef struct {
     size_t capacity;
 } xattr_index;
 
+/* An instance attribute name split at its prefix. A prefix with no declaration in scope leaves the whole name as the
+   local name in no namespace, which is how an HTML-parsed tree keeps it. */
+typedef struct {
+    const char *local;
+    Py_ssize_t local_len;
+    const Py_UCS4 *uri;
+    Py_ssize_t uri_len;
+} xattr_name;
+
+static xattr_name xsd_attr_name(th_schema *schema, const char *name, Py_ssize_t len) {
+    xattr_name out = {name, len, NULL, 0};
+    for (Py_ssize_t at = 0; at < len; at++) {
+        if (name[at] != ':') {
+            continue;
+        }
+        if (at == 3 && memcmp(name, "xml", 3) == 0) {
+            out.local = name + at + 1;
+            out.local_len = len - at - 1;
+            out.uri = xml_namespace_uri();
+            out.uri_len = sizeof("http://www.w3.org/XML/1998/namespace") - 1;
+            return out;
+        }
+        const Py_ssize_t index = ns_find_bytes(&schema->ns, name, at);
+        if (index >= 0 && schema->ns.bindings[index].bound) {
+            out.local = name + at + 1;
+            out.local_len = len - at - 1;
+            out.uri = schema->ns.bindings[index].uri;
+            out.uri_len = schema->ns.bindings[index].uri_len;
+        }
+        return out;
+    }
+    return out;
+}
+
+static int xsd_bytes_is(const char *bytes, Py_ssize_t len, const char *literal) {
+    const size_t literal_len = strlen(literal);
+    return (size_t)len == literal_len && memcmp(bytes, literal, literal_len) == 0;
+}
+
+/* xsi:type, xsi:nil, xsi:schemaLocation and xsi:noNamespaceSchemaLocation are not checked against attribute uses or
+   wildcards (XSD 1.1 §3.4.4.2). Other attributes in the XSI namespace are. */
+static int xsd_attr_exempt(const xattr_name *name) {
+    if (name->uri == NULL || !u_eq_ascii(name->uri, name->uri_len, XSI_NS)) {
+        return 0;
+    }
+    return xsd_bytes_is(name->local, name->local_len, "type") || xsd_bytes_is(name->local, name->local_len, "nil") ||
+           xsd_bytes_is(name->local, name->local_len, "schemaLocation") ||
+           xsd_bytes_is(name->local, name->local_len, "noNamespaceSchemaLocation");
+}
+
+/* The namespace a declared attribute's name is in: the target namespace for a global declaration or a qualified local
+   one, and none for an unqualified local one. */
+static const Py_UCS4 *xsd_attr_decl_uri(th_schema *schema, th_node *decl, Py_ssize_t *len) {
+    Py_ssize_t form_len = 0;
+    const Py_UCS4 *form = xsd_attr(schema->tree, decl, "form", &form_len);
+    const int qualified = form != NULL ? u_eq_ascii(form, form_len, "qualified") : schema->attribute_qualified;
+    if (is_schema_el(schema, decl->parent, XSD_NS, "schema") || qualified) {
+        *len = schema->target_ns_len;
+        return schema->target_ns;
+    }
+    *len = 0;
+    return NULL;
+}
+
+/* Whether an instance attribute is the declared attribute (local, uri) it is matched against. */
+static int xsd_attr_is_decl(th_schema *schema, th_tree *tree, const th_node_attr *attr, const Py_UCS4 *local,
+                            Py_ssize_t local_len, const Py_UCS4 *uri, Py_ssize_t uri_len) {
+    Py_ssize_t name_len = 0;
+    const char *bytes = th_attr_name(tree, attr->name_atom, &name_len);
+    const xattr_name name = xsd_attr_name(schema, bytes, name_len);
+    return u_eq_utf8(local, local_len, name.local, name.local_len) && u_eq_u(name.uri, name.uri_len, uri, uri_len);
+}
+
 static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
     if (instance->attr_count < 32) {
         return 0;
@@ -1986,9 +2059,10 @@ static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
     for (Py_ssize_t position = 0; position < instance->attr_count; position++) {
         Py_ssize_t length;
         const char *name = th_attr_name(ctx->tree, instance->attrs[position].name_atom, &length);
+        const xattr_name qualified = xsd_attr_name(ctx->schema, name, length);
         uint64_t hash = UINT64_C(1469598103934665603);
-        for (Py_ssize_t byte = 0; byte < length; byte++) {
-            hash ^= (unsigned char)name[byte];
+        for (Py_ssize_t byte = 0; byte < qualified.local_len; byte++) {
+            hash ^= (unsigned char)qualified.local[byte];
             hash *= UINT64_C(1099511628211);
         }
         size_t slot = (size_t)hash & (index->capacity - 1);
@@ -2027,14 +2101,14 @@ static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instanc
     int prohibited = use != NULL && u_eq_ascii(use, use_len, "prohibited");
     char namebuf[256];
     const char *name_bytes = name_utf8(name, name_len, namebuf, sizeof(namebuf));
+    Py_ssize_t decl_uri_len = 0;
+    const Py_UCS4 *decl_uri = xsd_attr_decl_uri(schema, effective, &decl_uri_len);
     const th_node_attr *present = NULL;
     if (attrs->slots != NULL) {
         size_t slot = (size_t)named_hash(name, name_len) & (attrs->capacity - 1);
         while (attrs->slots[slot] != 0) {
             const th_node_attr *candidate = &instance->attrs[attrs->slots[slot] - 1];
-            Py_ssize_t length;
-            const char *bytes = th_attr_name(inst, candidate->name_atom, &length);
-            if (u_eq_utf8(name, name_len, bytes, length)) {
+            if (xsd_attr_is_decl(schema, inst, candidate, name, name_len, decl_uri, decl_uri_len)) {
                 present = candidate;
                 break;
             }
@@ -2042,9 +2116,7 @@ static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instanc
         }
     }
     for (Py_ssize_t index = 0; attrs->slots == NULL && index < instance->attr_count; index++) {
-        Py_ssize_t alen = 0;
-        const char *abytes = th_attr_name(inst, instance->attrs[index].name_atom, &alen);
-        if (u_eq_utf8(name, name_len, abytes, alen)) {
+        if (xsd_attr_is_decl(schema, inst, &instance->attrs[index], name, name_len, decl_uri, decl_uri_len)) {
             present = &instance->attrs[index];
             break;
         }
@@ -2101,7 +2173,7 @@ static th_node *xsd_type_content(const th_schema *schema, th_node *ctype) {
 }
 
 static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, edecl_vec *declared,
-                              const xattr_index *attrs, th_node **wild) {
+                              const xattr_index *attrs, edecl_vec *wilds) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
     /* Only a complexType has a base. An attribute group or a derivation holds attributes and attribute group refs, so
@@ -2130,7 +2202,9 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
             Py_ssize_t name_len = 0;
             const Py_UCS4 *name = xsd_attr(tree, eff, "name", &name_len);
             if (name != NULL) {
-                edecl item = {NULL, 0, name, name_len, eff};
+                Py_ssize_t uri_len = 0;
+                const Py_UCS4 *uri = xsd_attr_decl_uri(schema, eff, &uri_len);
+                edecl item = {uri, uri_len, name, name_len, eff};
                 edecl_push(schema, declared, &item);
             }
         } else if (kind == XSD_ATTRIBUTE_GROUP) {
@@ -2142,12 +2216,11 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
                 /* xsd_compile has already rejected an attributeGroup ref that resolves to nothing */
                 xsd_collect_attrs(ctx, instance, named_find(&schema->attr_groups, local, local_len), declared, attrs,
-                                  wild);
+                                  wilds);
             }
         } else if (kind == XSD_ANY_ATTRIBUTE) {
-            if (*wild == NULL && xsd_wild_admits(schema, child, NULL, 0)) {
-                *wild = child;
-            }
+            edecl item = {NULL, 0, NULL, 0, child};
+            edecl_push(schema, wilds, &item);
         } else if (child == content) {
             th_node *derivation = xsd_child(schema, child, XSD_EXTENSION);
             if (derivation == NULL) {
@@ -2162,33 +2235,33 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                     Py_ssize_t local_len = written.local_len;
                     th_node *base_type = named_find(&schema->complex_types, local, local_len);
                     if (base_type != NULL) {
-                        xsd_collect_attrs(ctx, instance, base_type, declared, attrs, wild);
+                        xsd_collect_attrs(ctx, instance, base_type, declared, attrs, wilds);
                     }
                 }
-                xsd_collect_attrs(ctx, instance, derivation, declared, attrs, wild);
+                xsd_collect_attrs(ctx, instance, derivation, declared, attrs, wilds);
             }
         }
     }
 }
 
 /* An attribute an xs:anyAttribute admits without a declaration. A global attribute declaration is in the target
-   namespace, so an unprefixed attribute finds one only when the schema has no target namespace. */
-static void xsd_validate_wild_attr(valctx *ctx, th_node *instance, th_node *wild, const char *name, Py_ssize_t name_len,
-                                   const xattr_index *attrs) {
+   namespace, so an attribute finds one only when its prefix binds that namespace (an unprefixed one, none). */
+static void xsd_validate_wild_attr(valctx *ctx, th_node *instance, th_node *wild, const char *name,
+                                   const xattr_name *qualified, const xattr_index *attrs) {
     th_schema *schema = ctx->schema;
     const int mode = xsd_process_contents(schema, wild);
     if (mode == WILD_SKIP) {
         return;
     }
     th_node *decl = NULL;
-    if (schema->target_ns_len == 0) {
-        Py_UCS4 *scratch = arena_alloc(&schema->mem, (size_t)(name_len + 1) * sizeof(Py_UCS4));
+    if (u_eq_u(qualified->uri, qualified->uri_len, schema->target_ns, schema->target_ns_len)) {
+        Py_UCS4 *scratch = arena_alloc(&schema->mem, (size_t)(qualified->local_len + 1) * sizeof(Py_UCS4));
         if (scratch == NULL) { /* GCOVR_EXCL_BR_LINE: arena allocation failure */
             ctx->failed = 1;   /* GCOVR_EXCL_LINE */
             PyErr_NoMemory();  /* GCOVR_EXCL_LINE */
             return;            /* GCOVR_EXCL_LINE */
         }
-        Py_ssize_t len = utf8_to_ucs4(name, name_len, scratch);
+        Py_ssize_t len = utf8_to_ucs4(qualified->local, qualified->local_len, scratch);
         decl = named_find(&schema->attributes, scratch, len);
     }
     if (decl != NULL) {
@@ -2198,6 +2271,18 @@ static void xsd_validate_wild_attr(valctx *ctx, th_node *instance, th_node *wild
     }
 }
 
+/* The first wildcard whose namespace constraint admits an attribute in `uri`, in the order the walk collected them. */
+static th_node *xsd_admitting_wild(const th_schema *schema, const edecl_vec *wilds, const Py_UCS4 *uri,
+                                   Py_ssize_t uri_len) {
+    for (Py_ssize_t index = 0; index < wilds->count; index++) {
+        th_node *wild = wilds->items[index].decl;
+        if (xsd_wild_admits(schema, wild, uri, uri_len)) {
+            return wild;
+        }
+    }
+    return NULL;
+}
+
 static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, edecl_vec *declared) {
     th_tree *inst = ctx->tree;
     xattr_index attrs = {0};
@@ -2205,8 +2290,8 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
         ctx->failed = 1;                              /* GCOVR_EXCL_LINE: allocation failure */
         return;                                       /* GCOVR_EXCL_LINE: allocation failure */
     }
-    th_node *wild = NULL;
-    xsd_collect_attrs(ctx, instance, scope, declared, &attrs, &wild);
+    edecl_vec wilds = edecl_list(ctx->schema);
+    xsd_collect_attrs(ctx, instance, scope, declared, &attrs, &wilds);
     named_vec names = {0};
     if (declared->count >= 32 && instance->attr_count >= 32) {
         names = ctx->schema->attr_names; /* the buffers of the element indexed before this one */
@@ -2234,17 +2319,24 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
         if (is_xmlns_decl(abytes, alen)) {
             continue;
         }
+        const xattr_name qualified = xsd_attr_name(ctx->schema, abytes, alen);
+        if (xsd_attr_exempt(&qualified)) {
+            continue;
+        }
         int known = 0;
         if (names.slots != NULL) {
             uint64_t hash = UINT64_C(1469598103934665603);
-            for (Py_ssize_t byte = 0; byte < alen; byte++) {
-                hash ^= (unsigned char)abytes[byte];
+            for (Py_ssize_t byte = 0; byte < qualified.local_len; byte++) {
+                hash ^= (unsigned char)qualified.local[byte];
                 hash *= UINT64_C(1099511628211);
             }
             size_t slot = (size_t)hash & (names.slot_cap - 1);
             while (names.slots[slot] != NULL) {
                 named_node *item = names.slots[slot];
-                if (u_eq_utf8(item->name, item->len, abytes, alen)) {
+                Py_ssize_t decl_uri_len = 0;
+                const Py_UCS4 *decl_uri = xsd_attr_decl_uri(ctx->schema, item->node, &decl_uri_len);
+                if (u_eq_utf8(item->name, item->len, qualified.local, qualified.local_len) &&
+                    u_eq_u(qualified.uri, qualified.uri_len, decl_uri, decl_uri_len)) {
                     known = 1;
                     break;
                 }
@@ -2252,24 +2344,19 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
             }
         }
         for (Py_ssize_t decl = 0; names.slots == NULL && decl < declared->count; decl++) {
-            if (u_eq_utf8(declared->items[decl].local, declared->items[decl].local_len, abytes, alen)) {
+            const edecl *item = &declared->items[decl];
+            if (u_eq_utf8(item->local, item->local_len, qualified.local, qualified.local_len) &&
+                u_eq_u(qualified.uri, qualified.uri_len, item->uri, item->uri_len)) {
                 known = 1;
                 break;
             }
         }
-        /* skip attributes in a foreign namespace (xsi:*, xml:*, other) */
-        int prefixed = 0;
-        for (Py_ssize_t byte = 0; byte < alen; byte++) {
-            if (abytes[byte] == ':') {
-                prefixed = 1;
-                break;
-            }
-        }
-        if (!known && !prefixed) {
+        if (!known) {
+            th_node *wild = xsd_admitting_wild(ctx->schema, &wilds, qualified.uri, qualified.uri_len);
             if (wild == NULL) {
                 report(ctx, instance, "structure", "attribute '%s' is not declared", abytes);
             } else {
-                xsd_validate_wild_attr(ctx, instance, wild, abytes, alen, &attrs);
+                xsd_validate_wild_attr(ctx, instance, wild, abytes, &qualified, &attrs);
             }
         }
     }
