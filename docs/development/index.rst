@@ -231,8 +231,9 @@ To read the crashers of a failed run, download its ``fuzz-crashes`` artifact and
 A sanitizer bug usually returns unsafe or altered markup without crashing, so ``fuzz-oracle`` (``fuzz.py --mode
 oracle``) checks ``turbohtml.clean.sanitize`` against code it does not share. The output must re-parse in
 html5lib-python into the tree the sanitizer judged, obey the random ``Policy`` it ran under, and keep or drop each URL
-the way the WHATWG URL parser reads its scheme. ``--minutes 0`` replays only the seed corpora. The run writes findings
-to a JSON report and logs only their hashes.
+the way the WHATWG URL parser reads its scheme. An implied ``tbody``, ``tr`` or ``colgroup`` the policy omits is left
+out of the tree comparison, because the output never writes its start tag and a browser re-creates it on re-parse.
+``--minutes 0`` replays only the seed corpora. The run writes findings to a JSON report and logs only their hashes.
 
 .. code-block:: console
 
