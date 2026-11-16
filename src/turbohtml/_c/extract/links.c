@@ -838,6 +838,7 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     Py_ssize_t host = stop;
     Py_ssize_t last_colon = -1;
     int upper = 0;
+    int escaped = 0;
     for (; stop < end; stop++) {
         Py_UCS4 c = value[stop];
         if (c == '/' || c == '?' || c == '#' || c == '\\') {
@@ -848,15 +849,17 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         }
         if (c == '@') {
             upper = 0;
+            escaped = 0;
             last_colon = -1;
             host = stop + 1;
         } else if (c == ':') {
             last_colon = stop;
         } else {
             upper |= c >= 'A' && c <= 'Z';
+            escaped |= c == '%' || c >= 0x80;
         }
     }
-    if (upper) {
+    if (upper || escaped) {
         return 0;
     }
     if (last_colon >= 0 && url_drops_port(value, start, colon, stop)) {
