@@ -4669,6 +4669,24 @@ def test_transform_import_loads_external_templates(tmp_path: Path) -> None:
     assert _canon(result) == "[x]"
 
 
+def test_transform_import_literal_exclusion_applies_to_imported_template(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:p">'
+        '<xsl:template match="a"><out xsl:exclude-result-prefixes="p"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    result = transform(sheet, turbohtml.parse_xml("<r><a/></r>"), base_url=str(main), import_root=tmp_path)
+    assert _canon(result) == "<out/>"
+
+
 def test_transform_import_can_be_disabled(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="xsl:import is disabled"):
         Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), allow_imports=False)
