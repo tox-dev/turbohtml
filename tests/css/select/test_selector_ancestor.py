@@ -236,6 +236,7 @@ def _nested(depth: int) -> Document:
         pytest.param("b:has(:scope[id] b i)", 0, id="scope-pinned-mismatch"),
         pytest.param("b:has(b:not(:scope) i)", 599, id="scope-later"),
         pytest.param("b:has(b:not(:scope) item)", 0, id="scope-later-missing"),
+        pytest.param("b:has(b:not(:scope + q) i)", 599, id="scope-reached-later"),
         pytest.param("b:has(b i, item i)", 599, id="alternatives"),
     ],
 )
@@ -677,6 +678,10 @@ _SIBLINGS: Final[str] = (
         pytest.param("b:has(+ u:lang(fr):not(:scope))", 18, id="has-scope-adjacent-lead"),
         pytest.param("b:has(~ i:lang(fr):not(:scope))", 0, id="has-scope-general-sibling-lead-missing"),
         pytest.param("b:has(~ b i:not(:scope))", 65, id="has-scope-general-sibling-lead-subtree"),
+        pytest.param("b:has(~ u:lang(fr):not(:scope + q))", 69, id="has-reached-scope-general-sibling-lead"),
+        pytest.param("b:has(+ u:lang(fr):not(:scope + q))", 18, id="has-reached-scope-adjacent-lead"),
+        pytest.param("b:has(~ b i:not(:scope + q))", 65, id="has-reached-scope-general-sibling-lead-subtree"),
+        pytest.param(":lang(fr):has(b i:not(:scope + q))", 43, id="has-reached-scope-descendant"),
         pytest.param("b:has(~ u ~ b:lang(fr):not(:scope))", 69, id="has-scope-general-sibling-chain"),
         pytest.param("section:not(:scope) i", 15, id="scope-ancestor"),
         pytest.param(":dir(rtl) i", 1, id="dir-ancestor"),
@@ -714,6 +719,18 @@ def test_computed_style_deep_has_past_memo_limit() -> None:
     root: Final = document.select_one("html")
     assert root is not None
     assert computed_style(root)["color"] == "red"
+
+
+def test_computed_style_deep_has_past_memo_limit_raises_past_the_allowance() -> None:
+    # past the memo every :has() walks from its anchor, so p:has(~ q) on each p of the run passes every later sibling
+    arguments: Final = 128
+    sheet: Final = f":has({','.join(['p q'] * arguments)}){{color:blue}}p:has(~ q){{color:red}}"
+    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}")
+    root: Final = document.select_one("html")
+    assert root is not None
+    computed_style(root)
+    with pytest.raises(ValueError, match="exceed the allowance"):
+        list(map(computed_style, document.select("p")))
 
 
 def test_rewrite_retires_many_deep_elements() -> None:

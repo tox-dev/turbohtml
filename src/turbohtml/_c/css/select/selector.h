@@ -85,7 +85,7 @@ typedef struct {
     int sub_count;    /* ':': number of comma-separated alternatives in sub */
     /* ':' with a sub, set by sel_alts_nest: 0 when one match asks it about an element once; otherwise the deep matcher
        keeps its answers: SEL_NEST_ALWAYS or SEL_NEST_DEEP for :is(), :where() and :not(), and for an 'of S' clause its
-       1-based number among the selector's clauses */
+       number among the selector's clauses, counted on from a hash of the selector */
     int nest;
 } sel_simple;
 
@@ -99,22 +99,37 @@ typedef struct {
    subtrees, which it does not */
 #define SEL_WALKS_UP 1
 #define SEL_WALKS_WIDE 2
+#define SEL_WALKS_SIBLINGS 4 /* with SEL_WALKS_WIDE: a ~ combinator, which walks a run of siblings */
 
 /* sel_simple.nest of an :is(), :where() or :not() asked again: its walks reach wide or ask a list again themselves,
    or only climb, so the direct walk costs no more than the tree nests and wins on a tree known to nest shallow */
 #define SEL_NEST_DEEP 1
 #define SEL_NEST_ALWAYS 2
 
-/* sel_complex.walks bits, set by sel_alts_nest on the alternatives of a nested list */
+/* sel_complex.walks bits, set by sel_alts_nest on every alternative */
 #define SEL_ALT_WALKS 1  /* matching it can walk: a combinator, :has(), :lang(), :dir(), or a list that walks */
 #define SEL_ALT_SCOPED 2 /* it writes :scope outside a :has(), so its answer depends on the scope element */
 #define SEL_ALT_AHEAD                                                                                                  \
     4 /* it writes :scope in the S of an :nth-last-child(), which reads the siblings after an element */
+#define SEL_ALT_SIBLINGS 8 /* it writes a ~ combinator, also inside a nested list or leading a :has() argument */
+/* a chain from a lone :scope through * compounds joined by + and ~ to a last compound without :scope: past the last
+   compound's own test it holds by the distance from the scope element alone, an exact one with only +, at least its
+   compound count less one with a ~ */
+#define SEL_ALT_SCOPE_OFFSET 16
+
+/* sel_complex.scope_reach of a :has() argument whose :scope tells apart elements at any distance from the anchor */
+#define SEL_SCOPE_REACH_ANY INT_MAX
 
 struct sel_complex {
     sel_compound *compounds; /* left to right; matched from the rightmost (the subject) */
     int count;
-    int walks; /* SEL_ALT_WALKS | SEL_ALT_SCOPED | SEL_ALT_AHEAD, for an alternative of a nested list */
+    int walks; /* SEL_ALT_WALKS | SEL_ALT_SCOPED | SEL_ALT_AHEAD | SEL_ALT_SIBLINGS | SEL_ALT_SCOPE_OFFSET */
+    /* in a :has() argument, set by sel_alts_nest: how many siblings past the anchor its :scope still tells elements
+       apart (sel_alts_scope_reach), 0 when it never does */
+    int scope_reach;
+    /* in a :has() argument, set by sel_alts_nest: 1 + the index of its one compound that writes :scope in a way
+       sel_deep_has_sweep reads for every anchor of a sibling run at once, 0 when it has none */
+    int sweep_at;
 };
 
 typedef struct {
@@ -253,6 +268,7 @@ typedef struct {
     Py_ssize_t err_pos;     /* the position the failing token starts at, for the error message */
     const char *err_reason; /* a human-readable reason for the failure */
     Py_ssize_t compounds;   /* every compound parsed, nested lists included: no chain is longer than this */
+    int scoped;             /* a :scope was parsed, nested lists included */
 } sel_parser;
 
 /* The deepest functional-pseudo nesting (:is()/:where()/:has()/:not(), and the 'of S'
@@ -313,8 +329,7 @@ void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parse
 typedef struct {
     th_node_map map;
     const th_node *scope;
-    const sel_simple
-        *owner; /* the clause: one memo serves every rule of the cascade, whose clauses each number from 1 */
+    const sel_simple *owner; /* the clause: one memo serves every rule of the cascade, whose clause numbers may meet */
 } sel_deep_counts;
 
 /* The deep stand-in's answers: two bits (unknown, no, yes) per key and node, a key being a pointer into the selector
@@ -328,6 +343,17 @@ typedef struct {
     size_t pages_len;
 } sel_deep_key;
 
+/* What a sibling walk knows about one key over the element children of parent. Its answer is monotone in the
+   position of the element it starts from (1 for the first child): a backward walk (a ~ combinator) answers whether a
+   match sits before it, a forward one (a ~ inside :has()) whether one sits at or after it. So two bounds hold all
+   it learned: positions up to no answer no and positions from yes answer yes, mirrored for a forward walk. */
+typedef struct {
+    const void *key; /* NULL marks an empty slot */
+    const th_node *parent;
+    int no;
+    int yes;
+} sel_deep_run;
+
 typedef struct sel_deep_kept sel_deep_kept;
 
 typedef struct {
@@ -339,6 +365,19 @@ typedef struct {
     size_t limit;       /* the most bytes of pages and directories a caller sets */
     int failed;         /* past the limit or out of memory: the matcher walks directly */
     int subject_scope;  /* the driver binds :scope to the element it tests, copied into kept when it is allocated */
+    sel_deep_run *runs; /* open addressing by key and parent, NULL until a walk keeps a record */
+    size_t runs_mask;   /* capacity - 1 */
+    size_t runs_count;
+    /* how many times the records outgrew limit: each time they go and a walk passes twice as many siblings before it
+       adds one (SEL_DEEP_RUN_MIN << runs_doubled), so they number at most keys * elements >> runs_doubled */
+    int runs_doubled;
+    /* the compounds the walks from a :has() anchor that no memo answers (sel_deep_has_direct) may test, 0 for no
+       limit; spent counts them over the memo's life, and over records that it passed allowance, after which every
+       such walk answers no and the caller raises */
+    size_t allowance;
+    size_t spent;
+    int walking; /* how many of those walks are in progress */
+    int over;
     sel_deep_kept
         *kept; /* the tables past the ancestor memo, allocated by the first match that needs one, on the heap */
 } sel_deep_memo;

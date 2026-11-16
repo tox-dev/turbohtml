@@ -979,7 +979,7 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     if (source == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0, 0, 0, "unexpected token", 0};
+    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0, 0, 0, "unexpected token", 0, 0};
     sel_complex *alts = NULL;
     int count = 0;
     if (sel_parse_alts(&parser, &alts, &count, 0, 0, 0) < 0) {
@@ -1116,7 +1116,7 @@ PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args) {
     if (source == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0, 0, 0, "unexpected token", 0};
+    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0, 0, 0, "unexpected token", 0, 0};
     sel_complex *alts = NULL;
     int count = 0;
     if (sel_parse_alts(&parser, &alts, &count, 0, 0, 0) < 0) {

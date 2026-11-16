@@ -1545,6 +1545,686 @@ def test_computed_style_has_memo_is_bounded(shape: str, retained_bytes: Retained
 
 
 @pytest.mark.parametrize(
+    ("rule", "target", "body"),
+    [
+        pytest.param(":has(~ s ~ em)", "#t", "<h1 id=t></h1>{}", id="later-chain"),
+        pytest.param(":has(~ em:has(~ s ~ em))", "#t", "<h1 id=t></h1>{}", id="nested-has"),
+        pytest.param(":has(s ~ em)", "#t", "<section id=t>{}</section>", id="descendant-lead"),
+        pytest.param(":has(> s ~ em)", "#t", "<section id=t>{}</section>", id="child-lead"),
+        pytest.param(":has(~ s:not(:scope) ~ em)", "#t", "<h1 id=t></h1>{}", id="scope-in-compound"),
+        pytest.param(":has(~ s:is(:scope ~ *) ~ em)", "#t", "<h1 id=t></h1>{}", id="scope-in-walk"),
+        pytest.param(":has(:default[hidden])", "form", "<form>{0}{1}</form>", id="default-button"),
+    ],
+)
+def test_computed_style_sibling_rule_in_linear_time(rule: str, target: str, body: str, work_steps: WorkSteps) -> None:
+    def style(size: int) -> Callable[[], object]:
+        runs = ("<em></em>" * size, "<button></button>" * size)
+        node = parse(f"<style>{f'{rule}{{color:red}}' * 3}</style>{body.format(*runs)}").select_one(target)
+        assert isinstance(node, Element)
+        return lambda: computed_style(node)
+
+    work_steps.assert_linear(style, (600, 2400))
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param("em:has(~ s)", id="later-sibling"),
+        pytest.param("em:has(~ s ~ em)", id="later-chain"),
+        pytest.param("em:has(~ s:not(:scope))", id="scope-in-compound"),
+        pytest.param("s ~ em", id="earlier-sibling"),
+        pytest.param(":scope ~ em", id="scope-earlier-sibling"),
+        pytest.param("em:has(~ button:is(:scope ~ *))", id="scope-offset"),
+        pytest.param("em:has(~ button:not(:scope + *))", id="scope-offset-negated"),
+        pytest.param("em:has(~ :is(:scope ~ * ~ *) ~ s)", id="scope-offset-left"),
+        pytest.param("em:has(~ button:is(:scope + em + *))", id="scope-fixed"),
+        pytest.param("em:has(~ button:is(:scope ~ em ~ *))", id="scope-between"),
+        pytest.param("em:has(~ button:nth-child(2 of :scope ~ *))", id="scope-of-index"),
+        pytest.param("em:has(~ button:nth-child(odd of :scope ~ *))", id="scope-of-step"),
+        pytest.param("em:has(~ button:nth-last-child(1 of :scope ~ *))", id="scope-of-from-end"),
+        pytest.param("em:has(~ button:is(:not(:scope) ~ *))", id="not-scope-chain"),
+        pytest.param("em:has(+ em + button:is(:scope ~ em ~ *))", id="scope-between-adjacent-lead"),
+        pytest.param("em:has(~ button:is(:scope + em ~ *))", id="scope-adjacent-between"),
+        pytest.param("em:has(:scope:not(.k) ~ button:is(em ~ :scope ~ em ~ *))", id="scope-pinned-in-chain"),
+        pytest.param(
+            "em:has(~ button:not(:nth-child(3n+1 of :scope ~ *)):not(:nth-child(2n of :scope + * ~ *)))",
+            id="scope-of-steps-negated",
+        ),
+        pytest.param("button:default", id="default"),
+    ],
+)
+def test_computed_style_every_sibling_in_linear_time(rule: str, work_steps: WorkSteps) -> None:
+    def style(size: int) -> Callable[[], object]:
+        nodes = parse(
+            f"<style>{rule}{{color:red}}</style><form>{'<em></em>' * size}{'<button></button>' * size}"
+        ).select("form *")
+        return lambda: [computed_style(node) for node in nodes]
+
+    work_steps.assert_linear(style, (350, 1400))
+
+
+@pytest.mark.parametrize("order", [pytest.param(1, id="forward"), pytest.param(-1, id="reverse")])
+@pytest.mark.parametrize(
+    "climbing",
+    [pytest.param("", id="shallow"), pytest.param(":is(q u) b{color:green}", id="deep-matcher-for-every-rule")],
+)
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param("em:has(~ s ~ em)", id="later-chain"),
+        pytest.param("em:has(~ em:has(~ s))", id="nested-has"),
+        pytest.param("ol:has(s ~ em)", id="descendant-lead"),
+        pytest.param("s ~ em", id="earlier-sibling"),
+        pytest.param("em:has(~ s:not(:scope))", id="scope-in-compound"),
+        pytest.param("em:has(~ em:is(:scope + *))", id="scope-in-walk"),
+        pytest.param("em:has(~ em:nth-child(1 of :scope ~ s))", id="scope-in-of"),
+        pytest.param("em:has(~ em:nth-child(2 of em) ~ s)", id="of-without-scope"),
+        pytest.param("em:has(~ s ~ em:nth-last-child(2 of em))", id="last-of-without-scope"),
+        pytest.param("em:has(~ em:is(:not(:scope + *)) ~ s)", id="scope-in-nested-walk"),
+        pytest.param("em:has(~ em:is(s + em) ~ s)", id="nested-walk-without-scope"),
+        pytest.param(":not(:scope) ~ em", id="scope-earlier-sibling"),
+        pytest.param("em:has(~ em:is(:scope ~ * ~ *))", id="scope-offset"),
+        pytest.param("em:has(~ s:not(:scope + *))", id="scope-offset-negated"),
+        pytest.param("em:has(~ button:is(:scope + * ~ button))", id="scope-offset-typed"),
+        pytest.param("em:has(~ :is(:scope + *) ~ s)", id="scope-offset-left"),
+        pytest.param("em:has(~ em:is(:scope + em + s))", id="scope-fixed"),
+        pytest.param("em:has(~ em:where(:scope ~ *, s))", id="scope-offset-or"),
+        pytest.param("em:has(+ em:is(:scope + *) ~ s)", id="scope-offset-adjacent-lead"),
+        pytest.param("em:has(~ s ~ button:is(:scope ~ s ~ *))", id="scope-between"),
+        pytest.param("ol:has(> em:nth-child(2 of :scope ~ *))", id="scope-in-of-under-child"),
+        pytest.param("ol:has(> em:nth-last-child(2 of s, button))", id="of-under-child"),
+        pytest.param("ol:has(> em:is(em, s ~ em))", id="list-under-child"),
+        pytest.param("ol:has(> em:is(:not(:scope ~ s)))", id="scope-walk-under-child"),
+        pytest.param("em:has(~ em ~ s:is(:scope ~ * ~ * ~ * ~ *))", id="scope-offset-chain-of-two"),
+        pytest.param("button:default", id="default"),
+    ],
+)
+def test_computed_style_sibling_rule_agrees_with_matches(rule: str, climbing: str, order: int) -> None:
+    # runs longer than the 128 siblings a walk passes before it keeps a record of the run, on both sides of the one <s>
+    document: Final = parse(
+        f"<style>*{{color:blue}}{climbing}{rule}{{color:red}}</style>"
+        f"<form><ol>{'<em></em>' * 140}<s></s>{'<em></em>' * 140}<button></button><button></button></ol></form>"
+    )
+    nodes: Final = document.select("form, form *")[::order]
+    assert [computed_style(node)["color"] for node in nodes] == [
+        "red" if node.matches(rule) else "blue" for node in nodes
+    ]
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param("em:has(> b:has(> s):is(:scope > *))", id="nested-has-of-scope-child"),
+        pytest.param("em:has(> x:nth-last-child(1 of :scope > *) > b)", id="of-scope-child-from-end"),
+        pytest.param("em:has(> x:nth-child(1 of :scope > *) > b)", id="of-scope-child-first"),
+    ],
+)
+def test_computed_style_has_argument_with_nested_has_agrees_with_matches(rule: str) -> None:
+    document: Final = parse(
+        f"<style>*{{color:blue}}{rule}{{color:red}}</style><div><em><b><s></s></b></em><em><x><b></b></x></em></div>"
+    )
+    nodes: Final = document.select("em")
+    colors: Final = [computed_style(node)["color"] for node in nodes]
+    assert colors == ["red" if node.matches(rule) else "blue" for node in nodes]
+    assert "red" in colors
+
+
+# one run of 216 siblings, i b x s by letter and an upper-case letter for class=k
+_SWEPT_RUN: Final[str] = f"{'ibxIsxBixibIsbxxsiBxbiIxsbxixs' * 7}ibxIsx"
+_SWEPT_TAGS: Final[dict[str, str]] = {letter: f"<{letter.lower()}></{letter.lower()}>" for letter in "ibxs"} | {
+    letter: f"<{letter.lower()} class=k></{letter.lower()}>" for letter in "IB"
+}
+
+
+def _alternatives(head: str, step: str, counts: range, tail: str = "") -> str:
+    return ", ".join(f"{head}{step * count}{tail}" for count in counts)
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected"),
+    [
+        pytest.param(
+            "i:has(~ x:is(:scope ~ b ~ *))",
+            lambda r, a, y: _between(r, a, y, "b"),
+            id="scope-between",
+        ),
+        pytest.param("i:has(~ x:nth-child(2 of :scope ~ *))", lambda _r, a, y: y == a + 2, id="of-index"),
+        pytest.param(
+            "i:has(~ x:nth-child(odd of :scope ~ *))",
+            lambda _r, a, y: (y - a) % 2,
+            id="of-step",
+        ),
+        pytest.param("i:has(~ x:nth-last-child(1 of :scope ~ *))", lambda r, _a, y: y == len(r) - 1, id="of-from-end"),
+        pytest.param(
+            "i:has(~ x:nth-last-child(2 of :scope + *, :scope ~ * ~ * ~ *))",
+            lambda r, a, y: _of_from_end(r, a, y, lambda d: d == 1 or d >= 3) == 2,
+            id="of-from-end-exact",
+        ),
+        pytest.param("i:has(~ x:is(:not(:scope) ~ *))", lambda _r, _a, y: y >= 2, id="not-scope"),
+        pytest.param(
+            "i:has(~ x:is(:not(:scope) + b ~ *))",
+            lambda r, a, y: any(r[p] == "b" and p - 1 != a for p in range(1, y)),
+            id="not-scope-adjacent",
+        ),
+        pytest.param(
+            "i:has(+ b + x:is(:scope ~ b ~ *))",
+            lambda r, a, y: y == a + 2 and r[a + 1] == "b",
+            id="scope-between-adjacent-lead",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope + b ~ *))",
+            lambda r, a, y: r[a + 1] == "b" and y > a + 1,
+            id="scope-adjacent-between",
+        ),
+        pytest.param(
+            "i:has(:scope.k ~ x:is(b ~ :scope ~ s ~ *))",
+            lambda r, a, y: _SWEPT_RUN[a].isupper() and "b" in r[:a] and _between(r, a, y, "s"),
+            id="scope-pinned-in-chain",
+        ),
+        pytest.param(
+            "i:has(~ x:is(i ~ :scope + b + x ~ *))",
+            lambda r, a, y: "i" in r[:a] and r[a + 1 : a + 3] == "bx" and y > a + 2,
+            id="scope-in-chain-adjacent",
+        ),
+        pytest.param(
+            "i:has(~ s ~ x:is(:scope ~ b + i ~ x ~ *))",
+            lambda r, a, y: _between(r, a, y, "s") and -1 < r.find("bi", a + 1) <= r.rfind("x", 0, y) - 2,
+            id="scope-chain-past-chain",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope ~ b ~ *) ~ s)",
+            lambda r, a, y: _between(r, a, y, "b") and "s" in r[y + 1 :],
+            id="scope-between-then-later",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope, :scope ~ s ~ *))",
+            lambda r, a, y: _between(r, a, y, "s"),
+            id="scope-or-chain",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:nth-child(3n+1 of :scope ~ *)):not(:nth-child(2n of :scope ~ *)))",
+            lambda _r, a, y: (y - a) % 3 != 1 and (y - a) % 2,
+            id="of-steps-negated",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:nth-child(2n of :scope ~ *)):not(:nth-child(2n of :scope ~ *)))",
+            lambda _r, a, y: (y - a) % 2,
+            id="of-step-negated-twice",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:nth-child(2n of :scope ~ *)):not(:nth-child(70n of :scope ~ *)))",
+            lambda _r, a, y: (y - a) % 2 and (y - a) % 70,
+            id="of-steps-negated-past-the-spans",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:nth-child(2n of :scope ~ *)):not(:nth-child(2n+1 of :scope ~ *)))",
+            lambda _r, _a, _y: False,
+            id="of-steps-negated-apart",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2n of :scope ~ *):not(:nth-child(2n of :scope ~ *)))",
+            lambda _r, _a, _y: False,
+            id="of-step-and-not",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2n of :scope ~ *):not(:nth-child(2n+1 of :scope ~ *)))",
+            lambda _r, a, y: (y - a) % 2 == 0,
+            id="of-step-and-not-apart",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2n of :scope ~ *):nth-child(3n+1 of :scope ~ *))",
+            lambda _r, a, y: (y - a) % 6 == 4,
+            id="of-steps-together",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(-n+3 of :scope ~ *))",
+            lambda _r, a, y: y - a <= 3,
+            id="of-countdown",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2 of :scope + * + *, :scope + *, :scope + *, :scope ~ * ~ * ~ *,"
+            " :scope ~ * ~ * ~ * ~ *, :scope + * + * + * + *))",
+            lambda _r, a, y: y == a + 2,
+            id="of-index-past-exact",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-last-child(1 of :scope + *, :scope + * + * + * + *))",
+            lambda r, a, y: _of_from_end(r, a, y, lambda d: d in {1, 4}) == 1,
+            id="of-from-end-exact-only",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-last-child(3 of :scope + *, :scope ~ * ~ * ~ * ~ * ~ *))",
+            lambda r, a, y: _of_from_end(r, a, y, lambda d: d == 1 or d >= 5) == 3,
+            id="of-from-end-exact-before-far",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope ~ b ~ *, s ~ *))",
+            lambda r, a, y: _between(r, a, y, "b") or "s" in r[:y],
+            id="scope-between-or-static",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2n of :scope ~ *):nth-child(2n+1 of :scope ~ *).k)",
+            lambda _r, _a, _y: False,
+            id="of-apart-typed",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:scope.k ~ b ~ *))",
+            lambda r, a, y: not (_SWEPT_RUN[a].isupper() and _between(r, a, y, "b")),
+            id="scope-pinned-negated",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope.k ~ b ~ *, i:scope ~ s ~ *))",
+            lambda r, a, y: (_SWEPT_RUN[a].isupper() and _between(r, a, y, "b")) or _between(r, a, y, "s"),
+            id="scope-pinned-twice",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:not(:scope).k ~ *))",
+            lambda _r, a, y: any(_SWEPT_RUN[p].isupper() and p != a for p in range(y)),
+            id="not-scope-typed",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope + b + *, :scope ~ s ~ *))",
+            lambda r, a, y: (y == a + 2 and r[a + 1] == "b") or _between(r, a, y, "s"),
+            id="scope-fixed-or-between",
+        ),
+        pytest.param(
+            "i:has(~ s ~ x:is(:scope ~ *))",
+            lambda r, a, y: _between(r, a, y, "s"),
+            id="scope-offset-past-chain",
+        ),
+        pytest.param(
+            "i:has(~ s:is(:scope ~ *) ~ x:is(:scope ~ b ~ *))",
+            lambda r, a, y: _between(r, a, y, "s") and _between(r, a, y, "b"),
+            id="unswept-scope-twice",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope ~ b:not(:scope) ~ *))",
+            lambda r, a, y: _between(r, a, y, "b"),
+            id="unswept-scope-in-two-compounds",
+        ),
+        pytest.param("i:has(~ x:is(:scope ~ b > *))", lambda _r, _a, _y: False, id="unswept-scope-then-child"),
+        pytest.param(
+            "i:has(~ x:is(:scope:is(.k, :scope) ~ b ~ *))",
+            lambda r, a, y: _between(r, a, y, "b"),
+            id="unswept-scope-beside-list",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope:not(:scope) ~ *))", lambda _r, _a, _y: False, id="unswept-scope-beside-not-scope"
+        ),
+        pytest.param(
+            "i:has(~ x:is(b ~ :not(:scope) ~ *))",
+            lambda r, a, y: any(p != a and "b" in r[:p] for p in range(y)),
+            id="unswept-not-scope-in-chain",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:not(:scope, s) ~ *))",
+            lambda r, a, y: any(p != a and r[p] != "s" for p in range(y)),
+            id="unswept-not-scope-or",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope:not(.k, b) ~ s ~ *))",
+            lambda r, a, y: not _SWEPT_RUN[a].isupper() and _between(r, a, y, "s"),
+            id="scope-beside-not-list",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope:not(i ~ b) ~ s ~ *))",
+            lambda r, a, y: _between(r, a, y, "s"),
+            id="scope-beside-not-chain",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope:not(i.k) ~ s ~ *))",
+            lambda r, a, y: not _SWEPT_RUN[a].isupper() and _between(r, a, y, "s"),
+            id="scope-beside-not-compound",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope:not(:first-child) ~ s ~ *))",
+            lambda r, a, y: a > 0 and _between(r, a, y, "s"),
+            id="scope-beside-not-pseudo",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:not(:scope):not(.k) ~ b ~ *))",
+            lambda r, a, y: any(p != a and not _SWEPT_RUN[p].isupper() and _between(r, p, y, "b") for p in range(y)),
+            id="not-scope-beside-not",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of :scope.k ~ *))",
+            lambda _r, a, y: _SWEPT_RUN[a].isupper() and y == a + 1,
+            id="unswept-of-scope-typed",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of :scope ~ *, .k))",
+            lambda _r, a, y: y == min(a + 1, _SWEPT_RUN.find("I")),
+            id="unswept-of-scope-or-class",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of :scope ~ b.k))", lambda _r, _a, _y: False, id="unswept-of-scope-typed-end"
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2 of :scope, :scope ~ *))", lambda _r, a, y: y == a + 1, id="of-scope-itself"
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of :scope.k, :scope ~ *))",
+            lambda _r, a, y: y == a + 1 and not _SWEPT_RUN[a].isupper(),
+            id="unswept-of-scope-itself-typed",
+        ),
+        pytest.param("i:has(+ x:is(:scope ~ * > *))", lambda _r, _a, _y: False, id="unswept-adjacent-scope-climb"),
+        pytest.param(
+            "i:has(~ x:nth-child(3n of :scope ~ *):nth-child(-2n+4 of :scope ~ *))",
+            lambda _r, _a, _y: False,
+            id="of-steps-apart-in-range",
+        ),
+        pytest.param(
+            "i:has(~ b:is(:scope ~ *) ~ x:is(:scope ~ * ~ *))",
+            lambda r, a, y: _between(r, a, y, "b"),
+            id="scope-offsets-twice",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of .k))",
+            lambda _r, _a, y: _SWEPT_RUN[y].isupper(),
+            id="of-without-scope",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2 of :scope ~ *, :first-child))",
+            lambda _r, a, y: len([p for p in range(y + 1) if p > a or p == 0]) == 2,
+            id="unswept-of-scope-or-pseudo",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of :scope ~ b))",
+            lambda r, a, y: r.find("b", a + 1) == y,
+            id="unswept-of-scope-between",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(1 of b ~ *, :scope ~ *))",
+            lambda r, a, y: min(a + 1, r.find("b") + 1) == y,
+            id="unswept-of-chain-or-scope",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:is(:scope ~ b > i)))", lambda _r, _a, _y: False, id="unswept-nested-scope-then-child"
+        ),
+        pytest.param(
+            "i:has(:scope:not(:scope ~ b) ~ x:is(:scope ~ b ~ *))",
+            lambda r, a, y: _between(r, a, y, "b"),
+            id="unswept-pinned-beside-chain",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(2n of :scope ~ *):nth-child(2n+1 of :scope ~ *))",
+            lambda _r, _a, _y: False,
+            id="of-apart",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:not(:nth-child(3n of :scope ~ *))))",
+            lambda _r, a, y: (y - a) % 3 == 0,
+            id="of-step-double-negated",
+        ),
+        pytest.param(
+            "i:has(~ x:nth-child(-n+1 of :scope ~ * ~ *, :scope + *))",
+            lambda _r, a, y: y == a + 1,
+            id="of-countdown-past-exact",
+        ),
+        pytest.param(
+            "i:has(~ x:not(:not(:scope.k ~ b ~ *)))",
+            lambda r, a, y: _SWEPT_RUN[a].isupper() and _between(r, a, y, "b"),
+            id="scope-pinned-double-negated",
+        ),
+        pytest.param(
+            "i:has(~ x:is(:scope.k ~ b ~ *):not(:scope.k ~ b ~ *))", lambda _r, _a, _y: False, id="scope-pinned-and-not"
+        ),
+        pytest.param(
+            f"i:has(~ x:is({_alternatives(':scope ~ b', ' ~ *', range(1, 66))}))",
+            lambda r, a, y: _between(r, a, y, "b"),
+            id="past-the-spans",
+        ),
+        pytest.param(
+            f"i:has(~ x:nth-child(1 of {_alternatives(':scope', ' + *', range(1, 66))}))",
+            lambda _r, a, y: y == a + 1,
+            id="of-past-the-spans",
+        ),
+        pytest.param(
+            f"i:has(~ x:is({_alternatives(':nth-child(1 of :scope', ' + *', range(1, 66), ')')}))",
+            lambda _r, a, y: y - a <= 65,
+            id="list-past-the-spans",
+        ),
+        pytest.param(
+            f"i:has(~ x:is({', '.join(f':nth-child({step}n of :scope ~ *)' for step in range(2, 11))}))",
+            lambda _r, a, y: any((y - a) % step == 0 for step in range(2, 11)),
+            id="past-the-counts",
+        ),
+        pytest.param(
+            f"i:has(~ x:is({_alternatives(':scope.k ~ b', ' ~ *', range(1, 34))}))",
+            lambda r, a, y: _SWEPT_RUN[a].isupper() and _between(r, a, y, "b"),
+            id="past-the-predicates",
+        ),
+    ],
+)
+def test_computed_style_sweep_agrees_with_brute_force(rule: str, expected: Callable[[str, int, int], bool]) -> None:
+    html: Final = "".join(_SWEPT_TAGS[letter] for letter in _SWEPT_RUN)
+    nodes: Final = parse(f"<style>*{{color:blue}}{rule}{{color:red}}</style><p>{html}</p>").select("p > *")
+    run: Final = _SWEPT_RUN.lower()
+    assert [computed_style(node)["color"] for node in nodes] == [
+        "red" if letter == "i" and any(expected(run, anchor, x) for x in _later(run, anchor, "x")) else "blue"
+        for anchor, letter in enumerate(run)
+    ]
+
+
+def _later(run: str, anchor: int, tag: str) -> list[int]:
+    return [index for index in range(anchor + 1, len(run)) if run[index] == tag]
+
+
+def _between(run: str, low: int, high: int, tag: str) -> bool:
+    return tag in run[low + 1 : high]
+
+
+def _of_from_end(run: str, anchor: int, element: int, offsets: Callable[[int], bool]) -> int:
+    return sum(offsets(index - anchor) for index in range(element, len(run))) if offsets(element - anchor) else 0
+
+
+@pytest.mark.parametrize(
+    ("rule", "color"),
+    [
+        pytest.param("i:has(~ p > x:is(:scope ~ b ~ *))", "blue", id="scope-chain-below-sibling"),
+        pytest.param("i:has(~ p > x:not(:scope ~ b ~ *))", "red", id="scope-chain-negated-below-sibling"),
+        pytest.param("i:has(~ p x:nth-child(1 of :not(:scope)))", "red", id="scope-of-below-sibling"),
+        pytest.param("i:has(~ p > x:is(b > i, :scope ~ b ~ *))", "blue", id="scope-chain-or-child-below-sibling"),
+        pytest.param("i:has(~ p > x:is(:is(:scope ~ b) ~ *))", "blue", id="nested-scope-chain-below-sibling"),
+        pytest.param("i:has(~ p > x:is(:scope ~ * > *))", "red", id="scope-climb-below-sibling"),
+        pytest.param("i:has(~ x:is(:scope ~ b ~ *) > i)", "blue", id="scope-chain-above-child"),
+        pytest.param("i:has(~ s:is(:scope ~ b ~ *) ~ p > x:not(:scope ~ b ~ *))", "red", id="swept-then-below"),
+        pytest.param("i:has(~ s:is(:scope ~ b ~ *) ~ p > x:is(:scope ~ * > *))", "red", id="swept-then-climb"),
+        pytest.param("i:has(~ p > x:nth-child(1 of :scope ~ * > *))", "red", id="scope-climb-of-below-sibling"),
+        pytest.param("i:has(~ p > x:nth-child(1 of b):is(:scope ~ * > *))", "blue", id="of-beside-scope-climb"),
+        pytest.param("i:has(~ p > x:is(b > i, :scope ~ * > *))", "red", id="child-or-scope-climb"),
+        pytest.param("i:has(~ p > x:is(:is(:scope ~ * > *)))", "red", id="nested-scope-climb"),
+    ],
+)
+def test_computed_style_scope_below_a_sibling(rule: str, color: str) -> None:
+    document: Final = parse(
+        f"<style>*{{color:blue}}{rule}{{color:red}}</style>"
+        f"<div>{'<i></i>' * 40}<b></b><p><b></b><x><i></i></x></p><s></s><p><x></x></p></div>"
+    )
+    assert {computed_style(node)["color"] for node in document.select("div > i")} == {color}
+
+
+@pytest.mark.parametrize(
+    ("rule", "red"),
+    [
+        pytest.param("b:scope:nth-last-child(1 of b)", ["b", "b"], id="last-of-beside-scope"),
+        pytest.param("i:scope:has(~ x:has(b))", ["i"], id="has-in-sibling-argument"),
+        pytest.param("i:scope:has(~ x:has(b) y)", ["i"], id="has-left-of-descendant"),
+    ],
+)
+def test_computed_style_scope_selector_with_nested_lists(rule: str, red: list[str]) -> None:
+    nodes: Final = parse(
+        f"<style>{rule}{{background-color:red}}</style><div><i></i><x><b></b><y></y></x><b></b></div>"
+    ).select("div *")
+    assert [node.tag for node in nodes if computed_style(node)["background-color"] == "red"] == red
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param("i:has(~ p > x:is(:scope ~ b ~ *))", id="scope-chain-below-sibling"),
+        pytest.param("i:has(~ p x:nth-child(1 of :not(:scope)))", id="scope-of-below-sibling"),
+        pytest.param("i:has(~ s:is(:scope ~ b ~ *) ~ p > x:not(:scope ~ b ~ *))", id="swept-then-below"),
+    ],
+)
+def test_computed_style_scope_below_a_sibling_in_linear_time(rule: str, work_steps: WorkSteps) -> None:
+    def style(size: int) -> Callable[[], object]:
+        nodes = parse(
+            f"<style>{rule}{{color:red}}</style>"
+            f"<div>{'<i></i>' * size}<b></b><s></s>{'<p><b></b><x></x></p>' * size}</div>"
+        ).select("div > *")
+        return lambda: [computed_style(node) for node in nodes]
+
+    work_steps.assert_linear(style, (350, 1400))
+
+
+def test_computed_style_scope_climb_past_the_ancestor_memo() -> None:
+    # the em sits 40 levels below the section, past the 32 ancestors a walk passes before it keeps a table; the
+    # :is(q u) rule puts every rule on the deep matcher
+    document: Final = parse(
+        f"<style>*{{color:blue}}:is(q u) b{{color:green}}section:has(:is(:scope > *) em){{color:red}}</style>"
+        f"<section>{'<div>' * 40}<em></em>{'</div>' * 40}</section>"
+    )
+    section: Final = document.select_one("section")
+    assert isinstance(section, Element)
+    assert computed_style(section)["color"] == "red"
+
+
+_UNSWEPT_WALKS: Final[list[pytest.ParameterSet]] = [
+    pytest.param("i:has(~ s:is(:scope ~ *) ~ x:is(:scope ~ b ~ *))", id="scope-in-two-compounds"),
+    pytest.param("i:has(~ x:is(:scope ~ * *))", id="climbing-chain"),
+    pytest.param("i:has(~ x:nth-child(odd of :scope ~ *, b))", id="of-depends-on-content"),
+    pytest.param("i:has(~ x:is(b ~ :not(:scope) ~ *))", id="not-scope-not-leading"),
+    pytest.param("i:has(~ x:is(:is(:scope ~ b) + *))", id="scope-beside-scope-writer"),
+    pytest.param(f"i:has(~ x:is({_alternatives(':scope.k ~ b', ' ~ *', range(1, 34))}))", id="past-the-predicates"),
+    pytest.param("i:has(+ b ~ :is(:scope ~ * *))", id="adjacent-lead"),
+]
+
+
+@pytest.mark.parametrize("rule", _UNSWEPT_WALKS)
+def test_computed_style_has_walks_past_the_allowance_raise(rule: str) -> None:
+    nodes: Final = parse(f"<style>{rule}{{color:red}}</style><div>{'<i></i><b></b>' * 12_500}<x></x></div>").select(
+        "div > *"
+    )
+    with pytest.raises(ValueError, match=r"^the :has\(\) walks of the page's style rules exceed the allowance"):
+        list(map(computed_style, nodes))
+
+
+@pytest.mark.parametrize("rule", _UNSWEPT_WALKS[:1])
+def test_computed_style_has_walks_raise_in_linear_time(rule: str, work_steps: WorkSteps) -> None:
+    def style(size: int) -> Callable[[], object]:
+        nodes = parse(f"<style>{rule}{{color:red}}</style><div>{'<i></i><b></b>' * size}<x></x></div>").select(
+            "div > *"
+        )
+
+        def until_raised() -> None:
+            with pytest.raises(ValueError, match="exceed the allowance"):
+                list(map(computed_style, nodes))
+
+        return until_raised
+
+    work_steps.assert_linear(style, (16_000, 64_000))
+
+
+def test_computed_style_has_walks_raise_until_the_document_changes() -> None:
+    document: Final = parse(
+        f"<style>{_UNSWEPT_WALKS[0].values[0]}{{color:red}}</style>"
+        f"<div><i></i><s></s><b></b><x></x>{'<i></i><b></b>' * 12_500}</div>"
+    )
+    nodes: Final = document.select("div > *")
+    with pytest.raises(ValueError, match="exceed the allowance"):
+        list(map(computed_style, nodes))
+    with pytest.raises(ValueError, match="exceed the allowance"):
+        computed_style(nodes[0])
+    nodes[-1].attrs["class"] = "k"
+    assert computed_style(nodes[0])["color"] == "red"
+
+
+def test_computed_style_many_has_rules_on_a_large_page_stay_within_the_allowance() -> None:
+    templates: Final = (
+        "li:has(> a.{0})",
+        "nav:has(ul li.{0})",
+        "tr:has(td.{0}:empty)",
+        "section:has(h2.{0} + p)",
+        "article:has(> img.{0}, > figure)",
+        "label:has(+ input.{0}:checked)",
+        "div:has(~ footer.{0})",
+        "li:has(~ li.{0})",
+        "td:has(~ td.{0})",
+        "section:has(:scope > h2.{0})",
+        "li:has(+ li:is(:scope + .{0}))",
+        "p:has(~ p:nth-child(2n of .{0}))",
+    )
+    sheet: Final = "".join(
+        f"{template.format(f'k{index}')}{{background-color:red}}" for template in templates for index in range(8)
+    )
+    row: Final = f"<tr>{''.join(f'<td class=k{index}></td>' for index in range(6))}</tr>"
+    items: Final = "".join(f"<li class=k{index % 8}><a class=k{index % 5}></a></li>" for index in range(40))
+    section: Final = (
+        f"<section><h2 class=k1></h2><p></p><table>{row * 20}</table><ul>{items}</ul>"
+        f"<label></label><input type=checkbox class=k2 checked>{'<p class=k3></p>' * 20}</section>"
+    )
+    document: Final = parse(f"<style>{sheet}</style><div>{section * 60}<footer class=k4></footer></div>")
+    red: Final = document.select(
+        ", ".join(template.format(f"k{index}") for template in templates for index in range(8))
+    )
+    assert [node for node in document.select("*") if computed_style(node)["background-color"] == "red"] == red
+
+
+def test_computed_style_sibling_records_past_the_limit() -> None:
+    # 399 alternatives over 80 runs keep more records of their walks than the smallest deep memo holds, so the cascade
+    # drops them and walks on; the first run holds only the inner walk's record, which puts the one that overflows
+    # inside an outer walk whose own record goes with the rest
+    rule: Final = f":is({', '.join(f'.c{index} ~ i ~ em' for index in range(399))})"
+    run: Final = f"{'<i></i>' * 140}{'<b></b>' * 140}<em></em>"
+    document: Final = parse(
+        f"<style>*{{color:blue}}{rule}{{color:red}}</style><p>{'<i></i>' * 140}<em></em></p>"
+        f"{f'<p>{run}</p>' * 78}<p><s class=c7></s>{run}</p>"
+    )
+    assert [computed_style(node)["color"] for node in document.select("em")] == ["blue"] * 79 + ["red"]
+
+
+def test_computed_style_nth_of_counts_grow_past_every_table_size() -> None:
+    # each clause keeps its own counts, so the table regrows through every size up to 512 slots with hundreds of owners
+    rules: Final = "".join(f"x ~ p:nth-child(1 of .c{index}){{color:red}}" for index in range(300))
+    node: Final = parse(f"<style>{rules}</style><div><x></x><p class=c0></p></div>").select_one("p")
+    assert isinstance(node, Element)
+    assert computed_style(node)["color"] == "red"
+
+
+def test_computed_style_nth_of_clauses_eight_apart_share_a_home() -> None:
+    # the first and ninth clause of one selector number eight apart, so in the eight-slot table the second one counted
+    # probes past the first; the seven between sit on q, which no element is, and are never counted
+    between: Final = ", ".join(f"q:nth-child(1 of .c{index})" for index in range(7))
+    rule: Final = f"x ~ :is(p:nth-child(1 of .a), {between}, p:nth-child(2 of .b))"
+    nodes: Final = parse(
+        f"<style>{rule}{{color:red}}</style><div><x></x><p class=a></p><p class=b></p><p class=b></p></div>"
+    ).select("p")
+    assert [computed_style(node)["color"] for node in nodes] == ["red", "canvastext", "red"]
+
+
+@pytest.mark.parametrize(
+    ("rule", "added"),
+    [
+        pytest.param("em:has(~ s ~ em)", ("s", "em"), id="later-chain"),
+        pytest.param("s ~ em", ("s",), id="earlier-sibling"),
+        pytest.param("em:has(~ s:not(:scope))", ("s",), id="scope-in-compound"),
+        pytest.param("button:default", ("button",), id="default"),
+    ],
+)
+def test_computed_style_sibling_rule_refreshes_after_insertion(rule: str, added: tuple[str, ...]) -> None:
+    # the answers a sibling rule keeps for every element it styles must not outlive an edit to the run
+    document: Final = parse(f"<style>{rule}{{color:red}}</style><form>{'<em></em>' * 40}<button></button>")
+    nodes: Final = document.select("form > *")
+    before: Final = [(computed_style(node)["color"], node.matches(rule)) for node in nodes]
+    for tag in reversed(added):
+        nodes[20].insert_before(Element(tag))
+    after: Final = [(computed_style(node)["color"], node.matches(rule)) for node in document.select("form > *")]
+    assert {(color == "red") == matched for color, matched in before + after} == {True}
+    assert [color for color, _ in before] != [computed_style(node)["color"] for node in nodes]
+
+
+@pytest.mark.parametrize(
     "order", [pytest.param(slice(None), id="forward"), pytest.param(slice(None, None, -1), id="reverse")]
 )
 @pytest.mark.parametrize("separator", [pytest.param("", id="adjacent"), pytest.param(" \n<!--gap-->", id="spaced")])
