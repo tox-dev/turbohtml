@@ -1161,7 +1161,11 @@ def _xpath_cases() -> tuple[tuple[str, Case], ...]:
         ("article classes (EXSLT)", "re:alternatives"),
     )
     parity = tuple(
-        (label, (kind, text + svg_fragment if kind == "namespaces" else text)) for label, kind in xpath_parity
+        (
+            label,
+            (kind, text + svg_fragment if kind == "namespaces" else text, {"re:test": 110, "matches": 110}.get(kind, 1)),
+        )
+        for label, kind in xpath_parity
     )
     return structural + parity
 
@@ -2291,11 +2295,11 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                     f"<ul>{''.join(f'<li>value-{index % unique}</li>' for index in range(size))}</ul>",
                 ),
             )
-            for size in (100, 1_000, 10_000)
+            for size in (1_400, 1_000, 10_000)
             for unique in (1, 10, size)
         ),
-        ("0 nodes, 0 values", ("set:distinct(//li)", "<ul></ul>")),
-        ("1 node, 1 value", ("set:distinct(//li)", "<ul><li>value</li></ul>")),
+        ("0 nodes, 0 values", ("set:distinct(//li)", "<ul></ul>", 250)),
+        ("1 node, 1 value", ("set:distinct(//li)", "<ul><li>value</li></ul>", 220)),
     ),
     "xpath-compare": lambda: (
         tuple(
@@ -2310,7 +2314,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 ),
             )
             for operation in ("=", "!=")
-            for size in (10, 100, 1_000, 2_000)
+            for size in (10, 850, 1_000, 2_000)
         )
         + tuple(
             (
@@ -2334,7 +2338,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 ),
             )
             for operation in ("<", "<=", ">", ">=")
-            for size in (10, 100, 1000)
+            for size in (10, 800, 1000)
         ),
         (
             "first-pair match, 1,000 nodes",
@@ -2380,7 +2384,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             "KMP sparse matches",
             ((f"{'a' * 4096}b{'a' * 64}x") * 8, f"{'a' * 64}b{'a' * 64}", "X", (f"{'a' * 4032}Xx") * 8),
         ),
-        ("short ASCII", ("A short paragraph", "a", "A", "A short pArAgrAph")),
+        ("short ASCII", ("A short paragraph", "a", "A", "A short pArAgrAph", 100)),
     ),
     "xpath-concat": lambda: ((
         *tuple(
@@ -2388,7 +2392,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"{count:,} nodes, {length} characters",
                 ("str:concat(//i)", f"<main>{'<i>{}</i>'.format('a' * length) * count}</main>"),
             )
-            for count, length in ((10000, 32), (10, 32768), (10, 32))
+            for count, length in ((10000, 32), (10, 32768), (2_200, 32))
         ),
         (
             "10 nested nodes, 32768 characters",
@@ -2418,6 +2422,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             (
                 "translate(string(//p), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')",
                 "<p>A Short TITLE</p>",
+                170,
             ),
         ),
         *tuple(
@@ -2428,7 +2433,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             for label, source, target, content in (
                 ("early match, 32 KiB text", string.ascii_lowercase, string.ascii_uppercase, "a" * 32768),
                 ("duplicate map, 32 KiB text", "a" * 512, "b", "a" * 32768),
-                ("long map, 64 character text", "a" * 8192, "b", "a" * 64),
+                ("long map, 64 character text", "a" * 3_500_000, "b", "a" * 64),
                 ("second entry, 32 KiB text", string.ascii_lowercase, string.ascii_uppercase, "b" * 32768),
                 ("ASCII cycling", string.ascii_lowercase, string.ascii_uppercase, string.ascii_lowercase * 1260),
                 (
@@ -2450,14 +2455,14 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 ),
             )
             for operation in ("intersection", "difference", "has-same-node")
-            for size in (10, 100, 1_000, 10_000)
+            for size in (10, 3_800, 1_000, 10_000)
         )
         + tuple(
             (
                 f"first-node overlap, {size:,} nodes",
                 ("set:has-same-node(//li, //li)", f"<ul>{'<li></li>' * size}</ul>"),
             )
-            for size in (10, 100, 1_000, 10_000)
+            for size in (10, 100, 9_000, 10_000)
         )
     ),
     "computed-style-deep": lambda: tuple(
