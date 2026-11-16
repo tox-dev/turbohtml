@@ -435,9 +435,9 @@ static inline void jm_node_empty(jm_program *prog, int32_t idx) {
    on allocation failure. Used by the fold pass for a literal it synthesizes. */
 const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t len);
 
-/* For a fold that has just collapsed a subtree into the literal holding the newest buffer, the older buffers added
-   since mark belong to nodes the collapse unlinked. */
-void jm_program_disown(jm_program *prog, int32_t mark);
+/* For a fold that has just collapsed a subtree into a literal owned after upto, the buffers owned since mark and
+   before upto belong to nodes the collapse unlinked; the ones from upto on stay owned. */
+void jm_program_release(jm_program *prog, int32_t mark, int32_t upto);
 
 /* The ECMA-262 §12.7 StringValue of an IdentifierName: src[0..len) with every `\uXXXX` / `\u{...}`
    escape decoded, so an escaped spelling binds and resolves as its plain form (`abc` == `abc`).

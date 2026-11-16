@@ -1035,6 +1035,65 @@ def test_the_string_form_over_a_node_leaves_it_untouched() -> None:
     assert root.inner_html == before
 
 
+_RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp")
+_STRING_FORMS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(linkify, id="linkify"),
+    pytest.param(Linker().linkify, id="linker"),
+    pytest.param(partial(linkify, options=Linkify(parse_email=True)), id="options"),
+]
+
+
+@pytest.mark.parametrize("string_form", _STRING_FORMS)
+@pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+def test_the_string_form_escapes_the_text_of_a_raw_text_node(tag: str, string_form: Callable[[Node], str]) -> None:
+    node = Element(tag, None, [Text("one <b>two</b>")])
+    out = string_form(node)
+    assert out == "one &lt;b&gt;two&lt;/b&gt;"
+    assert parse_fragment(out).text == "one <b>two</b>"
+    assert node.inner_html == "one <b>two</b>"
+
+
+@pytest.mark.parametrize("string_form", _STRING_FORMS)
+@pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+def test_the_string_form_of_a_raw_text_node_links_its_text_as_a_plain_element_does(
+    tag: str, string_form: Callable[[Node], str]
+) -> None:
+    assert string_form(Element(tag, None, [Text("see http://x.com")])) == string_form(
+        Element("div", None, [Text("see http://x.com")])
+    )
+
+
+@pytest.mark.parametrize("string_form", _STRING_FORMS)
+def test_the_string_form_of_a_parsed_script_reads_back_as_its_text(string_form: Callable[[Node], str]) -> None:
+    node = parse_fragment("<script>if (a < b && c)</script>").select_one("script")
+    assert node is not None
+    assert string_form(node) == "if (a &lt; b &amp;&amp; c)"
+
+
+def test_the_string_form_of_a_raw_text_node_keeps_its_element_children() -> None:
+    node = Element("style", None, [Element("em", None, [Text("yo")]), Text("a<b")])
+    assert linkify(node) == "<em>yo</em>a&lt;b"
+
+
+@pytest.mark.parametrize("tag", ["div", "noscript", "textarea", "title"])
+def test_the_string_form_of_an_escaping_root_is_unchanged(tag: str) -> None:
+    assert linkify(Element(tag, None, [Text("<b>one</b>")])) == "&lt;b&gt;one&lt;/b&gt;"
+
+
+@pytest.mark.parametrize(
+    ("markup", "tag"),
+    [
+        pytest.param("<svg><style>x</style></svg>", "style", id="svg-style"),
+        pytest.param("<math><script>x</script></math>", "script", id="mathml-script"),
+    ],
+)
+def test_the_string_form_of_a_foreign_element_escapes_its_text(markup: str, tag: str) -> None:
+    node = parse_fragment(markup).select_one(tag)
+    assert node is not None
+    node.text = "<b>one</b>"
+    assert linkify(node) == "&lt;b&gt;one&lt;/b&gt;"
+
+
 def test_options_apply_to_the_node_form() -> None:
     root = parse_fragment("<p>mail bob@example.com</p>")
     linkify_node(root, Linkify(parse_email=True))

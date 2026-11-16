@@ -18,6 +18,10 @@ from enum import Enum
 from typing import TYPE_CHECKING, Final, TypeAlias, TypeVar, cast
 
 from ._native import (
+    Element,
+    parse_fragment,
+)
+from ._native import (
     linkify_apply as _linkify_apply,
 )
 from ._native import (
@@ -34,9 +38,6 @@ from ._native import (
 )
 from ._native import (
     linkify_target_blank as _linkify_target_blank,
-)
-from ._native import (
-    parse_fragment,
 )
 from ._native import (
     phone_config_compile as _phone_config_compile,
@@ -560,7 +561,21 @@ class Linker:
             and links a copy so the node is left as it was.
         :returns: the linkified HTML.
         """
-        return self.linkify_node(parse_fragment(text) if isinstance(text, str) else copy.deepcopy(text)).inner_html
+        if isinstance(text, str):
+            return self.linkify_node(parse_fragment(text)).inner_html
+        linked = self.linkify_node(copy.deepcopy(text))
+        # the serializer writes a raw-text element's text unescaped, but the returned string is read as plain content
+        if isinstance(linked, Element) and linked.tag in {
+            "iframe",
+            "noembed",
+            "noframes",
+            "plaintext",
+            "script",
+            "style",
+            "xmp",
+        }:
+            return Element("div", None, linked.children).inner_html
+        return linked.inner_html
 
     def linkify_node(self, node: _NODE_T) -> _NODE_T:
         """

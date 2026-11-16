@@ -743,7 +743,82 @@ def test_rewrite_unwrapped_raw_text_prepend_is_not_checked() -> None:
         text.after("<!--x-->", html=True)
 
     # prepend marked the script as written into, but no <script> is left for the comment to hide an end tag in
-    assert rewrite("<script>x</script>", elements=[("script", handler)], text=note) == "x<!--x-->"
+    assert rewrite("<script>x</script>", elements=[("script", handler)], text=note) == "ax<!--x-->"
+
+
+@pytest.mark.parametrize(
+    ("html", "edits", "expected"),
+    [
+        pytest.param("<div>x</div>", (methodcaller("prepend", "P"),), "Px", id="prepend"),
+        pytest.param("<div>x</div>", (methodcaller("prepend", "P"), methodcaller("append", "A")), "PxA", id="both"),
+        pytest.param("<div>x</div>", (methodcaller("prepend", "<i>", html=True),), "<i>x", id="prepend-html"),
+        pytest.param("<div>x</div>", (methodcaller("prepend", "P"), methodcaller("set_content", "S")), "PS", id="set"),
+        pytest.param(
+            "<div>x</div>", (methodcaller("before", "B"), methodcaller("after", "C")), "BxC", id="before-after"
+        ),
+        pytest.param(
+            "<div>x</div>",
+            (methodcaller("prepend", "P"), methodcaller("before", "B"), methodcaller("after", "C")),
+            "BPxC",
+            id="prepend-before-after",
+        ),
+        pytest.param("<xmp>x</xmp>", (methodcaller("prepend", "P"), methodcaller("append", "A")), "PxA", id="xmp"),
+        pytest.param("<script>x</script>", (methodcaller("prepend", "P"),), "Px", id="script"),
+        pytest.param("<script>x</script>", (methodcaller("prepend", "a<b"),), "a&lt;bx", id="script-escaped"),
+        pytest.param("<script>x</script>", (methodcaller("prepend", "<i>", html=True),), "<i>x", id="script-html"),
+        pytest.param("<script>x</script>", (methodcaller("prepend", "</script>"),), "&lt;/script&gt;x", id="end-tag"),
+        pytest.param(
+            "<script>x</script>",
+            (methodcaller("prepend", "P"), methodcaller("before", "B"), methodcaller("after", "C")),
+            "BPxC",
+            id="script-before-after",
+        ),
+        pytest.param("<title>a</title>", (methodcaller("prepend", "<b>"),), "&lt;b&gt;a", id="title"),
+        pytest.param("<textarea>a</textarea>", (methodcaller("prepend", "&amp;"),), "&amp;amp;a", id="textarea"),
+    ],
+)
+def test_rewrite_unwrapped_element_keeps_inserted_content(
+    html: str, edits: tuple[Callable[..., object], ...], expected: str
+) -> None:
+    assert rewrite(html, elements=[("*", _edits(edits)), ("*", _unwrap)]) == expected
+    assert rewrite(html, elements=[("*", _unwrap), ("*", _edits(edits))]) == expected
+
+
+def _edits(edits: tuple[Callable[..., object], ...]) -> Callable[[Element], None]:
+    def handler(element: Element) -> None:
+        for edit in edits:
+            edit(element)
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    ("html", "edits", "expected"),
+    [
+        pytest.param("<div>x</div>", (methodcaller("prepend", "P"), methodcaller("remove")), "", id="remove"),
+        pytest.param("<div>x</div>", (methodcaller("prepend", "P"), methodcaller("replace", "R")), "R", id="replace"),
+        pytest.param("<script>x</script>", (methodcaller("prepend", "P"), methodcaller("remove")), "", id="raw-remove"),
+        pytest.param(
+            "<script>x</script>", (methodcaller("prepend", "P"), methodcaller("replace", "R")), "R", id="raw-replace"
+        ),
+        pytest.param(
+            "<div>x</div>",
+            (
+                methodcaller("prepend", "P"),
+                methodcaller("before", "B"),
+                methodcaller("after", "C"),
+                methodcaller("remove"),
+            ),
+            "BC",
+            id="remove-keeps-before-after",
+        ),
+    ],
+)
+def test_rewrite_removed_element_drops_inserted_content(
+    html: str, edits: tuple[Callable[..., object], ...], expected: str
+) -> None:
+    assert rewrite(html, elements=[("*", _edits(edits)), ("*", _unwrap)]) == expected
+    assert rewrite(html, elements=[("*", _unwrap), ("*", _edits(edits))]) == expected
 
 
 @pytest.mark.parametrize(

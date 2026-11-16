@@ -1,0 +1,2 @@
+Sanitizing a kept ``<style>`` whose last declaration has an unclosed parenthesis no longer appends another ``;}`` on
+each pass, so re-sanitizing the output returns it unchanged.

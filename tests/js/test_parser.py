@@ -626,6 +626,63 @@ def test_constructs_minify_to(source: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        pytest.param("var {get = 1} = o;", "var {get=1}=o", id="get-default-binding"),
+        pytest.param("var {set = 1} = o;", "var {set=1}=o", id="set-default-binding"),
+        pytest.param("var {async = 1} = o;", "var {async=1}=o", id="async-default-binding"),
+        pytest.param("let {async = 3} = o;", "let {async=3}=o", id="let-async-default"),
+        pytest.param("const {get = 4} = o;", "const {get=4}=o", id="const-get-default"),
+        pytest.param("var {get = 1, set = 2, async = 3} = o;", "var {get=1,set=2,async=3}=o", id="all-three-defaults"),
+        pytest.param("var {get, set = 2, async} = o;", "var {get,set=2,async}=o", id="plain-and-default-mixed"),
+        pytest.param("var {get = 1 + 2} = o;", "var {get=1+2}=o", id="default-expression"),
+        pytest.param("var {a: {get = 1}} = o;", "var {a:{get=1}}=o", id="nested-pattern"),
+        pytest.param("var [{get = 1}] = o;", "var [{get=1}]=o", id="array-element-pattern"),
+        pytest.param("({get = 1} = b);", "({get=1}=b)", id="get-default-assignment"),
+        pytest.param("({set = 2} = o);", "({set=2}=o)", id="set-default-assignment"),
+        pytest.param("x = {get = 1} = o;", "x={get=1}=o", id="chained-assignment-pattern"),
+        pytest.param("for (const {get = 1} of xs) {}", "for(const {get=1} of xs);", id="for-of-pattern"),
+        pytest.param("for (var {async = 1} in o) {}", "for(var {async=1} in o);", id="for-in-pattern"),
+        pytest.param(
+            "function f({get = 1}){return get}", "function f({get=1}){return get}", id="get-default-parameter"
+        ),
+        pytest.param(
+            "function f({set = 1}){return set}", "function f({set=1}){return set}", id="set-default-parameter"
+        ),
+        pytest.param(
+            "function f({async = 1}){return async}", "function f({async=1}){return async}", id="async-default-parameter"
+        ),
+        pytest.param("(function({async = 1}){})", "(function({async=1}){})", id="function-expression-parameter"),
+        pytest.param("var f = ({async = 1}) => async;", "var f=({async=1})=>async", id="arrow-parameter"),
+        pytest.param("var f = ({get = 1} = {}) => get;", "var f=({get=1}={})=>get", id="arrow-parameter-with-default"),
+        pytest.param("var f = async ({get = 1}) => get;", "var f=async({get=1})=>get", id="async-arrow-parameter"),
+        pytest.param("o = {m({set = 1}){}};", "o={m({set=1}){}}", id="method-parameter"),
+        pytest.param("var {of = 1} = o;", "var {of=1}=o", id="of-default"),
+        pytest.param("var {static = 1} = o;", "var {static=1}=o", id="static-default"),
+        pytest.param("var {yield = 1} = o;", "var {yield=1}=o", id="yield-default-in-script"),
+        pytest.param("var {await = 1} = o;", "var {await=1}=o", id="await-default-in-script"),
+        pytest.param("var {let = 1} = o;", "var {let=1}=o", id="let-default-in-sloppy-var"),
+    ],
+)
+def test_contextual_keyword_shorthand_default_minifies_to(source: str, expected: str) -> None:
+    assert minify(source) == expected
+    assert minify(expected) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("function* g(){var {yield = 1} = o}", id="yield-in-generator"),
+        pytest.param("async function f(){var {await = 1} = o}", id="await-in-async-function"),
+        pytest.param("var {...{get = 1}} = o;", id="rest-target-not-identifier"),
+    ],
+)
+def test_contextual_keyword_default_in_reserved_context_raises(source: str) -> None:
+    with pytest.raises(ValueError, match="at offset"):
+        minify(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         pytest.param("x={get:1,set:2,async:3}", "x={get:1,set:2,async:3}", id="accessor-words-as-keys"),
         pytest.param("x={get(){},set(){},async(){}}", "x={get(){},set(){},async(){}}", id="accessor-words-as-methods"),
         pytest.param("x={get a(){},set a(v){}}", "x={get a(){},set a(v){}}", id="real-accessors"),

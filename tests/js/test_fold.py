@@ -1397,6 +1397,27 @@ def test_concat_chain_frees_the_lexemes_it_supersedes(operand: str) -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        pytest.param('x="a"+"b"+y+("c"+"d")', 'x="ab"+y+"cd"', id="operand-after-prefix-keeps-its-fold"),
+        pytest.param('x="a"+"b"+"\\xZZ"+"c"', 'x="ab"+"\\xZZ"+"c"', id="valueless-escape-after-prefix"),
+        pytest.param('x="a"+"b"+\'c\'+"d"', 'x="ab"+\'c\'+"d"', id="quote-change-after-prefix"),
+        pytest.param('x=1+2+"a"+"b"', 'x=3+"a"+"b"', id="integer-prefix-then-string"),
+        pytest.param('x="a"+y+"b"+"c"', 'x="a"+y+"b"+"c"', id="string-after-non-string-not-joined"),
+        pytest.param('x=a*b+"c"+"d"', 'x=a*b+"c"+"d"', id="product-prefix-not-joined"),
+        pytest.param('f(f(f(f(0))));x="a"+"b"+"c"', 'f(f(f(f(0)))),x="abc"', id="chain-after-deeper-statement"),
+    ],
+)
+def test_concat_chain_joins_its_string_prefix(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+@pytest.mark.parametrize("operand", [pytest.param('"ab"', id="short"), pytest.param(f'"{"a" * 40}"', id="long")])
+def test_concat_chain_joins_in_linear_steps(operand: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(minify_js, f"x={'+'.join([operand] * n)}"), (200, 800))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         # truthiness reads the decoded value, so a line-continuation-only string (value "") is falsy (#436)
         pytest.param(f'"{_BS}{_LF}"?1:2', "2", id="lf-only-empty-falsy"),
         pytest.param(f'"{_BS}{_CR}"?1:2', "2", id="cr-only-empty-falsy"),
