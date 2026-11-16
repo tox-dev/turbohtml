@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from importlib import import_module
 from typing import TYPE_CHECKING, Final, Protocol, cast
 
@@ -34,7 +35,10 @@ def fuzz(
             lossy_on_allocation_failure=target.lossy_on_allocation_failure,
         )
     )
-    cast("Callable[[], None]", atheris.instrument_all)()
+    # a coverage run reads only the line tracer's data, and instrumenting every loaded function under that tracer takes
+    # minutes before the first input
+    if os.environ.get("SANITIZER") != "coverage":
+        cast("Callable[[], None]", atheris.instrument_all)()
     cast("_Setup", atheris.Setup)(list(argv), callback, custom_mutator=custom_mutator)
     cast("Callable[[], None]", atheris.Fuzz)()
 
