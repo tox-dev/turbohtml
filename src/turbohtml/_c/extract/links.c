@@ -713,9 +713,9 @@ static int url_empty_special_authority(const Py_UCS4 *value, Py_ssize_t colon, P
     if (colon + 2 >= end) {
         return 0;
     }
-    int opened =
-        (value[colon + 1] == '/' | value[colon + 1] == '\\') & (value[colon + 2] == '/' | value[colon + 2] == '\\');
-    if (!opened) {
+    int first = (value[colon + 1] == '/') | (value[colon + 1] == '\\');
+    int second = (value[colon + 2] == '/') | (value[colon + 2] == '\\');
+    if (!(first & second)) {
         return 0;
     }
     if (colon + 3 == end) {
