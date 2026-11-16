@@ -31,9 +31,21 @@ def _encoding_stream(data: bytes) -> None:
     detector.close()
 
 
+def _encoding_result(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        encoding(data)
+
+
+def _encoding_result_stream(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        _encoding_stream(data)
+
+
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
-    "encoding-result-stream": (_encoding_stream, "chardet"),
+    "encoding-result-stream": (_encoding_result_stream, "chardet"),
     "encoding-chunks": (_encoding_chunks, "chardet"),
     "encoding": (encoding, "chardet"),
-    "encoding-result": (encoding, "chardet"),
+    "encoding-result": (_encoding_result, "chardet"),
 }
