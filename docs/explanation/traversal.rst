@@ -51,8 +51,8 @@ Before a node leaves the tree through the mutation methods (``decompose``, ``ext
 removals a ``MutationObserver`` records), every iterator on that tree whose reference sits in the removed subtree moves
 per the DOM NodeIterator pre-remove steps: to the first node after the subtree when it pointed before its reference,
 otherwise to the node just before the subtree. The next step then continues with the nodes that remain instead of
-wandering into the detached subtree. Edits made through a :class:`~turbohtml.Range` or the bulk cleaners do not adjust
-iterators, the same boundary ranges keep.
+wandering into the detached subtree. :class:`~turbohtml.Range` content operations and the in-place cleaners
+(``linkify_node``, ``strip_comments_node``) remove nodes the same way, so they move iterators too.
 
 ``current_node`` stays assignable, as the DOM requires, but only to a node in the walker's own tree: the cursor holds a
 raw pointer into that tree's arena, so accepting a node from another document would let it dangle. That is the single

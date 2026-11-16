@@ -85,6 +85,30 @@ def test_iterator_defaults(root: Element) -> None:
     assert it.pointer_before_reference_node is True
 
 
+@pytest.mark.parametrize("how", ["decompose", "delete", "extract"])
+def test_removing_the_reference_subtree_moves_the_iterator_before_it(how: str) -> None:
+    root = _el(parse("<div id=r><p>a</p><b>x</b><i>y</i></div>").select_one("#r"))
+    it = NodeIterator(root)
+    while getattr(it.reference_node, "tag", None) != "b":
+        it.next_node()
+    _remove_reference_element(root, how)
+    assert isinstance(it.reference_node, Text)
+    assert it.reference_node.data == "a"
+    assert it.pointer_before_reference_node is False
+
+
+def _remove_reference_element(root: Element, how: str) -> None:
+    if how == "decompose":
+        root.children[1].decompose()
+        return
+    span = turbohtml.Range(root, 1)
+    span.set_end(root, 2)
+    if how == "delete":
+        span.delete_contents()
+    else:
+        span.extract_contents()
+
+
 @pytest.mark.parametrize("kind", [pytest.param(TreeWalker, id="walker"), pytest.param(NodeIterator, id="iterator")])
 def test_root_must_be_a_node(kind: type) -> None:
     with pytest.raises(TypeError, match="root must be a Node"):
