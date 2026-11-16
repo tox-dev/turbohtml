@@ -85,3 +85,34 @@ def test_encoding_oracle_table_and_select_shapes(markup: str, expected: str) -> 
 )
 def test_encoding_oracle_frameset_and_end_tag_br(markup: str, expected: str) -> None:
     assert encoding_observation(markup.encode()) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<select>a<select>b", "ab", id="select-start-closes-open-select"),
+        pytest.param("<select>a</select>b", "ab", id="select-end-closes-select"),
+        pytest.param("<p></select>x", "x", id="select-end-without-select"),
+        pytest.param("<select><b>x</select>y", "xy", id="select-end-pops-formatting"),
+        pytest.param("<math><mi><select>x</select>y", "xy", id="select-reset-passes-foreign"),
+        pytest.param("<table><select>x</select>y", "xy", id="select-reset-to-table"),
+        pytest.param("<select><pre>\nx", "x", id="select-pre-newline-dropped"),
+        pytest.param("<table><pre>\nx", "x", id="table-pre-newline-dropped"),
+        pytest.param("<select><xmp><b>x", "<b>x", id="select-keeps-xmp-raw-text"),
+        pytest.param("<select><textarea>x", "x", id="select-keeps-textarea"),
+    ],
+)
+def test_encoding_oracle_select_in_body_shapes(markup: str, expected: str) -> None:
+    assert encoding_observation(markup.encode()) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<table><td><textarea>\n", "", id="cell-textarea-newline-dropped"),
+        pytest.param("<table><caption><listing>\n", "", id="caption-listing-newline-dropped"),
+        pytest.param("<table><td>\nx", "\nx", id="cell-whitespace-kept"),
+    ],
+)
+def test_encoding_oracle_cell_and_caption_newline_shapes(markup: str, expected: str) -> None:
+    assert encoding_observation(markup.encode()) == expected
