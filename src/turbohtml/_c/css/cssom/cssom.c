@@ -1522,6 +1522,23 @@ size_t th_css_deep_memo_limit(size_t rules, size_t nodes) {
     return wanted > CSS_DEEP_MEMO_LIMIT ? wanted : CSS_DEEP_MEMO_LIMIT;
 }
 
+/* The walks from a :has() anchor that no memo answers (sel_deep_has_direct) cost the cascade time quadratic in a long
+   sibling run when its rules take them from every element of the run. So a document funds them: CSS_WALK_PER_UNIT
+   compound tests for each of its nodes and each character of its rules' selectors, over a base that lets a short
+   page walk freely. */
+#define CSS_WALK_BASE ((size_t)1 << 26)
+#define CSS_WALK_PER_UNIT 64
+
+/* The allowance of the cascade's deep memo for a tree of nodes nodes styled by selectors of selector_chars
+   characters, saturating at SIZE_MAX. */
+static size_t css_walk_allowance(size_t nodes, size_t selector_chars) {
+    const size_t units = nodes + selector_chars;
+    if (units > (SIZE_MAX - CSS_WALK_BASE) / CSS_WALK_PER_UNIT) { /* GCOVR_EXCL_BR_LINE: needs more than memory holds */
+        return SIZE_MAX; /* GCOVR_EXCL_LINE: a tree and selectors past what memory holds */
+    }
+    return CSS_WALK_BASE + units * CSS_WALK_PER_UNIT;
+}
+
 /* How many consecutive levels of an ancestor chain path holds. The HTML tree builder nests no deeper than
    TH_MAX_TREE_DEPTH, so the chain of a parsed page fits whole; an XML or a built tree can be deeper. */
 #define CSS_PATH_DENSE ((Py_ssize_t)2 * TH_MAX_TREE_DEPTH)
@@ -1542,6 +1559,7 @@ typedef struct {
     sel_memo has_memo;
     sel_nth_memo nth_memo;
     sel_position_memo position_memo;
+    sel_default_memo default_memo;
     css_computed_entry **path;
     Py_ssize_t path_len;
     Py_ssize_t path_capacity;
@@ -2049,7 +2067,9 @@ static css_sheet *css_cached_sheets(module_state *state, HandleObject *handle, P
 /* Run the whole cascade for element against the collected sheets plus its inline
    style, writing the resolved computed values into out given the parent's computed
    map. On a tree that may nest deep, or under a rule that climbs from its climbs, deep matches the rules that climb as
-   a query's stand-in does (sel_deep_query).
+   a query's stand-in does (sel_deep_query). It also matches every alternative that walks siblings with ~: the cascade
+   has no sibling table, since it binds the scope to each element it styles, so the direct walk would repeat a sibling
+   run per element and per later sibling, where the deep memo keeps each answer for every element and rule.
    Returns -1 on allocation failure. */
 static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count,
                                                th_tree *tree, int quirks, const css_value *parent, css_value *out,
@@ -2063,7 +2083,7 @@ static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet
                    quirks,
                    NULL,
                    &cache->nth_memo,
-                   NULL,
+                   &cache->default_memo,
                    NULL,
                    &cache->legend_memo,
                    &cache->position_memo,
@@ -2085,7 +2105,7 @@ static CSS_CASCADE_INLINE int css_cascade_with(th_node *element, const css_sheet
             int best_b = 0;
             int best_c = 0;
             for (int alt = 0; alt < compiled->count; alt++) {
-                if (!(deep && compiled->climbs
+                if (!((deep && compiled->climbs) || (compiled->alts[alt].walks & SEL_ALT_SIBLINGS)
                           ? sel_deep_matches_alt(element, &compiled->alts[alt], &ctx, &cache->deep_memo)
                           : selector_matches_alt(element, &compiled->alts[alt], &ctx))) {
                     continue;
@@ -2141,7 +2161,8 @@ static int css_cascade_element(th_node *element, const css_sheet *sheets, Py_ssi
 }
 
 /* Cascade element, a child of the innermost path level (a root when the path is empty), and keep it as the new
-   innermost level. Returns -1 on allocation failure. */
+   innermost level. Returns -1 on allocation failure, or -2 with ValueError set once the deep memo's allowance is
+   spent: its walks then answered no, so the values are wrong. */
 static int css_path_push(css_computed_cache *cache, th_node *element, const css_sheet *sheets, Py_ssize_t sheet_count,
                          th_tree *tree) {
     static const css_value no_parent[NUM_PROPS] = {0};
@@ -2160,12 +2181,20 @@ static int css_path_push(css_computed_cache *cache, th_node *element, const css_
         PyMem_Free(entry); /* GCOVR_EXCL_LINE: allocation failure */
         return -1;         /* GCOVR_EXCL_LINE: allocation failure */
     }
+    if (cache->deep_memo.over) {
+        PyMem_Free(entry);
+        PyErr_Format(PyExc_ValueError,
+                     "the :has() walks of the page's style rules exceed the allowance of %zu compound tests plus %d "
+                     "per node and selector character",
+                     (size_t)CSS_WALK_BASE, CSS_WALK_PER_UNIT);
+        return -2;
+    }
     css_entry_add(cache, entry);
     css_path_append(cache, entry);
     return 0;
 }
 
-/* Returns 0, -1 on allocation failure, or -2 with RecursionError set. */
+/* Returns 0, -1 on allocation failure, or -2 with RecursionError or ValueError set. */
 static int css_compute_map(module_state *state, HandleObject *handle, th_node *element, css_value *out) {
     Py_ssize_t sheet_count = 0;
     const css_sheet *const sheets = css_cached_sheets(state, handle, &sheet_count);
@@ -2188,10 +2217,16 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
         }
         handle->css_computed = cache;
         size_t rules = 0;
+        size_t selector_chars = 0;
         for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
             rules += (size_t)sheets[sheet].rule_count;
+            for (Py_ssize_t rule = 0; rule < sheets[sheet].rule_count; rule++) {
+                selector_chars += (size_t)sheets[sheet].rules[rule].selector_len;
+            }
         }
-        cache->deep_memo.limit = th_css_deep_memo_limit(rules, th_tree_node_count(handle->tree));
+        const size_t nodes = th_tree_node_count(handle->tree);
+        cache->deep_memo.limit = th_css_deep_memo_limit(rules, nodes);
+        cache->deep_memo.allowance = css_walk_allowance(nodes, selector_chars);
     }
     if (cache->path_len > 0 && cache->path[cache->path_len - 1]->node == element) {
         return css_copy_map(out, cache->path[cache->path_len - 1]->values);
@@ -2238,8 +2273,9 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
     }
     while (pending > 0) {
         th_node *const next = cache->pending[--pending];
-        if (css_path_push(cache, next, sheets, sheet_count, handle->tree) < 0) { /* GCOVR_EXCL_BR_LINE */
-            return -1; /* GCOVR_EXCL_LINE: allocation failure */
+        const int pushed = css_path_push(cache, next, sheets, sheet_count, handle->tree);
+        if (pushed < 0) {
+            return pushed;
         }
     }
     return css_copy_map(out, cache->path[cache->path_len - 1]->values);

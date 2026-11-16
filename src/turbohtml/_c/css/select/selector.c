@@ -1202,6 +1202,278 @@ static int sel_alts_scope_ahead(const sel_complex *alts, int count) {
     return 0;
 }
 
+/* Whether a :scope in alts, read in a :has() argument, can be tested at the anchor: one in a nested list alternative
+   that walks to other elements, or in the S of an 'of S' clause, which reads the other siblings. The argument reaches
+   only elements past the anchor, so a :scope tested at the element it reached fails under every anchor. */
+static int sel_alts_scope_reaches(const sel_complex *alts, int count) {
+    for (int alt = 0; alt < count; alt++) {
+        for (int index = 0; index < alts[alt].count; index++) {
+            const sel_compound *compound = &alts[alt].compounds[index];
+            for (int at = 0; at < compound->count; at++) {
+                const sel_simple *simple = &compound->simples[at];
+                if (simple->kind != ':' || simple->sub == NULL || simple->pseudo == PSEUDO_HAS) {
+                    continue;
+                }
+                if (simple->pseudo == PSEUDO_NTH_CHILD || simple->pseudo == PSEUDO_NTH_LAST_CHILD) {
+                    if (sel_alts_write_scope(simple->sub, simple->sub_count)) {
+                        return 1;
+                    }
+                    continue;
+                }
+                for (int sub = 0; sub < simple->sub_count; sub++) {
+                    if ((simple->sub[sub].count > 1 && sel_alts_write_scope(&simple->sub[sub], 1)) ||
+                        sel_alts_scope_reaches(&simple->sub[sub], 1)) {
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static int sel_compound_writes_scope(sel_compound *compound) {
+    return sel_alts_write_scope(&(const sel_complex){compound, 1, 0, 0, 0}, 1);
+}
+
+/* Whether complex runs from a lone :scope through + and ~ over compounds without :scope; with universal compounds
+   between the two ends, an offset chain (SEL_ALT_SCOPE_OFFSET), or with + alone, a fixed one. */
+static int sel_scope_chain(const sel_complex *complex, int offset) {
+    const sel_compound *first = &complex->compounds[0];
+    if (complex->count < 2 || first->count != 1 || first->simples[0].kind != ':' ||
+        first->simples[0].pseudo != PSEUDO_SCOPE) {
+        return 0;
+    }
+    for (int index = 1; index < complex->count; index++) {
+        sel_compound *compound = &complex->compounds[index];
+        const int universal = compound->count == 1 && compound->simples[0].kind == '*';
+        if (compound->combinator != '+' && (!offset || compound->combinator != '~')) {
+            return 0;
+        }
+        if (offset && index < complex->count - 1 ? !universal : sel_compound_writes_scope(compound)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* sel_alts_scope_reaches for a :has() argument led by + or ~ that joins its compounds with + and ~ alone, so every
+   element it tests is a later sibling of the anchor: 0 when its :scope never reaches them, the compound count of the
+   longest SEL_ALT_SCOPE_OFFSET chain when every :scope that does is one tested at those elements, as such a chain
+   holds the same at every distance from its compound count on, else SEL_SCOPE_REACH_ANY. */
+static int sel_alts_scope_reach(const sel_complex *alts, int count) {
+    int reach = 0;
+    for (int alt = 0; alt < count; alt++) {
+        for (int index = 0; index < alts[alt].count; index++) {
+            const sel_compound *compound = &alts[alt].compounds[index];
+            for (int at = 0; at < compound->count; at++) {
+                const sel_simple *simple = &compound->simples[at];
+                if (simple->kind != ':' || simple->sub == NULL || simple->pseudo == PSEUDO_HAS) {
+                    continue;
+                }
+                if (simple->pseudo == PSEUDO_NTH_CHILD || simple->pseudo == PSEUDO_NTH_LAST_CHILD) {
+                    if (sel_alts_write_scope(simple->sub, simple->sub_count)) {
+                        return SEL_SCOPE_REACH_ANY;
+                    }
+                    continue;
+                }
+                for (int sub = 0; sub < simple->sub_count; sub++) {
+                    const sel_complex *nested = &simple->sub[sub];
+                    int inner = nested->count;
+                    if (!(nested->walks & SEL_ALT_SCOPE_OFFSET) && !sel_scope_chain(nested, 0)) {
+                        inner = nested->count > 1 && sel_alts_write_scope(nested, 1) ? SEL_SCOPE_REACH_ANY
+                                                                                     : sel_alts_scope_reach(nested, 1);
+                    }
+                    reach = inner > reach ? inner : reach;
+                }
+            }
+        }
+    }
+    return reach;
+}
+
+static int sel_compound_has_scope(const sel_compound *compound);
+static int sel_compound_writes_any_scope(const sel_compound *compound);
+
+/* Whether every :scope compound writes is tested among the siblings of the element compound is matched at: a lone
+   :scope, or one in a list alternative that joins its compounds with + and ~ alone. A :has() argument reaches such a
+   compound through > or a descendant combinator only below the anchor or a sibling of it, where the anchor is never
+   among those siblings, so the compound answers the same under every anchor. */
+static int sel_compound_scope_confined(const sel_compound *compound) {
+    for (int at = 0; at < compound->count; at++) {
+        const sel_simple *simple = &compound->simples[at];
+        if (simple->kind != ':' || simple->sub == NULL || simple->pseudo == PSEUDO_HAS) {
+            continue;
+        }
+        for (int alt = 0; alt < simple->sub_count; alt++) {
+            const sel_complex *nested = &simple->sub[alt];
+            for (int index = 0; index < nested->count; index++) {
+                if ((index > 0 && nested->compounds[index].combinator != '+' &&
+                     nested->compounds[index].combinator != '~' && sel_alts_write_scope(nested, 1)) ||
+                    !sel_compound_scope_confined(&nested->compounds[index])) {
+                    return 0;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+/* sel_complex.scope_reach of rel, a :has() argument. */
+static int sel_rel_scope_reach(const sel_complex *rel) {
+    for (int index = 0; index < rel->count; index++) {
+        if (rel->compounds[index].combinator != '+' && rel->compounds[index].combinator != '~') {
+            int confined = !(rel->count > 1 && sel_compound_has_scope(&rel->compounds[0]));
+            for (int at = 0; at < rel->count && confined; at++) {
+                confined = at < index ? !sel_compound_writes_any_scope(&rel->compounds[at])
+                                      : sel_compound_scope_confined(&rel->compounds[at]);
+            }
+            return confined || !sel_alts_scope_reaches(rel, 1) ? 0 : SEL_SCOPE_REACH_ANY;
+        }
+    }
+    return sel_alts_scope_reach(rel, 1);
+}
+
+/* Whether simple writes :scope outside a :has(). */
+static int sel_simple_writes_scope(const sel_simple *simple) {
+    return simple->kind == ':' &&
+           (simple->pseudo == PSEUDO_SCOPE || (simple->sub != NULL && simple->pseudo != PSEUDO_HAS &&
+                                               sel_alts_write_scope(simple->sub, simple->sub_count)));
+}
+
+static int sel_compound_writes_any_scope(const sel_compound *compound) {
+    for (int at = 0; at < compound->count; at++) {
+        if (sel_simple_writes_scope(&compound->simples[at])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether complex is a lone :scope. */
+static int sel_lone_scope(const sel_complex *complex) {
+    const sel_compound *compound = &complex->compounds[0];
+    return complex->count == 1 && compound->count == 1 && compound->simples[0].kind == ':' &&
+           compound->simples[0].pseudo == PSEUDO_SCOPE;
+}
+
+/* Whether simple is :not(:scope). */
+static int sel_simple_not_scope(const sel_simple *simple) {
+    return simple->kind == ':' && simple->pseudo == PSEUDO_NOT && simple->sub_count == 1 && sel_lone_scope(simple->sub);
+}
+
+/* sel_sweep_chain_kind of a chain whose first compound holds :not(:scope) */
+#define SEL_SWEEP_NOT_SCOPE (-2)
+
+/* How sel_deep_has_sweep reads alt, a chain of compounds that writes :scope: the index of the one compound that does,
+   as a lone :scope beside simples that do not, with only + and ~ right of it; SEL_SWEEP_NOT_SCOPE when that compound
+   leads the chain and holds :not(:scope) instead; -1 for any other chain. */
+static int sel_sweep_chain_kind(const sel_complex *alt) {
+    int scope = -1;
+    for (int index = 0; index < alt->count; index++) {
+        if (sel_compound_writes_any_scope(&alt->compounds[index])) {
+            if (scope >= 0) {
+                return -1;
+            }
+            scope = index;
+        }
+    }
+    for (int index = scope + 1; index < alt->count; index++) {
+        if (alt->compounds[index].combinator != '+' && alt->compounds[index].combinator != '~') {
+            return -1;
+        }
+    }
+    const sel_compound *compound = &alt->compounds[scope];
+    int lone = 0;
+    int negated = 0;
+    for (int at = 0; at < compound->count; at++) {
+        const sel_simple *simple = &compound->simples[at];
+        if (simple->kind == ':' && simple->pseudo == PSEUDO_SCOPE) {
+            lone++;
+        } else if (sel_simple_not_scope(simple)) {
+            negated++;
+        } else if (sel_simple_writes_scope(simple)) {
+            return -1;
+        }
+    }
+    if (lone + negated != 1) {
+        return -1;
+    }
+    return lone ? scope : scope == 0 ? SEL_SWEEP_NOT_SCOPE : -1;
+}
+
+/* Whether every alternative of the S of an 'of S' clause is a lone :scope, or a SEL_ALT_SCOPE_OFFSET chain that ends
+   in a universal compound: S then holds by the distance from the anchor alone. */
+static int sel_sweep_offsets(const sel_complex *alts, int count) {
+    for (int alt = 0; alt < count; alt++) {
+        const sel_compound *last = &alts[alt].compounds[alts[alt].count - 1];
+        if (!sel_lone_scope(&alts[alt]) &&
+            !(sel_scope_chain(&alts[alt], 1) && last->count == 1 && last->simples[0].kind == '*')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int sel_sweeps_alts(const sel_complex *alts, int count);
+
+/* Whether sel_deep_has_sweep reads the :scope compound writes. */
+static int sel_sweeps_compound(const sel_compound *compound) {
+    for (int at = 0; at < compound->count; at++) {
+        const sel_simple *simple = &compound->simples[at];
+        if (!sel_simple_writes_scope(simple) || simple->pseudo == PSEUDO_SCOPE) {
+            continue;
+        }
+        if (simple->pseudo == PSEUDO_NTH_CHILD || simple->pseudo == PSEUDO_NTH_LAST_CHILD
+                ? !sel_sweep_offsets(simple->sub, simple->sub_count)
+                : !sel_sweeps_alts(simple->sub, simple->sub_count)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int sel_sweeps_alts(const sel_complex *alts, int count) {
+    for (int alt = 0; alt < count; alt++) {
+        if (!sel_alts_write_scope(&alts[alt], 1)) {
+            continue;
+        }
+        if (alts[alt].count == 1 ? !sel_sweeps_compound(&alts[alt].compounds[0])
+                                 : sel_sweep_chain_kind(&alts[alt]) == -1) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* sel_complex.sweep_at of rel, a :has() argument: one compound past a leading :scope writes :scope, the anchor reaches
+   it through + and ~ alone, and sel_deep_has_sweep reads what it writes. */
+static int sel_rel_sweep_at(const sel_complex *rel) {
+    const int pinned = rel->count > 1 && sel_compound_has_scope(&rel->compounds[0]);
+    int dependent = -1;
+    int below = 0; /* past a > or descendant combinator, where sel_compound_scope_confined holds */
+    for (int index = pinned; index < rel->count; index++) {
+        below |= rel->compounds[index].combinator != '+' && rel->compounds[index].combinator != '~';
+        if (below ? !sel_compound_scope_confined(&rel->compounds[index])
+                  : sel_compound_writes_any_scope(&rel->compounds[index])) {
+            if (below || dependent >= 0) {
+                return 0;
+            }
+            dependent = index;
+        }
+    }
+    if (dependent < 0) {
+        return 0;
+    }
+    for (int at = 0; pinned && at < rel->compounds[0].count; at++) {
+        const sel_simple *simple = &rel->compounds[0].simples[at];
+        if (simple->pseudo != PSEUDO_SCOPE && sel_simple_writes_scope(simple)) {
+            return 0;
+        }
+    }
+    return sel_sweeps_compound(&rel->compounds[dependent]) ? dependent + 1 : 0;
+}
+
 /* What sel_alts_nest counts: marks, the lists it marks (sel_simple.nest); routes, those only the deep matcher keeps the
    answers of on any tree; slots, the 'of S' clauses. */
 typedef struct {
@@ -1212,8 +1484,8 @@ typedef struct {
 
 static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_of, sel_nesting *nesting);
 
-/* How matching simple can walk (SEL_WALKS_UP, SEL_WALKS_WIDE), marking the lists inside it (sel_alts_nest).
-   asked_again: one match can ask simple about the same element more than once. */
+/* How matching simple can walk (SEL_WALKS_UP, SEL_WALKS_WIDE, SEL_WALKS_SIBLINGS), marking the lists inside it
+   (sel_alts_nest). asked_again: one match can ask simple about the same element more than once. */
 static int sel_simple_nest(sel_simple *simple, int asked_again, int in_of, sel_nesting *nesting) {
     if (simple->kind != ':') {
         return 0;
@@ -1222,13 +1494,18 @@ static int sel_simple_nest(sel_simple *simple, int asked_again, int in_of, sel_n
     case PSEUDO_LANG:
     case PSEUDO_DIR:
         return SEL_WALKS_UP;
-    case PSEUDO_HAS:
+    case PSEUDO_HAS: {
         /* a :has() argument is tested at every element of the walks of every anchor, and anchors share elements */
-        sel_alts_nest(simple->sub, simple->sub_count, 1, 0, nesting);
+        const int walks = sel_alts_nest(simple->sub, simple->sub_count, 1, 0, nesting);
+        for (int alt = 0; alt < simple->sub_count; alt++) {
+            simple->sub[alt].scope_reach = sel_rel_scope_reach(&simple->sub[alt]);
+            simple->sub[alt].sweep_at = sel_rel_sweep_at(&simple->sub[alt]);
+        }
         simple->nest = asked_again;
         nesting->marks += asked_again;
         nesting->routes += asked_again;
-        return SEL_WALKS_WIDE;
+        return SEL_WALKS_WIDE | (walks & SEL_WALKS_SIBLINGS);
+    }
     case PSEUDO_IS:
     case PSEUDO_WHERE:
     case PSEUDO_NOT: {
@@ -1249,7 +1526,7 @@ static int sel_simple_nest(sel_simple *simple, int asked_again, int in_of, sel_n
             simple->nest = ++nesting->slots;
             nesting->marks++;
             nesting->routes += walks != 0 || asked_again;
-            return SEL_WALKS_WIDE;
+            return SEL_WALKS_WIDE | (walks & SEL_WALKS_SIBLINGS);
         }
         return in_of ? SEL_WALKS_WIDE : 0;
     case PSEUDO_NTH_OF_TYPE:
@@ -1263,12 +1540,12 @@ static int sel_simple_nest(sel_simple *simple, int asked_again, int in_of, sel_n
     }
 }
 
-/* How matching alts can walk (SEL_WALKS_UP, SEL_WALKS_WIDE): a combinator, :has(), :lang(), :dir(), a nested list
-   that walks, or inside an 'of S' clause (in_of) a sibling position. Sets sel_complex.walks on each alternative and
-   sel_simple.nest on each list that walks and that one match asks about the same element more than once: one left of
-   a combinator, which the combinator's walk tests at every element it passes, or one inside such a list, a :has() or
-   an 'of S' clause. The matcher with no memo pays a walk for every such question, so each nesting level multiplied the
-   cost of a match by the tree depth or the sibling count. */
+/* How matching alts can walk (SEL_WALKS_UP, SEL_WALKS_WIDE, SEL_WALKS_SIBLINGS): a combinator, :has(), :lang(), :dir(),
+   a nested list that walks, or inside an 'of S' clause (in_of) a sibling position. Sets sel_complex.walks on each
+   alternative and sel_simple.nest on each list that walks and that one match asks about the same element more than
+   once: one left of a combinator, which the combinator's walk tests at every element it passes, or one inside such a
+   list, a :has() or an 'of S' clause. The matcher with no memo pays a walk for every such question, so each nesting
+   level multiplied the cost of a match by the tree depth or the sibling count. */
 static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_of, sel_nesting *nesting) {
     int walks = 0;
     for (int alt = 0; alt < count; alt++) {
@@ -1276,8 +1553,10 @@ static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_o
         int alt_walks = 0;
         for (int index = 0; index < complex->count; index++) {
             sel_compound *compound = &complex->compounds[index];
-            if (index > 0) {
-                alt_walks |= compound->combinator == '~' ? SEL_WALKS_WIDE : SEL_WALKS_UP;
+            if (compound->combinator == '~') {
+                alt_walks |= SEL_WALKS_WIDE | SEL_WALKS_SIBLINGS;
+            } else if (index > 0) {
+                alt_walks |= SEL_WALKS_UP;
             }
             for (int at = 0; at < compound->count; at++) {
                 alt_walks |=
@@ -1285,7 +1564,9 @@ static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_o
             }
         }
         complex->walks = (alt_walks ? SEL_ALT_WALKS : 0) | (sel_alts_write_scope(complex, 1) ? SEL_ALT_SCOPED : 0) |
-                         (sel_alts_scope_ahead(complex, 1) ? SEL_ALT_AHEAD : 0);
+                         (sel_alts_scope_ahead(complex, 1) ? SEL_ALT_AHEAD : 0) |
+                         (alt_walks & SEL_WALKS_SIBLINGS ? SEL_ALT_SIBLINGS : 0) |
+                         (sel_scope_chain(complex, 1) ? SEL_ALT_SCOPE_OFFSET : 0);
         walks |= alt_walks;
     }
     return walks;
@@ -1417,11 +1698,15 @@ static int sel_alts_nest_sibling_has(const sel_complex *alts, int count) {
 }
 
 /* Whether alts holds a nested list the nesting analysis routes or keeps: a :has() or an 'of S' clause, or a
-   :is()/:where()/:not() argument with a combinator or a list of its own. A plain argument walks nothing. */
+   :is()/:where()/:not() argument with a combinator or a list of its own. A plain argument walks nothing. A ~
+   combinator needs it too, for the SEL_ALT_SIBLINGS mark the cascade routes on. */
 static int sel_alts_need_nest(const sel_complex *alts, int count) {
     for (int alt = 0; alt < count; alt++) {
         for (int index = 0; index < alts[alt].count; index++) {
             const sel_compound *compound = &alts[alt].compounds[index];
+            if (compound->combinator == '~') {
+                return 1;
+            }
             for (int at = 0; at < compound->count; at++) {
                 const sel_simple *simple = &compound->simples[at];
                 if (simple->kind != ':' || simple->sub == NULL) {
@@ -2163,6 +2448,7 @@ static th_node *sel_form_owner(th_node *node) {
 /* The first submit control under root in tree order, or NULL. */
 static th_node *sel_first_submit(th_node *root) {
     for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
+        TH_WORK_STEP();
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
@@ -2752,6 +3038,7 @@ static enum sel_status sel_match_anchor(th_node *node, const sel_compound *compo
         return sel_prev_element(node) == anchor;
     case '~':
         for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
+            TH_WORK_STEP();
             if (prev == anchor) {
                 return SEL_MATCHES;
             }
@@ -2807,6 +3094,7 @@ static TH_NOINLINE enum sel_status sel_match_sibling_walk(th_node *node, const s
     }
     enum sel_status status = SEL_FAILS_ALL_SIBLINGS;
     for (; prev != NULL; prev = sel_prev_element(prev), walked++) {
+        TH_WORK_STEP();
         int cached;
         if (memo != NULL && walked >= SEL_SIBLING_MEMO_MIN_RUN && sel_memo_get(memo, target, prev, &cached)) {
             status = cached ? SEL_MATCHES : SEL_FAILS_ALL_SIBLINGS;
@@ -3241,7 +3529,7 @@ static int sel_compound_nests(const sel_compound *compound) {
    sibling a bounded number of times. */
 static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const sel_ctx *ctx) {
     const char lead = rel->compounds[0].combinator;
-    const sel_complex rest = {rel->compounds + 1, rel->count - 1, 0};
+    const sel_complex rest = {rel->compounds + 1, rel->count - 1, 0, 0, 0};
     /* rest lives in this frame, so it must not key the :has() memo; the sibling memo keys a
        relative selector by its first compound instead, which outlives the frame. Without
        :scope in rel, nothing below depends on the scope, so the sibling memo carries over. */
@@ -3313,6 +3601,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
             }
             const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
             for (; candidate != NULL; candidate = sel_next_element_sibling(candidate)) {
+                TH_WORK_STEP();
                 if (target_atom != TH_TAG_UNKNOWN ? candidate->atom == target_atom
                                                   : sel_match_compound(candidate, &rel->compounds[0], &scoped)) {
                     return 1;
@@ -3354,6 +3643,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
             continue;
         }
         for (th_node *sibling = anchor->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+            TH_WORK_STEP();
             if (sibling->type != TH_NODE_ELEMENT) {
                 continue;
             }
@@ -3449,6 +3739,10 @@ static void sel_deep_store_free(sel_deep_memo *memo) {
         }
         PyMem_Free(memo->keys);
     }
+    PyMem_Free(memo->runs);
+    memo->runs = NULL;
+    memo->runs_mask = 0;
+    memo->runs_count = 0;
     memo->keys = NULL;
     memo->last = NULL;
     memo->mask = 0;
@@ -3536,6 +3830,85 @@ static void sel_deep_put(sel_deep_memo *memo, const void *key, const th_node *no
     *byte = (unsigned char)((*byte & ~(3u << shift)) | ((result ? 2u : 1u) << shift));
 }
 
+/* How many siblings a walk passes before it adds a record of its run (sel_deep_run) when none exists. A walk looks one
+   up from SEL_SIBLING_MEMO_MIN_RUN on, but a record of 24 bytes added only past this many keeps the records under a
+   fifth of a byte per sibling walked. */
+#define SEL_DEEP_RUN_MIN 128
+
+/* A bound past every position: nothing known on that side yet. */
+#define SEL_DEEP_RUN_END INT_MAX
+
+static size_t sel_deep_run_home(const void *key, const th_node *parent, size_t mask) {
+    return (size_t)((((uint64_t)(uintptr_t)key ^ ((uint64_t)(uintptr_t)parent << 7)) * 0x9E3779B97F4A7C15ull) >> 32) &
+           mask;
+}
+
+/* Grows the record table to twice its size, or sets it up. Past limit it drops every record and doubles how far a walk
+   goes before it keeps one: a record needs a run longer than that, so the records then fit in fewer bytes, and a walk
+   without one passes fewer siblings than that. */
+static int sel_deep_run_grow(sel_deep_memo *table) {
+    const size_t capacity = table->runs == NULL ? 16 : (table->runs_mask + 1) * 2;
+    sel_deep_run *runs =
+        capacity * sizeof(sel_deep_run) <= table->limit ? PyMem_Calloc(capacity, sizeof(sel_deep_run)) : NULL;
+    if (runs == NULL) {
+        PyMem_Free(table->runs);
+        table->runs = NULL;
+        table->runs_mask = 0;
+        table->runs_count = 0;
+        table->runs_doubled++;
+        return 0;
+    }
+    for (size_t index = 0; table->runs != NULL && index <= table->runs_mask; index++) {
+        if (table->runs[index].key != NULL) {
+            size_t home = sel_deep_run_home(table->runs[index].key, table->runs[index].parent, capacity - 1);
+            while (runs[home].key != NULL) {
+                home = (home + 1) & (capacity - 1);
+            }
+            runs[home] = table->runs[index];
+        }
+    }
+    PyMem_Free(table->runs);
+    table->runs = runs;
+    table->runs_mask = capacity - 1;
+    return 1;
+}
+
+static sel_deep_run *sel_deep_run_find(const sel_deep_memo *table, const void *key, const th_node *parent) {
+    if (table->runs == NULL) {
+        return NULL;
+    }
+    for (size_t index = sel_deep_run_home(key, parent, table->runs_mask);; index = (index + 1) & table->runs_mask) {
+        sel_deep_run *run = &table->runs[index];
+        if (run->key == key && run->parent == parent) {
+            return run;
+        }
+        if (run->key == NULL) {
+            return NULL;
+        }
+    }
+}
+
+/* The record of key over the children of parent, added when missing with nothing known yet, or NULL when the table
+   could not keep it. rising picks the bounds of a backward walk. */
+static sel_deep_run *sel_deep_run_of(sel_deep_memo *table, const void *key, const th_node *parent, int rising) {
+    sel_deep_run *run = sel_deep_run_find(table, key, parent);
+    if (run != NULL) {
+        return run;
+    }
+    if ((table->runs == NULL || (table->runs_count + 1) * 4 > (table->runs_mask + 1) * 3) &&
+        !sel_deep_run_grow(table)) {
+        return NULL;
+    }
+    size_t index = sel_deep_run_home(key, parent, table->runs_mask);
+    while (table->runs[index].key != NULL) {
+        index = (index + 1) & table->runs_mask;
+    }
+    run = &table->runs[index];
+    *run = (sel_deep_run){key, parent, rising ? 0 : SEL_DEEP_RUN_END, rising ? SEL_DEEP_RUN_END : 0};
+    table->runs_count++;
+    return run;
+}
+
 /* The matcher of a query's stand-in (sel_deep_query): the matcher above, with the answers of its ancestor walks kept
    in memo. A walk this short runs without it, so a tree that nests no deeper than ordinary markup never pays for a
    hash probe. */
@@ -3579,7 +3952,7 @@ static sel_deep_memo *sel_deep_scoped(sel_deep_kept *kept, const th_node *scope)
    while the scope stays put). NULL when no table can keep them. */
 static sel_deep_memo *sel_deep_walk_table(const sel_complex *complex, int index, const sel_ctx *ctx,
                                           sel_deep_memo *memo) {
-    if (ctx->sibling_memo != NULL || !sel_rel_uses_scope(&(const sel_complex){complex->compounds, index, 0})) {
+    if (ctx->sibling_memo != NULL || !sel_rel_uses_scope(&(const sel_complex){complex->compounds, index, 0, 0, 0})) {
         return memo;
     }
     sel_deep_kept *kept = sel_deep_kept_of(memo);
@@ -3592,8 +3965,22 @@ static sel_deep_memo *sel_deep_walk_table(const sel_complex *complex, int index,
     return sel_deep_scoped(kept, ctx->scope);
 }
 
-/* Whether the deep matcher keeps the answers of the :is(), :where() or :not() simple: one asked again whose walks
-   only climb (SEL_NEST_DEEP) costs no more than the tree nests per question, so on a tree known to nest less than
+/* sel_deep_walk_table for a sibling walk, which inside :has() keeps its answers in the scoped table bound to the
+   anchor: the anchor bounds the walk and binds :scope, and sel_deep_has sets the enclosing answers aside. */
+static sel_deep_memo *sel_deep_sibling_table(const sel_complex *complex, int index, th_node *anchor, const sel_ctx *ctx,
+                                             sel_deep_memo *memo) {
+    if (anchor == NULL) {
+        return sel_deep_walk_table(complex, index, ctx, memo);
+    }
+    sel_deep_kept *kept = sel_deep_kept_of(memo);
+    if (kept == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return sel_deep_scoped(kept, anchor);
+}
+
+/* Whether the deep matcher keeps the answers of the :is(), :where() or :not() simple: one asked again whose walks only
+   climb (SEL_NEST_DEEP) costs no more than the tree nests per question, so on a tree known to nest less than
    SEL_HAS_MEMO_MIN_DESCENT deep the direct walk is cheaper than the table. */
 static int sel_deep_keeps(const sel_simple *simple, const sel_ctx *ctx) {
     return simple->nest == SEL_NEST_ALWAYS ||
@@ -3842,8 +4229,16 @@ static int sel_deep_simple(th_node *node, const sel_simple *simple, const sel_ct
     return sel_match_simple(node, simple, ctx);
 }
 
+/* Charge one compound test to memo's allowance: 0 once it is spent. */
+static int sel_deep_spend(sel_deep_memo *memo) {
+    if (++memo->spent > memo->allowance) {
+        memo->over = 1;
+    }
+    return !memo->over;
+}
+
 static int sel_deep_compound(th_node *node, const sel_compound *compound, const sel_ctx *ctx, sel_deep_memo *memo) {
-    if (node->type != TH_NODE_ELEMENT) {
+    if (node->type != TH_NODE_ELEMENT || (memo->walking != 0 && !sel_deep_spend(memo))) {
         return 0;
     }
     for (int index = 0; index < compound->count; index++) {
@@ -3871,7 +4266,40 @@ static enum sel_status sel_deep_from(th_node *node, const sel_complex *complex, 
     return sel_deep_left(node, complex, index, anchor, ctx, memo);
 }
 
-/* sel_match_sibling_walk through this matcher. */
+/* node's position among its element siblings, 1 for the first, or 0 when indexing could not allocate. */
+static int sel_deep_position(const th_node *node, const sel_ctx *ctx, sel_deep_memo *memo) {
+    sel_ctx indexed = *ctx;
+    if (indexed.position_memo == NULL) {
+        sel_deep_kept *kept = sel_deep_kept_of(memo);
+        if (kept == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;       /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        indexed.position_memo = &kept->positions;
+    }
+    return sel_position(&indexed, node, 0, 0);
+}
+
+/* The record a walk of key over the children of parent stops on once it has passed *from siblings: an existing one,
+   or a new one past the table's threshold (SEL_DEEP_RUN_MIN, raised past limit). NULL while the walk has to go on to
+   that threshold (raising *from) or when the table cannot keep one. */
+static sel_deep_run *sel_deep_run_take(sel_deep_memo *table, const void *key, const th_node *parent, int rising,
+                                       int *from) {
+    if (table == NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on allocation failure */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    sel_deep_run *run = sel_deep_run_find(table, key, parent);
+    const int keep_from = SEL_DEEP_RUN_MIN << table->runs_doubled;
+    if (run != NULL || *from >= keep_from) {
+        return run != NULL ? run : sel_deep_run_of(table, key, parent, rising);
+    }
+    *from = keep_from;
+    return NULL;
+}
+
+/* sel_match_sibling_walk through this matcher. Past the first SEL_SIBLING_MEMO_MIN_RUN siblings a walk the driver's
+   memo does not serve keeps a record of its key over the run (sel_deep_run): it stops where the record decides, and
+   moves a bound past each sibling it passed, so the walks of one run pass each sibling a bounded number of times
+   whatever order they come in. */
 static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *complex, int index, th_node *anchor,
                                          const sel_ctx *ctx, sel_deep_memo *memo) {
     const sel_compound *target = &complex->compounds[index - 1];
@@ -3884,22 +4312,32 @@ static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *compl
     }
     enum sel_status status = SEL_FAILS_ALL_SIBLINGS;
     int walked = 0;
-    sel_memo *driver = siblings != NULL ? &siblings->table : NULL;
-    sel_deep_memo *table = NULL;
-    th_node *memo_from = NULL;
+    int from = siblings == NULL ? SEL_SIBLING_MEMO_MIN_RUN : INT_MAX;
+    int position = 0; /* prev's, once the walk keeps a record */
+    int subject = 0;
+    int below = 0; /* no match sits before this position */
     th_node *prev = nearest;
-    for (; prev != NULL; prev = sel_prev_element(prev), walked++) {
+    for (; prev != NULL; prev = sel_prev_element(prev), walked++, position--) {
         TH_WORK_STEP();
-        if (walked == SEL_SIBLING_MEMO_MIN_RUN && siblings == NULL && anchor == NULL) {
-            /* without the driver's memo, which a query in document order fills, the walk keeps its answer under
-               each sibling it passed, as the ancestor walk does */
-            table = sel_deep_walk_table(complex, index, ctx, memo);
-            memo_from = table != NULL ? prev : NULL; /* GCOVR_EXCL_BR_LINE: NULL only on allocation failure */
+        if (walked == from) {
+            const sel_deep_run *run = sel_deep_run_take(sel_deep_sibling_table(complex, index, anchor, ctx, memo),
+                                                        target, node->parent, 1, &from);
+            position = run != NULL ? sel_deep_position(prev, ctx, memo) : 0;
+            if (position != 0) {
+                subject = position + walked + 1;
+                below = run->no;
+                if (position >= run->yes - 1) {
+                    status = SEL_MATCHES;
+                    break;
+                }
+            }
         }
         int cached;
-        if (walked >= SEL_SIBLING_MEMO_MIN_RUN &&
-            (driver != NULL ? sel_memo_get(driver, target, prev, &cached)
-                            : table != NULL && sel_deep_get(table, target, prev, &cached))) {
+        if (subject != 0 && position < below) {
+            break;
+        }
+        if (siblings != NULL && walked >= SEL_SIBLING_MEMO_MIN_RUN &&
+            sel_memo_get(&siblings->table, target, prev, &cached)) {
             status = cached ? SEL_MATCHES : SEL_FAILS_ALL_SIBLINGS;
             break;
         }
@@ -3920,13 +4358,18 @@ static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *compl
             sel_memo_put(&siblings->table, target, nearest, status == SEL_MATCHES);
         }
         *last = (sel_sibling_record){target, node, status};
-    } else if (memo_from != NULL) {
-        if (table != memo) {
-            /* the walk's own questions can rebind the scoped table */
-            table = sel_deep_walk_table(complex, index, ctx, memo);
+    } else if (subject != 0) {
+        /* the walk's own questions can rebind the scoped table, or drop the records past its limit */
+        sel_deep_memo *table = sel_deep_sibling_table(complex, index, anchor, ctx, memo);
+        sel_deep_run *run = table != NULL ? sel_deep_run_find(table, target, node->parent)
+                                          : NULL; /* GCOVR_EXCL_BR_LINE: NULL only on allocation failure */
+        if (run == NULL) {
+            return status;
         }
-        for (th_node *passed = memo_from; passed != prev; passed = sel_prev_element(passed)) {
-            sel_deep_put(table, target, passed, status == SEL_MATCHES);
+        if (status == SEL_MATCHES) {
+            run->yes = position + 1 < run->yes ? position + 1 : run->yes;
+        } else {
+            run->no = subject > run->no ? subject : run->no;
         }
     }
     return status;
@@ -4012,7 +4455,34 @@ static enum sel_status sel_deep_left(th_node *node, const sel_complex *complex, 
     }
 }
 
+/* A SEL_ALT_SCOPE_OFFSET chain at node: its element siblings from the scope element on, compared by position rather
+   than walked. Only an element among node's earlier siblings can match :scope for it, and a document or a text node
+   as the scope never has one. -1 when the positions could not be indexed, and the matcher walks. */
+static int sel_deep_scope_offset(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo) {
+    if (node->parent != ctx->scope->parent) {
+        return 0;
+    }
+    const int scope_at = sel_deep_position(ctx->scope, ctx, memo);
+    const int node_at = sel_deep_position(node, ctx, memo);
+    if (scope_at == 0 || node_at == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                       /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    int exact = 1;
+    for (int index = 1; index < complex->count; index++) {
+        exact &= complex->compounds[index].combinator == '+';
+    }
+    const int distance = node_at - scope_at;
+    return (exact ? distance == complex->count - 1 : distance >= complex->count - 1) &&
+           sel_deep_compound(node, &complex->compounds[complex->count - 1], ctx, memo);
+}
+
 int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo) {
+    if (complex->walks & SEL_ALT_SCOPE_OFFSET) {
+        const int offset = sel_deep_scope_offset(node, complex, ctx, memo);
+        if (offset >= 0) { /* GCOVR_EXCL_BR_LINE: -1 only on allocation failure */
+            return offset;
+        }
+    }
     const int subject = complex->count - 1;
     return sel_deep_compound(node, &complex->compounds[subject], ctx, memo) &&
            sel_deep_from(node, complex, subject, NULL, ctx, memo) == SEL_MATCHES;
@@ -4109,24 +4579,86 @@ static int sel_deep_has_desc(th_node *node, const sel_complex *rel, int index, c
     }
 }
 
-/* Whether a later element sibling of node passes sel_deep_has_step at index. Whether one does at or after a sibling
-   depends only on that sibling, so the walk stops at the first one whose answer the memo holds and stores its
-   answer under each one it passed: the anchors of a long sibling run visit each sibling a bounded number of times.
- */
-static int sel_deep_has_later(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx,
-                              sel_deep_memo *memo) {
+/* Whether first or an element sibling after it passes sel_deep_has_step at index. Whether one does at or after a
+   sibling depends only on that sibling, so past the first SEL_SIBLING_MEMO_MIN_RUN siblings the walk keeps a record
+   of the run (sel_deep_run), stops where it decides and moves a bound past the siblings it passed: the anchors of a
+   long sibling run pass each sibling a bounded number of times. */
+static int sel_deep_has_from(th_node *first, const th_node *parent, const sel_complex *rel, int index,
+                             const sel_ctx *ctx, sel_deep_memo *memo) {
     const void *key = sel_deep_has_key(rel, index);
-    th_node *first = sel_next_element_sibling(node);
-    th_node *sibling = first;
+    int from = SEL_SIBLING_MEMO_MIN_RUN;
+    int position = 0; /* the sibling's, once the walk keeps a record */
+    int start = 0;
+    int above = SEL_DEEP_RUN_END; /* no sibling passes from this position on */
     int found = 0;
-    for (; sibling != NULL; sibling = sel_next_element_sibling(sibling)) {
+    int walked = 0;
+    for (th_node *sibling = first; sibling != NULL; sibling = sel_next_element_sibling(sibling), walked++, position++) {
         TH_WORK_STEP();
-        if (sel_deep_get(memo, key, sibling, &found) || (found = sel_deep_has_step(sibling, rel, index, ctx, memo))) {
+        if (walked == from) {
+            const sel_deep_run *run = sel_deep_run_take(memo, key, parent, 0, &from);
+            position = run != NULL ? sel_deep_position(sibling, ctx, memo) : 0;
+            if (position != 0) {
+                start = position - walked;
+                above = run->no;
+                if (position <= run->yes) {
+                    return 1;
+                }
+            }
+        }
+        if (position >= above || (found = sel_deep_has_step(sibling, rel, index, ctx, memo)) != 0) {
             break;
         }
     }
+    /* a failed memo (-1) is not asked again: sel_deep_has_anchor walks directly from then on */
+    sel_deep_run *run = start != 0 ? sel_deep_run_of(memo, key, parent, 0) : NULL;
+    if (run != NULL && found) {
+        run->yes = position > run->yes ? position : run->yes;
+    } else if (run != NULL) {
+        run->no = start < run->no ? start : run->no;
+    }
+    return found;
+}
+
+/* Whether a later element sibling of node passes sel_deep_has_step at index. In an argument whose :scope reaches the
+   elements it tests (sel_complex.scope_reach), an element that many siblings past the anchor or more answers the same
+   under every anchor, so the walk asks the shared records from there; the answers before it hold for this anchor
+   alone and go under each sibling passed in its own table, so each is found once per anchor. */
+static int sel_deep_has_later(th_node *node, const sel_complex *rel, int index, const sel_ctx *ctx,
+                              sel_deep_memo *memo) {
+    th_node *sibling = sel_next_element_sibling(node);
+    if (rel->scope_reach == 0 || sibling == NULL || (rel->sweep_at != 0 && index >= rel->sweep_at)) {
+        return sel_deep_has_from(sibling, node->parent, rel, index, ctx, memo);
+    }
+    const int anchor_at = sel_deep_position(ctx->scope, ctx, memo);
+    int at = sel_deep_position(sibling, ctx, memo);
+    sel_deep_kept *kept = sel_deep_kept_of(memo);
+    /* GCOVR_EXCL_START: allocation failure cannot be forced from a test */
+    if (anchor_at == 0 || at == 0 || kept == NULL) {
+        for (; sibling != NULL; sibling = sel_next_element_sibling(sibling)) {
+            const int found = sel_deep_has_step(sibling, rel, index, ctx, memo);
+            if (found != 0) {
+                return found;
+            }
+        }
+        return 0;
+    }
+    /* GCOVR_EXCL_STOP */
+    const void *key = sel_deep_has_key(rel, index);
+    th_node *first = sibling;
+    int found = 0;
+    int known = 0;
+    for (; sibling != NULL && at - anchor_at < rel->scope_reach; sibling = sel_next_element_sibling(sibling), at++) {
+        TH_WORK_STEP();
+        known = sel_deep_get(sel_deep_scoped(kept, ctx->scope), key, sibling, &found);
+        if (known || (found = sel_deep_has_step(sibling, rel, index, ctx, memo)) != 0) {
+            break;
+        }
+    }
+    if (!known && found == 0 && sibling != NULL) {
+        found = sel_deep_has_from(sibling, node->parent, rel, index, ctx, memo);
+    }
     for (th_node *passed = first; passed != sibling; passed = sel_next_element_sibling(passed)) {
-        sel_deep_put(memo, key, passed, found);
+        sel_deep_put(sel_deep_scoped(kept, ctx->scope), key, passed, found);
     }
     return found;
 }
@@ -4185,20 +4717,810 @@ static int sel_deep_has_subtree(th_node *node, const sel_complex *rel, int subje
     return 0;
 }
 
-/* sel_has_match through this matcher. An argument without :scope reads left to right, its answers facts of the tree
-   the memo keeps for every anchor; a :scope that pins the leftmost compound to the anchor leaves the rest to read
-   that way. An argument that writes :scope elsewhere, or meets a memo that failed, takes the direct walk from the
-   anchor. */
+/* sel_deep_has_sweep keeps a set of anchor positions as at most this many spans: past it, it gives up on the run */
+#define SEL_SWEEP_SPANS 64
+/* the (predicates, modulus) pairs its spans may name over one run, each with a count array */
+#define SEL_SWEEP_KEYS 8
+/* the predicates on the anchor its chains may name (sel_sweep_q), one bit each */
+#define SEL_SWEEP_QS 32
+
+/* The anchor positions lo..hi (1-based within the run) that leave rem modulo mod and, when co_mod is not 0, do not
+   leave co_rem modulo co_mod, at which the predicates of need hold and those of deny fail. */
+typedef struct {
+    int lo;
+    int hi;
+    int mod;
+    int rem;
+    int co_mod;
+    int co_rem;
+    unsigned need;
+    unsigned deny;
+} sel_span;
+
+/* What a chain's left part ending at one compound starts from: the two latest distinct positions its first compound
+   can take in a match ending at the current sibling (first), and in one ending at or before it (prefix); 0 for none. */
+typedef struct {
+    int first[2];
+    int prefix[2];
+} sel_sweep_cell;
+
+/* A chain the sweep reads at every sibling: from scope (the compound pinned to the anchor, -1 for the anchor ahead of
+   a :has() argument) through the off compounds joined to it by +, and on through compounds from..to-1. point: the +
+   run reaches the last compound, so the anchor sits off places back. not_scope: compound 0 holds :not(:scope) and
+   the chain matches unless its first compound can only be the anchor. any_last: the last compound is tested apart. */
+typedef struct {
+    const sel_complex *complex;
+    int scope;
+    int from;
+    int to;
+    int off;
+    int point;
+    int not_scope;
+    int any_last;
+    int q;
+    sel_sweep_cell *cells;
+} sel_sweep_chain;
+
+/* A predicate on the anchor: the compound scope at it (with its left part), and the block compounds right of it at
+   the siblings after it. */
+typedef struct {
+    const sel_complex *complex;
+    int scope;
+    int block;
+} sel_sweep_q;
+
+typedef struct {
+    unsigned need;
+    unsigned deny;
+    int mod;
+    int owner; /* the first key of the same predicates, which sums them all */
+    int *counts;
+} sel_sweep_key;
+
+/* sel_deep_has_sweep's plan marks, one per simple of a compound that writes :scope and one per alternative of a list
+   that does, read back in the order the plan wrote them */
+#define SEL_SWEEP_STATIC 0
+#define SEL_SWEEP_SCOPE 1
+#define SEL_SWEEP_NTH 2
+#define SEL_SWEEP_LIST 3
+#define SEL_SWEEP_CHAIN 4 /* plus the chain's index */
+
+typedef struct {
+    const sel_ctx *ctx;
+    sel_deep_memo *memo;
+    th_node **nodes; /* the run, nodes[1..n] */
+    int n;
+    sel_span *pool;
+    int used;
+    int cap;
+    int *marks;
+    int mark_count;
+    int mark_cap;
+    int cursor;
+    sel_sweep_chain *chains;
+    int chain_count;
+    sel_sweep_q qs[SEL_SWEEP_QS];
+    int q_count;
+    sel_sweep_key keys[SEL_SWEEP_KEYS];
+    int key_count;
+    int failed;
+} sel_sweep;
+
+static int64_t sel_sweep_mod(int64_t value, int64_t mod) {
+    const int64_t rem = value % mod;
+    return rem < 0 ? rem + mod : rem;
+}
+
+/* The least value from lo on that leaves rem modulo mod. */
+static int64_t sel_sweep_align(int64_t lo, int64_t mod, int64_t rem) {
+    return lo + sel_sweep_mod(rem - lo, mod);
+}
+
+/* The values that leave rem1 modulo mod1 and rem2 modulo mod2, as *rem modulo *mod; 0 when none does. The moduli stay
+   below 2^31, so every product fits. */
+static int sel_sweep_crt(int64_t mod1, int64_t rem1, int64_t mod2, int64_t rem2, int64_t *mod, int64_t *rem) {
+    int64_t gcd = mod1;
+    int64_t other = mod2;
+    int64_t inverse = 1;
+    int64_t next = 0;
+    while (other != 0) {
+        const int64_t quotient = gcd / other;
+        const int64_t rest = gcd - quotient * other;
+        gcd = other;
+        other = rest;
+        const int64_t step = inverse - quotient * next;
+        inverse = next;
+        next = step;
+    }
+    if ((rem2 - rem1) % gcd != 0) {
+        return 0;
+    }
+    const int64_t period = mod2 / gcd;
+    const int64_t times =
+        sel_sweep_mod(sel_sweep_mod((rem2 - rem1) / gcd, period) * sel_sweep_mod(inverse, period), period);
+    *mod = mod1 / gcd * mod2;
+    *rem = sel_sweep_mod(rem1 + mod1 * times, *mod);
+    return 1;
+}
+
+static void sel_sweep_push(sel_sweep *sweep, int start, const sel_span *span) {
+    if (sweep->used - start >= SEL_SWEEP_SPANS) {
+        sweep->failed = 1;
+        return;
+    }
+    if (sweep->used == sweep->cap) {
+        const int cap = sweep->cap == 0 ? SEL_SWEEP_SPANS : 2 * sweep->cap;
+        sel_span *pool = PyMem_Realloc(sweep->pool, (size_t)cap * sizeof(sel_span));
+        if (pool == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            sweep->failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
+            return;            /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        sweep->pool = pool;
+        sweep->cap = cap;
+    }
+    sweep->pool[sweep->used++] = *span;
+}
+
+/* Adds to the set from start the anchors lo..hi that leave rem modulo mod and none of the co_count residues of cos,
+   under need and deny: clipped to the run, a progression with at most one anchor in range made that anchor, and a
+   residue it excludes kept as the span's co_mod when it fits, split off when it leaves one anchor, and spelled out
+   as the progression's other residues when a second one comes. */
+static void sel_sweep_settle(sel_sweep *sweep, int start, int64_t lo, int64_t hi, int64_t mod, int64_t rem,
+                             const int64_t (*cos)[2], int co_count, unsigned need, unsigned deny) {
+    lo = lo < 1 ? 1 : lo;
+    hi = hi > sweep->n ? sweep->n : hi;
+    if (lo > hi) {
+        return;
+    }
+    rem = sel_sweep_mod(rem, mod);
+    if (mod > hi - lo) {
+        lo = sel_sweep_align(lo, mod, rem);
+        if (lo > hi) {
+            return;
+        }
+        hi = lo;
+        mod = 1;
+        rem = 0;
+    }
+    int64_t kept[2][2];
+    int kept_count = 0;
+    for (int co = 0; co < co_count; co++) {
+        int64_t both;
+        int64_t at;
+        if (!sel_sweep_crt(mod, rem, cos[co][0], cos[co][1], &both, &at)) {
+            continue;
+        }
+        if (both == mod) {
+            return;
+        }
+        if (both > hi - lo) {
+            const int64_t only = sel_sweep_align(lo, both, at);
+            if (only <= hi) {
+                sel_sweep_settle(sweep, start, lo, only - 1, mod, rem, cos + co + 1, co_count - co - 1, need, deny);
+                sel_sweep_settle(sweep, start, only + 1, hi, mod, rem, cos + co + 1, co_count - co - 1, need, deny);
+                return;
+            }
+            continue;
+        }
+        if (kept_count == 1 && kept[0][0] == both && kept[0][1] == at) {
+            continue;
+        }
+        if (kept_count == 1) {
+            /* a progression leaving both of two residues out: the other residues of the second's modulus */
+            if (both / mod - 1 > SEL_SWEEP_SPANS) {
+                sweep->failed = 1;
+                return;
+            }
+            for (int64_t residue = rem; residue < both; residue += mod) {
+                if (residue != at) {
+                    sel_sweep_settle(sweep, start, lo, hi, both, residue, kept, 1, need, deny);
+                }
+            }
+            return;
+        }
+        kept[0][0] = both;
+        kept[0][1] = at;
+        kept_count = 1;
+    }
+    const sel_span span = {.lo = (int)lo,
+                           .hi = (int)hi,
+                           .mod = (int)mod,
+                           .rem = (int)rem,
+                           .co_mod = kept_count ? (int)kept[0][0] : 0,
+                           .co_rem = kept_count ? (int)kept[0][1] : 0,
+                           .need = need,
+                           .deny = deny};
+    sel_sweep_push(sweep, start, &span);
+}
+
+static void sel_sweep_range(sel_sweep *sweep, int start, int64_t lo, int64_t hi, int64_t mod, int64_t rem,
+                            unsigned need, unsigned deny) {
+    sel_sweep_settle(sweep, start, lo, hi, mod, rem, NULL, 0, need, deny);
+}
+
+/* Replaces the sets [a, b) and [b, used) with their intersection at a. */
+static void sel_sweep_meet(sel_sweep *sweep, int a, int b) {
+    const int c = sweep->used;
+    for (int left = a; left < b; left++) {
+        for (int right = b; right < c; right++) {
+            const sel_span p = sweep->pool[left];
+            const sel_span q = sweep->pool[right];
+            int64_t mod;
+            int64_t rem;
+            if (!sel_sweep_crt(p.mod, p.rem, q.mod, q.rem, &mod, &rem)) {
+                continue;
+            }
+            int64_t cos[2][2];
+            int co_count = 0;
+            if (p.co_mod != 0) {
+                cos[co_count][0] = p.co_mod;
+                cos[co_count++][1] = p.co_rem;
+            }
+            if (q.co_mod != 0) {
+                cos[co_count][0] = q.co_mod;
+                cos[co_count++][1] = q.co_rem;
+            }
+            sel_sweep_settle(sweep, c, p.lo > q.lo ? p.lo : q.lo, p.hi < q.hi ? p.hi : q.hi, mod, rem, cos, co_count,
+                             p.need | q.need, p.deny | q.deny);
+        }
+    }
+    memmove(sweep->pool + a, sweep->pool + c, (size_t)(sweep->used - c) * sizeof(sel_span));
+    sweep->used = a + (sweep->used - c);
+}
+
+/* Replaces the set from start with its complement within the run. */
+static void sel_sweep_negate(sel_sweep *sweep, int start) {
+    const int end = sweep->used;
+    sel_sweep_range(sweep, end, 1, sweep->n, 1, 0, 0, 0);
+    for (int index = start; index < end; index++) {
+        const sel_span span = sweep->pool[index];
+        const int pieces = sweep->used;
+        sel_sweep_range(sweep, pieces, 1, span.lo - 1, 1, 0, 0, 0);
+        sel_sweep_range(sweep, pieces, span.hi + 1, sweep->n, 1, 0, 0, 0);
+        if (span.mod > 1) {
+            const int64_t co[1][2] = {{span.mod, span.rem}};
+            sel_sweep_settle(sweep, pieces, 1, sweep->n, 1, 0, co, 1, 0, 0);
+        }
+        if (span.co_mod != 0) {
+            sel_sweep_range(sweep, pieces, 1, sweep->n, span.co_mod, span.co_rem, 0, 0);
+        }
+        for (int bit = 0; bit < SEL_SWEEP_QS; bit++) {
+            if (span.need & (1u << bit)) {
+                sel_sweep_range(sweep, pieces, 1, sweep->n, 1, 0, 0, 1u << bit);
+            }
+            if (span.deny & (1u << bit)) {
+                sel_sweep_range(sweep, pieces, 1, sweep->n, 1, 0, 1u << bit, 0);
+            }
+        }
+        sel_sweep_meet(sweep, end, pieces);
+    }
+    memmove(sweep->pool + start, sweep->pool + end, (size_t)(sweep->used - end) * sizeof(sel_span));
+    sweep->used = start + (sweep->used - end);
+}
+
+static void sel_sweep_mark(sel_sweep *sweep, int mark) {
+    if (sweep->mark_count == sweep->mark_cap) {
+        const int cap = sweep->mark_cap == 0 ? 64 : 2 * sweep->mark_cap;
+        int *marks = PyMem_Realloc(sweep->marks, (size_t)cap * sizeof(int));
+        if (marks == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            sweep->failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
+            return;            /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        sweep->marks = marks;
+        sweep->mark_cap = cap;
+    }
+    sweep->marks[sweep->mark_count++] = mark;
+}
+
+/* Plans a chain of complex up to compound to: scope is the compound pinned to the anchor (-1 for none), or
+   SEL_SWEEP_NOT_SCOPE. */
+static void sel_sweep_plan_chain(sel_sweep *sweep, const sel_complex *complex, int scope, int to, int any_last) {
+    sel_sweep_chain *chains = PyMem_Realloc(sweep->chains, (size_t)(sweep->chain_count + 1) * sizeof(sel_sweep_chain));
+    if (chains == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        sweep->failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
+        return;            /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    sweep->chains = chains;
+    sel_sweep_chain *chain = &chains[sweep->chain_count++];
+    *chain = (sel_sweep_chain){.complex = complex, .scope = scope, .to = to, .any_last = any_last, .q = -1};
+    if (scope == SEL_SWEEP_NOT_SCOPE) {
+        chain->scope = -1;
+        chain->not_scope = 1;
+    } else {
+        while (scope + 1 + chain->off < to && complex->compounds[scope + 1 + chain->off].combinator == '+') {
+            chain->off++;
+        }
+        chain->point = scope + chain->off == to - 1;
+        chain->from = scope + 1 + chain->off;
+        const int block = chain->point && any_last ? chain->off - 1 : chain->off;
+        if (block > 0 || scope > 0 || (scope == 0 && complex->compounds[0].count > 1)) {
+            if (sweep->q_count == SEL_SWEEP_QS) {
+                sweep->failed = 1;
+                return;
+            }
+            sweep->qs[sweep->q_count] = (sel_sweep_q){complex, scope, block};
+            chain->q = sweep->q_count++;
+        }
+    }
+    if (chain->from < chain->to) {
+        chain->cells = PyMem_Calloc((size_t)(chain->to - chain->from), sizeof(sel_sweep_cell));
+        if (chain->cells == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            sweep->failed = 1;      /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    }
+}
+
+static void sel_sweep_plan_alts(sel_sweep *sweep, const sel_complex *alts, int count);
+
+static void sel_sweep_plan_compound(sel_sweep *sweep, const sel_compound *compound) {
+    for (int at = 0; at < compound->count; at++) {
+        const sel_simple *simple = &compound->simples[at];
+        if (!sel_simple_writes_scope(simple)) {
+            sel_sweep_mark(sweep, SEL_SWEEP_STATIC);
+        } else if (simple->pseudo == PSEUDO_SCOPE) {
+            sel_sweep_mark(sweep, SEL_SWEEP_SCOPE);
+        } else if (simple->pseudo == PSEUDO_NTH_CHILD || simple->pseudo == PSEUDO_NTH_LAST_CHILD) {
+            sel_sweep_mark(sweep, SEL_SWEEP_NTH);
+        } else {
+            sel_sweep_mark(sweep, SEL_SWEEP_LIST);
+            sel_sweep_plan_alts(sweep, simple->sub, simple->sub_count);
+        }
+    }
+}
+
+static void sel_sweep_plan_alts(sel_sweep *sweep, const sel_complex *alts, int count) {
+    for (int alt = 0; alt < count; alt++) {
+        if (!sel_alts_write_scope(&alts[alt], 1)) {
+            sel_sweep_mark(sweep, SEL_SWEEP_STATIC);
+        } else if (alts[alt].count == 1) {
+            sel_sweep_mark(sweep, SEL_SWEEP_LIST);
+            sel_sweep_plan_compound(sweep, &alts[alt].compounds[0]);
+        } else {
+            sel_sweep_mark(sweep, SEL_SWEEP_CHAIN + sweep->chain_count);
+            sel_sweep_plan_chain(sweep, &alts[alt], sel_sweep_chain_kind(&alts[alt]), alts[alt].count, 0);
+        }
+    }
+}
+
+/* Whether node matches compound, leaving out a :not(:scope) when skip. */
+static int sel_sweep_matches(sel_sweep *sweep, th_node *node, const sel_compound *compound, int skip) {
+    for (int at = 0; at < compound->count; at++) {
+        const sel_simple *simple = &compound->simples[at];
+        if (!(skip && sel_simple_not_scope(simple)) && !sel_deep_simple(node, simple, sweep->ctx, sweep->memo)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Moves every chain's cells on to the sibling at position. */
+static void sel_sweep_advance(sel_sweep *sweep, int position) {
+    th_node *node = sweep->nodes[position];
+    for (int index = 0; index < sweep->chain_count; index++) {
+        const sel_sweep_chain *chain = &sweep->chains[index];
+        for (int at = chain->to - 1; at >= chain->from; at--) {
+            sel_sweep_cell *cell = &chain->cells[at - chain->from];
+            int first[2] = {0, 0};
+            if ((chain->any_last && at == chain->to - 1) ||
+                sel_sweep_matches(sweep, node, &chain->complex->compounds[at], chain->not_scope && at == 0)) {
+                if (at == chain->from) {
+                    first[0] = position;
+                } else {
+                    const sel_sweep_cell *left = cell - 1;
+                    const int *from = chain->complex->compounds[at].combinator == '+' ? left->first : left->prefix;
+                    first[0] = from[0];
+                    first[1] = from[1];
+                }
+            }
+            cell->first[0] = first[0];
+            cell->first[1] = first[1];
+            /* a cell's starts never fall from one sibling to the next, and a match that keeps the latest start keeps
+               the one before it too, so the newest pair leads the prefix */
+            if (first[0] > cell->prefix[0]) {
+                cell->prefix[1] = first[1] > cell->prefix[0] ? first[1] : cell->prefix[0];
+                cell->prefix[0] = first[0];
+            }
+        }
+    }
+}
+
+/* Adds the anchors under which chain matches at the sibling at position. */
+static void sel_sweep_chain_spans(sel_sweep *sweep, int start, const sel_sweep_chain *chain, int position) {
+    const unsigned need = chain->q >= 0 ? 1u << chain->q : 0;
+    if (chain->point) {
+        sel_sweep_range(sweep, start, position - chain->off, position - chain->off, 1, 0, need, 0);
+        return;
+    }
+    const int *first = chain->cells[chain->to - 1 - chain->from].first;
+    if (chain->not_scope) {
+        if (first[1] != 0) {
+            sel_sweep_range(sweep, start, 1, sweep->n, 1, 0, 0, 0);
+        } else if (first[0] != 0) {
+            sel_sweep_range(sweep, start, 1, first[0] - 1, 1, 0, 0, 0);
+            sel_sweep_range(sweep, start, first[0] + 1, sweep->n, 1, 0, 0, 0);
+        }
+        return;
+    }
+    if (first[0] != 0) {
+        sel_sweep_range(sweep, start, 1, (int64_t)first[0] - chain->off - 1, 1, 0, need, 0);
+    }
+}
+
+/* Adds the anchors under which the sibling at position matches an :nth-child() or :nth-last-child() whose S
+   (sel_sweep_offsets) holds at the siblings whose distance from the anchor is one of the exact ones, or tail or more.
+ */
+static void sel_sweep_nth(sel_sweep *sweep, int start, const sel_simple *simple, int position) {
+    int exact[SEL_SWEEP_SPANS];
+    int exact_count = 0;
+    int tail = INT_MAX;
+    for (int alt = 0; alt < simple->sub_count; alt++) {
+        const sel_complex *complex = &simple->sub[alt];
+        int fixed = 1;
+        for (int index = 1; index < complex->count; index++) {
+            fixed &= complex->compounds[index].combinator == '+';
+        }
+        if (!fixed) {
+            tail = complex->count - 1 < tail ? complex->count - 1 : tail;
+        }
+    }
+    for (int alt = 0; alt < simple->sub_count; alt++) {
+        const sel_complex *complex = &simple->sub[alt];
+        int fixed = 1;
+        for (int index = 1; index < complex->count; index++) {
+            fixed &= complex->compounds[index].combinator == '+';
+        }
+        const int distance = complex->count - 1;
+        if (!fixed || distance >= tail) {
+            continue;
+        }
+        int at = exact_count;
+        while (at > 0 && exact[at - 1] > distance) {
+            at--;
+        }
+        if (at > 0 && exact[at - 1] == distance) {
+            continue;
+        }
+        if (exact_count == SEL_SWEEP_SPANS) {
+            sweep->failed = 1;
+            return;
+        }
+        memmove(exact + at + 1, exact + at, (size_t)(exact_count - at) * sizeof(int));
+        exact[at] = distance;
+        exact_count++;
+    }
+    const int64_t a = simple->nth_a;
+    const int64_t b = simple->nth_b;
+    if (simple->pseudo == PSEUDO_NTH_CHILD) {
+        for (int index = 0; index < exact_count; index++) {
+            if (sel_nth_matches(simple->nth_a, simple->nth_b, index + 1)) {
+                sel_sweep_range(sweep, start, position - exact[index], position - exact[index], 1, 0, 0, 0);
+            }
+        }
+        if (tail == INT_MAX) {
+            return;
+        }
+        /* from tail on the index runs exact_count + 1, exact_count + 2, ...: the anchor sits base - index back */
+        const int64_t least = exact_count + 1;
+        const int64_t base = (int64_t)position - tail + 1 + exact_count;
+        if (a > 0) {
+            sel_sweep_range(sweep, start, 1, base - sel_sweep_align(least > b ? least : b, a, b), a, base - b, 0, 0);
+        } else if (a == 0) {
+            if (b >= least) {
+                sel_sweep_range(sweep, start, base - b, base - b, 1, 0, 0, 0);
+            }
+        } else {
+            const int64_t low = sel_sweep_align(least, -a, b);
+            if (low <= b) {
+                sel_sweep_range(sweep, start, base - b, base - low, -a, base - b, 0, 0);
+            }
+        }
+        return;
+    }
+    const int after = sweep->n - position;
+    for (int index = 0; index < exact_count; index++) {
+        int count = 0;
+        for (int other = index; other < exact_count && exact[other] <= (int64_t)exact[index] + after; other++) {
+            count++;
+        }
+        if (tail != INT_MAX && (int64_t)exact[index] + after >= tail) {
+            count += exact[index] + after - tail + 1;
+        }
+        if (sel_nth_matches(simple->nth_a, simple->nth_b, count)) {
+            sel_sweep_range(sweep, start, position - exact[index], position - exact[index], 1, 0, 0, 0);
+        }
+    }
+    if (tail != INT_MAX && sel_nth_matches(simple->nth_a, simple->nth_b, after + 1)) {
+        sel_sweep_range(sweep, start, 1, (int64_t)position - tail, 1, 0, 0, 0);
+    }
+}
+
+static void sel_sweep_alts(sel_sweep *sweep, th_node *node, int position, const sel_complex *alts, int count);
+
+/* Adds the anchors under which node, the sibling at position, matches compound. */
+static void sel_sweep_compound(sel_sweep *sweep, th_node *node, int position, const sel_compound *compound) {
+    const int start = sweep->used;
+    sel_sweep_range(sweep, start, 1, sweep->n, 1, 0, 0, 0);
+    for (int at = 0; at < compound->count; at++) {
+        const sel_simple *simple = &compound->simples[at];
+        const int mark = sweep->marks[sweep->cursor++];
+        const int mid = sweep->used;
+        if (mark == SEL_SWEEP_STATIC) {
+            if (mid > start && !sel_deep_simple(node, simple, sweep->ctx, sweep->memo)) {
+                sweep->used = start;
+            }
+            continue;
+        }
+        if (mark == SEL_SWEEP_SCOPE) {
+            sel_sweep_range(sweep, mid, position, position, 1, 0, 0, 0);
+        } else if (mark == SEL_SWEEP_NTH) {
+            sel_sweep_nth(sweep, mid, simple, position);
+        } else {
+            sel_sweep_alts(sweep, node, position, simple->sub, simple->sub_count);
+            if (simple->pseudo == PSEUDO_NOT) {
+                sel_sweep_negate(sweep, mid);
+            }
+        }
+        sel_sweep_meet(sweep, start, mid);
+    }
+}
+
+static void sel_sweep_alts(sel_sweep *sweep, th_node *node, int position, const sel_complex *alts, int count) {
+    const int start = sweep->used;
+    for (int alt = 0; alt < count; alt++) {
+        const int mark = sweep->marks[sweep->cursor++];
+        if (mark == SEL_SWEEP_STATIC) {
+            if (sel_deep_matches_alt(node, &alts[alt], sweep->ctx, sweep->memo)) {
+                sel_sweep_range(sweep, start, 1, sweep->n, 1, 0, 0, 0);
+            }
+        } else if (mark == SEL_SWEEP_LIST) {
+            const int mid = sweep->used;
+            sel_sweep_compound(sweep, node, position, &alts[alt].compounds[0]);
+            if (sweep->used - start > SEL_SWEEP_SPANS) {
+                sweep->failed = 1;
+                sweep->used = mid;
+            }
+        } else {
+            sel_sweep_chain_spans(sweep, start, &sweep->chains[mark - SEL_SWEEP_CHAIN], position);
+        }
+    }
+}
+
+/* Counts the anchors of span into the count arrays (sel_sweep_key) of its predicates and modulus, weight times. */
+static void sel_sweep_count(sel_sweep *sweep, unsigned need, unsigned deny, int lo, int hi, int mod, int rem,
+                            int weight) {
+    /* sel_sweep_settle leaves every span and co residue at least one anchor */
+    const int first = (int)sel_sweep_align(lo, mod, rem);
+    const int last = hi - (int)sel_sweep_mod((int64_t)hi - rem, mod);
+    mod = first == last ? 1 : mod;
+    int index = 0;
+    int owner = -1;
+    for (; index < sweep->key_count; index++) {
+        const sel_sweep_key *other = &sweep->keys[index];
+        if (other->need == need && other->deny == deny) {
+            owner = owner < 0 ? index : owner;
+            if (other->mod == mod) {
+                break;
+            }
+        }
+    }
+    if (index == sweep->key_count) {
+        if (index == SEL_SWEEP_KEYS) {
+            sweep->failed = 1;
+            return;
+        }
+        int *counts = PyMem_Calloc((size_t)sweep->n + 2, sizeof(int));
+        if (counts == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            sweep->failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
+            return;            /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        sweep->keys[sweep->key_count++] = (sel_sweep_key){need, deny, mod, owner < 0 ? index : owner, counts};
+    }
+    int *counts = sweep->keys[index].counts;
+    counts[first] += weight;
+    if ((int64_t)last + mod <= sweep->n) {
+        counts[last + mod] -= weight;
+    }
+}
+
+/* Whether the predicate q holds with the anchor at position. */
+static int sel_sweep_q_holds(sel_sweep *sweep, const sel_sweep_q *q, int position) {
+    const sel_compound *compounds = q->complex->compounds;
+    if (q->scope >= 0) {
+        th_node *node = sweep->nodes[position];
+        for (int at = 0; at < compounds[q->scope].count; at++) {
+            const sel_simple *simple = &compounds[q->scope].simples[at];
+            if (!(simple->kind == ':' && simple->pseudo == PSEUDO_SCOPE) &&
+                !sel_deep_simple(node, simple, sweep->ctx, sweep->memo)) {
+                return 0;
+            }
+        }
+        if (q->scope > 0 && sel_deep_from(node, q->complex, q->scope, NULL, sweep->ctx, sweep->memo) != SEL_MATCHES) {
+            return 0;
+        }
+    }
+    for (int at = 1; at <= q->block; at++) {
+        /* the spans that name q leave room for its block before the sibling they were read at */
+        if (!sel_deep_compound(sweep->nodes[position + at], &compounds[q->scope + at], sweep->ctx, sweep->memo)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void sel_sweep_free(sel_sweep *sweep) {
+    for (int index = 0; index < sweep->chain_count; index++) {
+        PyMem_Free(sweep->chains[index].cells);
+    }
+    for (int index = 0; index < sweep->key_count; index++) {
+        PyMem_Free(sweep->keys[index].counts);
+    }
+    PyMem_Free(sweep->chains);
+    PyMem_Free(sweep->marks);
+    PyMem_Free(sweep->pool);
+    PyMem_Free(sweep->nodes);
+}
+
+/* Reads rel (sel_complex.sweep_at) at every element sibling of parent, and keeps its answer for every one of them as
+   the anchor under key: the anchors each sibling matches for form a few spans of positions (sel_span), counted into
+   arrays and summed once, so the run costs time linear in its length rather than in its square. Returns anchor's
+   answer, or -1 when it gave up. */
+static int sel_sweep_run(sel_sweep *sweep, th_node *anchor, const sel_complex *rel, const void *key) {
+    th_node *parent = anchor->parent;
+    for (th_node *child = sel_first_element_child(parent); child != NULL; child = sel_next_element_sibling(child)) {
+        sweep->n++;
+    }
+    sweep->nodes = PyMem_Malloc(((size_t)sweep->n + 1) * sizeof(th_node *));
+    if (sweep->nodes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;              /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    int position = 0;
+    for (th_node *child = sel_first_element_child(parent); child != NULL; child = sel_next_element_sibling(child)) {
+        sweep->nodes[++position] = child;
+    }
+    const int dependent = rel->sweep_at - 1;
+    const int pinned = rel->count > 1 && sel_compound_has_scope(&rel->compounds[0]);
+    sel_sweep_plan_chain(sweep, rel, pinned ? 0 : -1, dependent + 1, 1);
+    sel_sweep_plan_compound(sweep, &rel->compounds[dependent]);
+    for (position = 1; position <= sweep->n && !sweep->failed; position++) {
+        TH_WORK_STEP();
+        sel_sweep_advance(sweep, position);
+        th_node *node = sweep->nodes[position];
+        const int after =
+            dependent + 1 == rel->count ? 1 : sel_deep_has_rel(node, rel, dependent + 1, sweep->ctx, sweep->memo);
+        /* a memo that failed (-1) leaves the rest of the run unknown */
+        sweep->failed = after < 0;
+        if (after <= 0) {
+            continue;
+        }
+        sweep->used = 0;
+        sweep->cursor = 0;
+        sel_sweep_chain_spans(sweep, 0, &sweep->chains[0], position);
+        const int mid = sweep->used;
+        sel_sweep_compound(sweep, node, position, &rel->compounds[dependent]);
+        sel_sweep_meet(sweep, 0, mid);
+        for (int index = 0; index < sweep->used; index++) {
+            const sel_span *span = &sweep->pool[index];
+            sel_sweep_count(sweep, span->need, span->deny, span->lo, span->hi, span->mod, span->rem, 1);
+            if (span->co_mod != 0) {
+                sel_sweep_count(sweep, span->need, span->deny, span->lo, span->hi, span->co_mod, span->co_rem, -1);
+            }
+        }
+    }
+    if (sweep->failed) {
+        return -1;
+    }
+    for (int index = 0; index < sweep->key_count; index++) {
+        int *counts = sweep->keys[index].counts;
+        for (position = 1 + sweep->keys[index].mod; position <= sweep->n; position++) {
+            counts[position] += counts[position - sweep->keys[index].mod];
+        }
+    }
+    for (int index = 0; index < sweep->key_count; index++) {
+        const sel_sweep_key *part = &sweep->keys[index];
+        if (part->owner != index) {
+            for (position = 1; position <= sweep->n; position++) {
+                sweep->keys[part->owner].counts[position] += part->counts[position];
+            }
+        }
+    }
+    int answer = 0;
+    for (position = 1; position <= sweep->n; position++) {
+        int found = 0;
+        for (int index = 0; index < sweep->key_count && !found; index++) {
+            const sel_sweep_key *owner = &sweep->keys[index];
+            if (owner->owner != index || owner->counts[position] <= 0) {
+                continue;
+            }
+            found = 1;
+            for (int bit = 0; bit < sweep->q_count && found; bit++) {
+                if ((owner->need | owner->deny) & (1u << bit)) {
+                    found = sel_sweep_q_holds(sweep, &sweep->qs[bit], position) == (int)((owner->need >> bit) & 1u);
+                }
+            }
+        }
+        sel_deep_put(sweep->memo, key, sweep->nodes[position], found);
+        answer = sweep->nodes[position] == anchor ? found : answer;
+    }
+    return answer;
+}
+
+/* Whether a later element sibling of anchor matches rel, an argument whose :scope sel_complex.sweep_at reads: the
+   first anchor of a long sibling run sweeps the run (sel_sweep_run) and the memo keeps every anchor's answer. A
+   short run, or one the sweep gave up on, takes the direct walk (-1). */
+static int sel_deep_has_sweep(th_node *anchor, const sel_complex *rel, const sel_ctx *ctx, sel_deep_memo *memo) {
+    const void *key = &rel->sweep_at;
+    int found = 0;
+    if (sel_deep_get(memo, key, anchor, &found)) {
+        return found;
+    }
+    int later = 0;
+    for (th_node *sibling = sel_next_element_sibling(anchor); sibling != NULL && later < SEL_SIBLING_MEMO_MIN_RUN;
+         sibling = sel_next_element_sibling(sibling)) {
+        later++;
+    }
+    if (later < SEL_SIBLING_MEMO_MIN_RUN || sel_deep_get(memo, &rel->scope_reach, anchor->parent, &found)) {
+        return -1;
+    }
+    sel_sweep sweep = {.ctx = ctx, .memo = memo};
+    found = sel_sweep_run(&sweep, anchor, rel, key);
+    sel_sweep_free(&sweep);
+    if (found < 0) {
+        sel_deep_put(memo, &rel->scope_reach, anchor->parent, 1);
+    }
+    return found;
+}
+
+/* Whether rel, a :has() argument whose leftmost combinator past a pinning :scope is lead, holds for anchor, walking
+   every element it may reach without a memo. Its cost grows with the elements past the anchor, so a page whose rules
+   walk this way from every element of a long run takes time quadratic in the run. So sel_deep_compound charges each
+   compound tested while one runs, those of its nested walks included, to memo's allowance. */
+static int sel_deep_has_direct(th_node *anchor, const sel_complex *rel, char lead, const sel_ctx *ctx,
+                               sel_deep_memo *memo) {
+    const int subject = rel->count - 1;
+    if (lead != '+' && lead != '~') {
+        return sel_deep_has_subtree(anchor, rel, subject, anchor, ctx, memo);
+    }
+    for (th_node *sibling = sel_next_element_sibling(anchor); sibling != NULL && !memo->over;
+         sibling = sel_next_element_sibling(sibling)) {
+        TH_WORK_STEP();
+        if ((sel_deep_compound(sibling, &rel->compounds[subject], ctx, memo) &&
+             sel_deep_from(sibling, rel, subject, anchor, ctx, memo) == SEL_MATCHES) ||
+            sel_deep_has_subtree(sibling, rel, subject, anchor, ctx, memo)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* sel_has_match through this matcher. An argument whose :scope never meets the anchor (sel_alts_scope_reaches) reads
+   left to right, its answers facts of the tree the memo keeps for every anchor; a :scope that pins the leftmost
+   compound to the anchor leaves the rest to read that way. One whose :scope sel_deep_has_sweep reads answers for every
+   anchor of a long sibling run at once. Any other argument, or one that meets a memo that failed, takes the direct
+   walk from the anchor. */
 static int sel_deep_has_anchor(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx,
                                sel_deep_memo *memo) {
+    if (memo->over) {
+        return 0;
+    }
     sel_ctx scoped = *ctx;
     scoped.scope = anchor;
     scoped.sibling_memo = NULL;
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         const int pinned = rel->count > 1 && sel_compound_has_scope(&rel->compounds[0]);
-        if (!memo->failed &&
-            !sel_alts_write_scope(&(const sel_complex){rel->compounds + pinned, rel->count - pinned, 0}, 1)) {
+        const int shared = pinned ? !sel_alts_scope_reaches(
+                                        &(const sel_complex){rel->compounds + pinned, rel->count - pinned, 0, 0, 0}, 1)
+                                  : rel->scope_reach < SEL_SCOPE_REACH_ANY;
+        if (!memo->failed && !shared && rel->sweep_at != 0) {
+            const int found = sel_deep_has_sweep(anchor, rel, &scoped, memo);
+            if (found > 0) {
+                return 1;
+            }
+            if (found == 0) {
+                continue;
+            }
+        }
+        if (!memo->failed && shared) {
             int found = 0;
             if (!pinned) {
                 found = sel_deep_has_rel(anchor, rel, 0, &scoped, memo);
@@ -4212,22 +5534,11 @@ static int sel_deep_has_anchor(th_node *anchor, const sel_complex *alts, int cou
                 continue;
             }
         }
-        const int subject = rel->count - 1;
-        const char lead = rel->compounds[pinned].combinator;
-        if (lead != '+' && lead != '~') {
-            if (sel_deep_has_subtree(anchor, rel, subject, anchor, &scoped, memo)) {
-                return 1;
-            }
-            continue;
-        }
-        for (th_node *sibling = sel_next_element_sibling(anchor); sibling != NULL;
-             sibling = sel_next_element_sibling(sibling)) {
-            TH_WORK_STEP();
-            if ((sel_deep_compound(sibling, &rel->compounds[subject], &scoped, memo) &&
-                 sel_deep_from(sibling, rel, subject, anchor, &scoped, memo) == SEL_MATCHES) ||
-                sel_deep_has_subtree(sibling, rel, subject, anchor, &scoped, memo)) {
-                return 1;
-            }
+        memo->walking++;
+        const int found = sel_deep_has_direct(anchor, rel, rel->compounds[pinned].combinator, &scoped, memo);
+        memo->walking--;
+        if (found) {
+            return 1;
         }
     }
     return 0;
@@ -4301,13 +5612,14 @@ TH_NOINLINE void sel_deep_memo_free(sel_deep_memo *memo) {
 #define SEL_DEEP_MEMO_LIMIT ((size_t)256 << 20)
 
 TH_NOINLINE sel_compiled *sel_deep_wrap(sel_compiled *compiled, sel_deep_query *deep) {
-    deep->memo = (sel_deep_memo){.limit = SEL_DEEP_MEMO_LIMIT, .failed = th_tree_seq_wrapped(compiled->tree)};
+    deep->memo = (sel_deep_memo){
+        .limit = SEL_DEEP_MEMO_LIMIT, .failed = th_tree_seq_wrapped(compiled->tree), .allowance = SIZE_MAX};
     deep->simple = (sel_simple){.kind = ':',
                                 .pseudo = compiled->climbs == SEL_CLIMBS_LISTS ? PSEUDO_DEEP_LISTS : PSEUDO_DEEP,
                                 .sub = compiled->alts,
                                 .sub_count = compiled->count};
     deep->compound = (sel_compound){&deep->simple, 1, ' '};
-    deep->complex = (sel_complex){&deep->compound, 1, 0};
+    deep->complex = (sel_complex){&deep->compound, 1, 0, 0, 0};
     deep->compiled = *compiled;
     deep->compiled.alts = &deep->complex;
     deep->compiled.count = 1;

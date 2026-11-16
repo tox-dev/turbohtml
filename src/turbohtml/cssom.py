@@ -299,10 +299,16 @@ def computed_style(element: Element) -> ComputedStyle:
     Calls on one document reuse the ancestor styles earlier calls resolved until the document changes, so styling every
     element costs a bounded number of cascades per element whatever order the calls come in.
 
+    A ``:has()`` argument that reads ``:scope`` in a way no memo can answer walks the elements past each element it
+    styles. The document funds those walks: 64 compound tests for each of its nodes and each character of its rules'
+    selectors, on top of a base of 67,108,864.
+
     :param element: the element to compute the style of.
     :returns: the resolved, read-only computed style.
     :raises RecursionError: if a rule of the page's style sheets chains more compound selectors than the C stack this
         thread has left can match.
+    :raises ValueError: if the page's ``:has()`` walks outgrow that allowance; every element of the document styled
+        after that raises too, until the document changes.
     """
     return ComputedStyle(_css_computed_style(element))
 
