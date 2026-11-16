@@ -1,2 +1,2 @@
-``Node.resolve_links()`` now resolves a special-scheme link written without slashes before its host, and reads a
-backslash as a path separator, as a browser does.
+``Node.resolve_links()`` now reads special-scheme links without slashes and treats backslashes as path separators, and
+drops default ports and resolves dot segments in absolute links, as a browser does.

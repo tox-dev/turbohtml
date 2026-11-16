@@ -1052,7 +1052,7 @@ def test_resolve_links_skips_extra_authority_slashes_in_every_location(markup: s
         pytest.param(_HTTPS, "ftp://#f", "ftp://#f", id="foreign-no-host-fragment"),
         pytest.param(_HTTPS, "ftp://", "ftp://", id="foreign-special-authority-only"),
         pytest.param(_HTTPS, "ftp://elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-host-kept"),
-        pytest.param(_HTTPS, "ftp:///elsewhere.test:21/x", "ftp://elsewhere.test:21/x", id="foreign-port-kept"),
+        pytest.param(_HTTPS, "ftp:///elsewhere.test:21/x", "ftp://elsewhere.test/x", id="foreign-default-port-dropped"),
         pytest.param(_HTTPS, "ftp:\\\\\\elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-backslash-authority"),
     ],
 )
@@ -1086,7 +1086,6 @@ def test_resolve_links_requires_a_string_base() -> None:
         pytest.param(_HTTPS, "https://host/p?q#f", id="same-scheme-absolute-skipped"),
         pytest.param(_HTTPS, "https://user:pw@host:8080/a;b?q#f", id="same-scheme-userinfo-port"),
         pytest.param(_HTTPS, "https://HOST.example/Path", id="same-scheme-host-case-preserved"),
-        pytest.param(_HTTPS, "https://host/a/../b", id="same-scheme-dot-segments-preserved"),
         pytest.param(_HTTPS, "http://host/p", id="different-scheme-http"),
         pytest.param(_HTTPS, "mailto:a@b.test", id="different-scheme-not-relative"),
         pytest.param(_HTTPS, "data:text/plain,hi", id="different-scheme-data"),
@@ -1126,6 +1125,33 @@ def test_resolve_links_requires_a_string_base() -> None:
 )
 def test_resolve_matches_urljoin(base: str, href: str) -> None:
     assert _resolved_href(href, base) == urljoin(base, href)
+
+
+# WHATWG removes dot segments (%2e in any case included) from an absolute special-scheme URL and drops its default or
+# empty port (https://url.spec.whatwg.org/#port-state), which urljoin leaves as written.
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://host/a/../b", "https://host/b", id="dot-dot"),
+        pytest.param("https://host/a/./b", "https://host/a/b", id="dot"),
+        pytest.param("https://host/a/%2E%2e/b", "https://host/b", id="encoded-dot-dot"),
+        pytest.param("https://host/a/.%2e/b", "https://host/b", id="mixed-dot-dot"),
+        pytest.param("https://host/a/..", "https://host/", id="dot-dot-to-root"),
+        pytest.param("https://host:443/p", "https://host/p", id="https-default-port"),
+        pytest.param("https://host:0443/p", "https://host/p", id="https-default-port-leading-zeros"),
+        pytest.param("https://host:/p", "https://host/p", id="empty-port"),
+        pytest.param("https://host:0080/p", "https://host:80/p", id="leading-zeros-rewritten"),
+        pytest.param("https://host:8443/p", "https://host:8443/p", id="non-default-port-kept"),
+        pytest.param("https://u:p@host:443/p", "https://u:p@host/p", id="userinfo-default-port"),
+        pytest.param("https://[::1]:443/p", "https://[::1]/p", id="ipv6-default-port"),
+        pytest.param("http://host:80/p", "http://host/p", id="http-default-port"),
+        pytest.param("ws://host:80/p", "ws://host/p", id="ws-default-port"),
+        pytest.param("wss://host:443/p", "wss://host/p", id="wss-default-port"),
+        pytest.param("ftp://host:21/p", "ftp://host/p", id="ftp-default-port"),
+    ],
+)
+def test_resolve_links_normalizes_absolute_special_urls(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
 
 
 # A tab/CR/LF inside an otherwise-skippable absolute link forces the rejoin urlsplit would strip it in; a character

@@ -707,6 +707,118 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
     return status;
 }
 
+/* Whether the scheme value[start,end) is the ASCII name `name` (lowercase, as the reference parser writes it). */
+static int url_scheme_is(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, const char *name) {
+    Py_ssize_t length = (Py_ssize_t)strlen(name);
+    if (end - start != length) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < length; index++) {
+        if (value[start + index] != (Py_UCS4)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The end of the authority that starts at colon + 3: its first '/', '\\', '?' or '#', or the end of the reference. */
+static Py_ssize_t url_authority_stop(const Py_UCS4 *value, Py_ssize_t colon, Py_ssize_t end) {
+    Py_ssize_t stop = colon + 3;
+    while (stop < end && value[stop] != '/' && value[stop] != '\\' && value[stop] != '?' && value[stop] != '#') {
+        stop++;
+    }
+    return stop;
+}
+
+/* Whether the authority of the special-scheme reference value[start,end) ends in a port the WHATWG parser drops: an
+   empty port, or the default port of its scheme (https://url.spec.whatwg.org/#port-state). `colon` is its scheme's
+   colon and `stop` the end of the authority. */
+static int url_drops_port(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t stop) {
+    Py_ssize_t digits = stop;
+    while (digits > colon + 3 && value[digits - 1] >= '0' && value[digits - 1] <= '9') {
+        digits--;
+    }
+    if (value[digits - 1] != ':' || digits - 1 < colon + 3) {
+        return 0;
+    }
+    long def;
+    if (url_scheme_is(value, start, colon, "http") || url_scheme_is(value, start, colon, "ws")) {
+        def = 80;
+    } else if (url_scheme_is(value, start, colon, "https") || url_scheme_is(value, start, colon, "wss")) {
+        def = 443;
+    } else if (url_scheme_is(value, start, colon, "ftp")) {
+        def = 21;
+    } else {
+        return 0;
+    }
+    if (digits == stop) {
+        return 1;
+    }
+    if (stop - digits > 1 && value[digits] == '0') {
+        return 1;
+    }
+    long port = 0;
+    for (Py_ssize_t index = digits; index < stop && port <= 65535; index++) {
+        port = port * 10 + (value[index] - '0');
+    }
+    return port == def;
+}
+
+/* Whether the path value[from,end) (up to a '?' or '#') has a segment that is a single- or double-dot segment, with %2e
+   in any case counting as a dot (https://url.spec.whatwg.org/#single-dot-path-segment). */
+static int url_path_has_dot_segment(const Py_UCS4 *value, Py_ssize_t from, Py_ssize_t end) {
+    for (Py_ssize_t index = from; index + 1 < end && value[index] != '?' && value[index] != '#'; index++) {
+        if (value[index] != '/' && value[index] != '\\') {
+            continue;
+        }
+        Py_ssize_t segment = index + 1;
+        if (value[segment] != '.' && value[segment] != '%') {
+            continue;
+        }
+        Py_ssize_t stop = segment;
+        while (stop < end && value[stop] != '/' && value[stop] != '\\' && value[stop] != '?' && value[stop] != '#') {
+            stop++;
+        }
+        int dots = 0;
+        Py_ssize_t cursor = segment;
+        while (cursor < stop && dots <= 2) {
+            if (value[cursor] == '.') {
+                cursor++;
+            } else if (cursor + 2 < stop && value[cursor] == '%' && value[cursor + 1] == '2' &&
+                       (value[cursor + 2] | 0x20) == 'e') {
+                cursor += 3;
+            } else {
+                break;
+            }
+            dots++;
+        }
+        if (cursor == stop && dots >= 1 && dots <= 2) {
+            return 1;
+        }
+        index = stop - 1;
+    }
+    return 0;
+}
+
+/* Whether the reference text value[from,end) can be returned as written by the link join, judged from the characters of
+   its path at or after `stop`: no tab, CR, LF or backslash, and no dot segment. One pass finds the candidates, a '/'
+   followed by '.' or '%', and only those are checked as whole segments. */
+static int url_path_plain(const Py_UCS4 *value, Py_ssize_t from, Py_ssize_t end, Py_ssize_t stop) {
+    int candidate = 0;
+    for (Py_ssize_t index = from; index < end; index++) {
+        Py_UCS4 c = value[index];
+        if (c <= '\\') {
+            if (c == '\t' || c == '\r' || c == '\n' || c == '\\') {
+                return 0;
+            }
+            if ((c == '.' || c == '%') && index > from && value[index - 1] == '/') {
+                candidate = 1;
+            }
+        }
+    }
+    return !candidate || !url_path_has_dot_segment(value, stop, end);
+}
+
 /* Whether the absolute special-scheme reference from `start` reads the same in the link join as it is written: a
    lowercase scheme, two slashes and a host, and no backslash, tab, CR or LF. Any other form (no slashes, one slash, an
    empty authority, a backslash, an upper-case scheme) takes the join, which reads the host and separators as WHATWG
@@ -724,13 +836,11 @@ static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
             return 0;
         }
     }
-    for (Py_ssize_t index = colon + 1; index < end; index++) {
-        Py_UCS4 c = value[index];
-        if (c == '\\' || c == '\t' || c == '\r' || c == '\n') {
-            return 0;
-        }
+    Py_ssize_t stop = url_authority_stop(value, colon, end);
+    if (url_drops_port(value, start, colon, stop)) {
+        return 0;
     }
-    return 1;
+    return url_path_plain(value, colon + 1, end, stop);
 }
 
 /* True when resolve_links can prove urljoin(base, [start, end)) returns the URL byte-for-byte, so the urljoin call (the
@@ -781,13 +891,11 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         value[netloc] == '#') {
         return 0;
     }
-    for (Py_ssize_t index = start; index < end; index++) {
-        Py_UCS4 c = value[index];
-        if (c <= '\\' && (c == '\t' || c == '\r' || c == '\n' || c == '\\')) {
-            return 0;
-        }
+    Py_ssize_t stop = url_authority_stop(value, colon, end);
+    if (url_drops_port(value, start, colon, stop)) {
+        return 0;
     }
-    return 1;
+    return url_path_plain(value, start, end, stop);
 }
 
 /* Call replace(url) for each span and build a rewritten value, or leave the value untouched when every replacement is
