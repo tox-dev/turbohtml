@@ -1,2 +1,0 @@
-Edits that leave ``<style>`` elements alone no longer make :func:`~turbohtml.cssom.computed_style` recompile every
-sheet, and changes to a style's type or text apply at once.

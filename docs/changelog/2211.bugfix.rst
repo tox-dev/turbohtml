@@ -1,2 +1,0 @@
-XPath name tests over XML documents now follow XPath 1.0: an unprefixed name skips default-namespace elements, and a
-prefix bound in ``namespaces=`` matches them.

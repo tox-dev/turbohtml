@@ -1,2 +1,0 @@
-``xsl:element`` now creates its element in the namespace of its ``namespace`` attribute and declares that namespace in
-the output, so the result parses as XML.

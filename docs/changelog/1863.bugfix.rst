@@ -1,2 +1,0 @@
-Content after a table element or template refused at the nesting limit is kept, and a refused template's end tag closes
-only that template.

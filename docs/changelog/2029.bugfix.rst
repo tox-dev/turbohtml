@@ -1,2 +1,0 @@
-A schema that repeats an ``xs:all`` group, through a group reference or an ``xs:all`` element with maxOccurs above 1,
-now fails to compile.

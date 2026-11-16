@@ -6,6 +6,832 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-11:
+
+***********************
+ v1.15.11 (2026-11-16)
+***********************
+
+.. _release-1-15-11-fixed:
+
+Fixed
+=====
+
+- Prevent phone-number extensions with many separators from writing past the recognizer's chunk buffer. Preserve XML
+  comment boundaries after invalid controls are removed and exact carriage returns and line feeds in CLI text files.
+  Deeply nested XPath expressions now raise ``XPathDepthError`` during parsing, matching evaluation (:pr:`1675`) by
+  :user:`gaborbernat`.
+- ``Element.insert()`` and ``ElementView.insert()`` no longer slow down with the number of siblings when inserting near
+  either end of a long child list (:pr:`2150`) by :user:`gaborbernat`. (:issue:`1695`)
+- After a handler edit, :func:`~turbohtml.rewrite.rewrite` writes the markup that follows, and a ``<`` the edit left
+  before it, so a browser reads them as it read the input (:pr:`2146`) by :user:`gaborbernat`. (:issue:`1701`)
+- XML Schema validation now rejects child elements in an element declared with an inline ``xs:simpleType``, as it
+  already does for a ``type=`` declaration (:pr:`2127`) by :user:`gaborbernat`. (:issue:`1708`)
+- Reading or clearing every attribute of an element with many attributes, or removing them by name from either end, now
+  takes time linear in the attribute count (:pr:`2174`) by :user:`gaborbernat`. (:issue:`1709`)
+- Multi-step XSD extensions now require every base type's content, so complete documents are accepted and incomplete
+  ones rejected; invalid xs:all extensions now raise (:pr:`2135`) by :user:`gaborbernat`. (:issue:`1716`)
+- Keep :func:`~turbohtml.cssom.computed_style` fast on deeply nested documents in any call order, instead of restyling
+  every ancestor on each call (:pr:`2181`) by :user:`gaborbernat`. (:issue:`1718`)
+- Sanitizer checks now judge each value as the XML serializer writes it too, so dropped control characters can no longer
+  rejoin CSS, URLs, or template markers the checks refused (:pr:`2116`) by :user:`gaborbernat`. (:issue:`1728`)
+- Minified CSS keeps the separator after a name ending in an escaped character, so the output parses as the input did
+  (:pr:`2161`) by :user:`gaborbernat`. (:issue:`1729`)
+- Read ``<meta http-equiv=refresh>`` targets as browsers do, so ``links()``, ``rewrite_links()``, ``resolve_links()``
+  and ``meta_refresh()`` agree, and text right after the delay is no redirect (:pr:`2126`) by :user:`gaborbernat`.
+  (:issue:`1737`)
+- A loop of :class:`~turbohtml.Range` calls over the children of one wide element no longer slows down with the square
+  of the child count (:pr:`2144`) by :user:`gaborbernat`. (:issue:`1743`)
+- :func:`turbohtml.clean.minify_css` no longer brings to life an ``@import``, ``@namespace``, ``@charset`` or ``@layer``
+  statement that browsers ignore, and keeps an empty rule that holds one back (:pr:`2145`) by :user:`gaborbernat`.
+  (:issue:`1745`)
+- XPath regex searches with back-references now count every capture group against the step limit, so such patterns raise
+  ``ValueError`` instead of running past it (:pr:`2131`) by :user:`gaborbernat`. (:issue:`1746`)
+- XPath expressions that nest predicates or operators around ``matches()``, ``replace()`` or extension functions no
+  longer slow down with each level of nesting (:pr:`2179`) by :user:`gaborbernat`. (:issue:`1748`)
+- rewrite() no longer adds a tag where an empty end tag or removed node sat between a ``<`` and text, including raw text
+  past the nesting cap (:pr:`2195`) by :user:`gaborbernat`. (:issue:`1752`)
+- Keep the doctype's public and system identifiers and forced quirks mode in :meth:`~turbohtml.Node.to_source`, so the
+  output reparses in the source's document mode (:pr:`2141`) by :user:`gaborbernat`. (:issue:`1757`)
+- ``rewrite()`` no longer lets a removed ``<script>`` through on pages nested past 8,192 open elements; edits it cannot
+  apply there raise ``ValueError`` (:pr:`2196`) by :user:`gaborbernat`. (:issue:`1758`)
+- Link extraction, rewriting and sanitizing now read ``srcset`` candidates like a browser: commas inside parentheses no
+  longer split a candidate, and candidates with invalid descriptors are skipped (:pr:`2148`) by :user:`gaborbernat`.
+  (:issue:`1759`)
+- Repeatedly assigning ``Text.data``, ``Comment.data`` or the ``etree`` ``text`` and ``tail`` properties now keeps
+  memory proportional to the current text instead of every value assigned (:pr:`2133`) by :user:`gaborbernat`.
+  (:issue:`1760`)
+- Minifying a ``style`` attribute now drops the rest of a declaration broken by a ``{}`` block or a stray ``}``, rather
+  than letting it apply (:pr:`2151`) by :user:`gaborbernat`. (:issue:`1763`)
+- XML Schema and RELAX NG range facets now judge the whole of a long numeric value instead of a truncated prefix of it
+  (:pr:`2164`) by :user:`gaborbernat`. (:issue:`1764`)
+- ``xs:list`` and ``xs:union`` values are now checked against their item or member types, including ``xs:NMTOKENS``,
+  ``xs:IDREFS`` and ``xs:ENTITIES``, instead of accepting any text (:pr:`2147`) by :user:`gaborbernat`. (:issue:`1765`)
+- Style attributes and ``<style>`` bodies no longer keep properties outside ``css_properties`` that browsers apply, and
+  drop declarations containing a unicode-range token (:pr:`2137`) by :user:`gaborbernat`. (:issue:`1768`)
+- Edits that leave ``<style>`` elements alone no longer make :func:`~turbohtml.cssom.computed_style` recompile every
+  sheet, and changes to a style's type or text apply at once (:pr:`2166`) by :user:`gaborbernat`. (:issue:`1770`)
+- A code block whose language contains a backtick is now fenced without that language, so its text stays code instead of
+  being read as Markdown (:pr:`2153`) by :user:`gaborbernat`. (:issue:`1771`)
+- Serialized and minified HTML no longer lets a script run past its end tag and turn later content into live markup
+  (:pr:`2173`) by :user:`gaborbernat`. (:issue:`1773`)
+- Long ``<meta>`` charset values are read in full, so padded labels resolve, and a ``charset`` that names no encoding no
+  longer hides a ``content`` declaration, as in browsers (:pr:`2155`) by :user:`gaborbernat`. (:issue:`1775`)
+- ``minify`` output now reads the same in browsers that run scripts: ``<noscript>`` content is copied from the source,
+  and a page whose ``<noscript>`` content parses differently there keeps everything after it unminified (:pr:`2154`) by
+  :user:`gaborbernat`. (:issue:`1776`)
+- XPath function calls with many arguments now run in linear time when the expression uses regex or extension functions
+  (:pr:`2156`) by :user:`gaborbernat`. (:issue:`1778`)
+- minify_css keeps the separators that a unicode-range start, an unclosed calc() or a universal selector needs, and
+  stops crashing on some bang comments (:pr:`2198`) by :user:`gaborbernat`. (:issue:`1835`)
+- ``minify_css`` keeps a hash color that contains a CSS escape as written instead of shortening it, so the escape no
+  longer swallows the closing brace of its rule (:pr:`2191`) by :user:`gaborbernat`. (:issue:`1849`)
+- ``minify_css`` keeps a rule whose selector starts with a combinator, such as ``>`` or ``~``, rather than dropping it
+  or merging it into the rule before (:pr:`2192`) by :user:`gaborbernat`. (:issue:`1850`)
+- CSS minification now keeps a selector with three or more colons as written, and minifying the output again changes
+  nothing (:pr:`2200`) by :user:`gaborbernat`. (:issue:`1851`)
+- Minified CSS no longer glues a ``calc()``-unwrapped value to the token after it, and a ``calc()`` group left open at
+  end of input folds in one pass (:pr:`2197`) by :user:`gaborbernat`. (:issue:`1852`)
+- Minifying CSS with stray brackets, hex escapes or CDO/CDC tokens now gives the same output on a second pass, drops
+  declarations whose name holds a bracket, and folds an unclosed nested ``calc()`` (:pr:`2194`) by :user:`gaborbernat`.
+  (:issue:`1853`)
+- Sanitized markup now re-parses to the same tree when an option or optgroup would otherwise nest inside an option
+  (:pr:`1856`) by :user:`gaborbernat`. (:issue:`1854`)
+- Reparsing serialized output no longer changes a ``selectedcontent`` placed after its option (:pr:`1861`) by
+  :user:`gaborbernat`. (:issue:`1859`)
+- Sanitized output no longer writes implied tbody, tr, or colgroup tags a policy omits; REMOVE now keeps cells under
+  them (:pr:`1862`) by :user:`gaborbernat`. (:issue:`1860`)
+- Content after a table element or template refused at the nesting limit is kept, and a refused template's end tag
+  closes only that template (:pr:`1865`) by :user:`gaborbernat`. (:issue:`1863`)
+- Serialization writes carriage returns as ``&#13;`` in text and attribute values, so sanitized and minified output
+  stays unchanged when parsed and serialized again (:pr:`1866`) by :user:`gaborbernat`. (:issue:`1864`)
+- Named groups holding an ``xs:all`` now accept their children in any order, and an ``xs:all`` nested in a sequence or
+  choice fails to compile (:pr:`2028`) by :user:`gaborbernat`. (:issue:`2015`)
+- XSD validation now accepts valid content for repeated particles with minOccurs of two or more whose repetitions can
+  match no children (:pr:`2075`) by :user:`gaborbernat`. (:issue:`2017`)
+- Canonical XML and XML serialization now drop characters XML 1.0 forbids from CDATA sections, text and attribute
+  values, so the output parses (:pr:`2039`) by :user:`gaborbernat`. (:issue:`2024`)
+- :meth:`turbohtml.Node.canonicalize` on HTML-parsed trees now renders the ``xmlns:`` declarations that prefixed names
+  use, so the output reparses in the same namespaces; a relative namespace URI raises ``ValueError`` (:pr:`2040`) by
+  :user:`gaborbernat`. (:issue:`2025`)
+- A schema that repeats an ``xs:all`` group, through a group reference or an ``xs:all`` element with maxOccurs above 1,
+  now fails to compile (:pr:`2031`) by :user:`gaborbernat`. (:issue:`2029`)
+- A schema that extends an ``xs:all`` content model with particles now fails to compile, and an extension without
+  particles validates the base's members in any order (:pr:`2042`) by :user:`gaborbernat`. (:issue:`2032`)
+- Schemas that set ``minOccurs`` or ``maxOccurs`` on an ``xs:all``, ``xs:sequence``, or ``xs:choice`` inside an
+  ``xs:group`` now fail to compile instead of ignoring the occurrence (:pr:`2071`) by :user:`gaborbernat`.
+  (:issue:`2060`)
+- XML output and ``canonicalize()`` now keep each element in its namespace when the parent element is left out because
+  its name is not a valid XML name (:pr:`2063`) by :user:`gaborbernat`. (:issue:`2062`)
+- RELAX NG validation of a repeated ``interleave`` of optional children now takes time linear in the number of children,
+  and some such schemas no longer raise as too ambiguous (:pr:`2076`) by :user:`gaborbernat`. (:issue:`2064`)
+- Validating with a shared ``RelaxNG`` schema no longer writes into its compiled patterns, which raced with concurrent
+  validations on free-threaded builds (:pr:`2118`) by :user:`gaborbernat`. (:issue:`2108`)
+- ``xsl:number level="multiple"`` now prints a number for every counted ancestor of a deeply nested element, where it
+  used to drop the outermost ones (:pr:`2134`) by :user:`gaborbernat`. (:issue:`2120`)
+- XSLT copies and created elements in no namespace now stay in no namespace when the output is parsed again under a
+  default namespace, as in libxslt (:pr:`2136`) by :user:`gaborbernat`. (:issue:`2122`)
+- :meth:`~turbohtml.Element.css_path` no longer hangs on a detached :func:`turbohtml.parse_fragment` root that has an id
+  (:pr:`2140`) by :user:`gaborbernat`. (:issue:`2124`)
+- ``XMLSchema`` validation now rejects attributes on elements with a simple type, except namespace declarations and the
+  ``xsi:`` attributes the XSD spec allows (:pr:`2138`) by :user:`gaborbernat`. (:issue:`2128`)
+- Building an ``Element`` from many attributes, and sanitizing with a policy that forces many attributes on one tag, no
+  longer slows down quadratically (:pr:`2143`) by :user:`gaborbernat`. (:issue:`2142`)
+- ``minify_css`` no longer starts its output with an ``@charset`` rule unless the input did, so browsers decode the
+  output as they decode the input (:pr:`2160`) by :user:`gaborbernat`. (:issue:`2149`)
+- XSLT ``xsl:copy`` and ``xsl:copy-of`` now keep the namespace declarations in scope at the copied element, so prefixed
+  names stay bound in the output (:pr:`2170`) by :user:`gaborbernat`. (:issue:`2152`)
+- ``minify_css()`` and ``minify_css_inline()`` keep every ``/*! ... */`` bang comment, including those inside rules or
+  declarations they drop (:pr:`2163`) by :user:`gaborbernat`. (:issue:`2157`)
+- Serializing after an allocation failure now raises ``MemoryError`` instead of returning wrong Markdown or corrupting
+  memory during canonicalization (:pr:`2168`) by :user:`gaborbernat`. (:issue:`2158`)
+- ``XMLSchema`` and ``RelaxNG`` validation now rejects text outside the lexical forms of the ``ID``, ``IDREF``,
+  ``ENTITY``, ``NOTATION`` and ``g*`` date built-in types instead of accepting any value (:pr:`2185`) by
+  :user:`gaborbernat`. (:issue:`2159`)
+- ``minify_css`` treats a leading byte-order mark as the encoding signature, so the first rule after it is no longer
+  dropped (:pr:`2172`) by :user:`gaborbernat`. (:issue:`2162`)
+- Literal result elements keep the namespace declarations their own names and attributes need, even when
+  ``exclude-result-prefixes`` lists those prefixes (:pr:`2188`) by :user:`gaborbernat`. (:issue:`2165`)
+- XPath results that combine nodes from detached subtrees and the document now come back in the same order on every
+  platform, with each tree's nodes kept together (:pr:`2176`) by :user:`gaborbernat`. (:issue:`2167`)
+- ``xsl:element`` now creates its element in the namespace of its ``namespace`` attribute and declares that namespace in
+  the output, so the result parses as XML (:pr:`2186`) by :user:`gaborbernat`. (:issue:`2169`)
+- Running out of memory while compiling or validating an XML Schema or RELAX NG schema now always raises
+  ``MemoryError``, not ``ValueError`` (:pr:`2177`) by :user:`gaborbernat`. (:issue:`2171`)
+- Minifying a document again no longer changes the output: end tags and the body start tag stay where the reparse needs
+  them (:pr:`2184`) by :user:`gaborbernat`. (:issue:`2182`)
+- Schema validation and compilation on a worker thread with a small C stack now raise ``RecursionError`` for deeply
+  nested schemas instead of crashing the interpreter (:pr:`2189`) by :user:`gaborbernat`. (:issue:`2187`)
+- Selector queries with a long ``:has()`` argument on a very deep tree no longer use memory that grows with selector
+  length times depth (:pr:`2203`) by :user:`gaborbernat`. (:issue:`2201`)
+- ``minify_css_inline()`` no longer repeats a bang comment that sits inside an unclosed or invalid CSS function on each
+  pass (:pr:`2207`) by :user:`gaborbernat`. (:issue:`2204`)
+- XPath name tests over XML documents now follow XPath 1.0: an unprefixed name skips default-namespace elements, and a
+  prefix bound in ``namespaces=`` matches them (:pr:`2215`) by :user:`gaborbernat`. (:issue:`2211`)
+- XSLT ``select``, ``test`` and attribute value template expressions now resolve a prefix declared on the stylesheet
+  root or on the instruction itself, instead of raising an undefined prefix error (:pr:`2217`) by :user:`gaborbernat`.
+  (:issue:`2213`)
+- ``computed_style()`` now returns the right color for an element when several rules in a stylesheet use
+  ``:nth-child()`` or ``:nth-last-child()`` with an ``of`` selector list (:pr:`2221`) by :user:`gaborbernat`.
+  (:issue:`2220`)
+- :class:`~turbohtml.validate.XMLSchema` and :class:`~turbohtml.validate.RelaxNG` now resolve non-ASCII namespace
+  prefixes and match non-ASCII attribute names to the declarations they name (:pr:`2088`) by :user:`gaborbernat`.
+- :func:`~turbohtml.rewrite.rewrite` and :class:`~turbohtml.Minify` output no longer make a valueless attribute take the
+  next attribute's name as its value when that name starts with ``=`` (:pr:`1965`) by :user:`gaborbernat`.
+- :func:`~turbohtml.tokenize`, :class:`~turbohtml.Tokenizer` and :class:`~turbohtml.migration.stdlib.HTMLParser` now
+  tokenize ``<title>``, ``<style>``, ``<script>`` and CDATA inside ``<svg>`` and ``<math>`` as browsers do (:pr:`1988`)
+  by :user:`gaborbernat`.
+- :meth:`~turbohtml.Element.form_data` now collects the controls inside SVG and MathML elements named ``datalist``,
+  ``template`` or ``fieldset``, and such elements no longer disable them (:pr:`2083`) by :user:`gaborbernat`.
+- :meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all` no longer crash when a regex or callable filter
+  edits the tree during the search; the search carries on from the element it reached (:pr:`2053`) by
+  :user:`gaborbernat`.
+- :meth:`~turbohtml.Node.to_source` now escapes ``<`` and ``&`` in text it copies from the source, so that text can no
+  longer come back as markup (:pr:`2123`) by :user:`gaborbernat`.
+- :meth:`~turbohtml.Node.to_source` now writes the end tag of an element the source left open, unless HTML makes that
+  tag optional there (:pr:`2115`) by :user:`gaborbernat`.
+- A link nested in another link's text is written as its text only, so the outer link keeps its destination and title in
+  :meth:`~turbohtml.Node.to_markdown` (:pr:`2072`) by :user:`gaborbernat`.
+- A recursive XSLT stylesheet on a small-stack thread now raises ``RecursionError`` instead of crashing, and a very deep
+  one may fail where it used to finish (:pr:`1891`) by :user:`gaborbernat`.
+- A stylesheet or RELAX NG schema that reads more than 1,024 referenced files or 8 MiB through them now raises
+  ``ValueError`` (:pr:`2026`) by :user:`gaborbernat`.
+- An XPath predicate that fails while a walk covers several nodes now raises its own error, not a ``SystemError``
+  (:pr:`2199`) by :user:`gaborbernat`.
+- An element with simple content is now checked against the facets of its base type and of its own restriction
+  (:pr:`1996`) by :user:`gaborbernat`.
+- Attributes with non-ASCII names are no longer read as ``charset``, ``http-equiv``, ``content`` or ``shadowroot*``, so
+  they no longer set the encoding or attach a shadow root (:pr:`2011`) by :user:`gaborbernat`.
+- Build XSLT ``generate-id()`` values from node creation order, so transform output no longer contains heap addresses
+  (:pr:`1887`) by :user:`gaborbernat`.
+- CSS ``url()`` and ``@import`` targets are now read and written back the way browsers read them, so rewritten links no
+  longer change where a stylesheet ends (:pr:`1977`) by :user:`gaborbernat`.
+- Converting each item of a long list with its own ``to_markdown()`` call now takes linear time instead of quadratic
+  time (:pr:`2119`) by :user:`gaborbernat`.
+- Deeply nested XPath expressions now raise ``ValueError`` instead of crashing the interpreter when run on a thread with
+  a small stack (:pr:`1892`) by :user:`gaborbernat`.
+- Edited start tags in :func:`~turbohtml.rewrite.rewrite` keep long attribute names whole, and by-name handler calls on
+  tags with many attributes now run in linear time (:pr:`1993`) by :user:`gaborbernat`.
+- Editing a deeply nested tree during :meth:`~turbohtml.Node.iter_elements` no longer takes quadratic time, and an
+  element moved back under the iterated node is bounded by it again (:pr:`2099`) by :user:`gaborbernat`.
+- Editing nodes watched by many separate :class:`~turbohtml.MutationObserver` objects no longer slows down with the
+  number of watched nodes (:pr:`1966`) by :user:`gaborbernat`.
+- Enforce ``minInclusive``, ``maxInclusive``, ``minExclusive`` and ``maxExclusive`` on ``xs:date``, ``xs:dateTime``,
+  ``xs:time`` and ``xs:duration`` in :class:`~turbohtml.validate.XMLSchema` and :class:`~turbohtml.validate.RelaxNG`;
+  values outside the bounds were accepted (:pr:`1888`) by :user:`gaborbernat`.
+- Feed extraction reports out-of-memory failures while resolving RDF item references instead of continuing past them
+  (:pr:`1970`) by :user:`gaborbernat`.
+- Fix a crash when a callback moved the walked node into another tree; xpath now raises ValueError if its variables move
+  the context node (:pr:`1927`) by :user:`gaborbernat`.
+- Fix same-scheme base URLs and meta refresh targets ending in a colon resolving to the page URL instead of the URL they
+  name (:pr:`2022`) by :user:`gaborbernat`.
+- Hosts ending in a dot now group with their sibling hosts for ``external_only=True`` links, and no longer read past the
+  end of such a host (:pr:`1985`) by :user:`gaborbernat`.
+- Hosts ending in several dots now group with their sibling hosts for ``external_only=True`` links, and hosts with an
+  empty label before their domain stay separate (:pr:`2000`) by :user:`gaborbernat`.
+- Indented Markdown code blocks are fenced wherever a reader would read them as paragraph text, and a list's first item
+  after text gets a blank line before it (:pr:`2023`) by :user:`gaborbernat`.
+- Keep ``scale()`` and ``translate()`` arguments whole during CSS minification when a string, comment or block in them
+  holds a comma, so the rest of the stylesheet keeps its meaning (:pr:`1874`) by :user:`gaborbernat`.
+- Keep a CSS string whole when a newline follows a hex escape inside it, so :func:`~turbohtml.clean.minify_css` no
+  longer drops the declaration (:pr:`1990`) by :user:`gaborbernat`.
+- Keep an escaped whitespace that ends a CSS ``url()`` when minifying, so its backslash cannot escape the closing ``)``
+  (:pr:`1958`) by :user:`gaborbernat`.
+- Keep content after a raw-text element such as textarea or noframes in the right place when it is nested past the depth
+  limit (:pr:`1902`) by :user:`gaborbernat`.
+- Keep every ``<frame>`` after a ``<frameset>`` refused at the nesting limit, instead of dropping some of them
+  (:pr:`1878`) by :user:`gaborbernat`.
+- Keep paragraphs inside deeply nested list items when converting HTML to Markdown (:pr:`1677`) by :user:`gaborbernat`.
+- Keep the sanitizer from trimming whitespace that ends an unterminated string or follows a backslash, which let
+  unlisted CSS properties survive in ``<style>`` bodies (:pr:`1972`) by :user:`gaborbernat`.
+- Linking a node that is an anchor, or sits inside one, no longer adds links within that anchor. Text under an anchor is
+  left as written (:pr:`1909`) by :user:`gaborbernat`.
+- Links with extra slashes before their host now resolve to that host instead of the page's own host, even when tabs or
+  newlines hide the slashes (:pr:`1880`) by :user:`gaborbernat`.
+- Looping over the children of a long ``turbohtml.etree`` element by position is no longer quadratic in their count
+  (:pr:`1959`) by :user:`gaborbernat`.
+- Markdown export writes a ``white-space: pre`` element that would start a line as a ``span``, not ``pre``, and escapes
+  list and heading markers after ``<sub>`` and ``<sup>`` (:pr:`2121`) by :user:`gaborbernat`.
+- Markdown output no longer puts ``<q>`` quote marks on code fence lines. A quote starting with a block now puts its
+  marks on their own lines (:pr:`2081`) by :user:`gaborbernat`.
+- Minifying CSS ends a `url()` where a browser does, so a comment or quote inside one can no longer keep or drop
+  declarations it should not (:pr:`2098`) by :user:`gaborbernat`.
+- Minifying CSS keeps a name that follows ``u+`` and hex digits whole, with its arguments in the same value (:pr:`2102`)
+  by :user:`gaborbernat`.
+- Minifying CSS keeps a sheet's meaning when an unquoted ``url()`` holds a quote, and keeps ``attr()`` and ``if()``
+  values with a backslash before a newline (:pr:`1999`) by :user:`gaborbernat`.
+- Minifying CSS now reads a backslash before a newline as browsers do, dropping declarations that hold one unless they
+  are custom properties or use ``var()`` or ``env()`` (:pr:`1980`) by :user:`gaborbernat`.
+- Minifying JavaScript, running an XSLT transform, or evaluating an XPath expression that nests deeper than a small
+  thread stack holds now raises an error instead of crashing the process (:pr:`2125`) by :user:`gaborbernat`.
+- Minifying keeps the end tags that a reparse needs in ruby, select, list and definition markup, so some output keeps a
+  few more tags (:pr:`2030`) by :user:`gaborbernat`.
+- Minifying the output of :func:`~turbohtml.clean.minify_css` or :func:`~turbohtml.clean.minify_css_inline` again no
+  longer changes stylesheets whose identifiers or at-keywords end in a hex escape (:pr:`1836`) by :user:`gaborbernat`.
+- Moving an element from a :func:`~turbohtml.parse_xml` tree into an HTML tree no longer takes time quadratic in the
+  number of attributes on that element (:pr:`2112`) by :user:`gaborbernat`.
+- Name the referenced path, not the target its symlinks resolve to, when an import or include escapes its root
+  (:pr:`1992`) by :user:`gaborbernat`.
+- Ordered lists in Markdown output now cap item numbers at 999,999,999, so a ``start`` or ``value`` above that no longer
+  turns an item into a paragraph (:pr:`1871`) by :user:`gaborbernat`.
+- Preserve CSS escape terminators, head content after repeated HTML tags, and spaces in Markdown table link destinations
+  (:pr:`1665`) by :user:`gaborbernat`.
+- RELAX NG and XSD validation now takes time linear in the document size, however its elements are arranged (:pr:`2041`)
+  by :user:`gaborbernat`.
+- Raise :class:`ValueError` from :func:`~turbohtml.rewrite.rewrite` when text written into an unclosed raw-text element
+  would end it early, and escape text written past the nesting cap (:pr:`2097`) by :user:`gaborbernat`.
+- Range comparison methods raise ValueError instead of crashing or returning a result when an edit leaves the boundaries
+  in separate trees (:pr:`1932`) by :user:`gaborbernat`.
+- Range edits that wrap, cut or insert inside one long text node no longer keep a copy of the remaining text for each
+  edit (:pr:`2105`) by :user:`gaborbernat`.
+- Reading tables with rows(), records() or tables() now raises MemoryError when memory runs out, instead of SystemError
+  (:pr:`1963`) by :user:`gaborbernat`.
+- Reject ``NaN`` in XSD validation when ``minInclusive``, ``maxInclusive``, ``minExclusive`` or ``maxExclusive`` bounds
+  an ``xs:double`` or ``xs:float``, as RELAX NG validation already does (:pr:`1968`) by :user:`gaborbernat`.
+- Removing nodes while a :class:`~turbohtml.NodeIterator` is live no longer slows with how deeply its root or reference
+  sits in the document (:pr:`2100`) by :user:`gaborbernat`.
+- Resolve ``itemref`` against the document ``microdata()`` is called on, so a copied document no longer crashes it
+  (:pr:`1989`) by :user:`gaborbernat`.
+- SVG element names containing non-ASCII characters keep the spelling they were written with, instead of being renamed
+  to a standard SVG name (:pr:`1954`) by :user:`gaborbernat`.
+- Selector queries with ``:has()`` on trees nested many levels deep no longer slow down depending on where the tree sits
+  in memory (:pr:`2014`) by :user:`gaborbernat`.
+- Sets and dicts of elements built from freshly created and appended nodes no longer take quadratic time, since their
+  hashes no longer collide (:pr:`1956`) by :user:`gaborbernat`.
+- Stop ``iter_elements`` from crashing when ``linkify_node`` unwraps or replaces a link the walk is about to visit
+  (:pr:`1994`) by :user:`gaborbernat`.
+- Stop indenting a list nested directly in a list before its first item, so Markdown code fences stay fences and plain
+  text loses the stray indent (:pr:`1991`) by :user:`gaborbernat`.
+- Stop the sanitizer keeping a ``<style>`` inside a ``<textarea>``, ``<svg>`` or ``<math>``, and drop comments inside a
+  ``<textarea>``, where a reparse turns them into markup (:pr:`1875`) by :user:`gaborbernat`.
+- Stylesheets that define one ``xsl:attribute-set`` name many times no longer use memory that grows quadratically; some
+  circular-reference errors name another cycle (:pr:`1908`) by :user:`gaborbernat`.
+- Taking ``css_path()`` or ``xpath_path()`` of every element now takes time linear in the document, and anchors added by
+  ``linkify_node()`` appear in later ``find_all()`` and ``select()`` results (:pr:`2047`) by :user:`gaborbernat`.
+- Text after a raw table, list, lone tag or pipe table in ``to_markdown`` output is no longer read as raw HTML or a
+  table row (:pr:`2106`) by :user:`gaborbernat`.
+- Unwrapping a raw-text element such as ``script``, ``textarea`` or ``noscript`` in a :func:`~turbohtml.rewrite.rewrite`
+  handler now keeps its content as escaped text (:pr:`1883`) by :user:`gaborbernat`.
+- Validating against a schema pattern no longer slows down with the number of members a character class lists
+  (:pr:`2114`) by :user:`gaborbernat`.
+- Validation of deeply nested XML documents against XML Schema and RELAX NG no longer crashes worker threads with small
+  stacks (:pr:`2061`) by :user:`gaborbernat`.
+- With ``Markdown.Images(mode="alt")``, markup in an image's ``alt`` text is now escaped like prose, so it no longer
+  reaches a Markdown reader as HTML (:pr:`2103`) by :user:`gaborbernat`.
+- XML Schema and RELAX NG validation reject dates whose day does not exist in their month, such as February 29 in common
+  years (:pr:`1900`) by :user:`gaborbernat`.
+- XSD validation now accepts an empty element where a complex type's optional ``xs:all`` content allows no children
+  (:pr:`2056`) by :user:`gaborbernat`.
+- XSLT ``generate-id()`` now gives attribute and namespace nodes ids that differ from their element's and from each
+  other (:pr:`1904`) by :user:`gaborbernat`.
+- XSLT expressions, keys and ``xsl:number`` now take attribute nodes as context, ``generate-id()`` gives each attribute
+  its own id, and key patterns with alternatives match all of them (:pr:`2052`) by :user:`gaborbernat`.
+- ``ElementView.drop_tree()`` no longer copies the tail onto the dropped element, so repeated drops within one parent
+  take linear time (:pr:`1935`) by :user:`gaborbernat`.
+- ``Minify`` output of a ``parse_xml`` doctype with ``>`` in its system identifier no longer reparses the rest of the
+  identifier as markup, and drops the identifiers instead (:pr:`2096`) by :user:`gaborbernat`.
+- ``Node.encode`` with ``Html(meta_charset=True)`` no longer declares a codec that no WHATWG encoding label names, such
+  as ``iso2022_jp_2``, ``hz``, or UTF-16, which browsers could not read back; it raises ``ValueError`` instead by Bernát
+  Gábor.
+- ``Node.encode`` with ``Html(meta_charset=True)`` now declares the WHATWG name of the encoding it writes, so
+  ``iso2022_jp`` declares ``ISO-2022-JP`` where it used to declare a codec name browsers ignore. UTF-8 is declared as
+  ``utf-8``, the spelling ``serialize()`` uses (:pr:`1838`) by :user:`gaborbernat`.
+- ``Node.find()`` and ``Node.find_all()`` with a regex or callable ``text`` no longer write out of bounds when a
+  callable filter adds elements mid-search, and skip those elements (:pr:`1995`) by :user:`gaborbernat`.
+- ``XMLSchema`` and ``RelaxNG`` validation raises ``TypeError`` for a node that is neither a document nor an element,
+  instead of crashing the interpreter (:pr:`1973`) by :user:`gaborbernat`.
+- ``clean_url`` and ``extract_links`` no longer cut a URL inside its authority when the cut would change the host, so
+  links to other sites stay visible (:pr:`1974`) by :user:`gaborbernat`.
+- ``clean_url`` and ``extract_links`` now keep links whose host is a web host only once canonicalized, and return the
+  canonical form (:pr:`1982`) by :user:`gaborbernat`.
+- ``linkify_node`` no longer crashes when a link callback removes the text or ``<a>`` it is linking; the removed node
+  keeps what the callback left (:pr:`1957`) by :user:`gaborbernat`.
+- ``minify_css`` keeps time and memory linear when a short rule repeats a much longer rule's selector; the short rule
+  now stays separate (:pr:`1915`) by :user:`gaborbernat`.
+- ``parse(bytes)`` and ``detect()`` no longer cut a ``<meta>`` name or value at a NUL byte, so a label containing one no
+  longer selects an encoding (:pr:`1939`) by :user:`gaborbernat`.
+- ``rewrite()`` now reads markup in and around ``<svg>``, ``<math>``, ``<template>`` and ``<frameset>`` as browsers do,
+  so handlers see every element a browser builds there (:pr:`2002`) by :user:`gaborbernat`.
+- ``xs:duration`` values with a fraction of a second, such as ``PT1.5S``, now validate, and range facets order them by
+  their full value (:pr:`1905`) by :user:`gaborbernat`.
+- ``xsl:import`` and RELAX NG hrefs that percent-decode to a UNC path are now rejected, as undecoded UNC hrefs already
+  were (:pr:`1962`) by :user:`gaborbernat`.
+- article() now raises MemoryError when memory runs out while reading page metadata, instead of silently dropping fields
+  (:pr:`1978`) by :user:`gaborbernat`.
+
+.. _release-1-15-11-security:
+
+Security
+========
+
+- :class:`RELAX NG <turbohtml.validate.RelaxNG>` validation no longer re-derives a shared definition on every path that
+  reaches it, removing an exponential slowdown (:pr:`1811`) by :user:`gaborbernat`.
+- :class:`RELAX NG <turbohtml.validate.RelaxNG>` validation no longer slows down with the square of the child count when
+  many children each match one branch of a wide ``interleave``, ``group`` or ``choice`` (:pr:`2048`) by
+  :user:`gaborbernat`.
+- :class:`RELAX NG <turbohtml.validate.RelaxNG>` validation now bounds the work each tag, attribute and text run costs
+  by the schema's size, raising ``ValueError`` for content models too ambiguous to fit (:pr:`2027`) by
+  :user:`gaborbernat`.
+- :class:`RELAX NG <turbohtml.validate.RelaxNG>` validation now raises ``ValueError`` when a content model needs more
+  alternatives than the schema's size allows, instead of using time and memory that grow exponentially (:pr:`1889`) by
+  :user:`gaborbernat`.
+- :class:`~turbohtml.validate.RelaxNG` compiles very wide patterns, and raises :class:`RecursionError` when references
+  nest 400 levels deep without an ``element`` (:pr:`1901`) by :user:`gaborbernat`.
+- :class:`~turbohtml.validate.XMLSchema` now raises :class:`ValueError` for an XSD schema whose ``xs:group`` references
+  nest 400 levels or deeper, instead of crashing the interpreter during validation (:pr:`2086`) by :user:`gaborbernat`.
+- :class:`~turbohtml.validate.XMLSchema` now raises :class:`ValueError` for an XSD schema whose references expand to
+  more than 20,000 particles and attributes, instead of exponential validation time and memory (:pr:`1949`) by
+  :user:`gaborbernat`.
+- :class:`~turbohtml.validate.XMLSchema` validation and compilation no longer slow down as a schema declaration carries
+  more attributes or namespace declarations (:pr:`2109`) by :user:`gaborbernat`.
+- :func:`turbohtml.parse_xml` no longer takes time quadratic in the input size when a namespace URI is long (:pr:`1928`)
+  by :user:`gaborbernat`.
+- :func:`~turbohtml.clean.minify_js` no longer slows down with the depth of parentheses or immediately invoked function
+  wrappers around a script (:pr:`2005`) by :user:`gaborbernat`.
+- :func:`~turbohtml.clean.minify_js` no longer slows with the depth of nested redundant blocks and constant branches,
+  and drops statements after a jump only up to the next declaration (:pr:`1952`) by :user:`gaborbernat`.
+- :meth:`turbohtml.Node.canonicalize` now raises ``ValueError`` when repeated namespace declarations outgrow the rest of
+  the output, so a small document can no longer expand into gigabytes (:pr:`2214`) by :user:`gaborbernat`.
+- :meth:`~turbohtml.Element.form_data` and :attr:`~turbohtml.Element.field_value` no longer rescan an ``optgroup``'s or
+  ``fieldset``'s attributes for every ``option`` or ``legend``, which made large pages quadratic (:pr:`1924`) by
+  :user:`gaborbernat`.
+- :meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all` with a regex, callable or list ``text`` filter now
+  use memory linear in the document on deeply nested elements (:pr:`2068`) by :user:`gaborbernat`.
+- :meth:`~turbohtml.Node.to_markdown` no longer crashes the interpreter on an XML document, a fragment, a shadow root or
+  a detached inline element whose content ends in a line break, a no-break space or emphasized punctuation with no block
+  element around it (:pr:`1784`) by :user:`gaborbernat`.
+- A ``select`` mirrors its shown option into at most 16 ``selectedcontent`` elements. The rest keep the content the
+  source gave them, so a page with many of them no longer builds a quadratic number of DOM nodes (:pr:`1816`) by
+  :user:`gaborbernat`.
+- A same-scheme reference with an encoded dot segment now resolves as a path under the base URL when its remainder has a
+  colon in the first path segment, as the WHATWG URL standard specifies. Such references no longer use memory that grows
+  quadratically with their length in ``Document.base_url()``, ``meta_refresh()`` and link and structured-data extraction
+  (:pr:`1826`) by :user:`gaborbernat`.
+- A schema with many pattern facets now shares one size limit across all of them, so compiling it can no longer exhaust
+  memory (:pr:`2092`) by :user:`gaborbernat`.
+- A single ``matches()`` or ``closest()`` call with ``:disabled``, ``:enabled``, ``:read-write`` or ``:read-only`` now
+  takes linear time inside disabled ``fieldset`` elements, including deeply nested ones (:pr:`2007`) by
+  :user:`gaborbernat`.
+- A stylesheet with many statement at-rules, such as ``@import``, no longer takes quadratic time to parse in
+  :class:`~turbohtml.cssom.StyleSheet` or :func:`~turbohtml.cssom.computed_style` (:pr:`1819`) by :user:`gaborbernat`.
+- Absolute XPath paths in predicates no longer take quadratic time on deeply nested XML when the expression also reads a
+  node-set variable or calls an extension function (:pr:`2021`) by :user:`gaborbernat`.
+- Absolute XPath paths in predicates, and in XSLT select and test expressions, no longer take quadratic time on deeply
+  nested XML (:pr:`1936`) by :user:`gaborbernat`.
+- Adding nodes to a document one call at a time no longer stores a separate copy of each attribute value they share,
+  keeping memory linear (:pr:`2008`) by :user:`gaborbernat`.
+- An XPath expression that names many large regular expressions no longer keeps gigabytes of their compiled patterns
+  allocated until it returns (:pr:`2038`) by :user:`gaborbernat`.
+- An XPath location path that is only tested for emptiness, as a predicate, an operand of ``and`` or ``or``, an argument
+  of ``not()`` or ``boolean()``, or the ``test`` of ``xsl:if`` or ``xsl:when``, now stops at the first node it selects.
+  Before, each candidate collected the whole axis, so evaluation time grew quadratically with the length of a sibling
+  list (:pr:`1820`) by :user:`gaborbernat`.
+- An ``<html>`` start tag in fragment input no longer sets attributes on the element returned as the fragment's context
+  (:pr:`1910`) by :user:`gaborbernat`.
+- Back-reference matching in XPath regular expressions now counts every compared character against the step budget, so
+  patterns with long captured groups raise :class:`ValueError` promptly (:pr:`1981`) by :user:`gaborbernat`.
+- Bound the emphasis ``to_markdown`` reopens under deeply nested ``<b>``, ``<i>`` or ``<s>`` elements, dropping inner
+  runs of the same kind past the limit, so output stays proportional to the input (:pr:`1975`) by :user:`gaborbernat`.
+- Bound the time ``sanitize``, ``sanitize_node`` and ``migration.bleach.clean`` spend on deeply nested disallowed
+  elements when the output must also be parse-stable, and escape a link nested in a link that follows an element that
+  escapes to nothing. Past 32 levels, the output of ``sanitize_node``, of ``sanitize`` on input that must be
+  parse-stable, and of ``migration.bleach.clean`` can differ from before, and ``sanitize_node`` agrees with ``sanitize``
+  on such input (:pr:`1830`) by :user:`gaborbernat`.
+- Bound the time and memory :func:`~turbohtml.clean.minify_css` spends on nested ``@media`` blocks that repeat a prelude
+  at every level. Blocks fuse only when at most seven blocks enclose them, so deeper same-query blocks stay separate
+  (:pr:`1798`) by :user:`gaborbernat`.
+- Building a tree with parse_into or walking SAX events no longer costs time and memory quadratic in the input when
+  attributes are copied many times (:pr:`1885`) by :user:`gaborbernat`.
+- CSS minification returns a stylesheet unchanged whenever its minified form would contain ``</style``, so a minified
+  ``<style>`` body can no longer end its element early (:pr:`1812`) by :user:`gaborbernat`.
+- CSS selector queries, ``computed_style`` and ``rewrite`` no longer slow down quadratically with nesting depth when a
+  selector uses a descendant combinator, ``:lang()``, ``:dir()`` or ``:has()`` (:pr:`2193`) by :user:`gaborbernat`.
+- Calling :meth:`~turbohtml.Node.canonicalize` on an element below the root no longer takes time quadratic in the number
+  of inherited ``xml:`` attributes (:pr:`1976`) by :user:`gaborbernat`.
+- Canonicalizing parsed XML with many namespace declarations no longer stalls :meth:`turbohtml.Node.canonicalize`
+  (:pr:`1884`) by :user:`gaborbernat`.
+- Combining the ``xml:base`` attributes above a subtree in Canonical XML 1.1 took time that grew with the square of
+  their nesting depth; it now grows with their total length (:pr:`1844`) by :user:`gaborbernat`.
+- Compile a regular expression with many named groups in linear time: ``matches``, ``replace``, ``re:test`` and
+  ``re:replace`` no longer compare each ``(?P<name>...)`` with every earlier name, which made a pattern with many named
+  groups take quadratic time to compile (:pr:`1839`) by :user:`gaborbernat`.
+- Compiling a ``RelaxNG`` or ``XMLSchema`` schema whose elements carry many attributes, and validating documents against
+  it, no longer takes time quadratic in its size (:pr:`2130`) by :user:`gaborbernat`.
+- Compiling a deeply nested XML Schema or RELAX NG schema no longer crashes worker threads with small stacks, including
+  schemas that chain group references (:pr:`2095`) by :user:`gaborbernat`.
+- Compiling an XML Schema where many simple types derive from one base with many facets now takes time and memory linear
+  in the schema's size (:pr:`2043`) by :user:`gaborbernat`.
+- Compiling and applying an XSLT stylesheet now takes time linear in its size instead of quadratic, so a large nested or
+  attribute-heavy stylesheet no longer holds the process for seconds (:pr:`2111`) by :user:`gaborbernat`.
+- Converting a list item nested inside another list item to Markdown no longer crashes the Python process (:pr:`2066`)
+  by :user:`gaborbernat`.
+- Converting a long internationalized host to punycode now takes time close to linear in its length, and a host that
+  mapping lengthens past 16384 code points stays Unicode (:pr:`2016`) by :user:`gaborbernat`.
+- Converting a long run of ``<br>`` elements in :meth:`~turbohtml.Node.to_markdown` now takes linear time; a block
+  inside a link dropped by ``strip`` or ``convert`` ends the run (:pr:`2101`) by :user:`gaborbernat`.
+- Copying a document or moving nodes between documents no longer uses memory that grows with the square of the input
+  size (:pr:`1969`) by :user:`gaborbernat`.
+- Copying or sanitizing a ``ShadowRoot`` now returns a ``DocumentFragment`` holding its children, not a shadow root
+  (:pr:`1987`) by :user:`gaborbernat`.
+- Deeply nested XSLT key lookups now raise ``RecursionError`` instead of crashing the interpreter (:pr:`1964`) by
+  :user:`gaborbernat`.
+- Deeply nested documents no longer expand into millions of nodes; formatting elements the depth limit cannot reopen are
+  now dropped (:pr:`1951`) by :user:`gaborbernat`.
+- Descendant ``:has()`` queries no longer take time quadratic in the nesting depth of a document, however it was built
+  or edited (:pr:`1821`) by :user:`gaborbernat`.
+- Escape the text of a raw-text node such as ``xmp`` or ``style`` when ``sanitize`` returns a parsed node as a string
+  (:pr:`1914`) by :user:`gaborbernat`.
+- Extract Atom ``type="xhtml"`` text in linear time when one element carries many namespace-prefixed attributes
+  (:pr:`1804`) by :user:`gaborbernat`.
+- Feeding :class:`turbohtml.IncrementalParser`, :class:`turbohtml.Tokenizer` or
+  :class:`turbohtml.migration.stdlib.HTMLParser` a character reference whose digits, or whose name characters past the
+  longest entity name, never end no longer takes time quadratic in its length: the suspended reference resumes its scan
+  where the last chunk ran out instead of starting over at its ``&`` (:pr:`1828`) by :user:`gaborbernat`.
+- Find an attribute's source text in time linear in the attribute count while cleaning with
+  :func:`turbohtml.migration.bleach.clean`; a start tag with many attributes no longer stalls it (:pr:`1795`) by
+  :user:`gaborbernat`.
+- Fix an out-of-bounds read in ``to_markdown`` for an emphasis element wrapping an image without alt text in
+  ``Markdown.Images(mode="alt")``; such an image now adds nothing to the output (:pr:`2107`) by :user:`gaborbernat`.
+- Fix an out-of-bounds write through ``ElementView.getroottree().getroot()`` for elements in shadow trees and document
+  fragments; the root is now the outermost element (:pr:`1912`) by :user:`gaborbernat`.
+- Follow only the references the XSD cycle check covers when validating: ``XMLSchema.validate`` also walked a
+  ``complexContent`` or ``simpleContent`` nested in an attribute group or a derivation, a type's second content child,
+  and a group reference inside an ``xs:annotation``, so a circular schema compiled and then overflowed the C stack. An
+  annotation in an ``xs:choice`` no longer counts as an empty branch (:pr:`1786`) by :user:`gaborbernat`.
+- Foreign ``<script>`` and ``<style>`` elements inside ``<svg>`` or ``<math>``, and HTML ``<script>`` and ``<style>``
+  elements that were given element children through the DOM API, now supply only their own text children to
+  :meth:`~turbohtml.Document.json_ld`, :meth:`~turbohtml.Document.structured_data`, :func:`~turbohtml.extract.dates` and
+  ``computed_style``. Text inside an element child, or inside a nested one, no longer joins the outer block or sheet
+  (:pr:`1832`) by :user:`gaborbernat`.
+- HTML, sanitized HTML, minified HTML and canonical XML no longer repeat an unclosed formatting element's attributes
+  without limit, so output stays linear in input size (:pr:`2035`) by :user:`gaborbernat`.
+- Ignore a ``<base href>`` or feed ``xml:base`` that resolves to more than 2,048 characters, so extractors no longer
+  slow down on long bases (:pr:`1933`) by :user:`gaborbernat`.
+- Indentation in ``Html(layout=Indent())`` stops at 64 nesting levels, so deeply nested documents no longer serialize to
+  output quadratic in their size (:pr:`1919`) by :user:`gaborbernat`.
+- Items that share one large ``itemref`` subtree no longer cost time quadratic in its size when ``microdata()`` or
+  ``structured_data()`` reads them (:pr:`1989`) by :user:`gaborbernat`.
+- Keep :func:`~turbohtml.clean.minify_css` linear in the number of rules when a merged rule merges again into an earlier
+  rule (:pr:`1934`) by :user:`gaborbernat`.
+- Keep a ``calc()`` whose folded coefficient reaches the most negative 64-bit integer unfolded in ``minify_css`` instead
+  of crashing with a division error or writing a wrong value (:pr:`1785`) by :user:`gaborbernat`.
+- Keep the text of a RELAX NG ``include`` or ``externalRef`` target alive while its tree is copied into the schema, so
+  compiling a multi-file schema no longer reads freed memory (:pr:`1792`) by :user:`gaborbernat`.
+- Leave out Microdata and RDFa text properties nested more than 32 deep, instead of repeating their text at every level
+  (:pr:`1938`) by :user:`gaborbernat`.
+- Limit the bracket nesting :func:`~turbohtml.clean.linkify` and :class:`~turbohtml.clean.LinkDetector` follow in a URL
+  to 32 levels so a run of links that each precede an unclosed bracket no longer takes quadratic time to scan
+  (:pr:`1805`) by :user:`gaborbernat`.
+- Limit the nested ``<time>`` and date-marked elements whose text :func:`~turbohtml.extract.dates` scans to eight
+  levels, which keeps the scanning time proportional to the page size on deeply nested markup. Deeper elements are dated
+  from their ``datetime`` or ``title`` attribute only; their ``signal`` can change from ``time`` to ``text``, or the
+  date can be ``None`` with ``extensive_search=False`` (:pr:`1797`) by :user:`gaborbernat`.
+- Linkify reads a written ``tel:`` URI's payload only up to the phone number length limit when phone detection is on
+  (:pr:`1833`) by :user:`gaborbernat`.
+- Links and rewrites no longer repeat work and memory for each copy of a reopened formatting element; rewrite_links
+  calls its function once for those copies (:pr:`2059`) by :user:`gaborbernat`.
+- List an ``option`` only for its nearest ``select`` in :meth:`~turbohtml.Element.form_data` and
+  :attr:`~turbohtml.Element.field_value`, so nested selects and options cannot multiply the returned values (:pr:`1929`)
+  by :user:`gaborbernat`.
+- Loading a pickled document with deeply nested elements no longer takes time that grows with its node count times its
+  depth (:pr:`1923`) by :user:`gaborbernat`.
+- Long link targets, titles, languages and HTML attributes repeated in copies of an unclosed link or code element no
+  longer multiply Markdown or text output; copies over the limit drop them (:pr:`1945`) by :user:`gaborbernat`.
+- Make :meth:`~turbohtml.query.Query.closest` take linear time on deep XML trees, instead of quadratic time (:pr:`1984`)
+  by :user:`gaborbernat`.
+- Markdown export of emphasis around many empty quotes or preserved-white-space elements no longer takes quadratic time,
+  and emphasis after punctuation followed by a long run of empty elements is written as an HTML tag (:pr:`2079`) by
+  :user:`gaborbernat`.
+- Markdown output escapes ``<`` in link and image titles and in bare link destinations, so a reader that rejects the
+  link shows the text, not raw HTML (:pr:`2065`) by :user:`gaborbernat`.
+- Matching CSS selectors or a ``class_`` filter no longer takes quadratic time when a page has one long ``class`` or
+  attribute value above, or repeated across, many elements (:pr:`2087`) by :user:`gaborbernat`.
+- Matching a CSS selector with a very long chain of combinators raises RecursionError when the thread's stack cannot
+  hold it, instead of crashing (:pr:`2205`) by :user:`gaborbernat`.
+- Merge the attributes of repeated ``<html>`` and ``<body>`` start tags in time and memory linear in the attribute
+  count, so a page with many such tags can no longer make :func:`turbohtml.parse` take quadratic time or allocate
+  quadratic memory (:pr:`1808`) by :user:`gaborbernat`.
+- Microdata extraction no longer slows down sharply on an ``itemprop`` attribute that lists thousands of names
+  (:pr:`2049`) by :user:`gaborbernat`.
+- Microdata extraction now raises :exc:`RecursionError` past fixed limits on items and properties shared through
+  ``itemref``, instead of spending exponential or quadratic time (:pr:`2020`) by :user:`gaborbernat`.
+- Minify JavaScript in linear time when parenthesized groups hold regex or template literals with parentheses, and
+  reject await or yield in arrow parameters (:pr:`2085`) by :user:`gaborbernat`.
+- Minify serialization of deeply nested XML-derived trees no longer takes quadratic time; ``rt``, ``rp`` and
+  ``optgroup`` end tags deeper than the parser's limit are kept (:pr:`2058`) by :user:`gaborbernat`.
+- Minifying JavaScript no longer slows down on scripts with many nested unary operators (:pr:`1983`) by
+  :user:`gaborbernat`.
+- Minifying JavaScript that redeclares a catch parameter with ``var`` or reads ``arguments`` many times now takes time
+  linear in the script length (:pr:`2067`) by :user:`gaborbernat`.
+- Minifying JavaScript with deeply nested constant-false branches or unreachable statements that keep a declaration no
+  longer takes time quadratic in the nesting depth (:pr:`2051`) by :user:`gaborbernat`.
+- Minifying deeply stacked JavaScript chains no longer crashes the process; they raise ``nested too deeply``, and some
+  long scripts that minified before now fail the same way (:pr:`2069`) by :user:`gaborbernat`.
+- Nested ``:nth-child(... of S)`` selectors no longer translate ``S`` once per use, and a selector whose XPath would
+  pass 16,777,216 characters raises :class:`~turbohtml.convert.ExpressionError` from
+  :func:`~turbohtml.convert.css_to_xpath` instead of building an unbounded expression (:pr:`1817`) by
+  :user:`gaborbernat`.
+- Parsing a ``select`` whose ``optgroup`` has many attributes and many ``option`` elements no longer takes time
+  quadratic in the input size (:pr:`1818`) by :user:`gaborbernat`.
+- Parsing a ``select`` with misnested formatting elements and ``option`` elements between them no longer takes time
+  quadratic in the number of nodes under that ``select``. When a ``select`` holds more than sixteen enabled
+  ``selectedcontent`` elements, the clones go to the first sixteen targets in the order the select lists them, which can
+  differ from the order used before (:pr:`1822`) by :user:`gaborbernat`.
+- Parsing a formatting element with many attributes that the parser reopens many times now uses memory linear in the
+  input; past a bound, reopened copies carry no attributes (:pr:`2070`) by :user:`gaborbernat`.
+- Parsing an XPath function call now stops at the first malformed argument, so a rejected expression no longer corrupts
+  heap memory before raising :class:`ValueError` (:pr:`1870`) by :user:`gaborbernat`.
+- Parsing and sanitizing HTML with many formatting elements now takes time linear in the size of the document
+  (:pr:`1886`) by :user:`gaborbernat`.
+- Parsing and sanitizing a MathML ``annotation-xml`` element with many attributes and many children no longer takes time
+  quadratic in the input size. The parser reads the element's ``encoding`` attribute once, when the start tag is parsed,
+  and the sanitizer reads it once per element rather than once per child (:pr:`1807`) by :user:`gaborbernat`.
+- Parsing and sanitizing markup with many active formatting elements no longer takes time that grows with the square of
+  the input size (:pr:`1941`) by :user:`gaborbernat`.
+- Parsing reopens only the 16 innermost unclosed formatting elements per block and drops the outer ones, which bounds
+  memory use on hostile markup (:pr:`2057`) by :user:`gaborbernat`.
+- Parsing tables with text that alternates between two runs no longer slows down or uses excessive memory (:pr:`2033`)
+  by :user:`gaborbernat`.
+- Parsing, tokenizing, and xsl:key lookups stay fast when a document uses many attribute or key names that happen to
+  collide; output is unchanged (:pr:`1843`) by :user:`gaborbernat`.
+- Phone-number linking now runs in linear time on long text; the links found are unchanged (:pr:`2082`) by
+  :user:`gaborbernat`.
+- Positional selectors such as ``:first-of-type`` and ``:nth-child()`` no longer take time quadratic in the length of a
+  long sibling list (:pr:`1947`) by :user:`gaborbernat`.
+- Preceding-axis searches from deeply nested elements, including ``find``, ``find_all``, ``preceding`` and XPath
+  ``preceding::``, now take linear time instead of quadratic time (:pr:`1943`) by :user:`gaborbernat`.
+- Prevent a double free when ``MutationObserver.take_records()`` or ``deliver()`` fails part-way through a batch, as it
+  does on an attribute whose name is a lone surrogate. The failed drain now drops its batch, and a drain no longer reads
+  observer state that ``take_records()``, ``deliver()`` or ``disconnect()`` changes while a record is being built
+  (:pr:`1790`) by :user:`gaborbernat`.
+- Prevent an out-of-bounds read in the parser when malformed markup, nesting past the depth cap, or a foreign fragment
+  context emptied its open-element stack (:pr:`1840`) by :user:`gaborbernat`.
+- Prevent an out-of-bounds write in :class:`~turbohtml.IncrementalParser` when an ISO-2022-JP chunk ends on the escape
+  byte that cuts a two-byte character short (:pr:`1791`) by :user:`gaborbernat`.
+- Prevent an out-of-bounds write in ``minify_css`` when a ``background`` layer consists of a lone ``/`` (:pr:`1787`) by
+  :user:`gaborbernat`.
+- Prevent an out-of-bounds write when Markdown export closes emphasis after a stale hard line break, and keep converter
+  text that was dropped (:pr:`1911`) by :user:`gaborbernat`.
+- Prevent an out-of-bounds write when Markdown export wraps a short bold or italic run in a non-ASCII wrapper
+  (:pr:`1788`) by :user:`gaborbernat`.
+- RDFa ``vocab`` and ``prefix`` IRIs longer than 256 code points are now ignored, which keeps ``rdfa()`` memory bounded
+  on untrusted pages (:pr:`1913`) by :user:`gaborbernat`.
+- RELAX NG and XSD validation no longer keep a copy of each whitespace-normalized value until the call returns
+  (:pr:`1918`) by :user:`gaborbernat`.
+- RELAX NG schemas whose ``interleave`` branches overlap through a wildcard name, a ``<ref>``, a ``mixed`` or a later
+  ``combine="interleave"`` part now raise ``ValueError`` at compile time instead of compiling. Interleave checks on very
+  large grammars raise ``ValueError`` once they exceed a fixed amount of work (:pr:`1799`) by :user:`gaborbernat`.
+- RELAX NG schemas with a long ``xml:base`` over many references compile in linear time; a base URI over 8,192
+  characters now raises :class:`ValueError` (:pr:`2054`) by :user:`gaborbernat`.
+- RELAX NG schemas with overlapping attribute names in one group or interleave, or an ``anyName`` or ``nsName``
+  attribute outside ``oneOrMore`` or ``zeroOrMore``, now raise ``ValueError`` when compiled (:pr:`2037`) by
+  :user:`gaborbernat`.
+- Raise ``UnicodeEncodeError`` when ``Node.encode`` would write U+000E, U+000F or U+001B under an ISO-2022 codec such as
+  ``iso-2022-jp``. Those characters switch the state of a reader's decoder, so markup holding one could be read
+  differently from the markup that was serialized; ``etree.tostring`` writes the three as character references
+  (:pr:`1813`) by :user:`gaborbernat`.
+- Raise ``ValueError`` instead of crashing the interpreter when a stylesheet calls ``system-property()``,
+  ``function-available()`` or ``element-available()`` without an argument; a call with more than one is rejected too
+  (:pr:`1782`) by :user:`gaborbernat`.
+- Read a ``<tr>`` inside a table cell as that cell's content, and limit the cell text ``Node.tables()`` repeats for
+  tables nested inside two or more other tables to 16,000,000 characters per call, so a page of deeply nested tables
+  cannot expand into gigabytes of text (:pr:`1810`) by :user:`gaborbernat`.
+- Read the feed-level Atom ``<author>`` once per feed instead of once per entry that inherits it, so
+  :func:`~turbohtml.extract.feed` no longer takes time and memory that grow with the product of the entry count and the
+  size of that ``<author>`` (:pr:`1814`) by :user:`gaborbernat`.
+- Reading :attr:`~turbohtml.Node.assigned_slot`, ``assigned_nodes()`` or :attr:`~turbohtml.Node.flattened_children` for
+  every child or slot of a shadow tree no longer takes time quadratic in the size of the tree (:pr:`2004`) by
+  :user:`gaborbernat`.
+- Refuse an ``xsl:import`` or RELAX NG ``externalRef``/``include`` path longer than the platform path limit, even when
+  it would normalize shorter, so a long ``href`` is rejected quickly (:pr:`1916`) by :user:`gaborbernat`.
+- Reject JavaScript whose class ``extends`` clauses nest past the minifier's depth limit with ``ValueError`` instead of
+  overflowing the C stack (:pr:`1867`) by :user:`gaborbernat`.
+- Reject a script whose identifier holds a malformed ``\u`` escape or one for a code point a name cannot spell, and stop
+  joining string literals whose ``\x`` or ``\u`` escape has no value, so ``minify_js`` never returns a ``str`` holding a
+  code point past U+10FFFF (:pr:`1783`) by :user:`gaborbernat`.
+- Removing elements with ``turbohtml.etree.strip_elements`` now takes time linear in the tree size, even when the tree
+  is deeply nested (:pr:`1986`) by :user:`gaborbernat`.
+- Resolve RDFa ``prefix`` declarations in time linear in the page: an element that declares a prefix no longer copies
+  every mapping in scope, so many declaring elements under an ancestor with a large ``prefix`` no longer stall
+  :meth:`~turbohtml.Document.rdfa` and :meth:`~turbohtml.Document.structured_data` (:pr:`1794`) by :user:`gaborbernat`.
+- Resolve namespace prefixes and xml:base values in RSS, RDF and Atom feeds in linear time, so
+  :func:`turbohtml.extract.feed` no longer slows down on feeds with many declarations (:pr:`2009`) by
+  :user:`gaborbernat`.
+- Resolve namespace prefixes in Atom XHTML content in one pass, so :func:`turbohtml.extract.feed` no longer slows down
+  on large XHTML titles and content (:pr:`1953`) by :user:`gaborbernat`.
+- SVG and MathML elements named like form controls or options no longer count as controls, so form submission and field
+  values ignore them (:pr:`2077`) by :user:`gaborbernat`.
+- Sanitizing a start tag with many attributes no longer takes quadratic time when removals are reported or callbacks are
+  set; name checks now run before the attribute filter (:pr:`1930`) by :user:`gaborbernat`.
+- Schema pattern checks in one :meth:`~turbohtml.validate.XMLSchema.validate` call now share a step budget, so a pattern
+  that runs for minutes raises :class:`ValueError` instead (:pr:`2074`) by :user:`gaborbernat`.
+- Schema patterns with nested repeats of an empty group now compile in bounded time, and some patterns the state limit
+  refused now compile (:pr:`1944`) by :user:`gaborbernat`.
+- Schemas with many ``pattern`` facets no longer take quadratic time to compile or validate, for
+  :class:`~turbohtml.validate.XMLSchema` and :class:`~turbohtml.validate.RelaxNG` alike (:pr:`1926`) by
+  :user:`gaborbernat`.
+- Searching with a ``str`` or literal-regex ``text`` filter in :meth:`~turbohtml.Node.find` and
+  :meth:`~turbohtml.Node.find_all` no longer takes quadratic time on deeply nested XML documents (:pr:`1841`) by
+  :user:`gaborbernat`.
+- Selector lists and stylesheets with many ``:has()`` arguments no longer take quadratic time on deeply nested trees
+  (:pr:`1803`) by :user:`gaborbernat`.
+- Selectors ``:disabled``, ``:enabled``, ``:read-write`` and ``:read-only`` now take linear time for controls inside a
+  disabled ``fieldset``, instead of growing quadratically with its size (:pr:`1917`) by :user:`gaborbernat`.
+- Selectors with many ``:*-of-type`` pseudo-classes on a missing or unusual type name no longer rescan the compound for
+  each one, and stop at the output limit promptly (:pr:`2117`) by :user:`gaborbernat`.
+- Serialize XML trees in linear time when ``xlink:`` attributes inherit their namespace declaration from an ancestor
+  (:pr:`1925`) by :user:`gaborbernat`.
+- Serializing part of an XML tree no longer takes cubic time in the namespace declarations above it, and skips
+  declarations whose prefix holds a colon (:pr:`2110`) by :user:`gaborbernat`.
+- Stop ``:nth-child()`` and other ``An+B`` selectors crashing the interpreter near the ``int`` limits, and clamp
+  ``An+B`` integers beyond that range instead of wrapping them (:pr:`1876`) by :user:`gaborbernat`.
+- Stop ``minify_css`` from taking time quadratic in the length of a ``border``, ``outline`` or ``column-rule`` value
+  (:pr:`1921`) by :user:`gaborbernat`.
+- Stop ``minify_css`` from taking time quadratic in the nesting depth of a CSS ``filter`` value's ``drop-shadow()`` and
+  math functions (:pr:`1806`) by :user:`gaborbernat`.
+- Stop ``select()``, ``matches()``, ``closest()`` and ``computed_style()`` crashing on a detached element when a
+  selector looks at its parent through ``>``, ``:root``, ``:scope`` or an ``option``'s ``:disabled``/``:enabled``
+  (:pr:`1793`) by :user:`gaborbernat`.
+- Stop ``structured_data()`` and schema validation from crashing the interpreter on a ``Document`` made by
+  ``copy.copy``, ``copy.deepcopy`` or ``sanitize_node`` (:pr:`2046`) by :user:`gaborbernat`.
+- Stop chained sibling combinators inside ``:has()``, such as ``:has(~ a ~ b)``, from multiplying query time with each
+  link (:pr:`2202`) by :user:`gaborbernat`.
+- Stop keeping an allowlisted ``<style>`` inside a kept ``<select>``, which some parsers read as markup; drop comments
+  in SVG or MathML ``<textarea>`` elements (:pr:`2036`) by :user:`gaborbernat`.
+- Stop nested selector lists, ``:has()`` and ``:nth-child(of S)`` from multiplying match time with each nesting level,
+  so matching stays linear in the stylesheet and the document depth (:pr:`2216`) by :user:`gaborbernat`.
+- Table extraction now raises ``ValueError`` once spans and row padding add more than 4,000,000 cells to a call's grid,
+  instead of allocating gigabytes (:pr:`1948`) by :user:`gaborbernat`.
+- The XPath ``lang()`` function, also inside XSLT transforms, now runs in linear time on deeply nested documents and
+  below elements with many attributes (:pr:`2094`) by :user:`gaborbernat`.
+- The sanitize functions now raise :exc:`RecursionError` for a tree with more than 1,536 disallowed elements nested in
+  one another, instead of taking quadratic time (:pr:`1960`) by :user:`gaborbernat`.
+- Treat an ``xs:group`` particle that has no ``ref`` as matching no content in :class:`~turbohtml.validate.XMLSchema`,
+  instead of crashing the interpreter when a document reaches it (:pr:`1801`) by :user:`gaborbernat`.
+- Treat the attribute as absent when ``Node.re()`` or ``Node.re_first()`` is called with ``attr=`` on a text node,
+  processing instruction, doctype or other non-element node, instead of reading attribute storage that the node does not
+  have, which could crash the interpreter (:pr:`1789`) by :user:`gaborbernat`.
+- URL cleaning no longer crashes on a query or fragment key that holds an encoded NUL; such a key is kept unless another
+  rule drops it (:pr:`1872`) by :user:`gaborbernat`.
+- Validating an ``xs:all`` element that lacks a required member now reports that element's line, instead of a value read
+  from unrelated memory (:pr:`2091`) by :user:`gaborbernat`.
+- Validating an ``xs:all`` group no longer slows down with the square of its member and child counts. A name declared
+  twice in one ``xs:all`` is now reported missing once (:pr:`1920`) by :user:`gaborbernat`.
+- Validating an ``xs:all`` group now rejects a child element that appears more often than its declaration allows,
+  including inside named groups and complex type extensions (:pr:`2012`) by :user:`gaborbernat`.
+- Validating children against an ambiguous repeating XSD particle now takes linear time, and some valid children that
+  such a particle rejected are now accepted (:pr:`2013`) by :user:`gaborbernat`.
+- Validating many children against a repeating particle of an XSD :class:`~turbohtml.validate.XMLSchema` now takes
+  linear time and memory in the child count (:pr:`1979`) by :user:`gaborbernat`.
+- Writing many attributes onto one element, through XSLT, ``Element.attrs`` or ``linkify(process_existing=True)``, now
+  takes time linear in their number (:pr:`1879`) by :user:`gaborbernat`.
+- XML Schema validation no longer allocates memory per element in proportion to its complex type's declarations, so
+  large documents need far less memory (:pr:`2089`) by :user:`gaborbernat`.
+- XML output keeps a processing instruction from ending early when a character XML cannot hold sits between its ``?``
+  and ``>`` (:pr:`2019`) by :user:`gaborbernat`.
+- XML serialization now raises ``ValueError`` when inherited namespace declarations would multiply the output, and Atom
+  feeds omit them instead (:pr:`1937`) by :user:`gaborbernat`.
+- XMLSchema validation no longer takes quadratic time when schema elements hold many children that declare nothing
+  (:pr:`2113`) by :user:`gaborbernat`.
+- XPath ``matches``, ``replace``, ``re:test`` and ``re:replace`` now count matching work against the evaluation's step
+  budget, so expensive patterns raise :class:`ValueError` instead of running for minutes (:pr:`2045`) by
+  :user:`gaborbernat`.
+- XPath ``string-join``, ``replace``, ``re:replace``, ``str:replace`` and ``str:padding`` now raise :class:`ValueError`
+  when one evaluation adds more than 64 MiB to its strings, instead of allocating gigabytes (:pr:`2090`) by
+  :user:`gaborbernat`.
+- XPath and XSLT ``id()`` called once per node now run in linear time, and select only the first element in document
+  order when several share an id (:pr:`2080`) by :user:`gaborbernat`.
+- XPath steps from many context nodes along overlapping axes, such as ``following-sibling::p[1]``, now hold each node
+  once and take linear time instead of quadratic (:pr:`2183`) by :user:`gaborbernat`.
+- XPath string and node-set functions now raise :class:`ValueError` once one call gathers more than 10 MiB of repeated
+  element text, instead of running without limit (:pr:`1906`) by :user:`gaborbernat`.
+- XPath unions and reverse-axis steps over long sibling lists now sort in linear time, whatever the document's shape
+  (:pr:`1922`) by :user:`gaborbernat`.
+- XPath unions, bound variables and reverse-axis steps over wide or deeply nested documents now finish in linear time,
+  so large queries no longer stall (:pr:`1823`) by :user:`gaborbernat`.
+- XSLT ``key()`` with a node-set as its second argument now returns each matching node once, in document order. It
+  returned the matches once per argument node, so the result and its memory grew with the square of a document that
+  repeated one key value (:pr:`1829`) by :user:`gaborbernat`.
+- XSLT patterns that test prefixed attributes by name now take linear time on deeply nested source documents
+  (:pr:`2132`) by :user:`gaborbernat`.
+- XSLT transforms that put many attributes on one result element and then add literal children or namespaced attributes
+  to it now run in linear time instead of quadratic (:pr:`2139`) by :user:`gaborbernat`.
+- ``:dir()`` no longer takes quadratic time on pages with many elements under ``dir=auto`` ancestors or with deeply
+  nested ``dir=auto`` elements (:pr:`2003`) by :user:`gaborbernat`.
+- ``Element.form_data()`` now allocates the field name once per ``<select multiple>`` instead of once per selected
+  option. Before, the memory of the result grew with the product of the name length and the number of selected options
+  (:pr:`1796`) by :user:`gaborbernat`.
+- ``Markdown.Tables(pad=True)`` keeps output proportional to the input, and a table whose cells cannot fund its
+  alignment is written as plain pipe rows (:pr:`2084`) by :user:`gaborbernat`.
+- ``Node.canonicalize()`` on parsed XML documents with long namespace URIs now takes time linear in the size of the
+  document (:pr:`1946`) by :user:`gaborbernat`.
+- ``Policy.media_hosts`` checks the host a browser loads from each media ``src``, so a value with a hidden or misplaced
+  authority no longer passes the allowlist (:pr:`2018`) by :user:`gaborbernat`.
+- ``Query.find`` no longer takes quadratic time when it is called on many elements (:pr:`1882`) by :user:`gaborbernat`.
+- ``Range`` content methods and ``common_ancestor_container`` no longer take time quadratic in the document size when
+  the boundaries sit deep in the tree (:pr:`2104`) by :user:`gaborbernat`.
+- ``XMLSchema`` and ``RelaxNG`` validation lists at most 1,000 errors and cuts element names longer than 64 characters
+  in error paths (:pr:`1940`) by :user:`gaborbernat`.
+- ``computed_style()`` caps the memory it keeps for ``:has()`` results per document, so large pages with many ``:has()``
+  rules no longer retain unbounded memory (:pr:`1950`) by :user:`gaborbernat`.
+- ``microdata()``, ``structured_data()`` and XSLT template matching no longer take quadratic time on crafted documents
+  (:pr:`1942`) by :user:`gaborbernat`.
+- ``minify_js()`` no longer crashes on huge guard lists, long operator groups or nested single-use functions; past a
+  depth limit it leaves the remaining code in its original shape (:pr:`1898`) by :user:`gaborbernat`.
+- ``minify_js`` no longer returns invalid JavaScript or the wrong value for a variable that a destructuring declaration
+  re-binds (:pr:`2010`) by :user:`gaborbernat`.
+- ``minify_js`` no longer returns invalid JavaScript, overflows the stack, or grows its output exponentially on some
+  scripts that use destructuring patterns (:pr:`1868`) by :user:`gaborbernat`.
+- ``minify_js`` no longer searches the statement after a declaration once per regex-initialized binding. Scripts with
+  many such bindings in front of one long statement took time quadratic in their length (:pr:`1800`) by
+  :user:`gaborbernat`.
+- ``minify_js`` no longer slows down quadratically on long ``&&``, ``||`` or ``??`` chains, so large scripts minify
+  quickly (:pr:`1890`) by :user:`gaborbernat`.
+- ``minify_js`` now keeps peak memory proportional to the script size when minifying long chains of concatenated string
+  literals (:pr:`1873`) by :user:`gaborbernat`.
+- ``minify_js`` now raises ``ValueError`` for an object shorthand property whose key is not an identifier, which is not
+  valid JavaScript (:pr:`1809`) by :user:`gaborbernat`.
+- ``minify_js`` now raises ``ValueError`` when a punctuator stands where an object, pattern or class property name, or a
+  member name after ``.``, ``?.`` or ``new.``, belongs. A punctuator there used to repeat the text of an earlier token,
+  so its output could grow with the square of the input size (:pr:`1815`) by :user:`gaborbernat`.
+- ``rewrite()`` no longer scans open elements for end tags that match none of them, so unmatched closing tags cost
+  linear time (:pr:`2218`) by :user:`gaborbernat`.
+- ``rewrite()`` no longer turns markup the parser ignored or discarded into live elements when an edit changes a
+  ``<frameset>``, the markup around it, or an attribute the parser reads (:pr:`2209`) by :user:`gaborbernat`.
+- ``xpath_path()`` now returns a path that selects the element it came from, even for tag names with XPath syntax or a
+  namespace prefix (:pr:`2073`) by :user:`gaborbernat`.
+- ``xsl:number level="any"`` without ``count`` now takes linear time when element names alternate in document order,
+  with or without ``from`` (:pr:`1931`) by :user:`gaborbernat`.
+- ``xsl:number`` no longer reads out of bounds or prints a wrong number when a stylesheet mixes default and
+  pattern-based numbering (:pr:`2050`) by :user:`gaborbernat`.
+- ``xsl:number`` now numbers deeply nested documents in linear time, and matches a prefixed ``count`` or ``from``
+  pattern once per instruction instead of once per number (:pr:`2178`) by :user:`gaborbernat`.
+- ``xsl:number`` now takes linear time when several instructions with different or repeated ``count`` or ``from``
+  patterns, or alternating sibling names, number one run (:pr:`2001`) by :user:`gaborbernat`.
+- ``xsl:number`` with a ``count`` or ``from`` pattern that reads ``current()`` now tests only the nodes it counts,
+  instead of matching the pattern over the whole document for every number (:pr:`2129`) by :user:`gaborbernat`.
+
+.. _release-1-15-11-performance:
+
+Performance
+===========
+
+- Tokenizing SVG-heavy pages is faster again (:pr:`2219`) by :user:`gaborbernat`.
+
+.. _release-1-15-11-packaging:
+
+Packaging
+=========
+
+- Every wheel now carries a `PEP 770 <https://peps.python.org/pep-0770/>`_ CycloneDX SBOM in its ``.dist-info/sboms``
+  directory, written by `python-sbom <https://github.com/tox-dev/python-sbom>`_, which wraps meson-python and describes
+  each release wheel again after its repair (:pr:`1667`) by :user:`gaborbernat`.
+- The complexity regression tests now count the C loop steps that a ``-Dwork_steps=true`` build records instead of
+  timing parses, so they no longer pass or fail with machine load. Release builds leave the option off and compile the
+  counter out (:pr:`1845`) by :user:`gaborbernat`.
+- The rewrite linear-time test now sweeps every attribute name, so its result no longer depends on the hash seed
+  (:pr:`2212`) by :user:`gaborbernat`.
+
 .. _release-1-15-10:
 
 ***********************

@@ -1,2 +1,0 @@
-A code block whose language contains a backtick is now fenced without that language, so its text stays code instead of
-being read as Markdown.

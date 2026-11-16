@@ -1,2 +1,0 @@
-CSS minification now keeps a selector with three or more colons as written, and minifying the output again changes
-nothing.

@@ -1,2 +1,0 @@
-``minify_css`` keeps a rule whose selector starts with a combinator, such as ``>`` or ``~``, rather than dropping it or
-merging it into the rule before.

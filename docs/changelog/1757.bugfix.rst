@@ -1,2 +1,0 @@
-Keep the doctype's public and system identifiers and forced quirks mode in :meth:`~turbohtml.Node.to_source`, so the
-output reparses in the source's document mode.

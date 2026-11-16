@@ -1,1 +1,0 @@
-Minified CSS keeps the separator after a name ending in an escaped character, so the output parses as the input did.

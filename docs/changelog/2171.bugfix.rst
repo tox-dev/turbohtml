@@ -1,2 +1,0 @@
-Running out of memory while compiling or validating an XML Schema or RELAX NG schema now always raises ``MemoryError``,
-not ``ValueError``.

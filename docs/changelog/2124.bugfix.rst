@@ -1,1 +1,0 @@
-:meth:`~turbohtml.Element.css_path` no longer hangs on a detached :func:`turbohtml.parse_fragment` root that has an id.

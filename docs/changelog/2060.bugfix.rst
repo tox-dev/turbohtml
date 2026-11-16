@@ -1,2 +1,0 @@
-Schemas that set ``minOccurs`` or ``maxOccurs`` on an ``xs:all``, ``xs:sequence``, or ``xs:choice`` inside an
-``xs:group`` now fail to compile instead of ignoring the occurrence.

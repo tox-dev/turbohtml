@@ -1,2 +1,0 @@
-Link extraction, rewriting and sanitizing now read ``srcset`` candidates like a browser: commas inside parentheses no
-longer split a candidate, and candidates with invalid descriptors are skipped.

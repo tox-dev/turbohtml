@@ -1,2 +1,0 @@
-``minify_css`` treats a leading byte-order mark as the encoding signature, so the first rule after it is no longer
-dropped.

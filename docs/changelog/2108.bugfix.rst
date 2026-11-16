@@ -1,2 +1,0 @@
-Validating with a shared ``RelaxNG`` schema no longer writes into its compiled patterns, which raced with concurrent
-validations on free-threaded builds.

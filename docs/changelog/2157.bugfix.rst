@@ -1,2 +1,0 @@
-``minify_css()`` and ``minify_css_inline()`` keep every ``/*! ... */`` bang comment, including those inside rules or
-declarations they drop.

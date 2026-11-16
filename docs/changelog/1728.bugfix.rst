@@ -1,2 +1,0 @@
-Sanitizer checks now judge each value as the XML serializer writes it too, so dropped control characters can no longer
-rejoin CSS, URLs, or template markers the checks refused.

@@ -1,2 +1,0 @@
-XPath results that combine nodes from detached subtrees and the document now come back in the same order on every
-platform, with each tree's nodes kept together.

@@ -1,1 +1,0 @@
-Serialized and minified HTML no longer lets a script run past its end tag and turn later content into live markup.

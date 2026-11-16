@@ -1,2 +1,0 @@
-``XMLSchema`` validation now rejects attributes on elements with a simple type, except namespace declarations and the
-``xsi:`` attributes the XSD spec allows.

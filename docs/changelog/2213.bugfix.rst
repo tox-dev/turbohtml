@@ -1,2 +1,0 @@
-XSLT ``select``, ``test`` and attribute value template expressions now resolve a prefix declared on the stylesheet root
-or on the instruction itself, instead of raising an undefined prefix error.
