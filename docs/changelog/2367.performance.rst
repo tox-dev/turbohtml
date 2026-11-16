@@ -1,0 +1,2 @@
+Converting HTML with nested lists or block quotes to Markdown runs faster, since nesting is checked once per outermost
+container.

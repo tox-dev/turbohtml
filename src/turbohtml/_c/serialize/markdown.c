@@ -4147,12 +4147,12 @@ static int md_nesting_exceeds(th_node *parent, int in_list, int room) {
                 step += 1;
             } else if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
                 child_in_list = 1;
-            } else if (md_is_item_wrapper(child)) {
+            } else if (in_list && md_is_item_wrapper(child)) {
                 step = 0;
                 child_in_list = in_list;
             }
         }
-        if (step > room || md_nesting_exceeds(child, child_in_list, room - step)) {
+        if (step > room || (child->first_child != NULL && md_nesting_exceeds(child, child_in_list, room - step))) {
             return 1;
         }
     }
@@ -4160,7 +4160,8 @@ static int md_nesting_exceeds(th_node *parent, int in_list, int room) {
 }
 
 static void md_enter_list(md_ctx *ctx, th_node *node) {
-    if (md_nesting_exceeds(node, 1, TH_MAX_INDENT_LEVELS - ctx->indent_levels)) {
+    /* a top container that fits holds every container under it within the cap, so only the outermost one walks */
+    if (ctx->indent_levels == 0 && md_nesting_exceeds(node, 1, TH_MAX_INDENT_LEVELS)) {
         md_block_line(ctx, 0);
         md_emit_raw_html(ctx, node);
         return;
@@ -5316,7 +5317,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         md_enter_table(ctx, node);
         return;
     case TH_TAG_BLOCKQUOTE: {
-        if (md_nesting_exceeds(node, 0, TH_MAX_INDENT_LEVELS - ctx->indent_levels - 1)) {
+        if (ctx->indent_levels == 0 && md_nesting_exceeds(node, 0, TH_MAX_INDENT_LEVELS - 1)) {
             md_block_line(ctx, 0);
             md_emit_raw_html(ctx, node);
             return;
