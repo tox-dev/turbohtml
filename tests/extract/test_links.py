@@ -865,7 +865,7 @@ def test_css_url_in_style_element_is_resolved() -> None:
         pytest.param('url("p\\\t")', 'url("https://example.com/dir/p")', id="escaped-tab"),
         pytest.param(
             'url("\\\\remote.test/x.png")',
-            'url("https://example.com/dir/\\\\remote.test/x.png")',
+            'url("https://example.com/remote.test/x.png")',
             id="escaped-backslash",
         ),
         pytest.param("url('a\\'b.png')", "url('https://example.com/dir/a\\'b.png')", id="escaped-quote"),
@@ -1037,7 +1037,19 @@ def test_resolve_links_skips_extra_authority_slashes_in_every_location(markup: s
             "file:///srv/www/page.html", "wss:///elsewhere.test/x", "wss://elsewhere.test/x", id="file-base-foreign"
         ),
         pytest.param(_HTTPS, "ftp:", "ftp:", id="foreign-scheme-no-slashes"),
-        pytest.param(_HTTPS, "ftp:x", "ftp:x", id="foreign-scheme-opaque"),
+        pytest.param(_HTTPS, "ftp:elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-no-slash"),
+        pytest.param(_HTTPS, "ftp:/elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-one-slash"),
+        pytest.param(_HTTPS, "ftp:\\elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-one-backslash"),
+        pytest.param(_HTTPS, "ftp:elsewhere.test\\x", "ftp://elsewhere.test/x", id="foreign-special-backslash-path"),
+        pytest.param(
+            _HTTPS, "https://elsewhere.test/x\\y", "https://elsewhere.test/x/y", id="same-scheme-backslash-path"
+        ),
+        pytest.param(_HTTPS, "x\\y", "https://example.com/dir/x/y", id="relative-backslash-path"),
+        pytest.param(_HTTPS, "WSS://elsewhere.test/x", "wss://elsewhere.test/x", id="foreign-uppercase-scheme-host"),
+        pytest.param(_HTTPS, "ftp://elsewhere.test\\x", "ftp://elsewhere.test/x", id="foreign-backslash-in-path"),
+        pytest.param(_HTTPS, "ftp://\\elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-backslash-authority"),
+        pytest.param(_HTTPS, "ftp://?q", "ftp://?q", id="foreign-no-host"),
+        pytest.param(_HTTPS, "ftp://#f", "ftp://#f", id="foreign-no-host-fragment"),
         pytest.param(_HTTPS, "ftp://", "ftp://", id="foreign-special-authority-only"),
         pytest.param(_HTTPS, "ftp://elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-host-kept"),
         pytest.param(_HTTPS, "ftp:///elsewhere.test:21/x", "ftp://elsewhere.test:21/x", id="foreign-port-kept"),
@@ -1479,3 +1491,22 @@ def _rewrite_reopened_clones(size: int) -> None:
 def test_external_links_keep_the_public_suffix_boundary(base: str, host: str, *, depth: int) -> None:
     href: Final = f"https://{'s.' * depth}{host}/x"
     assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == {href}
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("ftp://elsewhere\ttest/x", "ftp://elsewheretest/x", id="tab-removed"),
+        pytest.param("ftp://elsewhere\rtest/x", "ftp://elsewheretest/x", id="carriage-return-removed"),
+        pytest.param("ftp://elsewhere\ntest/x", "ftp://elsewheretest/x", id="line-feed-removed"),
+        pytest.param("ftp:elsewhere.test\\\rx", "ftp://elsewhere.test/x", id="carriage-return-in-path-separator"),
+    ],
+)
+def test_resolve_links_removes_newlines_inside_foreign_links(href: str, expected: str) -> None:
+    root = parse_fragment("<a>x</a>")
+    link = root.find("a")
+    assert isinstance(link, Element)
+    link.attrs["href"] = href
+    root.resolve_links(_HTTPS)
+    (resolved,) = root.links()
+    assert resolved.url == expected
