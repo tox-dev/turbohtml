@@ -1785,6 +1785,24 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document, int li
    browser reads an HTML link's, skipping the slashes RFC 3986 takes for an empty authority and a rooted path. Forced
    inline so th_url_join_link, the per-link join, gets its own copy with both flags folded to constants; the other
    entry points share join_url. */
+/* A file: reference is resolved the way the URL standard resolves it against the base, which gives an empty host or
+   path its root, drops `localhost` and reads a drive letter as a path. A reference that does not parse on its own is
+   kept as written. */
+static PyObject *file_link_whatwg(PyObject *target, PyObject *base) {
+    PyObject *empty = PyUnicode_New(0, 0);
+    if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *alone = th_url_base_resolve(target, empty);
+    Py_DECREF(empty);
+    if (alone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int parses = PyUnicode_GET_LENGTH(alone) > 0;
+    Py_DECREF(alone);
+    return parses ? th_url_base_resolve(target, base) : Py_NewRef(target);
+}
+
 static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, int document, int link) {
     int c14n = document == 2;
     if (PyUnicode_GET_LENGTH(base) == 0 && !c14n) {
@@ -1881,6 +1899,12 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         PyMem_Free(base_parts.buf);
         PyMem_Free(ref_parts.buf);
         return fragment_only;
+    }
+    if (link && ref_parts.has_scheme &&
+        scheme_eq(ref_parts.buf, ref_parts.scheme_start, ref_parts.scheme_end, "file")) {
+        PyMem_Free(base_parts.buf);
+        PyMem_Free(ref_parts.buf);
+        return file_link_whatwg(target, base);
     }
     /* The effective scheme is the reference's own or, lacking one, the base's. Relative resolution only runs when that
        scheme is the base's and is one RFC 3986 resolves against; otherwise urljoin returns the reference verbatim
