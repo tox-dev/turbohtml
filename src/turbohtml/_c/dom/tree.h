@@ -955,6 +955,8 @@ typedef struct {
     th_xml_unwrap *xml_unwrap;     /* set by the serializer whenever xml is */
     int in_rawtext;                /* set while writing the text of a raw-text element: a script nested there ends
                                       with text, so the element that holds it decides its end tag */
+    int *charset_written;          /* non-NULL when charset is windows-1252: a writer sets *charset_written when it
+                                      declares the label, so the caller refuses C1 controls that label misreads */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

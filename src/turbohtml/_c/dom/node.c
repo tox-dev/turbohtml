@@ -2124,7 +2124,9 @@ PyDoc_STRVAR(encode_doc,
              "    output funds.\n"
              ":raises LookupError: if encoding names a codec Python does not know.\n"
              ":raises ValueError: if meta_charset would declare the codec and no WHATWG encoding label names it,\n"
-             "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16.\n"
+             "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16, or when the output would not read\n"
+             "    back as written under the declared label, such as Latin-1 text holding U+0080 or U+0085, which\n"
+             "    windows-1252 reads as other characters.\n"
              ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
              "    represent. Under an ISO-2022 codec those include U+000E, U+000F and U+001B,\n"
              "    which would reach the output as the shift codes that switch a decoder's state.");
@@ -2366,6 +2368,8 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     const char *charset = "utf-8";
     int unlabelled = 0;
     int *charset_missing = NULL;
+    int declared = 0;
+    int *charset_written = NULL;
     if (meta_charset && encoding != NULL) {
         const char *label = meta_charset_label(encoding);
         if (label == NULL && PyErr_Occurred()) {
@@ -2375,6 +2379,7 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
             charset_missing = &unlabelled;
         } else {
             charset = label;
+            charset_written = strcmp(label, "utf-8") == 0 ? NULL : &declared;
         }
     }
     th_serialize_opts opts = {0,
@@ -2391,7 +2396,8 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
                               NULL,
                               NULL,
                               NULL,
-                              0};
+                              0,
+                              charset_written};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2429,7 +2435,20 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
-    return result;
+    if (result == NULL || !declared) { /* GCOVR_EXCL_BR_LINE: result is NULL only on allocation failure */
+        return result;
+    }
+    int reads_back = meta_declaration_reads_back(result, encoding, charset);
+    if (reads_back == 1) {
+        return result;
+    }
+    Py_DECREF(result);
+    if (reads_back < 0) {
+        return NULL;
+    }
+    return PyErr_Format(PyExc_ValueError,
+                        "meta_charset cannot declare %s for %s: the encoded output does not read back as written",
+                        charset, encoding);
 }
 
 /* The first unstable noscript span, or NULL. */
@@ -2478,7 +2497,7 @@ PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
     } else {
         th_minify_source source = {track.spans, track.count};
         minify_opts.source = track.count > 0 ? &source : NULL; /* with no noscript, the walk skips the source checks */
-        th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL, 0};
+        th_serialize_opts opts = {0, 0, 0, "utf-8", 5, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, NULL, 0, NULL};
         Py_ssize_t out_len;
         Py_UCS4 *data = th_node_minify(tree, th_tree_document(tree), &minify_opts, &opts, &out_len);
         result = data == NULL ? PyErr_NoMemory() : ucs4_to_str(data, out_len); /* GCOVR_EXCL_BR_LINE: OOM */
@@ -2801,7 +2820,8 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                               NULL,
                               NULL,
                               NULL,
-                              0};
+                              0,
+                              NULL};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

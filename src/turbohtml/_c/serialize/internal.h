@@ -719,6 +719,9 @@ static inline void ser_put_label(sbuf *out, const th_serialize_opts *opts) {
         *opts->charset_missing = 1;
         return;
     }
+    if (opts->charset_written != NULL) {
+        *opts->charset_written = 1;
+    }
     sbuf_put_utf8(out, opts->charset, opts->charset_len);
 }
 
