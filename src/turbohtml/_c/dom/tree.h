@@ -574,6 +574,17 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
                                 Py_ssize_t context_len, int positions, int locations, int scripting,
                                 int declarative_shadow);
 
+/* As th_tree_parse_fragment, for a context element that is an HTML integration point: html_integration makes the
+   fragment root one, the way insert_foreign marks a parsed annotation-xml. Pass th_annotation_xml_is_html of the
+   context node. SVG and MathML text integration points need no flag, since the root takes their namespace and tag. */
+th_tree *th_tree_parse_fragment_ex(int kind, const void *data, Py_ssize_t length, const char *context,
+                                   Py_ssize_t context_len, int positions, int locations, int scripting,
+                                   int declarative_shadow, int html_integration);
+
+/* Whether node is a MathML annotation-xml whose current encoding attribute makes it an HTML integration point, decided
+   as insert_foreign decides a parsed start tag. */
+int th_annotation_xml_is_html(const th_node *node);
+
 /* Whether context names a real element the public parse_fragment() accepts: a known
    HTML tag, or any explicitly namespaced (svg/math) foreign element. */
 int th_tree_fragment_context_known(const char *context, Py_ssize_t context_len);

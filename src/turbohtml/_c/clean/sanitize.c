@@ -3115,7 +3115,18 @@ static inline int namespace_reachable_under(sanitizer *s, const th_node *element
     uint8_t parent_ns = parent->ns;
     uint8_t ns = element->ns;
     if (ns == parent_ns) {
-        return 1; /* within one namespace every element stays reachable (HTML<-HTML, SVG<-SVG, MathML<-MathML) */
+        if (parent_ns == TH_NS_HTML || s->xml) {
+            return 1; /* within one namespace every element stays reachable (HTML<-HTML, SVG<-SVG, MathML<-MathML) */
+        }
+        if (parent_ns == TH_NS_SVG) { /* below foreignObject, desc or title only an <svg> stays foreign */
+            return !cached_integration_point(s, parent) || element->atom == TH_TAG_SVG;
+        }
+        if (is_mathml_text_point(parent)) {
+            return element->atom == TH_TAG_MATH || element->atom == TH_TAG_MGLYPH || element->atom == TH_TAG_MALIGNMARK;
+        }
+        /* below an annotation-xml integration point the parser keeps only <math> foreign, so a MathML child there is
+           a mutation; elsewhere under MathML every element stays reachable */
+        return !cached_integration_point(s, parent) || element->atom == TH_TAG_MATH;
     }
     if (ns == TH_NS_SVG) {
         /* from HTML only <svg> enters SVG; from MathML only an <svg> under annotation-xml or a text point */
