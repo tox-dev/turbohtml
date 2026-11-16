@@ -4157,7 +4157,7 @@ static void md_leave_list(md_ctx *ctx, md_frame *frame) {
         /* a list with no items writes nothing, so the one before it stays the neighbor */
         ctx->list_end = ctx->out.len;
         ctx->list_end_prefix = ctx->prefix.len;
-        ctx->list_end_marker = frame->list.state.ordered ? frame->list.state.delimiter : frame->list.state.bullet;
+        ctx->list_end_marker = frame->list.state.ordered ? (Py_UCS4)frame->list.state.delimiter : frame->list.state.bullet;
     }
 }
 
