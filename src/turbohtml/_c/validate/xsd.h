@@ -2743,30 +2743,35 @@ static int xsd_compile(th_schema *schema) {
         }
         Py_ssize_t name_len = 0;
         const Py_UCS4 *name = xsd_attr(tree, child, "name", &name_len);
-        if (name == NULL || name_len == 0) {
-            if (is_schema_el(schema, child, XSD_NS, "element")) {
-                PyErr_SetString(PyExc_ValueError, "global element requires a name");
-                return 0;
-            }
-            continue;
-        }
         named_vec *bucket = NULL;
+        const char *kind = NULL;
         if (is_schema_el(schema, child, XSD_NS, "element")) {
             bucket = &schema->elements;
+            kind = "element";
         } else if (is_schema_el(schema, child, XSD_NS, "complexType")) {
             bucket = &schema->complex_types;
+            kind = "complexType";
         } else if (is_schema_el(schema, child, XSD_NS, "simpleType")) {
             bucket = &schema->simple_types;
+            kind = "simpleType";
         } else if (is_schema_el(schema, child, XSD_NS, "attribute")) {
             bucket = &schema->attributes;
+            kind = "attribute";
         } else if (is_schema_el(schema, child, XSD_NS, "group")) {
             bucket = &schema->groups;
+            kind = "group";
         } else if (is_schema_el(schema, child, XSD_NS, "attributeGroup")) {
             bucket = &schema->attr_groups;
+            kind = "attributeGroup";
         }
-        if (bucket != NULL) {
-            named_push(schema, bucket, name, name_len, child);
+        if (bucket == NULL) {
+            continue;
         }
+        if (name == NULL || name_len == 0) {
+            PyErr_Format(PyExc_ValueError, "global %s requires a name", kind);
+            return 0;
+        }
+        named_push(schema, bucket, name, name_len, child);
     }
     named_vec *tables[] = {&schema->elements,   &schema->complex_types, &schema->simple_types,
                            &schema->attributes, &schema->groups,        &schema->attr_groups};
