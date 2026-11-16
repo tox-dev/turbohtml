@@ -1760,7 +1760,9 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
         parser.compounds > SEL_CHAIN_CHECK ? sel_alts_chain(compiled->alts, compiled->count) : parser.compounds;
     if (sel_alts_need_nest(compiled->alts, compiled->count)) {
         compiled->nests_has = sel_alts_nest_has(compiled->alts, compiled->count, 0);
-        sel_nesting nesting = {0};
+        /* the clauses number on from a hash of the selector (sel_simple.nest), so those of selectors compiled apart,
+           which one cascade memo keys together, start apart */
+        sel_nesting nesting = {.slots = (int)(((uint64_t)(uintptr_t)compiled * 0x9E3779B97F4A7C15ull) >> 34)};
         sel_alts_nest(compiled->alts, compiled->count, 0, 0, &nesting);
         if (nesting.routes != 0 && !sel_alts_nest_sibling_has(compiled->alts, compiled->count)) {
             /* only the deep matcher keeps the answers of a list asked again */
@@ -4031,16 +4033,25 @@ static int sel_deep_has_once(th_node *node, const sel_simple *simple, const sel_
     return found;
 }
 
+/* The slot of slots, a table of capacity counts, that holds the counts of the 'of S' clause simple, or the empty one
+   they go in. A clause's number (sel_simple.nest) is its home, so the clauses of one selector take consecutive slots.
+ */
+static size_t sel_deep_counts_slot(sel_deep_counts *const *slots, int capacity, const sel_simple *simple) {
+    const size_t mask = (size_t)capacity - 1;
+    size_t index = (size_t)(unsigned)simple->nest & mask;
+    while (slots[index] != NULL && slots[index]->owner != simple) {
+        index = (index + 1) & mask;
+    }
+    return index;
+}
+
 /* The counts of the 'of S' clause simple, added empty on its first use, or NULL when allocation fails. They are keyed
-   by the clause, not its number (sel_simple.nest), as the cascade's memo serves the clauses of every rule. */
+   by the clause, as the cascade's memo serves the clauses of every rule. */
 static sel_deep_counts *sel_deep_counts_of(sel_deep_kept *kept, const sel_simple *simple) {
-    for (size_t mask = (size_t)kept->count_slots - 1, index = sel_deep_key_home(simple, mask); kept->counts != NULL;
-         index = (index + 1) & mask) {
-        if (kept->counts[index] == NULL) {
-            break;
-        }
-        if (kept->counts[index]->owner == simple) {
-            return kept->counts[index];
+    if (kept->counts != NULL) {
+        sel_deep_counts *found = kept->counts[sel_deep_counts_slot(kept->counts, kept->count_slots, simple)];
+        if (found != NULL) {
+            return found;
         }
     }
     if ((kept->count_used + 1) * 4 > kept->count_slots * 3) {
@@ -4051,11 +4062,7 @@ static sel_deep_counts *sel_deep_counts_of(sel_deep_kept *kept, const sel_simple
         }
         for (int slot = 0; slot < kept->count_slots; slot++) {
             if (kept->counts[slot] != NULL) {
-                size_t home = sel_deep_key_home(kept->counts[slot]->owner, (size_t)capacity - 1);
-                while (grown[home] != NULL) {
-                    home = (home + 1) & ((size_t)capacity - 1);
-                }
-                grown[home] = kept->counts[slot];
+                grown[sel_deep_counts_slot(grown, capacity, kept->counts[slot]->owner)] = kept->counts[slot];
             }
         }
         PyMem_Free(kept->counts);
@@ -4067,11 +4074,7 @@ static sel_deep_counts *sel_deep_counts_of(sel_deep_kept *kept, const sel_simple
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
     }
     counts->owner = simple;
-    size_t index = sel_deep_key_home(simple, (size_t)kept->count_slots - 1);
-    while (kept->counts[index] != NULL) {
-        index = (index + 1) & ((size_t)kept->count_slots - 1);
-    }
-    kept->counts[index] = counts;
+    kept->counts[sel_deep_counts_slot(kept->counts, kept->count_slots, simple)] = counts;
     kept->count_used++;
     return counts;
 }
@@ -4361,8 +4364,10 @@ static enum sel_status sel_deep_siblings(th_node *node, const sel_complex *compl
     } else if (subject != 0) {
         /* the walk's own questions can rebind the scoped table, or drop the records past its limit */
         sel_deep_memo *table = sel_deep_sibling_table(complex, index, anchor, ctx, memo);
-        sel_deep_run *run = table != NULL ? sel_deep_run_find(table, target, node->parent)
-                                          : NULL; /* GCOVR_EXCL_BR_LINE: NULL only on allocation failure */
+        if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return status;   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        sel_deep_run *run = sel_deep_run_find(table, target, node->parent);
         if (run == NULL) {
             return status;
         }
@@ -4477,11 +4482,10 @@ static int sel_deep_scope_offset(th_node *node, const sel_complex *complex, cons
 }
 
 int sel_deep_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx, sel_deep_memo *memo) {
-    if (complex->walks & SEL_ALT_SCOPE_OFFSET) {
-        const int offset = sel_deep_scope_offset(node, complex, ctx, memo);
-        if (offset >= 0) { /* GCOVR_EXCL_BR_LINE: -1 only on allocation failure */
-            return offset;
-        }
+    /* -1 without a scope offset, or on allocation failure */
+    const int offset = complex->walks & SEL_ALT_SCOPE_OFFSET ? sel_deep_scope_offset(node, complex, ctx, memo) : -1;
+    if (offset >= 0) {
+        return offset;
     }
     const int subject = complex->count - 1;
     return sel_deep_compound(node, &complex->compounds[subject], ctx, memo) &&
@@ -4609,10 +4613,11 @@ static int sel_deep_has_from(th_node *first, const th_node *parent, const sel_co
             break;
         }
     }
-    /* a failed memo (-1) is not asked again: sel_deep_has_anchor walks directly from then on */
+    /* a failed memo (-1) is not asked again: sel_deep_has_anchor walks directly from then on. The walk went on past
+       the record's yes, and no walk under the same key runs inside it, so a found position raises yes. */
     sel_deep_run *run = start != 0 ? sel_deep_run_of(memo, key, parent, 0) : NULL;
     if (run != NULL && found) {
-        run->yes = position > run->yes ? position : run->yes;
+        run->yes = position;
     } else if (run != NULL) {
         run->no = start < run->no ? start : run->no;
     }
@@ -4862,13 +4867,12 @@ static void sel_sweep_push(sel_sweep *sweep, int start, const sel_span *span) {
 }
 
 /* Adds to the set from start the anchors lo..hi that leave rem modulo mod and none of the co_count residues of cos,
-   under need and deny: clipped to the run, a progression with at most one anchor in range made that anchor, and a
-   residue it excludes kept as the span's co_mod when it fits, split off when it leaves one anchor, and spelled out
-   as the progression's other residues when a second one comes. */
+   under need and deny: clipped to the first anchor (every caller ends hi within the run), a progression with at most
+   one anchor in range made that anchor, and a residue it excludes kept as the span's co_mod when it fits, split off
+   when it leaves one anchor, and spelled out as the progression's other residues when a second one comes. */
 static void sel_sweep_settle(sel_sweep *sweep, int start, int64_t lo, int64_t hi, int64_t mod, int64_t rem,
                              const int64_t (*cos)[2], int co_count, unsigned need, unsigned deny) {
     lo = lo < 1 ? 1 : lo;
-    hi = hi > sweep->n ? sweep->n : hi;
     if (lo > hi) {
         return;
     }
@@ -5044,9 +5048,7 @@ static void sel_sweep_plan_chain(sel_sweep *sweep, const sel_complex *complex, i
     }
     if (chain->from < chain->to) {
         chain->cells = PyMem_Calloc((size_t)(chain->to - chain->from), sizeof(sel_sweep_cell));
-        if (chain->cells == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            sweep->failed = 1;      /* GCOVR_EXCL_LINE: allocation failure */
-        }
+        sweep->failed |= chain->cells == NULL;
     }
 }
 

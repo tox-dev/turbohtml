@@ -2169,6 +2169,25 @@ def test_computed_style_sibling_records_past_the_limit() -> None:
     assert [computed_style(node)["color"] for node in document.select("em")] == ["blue"] * 79 + ["red"]
 
 
+def test_computed_style_nth_of_counts_grow_past_every_table_size() -> None:
+    # each clause keeps its own counts, so the table regrows through every size up to 512 slots with hundreds of owners
+    rules: Final = "".join(f"x ~ p:nth-child(1 of .c{index}){{color:red}}" for index in range(300))
+    node: Final = parse(f"<style>{rules}</style><div><x></x><p class=c0></p></div>").select_one("p")
+    assert isinstance(node, Element)
+    assert computed_style(node)["color"] == "red"
+
+
+def test_computed_style_nth_of_clauses_eight_apart_share_a_home() -> None:
+    # the first and ninth clause of one selector number eight apart, so in the eight-slot table the second one counted
+    # probes past the first; the seven between sit on q, which no element is, and are never counted
+    between: Final = ", ".join(f"q:nth-child(1 of .c{index})" for index in range(7))
+    rule: Final = f"x ~ :is(p:nth-child(1 of .a), {between}, p:nth-child(2 of .b))"
+    nodes: Final = parse(
+        f"<style>{rule}{{color:red}}</style><div><x></x><p class=a></p><p class=b></p><p class=b></p></div>"
+    ).select("p")
+    assert [computed_style(node)["color"] for node in nodes] == ["red", "canvastext", "red"]
+
+
 @pytest.mark.parametrize(
     ("rule", "added"),
     [

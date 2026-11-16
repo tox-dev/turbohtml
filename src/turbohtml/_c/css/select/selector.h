@@ -85,7 +85,7 @@ typedef struct {
     int sub_count;    /* ':': number of comma-separated alternatives in sub */
     /* ':' with a sub, set by sel_alts_nest: 0 when one match asks it about an element once; otherwise the deep matcher
        keeps its answers: SEL_NEST_ALWAYS or SEL_NEST_DEEP for :is(), :where() and :not(), and for an 'of S' clause its
-       1-based number among the selector's clauses */
+       number among the selector's clauses, counted on from a hash of the selector */
     int nest;
 } sel_simple;
 
@@ -328,8 +328,7 @@ void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parse
 typedef struct {
     th_node_map map;
     const th_node *scope;
-    const sel_simple
-        *owner; /* the clause: one memo serves every rule of the cascade, whose clauses each number from 1 */
+    const sel_simple *owner; /* the clause: one memo serves every rule of the cascade, whose clause numbers may meet */
 } sel_deep_counts;
 
 /* The deep stand-in's answers: two bits (unknown, no, yes) per key and node, a key being a pointer into the selector
