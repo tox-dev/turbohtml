@@ -9,14 +9,33 @@ from collections.abc import Callable
 from typing import Any, Final, TypeAlias
 
 import html5lib
-from html5lib.constants import specialElements
+from html5lib import html5parser
+from html5lib.constants import namespaces, scopingElements, specialElements
 from html5lib.html5parser import impliedTagToken
+from html5lib.treebuilders import base as treebuilder_base
 from html5lib.treebuilders.base import Marker
 
 _Untyped: TypeAlias = Any  # simplint: ignore[imprecise-annotation]  # html5lib ships no types for its phases
 _Token: TypeAlias = dict[str, Any]  # simplint: ignore[imprecise-annotation]  # html5lib token dictionaries
 _Kwargs: TypeAlias = Any  # simplint: ignore[imprecise-annotation]  # html5lib keyword arguments pass through unchanged
 _Process: TypeAlias = Callable[[_Untyped, _Token], _Token | None]
+
+
+_TEMPLATE: Final[tuple[str, str]] = (namespaces["html"], "template")
+# html5lib's special category and scope lists omit template, which the standard includes in both; the tree builder
+# reads these sets at parse time, so they are replaced once for every parser.
+_SPECIAL: Final[frozenset[tuple[str, str]]] = specialElements | {_TEMPLATE}
+html5parser.specialElements = _SPECIAL  # ty: ignore[missing-attribute]  # html5lib imports this name without re-exporting it
+treebuilder_base.listElementsMap = {
+    None: (frozenset(scopingElements | {_TEMPLATE}), False),
+    "button": (frozenset(scopingElements | {_TEMPLATE, (namespaces["html"], "button")}), False),
+    "list": (
+        frozenset(scopingElements | {_TEMPLATE, (namespaces["html"], "ol"), (namespaces["html"], "ul")}),
+        False,
+    ),
+    "table": (frozenset([(namespaces["html"], "html"), (namespaces["html"], "table"), _TEMPLATE]), False),
+    "select": (frozenset([(namespaces["html"], "optgroup"), (namespaces["html"], "option")]), True),
+}
 
 
 def parse_reference(markup: str) -> _Untyped:
@@ -146,7 +165,7 @@ def _adoption_agency(self: _Untyped, token: _Token) -> None:
 
         formatting_index = self.tree.openElements.index(formatting)
         furthest_block = next(
-            (element for element in self.tree.openElements[formatting_index:] if element.nameTuple in specialElements),
+            (element for element in self.tree.openElements[formatting_index:] if element.nameTuple in _SPECIAL),
             None,
         )
         if furthest_block is None:
@@ -243,7 +262,7 @@ def _start_tag_list_item(self: _Untyped, token: _Token) -> None:
     stop: Final = next(
         node
         for node in reversed(self.tree.openElements)
-        if node.name in stop_names or (node.nameTuple in specialElements and node.name not in {"address", "div", "p"})
+        if node.name in stop_names or (node.nameTuple in _SPECIAL and node.name not in {"address", "div", "p"})
     )
     if stop.name in stop_names:
         self.parser.phases["inBody"].processEndTag(impliedTagToken(stop.name, "EndTag"))
@@ -345,8 +364,6 @@ def _template_ignore_end(self: _Untyped, token: _Token) -> None:
 
 
 def _template_eof(self: _Untyped) -> None:
-    if not _has_html_template(self):
-        return
     self.parser.parseError("expected-closing-tag-but-got-eof")
     _pop_through(self, "template")
     self.tree.clearActiveFormattingElements()
