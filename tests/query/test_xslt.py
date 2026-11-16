@@ -65,6 +65,26 @@ def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = 
     return turbohtml.parse_xml(text)
 
 
+def test_transform_pattern_with_a_prefixed_positional_predicate_agrees_with_the_plain_walk() -> None:
+    source = '<r xmlns:q="urn:q"><q:b><a><q:b><a/></q:b></a></q:b><a/></r>'
+    declare = 'xmlns:q="urn:q"'
+    apply = '<xsl:template match="/"><xsl:apply-templates select="//a"/></xsl:template>'
+    prefixed = f'{apply}<xsl:template match="a[ancestor::q:b[2]]">hit </xsl:template>'
+    plain = f'{apply}<xsl:template match="a[ancestor::*[self::q:b][position() &gt; 0][2]]">hit </xsl:template>'
+    assert Transform(_sheet(prefixed, declare=declare))(turbohtml.parse_xml(source)) == "hit hit "
+    assert Transform(_sheet(plain, declare=declare))(turbohtml.parse_xml(source)) == "hit hit "
+
+
+def test_transform_key_with_a_prefixed_predicate_indexes_the_nodes_it_matches() -> None:
+    source = '<r xmlns:q="urn:q"><q:b><a i="1"><q:b><a i="2"/></q:b></a></q:b><a i="3"/></r>'
+    body = (
+        '<xsl:key name="k" match="a[ancestor::q:b]" use="@i"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', '1'))\"/>"
+        "<xsl:value-of select=\"count(key('k', '3'))\"/></xsl:template>"
+    )
+    assert Transform(_sheet(body, declare='xmlns:q="urn:q"'))(turbohtml.parse_xml(source)) == "10"
+
+
 def test_transform_apply_templates_default_children() -> None:
     body = (
         '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'

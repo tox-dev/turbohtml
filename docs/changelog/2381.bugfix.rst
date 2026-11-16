@@ -1,0 +1,2 @@
+XPath predicates that select a node by position, or that look down a subtree, no longer slow down quadratically on long
+documents; results are unchanged.
