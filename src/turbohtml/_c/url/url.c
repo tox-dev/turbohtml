@@ -1160,7 +1160,8 @@ static Py_ssize_t split_segments(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_
 /* 1 for a single-dot path segment, 2 for a double-dot one, 0 for any other segment. A special scheme also reads %2e in
    any case as a dot, so "%2E%2e" is a double-dot segment (https://url.spec.whatwg.org/#single-dot-path-segment). */
 static int url_dot_candidate(const url_seg *segment) {
-    return segment->start < segment->end && (segment->buf[segment->start] == '.' || segment->buf[segment->start] == '%');
+    return segment->start < segment->end &&
+           (segment->buf[segment->start] == '.' || segment->buf[segment->start] == '%');
 }
 
 static int url_dot_segment(const url_seg *segment, int special) {

@@ -2207,7 +2207,9 @@ def test_encode_meta_charset_refuses_c1_under_windows_1254(encoding: str) -> Non
         pytest.param("cp932", "\uf8f1", "Shift_JIS", id="cp932-user-defined"),
     ],
 )
-def test_encode_meta_charset_refuses_text_the_declared_label_misreads(encoding: str, character: str, label: str) -> None:
+def test_encode_meta_charset_refuses_text_the_declared_label_misreads(
+    encoding: str, character: str, label: str
+) -> None:
     # Python's codec writes bytes that the WHATWG decoder of the declared label reads as other characters
     with pytest.raises(ValueError, match=re.escape(f"meta_charset cannot declare {label}")):
         parse(f"<p>{character}</p>").encode(encoding, Html(meta_charset=True))
