@@ -868,6 +868,9 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     if (th_url_host_may_end_in_number(value, host, last_colon >= 0 ? last_colon : stop)) {
         return 0;
     }
+    if (stop == end || value[stop] != '/') {
+        return 0;
+    }
     static const Py_UCS4 rejects[] = {'\t', '\r', '\n', '\\'};
     for (size_t choice = 0; choice < sizeof(rejects) / sizeof(rejects[0]); choice++) {
         if (url_find_char(value, stop, end, rejects[choice]) >= 0) {

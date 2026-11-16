@@ -416,6 +416,23 @@ def test_url_join_link_skips_extra_special_authority_slashes(base: str, referenc
 _SPECIAL_SCHEMES: Final[frozenset[str]] = frozenset({"ftp", "http", "https", "ws", "wss"})
 
 
+_BARE_AUTHORITY: Final[re.Pattern[str]] = re.compile(
+    r"""
+    ^(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?  # an optional scheme
+    //[^/?#]*                       # the authority
+    (?:[?#]|$)                      # with no path after it
+    """,
+    re.VERBOSE,
+)
+_BARE_BASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    ^[a-zA-Z][a-zA-Z0-9+.-]*://     # the scheme and separator
+    [^/?#]*$                        # the authority, with no path after it
+    """,
+    re.VERBOSE,
+)
+
+
 def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
     # a special scheme other than the base's is read as WHATWG reads it, with or without slashes, so it is not compared
     for base, reference in _corpus():
@@ -426,7 +443,19 @@ def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
             and base.partition(":")[0].lower() not in _SPECIAL_SCHEMES
             and (":" in base and not base.partition(":")[2].startswith("/"))
         )
-        if not reference.startswith("///") and not foreign and not opaque_fragment:
+        bare_authority = _BARE_AUTHORITY.match(reference) is not None
+        bare_base = _BARE_BASE.match(base) is not None and reference.strip()[:1] in {
+            "",
+            "?",
+            "#",
+        }
+        if (
+            not reference.startswith("///")
+            and not foreign
+            and not opaque_fragment
+            and not bare_authority
+            and not bare_base
+        ):
             assert _join_link(base, reference) == _join(base, reference), (base, reference)
 
 
