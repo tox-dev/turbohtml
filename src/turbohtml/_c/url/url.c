@@ -814,6 +814,94 @@ static int ipv4_number(const Py_UCS4 *cp, Py_ssize_t start, Py_ssize_t end, uint
     return 1;
 }
 
+static int host_may_be_ipv4(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (value[index] == '%' || value[index] >= 0x80) {
+            return 1;
+        }
+    }
+    Py_ssize_t stop = value[end - 1] == '.' ? end - 1 : end;
+    Py_ssize_t label = stop;
+    while (label > start && value[label - 1] != '.') {
+        label--;
+    }
+    if (label == stop) {
+        return 0;
+    }
+    int decimal = 1;
+    for (Py_ssize_t index = label; index < stop; index++) {
+        decimal &= value[index] >= '0' && value[index] <= '9';
+    }
+    if (decimal) {
+        return 1;
+    }
+    if (stop - label < 2 || value[label] != '0' || (value[label + 1] | 0x20) != 'x') {
+        return 0;
+    }
+    for (Py_ssize_t index = label + 2; index < stop; index++) {
+        if (hex_value(value[index]) < 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int th_url_host_may_end_in_number(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t stop = end > start && value[end - 1] == '.' ? end - 1 : end;
+    if (stop == start) {
+        return 0;
+    }
+    Py_UCS4 last = lower_ascii(value[stop - 1]);
+    if (last >= 'g' && last <= 'z' && last != 'x') {
+        return 0;
+    }
+    Py_ssize_t label = stop;
+    while (label > start && value[label - 1] != '.') {
+        label--;
+    }
+    return label < stop && host_may_be_ipv4(value, label, stop);
+}
+
+/* The host buf[start,end) read the way the WHATWG host parser reads a special scheme's: percent-decoded, mapped to
+   ASCII, then parsed as an IPv4 address when it ends in a number. Returns 1 with *out the dotted-decimal address, 0 for
+   a registered name, 2 for a host the parser rejects (a forbidden code point, a failed mapping, or a number that is no
+   address), or -1 with an error set. */
+static int url_host_ipv4(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, PyObject **out) {
+    PyObject *raw = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, buf + start, end - start);
+    if (raw == NULL) { /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *decoded = th_url_percent_decode_obj(raw);
+    Py_DECREF(raw);
+    if (decoded == NULL) { /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *ascii = domain_to_ascii(decoded, 1);
+    Py_DECREF(decoded);
+    if (ascii == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_LINE: ToASCII raises nothing else */
+            return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear();
+        return 2;
+    }
+    PyObject *ipv4 = maybe_ipv4(ascii);
+    int status = ipv4 != NULL ? 1 : 0;
+    if (ipv4 == NULL && PyErr_Occurred()) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(ascii);                            /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear();
+        status = 2;
+    } else if (ipv4 == NULL && host_ends_in_number(ascii)) {
+        status = 2;
+    }
+    Py_DECREF(ascii);
+    *out = ipv4;
+    return status;
+}
+
 static int url_scheme_special(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end);
 static int url_slash(Py_UCS4 ch, int special);
 static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len, int special,
@@ -1327,9 +1415,10 @@ static int url_default_port(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end
 
 /* The authority buf[start,end) as WHATWG writes it (https://url.spec.whatwg.org/#port-state and
    https://url.spec.whatwg.org/#host-parsing): an empty port, or the default port of the special scheme, is dropped, a
-   port with leading zeros is written in decimal, and the ASCII letters of the host are lowercase. Userinfo keeps its
-   case. Returns 0 when the authority is already written that way, 1 with *out holding a new buffer of *len code points,
-   or -1 with MemoryError set. A port above 65535 is a parse failure, which the join leaves as written. */
+   port with leading zeros is written in decimal, a host that reads as an IPv4 address is written dotted, and the ASCII
+   letters of the host are lowercase. Userinfo keeps its case. Returns 0 when the authority is already written that way,
+   1 with *out holding a new buffer of *len code points, or -1 with an error set. A port above 65535, an empty host, and
+   a host the IPv4 parser rejects are parse failures, which the join leaves as written. */
 static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, int def, Py_UCS4 **out,
                                     Py_ssize_t *len) {
     *out = NULL;
@@ -1349,6 +1438,9 @@ static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssi
     }
     int has_port = buf[digits - 1] == ':';
     Py_ssize_t host_end = has_port ? digits - 1 : end;
+    if (host_end == host_start) {
+        return 0;
+    }
     int upper = 0;
     for (Py_ssize_t index = host_start; index < host_end; index++) {
         upper |= buf[index] >= 'A' && buf[index] <= 'Z';
@@ -1371,11 +1463,22 @@ static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssi
         }
         drop = port == def;
     }
-    if (!upper && !drop && !zeros) {
+    PyObject *ipv4 = NULL;
+    if (host_may_be_ipv4(buf, host_start, host_end)) {
+        int status = url_host_ipv4(buf, host_start, host_end, &ipv4);
+        if (status < 0) { /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (status == 2) {
+            return 0;
+        }
+    }
+    if (!upper && !drop && !zeros && ipv4 == NULL) {
         return 0;
     }
-    Py_UCS4 *fixed = PyMem_Malloc((size_t)(end - start + 8) * sizeof(Py_UCS4));
+    Py_UCS4 *fixed = PyMem_Malloc((size_t)(end - start + 16) * sizeof(Py_UCS4));
     if (fixed == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_XDECREF(ipv4); /* GCOVR_EXCL_LINE: allocation-failure path */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1383,9 +1486,15 @@ static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssi
     for (Py_ssize_t index = start; index < host_start; index++) {
         fixed[written++] = buf[index];
     }
-    for (Py_ssize_t index = host_start; index < host_end; index++) {
-        Py_UCS4 c = buf[index];
-        fixed[written++] = c >= 'A' && c <= 'Z' ? c | 0x20 : c;
+    if (ipv4 != NULL) {
+        for (Py_ssize_t index = 0; index < PyUnicode_GET_LENGTH(ipv4); index++) {
+            fixed[written++] = PyUnicode_READ_CHAR(ipv4, index);
+        }
+    } else {
+        for (Py_ssize_t index = host_start; index < host_end; index++) {
+            Py_UCS4 c = buf[index];
+            fixed[written++] = c >= 'A' && c <= 'Z' ? c | 0x20 : c;
+        }
     }
     if (has_port && !drop) {
         char text[8];
@@ -1394,6 +1503,7 @@ static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssi
             fixed[written++] = (Py_UCS4)(unsigned char)text[index];
         }
     }
+    Py_XDECREF(ipv4);
     *out = fixed;
     *len = written;
     return 1;
