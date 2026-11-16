@@ -2045,6 +2045,21 @@ def test_computed_style_scope_below_a_sibling(rule: str, color: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("rule", "red"),
+    [
+        pytest.param("b:scope:nth-last-child(1 of b)", ["b", "b"], id="last-of-beside-scope"),
+        pytest.param("i:scope:has(~ x:has(b))", ["i"], id="has-in-sibling-argument"),
+        pytest.param("i:scope:has(~ x:has(b) y)", ["i"], id="has-left-of-descendant"),
+    ],
+)
+def test_computed_style_scope_selector_with_nested_lists(rule: str, red: list[str]) -> None:
+    nodes: Final = parse(
+        f"<style>{rule}{{background-color:red}}</style><div><i></i><x><b></b><y></y></x><b></b></div>"
+    ).select("div *")
+    assert [node.tag for node in nodes if computed_style(node)["background-color"] == "red"] == red
+
+
+@pytest.mark.parametrize(
     "rule",
     [
         pytest.param("i:has(~ p > x:is(:scope ~ b ~ *))", id="scope-chain-below-sibling"),

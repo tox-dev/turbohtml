@@ -1015,7 +1015,7 @@ int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, i
                 break;                  /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
-        alts[count] = (sel_complex){NULL, 0, 0, 0, 0};
+        alts[count].walks = 0;
         if (sel_complex_parse(parser, &alts[count], nested, relative) == 0) {
             count++;
         } else if (forgiving) {
@@ -1477,8 +1477,8 @@ static int sel_rel_sweep_at(const sel_complex *rel) {
 
 /* What sel_alts_nest counts: marks, the lists it marks (sel_simple.nest); routes, those only the deep matcher keeps the
    answers of on any tree; slots, the 'of S' clauses. scoped: the selector holds a :scope, without which no :has()
-   argument reads it (sel_complex.scope_reach, sel_complex.sweep_at) and no alternative is a SEL_ALT_SCOPE_OFFSET
-   chain. */
+   argument reads it (sel_complex.scope_reach, sel_complex.sweep_at) and no alternative takes a mark of
+   sel_alt_scope_walks. */
 typedef struct {
     int marks;
     int routes;
@@ -1501,9 +1501,10 @@ static int sel_simple_nest(sel_simple *simple, int asked_again, int in_of, sel_n
     case PSEUDO_HAS: {
         /* a :has() argument is tested at every element of the walks of every anchor, and anchors share elements */
         const int walks = sel_alts_nest(simple->sub, simple->sub_count, 1, 0, nesting);
-        for (int alt = 0; nesting->scoped && alt < simple->sub_count; alt++) {
-            simple->sub[alt].scope_reach = sel_rel_scope_reach(&simple->sub[alt]);
-            simple->sub[alt].sweep_at = sel_rel_sweep_at(&simple->sub[alt]);
+        for (int alt = 0; alt < simple->sub_count; alt++) {
+            sel_complex *rel = &simple->sub[alt];
+            rel->scope_reach = nesting->scoped ? sel_rel_scope_reach(rel) : 0;
+            rel->sweep_at = nesting->scoped ? sel_rel_sweep_at(rel) : 0;
         }
         simple->nest = asked_again;
         nesting->marks += asked_again;
@@ -1550,6 +1551,13 @@ static int sel_simple_nest(sel_simple *simple, int asked_again, int in_of, sel_n
    once: one left of a combinator, which the combinator's walk tests at every element it passes, or one inside such a
    list, a :has() or an 'of S' clause. The matcher with no memo pays a walk for every such question, so each nesting
    level multiplied the cost of a match by the tree depth or the sibling count. */
+/* The marks of complex that a :scope in it sets: SEL_ALT_SCOPED, SEL_ALT_AHEAD and SEL_ALT_SCOPE_OFFSET. */
+static int sel_alt_scope_walks(const sel_complex *complex) {
+    return (sel_alts_write_scope(complex, 1) ? SEL_ALT_SCOPED : 0) |
+           (sel_alts_scope_ahead(complex, 1) ? SEL_ALT_AHEAD : 0) |
+           (sel_scope_chain(complex, 1) ? SEL_ALT_SCOPE_OFFSET : 0);
+}
+
 static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_of, sel_nesting *nesting) {
     int walks = 0;
     for (int alt = 0; alt < count; alt++) {
@@ -1567,10 +1575,8 @@ static int sel_alts_nest(sel_complex *alts, int count, int asked_again, int in_o
                     sel_simple_nest(&compound->simples[at], asked_again || index < complex->count - 1, in_of, nesting);
             }
         }
-        complex->walks = (alt_walks ? SEL_ALT_WALKS : 0) | (sel_alts_write_scope(complex, 1) ? SEL_ALT_SCOPED : 0) |
-                         (sel_alts_scope_ahead(complex, 1) ? SEL_ALT_AHEAD : 0) |
-                         (alt_walks & SEL_WALKS_SIBLINGS ? SEL_ALT_SIBLINGS : 0) |
-                         (nesting->scoped && sel_scope_chain(complex, 1) ? SEL_ALT_SCOPE_OFFSET : 0);
+        complex->walks = (alt_walks ? SEL_ALT_WALKS : 0) | (alt_walks & SEL_WALKS_SIBLINGS ? SEL_ALT_SIBLINGS : 0) |
+                         (nesting->scoped ? sel_alt_scope_walks(complex) : 0);
         walks |= alt_walks;
     }
     return walks;
@@ -1748,7 +1754,8 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
     }
     compiled->quirks = th_tree_quirks(tree);
     compiled->tree = tree;
-    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token", 0, 0};
+    sel_parser parser = {
+        compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token", 0, 0};
     if (sel_parse_alts(&parser, &compiled->alts, &compiled->count, 0, 0, 0) < 0) {
         sel_raise(selector_error, selector_str, &parser);
         PyMem_Free(compiled->source);
