@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal
@@ -20,22 +21,20 @@ if TYPE_CHECKING:
 _NESTED_ITEMS: Final[str] = f"{'<ul><li>' * 12}x"
 # plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
 _FUNDING: Final[str] = "w" * 1024
+_LABEL: Final[re.Pattern[str]] = re.compile(r"[LQ]\d+")
 
 
-def test_markdown_list_indent_stops_at_the_nesting_cap() -> None:
-    assert parse(_NESTED_ITEMS).to_markdown() == _capped_lines("- ")
-
-
-def _capped_lines(marker: str) -> str:
-    return "\n".join("  " * min(level, 8) + marker for level in range(12)) + "x"
+def test_markdown_list_past_the_nesting_cap_is_written_as_html() -> None:
+    assert parse(_NESTED_ITEMS).to_markdown() == f"{'<ul><li>' * 12}x{'</li></ul>' * 12}"
 
 
 def test_text_list_indent_stops_at_the_nesting_cap() -> None:
-    assert parse(f"<p>{_FUNDING}</p>{_NESTED_ITEMS}").to_text() == f"{_FUNDING}\n\n{_capped_lines('* ')}"
+    capped = "\n".join([*(f"{'  ' * min(level, 8)}* " for level in range(11)), f"{'  ' * 8}* x"])
+    assert parse(f"<p>{_FUNDING}</p>{_NESTED_ITEMS}").to_text() == f"{_FUNDING}\n\n{capped}"
 
 
-def test_markdown_blockquote_indent_stops_at_the_nesting_cap() -> None:
-    assert parse(f"{'<blockquote>' * 22}x").to_markdown() == f"{'> ' * 17}x"
+def test_markdown_blockquote_past_the_nesting_cap_is_written_as_html() -> None:
+    assert parse(f"{'<blockquote>' * 22}x").to_markdown() == f"{'<blockquote>' * 22}x{'</blockquote>' * 22}"
 
 
 def test_text_blockquote_indent_stops_at_the_nesting_cap() -> None:
@@ -46,9 +45,9 @@ def test_text_blockquote_indent_stops_at_the_nesting_cap() -> None:
 @pytest.mark.parametrize(
     ("source", "method", "expected"),
     [
-        pytest.param("<ol><li>" * 8192, "to_markdown", 251_973, id="ordered-items-markdown"),
+        pytest.param("<ol><li>" * 8192, "to_markdown", 147_456, id="ordered-items-markdown"),
         pytest.param("<ol><li>" * 8192, "to_text", 55_537, id="ordered-items-text"),
-        pytest.param("<blockquote>x<br>" * 4096, "to_markdown", 529_989, id="quoted-lines-markdown"),
+        pytest.param("<blockquote>x<br>" * 4096, "to_markdown", 122_880, id="quoted-lines-markdown"),
         pytest.param("<blockquote>x<br>" * 4096, "to_text", 20_540, id="quoted-lines-text"),
     ],
 )
@@ -533,13 +532,15 @@ def test_google_doc_margin_indent_stops_at_the_nesting_cap() -> None:
             "".join(f"<ul><li>L{level}" for level in range(8)) + "".join(f"<blockquote>Q{level}" for level in range(4)),
             id="quotes-in-lists",
         ),
+        pytest.param("".join(f"<ol><li>L{level}" for level in range(12)), id="ordered-lists"),
     ],
 )
 def test_markdown_past_the_cap_reads_back_under_commonmark_nesting(source: str) -> None:
-    # markdown-it's CommonMark preset stops reading blocks at nesting level 20
-    labels = sorted(source.replace("<ul><li>", " ").replace("<blockquote>", " ").split())
-    tokens = MarkdownIt("commonmark").parse(parse(source).to_markdown())
-    assert sorted(token.content for token in tokens if token.type == "inline") == labels
+    # markdown-it's CommonMark preset stops reading blocks at nesting level 20, so past the cap the reader takes the
+    # written HTML as one raw block; the labels it shows are the ones the source holds
+    labels = sorted(_LABEL.findall(source))
+    rendered = parse(MarkdownIt("commonmark").render(parse(source).to_markdown()))
+    assert sorted(_LABEL.findall(rendered.text)) == labels
 
 
 def test_pretty_indent_stops_at_the_nesting_cap() -> None:

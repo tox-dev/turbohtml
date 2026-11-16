@@ -1,0 +1,2 @@
+Converting HTML to Markdown keeps a list or block quote nested past the indentation limit intact, writing the outermost
+one as HTML so its content stays in place.
