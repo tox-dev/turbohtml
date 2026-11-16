@@ -1,0 +1,2 @@
+A carriage return in an attribute value written by ``rewrite()`` is now written as ``&#13;``, and in a comment as a line
+feed, so the output reads back as the same value.
