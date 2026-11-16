@@ -832,10 +832,12 @@ static int url_path_has_dot_candidate(const Py_UCS4 *value, Py_ssize_t from, Py_
 
 /* Whether the absolute special-scheme reference value[start,end), whose scheme ends at `colon`, is written as the link
    join would write it: an authority with no upper-case letter in its host (the userinfo before '@' is kept as written),
-   no tab, CR or LF, a port that is not dropped, and a path with no tab, CR, LF, backslash or dot segment. The host and
-   port are one pass over the authority; the path is memchr scans, each run only when its byte occurs. */
+   no tab, CR or LF, a port that is not dropped, a host that cannot read as an IPv4 address, and a path with no tab, CR,
+   LF, backslash or dot segment. The host and port are one pass over the authority; the path is memchr scans, each run
+   only when its byte occurs. */
 static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
     Py_ssize_t stop = colon + 3;
+    Py_ssize_t host = stop;
     Py_ssize_t last_colon = -1;
     int upper = 0;
     for (; stop < end; stop++) {
@@ -849,6 +851,7 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         if (c == '@') {
             upper = 0;
             last_colon = -1;
+            host = stop + 1;
         } else if (c == ':') {
             last_colon = stop;
         } else {
@@ -859,6 +862,9 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         return 0;
     }
     if (last_colon >= 0 && url_drops_port(value, start, colon, stop)) {
+        return 0;
+    }
+    if (th_url_host_may_end_in_number(value, host, last_colon >= 0 ? last_colon : stop)) {
         return 0;
     }
     static const Py_UCS4 rejects[] = {'\t', '\r', '\n', '\\'};

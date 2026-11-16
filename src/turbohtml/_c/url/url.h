@@ -123,6 +123,10 @@ typedef struct {
    authority (after "scheme://" or "//", before the path/query/fragment) and owns the buffer. */
 void th_url_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, th_authority *out);
 
+/* Whether the last label of the host value[start,end) can read as an IPv4 number (a decimal or 0x-hex label, or one
+   with a percent escape or a non-ASCII code point), so a link with such a host is not left as written. */
+int th_url_host_may_end_in_number(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end);
+
 /* The components url split reports, each a new str reference: the eight spans of urllib's SplitResult plus userinfo,
    host and port, with the port presence flag and the TH_HOST_* kind of the host. th_url_parts_clear releases them. */
 enum {

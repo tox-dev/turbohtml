@@ -1318,6 +1318,75 @@ def test_resolve_links_special_urls_match_whatwg(href: str, expected: str) -> No
     assert _resolved_href(href, _HTTPS) == expected
 
 
+# WHATWG reads a numeric host of a special scheme as an IPv4 address (decimal, octal or hex, one to four parts) and
+# writes it dotted (https://url.spec.whatwg.org/#concept-ipv4-parser).
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://123/p", "https://0.0.0.123/p", id="decimal-integer"),
+        pytest.param("https://0x7f.1/p", "https://127.0.0.1/p", id="hex-then-decimal"),
+        pytest.param("https://127.1/p", "https://127.0.0.1/p", id="two-parts"),
+        pytest.param("https://0177.0.0.1/p", "https://127.0.0.1/p", id="octal-part"),
+        pytest.param("https://0XFF.1/p", "https://255.0.0.1/p", id="upper-hex-prefix"),
+        pytest.param("https://1.2.3.4./p", "https://1.2.3.4/p", id="trailing-dot"),
+        pytest.param("https://0x/p", "https://0.0.0.0/p", id="bare-hex-prefix"),
+        pytest.param("https://1.0x/p", "https://1.0.0.0/p", id="empty-hex-last-part"),
+        pytest.param("https://1.0X/p", "https://1.0.0.0/p", id="upper-empty-hex-last-part"),
+        pytest.param("https://0x7f.0x/p", "https://127.0.0.0/p", id="empty-hex-part"),
+        pytest.param("https://4294967295/p", "https://255.255.255.255/p", id="largest-integer"),
+        pytest.param("https://123.456/p", "https://123.0.1.200/p", id="last-part-fills-two-octets"),
+        pytest.param("https://127.0.0.1/p", "https://127.0.0.1/p", id="dotted-quad-unchanged"),
+        pytest.param("https://0x7f.0.0.1:443/p", "https://127.0.0.1/p", id="default-port-dropped"),
+        pytest.param("https://123:8443/p", "https://0.0.0.123:8443/p", id="port-kept"),
+        pytest.param("https://u:P@123/p", "https://u:P@0.0.0.123/p", id="userinfo-kept"),
+        pytest.param("https://%31%32%33/p", "https://0.0.0.123/p", id="percent-encoded-digits"),
+        pytest.param("https://%30x7f/p", "https://0.0.0.127/p", id="percent-encoded-hex-prefix"),
+        pytest.param("https://\uff11\uff12\uff13.4/p", "https://123.0.0.4/p", id="fullwidth-digits"),
+        pytest.param(
+            "https://\uff10\uff38\uff43\uff10\uff0e\uff10\uff12\uff15\uff10\uff0e\uff10\uff11/p",
+            "https://192.168.0.1/p",
+            id="fullwidth-hex",
+        ),
+        pytest.param("http://123:80/p", "http://0.0.0.123/p", id="http-default-port-dropped"),
+        pytest.param("ftp://123:21/p", "ftp://0.0.0.123/p", id="ftp-default-port-dropped"),
+        pytest.param("//0x7f.1/p", "https://127.0.0.1/p", id="scheme-relative"),
+    ],
+)
+def test_resolve_links_writes_numeric_hosts_as_ipv4(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
+# A host the IPv4 parser rejects keeps its authority as written, port included; a name that only looks numeric
+# is a name.
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("https://1.2.3.4.5/p", id="five-parts"),
+        pytest.param("https://1.2.3.4.5:443/p", id="five-parts-keeps-port"),
+        pytest.param("https://256.1.1.1/p", id="octet-out-of-range"),
+        pytest.param("https://4294967296/p", id="integer-overflow"),
+        pytest.param("https://0x100000000/p", id="hex-overflow"),
+        pytest.param("https://1.2.3.4a.5/p", id="non-number-part"),
+        pytest.param("https://1..2/p", id="empty-part"),
+        pytest.param("https://a%20b.123:443/p", id="forbidden-code-point-keeps-port"),
+        pytest.param("https://x\u2028.com:443/p", id="failed-mapping-keeps-port"),
+        pytest.param("https://a%/p", id="trailing-percent"),
+        pytest.param("https://a\u2028/p", id="non-ascii-last-code-point"),
+        pytest.param("https://1.0x7g/p", id="last-label-not-hex"),
+        pytest.param("https://1.0b/p", id="last-label-zero-without-x"),
+        pytest.param("https://:80x/p", id="empty-host-keeps-authority"),
+        pytest.param("https://:443/p", id="empty-host-default-port-kept"),
+        pytest.param("https://1.2.3.4../p", id="empty-last-label-is-a-name"),
+    ],
+)
+def test_resolve_links_keeps_a_host_the_ipv4_parser_rejects(href: str) -> None:
+    assert _resolved_href(href, _HTTPS) == href
+
+
+def test_resolve_links_keeps_an_escaped_registered_name_as_written() -> None:
+    assert _resolved_href("https://%41.com:443/p", _HTTPS) == "https://%41.com/p"
+
+
 # A tab/CR/LF inside an otherwise-skippable absolute link forces the rejoin urlsplit would strip it in; a character
 # reference carries the raw control byte past the input stream's CR/LF normalization so each lands in the value.
 @pytest.mark.parametrize(
