@@ -2,7 +2,7 @@
    RELAX NG <data> element when it names the XSD datatype library. Included once into
    validate/schema.c; every definition is static. Lexical spaces follow XSD 1.0 part 2;
    numeric facet bounds compare as doubles, which is exact for the value ranges a real
-   schema constrains; date, dateTime, time and duration bounds compare by the order
+   schema constrains; date, dateTime, time, duration and g* bounds compare by the order
    relation XSD gives each type.
 
    whiteSpace runs first (preserve / replace / collapse), then the value is checked
@@ -919,8 +919,12 @@ static double dt_value_double(th_schema *schema, const Py_UCS4 *value, Py_ssize_
     return dt_ascii_double(schema->number_buffer, value, len);
 }
 
+static int dt_is_partial(int id) {
+    return id >= DT_G_YEAR && id <= DT_G_DAY;
+}
+
 static int dt_is_ordered(int id) {
-    return dt_is_decimal_family(id) || (id >= DT_DATE && id <= DT_DURATION);
+    return dt_is_decimal_family(id) || (id >= DT_DATE && id <= DT_DURATION) || dt_is_partial(id);
 }
 
 /* How two numbers stand: -1 below, 0 equal, 1 above, and 2 when they are unordered. A NaN is unordered. Past 2^53
@@ -1037,8 +1041,62 @@ typedef struct {
     int zoned;
 } dt_moment;
 
+/* Moves `moment` to UTC when the timezone that starts at `at` is present. */
+static void dt_moment_zone(dt_moment *moment, const Py_UCS4 *value, Py_ssize_t at, Py_ssize_t len) {
+    moment->zoned = at < len;
+    if (moment->zoned && value[at] != 'Z') {
+        const int offset = fixed_digits(value, at + 1, 2, 0, 23) * 3600 + fixed_digits(value, at + 4, 2, 0, 59) * 60;
+        moment->seconds += value[at] == '-' ? offset : -offset;
+    }
+}
+
+/* A g* value on the timeline. XSD 1.1 Part 2 appendix D.2.1 fills each absent field from 1972-12-31T00:00:00, and an
+   absent day with the last day of its month, so a value's place depends only on the fields it states. `value` has
+   passed dt_check_lexical for `id`. */
+static dt_moment dt_partial_moment_of(int id, const Py_UCS4 *value, Py_ssize_t len) {
+    dt_moment moment = {0, NULL, 0, 0};
+    const int negative = value[0] == '-';
+    Py_ssize_t year_end = negative;
+    double year = 1972;
+    if (id == DT_G_YEAR || id == DT_G_YEAR_MONTH) {
+        year = dt_digit_run(value, &year_end);
+        year = negative ? -year : year;
+    }
+    int month = 12, day = 31;
+    Py_ssize_t zone = year_end;
+    switch (id) {
+    case DT_G_YEAR:
+        break;
+    case DT_G_YEAR_MONTH:
+        month = fixed_digits(value, year_end + 1, 2, 1, 12);
+        day = days_in_month(month, value + negative, year_end - negative);
+        zone = year_end + 3;
+        break;
+    case DT_G_MONTH:
+        month = fixed_digits(value, 2, 2, 1, 12);
+        day = days_in_month(month, NULL, 0);
+        zone = 4;
+        break;
+    case DT_G_MONTH_DAY:
+        month = fixed_digits(value, 2, 2, 1, 12);
+        day = fixed_digits(value, 5, 2, 1, 31);
+        zone = 7;
+        break;
+    default:
+        day = fixed_digits(value, 3, 2, 1, 31);
+        zone = 5;
+        break;
+    }
+    moment.seconds = (dt_month_days(year * 12 + month - 1) + day) * 86400;
+    dt_moment_zone(&moment, value, zone, len);
+    return moment;
+}
+
 /* `value` has passed dt_check_lexical for `id`, which fixes where each field sits. */
 static dt_moment dt_moment_of(int id, const Py_UCS4 *value, Py_ssize_t len) {
+    if (dt_is_partial(id)) {
+        return dt_partial_moment_of(id, value, len);
+    }
     dt_moment moment = {0, NULL, 0, 0};
     Py_ssize_t at = 0;
     if (id != DT_TIME) {
@@ -1062,11 +1120,7 @@ static dt_moment dt_moment_of(int id, const Py_UCS4 *value, Py_ssize_t len) {
             moment.fraction_len = value + at - moment.fraction;
         }
     }
-    moment.zoned = at < len;
-    if (moment.zoned && value[at] != 'Z') {
-        const int offset = fixed_digits(value, at + 1, 2, 0, 23) * 3600 + fixed_digits(value, at + 4, 2, 0, 59) * 60;
-        moment.seconds += value[at] == '-' ? offset : -offset;
-    }
+    dt_moment_zone(&moment, value, at, len);
     return moment;
 }
 
