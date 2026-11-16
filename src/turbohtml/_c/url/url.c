@@ -1282,13 +1282,15 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
 /* https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme other than file skips every
    slash after the two that open the authority, so the host is read after all of them. With no host after them the
    RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. `ref_parts` holds an
-   empty authority. Returns the joined URL (NULL with an exception when the allocation fails), or a borrowed Py_None
-   when the base is not special or no host follows the slashes, so the caller goes on with the RFC 3986 join. It tests
-   the base scheme itself and never writes either part, so the join keeps no extra value alive across the call for a
-   reference this rare. */
+   empty authority. The scheme is the reference's own when it has one, since a browser parses a reference with its own
+   scheme whatever the base is, and the base's otherwise; it is written lowercase as WHATWG serializes it. Returns the
+   joined URL (NULL with an exception when the allocation fails), or a borrowed Py_None when that scheme is not special
+   or no host follows the slashes, so the caller goes on with the RFC 3986 join. It never writes either part, so the
+   join keeps no extra value alive across the call for a reference this rare. */
 static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_parts, const url_ref *ref_parts) {
-    if (!url_scheme_special(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end) ||
-        scheme_eq(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, "file")) {
+    const url_ref *scheme_parts = ref_parts->has_scheme ? ref_parts : base_parts;
+    if (!url_scheme_special(scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end) ||
+        scheme_eq(scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end, "file")) {
         return Py_None;
     }
     Py_ssize_t host_start = ref_parts->netloc_start;
@@ -1299,10 +1301,15 @@ static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_part
     if (host_end <= host_start) {
         return Py_None;
     }
-    return build_url(base_parts->has_scheme, base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, 1,
-                     ref_parts->buf, host_start, host_end, ref_parts->buf, host_end, ref_parts->path_end,
-                     ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
-                     ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
+    Py_UCS4 scheme[5];
+    Py_ssize_t scheme_len = scheme_parts->scheme_end - scheme_parts->scheme_start;
+    for (Py_ssize_t index = 0; index < scheme_len; index++) {
+        scheme[index] = scheme_parts->buf[scheme_parts->scheme_start + index] | 0x20;
+    }
+    return build_url(1, scheme, 0, scheme_len, 1, ref_parts->buf, host_start, host_end, ref_parts->buf, host_end,
+                     ref_parts->path_end, ref_parts->has_query, ref_parts->buf, ref_parts->query_start,
+                     ref_parts->query_end, ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start,
+                     ref_parts->fragment_end);
 }
 
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
@@ -1429,6 +1436,14 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         PyMem_Free(ref_parts.buf);
         return absolute;
     }
+    if (link && ref_parts.has_netloc && ref_parts.netloc_end == ref_parts.netloc_start) {
+        PyObject *authority = join_extra_slash_authority(&base_parts, &ref_parts);
+        if (authority != Py_None) {
+            PyMem_Free(base_parts.buf);
+            PyMem_Free(ref_parts.buf);
+            return authority;
+        }
+    }
     if (scheme_differs || (scheme_has && !relative && !(document && !ref_parts.has_scheme && hierarchical)) ||
         (document && ref_parts.has_scheme && !base_special)) {
         PyMem_Free(base_parts.buf);
@@ -1442,9 +1457,6 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
                            ref_parts.path_start, ref_parts.path_end, ref_parts.has_query, ref_parts.buf,
                            ref_parts.query_start, ref_parts.query_end, ref_parts.has_fragment, ref_parts.buf,
                            ref_parts.fragment_start, ref_parts.fragment_end);
-    } else if (link && ref_parts.has_netloc &&
-               (result = join_extra_slash_authority(&base_parts, &ref_parts)) != Py_None) {
-        /* a host followed the extra slashes, and the call above joined it */
     } else if (ref_parts.path_end == ref_parts.path_start) {
         int query_has = ref_parts.has_query;
         Py_ssize_t query_start = ref_parts.query_start;

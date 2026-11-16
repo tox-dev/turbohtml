@@ -1,0 +1,2 @@
+``Node.resolve_links()`` now resolves a link with a different special scheme and extra slashes before its host, such as
+``ftp:///example.com/p``, to the host it names.
