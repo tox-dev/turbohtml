@@ -2190,7 +2190,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "treewalk": _readpath_cases,
     "chain": _readpath_cases,
     "range-clone": _readpath_cases,
-    "range-boundary": lambda: (("1000 start, 1024 ranges", (1_000, "start", 1_024)), ("1000 end, 800 ranges", (1_000, "end", 800))),
+    "range-boundary": lambda: (
+        ("1000 start, 1024 ranges", (1_000, "start", 1_024)),
+        ("1000 end, 800 ranges", (1_000, "end", 800)),
+    ),
     "range-contained": lambda: (("1000 clone", (1_000, "clone", 1_024)), ("1 clone", (1, "clone", 1_024))),
     "range-partial": lambda: (("1000 clone", (1_000, "clone", 1_024)), ("1 clone", (1, "clone", 1_024))),
     "links-extract": _readpath_cases,
