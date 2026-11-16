@@ -4,6 +4,7 @@ from typing import Final
 
 import pytest
 from fuzz.sanitize_oracles import _mutation_detail
+
 from turbohtml import parse_fragment
 from turbohtml.clean import Policy, sanitize_node
 
