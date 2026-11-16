@@ -707,10 +707,173 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
     return status;
 }
 
+/* Whether the scheme value[start,end) is the ASCII name `name` (lowercase, as the reference parser writes it). */
+static int url_scheme_is(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, const char *name) {
+    Py_ssize_t length = (Py_ssize_t)strlen(name);
+    if (end - start != length) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < length; index++) {
+        if (value[start + index] != (Py_UCS4)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether the authority of the special-scheme reference value[start,end) ends in a port the WHATWG parser drops: an
+   empty port, or the default port of its scheme (https://url.spec.whatwg.org/#port-state). `colon` is its scheme's
+   colon and `stop` the end of the authority. */
+static int url_drops_port(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t stop) {
+    Py_ssize_t digits = stop;
+    while ((Py_UCS4)(value[digits - 1] - '0') < 10) {
+        digits--;
+    }
+    if (value[digits - 1] != ':') {
+        return 0;
+    }
+    long def;
+    if (url_scheme_is(value, start, colon, "http") || url_scheme_is(value, start, colon, "ws")) {
+        def = 80;
+    } else if (url_scheme_is(value, start, colon, "https") || url_scheme_is(value, start, colon, "wss")) {
+        def = 443;
+    } else if (url_scheme_is(value, start, colon, "ftp")) {
+        def = 21;
+    } else {
+        return 0;
+    }
+    if (digits == stop) {
+        return 1;
+    }
+    if (stop - digits > 1 && value[digits] == '0') {
+        return 1;
+    }
+    long port = 0;
+    for (Py_ssize_t index = digits; index < stop; index++) {
+        port = port * 10 + (value[index] - '0');
+        if (port > 65535) {
+            port = 65536;
+        }
+    }
+    return port == def;
+}
+
+/* Whether the path value[from,end) (up to a '?' or '#') has a segment that is a single- or double-dot segment, with %2e
+   in any case counting as a dot (https://url.spec.whatwg.org/#single-dot-path-segment). */
+static int url_path_has_dot_segment(const Py_UCS4 *value, Py_ssize_t from, Py_ssize_t end) {
+    for (Py_ssize_t index = from; index + 1 < end && value[index] != '?' && value[index] != '#'; index++) {
+        if (value[index] != '/') {
+            continue;
+        }
+        Py_ssize_t segment = index + 1;
+        if (value[segment] != '.' && value[segment] != '%') {
+            continue;
+        }
+        Py_ssize_t stop = segment;
+        while (stop < end && value[stop] != '/' && value[stop] != '?' && value[stop] != '#') {
+            stop++;
+        }
+        int dots = 0;
+        Py_ssize_t cursor = segment;
+        while (cursor < stop && dots <= 2) {
+            if (value[cursor] == '.') {
+                cursor++;
+            } else if (cursor + 2 < stop && value[cursor] == '%' && value[cursor + 1] == '2' &&
+                       (value[cursor + 2] | 0x20) == 'e') {
+                cursor += 3;
+            } else {
+                break;
+            }
+            dots++;
+        }
+        if (cursor == stop && dots <= 2) {
+            return 1;
+        }
+        index = stop - 1;
+    }
+    return 0;
+}
+
+/* The first index of `target` (an ASCII character) in value[start,end), or -1. memchr finds candidate bytes; each is
+   checked against its character, since a byte of a wider character can equal `target`. */
+static Py_ssize_t url_find_char(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_UCS4 target) {
+    const unsigned char *bytes = (const unsigned char *)(value + start);
+    Py_ssize_t length = (end - start) * (Py_ssize_t)sizeof(Py_UCS4);
+    Py_ssize_t offset = 0;
+    while (offset < length) {
+        const unsigned char *hit = memchr(bytes + offset, (int)target, (size_t)(length - offset));
+        if (hit == NULL) {
+            return -1;
+        }
+        Py_ssize_t index = start + (Py_ssize_t)(hit - bytes) / (Py_ssize_t)sizeof(Py_UCS4);
+        if (value[index] == target) {
+            return index;
+        }
+        offset = (index - start + 1) * (Py_ssize_t)sizeof(Py_UCS4);
+    }
+    return -1;
+}
+
+/* Whether a '.' or '%' that follows a '/' in value[from,end) starts a dot segment; only such a '/' reaches the segment
+   check, so the common path costs two memchr scans. */
+static int url_path_has_dot_candidate(const Py_UCS4 *value, Py_ssize_t from, Py_ssize_t end) {
+    static const Py_UCS4 starts[] = {'.', '%'};
+    for (size_t choice = 0; choice < sizeof(starts) / sizeof(starts[0]); choice++) {
+        Py_ssize_t at = from;
+        while ((at = url_find_char(value, at, end, starts[choice])) >= 0) {
+            if (value[at - 1] == '/' && url_path_has_dot_segment(value, from, end)) {
+                return 1;
+            }
+            at++;
+        }
+    }
+    return 0;
+}
+
+/* Whether the absolute special-scheme reference value[start,end), whose scheme ends at `colon`, is written as the link
+   join would write it: an authority with no upper-case letter in its host (the userinfo before '@' is kept as written),
+   no tab, CR or LF, a port that is not dropped, and a path with no tab, CR, LF, backslash or dot segment. The host and
+   port are one pass over the authority; the path is memchr scans, each run only when its byte occurs. */
+static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
+    Py_ssize_t stop = colon + 3;
+    Py_ssize_t last_colon = -1;
+    int upper = 0;
+    for (; stop < end; stop++) {
+        Py_UCS4 c = value[stop];
+        if (c == '/' || c == '?' || c == '#' || c == '\\') {
+            break;
+        }
+        if (c == '\t' || c == '\r' || c == '\n') {
+            return 0;
+        }
+        if (c == '@') {
+            upper = 0;
+            last_colon = -1;
+        } else if (c == ':') {
+            last_colon = stop;
+        } else {
+            upper |= c >= 'A' && c <= 'Z';
+        }
+    }
+    if (upper) {
+        return 0;
+    }
+    if (last_colon >= 0 && url_drops_port(value, start, colon, stop)) {
+        return 0;
+    }
+    static const Py_UCS4 rejects[] = {'\t', '\r', '\n', '\\'};
+    for (size_t choice = 0; choice < sizeof(rejects) / sizeof(rejects[0]); choice++) {
+        if (url_find_char(value, stop, end, rejects[choice]) >= 0) {
+            return 0;
+        }
+    }
+    return !url_path_has_dot_candidate(value, stop, end);
+}
+
 /* Whether the absolute special-scheme reference from `start` reads the same in the link join as it is written: a
-   lowercase scheme, two slashes and a host, and no backslash, tab, CR or LF. Any other form (no slashes, one slash, an
-   empty authority, a backslash, an upper-case scheme) takes the join, which reads the host and separators as WHATWG
-   does. */
+   lowercase scheme, two slashes and a host, and the authority and path checks of url_special_text_plain. Any other form
+   (no slashes, one slash, an empty authority, an upper-case scheme) takes the join, which reads the host and separators
+   as WHATWG does. */
 static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
     if (colon + 3 >= end || value[colon + 1] != '/' || value[colon + 2] != '/') {
         return 0;
@@ -724,13 +887,7 @@ static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
             return 0;
         }
     }
-    for (Py_ssize_t index = colon + 1; index < end; index++) {
-        Py_UCS4 c = value[index];
-        if (c == '\\' || c == '\t' || c == '\r' || c == '\n') {
-            return 0;
-        }
-    }
-    return 1;
+    return url_special_text_plain(value, start, colon, end);
 }
 
 /* True when resolve_links can prove urljoin(base, [start, end)) returns the URL byte-for-byte, so the urljoin call (the
@@ -781,13 +938,7 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         value[netloc] == '#') {
         return 0;
     }
-    for (Py_ssize_t index = start; index < end; index++) {
-        Py_UCS4 c = value[index];
-        if (c <= '\\' && (c == '\t' || c == '\r' || c == '\n' || c == '\\')) {
-            return 0;
-        }
-    }
-    return 1;
+    return url_special_text_plain(value, start, colon, end);
 }
 
 /* Call replace(url) for each span and build a rewritten value, or leave the value untouched when every replacement is
