@@ -2318,21 +2318,21 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
     )),
     "node-equals": lambda: tuple(
-        (f"{count:,} attribute{'s' if count != 1 else ''}, {variant}", (count, variant))
-        for count, variant in (
-            (1, "aligned"),
-            (10, "aligned"),
-            (31, "aligned"),
-            (32, "aligned"),
-            (100, "aligned"),
-            (1000, "aligned"),
-            (100, "reversed"),
-            (1000, "reversed"),
-            (1000, "early-value"),
-            (100, "late-value"),
-            (100, "disjoint"),
-            (100, "rotated"),
-            (1003, "duplicates"),
+        (f"{count:,} attribute{'s' if count != 1 else ''}, {variant}", (count, variant, repeats))
+        for count, variant, repeats in (
+            (1, "aligned", 1),
+            (10, "aligned", 1),
+            (31, "aligned", 1),
+            (32, "aligned", 1),
+            (100, "aligned", 1),
+            (1000, "aligned", 1),
+            (100, "reversed", 1),
+            (1000, "reversed", 1),
+            (1000, "early-value", 1_400),
+            (100, "late-value", 1),
+            (100, "disjoint", 1),
+            (100, "rotated", 1),
+            (1003, "duplicates", 1_024),
         )
     ),
     "xpath-id-nodes": lambda: tuple(

@@ -266,9 +266,10 @@ def _strip_comments(soup: BeautifulSoup) -> None:
         comment.extract()
 
 
-def _node_equals(case: tuple[int, str]) -> bool:
-    left, right = _equality_pair(*case)
-    return left == right
+def _node_equals(case: tuple[int, str, int]) -> bool:
+    count, variant, repeats = case
+    left, right = _equality_pair(count, variant)
+    return [left == right for _ in range(repeats)][-1]
 
 
 @functools.cache

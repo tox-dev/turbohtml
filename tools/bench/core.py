@@ -1310,9 +1310,10 @@ def _links_external(text: str) -> None:
     _extract_links(text, "https://www.example.co.uk/", external_only=True)
 
 
-def _node_equals(case: tuple[int, str]) -> bool:
-    left, right = _equality_pair(*case)
-    return left.equals(right)
+def _node_equals(case: tuple[int, str, int]) -> bool:
+    count, variant, repeats = case
+    left, right = _equality_pair(count, variant)
+    return [left.equals(right) for _ in range(repeats)][-1]
 
 
 @functools.cache
