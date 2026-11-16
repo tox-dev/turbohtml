@@ -323,7 +323,7 @@ def test_markdown_raw_clone_leaves_out_an_attribute_name_commonmark_cannot_read(
         ),
     ],
 )
-def test_clone_keeps_its_href_once_a_sanitizer_removes_its_source(policy: Policy) -> None:
+def test_clone_keeps_its_href_once_its_source_is_removed(policy: Policy) -> None:
     text = sanitize(f"<span><a href={_WIDE_TARGET}>1</span><p>2", policy)
     assert text == f'<p><a href="{_WIDE_TARGET}">2</a></p>'
 
