@@ -216,6 +216,29 @@ def test_builtin_date_calendar_day(type_name: str, value: str, *, valid: bool) -
         pytest.param('<xs:maxInclusive value="7.5"/>', "xs:double", "INF", False, id="maxInclusive-infinity"),
         pytest.param('<xs:minExclusive value="3"/>', "xs:float", "-INF", False, id="minExclusive-negative-infinity"),
         pytest.param('<xs:whiteSpace value="collapse"/>', "xs:double", "NaN", True, id="unbounded-nan"),
+        pytest.param('<xs:minInclusive value="NaN"/>', "xs:double", "NaN", True, id="minInclusive-nan-bound-nan"),
+        pytest.param('<xs:minInclusive value="NaN"/>', "xs:float", "NaN", True, id="minInclusive-nan-bound-float-nan"),
+        pytest.param('<xs:maxInclusive value="NaN"/>', "xs:double", "NaN", True, id="maxInclusive-nan-bound-nan"),
+        pytest.param('<xs:minExclusive value="NaN"/>', "xs:double", "NaN", False, id="minExclusive-nan-bound-nan"),
+        pytest.param('<xs:maxExclusive value="NaN"/>', "xs:float", "NaN", False, id="maxExclusive-nan-bound-nan"),
+        pytest.param('<xs:minExclusive value="3"/>', "xs:double", "5", True, id="minExclusive-double-above"),
+        pytest.param('<xs:maxExclusive value="9"/>', "xs:float", "2", True, id="maxExclusive-float-below"),
+        pytest.param('<xs:minInclusive value="NaN"/>', "xs:double", "5", False, id="minInclusive-nan-bound-finite"),
+        pytest.param('<xs:maxInclusive value="NaN"/>', "xs:double", "INF", False, id="maxInclusive-nan-bound-inf"),
+        pytest.param(
+            '<xs:minInclusive value="NaN"/><xs:maxInclusive value="5"/>',
+            "xs:double",
+            "NaN",
+            False,
+            id="nan-min-inclusive-and-finite-max-inclusive",
+        ),
+        pytest.param(
+            '<xs:minInclusive value="NaN"/><xs:maxInclusive value="NaN"/>',
+            "xs:double",
+            "NaN",
+            True,
+            id="nan-min-and-max-inclusive",
+        ),
         pytest.param('<xs:totalDigits value="3"/>', "xs:decimal", "1234", False, id="totalDigits-bad"),
         pytest.param('<xs:fractionDigits value="1"/>', "xs:decimal", "1.23", False, id="fractionDigits-bad"),
         pytest.param('<xs:fractionDigits value="2"/>', "xs:decimal", "1.2", True, id="fractionDigits-ok"),
@@ -4987,6 +5010,126 @@ def test_xsd_long_decimal_bound(value: str, *, expected: bool) -> None:
 def test_xsd_long_number_range(base: str, value: str, *, expected: bool) -> None:
     # the digits or exponent that decide the comparison sit past the 63rd character of the value
     assert check(restricted('<xs:maxInclusive value="100"/>', base), f"<v>{value}</v>").valid is expected
+
+
+_TINY_DECIMAL: Final[str] = f"0.{'0' * 400}1"
+_HUGE_INTEGER: Final[str] = f"1{'0' * 400}"
+
+
+@pytest.mark.parametrize(
+    ("base", "facets", "value", "ok"),
+    [
+        pytest.param(
+            "xs:decimal", '<xs:minInclusive value="0"/>', f"-{_TINY_DECIMAL}", False, id="tiny-negative-min-inclusive"
+        ),
+        pytest.param(
+            "xs:decimal", '<xs:maxInclusive value="0"/>', _TINY_DECIMAL, False, id="tiny-positive-max-inclusive"
+        ),
+        pytest.param(
+            "xs:decimal", '<xs:minExclusive value="0"/>', _TINY_DECIMAL, True, id="tiny-positive-min-exclusive"
+        ),
+        pytest.param(
+            "xs:decimal", '<xs:maxExclusive value="0"/>', f"-{_TINY_DECIMAL}", True, id="tiny-negative-max-exclusive"
+        ),
+        pytest.param(
+            "xs:decimal",
+            f'<xs:maxInclusive value="{"9" * 400}"/>',
+            _HUGE_INTEGER,
+            False,
+            id="decimal-overflow-max-inclusive",
+        ),
+        pytest.param(
+            "xs:decimal",
+            f'<xs:minExclusive value="{"9" * 400}"/>',
+            _HUGE_INTEGER,
+            True,
+            id="decimal-overflow-min-exclusive",
+        ),
+        pytest.param(
+            "xs:integer",
+            f'<xs:maxInclusive value="{"9" * 400}"/>',
+            _HUGE_INTEGER,
+            False,
+            id="integer-overflow-max-inclusive",
+        ),
+        pytest.param(
+            "xs:long",
+            '<xs:maxInclusive value="9223372036854775806"/>',
+            "9223372036854775807",
+            False,
+            id="long-one-past-max-inclusive",
+        ),
+        pytest.param(
+            "xs:integer",
+            '<xs:maxInclusive value="9007199254740992"/>',
+            "9007199254740993",
+            False,
+            id="integer-past-double-max-inclusive",
+        ),
+        pytest.param(
+            "xs:decimal",
+            '<xs:maxInclusive value="0.1"/>',
+            "0.10000000000000000001",
+            False,
+            id="decimal-past-double-max-inclusive",
+        ),
+        pytest.param(
+            "xs:decimal",
+            '<xs:maxInclusive value="0.1"/>',
+            "0.09999999999999999999",
+            True,
+            id="decimal-below-double-max-inclusive",
+        ),
+        pytest.param("xs:decimal", '<xs:minInclusive value="0"/>', "-0.0", True, id="negative-zero-is-zero"),
+        pytest.param("xs:decimal", '<xs:minInclusive value="0"/>', ".5", True, id="leading-point-above-zero"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="5"/>', "5.", True, id="trailing-point-equal"),
+        pytest.param("xs:integer", '<xs:maxInclusive value="9"/>', "10", False, id="integer-more-digits-above"),
+        pytest.param("xs:integer", '<xs:minInclusive value="9"/>', "-10", False, id="integer-negative-below"),
+        pytest.param("xs:integer", '<xs:minInclusive value="10"/>', "9", False, id="integer-fewer-digits-below"),
+        pytest.param("xs:integer", '<xs:maxInclusive value="99"/>', "+5", True, id="integer-plus-sign-below"),
+        pytest.param("xs:integer", '<xs:maxInclusive value="7"/>', "007", True, id="integer-leading-zeros-equal"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="2"/>', "3", False, id="decimal-whole-digit-above"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="2"/>', "1", True, id="decimal-whole-digit-below"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="2"/>', "-5.5", True, id="negative-below-positive-bound"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="-2"/>', "1", False, id="positive-above-negative-bound"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="-2"/>', "-1.5", False, id="negative-magnitude-above"),
+        pytest.param("xs:decimal", '<xs:minInclusive value="-2"/>', "-1.5", True, id="negative-magnitude-below"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="0.12"/>', "0.13", False, id="fraction-digit-above"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="0.12"/>', "0.11", True, id="fraction-digit-below"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="0.1"/>', "0.12", False, id="fraction-longer-above"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="0.12"/>', "0.1", True, id="fraction-shorter-below"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="1.50"/>', "1.5", True, id="trailing-zeros-equal"),
+        pytest.param(
+            "xs:decimal",
+            '<xs:maxInclusive value="1.5"/>',
+            "1.5000000000000000000001",
+            False,
+            id="long-fraction-above",
+        ),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="abc"/>', "1", False, id="decimal-bound-not-a-number"),
+    ],
+)
+def test_xsd_exact_decimal_range(base: str, facets: str, value: str, *, ok: bool) -> None:
+    assert check(restricted(facets, base), f"<v>{value}</v>").valid is ok
+
+
+@pytest.mark.parametrize(
+    ("base", "facets", "value", "ok"),
+    [
+        pytest.param("xs:double", '<xs:minInclusive value="NaN"/>', "NaN NaN", True, id="nan-items-under-nan-bound"),
+        pytest.param("xs:double", '<xs:minInclusive value="NaN"/>', "NaN 5", False, id="finite-item-under-nan-bound"),
+        pytest.param("xs:double", '<xs:maxInclusive value="7.5"/>', "1 NaN", False, id="nan-item-under-bound"),
+        pytest.param("xs:decimal", '<xs:maxInclusive value="0"/>', f"0 {_TINY_DECIMAL}", False, id="tiny-item-above"),
+        pytest.param("xs:decimal", '<xs:minInclusive value="0"/>', f"1 -{_TINY_DECIMAL}", False, id="tiny-item-below"),
+    ],
+)
+def test_xsd_list_item_range(base: str, facets: str, value: str, *, ok: bool) -> None:
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:simpleType name="item"><xs:restriction base="{base}">{facets}</xs:restriction>'
+        '</xs:simpleType><xs:simpleType name="items"><xs:list itemType="item"/></xs:simpleType>'
+        '<xs:element name="v" type="items"/></xs:schema>'
+    )
+    assert check(schema, f"<v>{value}</v>").valid is ok
 
 
 def test_xsd_long_range_facet_value() -> None:
