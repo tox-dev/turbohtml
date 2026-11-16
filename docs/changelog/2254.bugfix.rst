@@ -1,1 +1,2 @@
-XSLT literal result elements now honor their own ``xsl:exclude-result-prefixes`` attribute, so excluded namespace declarations are no longer copied to the output.
+XSLT literal result elements now honor their own ``xsl:exclude-result-prefixes`` attribute, so excluded namespace
+declarations are no longer copied to the output.
