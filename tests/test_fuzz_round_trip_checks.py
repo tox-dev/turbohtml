@@ -4113,6 +4113,13 @@ def test_xpath_anchored_compares_values_and_types(anchored: ModuleType) -> None:
 
 
 @pytest.mark.oracle
+@pytest.mark.parametrize("expression", ["count(self::*)", "count(ancestor-or-self::*)", "count(..)", "name(self::*)"])
+def test_xpath_anchored_engines_start_at_the_same_node(anchored: ModuleType, expression: str) -> None:
+    ours, reference = anchored.contexts(_XML)
+    assert ours.xpath(expression) == reference.xpath(expression)
+
+
+@pytest.mark.oracle
 def test_xpath_anchored_reports_evaluation_rejection(anchored: ModuleType) -> None:
     assert [
         (row.ours, row.reference)

@@ -41,7 +41,7 @@ _PROBES: Final[MappingProxyType[str, tuple[tuple[str, ...], str]]] = MappingProx
 import turbohtml
 doc = turbohtml.parse(TEXT)
 emit(
-    elements=len([n for n in doc.xpath("//*") if isinstance(n, turbohtml.Element)]),
+    elements=len([n for n in doc.root.xpath("//*") if isinstance(n, turbohtml.Element)]),
     anchors=len(doc.find_all("a")),
     css=len(doc.select("div a[href]")),
     text=doc.text,
