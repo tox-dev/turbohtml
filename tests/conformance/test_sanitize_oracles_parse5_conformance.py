@@ -9,6 +9,7 @@ from fuzz.sanitize_oracles import (
     _parse5_dumps,  # ruff:ignore[import-private-name]  # the dump the committed parse5 runner returns
     _parse5_verdict,  # ruff:ignore[import-private-name]  # the confirmed or html5lib-only decision
 )
+
 from turbohtml import parse_fragment
 from turbohtml.clean import Policy, sanitize_node
 
