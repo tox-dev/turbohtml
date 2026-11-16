@@ -75,8 +75,8 @@ typedef struct {
     int ci;               /* '[': matched case-insensitively (explicit i flag) */
     int ci_default;       /* '[': name is in the HTML case-insensitive set, no explicit s/i flag */
     int pseudo;           /* ':': the pseudo-class id (enum sel_pseudo) */
-    int nth_a;            /* ':': the An+B "A" coefficient for an nth-* pseudo-class; :dir() direction code */
-    int nth_b;            /* ':': the An+B "B" coefficient for an nth-* pseudo-class */
+    int64_t nth_a;        /* ':': the An+B "A" coefficient for an nth-* pseudo-class; :dir() direction code */
+    int64_t nth_b;        /* ':': the An+B "B" coefficient for an nth-* pseudo-class */
     const Py_UCS4 *name;  /* class / id / unknown tag name (into the owned source copy) */
     Py_ssize_t name_len;  /* also the attribute name for the rare unknown case */
     const Py_UCS4 *value; /* '[': the attribute value; ':' the :lang() comma list of ranges */

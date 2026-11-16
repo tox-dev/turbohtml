@@ -1,0 +1,2 @@
+An+B pseudo-classes such as ``:nth-child()`` now match the formula for coefficients up to the 64-bit integer range,
+instead of clamping them at the 32-bit ``int`` limit.

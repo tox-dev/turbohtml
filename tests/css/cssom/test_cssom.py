@@ -2019,6 +2019,36 @@ def _of_from_end(run: str, anchor: int, element: int, offsets: Callable[[int], b
 
 
 @pytest.mark.parametrize(
+    ("step", "offset"),
+    [
+        pytest.param(2**32 + 2, -(2**32 - 1), id="step-past-int-max"),
+        pytest.param(-(2**32 + 2), 5, id="negative-step-past-int-max"),
+        pytest.param(3, -(2**31), id="offset-past-int-min"),
+        pytest.param(2**32 + 2, 2**31 + 5, id="offset-past-int-max"),
+        pytest.param(3, 2**31 + 5, id="small-step-offset-past-int-max"),
+        pytest.param(0, -(2**31), id="zero-step-int-min-offset"),
+    ],
+)
+def test_computed_style_sweep_wide_nth_agrees_with_formula(step: int, offset: int) -> None:
+    count: Final = 48
+    nodes: Final = parse(
+        f"<style>*{{color:blue}}x:has(~ x:nth-child({step}n{offset:+d} of :scope ~ *)){{color:red}}</style>"
+        f"<p>{'<x></x>' * count}</p>"
+    ).select("p > x")
+    assert [computed_style(node)["color"] for node in nodes] == [
+        "red" if any(_nth_matches(step, offset, later - index) for later in range(index + 1, count + 1)) else "blue"
+        for index in range(1, count + 1)
+    ]
+
+
+def _nth_matches(step: int, offset: int, distance: int) -> bool:
+    if step == 0:
+        return distance == offset
+    difference = distance - offset
+    return difference % step == 0 and difference // step >= 0
+
+
+@pytest.mark.parametrize(
     ("rule", "color"),
     [
         pytest.param("i:has(~ p > x:is(:scope ~ b ~ *))", "blue", id="scope-chain-below-sibling"),

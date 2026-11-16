@@ -17,6 +17,8 @@
 #include "dom/nodes.h"
 #include "css/select/selector.h"
 
+#include <limits.h>
+
 /* The longest expression a selector may translate to, in code points. XPath 1.0 cannot name a subexpression, so every
    An+B term of :nth-child(An+B of S) spells the condition for S out again, and nesting such clauses multiplies the
    text by up to three per level; past the cap the selector is reported as untranslatable. */
@@ -102,9 +104,9 @@ static void xt_repeat(xt_buf *buf, Py_ssize_t start, Py_ssize_t length) {
     buf->len += length;
 }
 
-static void xt_int(xt_buf *buf, long value) {
+static void xt_int(xt_buf *buf, int64_t value) {
     char digits[24];
-    (void)snprintf(digits, sizeof(digits), "%ld", value);
+    (void)snprintf(digits, sizeof(digits), "%lld", (long long)value);
     xt_text(buf, digits);
 }
 
@@ -287,8 +289,8 @@ static void xt_emit_axis(xt_ctx *ctx, const xt_axis *axis) {
    The mod operand is shifted by a non-negative constant so the dividend stays
    non-negative and truncating mod cannot flip its sign. Returns the number of
    condition terms written (0 when every index matches). */
-static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const xt_axis *axis) {
-    long b_minus_1 = (long)nth_b - 1;
+static int xt_nth(xt_ctx *ctx, int64_t nth_a, int64_t nth_b, const xt_axis *axis) {
+    int64_t b_minus_1 = nth_b - 1;
     if (nth_a == 1 && b_minus_1 <= 0) {
         return 0; /* n+b with b <= 1 matches every position */
     }
@@ -311,12 +313,27 @@ static int xt_nth(xt_ctx *ctx, int nth_a, int nth_b, const xt_axis *axis) {
         xt_int(&ctx->out, b_minus_1);
         wrote = 1;
     }
-    long step = nth_a > 0 ? nth_a : -(long)nth_a;
+    const int64_t step = nth_a > 0 ? nth_a : -nth_a;
     if (step != 1) {
         if (wrote) {
             xt_text(&ctx->out, " and ");
         }
-        long shift = ((-b_minus_1) % step + step) % step;
+        int64_t residue = b_minus_1 % step;
+        residue += residue < 0 ? step : 0;
+        if (step > INT_MAX) {
+            /* XPath 1.0 numbers are doubles, so a mod by a step this large is inexact; a sibling count stays below
+               INT_MAX, so the residue is the only count the step can match */
+            if (residue > INT_MAX) {
+                xt_text(&ctx->out, "false()");
+            } else {
+                xt_text(&ctx->out, "count(");
+                xt_emit_axis(ctx, axis);
+                xt_text(&ctx->out, ") = ");
+                xt_int(&ctx->out, residue);
+            }
+            return wrote + 1;
+        }
+        const int64_t shift = (step - residue) % step;
         if (shift != 0) {
             xt_text(&ctx->out, "(count(");
         } else {
