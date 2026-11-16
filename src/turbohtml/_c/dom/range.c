@@ -4,21 +4,25 @@
    maintains start <= end, while a StaticRange stores four values verbatim and is immutable.
 
    Offsets index code points in character data (Text/Comment/CData) and children elsewhere, so a
-   Python str's own indexing lines up with a Text-node offset. Range boundaries are not driven by
-   edits made through other tree APIs; only the Range's own content operations move them, per the
-   DOM extract/clone/delete algorithms. */
+   Python str's own indexing lines up with a Text-node offset. A live Range moves its boundaries on
+   every edit of its tree that the DOM live-range rules cover: character-data edits, splitText,
+   normalize, and child removal or insertion through the tree-aware mutation API. */
 
 #include "dom/nodes.h"
 #include "core/fuzzing.h"
 
-typedef struct {
+struct th_live_range {
     PyObject_HEAD PyObject *start_handle; /* _TreeHandle owning start_node (keeps its tree alive) */
     PyObject *end_handle;                 /* _TreeHandle owning end_node; equals start_handle for a live Range */
     th_node *start_node;
     th_node *end_node;
     Py_ssize_t start_offset;
     Py_ssize_t end_offset;
-} RangeObject;
+    th_tree *live_tree; /* the tree whose live_ranges list holds this Range, NULL for a StaticRange */
+    struct th_live_range *live_prev;
+    struct th_live_range *live_next;
+};
+typedef struct th_live_range RangeObject;
 
 #define RANGE_MAX_RECURSIVE_DEPTH ((Py_ssize_t)TH_DEPTH_LIMIT(400))
 
@@ -154,6 +158,7 @@ static Py_ssize_t node_length(HandleObject *handle, th_node *node) {
    next lookup empties them. */
 static void range_insert_before(HandleObject *handle, th_node *parent, th_node *child, th_node *ref) {
     th_node_insert_before(parent, child, ref);
+    th_live_inserted(handle->tree, child);
     for (size_t slot = 0; slot < SIBLING_CURSORS; slot++) {
         struct sibling_cursor *cursor = &handle->sibling_cursors[slot];
         if (cursor->parent != parent) {
@@ -307,10 +312,11 @@ static th_node *split_data_node(HandleObject *handle, th_node *node, Py_ssize_t 
         tail->text_exclusive = node->text_exclusive;
         node->text_capacity_shift = 0; /* the tail reads the rest of the buffer, so the head must not grow into it */
     }
+    range_insert_before(handle, node->parent, tail, node->next_sibling);
+    th_live_split(tree, node, offset, tail);
     if (th_node_delete_data(tree, node, offset, node->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    range_insert_before(handle, node->parent, tail, node->next_sibling);
     return tail;
 }
 
@@ -647,6 +653,175 @@ static void collapse_point(HandleObject *handle, th_node *common, th_node *start
     *out_offset = sibling_index(handle, partial_child(common, start_node)) + 1;
 }
 
+/* --- live ranges: the DOM live-range update rules --- */
+
+/* A Range joins its tree's live_ranges list while its boundaries sit in that tree, so every edit of the tree can move
+   them. A StaticRange never joins. */
+static void live_untrack(RangeObject *range) {
+    th_tree *tree = range->live_tree;
+    if (tree == NULL) {
+        return;
+    }
+    struct th_live_range **head = th_tree_live_ranges_ptr(tree);
+    if (range->live_prev != NULL) {
+        range->live_prev->live_next = range->live_next;
+    } else {
+        *head = range->live_next;
+    }
+    if (range->live_next != NULL) {
+        range->live_next->live_prev = range->live_prev;
+    }
+    range->live_tree = NULL;
+    range->live_prev = NULL;
+    range->live_next = NULL;
+}
+
+static void live_track(RangeObject *range, th_tree *tree) {
+    if (range->live_tree == tree) {
+        return;
+    }
+    live_untrack(range);
+    struct th_live_range **head = th_tree_live_ranges_ptr(tree);
+    range->live_tree = tree;
+    range->live_next = *head;
+    if (*head != NULL) {
+        (*head)->live_prev = range;
+    }
+    *head = range;
+}
+
+static Py_ssize_t index_in_parent(const th_node *child) {
+    Py_ssize_t index = 0;
+    for (const th_node *sibling = child->prev_sibling; sibling != NULL; sibling = sibling->prev_sibling) {
+        index++;
+    }
+    return index;
+}
+
+static int is_inclusive_descendant(const th_node *node, const th_node *ancestor) {
+    for (const th_node *walk = node; walk != NULL; walk = walk->parent) {
+        if (walk == ancestor) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The replace-data rule for one boundary: a point inside the replaced run snaps to its start, a point after it shifts
+   by the change in length. */
+static Py_ssize_t replaced_offset(Py_ssize_t position, Py_ssize_t offset, Py_ssize_t count, Py_ssize_t data_len) {
+    if (position > offset + count) {
+        return position + data_len - count;
+    }
+    if (position > offset) {
+        return offset;
+    }
+    return position;
+}
+
+/* The index of child is looked up only once a boundary needs it, so an edit no Range points into costs nothing. */
+static void removal_point(th_node **container, Py_ssize_t *offset, th_node *child, Py_ssize_t *index) {
+    if (is_inclusive_descendant(*container, child)) {
+        if (*index < 0) {
+            *index = index_in_parent(child);
+        }
+        *container = child->parent;
+        *offset = *index;
+    } else if (*container == child->parent) {
+        if (*index < 0) {
+            *index = index_in_parent(child);
+        }
+        if (*offset > *index) {
+            *offset -= 1;
+        }
+    }
+}
+
+void th_live_replace_data(th_tree *tree, th_node *node, Py_ssize_t offset, Py_ssize_t count, Py_ssize_t data_len) {
+    for (RangeObject *range = *th_tree_live_ranges_ptr(tree); range != NULL; range = range->live_next) {
+        if (range->start_node == node) {
+            range->start_offset = replaced_offset(range->start_offset, offset, count, data_len);
+        }
+        if (range->end_node == node) {
+            range->end_offset = replaced_offset(range->end_offset, offset, count, data_len);
+        }
+    }
+}
+
+void th_live_removed(th_tree *tree, th_node *child) {
+    if (child->parent == NULL) {
+        return;
+    }
+    Py_ssize_t index = -1;
+    for (RangeObject *range = *th_tree_live_ranges_ptr(tree); range != NULL; range = range->live_next) {
+        removal_point(&range->start_node, &range->start_offset, child, &index);
+        removal_point(&range->end_node, &range->end_offset, child, &index);
+    }
+}
+
+/* Called once child is linked, so its index is its count of earlier siblings. */
+void th_live_inserted(th_tree *tree, th_node *child) {
+    th_node *parent = child->parent;
+    Py_ssize_t index = -1;
+    for (RangeObject *range = *th_tree_live_ranges_ptr(tree); range != NULL; range = range->live_next) {
+        if (range->start_node == parent) {
+            if (index < 0) {
+                index = index_in_parent(child);
+            }
+            if (range->start_offset > index) {
+                range->start_offset += 1;
+            }
+        }
+        if (range->end_node == parent) {
+            if (index < 0) {
+                index = index_in_parent(child);
+            }
+            if (range->end_offset > index) {
+                range->end_offset += 1;
+            }
+        }
+    }
+}
+
+/* The splitText rules after tail, the new node, is linked after node. The insertion rules have already moved the
+   parent's boundaries past tail's index; a boundary just after node moves to after tail, and a boundary past offset in
+   node moves into tail. */
+void th_live_split(th_tree *tree, th_node *node, Py_ssize_t offset, th_node *tail) {
+    th_node *parent = tail->parent;
+    Py_ssize_t index = index_in_parent(tail);
+    for (RangeObject *range = *th_tree_live_ranges_ptr(tree); range != NULL; range = range->live_next) {
+        if (range->start_node == node && range->start_offset > offset) {
+            range->start_node = tail;
+            range->start_offset -= offset;
+        }
+        if (range->end_node == node && range->end_offset > offset) {
+            range->end_node = tail;
+            range->end_offset -= offset;
+        }
+        if (range->start_node == parent && range->start_offset == index) {
+            range->start_offset += 1;
+        }
+        if (range->end_node == parent && range->end_offset == index) {
+            range->end_offset += 1;
+        }
+    }
+}
+
+/* normalize folds part into into, whose text is offset code points long at that point: the boundaries in part move
+   to the same point in into. */
+void th_live_merged(th_tree *tree, th_node *part, th_node *into, Py_ssize_t offset) {
+    for (RangeObject *range = *th_tree_live_ranges_ptr(tree); range != NULL; range = range->live_next) {
+        if (range->start_node == part) {
+            range->start_node = into;
+            range->start_offset += offset;
+        }
+        if (range->end_node == part) {
+            range->end_node = into;
+            range->end_offset += offset;
+        }
+    }
+}
+
 /* --- boundary helpers on the RangeObject --- */
 
 static int validate_boundary(PyObject *handle, th_node *node, Py_ssize_t offset) {
@@ -662,41 +837,12 @@ static int validate_boundary(PyObject *handle, th_node *node, Py_ssize_t offset)
     return 0;
 }
 
-/* The one stale state a comparison has to reject: bp_compare recurses without end on two points that share no root,
-   and a point checked against the start's tree says nothing about the end's once an edit has split them. */
-static int check_shared_root(RangeObject *range) {
-    if (!same_root(range->start_handle, range->start_node, range->end_handle, range->end_node)) {
-        PyErr_SetString(PyExc_ValueError, "the range boundaries no longer share a root after a tree edit");
-        return -1;
-    }
-    return 0;
-}
-
-/* A range does not follow edits made through other tree APIs, so a boundary can outlive its text offset, its shared
-   root, or its order; reject that before an operation reads text past its end or walks toward a common ancestor. A
-   child offset past the end needs no check: every child walk stops at the last child. */
-static int check_boundaries(RangeObject *range) {
-    if ((is_char_data(range->start_node) && range->start_offset > range->start_node->text_len) ||
-        (is_char_data(range->end_node) && range->end_offset > range->end_node->text_len)) {
-        PyErr_SetString(PyExc_IndexError, "a boundary offset is out of range for its container after a tree edit");
-        return -1;
-    }
-    if (check_shared_root(range) < 0) {
-        return -1;
-    }
-    if (bp_compare((HandleObject *)range->start_handle, range->start_node, range->start_offset, range->end_node,
-                   range->end_offset) > 0) {
-        PyErr_SetString(PyExc_ValueError, "the range start follows its end after a tree edit");
-        return -1;
-    }
-    return 0;
-}
-
 static int range_is_collapsed(RangeObject *self) {
     return self->start_node == self->end_node && self->start_offset == self->end_offset;
 }
 
 static void store_start(RangeObject *self, PyObject *handle, th_node *node, Py_ssize_t offset) {
+    live_track(self, ((HandleObject *)handle)->tree);
     Py_SETREF(self->start_handle, Py_NewRef(handle));
     self->start_node = node;
     self->start_offset = offset;
@@ -759,12 +905,14 @@ TH_NODE_API(static, PyObject *, range_new, (PyTypeObject * type, PyObject *args,
     self->end_node = node;
     self->start_offset = offset;
     self->end_offset = offset;
+    live_track(self, ((HandleObject *)handle)->tree);
     return (PyObject *)self;
 }
 
 static void range_dealloc(PyObject *self) {
     RangeObject *range = (RangeObject *)self;
     PyTypeObject *type = Py_TYPE(self);
+    live_untrack(range);
     Py_XDECREF(range->start_handle);
     Py_XDECREF(range->end_handle);
     type->tp_free(self);
@@ -800,9 +948,7 @@ static PyObject *get_common_ancestor(PyObject *self, void *Py_UNUSED(closure)) {
     PyObject *result = NULL;
     /* the comparison moves the handle's sibling cursors */
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
-    if (check_boundaries(range) == 0) {
-        result = node_wrap(state_of(self), range->start_handle, common_ancestor(range->start_node, range->end_node));
-    }
+    result = node_wrap(state_of(self), range->start_handle, common_ancestor(range->start_node, range->end_node));
     Py_END_CRITICAL_SECTION();
     return result;
 }
@@ -973,9 +1119,6 @@ static PyObject *range_compare_boundary_points(PyObject *self, PyObject *args) {
     }
     RangeObject *left = (RangeObject *)self;
     RangeObject *right = (RangeObject *)source;
-    if (check_shared_root(left) < 0 || check_shared_root(right) < 0) {
-        return NULL;
-    }
     if (!same_root(left->start_handle, left->start_node, right->start_handle, right->start_node)) {
         PyErr_SetString(PyExc_ValueError, "the two ranges are in different trees");
         return NULL;
@@ -1026,9 +1169,6 @@ static int point_arg(PyObject *self, PyObject *args, th_node **node, Py_ssize_t 
         return -1;
     }
     RangeObject *range = (RangeObject *)self;
-    if (check_shared_root(range) < 0) {
-        return -1;
-    }
     *outside = !same_root(handle, *node, range->start_handle, range->start_node);
     return 0;
 }
@@ -1090,9 +1230,6 @@ TH_NODE_API(static, PyObject *, range_intersects_node, (PyObject * self, PyObjec
         return NULL;
     }
     RangeObject *range = (RangeObject *)self;
-    if (check_shared_root(range) < 0) {
-        return NULL;
-    }
     if (!same_root(handle, node, range->start_handle, range->start_node)) {
         Py_RETURN_FALSE;
     }
@@ -1117,8 +1254,7 @@ static PyObject *extract_or_delete(PyObject *self, int discard) {
     module_state *state = state_of(self);
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
-    if (check_boundaries(range) == 0 &&
-        range_check_recursive_depth(range, discard ? "delete_contents()" : "extract_contents()") == 0) {
+    if (range_check_recursive_depth(range, discard ? "delete_contents()" : "extract_contents()") == 0) {
         range_drop_index(handle);
         th_node *common = common_ancestor(range->start_node, range->end_node);
         th_node *new_node;
@@ -1157,7 +1293,7 @@ static PyObject *range_clone_contents(PyObject *self, PyObject *Py_UNUSED(ignore
     module_state *state = state_of(self);
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
-    if (check_boundaries(range) == 0 && range_check_recursive_depth(range, "clone_contents()") == 0) {
+    if (range_check_recursive_depth(range, "clone_contents()") == 0) {
         th_node *common = common_ancestor(range->start_node, range->end_node);
         th_node *fragment = do_clone((HandleObject *)range->start_handle, common, range->start_node,
                                      range->start_offset, range->end_node, range->end_offset);
@@ -1226,9 +1362,6 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
     int start_text_like;
     PyObject *node_obj = *node_ref;
     for (;;) {
-        if (check_boundaries(range) < 0) {
-            return NULL;
-        }
         start_node = range->start_node;
         start_text_like = start_node->type == TH_NODE_TEXT || start_node->type == TH_NODE_CDATA;
         /* the lock guards a wrapper's node only while it belongs to this tree, and a node of another tree is never the
@@ -1347,7 +1480,7 @@ static int reject_partial_non_text(RangeObject *range) {
    imports nothing. Returns 0, or -1 with an exception. */
 static int import_surround_parent(RangeObject *range, PyObject *new_parent) {
     for (;;) {
-        if (check_boundaries(range) < 0 || reject_partial_non_text(range) < 0) {
+        if (reject_partial_non_text(range) < 0) {
             return -1;
         }
         int imported = range_import((HandleObject *)range->start_handle, &new_parent);
@@ -1426,6 +1559,7 @@ static PyObject *range_clone_range(PyObject *self, PyObject *Py_UNUSED(ignored))
     copy->end_node = range->end_node;
     copy->start_offset = range->start_offset;
     copy->end_offset = range->end_offset;
+    live_track(copy, ((HandleObject *)range->start_handle)->tree);
     return (PyObject *)copy;
 }
 

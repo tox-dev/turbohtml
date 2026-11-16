@@ -208,6 +208,10 @@ struct th_tree {
     struct th_node_iterator **node_iterators;
     Py_ssize_t node_iterator_count;
     Py_ssize_t node_iterator_cap;
+    /* Head of the doubly linked list of live Ranges whose boundaries sit in this tree (dom/range.c). Each Range owns
+       its link and holds a handle reference keeping the tree alive, so the list is empty by the time the tree is freed.
+       NULL when none exist, so every text edit and removal tests one pointer. */
+    struct th_live_range *live_ranges;
     /* WHATWG parse errors collected during the parse, in document order. The
        tokenizer fills it through this sink while the tree builder adds its own
        construction errors. The preprocessing errors, which depend on the input alone,

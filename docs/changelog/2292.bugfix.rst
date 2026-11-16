@@ -1,0 +1,2 @@
+A live Range now moves its boundaries when text is replaced, deleted, split or normalized and when nodes are removed or
+inserted, so offsets and comparisons stay correct.
