@@ -1,0 +1,2 @@
+``to_markdown()`` drops comments from tables and lists nested in pipe-table cells, where a comment ending in a dash used
+to show as visible text.
