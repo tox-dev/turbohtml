@@ -14,7 +14,7 @@ import sys
 from collections import deque
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import turbohtml
 from turbohtml import Markdown as _Markdown
@@ -367,19 +367,25 @@ def _find(text: str) -> None:
     _parsed(text).find_all("a")
 
 
-def _find_cold(case: tuple[str, turbohtml.Document]) -> None:
-    query_kind, document = case
-    if query_kind == "find":
-        document.find("a")
-    elif query_kind == "all":
-        document.find_all("a")
-    else:
-        document.find_all("a", limit=1)
+class _ColdFind(NamedTuple):
+    query_kind: str
+    document: turbohtml.Document
+    repeats: int
 
 
-def _find_cold_setup(case: tuple[str, str]) -> tuple[str, turbohtml.Document]:
-    query_kind, source = case
-    return query_kind, turbohtml.parse(source)
+def _find_cold(case: _ColdFind) -> None:
+    for _ in range(case.repeats):
+        if case.query_kind == "find":
+            case.document.find("a")
+        elif case.query_kind == "all":
+            case.document.find_all("a")
+        else:
+            case.document.find_all("a", limit=1)
+
+
+def _find_cold_setup(case: tuple[str, str, int]) -> _ColdFind:
+    query_kind, source, repeats = case
+    return _ColdFind(query_kind, turbohtml.parse(source), repeats)
 
 
 def _select(text: str) -> None:
@@ -396,18 +402,32 @@ def _select_scaling(case: tuple[str, str]) -> None:
     _parsed(case[1]).select(case[0])
 
 
+def _select_repeated(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.select(selector)
+
+
 _XPATH_REPLACE_DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p></p>")
 
 
-def _xpath_replace(case: tuple[str, str, str, str]) -> list[turbohtml.Node | str] | float | bool | str:
-    text, search, replacement, _expected = case
-    return _XPATH_REPLACE_DOCUMENT.xpath(
-        "str:replace($text, $search, $replacement)", text=text, search=search, replacement=replacement
-    )
+def _xpath_replace(case: tuple[str, str, str, str] | tuple[str, str, str, str, int]) -> None:
+    text, search, replacement, _expected = case[:4]
+    for _ in range(case[4] if len(case) == 5 else 1):
+        _XPATH_REPLACE_DOCUMENT.xpath(
+            "str:replace($text, $search, $replacement)", text=text, search=search, replacement=replacement
+        )
 
 
 def _xpath_scaling(case: tuple[str, str]) -> None:
     _parsed(case[1]).xpath(case[0])
+
+
+def _xpath_repeated(case: tuple[str, str] | tuple[str, str, int]) -> None:
+    expression, text = case[:2]
+    for _ in range(case[2] if len(case) == 3 else 1):
+        _parsed(text).xpath(expression)
 
 
 def _computed_style(text: str) -> None:
@@ -439,9 +459,12 @@ def _find_text(text: str) -> None:
     _parsed(text).find_all(text=_FIND_TEXT_PATTERN)
 
 
-def _find_text_exact(case: tuple[str, str]) -> None:
+def _find_text_exact(case: tuple[str, str, int]) -> None:
     # Reuse the parsed tree to isolate exact descendant-text matching.
-    _parsed(case[0]).find_all("div", text=case[1])
+    text, needle, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.find_all("div", text=needle)
 
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
@@ -1075,8 +1098,18 @@ def _xpath_paths(document: turbohtml.Document) -> None:
             node.xpath_path()
 
 
-def _last_path_element(text: str) -> turbohtml.Element:
-    return turbohtml.parse(text).select("li")[-1]
+def _last_path_elements(text: str) -> list[turbohtml.Element]:
+    return turbohtml.parse(text).select("li")[-512:]
+
+
+def _css_path_each(elements: list[turbohtml.Element]) -> None:
+    for element in elements:
+        element.css_path()
+
+
+def _xpath_path_each(elements: list[turbohtml.Element]) -> None:
+    for element in elements:
+        element.xpath_path()
 
 
 def _css_paths_after_class_edits(document: turbohtml.Document) -> None:
@@ -1188,10 +1221,11 @@ _XPATH_CALLS: Final[MappingProxyType[str, Callable[[turbohtml.Document, str], ob
 })
 
 
-def _xpath(case: tuple[str, str]) -> None:
+def _xpath(case: tuple[str, str] | tuple[str, str, int]) -> None:
     # Evaluate one XPath feature class with turbohtml's compiled-program engine, by case kind.
-    kind, text = case
-    _XPATH_CALLS[kind](_parsed(text), text)
+    kind, text = case[:2]
+    for _ in range(case[2] if len(case) == 3 else 1):
+        _XPATH_CALLS[kind](_parsed(text), text)
 
 
 def _xpath_id(text: str) -> None:
@@ -1282,14 +1316,18 @@ def _idna(urls: tuple[str, ...]) -> None:
         _normalize_url(url)
 
 
-def _translate(selector: str) -> None:
+def _translate(case: tuple[str, int]) -> None:
     # Translate one CSS selector to XPath 1.0 with turbohtml's C translator.
-    _css_to_xpath(selector)
+    selector, repeats = case
+    for _ in range(repeats):
+        _css_to_xpath(selector)
 
 
-def _specificity(selector: str) -> None:
+def _specificity(case: tuple[str, int]) -> None:
     # Weigh a CSS selector list's specificity with turbohtml's C selector parser.
-    _css_specificity(selector)
+    selector, repeats = case
+    for _ in range(repeats):
+        _css_specificity(selector)
 
 
 def _urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
@@ -1310,9 +1348,10 @@ def _links_external(text: str) -> None:
     _extract_links(text, "https://www.example.co.uk/", external_only=True)
 
 
-def _node_equals(case: tuple[int, str]) -> bool:
-    left, right = _equality_pair(*case)
-    return left.equals(right)
+def _node_equals(case: tuple[int, str, int]) -> bool:
+    count, variant, repeats = case
+    left, right = _equality_pair(count, variant)
+    return [left.equals(right) for _ in range(repeats)][-1]
 
 
 @functools.cache
@@ -1357,14 +1396,15 @@ def _run_radio_group(run: Callable[[], tuple[bool, ...]]) -> tuple[bool, ...]:
     return run()
 
 
-def _range_boundary_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _range_boundary_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.extend(turbohtml.Element("i") for _ in range(count))
     offset: Final = count if variant == "end" else 0
 
     def run() -> None:
-        _Range(root, offset)
+        for _ in range(repeats):
+            _Range(root, offset)
 
     return run
 
@@ -1373,24 +1413,25 @@ def _run_prepared(run: Callable[[], None]) -> None:
     run()
 
 
-def _range_contained_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _range_contained_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.extend(turbohtml.Element("i") for _ in range(count))
     boundary: Final = _Range(root)
     boundary.set_end(root, count)
 
     def run() -> None:
-        if variant == "extract":
-            boundary.extract_contents()
-        else:
-            boundary.clone_contents()
+        for _ in range(repeats):
+            if variant == "extract":
+                boundary.extract_contents()
+            else:
+                boundary.clone_contents()
 
     return run
 
 
-def _range_partial_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _range_partial_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.set_inner_html(f"<section>abcdef{'<i></i>' * count}</section>tail")
     selected: Final = root.children[0].children[0]
@@ -1399,10 +1440,11 @@ def _range_partial_setup(case: tuple[int, str]) -> Callable[[], None]:
     boundary.set_end(selected, 3)
 
     def run() -> None:
-        if variant == "extract":
-            boundary.extract_contents()
-        else:
-            boundary.clone_contents()
+        for _ in range(repeats):
+            if variant == "extract":
+                boundary.extract_contents()
+            else:
+                boundary.clone_contents()
 
     return run
 
@@ -1600,17 +1642,17 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "select": (_select, "turbohtml"),
     "select-has": (_select_has, "turbohtml"),
     "select-nth": (_select_scaling, "turbohtml"),
-    "select-default": (_select_scaling, "turbohtml"),
-    "select-relative": (_select_scaling, "turbohtml"),
+    "select-default": (_select_repeated, "turbohtml"),
+    "select-relative": (_select_repeated, "turbohtml"),
     "xpath-wide": (_xpath_scaling, "turbohtml"),
-    "xpath-distinct": (_xpath_scaling, "turbohtml"),
-    "xpath-set": (_xpath_scaling, "turbohtml"),
-    "xpath-compare": (_xpath_scaling, "turbohtml"),
-    "xpath-translate": (_xpath_scaling, "turbohtml"),
+    "xpath-distinct": (_xpath_repeated, "turbohtml"),
+    "xpath-set": (_xpath_repeated, "turbohtml"),
+    "xpath-compare": (_xpath_repeated, "turbohtml"),
+    "xpath-translate": (_xpath_repeated, "turbohtml"),
     "xpath-replace": (_xpath_replace, "turbohtml"),
-    "xpath-concat": (_xpath_scaling, "turbohtml"),
+    "xpath-concat": (_xpath_repeated, "turbohtml"),
     "xpath-id-nodes": (_xpath_scaling, "turbohtml"),
-    "xpath-order": (_xpath_scaling, "turbohtml"),
+    "xpath-order": (_xpath_repeated, "turbohtml"),
     "computed-style-deep": (_computed_style, "turbohtml"),
     "computed-style": (_computed_style, "turbohtml"),
     "computed-style-selectors": (_computed_style, "turbohtml"),
@@ -1731,8 +1773,8 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "path-xpath-wide": (_xpath_path, "turbohtml"),
     "path-cold": (Mutating(setup=turbohtml.parse, run=_css_paths), "turbohtml"),
     "path-xpath-cold": (Mutating(setup=turbohtml.parse, run=_xpath_paths), "turbohtml"),
-    "path-one-cold": (Mutating(setup=_last_path_element, run=turbohtml.Element.css_path), "turbohtml"),
-    "path-xpath-one-cold": (Mutating(setup=_last_path_element, run=turbohtml.Element.xpath_path), "turbohtml"),
+    "path-one-cold": (Mutating(setup=_last_path_elements, run=_css_path_each), "turbohtml"),
+    "path-xpath-one-cold": (Mutating(setup=_last_path_elements, run=_xpath_path_each), "turbohtml"),
     "path-class-edit": (Mutating(setup=turbohtml.parse, run=_css_paths_after_class_edits), "turbohtml"),
     "translate": (_translate, "turbohtml"),
     "specificity": (_specificity, "turbohtml"),

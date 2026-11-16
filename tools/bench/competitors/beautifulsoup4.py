@@ -91,27 +91,33 @@ def find_text(text: str) -> None:
     parsed("html.parser", text).find_all(string=_FIND_TEXT_PATTERN)
 
 
-def _find_text_exact(case: tuple[str, str]) -> None:
-    _ = [
-        node
-        for node in parsed("html.parser", case[0]).find_all("div")
-        if node.get_text(types=(NavigableString, CData, Script, Stylesheet, TemplateString)) == case[1]
-    ]
+def _find_text_exact(case: tuple[str, str, int]) -> None:
+    text, needle, repeats = case
+    document = parsed("html.parser", text)
+    for _ in range(repeats):
+        _ = [
+            node
+            for node in document.find_all("div")
+            if node.get_text(types=(NavigableString, CData, Script, Stylesheet, TemplateString)) == needle
+        ]
 
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
     parsed("html.parser", case[0]).find_all("p", attrs={"data-x": case[1]})
 
 
-def _select_default(case: tuple[str, str]) -> None:
+def _select_default(case: tuple[str, str, int]) -> None:
     if case[0] == ":default" and "<button>" in case[1]:
         unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
         raise NotImplementedError(unsupported)
     _select_relative(case)
 
 
-def _select_relative(case: tuple[str, str]) -> None:
-    parsed("html.parser", case[1]).select(case[0])
+def _select_relative(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = parsed("html.parser", text)
+    for _ in range(repeats):
+        document.select(selector)
 
 
 def text_content(text: str) -> None:
@@ -266,9 +272,10 @@ def _strip_comments(soup: BeautifulSoup) -> None:
         comment.extract()
 
 
-def _node_equals(case: tuple[int, str]) -> bool:
-    left, right = _equality_pair(*case)
-    return left == right
+def _node_equals(case: tuple[int, str, int]) -> bool:
+    count, variant, repeats = case
+    left, right = _equality_pair(count, variant)
+    return [left == right for _ in range(repeats)][-1]
 
 
 @functools.cache

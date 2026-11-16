@@ -54,16 +54,22 @@ def find_text(text: str) -> None:
     _parsed(text).xpath('//*[contains(., "test")]')
 
 
-def _find_text_exact(case: tuple[str, str]) -> None:
-    _parsed(case[0]).xpath("//div[string(.) = $expected]", expected=case[1])
+def _find_text_exact(case: tuple[str, str, int]) -> None:
+    text, needle, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.xpath("//div[string(.) = $expected]", expected=needle)
 
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
     _parsed(case[0]).xpath("//p[@data-x]" if case[1] else "//p[not(@data-x)]")
 
 
-def _select_relative(case: tuple[str, str]) -> None:
-    _parsed(case[1]).css(case[0])
+def _select_relative(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.css(selector)
 
 
 def text_content(text: str) -> None:
@@ -178,18 +184,21 @@ _XPATH_CALLS: Final[MappingProxyType[str, Callable[[Selector, str], object]]] = 
 })
 
 
-def _xpath_scaling(case: tuple[str, str]) -> None:
-    _parsed(case[1]).xpath(case[0])
+def _xpath_scaling(case: tuple[str, str] | tuple[str, str, int]) -> None:
+    expression, text = case[:2]
+    for _ in range(case[2] if len(case) == 3 else 1):
+        _parsed(text).xpath(expression)
 
 
-def xpath(case: tuple[str, str]) -> None:
+def xpath(case: tuple[str, str] | tuple[str, str, int]) -> None:
     # Evaluate one XPath feature class with parsel's lxml-backed engine, by case kind.
-    kind, text = case
+    kind, text = case[:2]
     if (call := _XPATH_CALLS.get(kind)) is None:
         # parsel runs on lxml's libxml2, an XPath 1.0 engine, so the same message keys both columns to one legend note
         unsupported = "lxml's libxml2 is XPath 1.0, without the XPath 2.0 string functions"
         raise NotImplementedError(unsupported)
-    call(_parsed(text), text)
+    for _ in range(case[2] if len(case) == 3 else 1):
+        call(_parsed(text), text)
 
 
 def _serialize_inner(text: str) -> str:
