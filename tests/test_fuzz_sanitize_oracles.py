@@ -10,7 +10,7 @@ from fuzz.sanitize_oracles import (
 )
 
 from turbohtml import parse_fragment
-from turbohtml.clean import Policy, sanitize_node
+from turbohtml.clean import OnDisallowed, Policy, sanitize_node
 
 _TABLE_ROWS: Final[Policy] = Policy(tags=frozenset({"table", "tr", "td"}))
 _TABLE_CELLS: Final[Policy] = Policy(tags=frozenset({"table", "td"}))
@@ -27,6 +27,11 @@ _SELECT_ROW: Final[Policy] = Policy(tags=frozenset({"table", "tr", "select", "op
         pytest.param("<table><tr><td>a</td></tr><tr><td>b</td></tr></table>", _TABLE_ROWS, id="adjacent-rows-merge"),
         pytest.param("<table><td>a</td> <td>b</td></table>", _TABLE_ROWS, id="text-after-omitted-cell"),
         pytest.param("<table><tr><select><option>x</option></select></tr></table>", _SELECT_ROW, id="select-branch"),
+        pytest.param(
+            "<table><select><tr>",
+            Policy(tags=frozenset({"table", "tr", "select"}), on_disallowed_tag=OnDisallowed.STRIP),
+            id="select-before-table",
+        ),
         pytest.param("<template><p>x</p></template>", Policy(tags=frozenset({"template", "p"})), id="template"),
     ],
 )
