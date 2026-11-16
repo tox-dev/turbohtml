@@ -1121,7 +1121,7 @@ TH_NODE_API(static, PyObject *, shadow_root_set_inner_html, (PyObject * self, Py
     }
     int scripting = th_tree_scripting(tree_of(self));
     th_tree *fragment = th_tree_parse_fragment(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html),
-                                               "div", 3, 0, 0, scripting, 1, 0);
+                                               "div", 3, 0, 0, scripting, 1);
     if (fragment == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }

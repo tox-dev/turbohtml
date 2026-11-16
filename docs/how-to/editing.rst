@@ -159,6 +159,9 @@ parser as :func:`~turbohtml.parse`, so malformed markup is repaired the same way
 
     <ul><li>one</li><li>two</li></ul>
 
+When the element is a MathML ``annotation-xml`` whose ``encoding`` is ``text/html`` or ``application/xhtml+xml``, the
+markup parses as HTML, the same as it does inside that element in a parsed document, so its elements are HTML elements.
+
 :meth:`~turbohtml.Element.set_text` replaces the children with a single text node, taking the string verbatim, so any
 markup in it is escaped rather than parsed (the same as assigning :attr:`~turbohtml.Element.text`):
 

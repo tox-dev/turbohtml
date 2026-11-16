@@ -2541,7 +2541,7 @@ PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObje
         }
     }
     th_tree *tree = th_tree_parse_fragment(PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text),
-                                           context, context_len, positions, locations, scripting, declarative, 0);
+                                           context, context_len, positions, locations, scripting, declarative);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }

@@ -569,15 +569,21 @@ int th_node_normalize(th_tree *tree, th_node *root);
    children. context is a NUL-free ASCII name; context_len its length. positions
    records element source line/column, scripting sets the WHATWG scripting flag, and
    declarative_shadow allows `<template shadowrootmode>` to attach a shadow root to the
-   context element, all as in th_tree_parse. html_integration marks a foreign context
-   as an HTML integration point (an annotation-xml with an HTML encoding, see
-   th_node_is_html_annotation_xml), so its children parse as HTML. */
+   context element, all as in th_tree_parse. */
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
                                 Py_ssize_t context_len, int positions, int locations, int scripting,
-                                int declarative_shadow, int html_integration);
+                                int declarative_shadow);
 
-/* Whether node is an annotation-xml whose encoding attribute, as it stands, makes it an HTML integration point. */
-int th_node_is_html_annotation_xml(const th_node *node);
+/* As th_tree_parse_fragment, for a context element that is an HTML integration point: html_integration makes the
+   fragment root one, the way insert_foreign marks a parsed annotation-xml. Pass th_annotation_xml_is_html of the
+   context node. SVG and MathML text integration points need no flag, since the root takes their namespace and tag. */
+th_tree *th_tree_parse_fragment_ex(int kind, const void *data, Py_ssize_t length, const char *context,
+                                   Py_ssize_t context_len, int positions, int locations, int scripting,
+                                   int declarative_shadow, int html_integration);
+
+/* Whether node is a MathML annotation-xml whose current encoding attribute makes it an HTML integration point, decided
+   as insert_foreign decides a parsed start tag. */
+int th_annotation_xml_is_html(const th_node *node);
 
 /* Whether context names a real element the public parse_fragment() accepts: a known
    HTML tag, or any explicitly namespaced (svg/math) foreign element. */
