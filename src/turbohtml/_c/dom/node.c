@@ -2436,7 +2436,7 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
-    if (declared && declared_label != NULL) {
+    if (declared) {
         *declared_label = charset;
     }
     return result;
@@ -2668,13 +2668,18 @@ TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, P
     PyObject *encoded = markup_encode(text, encoding, 0);
     if (encoded != NULL && declared_label != NULL) {
         int reads_back = declaration_reads_back(text, encoded, encoding, declared_label);
+        /* GCOVR_EXCL_START: the read-back fails only on allocation */
+        if (reads_back < 0) {
+            Py_DECREF(encoded);
+            encoded = NULL;
+        }
+        /* GCOVR_EXCL_STOP */
         if (reads_back == 0) {
-            Py_CLEAR(encoded);
+            Py_DECREF(encoded);
+            encoded = NULL;
             PyErr_Format(PyExc_ValueError,
                          "meta_charset cannot declare %s for %s: the encoded output does not read back as written",
                          declared_label, encoding);
-        } else if (reads_back < 0) {
-            Py_CLEAR(encoded);
         }
     }
     Py_DECREF(text);

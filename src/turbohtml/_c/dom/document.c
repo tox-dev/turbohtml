@@ -5,6 +5,9 @@
 #include "dom/nodes.h"
 
 #include <stdbool.h>
+#if defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 #include "encoding/encoding.h"
 #include "encoding/decode.h"
@@ -2481,6 +2484,33 @@ const char *meta_charset_label(const char *encoding) {
     return entry->canonical;
 }
 
+/* Whether any byte lies between lo and hi inclusive. A byte at offset d = byte - lo (mod 256) is in range exactly when
+   d saturating-minus (hi - lo) is zero, so the vector loop keeps the least such value per lane and tests once at the
+   end. The scalar loop covers the tail and every other target. */
+static TH_NOINLINE int bytes_within(const unsigned char *data, Py_ssize_t len, unsigned char lo, unsigned char hi) {
+    Py_ssize_t index = 0;
+#if defined(__SSE2__) || defined(_M_X64)
+    __m128i offset = _mm_set1_epi8((char)lo);
+    __m128i span = _mm_set1_epi8((char)(hi - lo));
+    __m128i least = _mm_set1_epi8((char)0xFF);
+    for (; index + 64 <= len; index += 64) {
+        for (Py_ssize_t lane = 0; lane < 64; lane += 16) {
+            __m128i block = _mm_loadu_si128((const __m128i *)(data + index + lane));
+            least = _mm_min_epu8(least, _mm_subs_epu8(_mm_sub_epi8(block, offset), span));
+        }
+    }
+    if (_mm_movemask_epi8(_mm_cmpeq_epi8(least, _mm_setzero_si128())) != 0) {
+        return 1;
+    }
+#endif
+    for (; index < len; index++) {
+        if (data[index] >= lo && data[index] <= hi) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* The byte range a single-byte codec writes differently under the label entry: -1 when no byte disagrees (the codec
    and the label decode every byte alike), -2 when the codec is not single-byte, otherwise lo << 8 | hi, the least and
    greatest disagreeing byte. A byte the codec cannot decode (U+FFFD under replace) is never one it writes. Cached by
@@ -2512,17 +2542,21 @@ static long single_byte_disagreement(const char *encoding, const th_encoding_ent
         return -3;       /* GCOVR_EXCL_LINE */
     }
     long packed = -1;
-    if (PyUnicode_GET_LENGTH(codec) != (Py_ssize_t)sizeof(every)) { /* GCOVR_EXCL_BR_LINE: a single-byte label's codec is single-byte */
-        packed = -2;                                                  /* GCOVR_EXCL_LINE */
+    /* GCOVR_EXCL_START: a single-byte label's codec always decodes every byte, so no test can reach this */
+    if (PyUnicode_GET_LENGTH(codec) != (Py_ssize_t)sizeof(every)) {
+        packed = -2;
     } else {
+        /* GCOVR_EXCL_STOP */
         const uint16_t *table = th_sb_index[entry->single];
         unsigned lo = 256;
         unsigned hi = 0;
         for (unsigned index = 0; index < 256; index++) {
             Py_UCS4 point = PyUnicode_READ_CHAR(codec, (Py_ssize_t)index);
             if (point != 0xFFFD && table[index] != point) {
-                lo = lo < index ? lo : index;
-                hi = hi > index ? hi : index;
+                if (lo > hi) {
+                    lo = index;
+                }
+                hi = index;
             }
         }
         if (lo <= hi) {
@@ -2531,7 +2565,7 @@ static long single_byte_disagreement(const char *encoding, const th_encoding_ent
     }
     Py_DECREF(codec);
     PyObject *value = PyLong_FromLong(packed);
-    int stored = value == NULL ? -1 : PyDict_SetItem(cache, key, value);
+    int stored = value == NULL ? -1 : PyDict_SetItem(cache, key, value); /* GCOVR_EXCL_BR_LINE: allocation only */
     Py_XDECREF(value);
     Py_DECREF(key);
     if (stored < 0) { /* GCOVR_EXCL_BR_LINE: the cache insert fails only on allocation */
@@ -2547,22 +2581,20 @@ static long single_byte_disagreement(const char *encoding, const th_encoding_ent
 static int single_byte_bytes_agree(const char *encoding, const th_encoding_entry *entry, const unsigned char *data,
                                    Py_ssize_t len) {
     long packed = single_byte_disagreement(encoding, entry);
-    if (packed == -3) {
-        return -1;
+    if (packed == -3) { /* GCOVR_EXCL_BR_LINE: the codec or the cache fails only on allocation */
+        return -1;      /* GCOVR_EXCL_LINE */
     }
+    /* GCOVR_EXCL_START: single_byte_disagreement reports -2 only for a codec that is not single-byte */
     if (packed == -2) {
         return 0;
     }
+    /* GCOVR_EXCL_STOP */
     if (packed == -1) {
         return 1;
     }
     unsigned lo = (unsigned)(packed >> 8);
-    unsigned span = (unsigned)(packed & 0xFF) - lo;
-    unsigned hit = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        hit |= (unsigned)(data[index] - lo) <= span;
-    }
-    return hit == 0;
+    unsigned hi = (unsigned)(packed & 0xFF);
+    return !bytes_within(data, len, (unsigned char)lo, (unsigned char)hi);
 }
 
 /* Whether the encoded bytes read back as the same text when a reader decodes them with the label charset that
