@@ -1245,21 +1245,21 @@ static Py_ssize_t split_segments(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_
     return count;
 }
 
-/* 1 for a single-dot path segment, 2 for a double-dot one, 0 for any other segment. A special scheme also reads %2e in
-   any case as a dot, so "%2E%2e" is a double-dot segment (https://url.spec.whatwg.org/#single-dot-path-segment). */
+/* 1 for a single-dot path segment, 2 for a double-dot one, 0 for any other segment. %2e reads as a dot in any case in
+   every scheme, so "%2E%2e" is a double-dot segment (https://url.spec.whatwg.org/#single-dot-path-segment). */
 static int url_dot_candidate(const url_seg *segment) {
     return segment->start < segment->end &&
            (segment->buf[segment->start] == '.' || segment->buf[segment->start] == '%');
 }
 
-static int url_dot_segment(const url_seg *segment, int special) {
+static int url_dot_segment(const url_seg *segment) {
     const Py_UCS4 *buf = segment->buf;
     Py_ssize_t index = segment->start;
     int dots = 0;
     while (index < segment->end && dots < 2) {
         if (buf[index] == '.') {
             index++;
-        } else if (special && index + 2 < segment->end && buf[index] == '%' && buf[index + 1] == '2' &&
+        } else if (index + 2 < segment->end && buf[index] == '%' && buf[index + 1] == '2' &&
                    (buf[index + 2] | 0x20) == 'e') {
             index += 3;
         } else {
@@ -1276,7 +1276,7 @@ static int url_dot_segment(const url_seg *segment, int special) {
    splices a relative one onto the base directory (collapsing the redundant empty segments urllib's filter removes),
    then walks the segments popping ".." and dropping ".". */
 static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *scratch, url_seg *resolved, Py_UCS4 *out,
-                             int preserve_slashes, int c14n, int special) {
+                             int preserve_slashes, int c14n, int special, int keep_root) {
     int ref_absolute = url_slash(ref->buf[ref->path_start], special); /* the caller only merges a non-empty path */
     Py_ssize_t total;
     if (ref_absolute) {
@@ -1302,16 +1302,14 @@ static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *s
             total = write;
         }
     }
-    int last_is_dot = url_dot_candidate(&scratch[total - 1]) && url_dot_segment(&scratch[total - 1], special) != 0;
+    int last_is_dot = url_dot_candidate(&scratch[total - 1]) && url_dot_segment(&scratch[total - 1]) != 0;
     Py_ssize_t kept = 0;
+    int rooted_base = base->path_start < base->path_end && url_slash(base->buf[base->path_start], special);
     Py_ssize_t floor =
-        (preserve_slashes || c14n) &&
-                (ref_absolute || (base->path_start < base->path_end && url_slash(base->buf[base->path_start], special)))
-            ? 1
-            : 0;
+        (keep_root && ref_absolute) || ((preserve_slashes || c14n) && (ref_absolute || rooted_base)) ? 1 : 0;
     for (Py_ssize_t index = 0; index < total; index++) {
         url_seg segment = scratch[index];
-        int dot = url_dot_candidate(&segment) ? url_dot_segment(&segment, special) : 0;
+        int dot = url_dot_candidate(&segment) ? url_dot_segment(&segment) : 0;
         if (dot == 2) {
             if (kept > floor && (!c14n || !segment_eq(resolved[kept - 1].buf, resolved[kept - 1].start,
                                                       resolved[kept - 1].end, ".."))) {
@@ -1396,6 +1394,12 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
    backslashes the way WHATWG does; file keeps its own host and drive rules, so it stays on the RFC 3986 reading. */
 static int url_special_nonfile(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end) {
     return url_scheme_special(buf, start, end) && !scheme_eq(buf, start, end, "file");
+}
+
+/* Whether the URL has an authority or a rooted path, so its path is hierarchical and dot segments apply to it; an
+   opaque path (no slash after the scheme) keeps them as written (https://url.spec.whatwg.org/#url-opaque-path). */
+static int url_hierarchical(const url_ref *ref) {
+    return ref->has_netloc || (ref->path_end > ref->path_start && ref->buf[ref->path_start] == '/');
 }
 
 /* The default port of the special scheme buf[start,end), or -1 for any other scheme
@@ -1509,9 +1513,9 @@ static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssi
     return 1;
 }
 
-/* The path of ref from `from` to its query and fragment, as a special URL's path reads: dot segments resolved and each
-   backslash a separator. Returns a new buffer of *len code points, or NULL with MemoryError set. */
-static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t *len) {
+/* The path of ref from `from` to its query and fragment, with dot segments resolved; a special scheme also reads each
+   backslash as a separator. Returns a new buffer of *len code points, or NULL with MemoryError set. */
+static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t *len, int special) {
     Py_ssize_t capacity = ref->path_end - from + 4;
     url_seg *scratch = PyMem_Malloc((size_t)capacity * sizeof(url_seg));
     url_seg *resolved = PyMem_Malloc((size_t)capacity * sizeof(url_seg));
@@ -1530,7 +1534,7 @@ static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t
         url_ref none = {0};
         none.buf = ref->buf;
         none.path_start = none.path_end = from;
-        *len = merge_path(&none, &tail, scratch, resolved, out, 0, 0, 1);
+        *len = merge_path(&none, &tail, scratch, resolved, out, 0, 0, special, 1);
     }
     PyMem_Free(scratch);
     PyMem_Free(resolved);
@@ -1581,7 +1585,7 @@ static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_part
         return Py_None;
     }
     Py_ssize_t path_len;
-    Py_UCS4 *path = url_special_path(ref_parts, host_end, &path_len);
+    Py_UCS4 *path = url_special_path(ref_parts, host_end, &path_len, 1);
     if (path == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1601,6 +1605,35 @@ static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_part
                   path_len, ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
                   ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
     PyMem_Free(netloc);
+    PyMem_Free(path);
+    return joined;
+}
+
+/* A URL with no host whose path starts with two slashes is written with "/." in front, so the path is not read back as
+   an authority (https://url.spec.whatwg.org/#url-path-serializer). The path buffer has room for the two extra code
+   points. */
+static void url_guard_hostless_path(Py_UCS4 *path, Py_ssize_t *path_len, int has_netloc) {
+    if (!has_netloc && *path_len > 1 && path[0] == '/' && path[1] == '/') {
+        memmove(path + 2, path, (size_t)*path_len * sizeof(Py_UCS4));
+        path[0] = '/';
+        path[1] = '.';
+        *path_len += 2;
+    }
+}
+
+/* A reference that names a non-special scheme and is hierarchical is a URL of its own, so its dot segments go as WHATWG
+   removes them for every scheme (https://url.spec.whatwg.org/#path-state); its authority is kept as written. */
+static PyObject *join_nonspecial_absolute(const url_ref *ref) {
+    Py_ssize_t path_len;
+    Py_UCS4 *path = url_special_path(ref, ref->path_start, &path_len, 0);
+    if (path == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    url_guard_hostless_path(path, &path_len, ref->has_netloc);
+    PyObject *joined =
+        build_url(1, ref->buf, ref->scheme_start, ref->scheme_end, ref->has_netloc, ref->buf, ref->netloc_start,
+                  ref->netloc_end, path, 0, path_len, ref->has_query, ref->buf, ref->query_start, ref->query_end,
+                  ref->has_fragment, ref->buf, ref->fragment_start, ref->fragment_end);
     PyMem_Free(path);
     return joined;
 }
@@ -1697,7 +1730,9 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
                                                ref_parts.buf, ref_parts.scheme_start, ref_parts.scheme_end));
     int hierarchical = document && (base_parts.has_netloc || (base_parts.path_end > base_parts.path_start &&
                                                               base_parts.buf[base_parts.path_start] == '/'));
-    int relative = c14n || (scheme_has && scheme_is_relative(scheme_buf, scheme_start, scheme_end));
+    int nonspecial_base = link && base_parts.has_scheme && !base_special && url_hierarchical(&base_parts);
+    int relative = c14n || (scheme_has && scheme_is_relative(scheme_buf, scheme_start, scheme_end)) ||
+                   (nonspecial_base && !ref_parts.has_scheme);
     if (c14n && (ref_parts.has_scheme || ref_parts.has_netloc)) {
         Py_ssize_t path_capacity = ref_parts.path_end - ref_parts.path_start + 4;
         url_seg *scratch = PyMem_Malloc((size_t)path_capacity * sizeof(url_seg));
@@ -1717,7 +1752,7 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         empty_base.path_end = ref_parts.path_start;
         Py_ssize_t path_len = ref_parts.path_end == ref_parts.path_start
                                   ? 0
-                                  : merge_path(&empty_base, &ref_parts, scratch, resolved, path, 0, 1, 0);
+                                  : merge_path(&empty_base, &ref_parts, scratch, resolved, path, 0, 1, 0, 0);
         PyObject *absolute =
             build_url(scheme_has, scheme_buf, scheme_start, scheme_end, ref_parts.has_netloc, ref_parts.buf,
                       ref_parts.netloc_start, ref_parts.netloc_end, path, 0, path_len, ref_parts.has_query,
@@ -1737,6 +1772,13 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
             return authority;
         }
     }
+    if (link && ref_parts.has_scheme &&
+        !url_scheme_special(ref_parts.buf, ref_parts.scheme_start, ref_parts.scheme_end)) {
+        PyObject *absolute = url_hierarchical(&ref_parts) ? join_nonspecial_absolute(&ref_parts) : Py_NewRef(target);
+        PyMem_Free(base_parts.buf);
+        PyMem_Free(ref_parts.buf);
+        return absolute;
+    }
     if (scheme_differs || (scheme_has && !relative && !(document && !ref_parts.has_scheme && hierarchical)) ||
         (document && ref_parts.has_scheme && !base_special)) {
         PyMem_Free(base_parts.buf);
@@ -1755,7 +1797,9 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
             netloc_fixed = url_authority_port_fixed(
                 ref_parts.buf, ref_parts.netloc_start, ref_parts.netloc_end,
                 url_default_port(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end), &netloc, &netloc_len);
-            path = url_special_path(&ref_parts, ref_parts.path_start, &path_len);
+        }
+        if (link) {
+            path = url_special_path(&ref_parts, ref_parts.path_start, &path_len, base_special);
             if (path == NULL) {             /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 PyMem_Free(base_parts.buf); /* GCOVR_EXCL_LINE: allocation-failure path */
                 PyMem_Free(ref_parts.buf);  /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1814,13 +1858,10 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         }
         int path_special =
             link && base_special && !scheme_eq(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, "file");
-        Py_ssize_t path_len =
-            merge_path(&base_parts, &ref_parts, scratch, resolved, path, document == 1, c14n, path_special);
-        if (document == 1 && !base_parts.has_netloc && path_len > 1 && path[0] == '/' && path[1] == '/') {
-            memmove(path + 2, path, (size_t)path_len * sizeof(Py_UCS4));
-            path[0] = '/';
-            path[1] = '.';
-            path_len += 2;
+        Py_ssize_t path_len = merge_path(&base_parts, &ref_parts, scratch, resolved, path, document == 1, c14n,
+                                         path_special, link && (base_parts.has_netloc || !base_special));
+        if (document == 1 || nonspecial_base) {
+            url_guard_hostless_path(path, &path_len, base_parts.has_netloc);
         }
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end,
                            base_parts.has_netloc, base_parts.buf, base_parts.netloc_start, base_parts.netloc_end, path,

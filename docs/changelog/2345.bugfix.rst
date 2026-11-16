@@ -1,0 +1,2 @@
+``Node.resolve_links()`` now removes dot segments from links under non-special schemes such as ``foo://`` or
+``sftp://``, as browsers do, and keeps the root of a path such as ``/..//p`` in place.
