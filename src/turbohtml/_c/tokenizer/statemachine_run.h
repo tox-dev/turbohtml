@@ -13,6 +13,10 @@ static inline void TH_NAME(charref_push)(th_tokenizer *self, th_buf *dest, Py_UC
     }
 }
 
+/* Text a named reference past its longest name has gathered before it is emitted as a token. The run is text either
+   way, so the limit only bounds how much of it a streamed reference holds: one feed plus this many code points. */
+#define TH_CHARREF_TEXT_FLUSH 4096
+
 /* Resolve a character reference starting at the '&' under self->pos, appending
    the decoded code points to dest. in_attr selects the legacy attribute rule
    (a named reference without a trailing ';' is left literal when followed by
@@ -32,6 +36,40 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         *is_reference = 0;
     }
 
+    if (self->ref_decided != 0) {
+        /* the head of a named reference past its longest name was emitted when it suspended, so the name characters
+           that follow are text: they go out as they arrive, and a ';' that ends them is reported here */
+        Py_ssize_t from = amp + self->ref_scanned;
+        Py_ssize_t tail_end = from;
+        if (dest == &self->text && self->text.len == 0) {
+            self->text_open = 1;
+            self->text_line = self->line;
+            self->text_col = self->col + self->ref_dropped + self->ref_scanned;
+        }
+        while (tail_end < len &&
+               (is_ascii_alpha(TH_READ(tail_end)) || (TH_READ(tail_end) >= '0' && TH_READ(tail_end) <= '9'))) {
+            TH_WORK_STEP();
+            TH_NAME(charref_push)(self, dest, TH_READ(tail_end));
+            tail_end++;
+        }
+        if (tail_end >= len && !self->eof) {
+            self->ref_dropped += tail_end - from;
+            self->input.len = from;
+            if (dest == &self->text && self->text.len >= TH_CHARREF_TEXT_FLUSH) {
+                flush_text(self);
+            }
+            return -1;
+        }
+        if (self->ref_decided == 1 && tail_end < len && TH_READ(tail_end) == ';') {
+            tok_error_at(self, "unknown-named-character-reference", self->col + self->ref_dropped + (tail_end - amp));
+        }
+        self->col += self->ref_dropped;
+        self->ref_dropped = 0;
+        self->ref_scanned = 0;
+        self->ref_decided = 0;
+        return tail_end - amp;
+    }
+
     if (after_amp >= len) {
         if (!self->eof) {
             return -1;
@@ -42,23 +80,25 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
 
     Py_UCS4 first = TH_READ(after_amp);
     if (first == '#') {
-        Py_ssize_t cursor = after_amp + 1;
         int hex = 0;
-        if (cursor >= len && !self->eof) {
-            return -1;
-        }
-        if (cursor < len && (TH_READ(cursor) == 'x' || TH_READ(cursor) == 'X')) {
-            hex = 1;
-            cursor++;
-        }
+        Py_ssize_t cursor = after_amp + 1;
         Py_UCS4 num = 0;
         int overflow = 0;
-        Py_ssize_t first_digit = cursor;
-        if (self->ref_scanned > cursor - amp) {
+        if (self->ref_scanned > 0) {
+            hex = self->ref_hex;
             cursor = amp + self->ref_scanned;
             num = self->ref_num;
             overflow = self->ref_overflow;
+        } else {
+            if (cursor >= len && !self->eof) {
+                return -1;
+            }
+            if (cursor < len && (TH_READ(cursor) == 'x' || TH_READ(cursor) == 'X')) {
+                hex = 1;
+                cursor++;
+            }
         }
+        Py_ssize_t first_digit = after_amp + 1 + hex;
         while (cursor < len) {
             TH_WORK_STEP();
             Py_UCS4 digit = TH_READ(cursor);
@@ -81,13 +121,20 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
             cursor++;
         }
         if (cursor >= len && !self->eof) {
+            if (is_reference == NULL && !self->capture_source && !self->capture_locations) {
+                /* the digits are never output, so the suspended run keeps only its "&#" or "&#x" */
+                self->ref_dropped += cursor - first_digit;
+                self->input.len = first_digit;
+                cursor = first_digit;
+            }
             self->ref_scanned = cursor - amp;
+            self->ref_hex = hex;
             self->ref_num = num;
             self->ref_overflow = overflow;
             return -1; /* the run of digits might continue */
         }
         self->ref_scanned = 0;
-        if (cursor == first_digit) {
+        if (cursor == first_digit && self->ref_dropped == 0) {
             /* "&#" or "&#x" with no digits is not a reference: emit it literally */
             tok_error_at(self, "absence-of-digits-in-numeric-character-reference", self->col + (hex ? 3 : 2));
             TH_NAME(charref_push)(self, dest, '&');
@@ -98,6 +145,8 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
             return hex ? 3 : 2;
         }
         /* cursor < len or eof here: the digits-at-buffer-end case already suspended */
+        self->col += self->ref_dropped;
+        self->ref_dropped = 0;
         Py_ssize_t end = cursor;
         if (cursor < len && TH_READ(cursor) == ';') {
             end = cursor + 1;
@@ -175,6 +224,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
        alphanumerics, so a ';' beyond the cap still says the author meant a reference. */
     int named_semicolon = semicolon;
     Py_ssize_t ambiguous_end = cursor;
+    int tail = 0; /* the run of name characters reaches the end of the buffer and is emitted as text */
     if (name_len == HTML5_MAX_NAME_LEN) {
         if (self->ref_scanned > ambiguous_end - amp) {
             ambiguous_end = amp + self->ref_scanned;
@@ -185,8 +235,11 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
             ambiguous_end++;
         }
         if (ambiguous_end >= len && !self->eof) {
-            self->ref_scanned = ambiguous_end - amp;
-            return -1; /* the run of name characters might continue */
+            if (is_reference != NULL || self->capture_source || self->capture_locations) {
+                self->ref_scanned = ambiguous_end - amp;
+                return -1; /* the run of name characters might continue */
+            }
+            tail = 1;
         }
         self->ref_scanned = 0;
         named_semicolon = ambiguous_end < len && TH_READ(ambiguous_end) == ';';
@@ -207,46 +260,58 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         }
     }
 
-    if (entity == NULL) {
-        /* no match: emit '&' and the consumed name characters literally. A trailing ';'
-           means the author meant a reference the table does not have. */
-        if (named_semicolon) {
+    int literal = entity == NULL;
+    if (!literal && in_attr && !match_semicolon) {
+        Py_UCS4 after = (match_len < name_len) ? chars[match_len] : (cursor < len ? TH_READ(cursor) : 0);
+        /* legacy rule: leave the reference literal inside an attribute */
+        literal = after == '=' || is_ascii_alpha(after) || (after >= '0' && after <= '9');
+    }
+    Py_ssize_t head;
+    if (literal) {
+        /* no match: emit '&' and the consumed name characters literally. A trailing ';' means the author meant a
+           reference the table does not have. */
+        if (entity == NULL && named_semicolon) {
             tok_error_at(self, "unknown-named-character-reference", self->col + (ambiguous_end - amp));
         }
         TH_NAME(charref_push)(self, dest, '&');
         for (int index = 0; index < name_len; index++) {
             TH_NAME(charref_push)(self, dest, chars[index]);
         }
-        return 1 + name_len;
-    }
-
-    if (in_attr && !match_semicolon) {
-        Py_UCS4 after = (match_len < name_len) ? chars[match_len] : (cursor < len ? TH_READ(cursor) : 0);
-        if (after == '=' || is_ascii_alpha(after) || (after >= '0' && after <= '9')) {
-            /* legacy rule: leave the reference literal inside an attribute */
-            TH_NAME(charref_push)(self, dest, '&');
-            for (int index = 0; index < name_len; index++) {
-                TH_NAME(charref_push)(self, dest, chars[index]);
-            }
-            return 1 + name_len;
+        head = 1 + name_len;
+    } else {
+        if (!match_semicolon) {
+            tok_error_at(self, "missing-semicolon-after-character-reference", self->col + 1 + match_len);
         }
+        TH_NAME(charref_push)(self, dest, entity->cp0);
+        if (entity->cp1) {
+            TH_NAME(charref_push)(self, dest, entity->cp1);
+        }
+        /* characters consumed past the matched name are emitted literally */
+        for (int index = match_len; index < name_len; index++) {
+            TH_NAME(charref_push)(self, dest, chars[index]);
+        }
+        head = 1 + name_len + match_semicolon;
     }
-
-    if (!match_semicolon) {
-        tok_error_at(self, "missing-semicolon-after-character-reference", self->col + 1 + match_len);
+    if (tail) {
+        /* the run runs past the longest table name, so the rest of it is text: it leaves the input as it arrives
+           instead of waiting for its end, and the next call reports a ';' that ends it */
+        for (Py_ssize_t index = cursor; index < len; index++) {
+            TH_WORK_STEP();
+            TH_NAME(charref_push)(self, dest, TH_READ(index));
+        }
+        if (dest == &self->text && self->text.len >= TH_CHARREF_TEXT_FLUSH) {
+            flush_text(self);
+        }
+        self->ref_dropped += len - (amp + 1);
+        self->input.len = amp + 1;
+        self->ref_scanned = 1;
+        self->ref_decided = entity == NULL ? 1 : 2;
+        return -1;
     }
-    TH_NAME(charref_push)(self, dest, entity->cp0);
-    if (entity->cp1) {
-        TH_NAME(charref_push)(self, dest, entity->cp1);
-    }
-    /* characters consumed past the matched name are emitted literally */
-    for (int index = match_len; index < name_len; index++) {
-        TH_NAME(charref_push)(self, dest, chars[index]);
-    }
-    if (is_reference != NULL) {
+    if (is_reference != NULL && !literal) {
         *is_reference = 1;
     }
-    return 1 + name_len + match_semicolon;
+    return head;
 }
 
 /* Handle a '&' in text content when references are split out (resolve_references
@@ -362,7 +427,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     text_materialize(self);
                     Py_ssize_t consumed = TH_NAME(consume_charref)(self, &self->text, 0, NULL);
                     if (consumed == -1) {
-                        return RUN_NEED_MORE;
+                        return self->queue_len != 0 ? RUN_EMITTED : RUN_NEED_MORE;
                     }
                     self->pos += consumed;
                     self->col += consumed;
@@ -412,7 +477,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     text_materialize(self);
                     Py_ssize_t consumed = TH_NAME(consume_charref)(self, &self->text, 0, NULL);
                     if (consumed == -1) {
-                        return RUN_NEED_MORE;
+                        return self->queue_len != 0 ? RUN_EMITTED : RUN_NEED_MORE;
                     }
                     self->pos += consumed;
                     self->col += consumed;

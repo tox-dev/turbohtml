@@ -278,6 +278,11 @@ struct th_tokenizer {
     Py_ssize_t ref_scanned; /* code points scanned from the '&', 0 when no such run is suspended */
     Py_UCS4 ref_num;        /* the numeric reference's value over the digits scanned so far */
     int ref_overflow;
+    int ref_hex;            /* the suspended numeric reference is hexadecimal */
+    Py_ssize_t ref_dropped; /* digits of a suspended numeric run removed from the input buffer (not output), folded into
+                               col on resolve */
+    int ref_decided; /* a named reference past its longest name emitted its head; 1 when no table entry matched, 2
+                        otherwise */
 
     th_token *queue[2];
     int queue_head;
@@ -441,6 +446,8 @@ void th_tok_reset(th_tokenizer *self) {
     self->slice_len = 0;
     buf_reset(&self->ref);
     self->ref_scanned = 0;
+    self->ref_dropped = 0;
+    self->ref_decided = 0;
     token_reset(&self->tok);
     token_reset(&self->charref_record);
     buf_reset(&self->last_tag);

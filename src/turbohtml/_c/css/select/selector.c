@@ -426,8 +426,8 @@ static int sel_kw(const Py_UCS4 *name, Py_ssize_t len, const char *kw) {
     return 1;
 }
 
-/* Read a run of ASCII digits as a non-negative int64_t, saturating at INT64_MAX rather
-   than overflowing; *seen reports any digit. */
+/* Read a run of ASCII digits as a non-negative int64_t, saturating at INT64_MAX rather than overflowing; *seen
+   reports any digit. */
 static int64_t sel_read_int(sel_parser *parser, int *seen) {
     int64_t value = 0;
     *seen = 0;
@@ -480,12 +480,6 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
                 return;
             }
             *b = bsign * bval;
-            if (*b < 0 && *a != 0) {
-                /* a descending series that starts below 1 matches no position, and an ascending one matches the same
-                   positions from b % a, so the reduction changes no match and no translated XPath; a negative offset
-                   then pairs only with a positive step, which sel_nth_matches relies on */
-                *b = *a < 0 ? 0 : *b % *a;
-            }
         } else {
             *b = 0;
         }
@@ -497,6 +491,53 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
         return;
     }
     sel_skip_ws(parser);
+}
+
+/* The pair the matcher reads for the parsed (already saturated) An+B = a/b: both within [-INT_MAX, INT_MAX], and
+   selecting the same sibling positions in [1, INT_MAX] as the parsed pair. A coefficient past the int range becomes a
+   residue that selects the same positions; a pair that selects nothing becomes (0, 0), since no sibling has index 0. */
+static void sel_nth_narrow(int64_t a, int64_t b, int *out_a, int *out_b) {
+    const int64_t top = INT_MAX;
+    int64_t pair_a = 0;
+    int64_t pair_b = 0;
+    if (a == 0) {
+        pair_b = b >= 1 && b <= top ? b : 0;
+    } else {
+        const int64_t period = a > 0 ? a : -a;
+        int64_t residue = b % period;
+        if (residue < 0) {
+            residue += period;
+        }
+        if (a > 0 && period > top) {
+            if (residue >= 1 && residue <= top && residue >= b) {
+                pair_a = top;
+                pair_b = residue;
+            }
+        } else if (a > 0) {
+            if (b <= 1) {
+                pair_a = period;
+                pair_b = residue;
+            } else if (b <= top) {
+                pair_a = period;
+                pair_b = b;
+            }
+        } else if (b >= top) {
+            if (period > top) {
+                if (residue >= 1 && residue <= top) {
+                    pair_a = -top;
+                    pair_b = residue;
+                }
+            } else {
+                pair_a = -period;
+                pair_b = top - (top - residue) % period;
+            }
+        } else if (b >= 1) {
+            pair_a = period > top ? -top : -period;
+            pair_b = b;
+        }
+    }
+    *out_a = (int)pair_a;
+    *out_b = (int)pair_b;
 }
 
 /* Parse the comma-separated selector list inside a :is()/:where()/:has(); defined
@@ -662,10 +703,13 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             return;
         }
         parser->pos++;
-        sel_parse_anb(parser, &simple->nth_a, &simple->nth_b);
+        int64_t nth_a;
+        int64_t nth_b;
+        sel_parse_anb(parser, &nth_a, &nth_b);
         if (parser->error) {
             return;
         }
+        sel_nth_narrow(nth_a, nth_b, &simple->nth_a, &simple->nth_b);
         /* the Level-4 'of S' clause filters the sibling list by a selector; it is
            valid only on :nth-child()/:nth-last-child(), not the -of-type variants */
         if (parser->pos < parser->len && sel_is_ident(parser->src[parser->pos])) {
@@ -2220,16 +2264,13 @@ walk:;
     return index;
 }
 
-/* Whether a 1-based index satisfies An+B for some non-negative n. sel_parse_anb pairs a negative b with a positive
-   a, so index - b is positive and can pass INT64_MAX: that case divides the unsigned sum. */
-static int sel_nth_matches(int64_t a, int64_t b, int64_t index) {
+/* Whether a 1-based index satisfies An+B for some non-negative n. sel_nth_narrow leaves b non-negative whenever a is
+   not 0, and both operands within INT_MAX, so index - b cannot overflow. */
+static int sel_nth_matches(int a, int b, int index) {
     if (a == 0) {
         return index == b;
     }
-    if (b < 0) {
-        return ((uint64_t)index + (uint64_t)-b) % (uint64_t)a == 0;
-    }
-    const int64_t diff = index - b;
+    const int diff = index - b;
     return diff % a == 0 && diff / a >= 0;
 }
 
@@ -5108,9 +5149,6 @@ static void sel_sweep_plan_compound(sel_sweep *sweep, const sel_compound *compou
         } else if (simple->pseudo == PSEUDO_SCOPE) {
             sel_sweep_mark(sweep, SEL_SWEEP_SCOPE);
         } else if (simple->pseudo == PSEUDO_NTH_CHILD || simple->pseudo == PSEUDO_NTH_LAST_CHILD) {
-            /* sel_sweep_nth keeps its moduli and offsets in int spans, so a coefficient past INT_MAX takes the walk */
-            sweep->failed |= simple->nth_a > INT_MAX || simple->nth_a < -INT_MAX || simple->nth_b > INT_MAX ||
-                             simple->nth_b < -INT_MAX;
             sel_sweep_mark(sweep, SEL_SWEEP_NTH);
         } else {
             sel_sweep_mark(sweep, SEL_SWEEP_LIST);

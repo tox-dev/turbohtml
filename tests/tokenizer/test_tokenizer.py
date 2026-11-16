@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 import pytest
 
-from turbohtml import Token, Tokenizer, TokenType, parse, tokenize
+from turbohtml import IncrementalParser, Token, Tokenizer, TokenType, parse, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from traced_bytes import RetainedBytes
+    from traced_bytes import PeakBytes, RetainedBytes
     from work_steps import WorkSteps
 
 
@@ -691,8 +691,19 @@ def test_reset_forgets_a_suspended_charref_run() -> None:
 def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str, work_steps: WorkSteps) -> None:
     # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
     document = prefix + run * 20_000
-    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
+    assert _coalesced(_stream_fed_in_chunks(document)) == _coalesced([_shape(token) for token in tokenize(document)])
     work_steps.assert_linear(lambda n: partial(_stream_fed_in_chunks, prefix + run * n), (5_000, 20_000))
+
+
+def _coalesced(shapes: list[_Shape]) -> list[_Shape]:
+    # a long run may reach the parser as several text tokens; the tree builder joins them, so compare their text joined
+    merged: list[_Shape] = []
+    for shape in shapes:
+        if merged and shape.token_type is TokenType.TEXT and merged[-1].token_type is TokenType.TEXT:
+            merged[-1] = merged[-1]._replace(data=f"{merged[-1].data}{shape.data}")
+        else:
+            merged.append(shape)
+    return merged
 
 
 def _stream_fed_in_chunks(document: str) -> list[_Shape]:
@@ -702,6 +713,255 @@ def _stream_fed_in_chunks(document: str) -> list[_Shape]:
         tokens.extend(tokenizer.feed(document[offset : offset + 7]))
     tokens.extend(tokenizer.close())
     return [_shape(token) for token in tokens]
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("&#", id="decimal-text"),
+        pytest.param("&#x", id="hex-text"),
+        pytest.param("<title>&#", id="rcdata"),
+        pytest.param('<a x="&#', id="attribute-decimal"),
+        pytest.param('<a x="&#x', id="attribute-hex"),
+    ],
+)
+def test_unterminated_numeric_reference_holds_no_digits(prefix: str, peak_bytes: PeakBytes) -> None:
+    # the digits of a numeric reference are never output, so a suspended run keeps only its prefix in the buffer
+    peak: Final = peak_bytes(
+        "import tracemalloc\n"
+        "from turbohtml import Tokenizer\n"
+        f"prefix = {prefix!r}\n"
+        "block = '9' * 65536\n"
+        "tokenizer = Tokenizer()\n"
+        "list(tokenizer.feed(prefix))\n"
+        "tracemalloc.start()\n"
+        "for _ in range(64):\n"
+        "    list(tokenizer.feed(block))\n"
+        "print(tracemalloc.get_traced_memory()[1])\n",
+        (),
+    )
+    assert peak < 256 * 1024, peak
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("&#", id="decimal-text"),
+        pytest.param("&#x", id="hex-text"),
+        pytest.param("<title>&#", id="rcdata"),
+        pytest.param('<a x="&#', id="attribute-decimal"),
+        pytest.param('<a x="&#x', id="attribute-hex"),
+        pytest.param("&#X", id="upper-hex-text"),
+    ],
+)
+@pytest.mark.parametrize("ending", ["", ";", " ", "x;"])
+def test_streamed_numeric_reference_matches_one_shot(prefix: str, ending: str, width_prefix: str) -> None:
+    # the streamed scan drops the digits it has passed, so the reference must still end, report and advance as one-shot
+    document: Final = f"{width_prefix}{prefix}{'9' * 3000}{ending}tail"
+    whole: Final = parse(document)
+    streamed: Final = IncrementalParser()
+    for offset in range(0, len(document), 7):
+        streamed.feed(document[offset : offset + 7])
+    split: Final = streamed.close()
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
+    assert [(error.code, error.line, error.col) for error in split.errors] == [
+        (error.code, error.line, error.col) for error in whole.errors
+    ]
+    assert split.html == whole.html
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("&", id="text"),
+        pytest.param("<title>&", id="rcdata"),
+    ],
+)
+def test_unterminated_named_reference_holds_no_run(prefix: str, peak_bytes: PeakBytes) -> None:
+    # past the longest entity name the rest of the run is text, so it leaves the input buffer as it arrives
+    peak: Final = peak_bytes(
+        "import tracemalloc\n"
+        "from turbohtml import Tokenizer\n"
+        f"prefix = {prefix!r}\n"
+        "block = 'a' * 65536\n"
+        "tokenizer = Tokenizer()\n"
+        "list(tokenizer.feed(prefix))\n"
+        "tracemalloc.start()\n"
+        "for _ in range(64):\n"
+        "    list(tokenizer.feed(block))\n"
+        "print(tracemalloc.get_traced_memory()[1])\n",
+        (),
+    )
+    assert peak < 1024 * 1024, peak
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("x&", id="text"),
+        pytest.param("<title>x&", id="rcdata"),
+        pytest.param('<a x="x&', id="attribute-quoted"),
+        pytest.param("<a x=x&", id="attribute-unquoted"),
+        pytest.param('<a x="x&notin', id="attribute-legacy"),
+    ],
+)
+@pytest.mark.parametrize("stem", ["notin", "aaaaaa"])
+@pytest.mark.parametrize(
+    "ending",
+    [
+        pytest.param("", id="end"),
+        pytest.param(";", id="semicolon"),
+        pytest.param(" ", id="space"),
+        pytest.param("x;", id="letter-semicolon"),
+        pytest.param("<", id="lt"),
+        pytest.param("=", id="equals"),
+        pytest.param("&", id="ampersand"),
+        pytest.param("é", id="non-ascii"),
+        pytest.param(":", id="colon"),
+        pytest.param("\n", id="newline"),
+        pytest.param("9", id="digit"),
+    ],
+)
+def test_streamed_named_reference_matches_one_shot(prefix: str, stem: str, ending: str, width_prefix: str) -> None:
+    # a run past the longest entity name is emitted as text as it streams, and must still read as one-shot does
+    document: Final = f"{width_prefix}{prefix}{stem}{'x' * 60}{ending}tail"
+    whole: Final = parse(document)
+    streamed: Final = IncrementalParser()
+    for offset in range(0, len(document), 7):
+        streamed.feed(document[offset : offset + 7])
+    split: Final = streamed.close()
+    assert split.html == whole.html
+    assert [(error.code, error.line, error.col) for error in split.errors] == [
+        (error.code, error.line, error.col) for error in whole.errors
+    ]
+    assert _coalesced(_stream_fed_in_chunks(document)) == _coalesced([_shape(token) for token in tokenize(document)])
+
+
+@pytest.mark.parametrize(
+    ("document", "codes"),
+    [
+        pytest.param(f"<p>&{'a' * 40};x</p>", [("unknown-named-character-reference", 1, 44)], id="text-unknown"),
+        pytest.param(
+            f"<p>&notin{'x' * 40};</p>",
+            [("missing-semicolon-after-character-reference", 1, 7)],
+            id="text-prefix-match",
+        ),
+        pytest.param(
+            f"<title>&{'a' * 40};</title>", [("unknown-named-character-reference", 1, 48)], id="rcdata-unknown"
+        ),
+        pytest.param(f'<a x="&notin{"x" * 40}">z</a>', [], id="attribute-legacy"),
+    ],
+)
+def test_named_reference_past_longest_name_reports_as_one_shot(
+    document: str, codes: list[tuple[str, int, int]], width_prefix: str
+) -> None:
+    streamed: Final = IncrementalParser()
+    prefixed: Final = width_prefix + document
+    for offset in range(0, len(prefixed), 5):
+        streamed.feed(prefixed[offset : offset + 5])
+    shift: Final = len(width_prefix)
+    expected: Final = [(code, line, col + shift) for code, line, col in codes]
+    assert [(error.code, error.line, error.col) for error in parse(prefixed).errors] == expected
+    assert [(error.code, error.line, error.col) for error in streamed.close().errors] == expected
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param("<p>&acE;x</p>", id="two-code-points"),
+        pytest.param("<p>&acE</p>", id="two-code-points-no-semicolon"),
+        pytest.param('<a x="&notin=1">z</a>', id="legacy-equals"),
+        pytest.param('<a x="&notin1">z</a>', id="legacy-digit"),
+        pytest.param("<p>x&ampy</p>", id="prefix-then-letter"),
+        pytest.param("<p>x&amp y</p>", id="exact-no-semicolon"),
+        pytest.param("<p>&notit;</p>", id="prefix-unknown-semicolon"),
+        pytest.param('<a x="&notin ">z</a>', id="attribute-space-after"),
+        pytest.param('<a x="&notin&">z</a>', id="attribute-ampersand-after"),
+        pytest.param('<a x="&amp=1">z</a>', id="attribute-legacy-equals"),
+        pytest.param('<a x="&copy ">z</a>', id="attribute-legacy-space"),
+        pytest.param('<a x="&amp:">z</a>', id="attribute-legacy-colon"),
+        pytest.param('<a x="&amp&">z</a>', id="attribute-legacy-ampersand"),
+        pytest.param('<a x="&amp1">z</a>', id="attribute-legacy-digit"),
+    ],
+)
+def test_named_reference_shapes_stream_as_one_shot(document: str, width_prefix: str) -> None:
+    assert_streaming_matches_whole(width_prefix + document)
+
+
+def assert_streaming_matches_whole(document: str) -> None:
+    # Feeding one character at a time must match one-shot tokenization.
+    tokenizer = Tokenizer()
+    streamed = [token for char in document for token in tokenizer.feed(char)]
+    streamed += list(tokenizer.close())
+    whole = list(tokenize(document))
+    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
+    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param(f"<p>&{'a' * 40};x</p>", id="text"),
+        pytest.param(f"<p>&notin{'x' * 40}</p>", id="prefix-match"),
+        pytest.param(f'<a x="&notin{"x" * 40}">z</a>', id="attribute"),
+        pytest.param(f"<p>&#{'9' * 40};x</p>", id="numeric"),
+        pytest.param(f"<p>&#X{'9' * 40}x</p>", id="numeric-upper-hex-run"),
+    ],
+)
+def test_named_reference_with_source_locations_streams_as_one_shot(document: str, width_prefix: str) -> None:
+    prefixed: Final = width_prefix + document
+    streamed: Final = IncrementalParser(source_locations=True)
+    for offset in range(0, len(prefixed), 7):
+        streamed.feed(prefixed[offset : offset + 7])
+    whole: Final = parse(prefixed, source_locations=True)
+    split: Final = streamed.close()
+    assert split.html == whole.html
+    assert [(error.code, error.line, error.col) for error in split.errors] == [
+        (error.code, error.line, error.col) for error in whole.errors
+    ]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({"resolve_references": False}, id="split"),
+        pytest.param({"resolve_references": False, "capture_source": True}, id="split-captured"),
+        pytest.param({"capture_source": True}, id="captured"),
+        pytest.param({"capture_attributes": False}, id="attributes-uncaptured"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("prefix", "filler"),
+    [
+        pytest.param("x&", "notin", id="named-text"),
+        pytest.param('<a x="x&', "notin", id="named-attribute"),
+        pytest.param("<title>x&", "notin", id="named-rcdata"),
+        pytest.param("x&#", "9", id="numeric-text"),
+        pytest.param("x&#X", "9", id="numeric-upper-hex"),
+    ],
+)
+def test_streamed_named_reference_matches_one_shot_in_each_mode(
+    options: dict[str, bool], prefix: str, filler: str, width_prefix: str
+) -> None:
+    document: Final = f"{width_prefix}{prefix}{filler}{'x' * 60};tail"
+    tokenizer = Tokenizer(**options)
+    streamed = [_shape(token) for char in document for token in tokenizer.feed(char)]
+    streamed += [_shape(token) for token in tokenizer.close()]
+    assert _coalesced(streamed) == _coalesced([_shape(token) for token in tokenize(document, **options)])
+
+
+@pytest.mark.parametrize("prefix", ["", "<title>"])
+def test_long_named_reference_run_flushes_text_as_it_streams(prefix: str, width_prefix: str) -> None:
+    # the text a streamed reference gathers is emitted in pieces once it passes a few thousand code points
+    document: Final = f"{width_prefix}{prefix}&{'a' * 9_000};tail"
+    tokenizer = Tokenizer()
+    streamed: list[_Shape] = []
+    for offset in range(0, len(document), 4096):
+        streamed.extend(_shape(token) for token in tokenizer.feed(document[offset : offset + 4096]))
+    streamed.extend(_shape(token) for token in tokenizer.close())
+    text = [shape for shape in streamed if shape.token_type is TokenType.TEXT]
+    assert len(text) > 1
+    assert _coalesced(streamed) == _coalesced([_shape(token) for token in tokenize(document)])
 
 
 def test_streaming_crlf_across_feeds() -> None:
@@ -788,16 +1048,6 @@ def test_single_text_token(text: str, expected: str) -> None:
 )
 def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> None:
     assert_streaming_matches_whole(width_prefix + document)
-
-
-def assert_streaming_matches_whole(document: str) -> None:
-    # Feeding one character at a time must match one-shot tokenization.
-    tokenizer = Tokenizer()
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    whole = list(tokenize(document))
-    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
-    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
 
 
 @pytest.mark.parametrize(

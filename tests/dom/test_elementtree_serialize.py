@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 from typing import Final, cast
 
 import pytest
@@ -29,6 +30,17 @@ def test_element_tree_iso_2022_text_writes_shift_codes_as_references() -> None:
     tree: Final = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
     assert tostring(tree, encoding="iso-2022-jp", method="text") == b"&#14;&#15;&#27;"
     assert tostring(tree, encoding="shift_jis", method="text") == b"\x0e\x0f\x1b"
+
+
+def test_element_tree_writes_shift_codes_as_references_under_a_renamed_iso_2022_codec() -> None:
+    info: Final = codecs.lookup("iso2022_jp")
+    search: Final = {"turbohtml_renamed_iso_etree": codecs.CodecInfo(info.encode, info.decode, name="renamed")}.get
+    codecs.register(search)
+    try:
+        tree: Final = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
+        assert tostring(tree, encoding="turbohtml_renamed_iso_etree", method="text") == b"&#14;&#15;&#27;"
+    finally:
+        codecs.unregister(search)
 
 
 def test_element_tree_rejects_non_string_encoding() -> None:

@@ -52,6 +52,11 @@ endif
 if get_option('force_scalar')
     mode_args += '-DTH_FORCE_SCALAR'
 endif
+# gcc at -O1 refuses to force-inline the decoders reached through th_decode_run's step pointer, so that level keeps them
+# as plain functions; -O0, -Og, -O2 and -O3 compile the same tokens as before.
+if get_option('optimization') == '1'
+    mode_args += '-DTH_DEC_NO_ALWAYS_INLINE'
+endif
 if get_option('work_steps')
     mode_args += '-DTH_WORK_STEPS'
     mode_sources += 'src/turbohtml/_c/core/work_steps.c'

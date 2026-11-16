@@ -1109,6 +1109,8 @@ typedef struct engine {
     Py_ssize_t xsl_prefix_len;
     int xsl_ns_dynamic;
     int xsl_marked; /* the xslt_marks classify the trees: dynamic, or some root does not bind the XSLT prefix itself */
+    int lre_excludes; /* some element of the stylesheet carries exclude-result-prefixes, so an ancestor may exclude a
+                         namespace */
     const Py_UCS4 *exclude_prefixes; /* aliases the stylesheet root's exclude-result-prefixes value */
     Py_ssize_t exclude_prefixes_len;
     const Py_UCS4 *cdata_elements; /* aliases xsl:output cdata-section-elements (space-separated QNames) */
@@ -3607,7 +3609,7 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     }
     Py_ssize_t colon = qname_colon(name, resolved_len);
     Py_UCS4 *evaluated;
-    const Py_UCS4 *uri;
+    const Py_UCS4 *uri = NULL;
     Py_ssize_t uri_len = 0;
     int rc = element_namespace(eng, instruction, name, colon, &evaluated, &uri, &uri_len);
     if (rc == 0) {
@@ -6730,11 +6732,13 @@ static const Py_UCS4 *xsl_prefixed_attr(const engine *eng, const th_node *node, 
    stylesheet's exclude-result-prefixes, and those of each literal result element from the root down to `lre`, apply
    to it and its descendants, so its namespace node is not copied to the output. */
 static int prefix_excluded(const engine *eng, const th_node *lre, const char *prefix, Py_ssize_t prefix_len) {
-    for (const th_node *node = lre; node != NULL; node = node->parent) {
-        Py_ssize_t list_len = 0;
-        const Py_UCS4 *list = xsl_prefixed_attr(eng, node, "exclude-result-prefixes", &list_len);
-        if (list != NULL && prefix_listed(list, list_len, prefix, prefix_len)) {
-            return 1;
+    if (eng->lre_excludes) {
+        for (const th_node *node = lre; node != NULL; node = node->parent) {
+            Py_ssize_t list_len = 0;
+            const Py_UCS4 *list = xsl_prefixed_attr(eng, node, "exclude-result-prefixes", &list_len);
+            if (list != NULL && prefix_listed(list, list_len, prefix, prefix_len)) {
+                return 1;
+            }
         }
     }
     return prefix_listed(eng->exclude_prefixes, eng->exclude_prefixes_len, prefix, prefix_len);
@@ -8514,6 +8518,17 @@ static int root_binds_xsl_prefix(const engine *eng, const th_node *root) {
     return 0;
 }
 
+static int stylesheet_has_exclusions(const engine *eng, th_node *root) {
+    for (th_node *node = root; node != NULL; node = preorder_next(node, root)) {
+        Py_ssize_t list_len = 0;
+        if (node->type == TH_NODE_ELEMENT &&
+            xsl_prefixed_attr(eng, node, "exclude-result-prefixes", &list_len) != NULL) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Analyze the stylesheet: resolve the XSLT prefix and walk the top-level declarations of every
    imported stylesheet (lowest precedence first) then the principal stylesheet (highest). Returns
    0, or -1 with eng->error / eng->py_error set. */
@@ -8524,6 +8539,10 @@ static int analyze(engine *eng, th_node *sheet_root, th_node **imports, Py_ssize
     eng->xsl_ns_dynamic = eng->xsl_prefix_len == 0 || stylesheet_has_dynamic_namespace(eng, sheet_root);
     for (Py_ssize_t index = 0; !eng->xsl_ns_dynamic && index < nimports; index++) {
         eng->xsl_ns_dynamic = stylesheet_has_dynamic_namespace(eng, imports[index]);
+    }
+    eng->lre_excludes = stylesheet_has_exclusions(eng, sheet_root);
+    for (Py_ssize_t index = 0; !eng->lre_excludes && index < nimports; index++) {
+        eng->lre_excludes = stylesheet_has_exclusions(eng, imports[index]);
     }
     eng->xsl_marked = eng->xsl_ns_dynamic || !root_binds_xsl_prefix(eng, sheet_root);
     for (Py_ssize_t index = 0; !eng->xsl_marked && index < nimports; index++) {

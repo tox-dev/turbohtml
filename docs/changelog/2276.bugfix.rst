@@ -1,1 +1,2 @@
-Node.encode with meta_charset now raises ValueError when the encoded bytes would read back as different text under the declared encoding, instead of writing them.
+Node.encode with meta_charset now raises ValueError when the encoded bytes would read back as different text under the
+declared encoding, instead of writing them.

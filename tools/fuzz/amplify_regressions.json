@@ -1229,5 +1229,16 @@
       "left": "<p><xref to=\"s1 s2\"/></p>",
       "tail": "</book>"
     }
+  },
+  {
+    "name": "2286-digit-run-empty-elements",
+    "source": "https://github.com/tox-dev/turbohtml/issues/2286",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "42<wbr>"
+    }
   }
 ]

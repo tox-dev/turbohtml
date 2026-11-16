@@ -987,6 +987,11 @@ def test_raw_text_carriage_return_is_written_as_line_feed(tag: str, text: str, e
     assert _fragment(out, tag).serialize() == out
 
 
+@pytest.mark.parametrize("tag", ["script", "style", "xmp", "iframe", "noembed", "noframes"])
+def test_parsed_raw_text_carriage_return_is_line_feed(tag: str) -> None:
+    assert _fragment(f"<{tag}>a\rb\r\nc</{tag}>", tag).serialize() == f"<{tag}>a\nb\nc</{tag}>"
+
+
 def test_script_content_is_escaped_not_raw() -> None:
     node = _fragment("<script>if(a<b){}</script>", "script")
     assert node.serialize(_XML) == "<script>if(a&lt;b){}</script>"
@@ -2207,7 +2212,9 @@ def test_encode_meta_charset_refuses_c1_under_windows_1254(encoding: str) -> Non
         pytest.param("cp932", "\uf8f1", "Shift_JIS", id="cp932-user-defined"),
     ],
 )
-def test_encode_meta_charset_refuses_text_the_declared_label_misreads(encoding: str, character: str, label: str) -> None:
+def test_encode_meta_charset_refuses_text_the_declared_label_misreads(
+    encoding: str, character: str, label: str
+) -> None:
     # Python's codec writes bytes that the WHATWG decoder of the declared label reads as other characters
     with pytest.raises(ValueError, match=re.escape(f"meta_charset cannot declare {label}")):
         parse(f"<p>{character}</p>").encode(encoding, Html(meta_charset=True))
@@ -2323,7 +2330,18 @@ def test_encode_meta_charset_rejects_an_unknown_codec() -> None:
         parse("<p>x").encode("turbohtml-no-such-codec", Html(meta_charset=True))
 
 
-@pytest.mark.parametrize("label", ["iso-2022-jp", "ISO-2022-JP", "csiso2022jp", "iso2022_jp", "iso-2022-kr"])
+_ISO_2022_CODECS: Final[list[str]] = [
+    "iso2022_jp",
+    "iso2022_jp_1",
+    "iso2022_jp_2",
+    "iso2022_jp_2004",
+    "iso2022_jp_3",
+    "iso2022_jp_ext",
+    "iso2022_kr",
+]
+
+
+@pytest.mark.parametrize("label", ["iso-2022-jp", "ISO-2022-JP", "csiso2022jp", "iso-2022-kr", *_ISO_2022_CODECS])
 @pytest.mark.parametrize(
     "shift",
     [pytest.param("\x0e", id="shift-out"), pytest.param("\x0f", id="shift-in"), pytest.param("\x1b", id="escape")],
@@ -2334,6 +2352,47 @@ def test_encode_iso_2022_refuses_a_shift_code(label: str, shift: str) -> None:
     with pytest.raises(UnicodeEncodeError, match="shift code") as refused:
         doc.encode(label)
     assert refused.value.start == doc.serialize().index(shift)
+
+
+@pytest.mark.parametrize("codec", _ISO_2022_CODECS)
+def test_encode_refuses_a_shift_code_in_an_iso_2022_codec_under_another_name(codec: str) -> None:
+    info: Final = codecs.lookup(codec)
+    renamed: Final = codecs.CodecInfo(info.encode, info.decode, name="turbohtml_renamed_iso")
+    search: Final = {"turbohtml_renamed_iso": renamed}.get
+    codecs.register(search)
+    try:
+        with pytest.raises(UnicodeEncodeError, match="shift code") as refused:
+            parse("<p>\x0e</p>").select("p")[0].encode("turbohtml_renamed_iso")
+        assert refused.value.start == 3
+    finally:
+        codecs.unregister(search)
+
+
+@pytest.mark.parametrize("shift", [pytest.param(b"\x0e", id="shift-out"), pytest.param(b"\x0f", id="shift-in")])
+def test_encode_refuses_a_shift_code_under_a_codec_that_switches_on_one_byte(shift: bytes) -> None:
+    # no escape sequence precedes the lone shift byte, so the probe has to find it on its own
+    def encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+        return shift + text.encode("ascii", errors), len(text)
+
+    info: Final = codecs.CodecInfo(encode, codecs.lookup("ascii").decode, name="turbohtml_one_byte_switch")
+    search: Final = {"turbohtml_one_byte_switch": info}.get
+    codecs.register(search)
+    try:
+        with pytest.raises(UnicodeEncodeError, match="shift code"):
+            parse("<p>\x0e</p>").select("p")[0].encode("turbohtml_one_byte_switch")
+    finally:
+        codecs.unregister(search)
+
+
+@pytest.mark.parametrize("codec", ["hz", "utf-7"])
+def test_encode_writes_shift_codes_that_a_stateful_codec_reads_back(codec: str) -> None:
+    doc: Final = parse("<p>\x0e\x0f\x1b~{+</p>")
+    assert doc.encode(codec).decode(codec) == doc.serialize()
+
+
+def test_encode_rejects_an_unknown_codec_for_markup_with_a_shift_code() -> None:
+    with pytest.raises(LookupError):
+        parse("<p>\x0e</p>").encode("turbohtml-no-such-codec")
 
 
 @pytest.mark.parametrize(

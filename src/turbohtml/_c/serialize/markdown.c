@@ -19,6 +19,7 @@
    is invalid markdown. */
 
 #include "serialize/internal.h"
+#include "core/work_steps.h"
 #include "css/cssom/cssom.h"
 
 #include "dom/tree.h"
@@ -201,6 +202,7 @@ typedef struct {
     int saved_started;
     int saved_line;
     Py_ssize_t saved_line_number_start;
+    Py_ssize_t saved_line_number_checked;
     Py_ssize_t saved_break_start;
     Py_ssize_t saved_break_end;
     int saved_space;
@@ -221,6 +223,7 @@ typedef struct {
     int started;
     int line_has_content;
     Py_ssize_t line_number_start;
+    Py_ssize_t line_number_checked;
     Py_ssize_t break_start;
     Py_ssize_t break_end;
     int space_pending;
@@ -311,6 +314,7 @@ typedef struct {
     int started;          /* has any block content been emitted yet */
     int line_has_content; /* real content past the prefix/marker on the current line */
     Py_ssize_t line_number_start;
+    Py_ssize_t line_number_checked; /* digits up to here are verified as the run line_number_start opens */
     Py_ssize_t line_start;
     Py_ssize_t line_checked;
     int space_pending;          /* a collapsed-away whitespace run is owed one space */
@@ -1124,18 +1128,26 @@ static inline int md_non_ascii_space(Py_UCS4 ch) {
     return Py_UNICODE_ISSPACE(ch); /* GCOVR_EXCL_BR_LINE: ch >= 128 makes the macro's ASCII arm unreachable */
 }
 
+/* Whether every character written since the line's first digit is a digit, the run a line-numbered marker starts in.
+   The scan resumes where the last one stopped, so a run of digits costs its length once and not once per text node
+   written after it. */
+static int md_line_digits_only(md_ctx *ctx) {
+    Py_ssize_t index = ctx->line_number_checked;
+    while (index < ctx->out.len && is_ascii_digit(ctx->out.data[index])) {
+        TH_WORK_STEP();
+        index++;
+    }
+    ctx->line_number_checked = index;
+    return index == ctx->out.len;
+}
+
 static void md_emit_text(md_ctx *ctx, th_node *node, const Py_UCS4 *text, Py_ssize_t len) {
     if (text == NULL && len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
         ctx->out.failed = 1;       /* GCOVR_EXCL_LINE: allocation failure */
         return;                    /* GCOVR_EXCL_LINE: allocation failure */
     }
     if (ctx->line_number_start > 0 && !ctx->space_pending && ctx->pending == NULL) {
-        Py_ssize_t start = ctx->line_number_start - 1;
-        Py_ssize_t end = ctx->out.len;
-        while (end > start && ctx->out.data[end - 1] >= '0' && ctx->out.data[end - 1] <= '9') {
-            end--;
-        }
-        if (end == start) {
+        if (md_line_digits_only(ctx)) {
             Py_ssize_t scan = 0;
             while (scan < len && text[scan] >= '0' && text[scan] <= '9') {
                 scan++;
@@ -1190,6 +1202,7 @@ static void md_emit_text(md_ctx *ctx, th_node *node, const Py_UCS4 *text, Py_ssi
                 continue;
             }
             ctx->line_number_start = ctx->out.len + 1;
+            ctx->line_number_checked = ctx->out.len;
         }
         int by_context = ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && ctx->escape_prose &&
                          md_escape_in_text(ctx, text, index, len);
@@ -1607,6 +1620,8 @@ static void md_rewrite_open(md_ctx *ctx, md_marker *marker) {
     /* the wrap column rescans the line from the last newline */
     ctx->line_start = 0;
     ctx->line_checked = 0;
+    /* the shift can put markup inside the digit run, so the run is checked again from its start */
+    ctx->line_number_checked = ctx->line_number_start - 1;
     marker->open = open;
     marker->open_len = open_len + shift;
     marker->close = MD_HTML_TAGS[marker->html - 1][1];
@@ -3519,6 +3534,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .started = ctx->started,
         .line_has_content = ctx->line_has_content,
         .line_number_start = ctx->line_number_start,
+        .line_number_checked = ctx->line_number_checked,
         .break_start = ctx->break_start,
         .break_end = ctx->break_end,
         .space_pending = ctx->space_pending,
@@ -3662,6 +3678,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     ctx->started = saved->started;
     ctx->line_has_content = saved->line_has_content;
     ctx->line_number_start = saved->line_number_start;
+    ctx->line_number_checked = saved->line_number_checked;
     ctx->break_start = saved->break_start;
     ctx->break_end = saved->break_end;
     ctx->line_start = saved->line_start;
@@ -4364,6 +4381,7 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_started = ctx->started;
     table->saved_line = ctx->line_has_content;
     table->saved_line_number_start = ctx->line_number_start;
+    table->saved_line_number_checked = ctx->line_number_checked;
     table->saved_break_start = ctx->break_start;
     table->saved_break_end = ctx->break_end;
     table->saved_space = ctx->space_pending;
@@ -4410,6 +4428,7 @@ static void md_leave_cell(md_ctx *ctx, md_table *table) {
     ctx->started = table->saved_started;
     ctx->line_has_content = table->saved_line;
     ctx->line_number_start = table->saved_line_number_start;
+    ctx->line_number_checked = table->saved_line_number_checked;
     ctx->break_start = table->saved_break_start;
     ctx->break_end = table->saved_break_end;
     ctx->space_pending = table->saved_space;

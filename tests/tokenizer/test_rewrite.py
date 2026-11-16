@@ -601,10 +601,44 @@ def test_rewrite_text_node_replace_in_raw_text_is_literal() -> None:
             "<textarea>x</textarea>", lambda e: e.set_content("a\rb"), "<textarea>a&#13;b</textarea>", id="rcdata"
         ),
         pytest.param("<p>x</p>", lambda e: e.append("a\rb", html=True), "<p>xa\nb</p>", id="html-markup"),
+        pytest.param("<p>x</p>", lambda e: e.replace("a\rb"), "a&#13;b", id="replaced-element-text"),
+        pytest.param("<p>x</p>", lambda e: e.replace("a\rb", html=True), "a\nb", id="replaced-element-html"),
+        pytest.param("<p>x</p>", lambda e: e.set_attribute("k", "a\rb"), '<p k="a&#13;b">x</p>', id="attribute"),
+        pytest.param(
+            "<svg><g>x</g></svg>",
+            lambda e: e.set_attribute("k", "a\rb") if e.tag == "g" else None,
+            '<svg><g k="a&#13;b">x</g></svg>',
+            id="foreign-attribute",
+        ),
+        pytest.param(
+            '<p title="a&#13;b">x</p>',
+            lambda e: e.set_attribute("k", "v"),
+            '<p title="a&#13;b" k="v">x</p>',
+            id="attribute-decoded-reference",
+        ),
     ],
 )
 def test_rewrite_carriage_return_in_written_content(html: str, edit: Callable[[Element], None], expected: str) -> None:
     assert rewrite(html, elements=[("*", edit)]) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<!--x-->", "<!--a\nb-->", id="comment"),
+        pytest.param("<svg><!--x--></svg>", "<svg><!--a\nb--></svg>", id="foreign-comment"),
+    ],
+)
+def test_rewrite_carriage_return_in_comment_is_line_feed(html: str, expected: str) -> None:
+    assert rewrite(html, comments=lambda comment: comment.set_text("a\rb")) == expected
+
+
+def test_rewrite_carriage_return_in_cdata_text_is_escaped() -> None:
+    assert rewrite("<svg><![CDATA[x]]></svg>", text=lambda text: text.set_text("a\rb")) == "<svg>a&#13;b</svg>"
+
+
+def test_rewrite_carriage_return_in_cdata_source_is_line_feed() -> None:
+    assert rewrite("<svg><![CDATA[a\rb]]></svg>") == "<svg><![CDATA[a\nb]]></svg>"
 
 
 def test_rewrite_carriage_return_in_raw_text_handler_is_line_feed() -> None:

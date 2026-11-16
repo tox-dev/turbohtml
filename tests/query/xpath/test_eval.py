@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import random
 import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
@@ -1971,6 +1972,132 @@ def test_a_path_tested_for_emptiness_grows_linearly(expression: str, work_steps:
     # otherwise.
     document: Final = parse(f"<section>{'<p>y' * 16_000}</section>")
     work_steps.assert_within(partial(document.xpath, expression), partial(document.xpath, "//p[self::p]"), factor=20)
+
+
+def _nested_chain(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r>{'<a>' * size}{'</a>' * size}</r>")
+
+
+def _chain_under_b(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r><b>{'<a>' * size}{'</a>' * size}</b></r>")
+
+
+def _siblings(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r>{'<a/>' * size}</r>")
+
+
+def _siblings_then_b(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r>{'<a/>' * size}<b/></r>")
+
+
+def _b_then_siblings(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r><b/>{'<a/>' * size}</r>")
+
+
+# A predicate that walks an ancestor, sibling, preceding or following axis from every context node must not repeat that
+# walk for each node: the steps grow linearly whether the walk finds its node near or far, or finds none.
+@pytest.mark.parametrize(
+    ("expression", "build"),
+    [
+        pytest.param("//a[ancestor::b]", _nested_chain, id="ancestor-none"),
+        pytest.param("//a[ancestor::b]", _chain_under_b, id="ancestor-far"),
+        pytest.param("//a[ancestor-or-self::b]", _nested_chain, id="ancestor-or-self"),
+        pytest.param("//a[ancestor::b/c]", _nested_chain, id="ancestor-then-child"),
+        pytest.param("//a[ancestor::b[1]]", _nested_chain, id="ancestor-nearest"),
+        pytest.param("//a[ancestor::b[c]]", _nested_chain, id="ancestor-predicate"),
+        pytest.param("//a[not(ancestor::b)]", _nested_chain, id="not-ancestor"),
+        pytest.param("//a[count(ancestor::b) = 0]", _nested_chain, id="count-ancestor"),
+        pytest.param("//a[preceding::b]", _siblings, id="preceding-none"),
+        pytest.param("//a[preceding::b]", _b_then_siblings, id="preceding-far"),
+        pytest.param("//a[count(preceding::b) = 0]", _siblings, id="count-preceding"),
+        pytest.param("//a[following::b]", _siblings, id="following-none"),
+        pytest.param("//a[following::b]", _siblings_then_b, id="following-far"),
+        pytest.param("//a[preceding-sibling::b]", _b_then_siblings, id="preceding-sibling-far"),
+        pytest.param("//a[following-sibling::b]", _siblings_then_b, id="following-sibling-far"),
+    ],
+)
+def test_walk_predicate_grows_linearly(
+    expression: str, build: Callable[[int], turbohtml.Node], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda size: partial(build(size).xpath, expression), (500, 2000))
+
+
+# Each pair is the same selection written with a positional predicate that is always true, which keeps the plain walk.
+# The memo has to return what that walk returns from every context node.
+@pytest.mark.parametrize(
+    ("expression", "plain"),
+    [
+        pytest.param("ancestor::b", "ancestor::*[self::b][position() > 0]", id="ancestor"),
+        pytest.param("ancestor-or-self::b", "ancestor-or-self::*[self::b][position() > 0]", id="ancestor-or-self"),
+        pytest.param("preceding::b", "preceding::*[self::b][position() > 0]", id="preceding"),
+        pytest.param("following::b", "following::*[self::b][position() > 0]", id="following"),
+        pytest.param("preceding-sibling::b", "preceding-sibling::*[self::b][position() > 0]", id="preceding-sibling"),
+        pytest.param("following-sibling::b", "following-sibling::*[self::b][position() > 0]", id="following-sibling"),
+        pytest.param("ancestor::b[1]", "ancestor::*[self::b][position() > 0][1]", id="nearest"),
+        pytest.param("preceding::b[1]", "preceding::*[self::b][position() > 0][1]", id="preceding-nearest"),
+        pytest.param("ancestor::b/c", "ancestor::*[self::b][position() > 0]/c", id="rest"),
+        pytest.param("following-sibling::b/c", "following-sibling::*[self::b][position() > 0]/c", id="rest-sibling"),
+        pytest.param("preceding::b/c", "preceding::*[self::b][position() > 0]/c", id="rest-preceding"),
+        pytest.param("following::b/c[1]", "following::*[self::b][position() > 0]/c[1]", id="rest-following"),
+        pytest.param("ancestor::b[c]", "ancestor::*[self::b][c][position() > 0]", id="predicate"),
+        pytest.param(
+            "preceding::b[c and not(d)]/c",
+            "preceding::*[self::b][c and not(d)][position() > 0]/c",
+            id="predicate-rest",
+        ),
+        pytest.param(
+            "following-sibling::*[self::b or self::c][ancestor::a]",
+            "following-sibling::*[self::b or self::c][ancestor::a][position() > 0]",
+            id="predicate-walk",
+        ),
+    ],
+)
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_walk_predicate_agrees_with_the_plain_walk(expression: str, plain: str, seed: int) -> None:
+    document: Final = _random_document(seed, 400)
+    for context in _elements(document.xpath("//*")):
+        expected: Final = [node.attr("i") for node in _elements(context.xpath(plain))]
+        assert [node.attr("i") for node in _elements(context.xpath(expression))] == expected
+        assert context.xpath(f"count({expression})") == len(expected)
+        assert context.xpath(f"boolean({expression})") is bool(expected)
+
+
+def _random_document(seed: int, size: int) -> turbohtml.Node:
+    # Random well-formed markup; every element carries its document position as i for comparing node-sets.
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a seeded document, not a secret
+    stack: list[str] = []
+    out: list[str] = []
+    for index in range(size):
+        tag = rng.choice("abcd")
+        if (roll := rng.random()) < 0.45 or not stack:
+            out.append(f'<{tag} i="{index}">')
+            stack.append(tag)
+        elif roll < 0.7:
+            out.append(f'<{tag} i="{index}"/>')
+        else:
+            out.append(f"</{stack.pop()}>")
+    out.extend(f"</{tag}>" for tag in reversed(stack))
+    return parse_xml(f"<r>{''.join(out)}</r>")
+
+
+def _elements(result: XPathResult) -> list[Element]:
+    assert isinstance(result, list)
+    return cast("list[Element]", result)
+
+
+@pytest.mark.parametrize(
+    ("expression", "plain"),
+    [
+        pytest.param("//*/@i[ancestor::b]", "//*/@i[ancestor::*[self::b]]", id="attribute-context"),
+        pytest.param("//a[ancestor::b or sign()]", "//a[ancestor::*[self::b] or sign()]", id="python-call"),
+    ],
+)
+def test_walk_predicate_falls_back_to_the_plain_walk(expression: str, plain: str) -> None:
+    document: Final = _random_document(4, 300)
+    extensions: Final[XPathExtensions] = {(None, "sign"): lambda _ctx: False}
+    assert [str(node) for node in _elements(document.xpath(expression, extensions=extensions))] == [
+        str(node) for node in _elements(document.xpath(plain, extensions=extensions))
+    ]
 
 
 def _siblings(count: int) -> Document:

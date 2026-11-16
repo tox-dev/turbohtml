@@ -640,7 +640,6 @@ static int css_hex_escape_open(const css_char *text, Py_ssize_t end) {
    closes the escape is written when the next code point is a hex digit or whitespace (CSS Syntax 3 §4.3.7). */
 static void css_strip_continuations(css_buf *pool, const css_char *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
-    int joined = 0;
     while (index < len) {
         if (text[index] == '\\' && index + 1 < len && (text[index + 1] == '\n' || text[index + 1] == '\r')) {
             if (text[index + 1] == '\r' && index + 2 < len && text[index + 2] == '\n') {
@@ -648,14 +647,12 @@ static void css_strip_continuations(css_buf *pool, const css_char *text, Py_ssiz
             } else {
                 index += 2;
             }
-            joined = 1;
+            if (index < len && (css_is_hex(text[index]) || css_is_ws(text[index])) &&
+                css_hex_escape_open(pool->data, pool->len)) {
+                cbuf_putc(pool, ' ');
+            }
             continue;
         }
-        if (joined && (css_is_hex(text[index]) || css_is_ws(text[index])) &&
-            css_hex_escape_open(pool->data, pool->len)) {
-            cbuf_putc(pool, ' ');
-        }
-        joined = 0;
         cbuf_putc(pool, text[index]);
         index++;
     }

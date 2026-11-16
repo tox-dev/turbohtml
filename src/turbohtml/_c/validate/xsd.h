@@ -19,6 +19,12 @@
 #endif
 #endif
 
+#if defined(_MSC_VER)
+#define XSD_FORCEINLINE __forceinline
+#else
+#define XSD_FORCEINLINE inline __attribute__((always_inline))
+#endif
+
 /* An expected element name plus the declaration that supplies its type. */
 typedef struct edecl {
     const Py_UCS4 *uri;
@@ -1995,7 +2001,8 @@ static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
 }
 
 /* Validate one declared attribute against the instance, honoring use/fixed/default. */
-static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl, const xattr_index *attrs) {
+static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl,
+                                                   const xattr_index *attrs) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
     th_tree *inst = ctx->tree;
@@ -3137,7 +3144,7 @@ static xexp_frame *xsd_expansion_push(th_schema *schema, xexp_frame *stack, cons
    schema at every hop, so the scopes and particles under way sit on an explicit stack. -1 when out of memory. */
 static int xsd_scope_expansion(th_schema *schema, th_node *scope, int *const *memo) {
     static const char *const models[] = {"sequence", "choice", "all", "group"};
-    xexp_frame local[16];
+    xexp_frame local[16] = {0};
     xexp_frame *stack = local;
     Py_ssize_t depth = 0, cap = 16;
     int result = -1;
