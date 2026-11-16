@@ -178,13 +178,13 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
     return copy;
 }
 
-void jm_program_disown(jm_program *prog, int32_t mark) {
-    int32_t newest = prog->owned_count - 1;
-    for (int32_t index = mark; index < newest; index++) {
+void jm_program_release(jm_program *prog, int32_t mark, int32_t upto) {
+    for (int32_t index = mark; index < upto; index++) {
         jm_free(prog->owned[index]);
     }
-    prog->owned[mark] = prog->owned[newest];
-    prog->owned_count = mark + 1;
+    int32_t kept = prog->owned_count - upto;
+    memmove(prog->owned + mark, prog->owned + upto, (size_t)kept * sizeof(Py_UCS4 *));
+    prog->owned_count = mark + kept;
 }
 
 /* The value of one hex digit; the caller has checked that ch is one. */
