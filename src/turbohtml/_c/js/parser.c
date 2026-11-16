@@ -325,10 +325,10 @@ static void set_ident(P *parser, int32_t node) {
 static int32_t leaf(P *parser, jm_kind kind) {
     int32_t index = jm_node_new(parser->prog, kind);
     if (kind == JN_IDENT) {
-        /* Only an identifier name (or a private name) is a property name: a punctuator reads an earlier token's text,
-           and a string, number or template is a key only where parse_key takes it as a literal, never after `.`, `?.`
-           or `new.`. The end of input is let through, since its text is empty and repeats no earlier name. */
-        if (parser->lx.kind != JT_IDENT && parser->lx.kind != JT_PRIVATE && parser->lx.kind != JT_EOF) {
+        /* Only the kinds up to a private name can stand for a property name: literals and punctuators follow them in
+           jm_tok, and a string, number or template is a key only where parse_key takes it as a literal. The end of
+           input has no text and repeats no earlier name, so it passes as it did before. */
+        if (parser->lx.kind > JT_PRIVATE) {
             fail(parser, "expected property name");
         }
         set_ident(parser, index);
