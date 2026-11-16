@@ -1440,9 +1440,15 @@ def test_style_element_transformed_from_text_keeps_end_tag_inert() -> None:
         pytest.param('a{content:"x;}b{color:red}', "a{}", id="string-swallows-later-rules"),
         pytest.param('a{color:red;content:"x', "a{color:red;}", id="earlier-declaration-kept"),
         pytest.param("a{color:red/* x", "a{}", id="comment"),
+        pytest.param("a{color:red(", "a{}", id="open-paren"),
+        pytest.param("a{color:red;content:x((", "a{color:red;}", id="open-parens-after-declaration"),
+        pytest.param("@media screen{a{color:red(", "@media screen{a{}}", id="open-paren-in-nested-block"),
+        pytest.param("a{color:red(;}b{color:red}", "a{}", id="open-paren-swallows-later-rules"),
+        pytest.param("a{color:red[", "a{color:red[;}", id="open-bracket"),
+        pytest.param("a{color:red{", "a{color:red{}}", id="open-brace"),
     ],
 )
-def test_style_element_unterminated_token_is_a_fixpoint(css: str, expected_body: str) -> None:
+def test_style_element_unterminated_construct_is_a_fixpoint(css: str, expected_body: str) -> None:
     policy = _style_element_policy(css_properties=frozenset({"color", "content"}))
     once = sanitize(f"<style>{css}</style>", policy)
     assert (once, sanitize(once, policy)) == (f"<style>{expected_body}</style>", once)
