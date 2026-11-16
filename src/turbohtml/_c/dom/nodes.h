@@ -735,11 +735,11 @@ static inline PyObject *split_token_list(const Py_UCS4 *value, Py_ssize_t value_
 /* Build the Element.attrs mapping: token-list attributes (class and friends)
    become a list[str], everything else is a str; a valueless or empty attribute is
    the empty string (or the empty list for a token-list attribute). */
-/* One attribute's name as a str. */
+/* One attribute's name as a str. Surrogatepass reads back a lone surrogate the parser or a DOM edit kept in a name. */
 static inline PyObject *attr_name_obj(th_tree *tree, const th_node_attr *attr) {
     Py_ssize_t name_len;
     const char *bytes = th_attr_name(tree, attr->name_atom, &name_len);
-    return PyUnicode_DecodeUTF8(bytes, name_len, "strict");
+    return PyUnicode_DecodeUTF8(bytes, name_len, "surrogatepass");
 }
 
 /* One attribute's value as the public object: a list[str] for a token-list attribute

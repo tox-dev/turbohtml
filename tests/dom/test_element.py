@@ -199,6 +199,31 @@ def test_attrs_supports_mapping_protocol(find: Callable[[str, str], Element]) ->
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("\ud800", id="high-surrogate"),
+        pytest.param("\udfff", id="low-surrogate"),
+        pytest.param("a\ud800b", id="surrogate-inside"),
+        pytest.param("é\udc80", id="after-non-ascii"),
+    ],
+)
+def test_attrs_keys_and_items_read_back_a_lone_surrogate_name(name: str) -> None:
+    paragraph = parse(f"<p {name}='1' href='/x'>x</p>").find("p")
+    assert paragraph is not None
+    assert list(paragraph.attrs.keys()) == [name, "href"]
+    assert list(paragraph.attrs.items()) == [(name, "1"), ("href", "/x")]
+
+
+def test_xml_fragment_context_resolves_a_prefix_declared_above() -> None:
+    root = parse_xml('<r xmlns:p="urn:p"><c/></r>').root
+    assert root is not None
+    context = root.find("c")
+    assert context is not None
+    context.set_inner_html("<p:d/>")
+    assert context.serialize() == "<c><p:d></p:d></c>"
+
+
+@pytest.mark.parametrize(
     ("html", "tag", "attrs", "markup"),
     [
         pytest.param(

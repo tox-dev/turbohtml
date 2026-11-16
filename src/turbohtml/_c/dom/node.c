@@ -807,7 +807,7 @@ TH_NODE_API(static, PyObject *, node_get_source_location, (PyObject * self, void
     for (Py_ssize_t index = 0; index < loc->attr_count; index++) {
         Py_ssize_t name_len;
         const char *bytes = th_attr_name(tree, loc->attrs[index].name_atom, &name_len);
-        PyObject *name = PyUnicode_DecodeUTF8(bytes, name_len, "strict");
+        PyObject *name = PyUnicode_DecodeUTF8(bytes, name_len, "surrogatepass");
         if (name == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(start_tag); /* GCOVR_EXCL_LINE: allocation-failure path */
             Py_DECREF(end_tag);   /* GCOVR_EXCL_LINE: allocation-failure path */

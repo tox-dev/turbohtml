@@ -4418,7 +4418,7 @@ static int add_scope_declarations(th_tree *tree, th_node *scope, PyObject *decla
         if (!is_xmlns_name(name, name_len)) {
             continue;
         }
-        PyObject *key = PyUnicode_DecodeUTF8(name, name_len, "strict");
+        PyObject *key = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
         int seen = key == NULL ? -1 : PyDict_Contains(declarations, key); /* GCOVR_EXCL_BR_LINE: OOM only */
         PyObject *value = seen == 0 ? attr_value_obj(&scope->attrs[index]) : NULL;
         /* allocation failure cannot be forced from a test */

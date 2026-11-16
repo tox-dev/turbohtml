@@ -221,6 +221,36 @@ def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, *, expected: float |
     assert doc.xpath(expr) == expected
 
 
+@pytest.mark.parametrize("function", ["name", "local-name"])
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        pytest.param("class", id="ascii"),
+        pytest.param("été", id="latin-1"),
+        pytest.param("ж", id="cyrillic"),
+        pytest.param("a\ud800b", id="lone-surrogate"),
+    ],
+)
+def test_name_of_attribute_keeps_its_characters(function: str, attribute: str) -> None:
+    assert turbohtml.parse(f"<p {attribute}='1'>x</p>").xpath(f"{function}(//p/@*)") == attribute
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        pytest.param("class", id="ascii"),
+        pytest.param("été", id="latin-1"),
+        pytest.param("a\ud800b", id="lone-surrogate"),
+    ],
+)
+def test_smart_string_attrname_keeps_its_characters(attribute: str) -> None:
+    results = turbohtml.parse(f"<p {attribute}='1'>x</p>").xpath("//p/@*", smart_strings=True)
+    assert isinstance(results, list)
+    (value,) = results
+    assert isinstance(value, turbohtml.XPathString)
+    assert value.attrname == attribute
+
+
 @pytest.mark.parametrize(
     ("expression", "hay", "needle", "expected"),
     [

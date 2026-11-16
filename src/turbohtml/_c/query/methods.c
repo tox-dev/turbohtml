@@ -1377,7 +1377,7 @@ static int xpath_snapshot_prepare(module_state *state, PyObject *handle, th_tree
             if (xp_is_attribute(source.attr)) {
                 Py_ssize_t length;
                 const char *name = xp_item_attr_name(tree, source, &length);
-                snapshot->items[index].attrname = PyUnicode_FromStringAndSize(name, length);
+                snapshot->items[index].attrname = PyUnicode_DecodeUTF8(name, length, "surrogatepass");
                 if (snapshot->items[index].attrname == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                     return -1;                                 /* GCOVR_EXCL_LINE */
                 }

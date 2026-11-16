@@ -642,7 +642,7 @@ static int attr_allowed(sanitizer *s, PyObject *tag, uint32_t atom, const char *
         }
     }
     /* Non-ASCII names still need UTF-8 validation even without an exact-name rule. */
-    PyObject *attr = PyUnicode_FromStringAndSize(name, len);
+    PyObject *attr = PyUnicode_DecodeUTF8(name, len, "surrogatepass");
     if (attr == NULL) {
         return -1;
     }
@@ -671,7 +671,7 @@ static int value_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize
         }
         return 1; /* no value allowlist for this tag */
     }
-    PyObject *attr = PyUnicode_FromStringAndSize(name, name_len);
+    PyObject *attr = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
     if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -823,7 +823,7 @@ static char *html_name_lower(const char *name, Py_ssize_t len) {
    value, 0 when it left no late-written value, or -1 on error. */
 static int run_attribute_filter(sanitizer *s, th_node *element, PyObject *tag, const char *name, Py_ssize_t name_len,
                                 const Py_UCS4 *value, Py_ssize_t value_len) {
-    PyObject *attr = PyUnicode_FromStringAndSize(name, name_len);
+    PyObject *attr = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
     PyObject *text = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, value, value_len);
     if (attr == NULL || text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_XDECREF(attr);               /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2308,7 +2308,7 @@ static TH_WALK_INLINE int attribute_name_kept(sanitizer *s, PyObject *tag, const
     }
     int keep = attr_allowed(s, tag, attr->name_atom, name, name_len);
     if (keep == 0 && custom && s->custom_attribute_check != Py_None) {
-        PyObject *attribute = PyUnicode_FromStringAndSize(name, name_len);
+        PyObject *attribute = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
         if (attribute == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -2906,7 +2906,7 @@ static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *t
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-        PyObject *key = PyUnicode_FromStringAndSize(name, name_len);
+        PyObject *key = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
         PyObject *value = s->bleach_raw_values && key != NULL /* GCOVR_EXCL_BR_LINE: allocation failure */
                               ? bleach_raw_value(s, element, attr, PyUnicode_GET_LENGTH(key))
                               : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
@@ -2967,7 +2967,7 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-        PyObject *name_str = PyUnicode_FromStringAndSize(name, name_len);
+        PyObject *name_str = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
         if (name_str == NULL) {
             Py_DECREF(pieces);
             return NULL;

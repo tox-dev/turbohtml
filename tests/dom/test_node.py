@@ -812,6 +812,20 @@ def child(root: Node, tag: str) -> Element:
     return found
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("\ud800", id="high-surrogate"),
+        pytest.param("\udfff", id="low-surrogate"),
+        pytest.param("a\ud800b", id="surrogate-inside"),
+    ],
+)
+def test_source_location_attrs_key_a_lone_surrogate_name(name: str) -> None:
+    location = child(parse(f"<p {name}=1>x</p>", source_locations=True), "p").source_location
+    assert location is not None
+    assert list(location.attrs) == [name]
+
+
 def test_off_by_default_reports_none() -> None:
     assert child(parse("<div>x</div>"), "div").source_location is None
 

@@ -1191,6 +1191,17 @@ def test_process_existing_runs_callbacks_over_anchor() -> None:
     assert linkify(html, Linkify(process_existing=True)) == '<a href="http://x.com" rel="nofollow">x</a>'
 
 
+@pytest.mark.parametrize(
+    "name",
+    [pytest.param("\ud800", id="high-surrogate"), pytest.param("a\ud800b", id="surrogate-inside")],
+)
+def test_process_existing_keeps_a_lone_surrogate_attribute(name: str) -> None:
+    tree = parse(f'<a href="http://x.com" {name}="1">x</a>')
+    assert linkify(tree, Linkify(process_existing=True)) == (
+        f'<html><head></head><body><a href="http://x.com" {name}="1" rel="nofollow">x</a></body></html>'
+    )
+
+
 def test_process_existing_veto_unwraps_anchor() -> None:
     html = '<a href="http://x.com">click</a>'
     assert linkify(html, Linkify(callbacks=[lambda _link: None], process_existing=True)) == "click"

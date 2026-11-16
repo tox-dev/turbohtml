@@ -154,7 +154,7 @@ static Py_UCS4 *node_name_string(xp_ctx *ctx, xp_result *args, int argc, Py_ssiz
     if (xp_is_attribute(attr)) {
         Py_ssize_t blen;
         const char *bytes = xp_item_attr_name(ctx->tree, (xp_item){node, attr}, &blen);
-        Py_UCS4 *buffer = ucs4_from_ascii(bytes, blen, len);
+        Py_UCS4 *buffer = ucs4_from_utf8(bytes, blen, len);
         if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return NULL;      /* GCOVR_EXCL_LINE */
         }

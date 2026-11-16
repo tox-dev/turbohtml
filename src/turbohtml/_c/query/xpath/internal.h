@@ -342,6 +342,7 @@ const th_node_attr *xp_lang_memoized(xp_ctx *ctx, struct th_node *from, uint32_t
 Py_UCS4 *item_string(struct th_tree *tree, xp_item item, Py_ssize_t *len);
 Py_UCS4 *ucs4_dup(const Py_UCS4 *src, Py_ssize_t len);
 Py_UCS4 *ucs4_from_ascii(const char *src, Py_ssize_t length, Py_ssize_t *len);
+Py_UCS4 *ucs4_from_utf8(const char *src, Py_ssize_t length, Py_ssize_t *len);
 double parse_number(const Py_UCS4 *text, Py_ssize_t len);
 /* The correctly rounded value of a decimal run of ASCII digits with at most one '.' and
    at least one digit (XPath's Number production, which the lexer and parse_number

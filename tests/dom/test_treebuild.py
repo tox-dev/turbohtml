@@ -92,6 +92,18 @@ def test_element_carries_html_namespace_and_attribute_pairs() -> None:
     assert (paragraph.kind, paragraph.payload) == ("element", ("p", _HTML_NS, (("class", "x"), ("disabled", None))))
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("\ud800", id="high-surrogate"),
+        pytest.param("a\ud800b", id="surrogate-inside"),
+    ],
+)
+def test_builder_receives_a_lone_surrogate_attribute_name(name: str) -> None:
+    paragraph = build(f"<p {name}=1>hi</p>").children[0].children[1].children[0]
+    assert paragraph.payload == ("p", _HTML_NS, ((name, "1"),))
+
+
 def test_reconstructed_formatting_clones_share_one_attribute_tuple() -> None:
     # every <li> re-opens the unclosed <i>; a tuple per clone would copy its values once per item
     items = build("<ul><li><i data-k=v>a<li>b<li>c<i data-k=v>d</ul>").children[0].children[1].children[0].children
