@@ -967,6 +967,26 @@ def test_attribute_escaping(value: str, expected: str) -> None:
     assert Element("p", {"title": value}).serialize(_XML) == f'<p title="{expected}"/>'
 
 
+@pytest.mark.parametrize("tag", ["script", "style", "xmp", "iframe", "noembed", "noframes"])
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("a\rb", "a\nb", id="cr"),
+        pytest.param("a\r\nb", "a\nb", id="crlf"),
+        pytest.param("a\r\r\nb", "a\n\nb", id="cr-then-crlf"),
+        pytest.param("a\r", "a\n", id="trailing-cr"),
+        pytest.param("ab\r", "ab\n", id="odd-trailing-cr"),
+        pytest.param("abc\rd", "abc\nd", id="cr-in-later-pair"),
+        pytest.param("ab\nc", "ab\nc", id="lf-even-length"),
+        pytest.param("a\nb", "a\nb", id="lf-stays"),
+    ],
+)
+def test_raw_text_carriage_return_is_written_as_line_feed(tag: str, text: str, expected: str) -> None:
+    out = Element(tag, children=[Text(text)]).serialize()
+    assert out == f"<{tag}>{expected}</{tag}>"
+    assert _fragment(out, tag).serialize() == out
+
+
 def test_script_content_is_escaped_not_raw() -> None:
     node = _fragment("<script>if(a<b){}</script>", "script")
     assert node.serialize(_XML) == "<script>if(a&lt;b){}</script>"

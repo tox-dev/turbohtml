@@ -101,6 +101,12 @@ def test_encode_minify() -> None:
     assert parse("<p>a</p>").encode(options=Html(layout=Minify())) == b"<p>a"
 
 
+@pytest.mark.parametrize("tag", ["script", "style", "xmp", "iframe", "noembed", "noframes"])
+def test_minify_writes_raw_text_carriage_return_as_line_feed(tag: str) -> None:
+    node = Element(tag, children=[Text("a\rb\r\nc")])
+    assert node.serialize(Html(layout=Minify())) == f"<{tag}>a\nb\nc</{tag}>"
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

@@ -490,6 +490,38 @@ static inline void sbuf_put_ucs4_tail(sbuf *out, const Py_UCS4 *text, Py_ssize_t
     sbuf_put_ucs4(out, start == 0 ? text : text + start, len - start);
 }
 
+/* Whether a run of code points holds a CR. The OR of the comparisons has no branch in it, so the compiler vectorizes
+ * it. */
+static inline int sbuf_run_has_cr(const Py_UCS4 *text, Py_ssize_t len) {
+    Py_UCS4 hit = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hit |= text[index] == '\r';
+    }
+    return hit != 0;
+}
+
+/* Raw-text content with each CR or CRLF written as LF: a raw-text element has no character reference for a CR, and a
+   parse folds a raw CR to LF, so the LF is what a reparse reads back. */
+static inline void sbuf_put_rawtext(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    if (!sbuf_run_has_cr(text, len)) {
+        sbuf_put_ucs4_tail(out, text, 0, len);
+        return;
+    }
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (text[index] != '\r') {
+            continue;
+        }
+        sbuf_put_ucs4(out, text + start, index - start);
+        sbuf_putc(out, '\n');
+        if (index + 1 < len && text[index + 1] == '\n') {
+            index++;
+        }
+        start = index + 1;
+    }
+    sbuf_put_ucs4_tail(out, text, start, len);
+}
+
 /* The HTML tokenizer also ends a comment at `-->` or `--!>`; parsed data does not hold these, DOM-built data can. */
 static inline void sbuf_put_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     sbuf_put_comment_start(out, text, len);

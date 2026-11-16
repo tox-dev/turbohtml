@@ -177,7 +177,30 @@ static void rw_out_str(rw_out *out, PyObject *str) {
     }
 }
 
-/* Append a code-point run, HTML-escaping the markup-significant code points. */
+/* Append raw text, writing each CR or CRLF as LF: raw text has no character reference for a CR, and a parse folds a
+   raw CR to LF, so the LF is what a reparse reads back. */
+static void rw_out_raw(rw_out *out, PyObject *str) {
+    Py_ssize_t len = PyUnicode_GET_LENGTH(str);
+    if (PyUnicode_FindChar(str, '\r', 0, len, 1) < 0) {
+        rw_out_str(out, str);
+        return;
+    }
+    int kind = PyUnicode_KIND(str);
+    const void *data = PyUnicode_DATA(str);
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch == '\r') {
+            rw_out_char(out, '\n');
+            if (index + 1 < len && PyUnicode_READ(kind, data, index + 1) == '\n') {
+                index++;
+            }
+        } else {
+            rw_out_char(out, ch);
+        }
+    }
+}
+
+/* Append a code-point run, HTML-escaping the markup-significant code points and the CR a parse would fold to LF. */
 static void rw_out_escaped(rw_out *out, int kind, const void *data, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 ch = PyUnicode_READ(kind, data, index);
@@ -187,6 +210,8 @@ static void rw_out_escaped(rw_out *out, int kind, const void *data, Py_ssize_t l
             rw_out_ascii(out, "&lt;");
         } else if (ch == '>') {
             rw_out_ascii(out, "&gt;");
+        } else if (ch == '\r') {
+            rw_out_ascii(out, "&#13;");
         } else {
             rw_out_char(out, ch);
         }
@@ -196,7 +221,7 @@ static void rw_out_escaped(rw_out *out, int kind, const void *data, Py_ssize_t l
 /* Append a str, HTML-escaping the markup-significant code points, unless raw is set. */
 static void rw_out_content(rw_out *out, PyObject *str, int raw) {
     if (raw) {
-        rw_out_str(out, str);
+        rw_out_raw(out, str);
         return;
     }
     rw_out_escaped(out, PyUnicode_KIND(str), PyUnicode_DATA(str), PyUnicode_GET_LENGTH(str));
@@ -659,13 +684,13 @@ static int rw_handle_check(rw_handle *self, enum rw_kind kind) {
     return 0;
 }
 
-/* Escape (or keep raw) one content argument into a new str, or return the raw ref. */
+/* Escape (or keep raw) one content argument into a new str, or return the raw ref when it holds no CR to fold. */
 static PyObject *rw_escape_arg(PyObject *content, int raw) {
-    if (raw) {
+    if (raw && PyUnicode_FindChar(content, '\r', 0, PyUnicode_GET_LENGTH(content), 1) < 0) {
         return Py_NewRef(content);
     }
     rw_out scratch = {.data = NULL};
-    rw_out_content(&scratch, content, 0);
+    rw_out_content(&scratch, content, raw);
     if (scratch.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(scratch.data); /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
