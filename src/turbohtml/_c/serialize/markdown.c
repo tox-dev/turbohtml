@@ -132,8 +132,8 @@ typedef struct {
 typedef struct {
     Py_ssize_t number;     /* the next ordered item's number */
     Py_ssize_t sub_indent; /* how far content attached to the last item indents: its marker's width */
-    char bullet;
-    char delimiter; /* what follows an ordered item's number */
+    Py_UCS4 bullet;        /* a code point, since a configured bullet may be non-ASCII */
+    char delimiter;        /* what follows an ordered item's number */
     int ordered;
     int loose;
     int item_seen;          /* an item has opened, so content between items continues it */
@@ -233,7 +233,7 @@ typedef struct {
     int g_italic;
     int inline_only;
     int deep_block_span;
-    char list_end_marker;
+    Py_UCS4 list_end_marker;
     Py_ssize_t table_end;
 } md_converting;
 
@@ -334,7 +334,7 @@ typedef struct {
     Py_ssize_t tags_left;       /* the tag characters runs reopened as raw HTML may still add */
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
-    char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
+    Py_UCS4 list_end_marker;    /* its bullet or ordered delimiter; 0 until a list closes */
     Py_ssize_t table_end;       /* output length when the last pipe table closed, -1 when none ends the output */
     Py_ssize_t table_prefix;    /* the prefix length that table was laid out under */
     Py_ssize_t list_over;       /* output length where a reader is out of that list; behind list_end until then */
@@ -439,6 +439,31 @@ static int md_repeated_br_in_emphasis(md_ctx *ctx, th_node *node) {
    quote, a unicode bullet), decoding its UTF-8 to code points. */
 static void md_puts8(sbuf *out, const char *text) {
     sbuf_put_utf8(out, text, (Py_ssize_t)strlen(text));
+}
+
+/* The first code point of a configured option string, which reads as 0 when it is empty. */
+static Py_UCS4 md_first_cp(const char *text) {
+    Py_ssize_t index = 0;
+    return utf8_next(text, (Py_ssize_t)strlen(text), &index);
+}
+
+/* How many code points a configured option string holds: the bytes that do not continue a sequence. */
+static Py_ssize_t md_cp_len(const char *text) {
+    Py_ssize_t count = 0;
+    for (const char *cursor = text; *cursor != '\0'; cursor++) {
+        count += (*cursor & 0xC0) != 0x80;
+    }
+    return count;
+}
+
+/* The unordered-list marker for a list depth levels deep: the bullets' code points, cycled. */
+static Py_UCS4 md_bullet_at(const char *bullets, Py_ssize_t depth) {
+    Py_ssize_t len = (Py_ssize_t)strlen(bullets);
+    Py_ssize_t index = 0;
+    for (Py_ssize_t skip = depth % md_cp_len(bullets); skip > 0; skip--) {
+        utf8_next(bullets, len, &index);
+    }
+    return utf8_next(bullets, len, &index);
 }
 
 /* Indent what follows by count more columns, one list level deeper, and return the
@@ -734,9 +759,9 @@ static int md_marker_html(md_ctx *ctx, Py_ssize_t index, Py_ssize_t first) {
     Py_ssize_t len = ctx->out.len;
     /* an enclosing `*` opened together with this `**` reads as `***`, which nests the
        same way (CommonMark 6.2 rule 14), so only that pairing keeps its delimiters */
-    if (len > 0 && ctx->out.data[len - 1] == (unsigned char)marker->open[0] &&
+    if (len > 0 && ctx->out.data[len - 1] == md_first_cp(marker->open) &&
         !(len >= 2 && ctx->out.data[len - 2] == '\\') &&
-        !(index > first && strlen(ctx->markers[index - 1].open) < strlen(marker->open))) {
+        !(index > first && md_cp_len(ctx->markers[index - 1].open) < md_cp_len(marker->open))) {
         const char *alternate = md_alternate_run(ctx, marker);
         if (alternate == NULL) {
             return 1;
@@ -1636,8 +1661,8 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
     int settled = md_run_opens(before, after, star);
     for (Py_ssize_t outer = ctx->marker_base; settled && outer < index; outer++) {
         /* an enclosing run written into this same delimiter run opens with it instead */
-        settled = !(ctx->markers[outer].open[0] == marker->open[0] && ctx->markers[outer].open_at < run_start &&
-                    md_run_closes(before, after, star));
+        settled = !(md_first_cp(ctx->markers[outer].open) == md_first_cp(marker->open) &&
+                    ctx->markers[outer].open_at < run_start && md_run_closes(before, after, star));
     }
     if (settled) {
         Py_ssize_t last = close_at - 1;
@@ -3919,7 +3944,7 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
         sbuf_putc(&ctx->out, ' ');
         state->number++;
     } else {
-        sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->bullet);
+        sbuf_putc(&ctx->out, state->bullet);
         sbuf_putc(&ctx->out, ' ');
         width = lead + 2;
     }
@@ -4098,10 +4123,9 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
     if (checked_item != NULL && md_item_cannot_interrupt(ctx, checked_item, ordered, number)) {
         ctx->interrupt_blank = 1;
     }
-    Py_ssize_t bullets_len = (Py_ssize_t)strlen(ctx->opt->bullets);
     md_list_state state = {
         .number = number,
-        .bullet = ctx->opt->bullets[ctx->list_depth % bullets_len],
+        .bullet = md_bullet_at(ctx->opt->bullets, ctx->list_depth),
         .delimiter = '.',
         .ordered = ordered,
         .loose = loose,
@@ -4319,7 +4343,7 @@ static void md_render_root_item(md_ctx *ctx, th_node *node) {
     }
     md_list_state state = {
         .number = number,
-        .bullet = ctx->opt->bullets[(depth > 0 ? depth - 1 : 0) % (Py_ssize_t)strlen(ctx->opt->bullets)],
+        .bullet = md_bullet_at(ctx->opt->bullets, depth > 0 ? depth - 1 : 0),
         .delimiter = '.',
         .ordered = ordered,
         .loose = md_item_is_loose(ctx, node),

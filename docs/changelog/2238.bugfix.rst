@@ -1,0 +1,2 @@
+Non-ASCII list bullets, emphasis and strong wrappers, and the ``to_text()`` cell separator and default image alt
+are now written as given instead of as mojibake.
