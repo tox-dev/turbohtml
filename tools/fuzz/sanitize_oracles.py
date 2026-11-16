@@ -1197,19 +1197,22 @@ def _confirm_with_parse5(findings: list[tuple[_Finding, Policy]]) -> list[tuple[
     ]
 
 
+def _parse5_requests(serialized: Sequence[tuple[str, Policy]]) -> list[dict[str, str | list[str]]]:
+    return [
+        {"markup": markup, "omit": sorted({tag for tag, _ in _IMPLIED_WRAPPERS if _omits_wrapper(tag, policy)})}
+        for markup, policy in serialized
+    ]
+
+
 def _parse5_dumps(serialized: Sequence[tuple[str, Policy]], node: str) -> list[str]:
     # Dump each output as parse5 re-parses it, with each implied table wrapper the policy omits removed.
     #
     # parse5 re-creates those wrappers on re-parse, as a browser does, so the runner drops them the way ``_unwrapped``
     # drops them from turbohtml's tree. Python decides which tags are omitted; the runner only removes them.
-    requests = [
-        {"markup": markup, "omit": sorted({tag for tag, _ in _IMPLIED_WRAPPERS if _omits_wrapper(tag, policy)})}
-        for markup, policy in serialized
-    ]
     return json.loads(
         subprocess.run(
             [node, str(_NODE_DIR / "parse5_tree_runner.js")],
-            input=json.dumps(requests),
+            input=json.dumps(_parse5_requests(serialized)),
             capture_output=True,
             text=True,
             cwd=_NODE_DIR,
