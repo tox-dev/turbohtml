@@ -2161,16 +2161,16 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         for count, order in ((512, "reversed"), (512, "shuffled"), (512, "sorted"), (4, "reversed"))
     ),
     "query-closest": lambda: (
-        ("1024 children, shared ancestor", (1024, True)),
+        ("32,768 children, shared ancestor", (32_768, True)),
         ("1024 children, distinct ancestors", (1024, False)),
     ),
     "node-closest": lambda: (("one child, cached selector", (1, True)),),
     "query-parents": lambda: (
-        ("1024 children, shared parent", (1024, True)),
+        ("32,768 children, shared parent", (32_768, True)),
         ("1024 children, distinct parents", (1024, False)),
     ),
     "query-siblings": lambda: (
-        ("1024 siblings, all selected", (1024, True)),
+        ("16,384 siblings, all selected", (16_384, True)),
         ("1024 siblings, one selected", (1024, False)),
     ),
     "prune-shared": lambda: (("depth128,1024matches", (128, 1024)), ("depth128,1match", (128, 1))),
@@ -2182,7 +2182,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "treewalk": _readpath_cases,
     "chain": _readpath_cases,
     "range-clone": _readpath_cases,
-    "range-boundary": lambda: (("1000 start", (1_000, "start")), ("1000 end", (1_000, "end"))),
+    "range-boundary": lambda: (("100,000 start", (100_000, "start")), ("100,000 end", (100_000, "end"))),
     "range-contained": lambda: (("1000 clone", (1_000, "clone")), ("1 clone", (1, "clone"))),
     "range-partial": lambda: (("1000 clone", (1_000, "clone")), ("1 clone", (1, "clone"))),
     "links-extract": _readpath_cases,
