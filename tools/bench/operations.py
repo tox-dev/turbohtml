@@ -1163,7 +1163,11 @@ def _xpath_cases() -> tuple[tuple[str, Case], ...]:
     parity = tuple(
         (
             label,
-            (kind, text + svg_fragment if kind == "namespaces" else text, {"re:test": 110, "matches": 110}.get(kind, 1)),
+            (
+                kind,
+                text + svg_fragment if kind == "namespaces" else text,
+                {"re:test": 110, "matches": 110}.get(kind, 1),
+            ),
         )
         for label, kind in xpath_parity
     )
