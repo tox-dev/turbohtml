@@ -2226,6 +2226,38 @@ def test_encode_meta_charset_iso2022_shift_code_raises_the_codec_error() -> None
         parse("<p>\x1b</p>").encode("iso2022_jp", Html(meta_charset=True))
 
 
+@pytest.mark.parametrize("encoding", [pytest.param("latin-1", id="first"), pytest.param("latin-1", id="repeat")])
+def test_encode_meta_charset_refuses_c1_on_every_call(encoding: str) -> None:
+    # the per-codec byte range is cached, so the second and later calls must still refuse the misread bytes
+    for _ in range(2):
+        with pytest.raises(ValueError, match="windows-1252"):
+            parse("<p>\x85</p>").encode(encoding, Html(meta_charset=True))
+    assert (
+        parse("<p>a\xe9</p>")
+        .encode(encoding, Html(meta_charset=True))
+        .decode("latin-1")
+        .endswith("<p>a\xe9</p></body></html>")
+    )
+
+
+@pytest.mark.parametrize(
+    "offset", [pytest.param(0, id="first"), pytest.param(37, id="vector-block"), pytest.param(390, id="scalar-tail")]
+)
+def test_encode_meta_charset_finds_c1_at_any_offset_of_long_output(offset: int) -> None:
+    # the byte scan works in 64-byte blocks and then a scalar tail, so a long output is checked at every position
+    filler: Final = "a" * 400
+    markup: Final = f"<p>{filler[:offset]}\x85{filler[offset:]}</p>"
+    with pytest.raises(ValueError, match="windows-1252"):
+        parse(markup).encode("latin-1", Html(meta_charset=True))
+
+
+def test_encode_meta_charset_long_latin1_output_without_c1_is_kept() -> None:
+    body: Final = "".join(f"<p>caf\u00e9 {index} \u00fc</p>" for index in range(200))
+    out: Final = parse(body).encode("latin-1", Html(meta_charset=True)).decode("latin-1")
+    assert out.startswith('<html><head><meta charset="windows-1252"></head>')
+    assert "<p>caf\u00e9 199 \u00fc</p></body></html>" in out
+
+
 def test_encode_meta_charset_utf8_keeps_c1_controls() -> None:
     out: Final = parse("<p>\x85</p>").encode("utf-8", Html(meta_charset=True))
     assert out.decode("utf-8").endswith("<p>\x85</p></body></html>")
