@@ -1677,35 +1677,37 @@ static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets,
     }
     if ((facets->has_min_inclusive || facets->has_max_inclusive || facets->has_min_exclusive ||
          facets->has_max_exclusive) &&
-        dt_is_numeric(datatype_id)) {
+        dt_is_float(datatype_id)) {
         double number = dt_value_double(schema, norm, norm_len);
-        if (facets->has_min_inclusive && !(number >= facets->min_inclusive)) {
+        if (facets->has_min_inclusive && !dt_double_bound_ok(number, facets->min_inclusive, 1, 1)) {
             return 0;
         }
-        if (facets->has_max_inclusive && !(number <= facets->max_inclusive)) {
+        if (facets->has_max_inclusive && !dt_double_bound_ok(number, facets->max_inclusive, -1, 1)) {
             return 0;
         }
-        if (facets->has_min_exclusive && !(number > facets->min_exclusive)) {
+        if (facets->has_min_exclusive && !dt_double_bound_ok(number, facets->min_exclusive, 1, 0)) {
             return 0;
         }
-        if (facets->has_max_exclusive && !(number < facets->max_exclusive)) {
+        if (facets->has_max_exclusive && !dt_double_bound_ok(number, facets->max_exclusive, -1, 0)) {
             return 0;
         }
-    } else if (dt_is_ordered(datatype_id)) {
+    } else if (dt_is_ordered(datatype_id) && (facets->has_min_inclusive || facets->has_max_inclusive ||
+                                              facets->has_min_exclusive || facets->has_max_exclusive)) {
+        const dt_decimal number = dt_is_decimal_family(datatype_id) ? dt_decimal_of(norm, norm_len) : (dt_decimal){0};
         if (facets->has_min_inclusive &&
-            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MIN_INCLUSIVE], 1, 1)) {
+            !facet_bound_ok(datatype_id, facets, RANGE_MIN_INCLUSIVE, norm, norm_len, &number, 1, 1)) {
             return 0;
         }
         if (facets->has_max_inclusive &&
-            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MAX_INCLUSIVE], -1, 1)) {
+            !facet_bound_ok(datatype_id, facets, RANGE_MAX_INCLUSIVE, norm, norm_len, &number, -1, 1)) {
             return 0;
         }
         if (facets->has_min_exclusive &&
-            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MIN_EXCLUSIVE], 1, 0)) {
+            !facet_bound_ok(datatype_id, facets, RANGE_MIN_EXCLUSIVE, norm, norm_len, &number, 1, 0)) {
             return 0;
         }
         if (facets->has_max_exclusive &&
-            !facet_bound_ok(datatype_id, norm, norm_len, facets->range_text[RANGE_MAX_EXCLUSIVE], -1, 0)) {
+            !facet_bound_ok(datatype_id, facets, RANGE_MAX_EXCLUSIVE, norm, norm_len, &number, -1, 0)) {
             return 0;
         }
     }
