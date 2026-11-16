@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
 from textwrap import dedent
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from . import corpus
 from .corpus import (
@@ -32,6 +32,13 @@ from .corpus import (
 )
 
 Case: TypeAlias = str | int | bytes | tuple["Case", ...]
+
+
+class ColdFind(NamedTuple):
+    query_kind: str
+    document: Document
+    repeats: int
+
 
 if TYPE_CHECKING:
     from collections.abc import Buffer, Callable
@@ -79,6 +86,13 @@ if TYPE_CHECKING:
         | Callable[[tuple[int, str]], None]
         | Callable[[tuple[int, str]], str]
         | Callable[[tuple[int, str]], bool]
+        | Callable[[tuple[int, str]], list[tuple[str, str]]]
+        | Callable[[tuple[int, str, int]], None]
+        | Callable[[tuple[int, str, int]], bool]
+        | Callable[[tuple[int, bool, int]], None]
+        | Callable[[tuple[str, str, int]], None]
+        | Callable[[tuple[str, int]], None]
+        | Callable[[tuple[str, str, str, str] | tuple[str, str, str, str, int]], None]
         | Callable[[tuple[int, bool]], None]
         | Callable[[tuple[int, bool]], PyQuery]
         | Callable[[tuple[int, bytes]], None]
@@ -94,6 +108,12 @@ if TYPE_CHECKING:
         | Mutating[tuple[int, int, int, str], Callable[[], tuple[bool, ...]], tuple[bool, ...]]
         | Mutating[tuple[int, int], Element, None]
         | Mutating[tuple[int, str], Callable[[], None], None]
+        | Mutating[tuple[int, str, int], Callable[[], None], None]
+        | Mutating[tuple[int, int, int], list[Element], None]
+        | Mutating[tuple[str, bool, int], Callable[[], str | bytes], str | bytes]
+        | Mutating[tuple[str, int], tuple[Token, int], list[tuple[str, str]] | None]
+        | Mutating[tuple[str, str, int], ColdFind, None]
+        | Mutating[str, list[Element], None]
         | Mutating[tuple[str, bool], Callable[[], str | bytes], str | bytes]
         | Mutating[str, Token, list[tuple[str, str]] | None]
         | Mutating[tuple[str, str], tuple[str, Document], None]
@@ -679,35 +699,39 @@ def _stream_cases() -> tuple[tuple[str, Case], ...]:
 def _radio_group_cases() -> tuple[tuple[str, tuple[int, int, int, str]], ...]:
     return (
         ("document radios, index build and 64 changes", (4096, 1, 64, "document")),
-        ("small form, one unindexed change", (0, 1, 1, "plain")),
+        ("small form, 250 unindexed changes", (0, 1, 250, "plain")),
         ("one form among 256, index build and 64 changes", (0, 256, 64, "select")),
-        ("eight changes with index invalidation", (256, 1, 8, "mutate")),
+        ("50 changes with index invalidation", (256, 1, 50, "mutate")),
     )
 
 
-def _form_data_fieldset_cases() -> tuple[tuple[str, str], ...]:
+def _form_data_fieldset_cases() -> tuple[tuple[str, tuple[int, str]], ...]:
     return tuple(
         (
             label,
             (
-                f"""<form>{opening}{"<div>" * depth}"""
-                f"""{"".join(f'<input name="n{index}" value="v{index}">' for index in range(count))}{
-                    "</div>" * depth
-                }"""
-                f"""{closing}<input name="tail" value="ok"></form>"""
+                repeats,
+                (
+                    f"""<form>{opening}{"<div>" * depth}"""
+                    f"""{"".join(f'<input name="n{index}" value="v{index}">' for index in range(count))}{
+                        "</div>" * depth
+                    }"""
+                    f"""{closing}<input name="tail" value="ok"></form>"""
+                ),
             ),
         )
-        for label, opening, closing, depth, count in (
-            ("disabled / 2,048 controls / depth 64", "<fieldset disabled>", "</fieldset>", 64, 2_048),
+        for label, opening, closing, depth, count, repeats in (
+            ("disabled / 2,048 controls / depth 64", "<fieldset disabled>", "</fieldset>", 64, 2_048, 400),
             (
                 "first legend / 2,048 disabled controls / depth 64",
                 '<fieldset disabled><legend><input name="allowed" value="yes"></legend>',
                 "</fieldset>",
                 64,
                 2_048,
+                300,
             ),
-            ("enabled / 2,048 controls / depth 64", "<fieldset>", "</fieldset>", 64, 2_048),
-            ("plain / 4 controls", "", "", 0, 4),
+            ("enabled / 2,048 controls / depth 64", "<fieldset>", "</fieldset>", 64, 2_048, 1),
+            ("plain / 4 controls", "", "", 0, 4, 170),
         )
     )
 
@@ -1593,10 +1617,10 @@ def _transform_number_prefix_cases() -> (  # simplint: ignore[single-caller-help
     )
 
 
-def _token_attribute_cases() -> tuple[tuple[str, Case], ...]:
+def _token_attribute_cases() -> tuple[tuple[str, tuple[str, int]], ...]:
     return tuple(
-        (f"{count} attributes", f"<p {' '.join(f'a{index}={index}' for index in range(count))}>")
-        for count in (100, 0, 1, 10)
+        (f"{count} attributes", (f"<p {' '.join(f'a{index}={index}' for index in range(count))}>", repeats))
+        for count, repeats in ((100, 11), (0, 2_000), (1, 920), (10, 200))
     )
 
 
@@ -1977,16 +2001,22 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "shadow": lambda: _ROWS,
     "shadow-slot": lambda: (
         *(
-            (f"{size:,} preceding slots, {size if markup else 0:,} {kind}", (size, markup * size))
-            for kind, markup in (
-                ("children", '<span slot="target">value</span>'),
-                ("children", ""),
-                ("comments", "<!--value-->"),
+            (
+                f"{size:,} preceding slots, {size if markup else 0:,} {kind}",
+                (size, markup * size, repeats if size == 1_000 else 1),
+            )
+            for kind, markup, repeats in (
+                ("children", '<span slot="target">value</span>', 1),
+                ("children", "", 1_525),
+                ("comments", "<!--value-->", 1_300),
             )
             for size in (100, 1_000, 10_000)
         ),
         *(
-            (f"{size:,} preceding slots, 1 nonmatching child", (size, '<span slot="unused">value</span>'))
+            (
+                f"{size:,} preceding slots, 1 nonmatching child",
+                (size, '<span slot="unused">value</span>', 1_415 if size == 1_000 else 1),
+            )
             for size in (100, 1_000, 10_000)
         ),
     ),
@@ -2148,9 +2178,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "escape": escape_cases,
     "unescape": unescape_cases,
     "tokenize": _tokenize_cases,
-    "html-options": lambda: (("reused defaults", ("html", True)), ("no options", ("html", False))),
-    "text-options": lambda: (("reused defaults", ("text", True)), ("no options", ("text", False))),
-    "canonical-options": lambda: (("reused defaults", ("canonical", True)), ("no options", ("canonical", False))),
+    "html-options": lambda: (("reused defaults", ("html", True, 120)), ("no options", ("html", False, 610))),
+    "text-options": lambda: (("reused defaults", ("text", True, 110)), ("no options", ("text", False, 720))),
+    "canonical-options": lambda: (
+        ("reused defaults", ("canonical", True, 135)),
+        ("no options", ("canonical", False, 520)),
+    ),
     "token-attributes": _token_attribute_cases,
     "tokenize-attributes": lambda: _token_attribute_cases()[:1],
     "edit": _readpath_cases,
@@ -2159,8 +2192,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "strip-tags": _readpath_cases,
     "set-html": _readpath_cases,
     "set-text": _readpath_cases,
-    "shadow-assignment": lambda: (("1000 unique", (1_000, "unique")), ("1 unique", (1, "unique"))),
-    "shadow-fallback": lambda: (("1000 wide", (1_000, "wide")), ("1 wide", (1, "wide"))),
+    "shadow-assignment": lambda: (("1000 unique", (1_000, "unique", 1)), ("1 unique", (1, "unique", 520))),
+    "shadow-fallback": lambda: (("1000 wide", (1_000, "wide", 1)), ("1 wide", (1, "wide", 340))),
     "observe": _readpath_cases,
     "query-root-groups": lambda: (
         ("2,048 detached roots", ("detached", 2_048)),
@@ -2176,7 +2209,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("32,768 children, shared ancestor", (32_768, True)),
         ("1024 children, distinct ancestors", (1024, False)),
     ),
-    "node-closest": lambda: (("one child, cached selector", (1, True)),),
+    "node-closest": lambda: (("one child, cached selector", (1, True, 1_300)),),
     "query-parents": lambda: (
         ("32,768 children, shared parent", (32_768, True)),
         ("1024 children, distinct parents", (1024, False)),
@@ -2185,10 +2218,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("16,384 siblings, all selected", (16_384, True)),
         ("1024 siblings, one selected", (1024, False)),
     ),
-    "prune-shared": lambda: (("depth128,1024matches", (128, 1024)), ("depth128,1match", (128, 1))),
+    "prune-shared": lambda: (("depth128,1024matches", (128, 1024, 1)), ("depth128,1match", (128, 1, 35))),
     "observe-registrations": lambda: (
-        ("1000 wrong-kind", (1_000, "wrong-kind")),
-        ("1000 unrelated", (1_000, "unrelated")),
+        ("1000 wrong-kind", (1_000, "wrong-kind", 275)),
+        ("1000 unrelated", (1_000, "unrelated", 320)),
     ),
     "navigate": _readpath_cases,
     "treewalk": _readpath_cases,
@@ -2583,12 +2616,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         for size in (100, 1_000, 10_000)
     ),
     "canonicalize-deep": lambda: (
-        ("deep tree (150 deep)", _deep_tree(150, 3)),
+        ("deep tree (150 deep)", (_deep_tree(150, 3), 1)),
         (
             "sparse xlink (150 deep)",
-            f"""<svg>{'<g><use xlink:href="#x"/>' * 150}{"</g>" * 150}</svg>""",
+            (f"""<svg>{'<g><use xlink:href="#x"/>' * 150}{"</g>" * 150}</svg>""", 1),
         ),
-        ("shallow ordinary", "<main><p>plain text</p><div id=a>more text</div></main>"),
+        ("shallow ordinary", ("<main><p>plain text</p><div id=a>more text</div></main>", 200)),
     ),
     "lossless-serialize": _readpath_cases,
     "minify": _readpath_cases,
@@ -2873,7 +2906,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
     ),
     "rewrite": _readpath_cases,
-    "rewrite-attributes": lambda: (("1,000 new names", (1000, "<x></x>")), ("one new name", (1, "<x></x>"))),
+    "rewrite-attributes": lambda: (("1,000 new names", (1000, "<x></x>", 1)), ("one new name", (1, "<x></x>", 85))),
     "path": _readpath_cases,
     "path-xpath": _readpath_cases,
     "translate": lambda: (
@@ -3047,11 +3080,11 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 (2, "text"),
                 (10, "text"),
                 (100, "text"),
-                (1_000, "text"),
-                (100, "text" * 64),
+                (20_000, "text"),
+                (6_000, "text" * 64),
             )
         ),
-        ("1000 empty tail nodes", (1_000, "")),
+        ("50,000 empty tail nodes", (50_000, "")),
     ),
     "attribute-grow": lambda: tuple(
         (f"{count} {'existing' if existing else 'new'} attributes", (count, existing))
@@ -3060,7 +3093,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     ),
     "normalize-marks": lambda: tuple(
         (f"{size:,} combining marks", "a" + "\u0315" * (size // 2) + "\u0300" * (size // 2))
-        for size in (100, 1_000, 10_000)
+        for size in (3_000, 1_000, 10_000)
     ),
     "detect-language": _language_cases,
     "detect-language-long": lambda: (
@@ -3179,4 +3212,5 @@ __all__ = [
     "OPERATIONS",
     "SIZE_OPS",
     "Case",
+    "ColdFind",
 ]
