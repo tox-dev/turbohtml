@@ -69,3 +69,17 @@ def test_encoding_oracle_list_item_shapes(markup: str, expected: str) -> None:
 )
 def test_encoding_oracle_table_and_select_shapes(markup: str, expected: str) -> None:
     assert encoding_observation(markup.encode()) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<frameset>x ", " ", id="frameset-whitespace-after-letter"),
+        pytest.param("<frameset>w\t", "\t", id="frameset-tab-after-letter"),
+        pytest.param("<frameset>x", "", id="frameset-letter-ignored"),
+        pytest.param("</br><frameset>/", "/", id="end-tag-br-closes-frameset-window"),
+        pytest.param("</br>\t<frameset>", "\t", id="end-tag-br-then-whitespace"),
+    ],
+)
+def test_encoding_oracle_frameset_and_end_tag_br(markup: str, expected: str) -> None:
+    assert encoding_observation(markup.encode()) == expected
