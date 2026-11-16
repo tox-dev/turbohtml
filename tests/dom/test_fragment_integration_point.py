@@ -44,7 +44,7 @@ def _splice(entry: str, point: Element, child: Element, html: str) -> None:
             point.set_inner_html(html)
         case "afterbegin" | "beforeend":
             point.insert_adjacent_html(entry, html)
-        case "beforebegin" | "afterend":
+        case _:
             child.insert_adjacent_html(entry, html)
 
 
