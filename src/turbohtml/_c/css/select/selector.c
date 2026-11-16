@@ -703,8 +703,8 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             return;
         }
         parser->pos++;
-        int64_t nth_a;
-        int64_t nth_b;
+        int64_t nth_a = 0;
+        int64_t nth_b = 0;
         sel_parse_anb(parser, &nth_a, &nth_b);
         if (parser->error) {
             return;
