@@ -361,6 +361,10 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
+int th_tree_depth_capped(const th_tree *tree) {
+    return tree->depth_capped;
+}
+
 Py_ssize_t th_tree_nest_bound(const th_tree *tree) {
     return tree->nest_bound;
 }
@@ -998,10 +1002,11 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
    the run. Foster parenting inserts before a table, which is shallower than the cap, so only appends can need the move.
    A template's content fragment counts as its template. A stack whose depth bound stays below the cap cannot reach it,
    which skips the walk. */
-static TH_NOINLINE void cap_insertion_walk(th_node **parent, th_node **before) {
+static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_node **before) {
     if (!has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)) {
         return;
     }
+    tree->depth_capped = 1;
     th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
     *parent = anchor->parent;
     *before = anchor->next_sibling;
@@ -1013,7 +1018,7 @@ static TH_NOINLINE void cap_insertion_walk(th_node **parent, th_node **before) {
 static void insertion_location_target(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
     insertion_location_place(tree, target, parent, before);
     if (tree->depth_near_cap && *before == NULL && stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
-        cap_insertion_walk(parent, before);
+        cap_insertion_walk(tree, parent, before);
     }
 }
 

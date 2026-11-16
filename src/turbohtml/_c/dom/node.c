@@ -2730,7 +2730,8 @@ PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
     }
     const th_noscript_span *unstable = first_unstable(&track);
     PyObject *result;
-    if (unstable != NULL && !unstable->cut) {
+    /* a node the cap moved has no minified form that reparses to the same tree, so the markup comes back as written */
+    if ((unstable != NULL && !unstable->cut) || th_tree_depth_capped(tree)) {
         result = Py_NewRef(html);
     } else {
         th_minify_source source = {track.spans, track.count};

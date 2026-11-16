@@ -1780,3 +1780,25 @@ def test_minify_keeps_a_heading_nested_past_inline_content(count: int) -> None:
     # long page holds more elements than the check's first buffer, so the buffer grows
     source = f"<h1><span><h2>x</h2></span></h1>{'<b>x</b>' * count}"
     assert parse(minify(source)).equals(parse(source))
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        pytest.param("<table><tr>c<td>E", id="table-row"),
+        pytest.param("<table><template>c</template>E", id="template"),
+        pytest.param("<p>a<b>b<i>c</b>E", id="formatting"),
+        pytest.param("<noscript><p>c</noscript>E", id="noscript"),
+    ],
+)
+@pytest.mark.parametrize(
+    "depth", [pytest.param(_PARSER_DEPTH + 88, id="deep"), pytest.param(_PARSER_DEPTH * 2, id="x2")]
+)
+def test_minify_past_the_depth_cap_returns_markup_as_written(tail: str, depth: int) -> None:
+    # a node the cap moved has no minified form that reparses to the same tree, so the markup comes back unchanged
+    markup = f"{'<div> ' * depth}{tail}"
+    assert minify(markup) == markup
+
+
+def test_minify_below_the_depth_cap_still_minifies() -> None:
+    assert minify(f"{'<div> ' * (_PARSER_DEPTH - 88)}x") != f"{'<div> ' * (_PARSER_DEPTH - 88)}x"
