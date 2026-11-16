@@ -43,11 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
     # Rectify against the complete selection to retain position and size context.
-    reference: Final = lxml.etree.fromstring(
-        case.xml.encode(), lxml.etree.XMLParser(resolve_entities=False, no_network=True)
-    )
+    ours, reference = contexts(case.xml)
     query: Final = _rectify(reference, case)
-    ours: Final = parse_xml(case.xml)
     case_hash: Final = hashlib.sha256((f"{case.xml}\0{case.target}\0{case.predicate}").encode()).hexdigest()
     for expression in (
         query,
@@ -68,6 +65,16 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
             ours=_evaluate(ours, ours_expression),
             reference=_evaluate(reference, expression),
         )
+
+
+def contexts(xml: str) -> tuple[Element, LxmlElement]:
+    # lxml has no document-node context and evaluates from the root element, where a relative expression selects one
+    # node fewer than from the document. Both engines start at the root element, so their answers are comparable.
+    parser: Final = lxml.etree.XMLParser(resolve_entities=False, no_network=True)
+    reference: Final = lxml.etree.fromstring(xml.encode(), parser)
+    ours: Final = parse_xml(xml).root
+    assert ours is not None  # ruff: ignore[assert]  # the generator always writes a root element
+    return ours, reference
 
 
 def _rectify(reference: lxml.etree._Element, case: Case) -> str:
