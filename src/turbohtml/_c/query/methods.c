@@ -2393,7 +2393,7 @@ static PyObject *xpath_eval_with_vars(PyObject *self, PyObject *args, PyObject *
         return NULL;
     }
     xp_bindings vars = {items, len};
-    xp_namespaces namespaces = {ns_items, ns_len};
+    xp_namespaces namespaces = {.items = ns_items, .len = ns_len};
     PyObject *result = xpath_eval_object(self, expr_obj, len == 0 ? NULL : &vars, ns_len == 0 ? NULL : &namespaces,
                                          smart_strings, extensions);
     free_xpath_vars(items, len);

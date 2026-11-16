@@ -865,6 +865,7 @@ static void optimize_descendant_steps(xp_program *prog) {
             step->str_len = follow->str_len;
             step->prefix_len = follow->prefix_len;
             follow->str = NULL; /* ownership moved to step */
+            follow->prefix_len = 0;
             step->first = follow->first;
             step->next = follow->next;
         }
@@ -907,6 +908,7 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
     prog->count = 0;
     prog->cap = 0;
     prog->root = -1;
+    prog->bound = (xp_namespaces){.items = NULL, .len = 0};
     parser ps = {0};
     ps.prog = prog;
     ps.lx.src = src;
@@ -965,6 +967,8 @@ void xp_retain(xp_program *prog) {
     prog->references++;
 }
 
+static void bindings_free(xp_namespaces *bound);
+
 void xp_free(xp_program *prog) {
     if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: callers never pass NULL */
         return;         /* GCOVR_EXCL_LINE */
@@ -976,5 +980,92 @@ void xp_free(xp_program *prog) {
         PyMem_Free(prog->nodes[index].str);
     }
     PyMem_Free(prog->nodes);
+    bindings_free(&prog->bound);
     PyMem_Free(prog);
+}
+
+static void bindings_free(xp_namespaces *bound) {
+    for (Py_ssize_t index = 0; index < bound->len; index++) {
+        PyMem_Free((void *)bound->items[index].prefix);
+        PyMem_Free((void *)bound->items[index].uri);
+    }
+    PyMem_Free((void *)bound->items);
+    bound->items = NULL;
+    bound->len = 0;
+}
+
+static int copy_binding(xp_namespace *out, const Py_UCS4 *prefix, Py_ssize_t prefix_len, const Py_UCS4 *uri,
+                        Py_ssize_t uri_len) {
+    Py_UCS4 *prefix_copy = PyMem_Malloc((size_t)(prefix_len + 1) * sizeof(Py_UCS4));
+    Py_UCS4 *uri_copy = PyMem_Malloc((size_t)(uri_len + 1) * sizeof(Py_UCS4));
+    if (prefix_copy == NULL || uri_copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(prefix_copy);                   /* GCOVR_EXCL_LINE */
+        PyMem_Free(uri_copy);                      /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                          /* GCOVR_EXCL_LINE */
+        return -1;                                 /* GCOVR_EXCL_LINE */
+    }
+    memcpy(prefix_copy, prefix, (size_t)prefix_len * sizeof(Py_UCS4));
+    memcpy(uri_copy, uri, (size_t)uri_len * sizeof(Py_UCS4));
+    *out = (xp_namespace){prefix_copy, prefix_len, uri_copy, uri_len};
+    return 0;
+}
+
+static int is_bound(const xp_namespace *items, Py_ssize_t len, const Py_UCS4 *prefix, Py_ssize_t prefix_len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (items[index].prefix_len == prefix_len &&
+            memcmp(items[index].prefix, prefix, (size_t)prefix_len * sizeof(Py_UCS4)) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int has_prefixed_name(const xp_program *prog) {
+    for (int32_t index = 0; index < prog->count; index++) {
+        const xn *node = &prog->nodes[index];
+        if (node->kind == XN_STEP && node->test == NT_NAME && node->prefix_len > 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int xp_bind_namespaces(xp_program *prog, xp_prefix_resolve_fn resolve, void *context) {
+    bindings_free(&prog->bound);
+    if (!has_prefixed_name(prog)) {
+        return 0;
+    }
+    xp_namespace *items = PyMem_Calloc((size_t)prog->count + 1, sizeof(*items));
+    if (items == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t len = 0;
+    int failed = 0;
+    for (int32_t index = 0; index < prog->count; index++) {
+        const xn *node = &prog->nodes[index];
+        if (node->kind != XN_STEP || node->test != NT_NAME || node->prefix_len == 0 ||
+            is_bound(items, len, node->str, node->prefix_len)) {
+            continue;
+        }
+        const Py_UCS4 *uri = NULL;
+        Py_ssize_t uri_len = 0;
+        int resolved = resolve(context, node->str, node->prefix_len, &uri, &uri_len);
+        if (resolved < 0) { /* GCOVR_EXCL_BR_LINE: a resolver error is an allocation failure */
+            failed = 1;     /* GCOVR_EXCL_LINE */
+            break;          /* GCOVR_EXCL_LINE */
+        }
+        if (resolved == 1) {
+            if (copy_binding(&items[len], node->str, node->prefix_len, uri, uri_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+                failed = 1;                                                                 /* GCOVR_EXCL_LINE */
+                break;                                                                      /* GCOVR_EXCL_LINE */
+            }
+            len++;
+        }
+    }
+    prog->bound = (xp_namespaces){.items = items, .len = len};
+    if (failed || len == 0) { /* GCOVR_EXCL_BR_LINE: failed is an allocation failure */
+        bindings_free(&prog->bound);
+    }
+    return failed ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure */
 }

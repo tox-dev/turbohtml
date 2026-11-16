@@ -88,7 +88,8 @@ struct xp_program {
     xn *nodes;
     int32_t count;
     int32_t cap;
-    int32_t root; /* index of the root expression */
+    int32_t root;        /* index of the root expression */
+    xp_namespaces bound; /* the prefix bindings xp_bind_namespaces kept, owned by the program */
 };
 
 /* Append a blank node, returning its index or -1 on OOM. */

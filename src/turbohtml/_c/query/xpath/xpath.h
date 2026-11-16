@@ -133,6 +133,17 @@ typedef struct {
     Py_ssize_t len;
 } xp_namespaces;
 
+/* Resolves a prefix a program's name tests use to the namespace URI its scope binds it to. Returns 1 with uri and
+   uri_len set, 0 when the prefix is unbound, or -1 with a Python error set. */
+typedef int (*xp_prefix_resolve_fn)(void *context, const Py_UCS4 *prefix, Py_ssize_t prefix_len, const Py_UCS4 **uri,
+                                    Py_ssize_t *uri_len);
+
+/* Give the program the bindings for the prefixes its prefixed name tests use, resolved once through resolve and
+   copied into the program, so it carries its stylesheet's namespace scope. A program with no prefixed name test, or
+   whose prefixes are all unbound, keeps none. Replaces any earlier binding. Returns 0, or -1 with a Python error
+   set. */
+int xp_bind_namespaces(xp_program *prog, xp_prefix_resolve_fn resolve, void *context);
+
 /* A user extension-function call: resolve `name` against the registered
    extensions and run it over `args` with the context item (`context.node`, or the
    attribute or namespace node `context.attr` names) as the XPath context.

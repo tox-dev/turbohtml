@@ -4717,6 +4717,9 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *
                    Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
                    xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids,
                    xp_result *out, const char **feature, int exists) {
+    if (namespaces == NULL && prog->bound.len > 0) {
+        namespaces = &prog->bound;
+    }
     xp_caches *caches = NULL;
 #ifdef TH_OPERATION_LIMIT
     size_t operations = 0;

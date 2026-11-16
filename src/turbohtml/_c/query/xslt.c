@@ -1204,6 +1204,11 @@ typedef struct {
     Py_ssize_t last_uri_len;
 } xslt_pattern_scope;
 
+typedef struct {
+    engine *eng;
+    th_node *element;
+} xslt_scope_source;
+
 /* One alternative of a count or from pattern that depends on the call. A path xp_pattern_walks_back accepts is matched
    node by node through walk; any other alternative is evaluated once per call into nodes, with walk NULL. */
 typedef struct {
@@ -1224,6 +1229,7 @@ typedef struct {
 } xslt_number_pattern;
 
 static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len);
+static int bind_expression_scope(engine *eng, xp_program *prog, th_node *element);
 static int pattern_callback_needed(engine *eng, const xp_program *prog);
 static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched);
 
@@ -7443,6 +7449,9 @@ static int parse_key(engine *eng, th_node *element) {
         }
         return fail_py(eng);
     }
+    if (bind_expression_scope(eng, use_prog, element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return fail_py(eng);                                 /* GCOVR_EXCL_LINE */
+    }
     if (eng->nkeys == eng->keys_cap) {
         Py_ssize_t cap = eng->keys_cap == 0 ? TH_INITIAL_CAPACITY(4) : eng->keys_cap * 2;
         xslt_key *grown = PyMem_Realloc(eng->keys, (size_t)cap * sizeof(xslt_key));
@@ -8679,18 +8688,57 @@ static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
     return 0;
 }
 
-static int precompile_expression(engine *eng, const Py_UCS4 *source, Py_ssize_t length, const char *context) {
-    char error[256];
-    if (compile_expression(eng, source, length, error, sizeof(error)) != NULL) {
+/* The namespace a prefix a stylesheet expression uses is bound to on element: the declaration in scope there, nearest
+   first, as a match pattern resolves its own prefixes. */
+static int scope_prefix_resolve(void *context, const Py_UCS4 *prefix, Py_ssize_t prefix_len, const Py_UCS4 **uri,
+                                Py_ssize_t *uri_len) {
+    xslt_scope_source *source = context;
+    Py_ssize_t prefix_bytes = 0;
+    char *utf8 = ucs4_to_utf8(prefix, prefix_len, &prefix_bytes);
+    if (utf8 == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    const th_node_attr *declared = NULL;
+    int resolved = pattern_declaration(&source->eng->sheet_declarations, source->eng->sheet_tree, source->element, utf8,
+                                       prefix_bytes, &declared);
+    PyMem_Free(utf8);
+    if (resolved < 0) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    if (declared == NULL) {
         return 0;
     }
-    if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only allocation adds an exception during compilation */
-        PyErr_Format(PyExc_ValueError, "xslt: bad %s: %s", context, error);
-    }
-    return fail_py(eng);
+    *uri = declared->value;
+    *uri_len = declared->value_len;
+    return 1;
 }
 
-static int precompile_avt(engine *eng, const Py_UCS4 *source, Py_ssize_t length) {
+/* Bind the prefixes an expression on element uses to the namespaces in scope there, so they resolve as the stylesheet
+   declares them. */
+static int bind_expression_scope(engine *eng, xp_program *prog, th_node *element) {
+    xslt_scope_source source = {.eng = eng, .element = element};
+    return xp_bind_namespaces(prog, scope_prefix_resolve, &source);
+}
+
+static int precompile_expression(engine *eng, th_node *element, const Py_UCS4 *source, Py_ssize_t length,
+                                 const char *context) {
+    char error[256];
+    xp_program *prog = compile_expression(eng, source, length, error, sizeof(error));
+    if (prog == NULL) {
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only allocation adds an exception during compilation */
+            PyErr_Format(PyExc_ValueError, "xslt: bad %s: %s", context, error);
+        }
+        return fail_py(eng);
+    }
+    if (bind_expression_scope(eng, prog, element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return fail_py(eng);                             /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
+static int precompile_avt(engine *eng, th_node *element, const Py_UCS4 *source, Py_ssize_t length) {
     for (Py_ssize_t index = 0; index < length; index++) {
         if (source[index] != '{' || (index + 1 < length && source[index + 1] == '{')) {
             if (source[index] == '{') {
@@ -8710,7 +8758,8 @@ static int precompile_avt(engine *eng, const Py_UCS4 *source, Py_ssize_t length)
             }
             index++;
         }
-        if (precompile_expression(eng, source + start, index - start, "expression in attribute value template") < 0) {
+        if (precompile_expression(eng, element, source + start, index - start,
+                                  "expression in attribute value template") < 0) {
             return -1;
         }
     }
@@ -8720,7 +8769,7 @@ static int precompile_avt(engine *eng, const Py_UCS4 *source, Py_ssize_t length)
 static int precompile_attribute(engine *eng, th_node *element, const char *name, const char *context) {
     Py_ssize_t length = 0;
     const Py_UCS4 *source = attr_lookup(eng->sheet_tree, element, name, (Py_ssize_t)strlen(name), &length);
-    return source == NULL ? 0 : precompile_expression(eng, source, length, context);
+    return source == NULL ? 0 : precompile_expression(eng, element, source, length, context);
 }
 
 static int precompile_pattern_attribute(engine *eng, th_node *element, const char *name) {
@@ -8777,14 +8826,14 @@ static int precompile_instruction(engine *eng, th_node *element) {
     if (element_instruction || attribute_instruction || is_xsl(eng, element, "processing-instruction")) {
         Py_ssize_t length = 0;
         const Py_UCS4 *source = attr_lookup(eng->sheet_tree, element, "name", 4, &length);
-        if (source != NULL && precompile_avt(eng, source, length) < 0) {
+        if (source != NULL && precompile_avt(eng, element, source, length) < 0) {
             return -1;
         }
     }
     if (element_instruction || attribute_instruction) {
         Py_ssize_t length = 0;
         const Py_UCS4 *source = attr_lookup(eng->sheet_tree, element, "namespace", 9, &length);
-        if (source != NULL && precompile_avt(eng, source, length) < 0) {
+        if (source != NULL && precompile_avt(eng, element, source, length) < 0) {
             return -1;
         }
     }
@@ -8800,7 +8849,7 @@ static int precompile_literal_attributes(engine *eng, th_node *element) {
             is_xsl_attr(eng, element, index)) {
             continue;
         }
-        if (precompile_avt(eng, attr->value, attr->value_len) < 0) {
+        if (precompile_avt(eng, element, attr->value, attr->value_len) < 0) {
             return -1;
         }
     }
@@ -8830,7 +8879,7 @@ static int precompile_stylesheet(engine *eng, th_node *root) {
             return -1;
         }
     }
-    return precompile_expression(eng, &XPATH_DOT, 1, "sort select");
+    return precompile_expression(eng, root, &XPATH_DOT, 1, "sort select");
 }
 
 /* Re-attach the stripped text nodes in reverse order, so each node's saved successor is
