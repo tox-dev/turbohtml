@@ -8,7 +8,7 @@ import pytest
 from markdown_it import MarkdownIt
 
 from turbohtml import Html, Indent, Markdown, Minify, PlainText, parse, parse_xml
-from turbohtml.clean import minify, sanitize
+from turbohtml.clean import OnDisallowed, Policy, minify, sanitize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -244,6 +244,95 @@ def test_clone_string_writers_leave_attributes_past_the_budget_out(write: Callab
     assert "three" in text
 
 
+@pytest.mark.parametrize("write", _DOCUMENT_WRITERS.values(), ids=_DOCUMENT_WRITERS.keys())
+def test_clone_past_the_budget_writes_none_of_its_start_tag(write: Callable[[Document], str]) -> None:
+    text = write(parse(f"<p><a title=t href={_WIDE_TARGET}>one<p>two<p>three"))
+    assert text.count(_WIDE_TARGET) == 2
+    assert text.count("title") == 2
+    assert "three" in text
+
+
+@pytest.mark.parametrize("write", _DOCUMENT_WRITERS.values(), ids=_DOCUMENT_WRITERS.keys())
+def test_clone_keeps_its_value_once_its_source_is_removed(write: Callable[[Document], str]) -> None:
+    document = parse(f"<p><a href={_WIDE_TARGET}>1<p>2")
+    source = document.select_one("a")
+    assert source is not None
+    source.decompose()
+    assert write(document).count(_WIDE_TARGET) == 1
+
+
+def test_moved_clone_keeps_its_value_once_its_source_is_removed() -> None:
+    root = _xml_root_with(f"<p><a href={_WIDE_TARGET}>1<p>2")
+    source = root.select_one("a")
+    assert source is not None
+    source.decompose()
+    assert root.canonicalize().decode().count(_WIDE_TARGET) == 1
+
+
+def test_prefix_declared_clone_keeps_its_value_once_its_source_is_removed() -> None:
+    document = parse(f"<p xmlns:y=urn:y><a href={_WIDE_TARGET}>1<p>2")
+    source = document.select_one("a")
+    assert source is not None
+    source.decompose()
+    assert document.canonicalize().decode().count(_WIDE_TARGET) == 1
+
+
+def test_prefix_declared_clone_past_the_budget_writes_none_of_its_start_tag() -> None:
+    text = parse(f"<p xmlns:y=urn:y><a y:b=1 title=t href={_WIDE_TARGET}>one<p>two<p>three").canonicalize().decode()
+    assert text.count(_WIDE_TARGET) == 2
+    assert text.count("title") == 2
+    assert "three" in text
+
+
+def test_xml_clone_leaves_out_an_attribute_name_xml_cannot_hold() -> None:
+    text = parse('<p><a a"b=1 href=/u>one<p>two').serialize(Html(xml=True))
+    assert text.count("href") == 2
+    assert 'a"b' not in text
+
+
+def test_xml_clone_keeps_only_the_namespace_bindings_xml_can_read() -> None:
+    assert parse('<p><a xmlns:y="" href=/u>one<p>two').serialize(Html(xml=True)).count("xmlns:y") == 0
+    bound = parse("<p><a xmlns:y=urn:y href=/u>one<p>two").serialize(Html(xml=True))
+    assert bound.count('xmlns:y="urn:y"') == 2
+
+
+def test_markdown_raw_clone_leaves_out_an_attribute_name_commonmark_cannot_read() -> None:
+    source = '<table><tr><td colspan=2><p><b a"b=1 title=t>one<p>two'
+    assert parse(source).to_markdown() == (
+        '<table><tbody><tr><td colspan="2"><p><b title="t">one</b></p><p><b title="t">two</b></p></td></tr></tbody>'
+        "</table>"
+    )
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        pytest.param(
+            Policy(
+                tags=frozenset({"a", "p"}), attributes={"*": frozenset({"href"})}, on_disallowed_tag=OnDisallowed.REMOVE
+            ),
+            id="remove",
+        ),
+        pytest.param(
+            Policy(
+                tags=frozenset({"a", "p"}),
+                attributes={"*": frozenset({"href"})},
+                remove_with_content=frozenset({"span"}),
+            ),
+            id="remove-with-content",
+        ),
+    ],
+)
+def test_clone_keeps_its_href_once_a_sanitizer_removes_its_source(policy: Policy) -> None:
+    text = sanitize(f"<span><a href={_WIDE_TARGET}>1</span><p>2", policy)
+    assert text == f'<p><a href="{_WIDE_TARGET}">2</a></p>'
+
+
+def test_clones_of_many_value_sets_each_keep_their_attributes() -> None:
+    source = "".join(f"<p><a href=/{index}>x<p>y" for index in range(64))
+    assert parse(source).html.count("href=") == 128
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -366,6 +455,14 @@ def test_text_clone_href_spends_the_padding_budget(
     source: str, links: Literal["inline", "footnote", "none"], expected: str
 ) -> None:
     assert parse(source).to_text(PlainText(links=links)) == expected
+
+
+def test_text_clone_href_of_a_removed_source_is_kept_once() -> None:
+    document = parse(f"<p><a href={_LONG_TARGET}>one<p>two<p>three")
+    source = document.select_one("a")
+    assert source is not None
+    source.decompose()
+    assert document.to_text(PlainText(links="inline")) == f"two ({_LONG_TARGET})\n\nthree"
 
 
 @pytest.mark.parametrize("header", ["detect", "none"])

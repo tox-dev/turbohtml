@@ -909,6 +909,12 @@ void th_xml_unwrap_free(th_xml_unwrap *unwrap);
    allowance. */
 #define TH_CLONE_ALLOWANCE 256
 
+/* The value sets an output has written a clone of, owned by the output that allocated it (serialize/buffer.h). */
+struct th_clone_seen;
+
+/* Free a seen set; NULL is a no-op. */
+void th_clone_seen_free(struct th_clone_seen *seen);
+
 /* The namespace declarations in scope where a subtree is cut out of an XML tree (serialize/internal.h). */
 typedef struct th_xml_ns_scope th_xml_ns_scope;
 
@@ -953,15 +959,16 @@ Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done), the pretty layout's current
    indentation depth, the xlink walk, the inherited namespace declarations charged
-   so far, the clone credit the earlier chunks left and the left-out elements the walk
-   is inside. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0} with unwrap as
-   th_xml_unwrap asks, and release unwrap with th_xml_unwrap_free. */
+   so far, the clone credit and the value sets the earlier chunks left and the
+   left-out elements the walk is inside. Start it at {root, 0, {NULL, NULL}, {0, 0, TH_XML_NS_BASE}, 0, NULL} with
+   unwrap as th_xml_unwrap asks, and release unwrap with th_xml_unwrap_free and clone_seen with th_clone_seen_free. */
 typedef struct {
     th_node *node;
     int depth;
     th_xml_xlink_walk xlink;
     th_xml_ns_spend xml_ns;
-    Py_ssize_t clone_credit; /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
+    Py_ssize_t clone_credit;          /* sbuf clone_credit of the next chunk: what the earlier chunks funded and kept */
+    struct th_clone_seen *clone_seen; /* the value sets the earlier chunks wrote a clone of */
     th_xml_unwrap unwrap;
 } th_ser_cursor;
 

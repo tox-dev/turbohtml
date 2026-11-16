@@ -1593,18 +1593,104 @@ static inline Py_ssize_t ser_clone_start(const sbuf *out, const th_node *node) {
     return node->tag_flags & TH_ELEM_IMPLIED ? out->len : -1;
 }
 
-/* Whether the clone whose attributes began at start fits one more of cost characters: the allowance and the output
-   fund it, less the clone attributes already written, which count once as output and once as spent. A clone stops at
-   the first attribute that does not fit, so no later one lands next to an attribute it was written after. */
-static inline int ser_clone_attr_fits(const sbuf *out, Py_ssize_t start, Py_ssize_t cost) {
-    return cost <= TH_CLONE_ALLOWANCE + out->clone_credit + out->len - 2 * (out->len - start);
+static inline Py_ssize_t ser_clone_seen_slot(const uint64_t *slots, Py_ssize_t cap, uint64_t key) {
+    Py_ssize_t index = (Py_ssize_t)(th_key_mix(key) & (uint64_t)(cap - 1));
+    while (slots[index] != 0 && slots[index] != key) {
+        index = (index + 1) & (cap - 1);
+    }
+    return index;
 }
 
-/* Charge the attributes the clone wrote since start; a no-op for an element the source wrote. */
+/* Record values_seq as written by a clone of this output: 1 when it was new, 0 when an earlier clone wrote it, -1 when
+   the table cannot grow. Keys are th_key_mix hashed, so a document cannot choose the slots a value set lands in. */
+static inline int ser_clone_seen_add(struct th_clone_seen **seen_slot, uint32_t values_seq) {
+    if (*seen_slot == NULL) {
+        *seen_slot = PyMem_Calloc(1, sizeof(struct th_clone_seen));
+        if (*seen_slot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    struct th_clone_seen *seen = *seen_slot;
+    if ((seen->len + 1) * 2 > seen->cap) {
+        Py_ssize_t cap = seen->cap == 0 ? 8 : seen->cap * 2;
+        uint64_t *slots = PyMem_Calloc((size_t)cap, sizeof(uint64_t));
+        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        for (Py_ssize_t index = 0; index < seen->cap; index++) {
+            if (seen->slots[index] != 0) {
+                slots[ser_clone_seen_slot(slots, cap, seen->slots[index])] = seen->slots[index];
+            }
+        }
+        PyMem_Free(seen->slots);
+        seen->slots = slots;
+        seen->cap = cap;
+    }
+    uint64_t key = (uint64_t)values_seq + 1;
+    Py_ssize_t index = ser_clone_seen_slot(seen->slots, seen->cap, key);
+    if (seen->slots[index] == key) {
+        return 0;
+    }
+    seen->slots[index] = key;
+    seen->len++;
+    return 1;
+}
+
+/* Whether a clone whose attributes cost cost characters writes all of them, charged as ser_clone_settle charges them.
+   The first clone an output meets for a value set writes them free: the tree holds that set once, so the cost stays
+   linear in the tree's own memory. A later clone of the same set fits while the allowance and the output fund it, less
+   the clone attributes already written, which count once as output and once as spent. */
+static inline int ser_clone_admit(sbuf *out, Py_ssize_t start, const th_node *node, Py_ssize_t cost) {
+    int added = ser_clone_seen_add(&out->clone_seen, th_node_values_seq(node));
+    if (added < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return added || cost <= TH_CLONE_ALLOWANCE + out->clone_credit + out->len - 2 * (out->len - start);
+}
+
+/* Charge the attributes the clone wrote since start, free or not, so each one is spent once as output and once as the
+   allowance; a no-op for an element the source wrote. */
 static inline void ser_clone_settle(sbuf *out, Py_ssize_t start) {
     if (start >= 0) {
         out->clone_credit -= 2 * (out->len - start);
     }
+}
+
+/* The characters the attributes of a clone's start tag cost, the total ser_clone_admit weighs as a whole. */
+static inline Py_ssize_t ser_clone_attrs_cost(th_tree *tree, const th_node *node) {
+    Py_ssize_t cost = 0;
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        Py_ssize_t name_len;
+        th_attr_name(tree, node->attrs[index].name_atom, &name_len);
+        cost += name_len + node->attrs[index].value_len;
+    }
+    return cost;
+}
+
+/* Whether a start tag leaves the attribute named name out: under XML a name XML cannot hold or a namespace binding that
+   would not reparse, and under Markdown a name CommonMark does not read. */
+static inline int ser_open_attr_left_out(const char *name, Py_ssize_t name_len, const th_node_attr *attr,
+                                         const th_serialize_opts *opts, xml_ns_emitted emitted) {
+    return (opts->xml && (!xml_attr_name_writable(name, name_len, emitted) ||
+                          (ser_xml_ns_name(name, name_len) &&
+                           !ser_xml_ns_binding_valid(name, name_len, attr->value, attr->value_len)))) ||
+           (opts->markdown && !commonmark_attr_name_valid(name, name_len));
+}
+
+/* The characters the attributes a clone's start tag writes cost, which ser_clone_admit weighs as a whole. */
+static inline Py_ssize_t ser_open_attrs_cost(th_tree *tree, const th_node *node, const th_serialize_opts *opts,
+                                             xml_ns_emitted emitted) {
+    Py_ssize_t cost = 0;
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *attr = &node->attrs[index];
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+        if (!ser_open_attr_left_out(name, name_len, attr, opts, emitted)) {
+            cost += name_len + attr->value_len;
+        }
+    }
+    return cost;
 }
 
 /* Write an element's start tag up to but not including its closing delimiter,
@@ -1625,14 +1711,15 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
     int charset_kind = opts->inject_meta && !opts->xml ? ser_meta_charset_kind(tree, node) : 0;
     /* Markdown's raw HTML spends the budget its prose funds instead */
     Py_ssize_t clone_start = opts->clone_budget == NULL ? ser_clone_start(out, node) : -1;
-    for (Py_ssize_t position = 0; position < node->attr_count; position++) {
+    Py_ssize_t attr_count = node->attr_count;
+    if (clone_start >= 0 && !ser_clone_admit(out, clone_start, node, ser_open_attrs_cost(tree, node, opts, emitted))) {
+        attr_count = 0;
+    }
+    for (Py_ssize_t position = 0; position < attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        if ((opts->xml && (!xml_attr_name_writable(name, name_len, emitted) ||
-                           (ser_xml_ns_name(name, name_len) &&
-                            !ser_xml_ns_binding_valid(name, name_len, attr->value, attr->value_len)))) ||
-            (opts->markdown && !commonmark_attr_name_valid(name, name_len))) {
+        if (ser_open_attr_left_out(name, name_len, attr, opts, emitted)) {
             continue;
         }
         if (opts->clone_budget != NULL) {
@@ -1647,8 +1734,6 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
             } else {
                 *opts->clone_budget -= cost;
             }
-        } else if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, name_len + attr->value_len)) {
-            break;
         }
         TH_WORK_STEPS_ADD(name_len + attr->value_len);
         sbuf_putc(out, ' ');
@@ -1687,6 +1772,8 @@ static inline void ser_close_tag(sbuf *out, th_node *node) {
 /* Hand a filled sbuf back to the caller, normalizing an empty result to a real
    zero-length allocation so NULL unambiguously means failure. */
 static inline Py_UCS4 *sbuf_finish(sbuf *out, Py_ssize_t *out_len) {
+    th_clone_seen_free(out->clone_seen);
+    out->clone_seen = NULL;
     if (out->failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(out->data); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
