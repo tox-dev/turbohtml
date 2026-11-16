@@ -29,7 +29,7 @@
    decoders standing there -- the gate measures reachability, not speed. */
 #if defined(_MSC_VER)
 #define TH_HOT __forceinline
-#elif defined(__OPTIMIZE__)
+#elif defined(__OPTIMIZE__) && !defined(TH_DEC_NO_ALWAYS_INLINE) /* -O1 refuses the forced inline, see meson.build */
 #define TH_HOT inline __attribute__((always_inline))
 #else
 #define TH_HOT
