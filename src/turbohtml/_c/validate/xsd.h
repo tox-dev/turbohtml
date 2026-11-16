@@ -546,7 +546,7 @@ static th_node **xsd_wild_claims(th_schema *schema, size_t count) {
     if (count > schema->wild_claim_cap) {
         size_t capacity, bytes;
         const int fits = th_grow_cap(count, schema->wild_claim_cap, 8, sizeof(th_node *), &capacity, &bytes);
-        if (!fits) { /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+        if (!fits) {     /* GCOVR_EXCL_BR_LINE: allocation size overflow */
             return NULL; /* GCOVR_EXCL_LINE */
         }
         th_node **grown = arena_alloc(&schema->mem, bytes);
