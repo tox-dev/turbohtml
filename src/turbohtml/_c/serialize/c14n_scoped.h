@@ -521,8 +521,12 @@ static Py_ssize_t c14n_scoped_decl_end(const sbuf *tag, Py_ssize_t start, const 
 static int c14n_scoped_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node *apex,
                                 const c14n_left_out *left_out, const th_c14n_opts *opts, const th_node **xlink_binding,
                                 c14n_ns *scope, Py_ssize_t count) {
-    sbuf tag = {NULL, 0, 0, 0, 0};
+    /* the value sets the tag's clones write belong to out, so they move into tag for this call and back after it */
+    sbuf tag = {NULL, 0, 0, 0, 0, out->clone_seen};
+    out->clone_seen = NULL;
     c14n_left_out_open_tag(&tag, tree, node, apex, left_out, opts, xlink_binding);
+    out->clone_seen = tag.clone_seen;
+    tag.clone_seen = NULL;
     if (tag.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         out->failed = 1;      /* GCOVR_EXCL_LINE: the split offsets below read the whole tag */
         PyMem_Free(tag.data); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -684,7 +688,7 @@ static void c14n_scoped_document(sbuf *out, th_tree *tree, th_node *doc, const t
 }
 
 static Py_UCS4 *c14n_scoped_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0, NULL};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
         c14n_scoped_document(&out, tree, node, opts);

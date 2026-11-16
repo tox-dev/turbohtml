@@ -732,6 +732,18 @@ def test_remove_with_content_does_not_drop_allowed_tags() -> None:
     assert sanitize("<b>kept</b>", policy) == "<b>kept</b>"
 
 
+@pytest.mark.parametrize("size", [1, 300, 1_000, 3_000])
+@pytest.mark.parametrize("clones", [1, 2, 8, 64])
+def test_sanitize_kept_link_keeps_every_attribute(size: int, clones: int) -> None:
+    # the tree builder reopens the link in every block, and a clone the output cannot fund is left out whole, so an
+    # <a href> that survives keeps the title its source has
+    policy = Policy(tags=frozenset({"a", "p"}), attributes={"*": frozenset({"href", "title"})})
+    links = parse(sanitize(f"<p><a href={'u' * size} title=t>x{'<p>y' * clones}", policy)).select("a")
+    kept = [link for link in links if "href" in link.attrs]
+    assert len(kept) >= 1
+    assert all(set(link.attrs) == {"href", "title"} for link in kept)
+
+
 def test_remove_with_content_leaves_other_disallowed_tags_to_the_mode() -> None:
     # a disallowed tag that is not in the set still follows on_disallowed (escaped here)
     policy = Policy(tags=frozenset({"b"}), remove_with_content=frozenset({"script"}))

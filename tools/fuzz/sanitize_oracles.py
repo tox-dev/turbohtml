@@ -3,8 +3,9 @@ Wrong-output oracles for ``turbohtml.clean.sanitize``: the ``--mode oracle`` lan
 
 A sanitizer bug usually returns unsafe or altered markup without crashing, so each oracle compares the sanitizer with
 code it does not share. ``mutation`` re-parses the output with the vendored html5lib-python and requires the tree the
-sanitizer judged; ``policy`` requires that re-parsed tree to obey the random Policy that produced it; ``url`` compares
-each keep or drop of a URL attribute with the scheme turbohtml's WHATWG ``normalize_url`` reads from the decoded value.
+sanitizer judged, less the implied table wrappers a policy omits; ``policy`` requires that re-parsed tree to obey the
+random Policy that produced it; ``url`` compares each keep or drop of a URL attribute with the scheme turbohtml's WHATWG
+``normalize_url`` reads from the decoded value.
 
 A negative control proves every oracle still fires before the run starts. The run minimizes each divergence and
 re-checks the re-parse ones with parse5, which tells a stale html5lib rule apart from a turbohtml mutation.
@@ -107,6 +108,11 @@ _URL_ATTRS: Final[frozenset[str]] = frozenset({
 })
 # the code points sanitize.c is_url_ignorable skips besides C0, space and DEL
 _URL_IGNORABLE: Final[frozenset[str]] = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
+_IMPLIED_WRAPPERS: Final[frozenset[tuple[str, str]]] = frozenset({
+    ("tbody", "table"),
+    ("tr", "tbody"),
+    ("colgroup", "table"),
+})
 
 
 def main() -> int:
@@ -160,9 +166,9 @@ def _negative_controls() -> Iterator[tuple[str, bool]]:
     # startup tests: an oracle that stops detecting fails the run instead of passing silently.
     escaped = parse_fragment("<p>&lt;img src=x onerror=alert(1)&gt;</p>", _CONTEXT, positions=False)
     # a serializer that forgets to escape text, the SI7 class of MutaGen's detectors
-    yield "mutation", _mutation_detail(escaped, html.unescape(escaped.inner_html)) is not None
+    yield "mutation", _mutation_detail(escaped, html.unescape(escaped.inner_html), Policy()) is not None
     select = parse_fragment("<select><option>&lt;b&gt;x</option></select>", _CONTEXT, positions=False)
-    yield "mutation in select", _mutation_detail(select, html.unescape(select.inner_html)) is not None
+    yield "mutation in select", _mutation_detail(select, html.unescape(select.inner_html), Policy()) is not None
     yield "policy on*", "event handler img@onerror" in _violations("<img onerror=alert(1)>", Policy())
     yield "policy url", "url a@href" in _violations('<a href="java&#x09;script:alert(1)">x</a>', Policy())
     animation = Policy(tags=frozenset({"svg", "animate"}), attributes={"*": frozenset({"attributeName", "to"})})
@@ -198,22 +204,24 @@ def _negative_controls() -> Iterator[tuple[str, bool]]:
     )
 
 
-def _mutation_detail(tree: Node, serialized: str) -> str | None:
+def _mutation_detail(tree: Node, serialized: str, policy: Policy) -> str | None:
     # Describe where the independent re-parse of ``serialized`` first departs from ``tree``, or return None.
     #
     # The description names node shapes, not their text, so divergences that differ only in payload share a signature.
-    expected = _normalized_dump(tree)
+    expected = _normalized_dump(tree, policy)
     # html5lib-python and parse5 8.0 predate the customizable <select> parsing the pinned WPT corpus expects
     # (tests/conformance/data/wpt_html_tree.json keeps <select><div>), so only turbohtml can re-parse a select
     if any(element.tag == "select" and element.namespace is Namespace.HTML for element in _elements(tree)):
         reference = "turbohtml-reparse"
-        reparsed = _normalized_dump(parse_fragment(serialized, _CONTEXT, positions=False, scripting=True))
+        reparsed = _normalized_dump(parse_fragment(serialized, _CONTEXT, positions=False, scripting=True), policy)
     else:
         reference = "html5lib"
+        dom = _reparse(serialized)
+        _unwrap_omitted(dom, policy)
         # It nests fragment children one column deeper than the .dat files, the offset ``convertTreeDump`` strips in
         # html5lib/tests/tree_construction.py; continuation lines of a multi-line text node carry no bar and stay as
         # they are.
-        lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(_reparse(serialized)).split("\n")[1:]
+        lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(dom).split("\n")[1:]
         reparsed = "\n".join(f"| {line[3:]}" if line.startswith("|") else line for line in lines)
     if expected == reparsed:
         return None
@@ -224,12 +232,13 @@ def _mutation_detail(tree: Node, serialized: str) -> str | None:
     )
 
 
-def _normalized_dump(tree: Node) -> str:
-    # the serialization algorithm emits CR as is and input preprocessing turns it into LF, so no serializer keeps it
-    return "\n".join(_dump_turbohtml(tree.children)).replace("\r\n", "\n").replace("\r", "\n")
+def _normalized_dump(tree: Node, policy: Policy) -> str:
+    # A carriage return reaches the tree only from a character reference, which the serializer writes as ``&#13;`` and
+    # every parser reads back as CR, so the dump keeps it instead of folding it to LF.
+    return "\n".join(_dump_turbohtml(tree.children, policy))
 
 
-def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
+def _dump_turbohtml(nodes: Sequence[Node], policy: Policy, parent: Node | None = None, depth: int = 0) -> list[str]:
     # Render turbohtml nodes in the html5lib-tests tree format.
     #
     # Modeled on tests/dom/test_treebuilder_conformance.py ``_dump_node``. Adjacent text merges and empty text drops,
@@ -237,7 +246,7 @@ def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
     pad = f"| {'  ' * depth}"
     out: list[str] = []
     pending_text = ""
-    for node in nodes:
+    for node in _unwrapped(nodes, parent, policy):
         if isinstance(node, Text):
             pending_text += node.data
             continue
@@ -255,14 +264,59 @@ def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
             )
             if not foreign and node.tag == "template":
                 out.append(f"{pad}  content")
-                out.extend(_dump_turbohtml(node.children[0].children, depth + 2))
+                out.extend(_dump_turbohtml(node.children[0].children, policy, node.children[0], depth + 2))
             else:
-                out.extend(_dump_turbohtml(node.children, depth + 1))
+                out.extend(_dump_turbohtml(node.children, policy, node, depth + 1))
         elif isinstance(node, Comment):
             out.append(f"{pad}<!-- {node.data} -->")
     if pending_text:
         out.append(f'{pad}"{pending_text}"')
     return out
+
+
+def _unwrapped(nodes: Sequence[Node], parent: Node | None, policy: Policy) -> Iterator[Node]:
+    # Yield ``nodes`` with each implied table wrapper the policy omits replaced by its children, the way sanitize.c
+    # unwraps it from the output. A browser re-creates the wrapper on re-parse, so the re-parse drops it here too.
+    for node in nodes:
+        if isinstance(node, Element) and _implied_table_wrapper_node(node, parent) and _omits_wrapper(node.tag, policy):
+            yield from _unwrapped(node.children, node, policy)
+        else:
+            yield node
+
+
+def _implied_table_wrapper_node(element: Element, parent: Node | None) -> bool:
+    return (
+        element.namespace is Namespace.HTML
+        and not element.attrs
+        and isinstance(parent, Element)
+        and (element.tag, parent.tag) in _IMPLIED_WRAPPERS
+    )
+
+
+def _omits_wrapper(tag: str, policy: Policy) -> bool:
+    return not policy.allow_html or tag not in policy.tags
+
+
+def _unwrap_omitted(parent: DomFragment | DomElement, policy: Policy) -> None:
+    # Post-order, so each wrapper is judged under the parent the balancer gave it, before that parent is unwrapped.
+    for child in list(parent.childNodes):
+        if child.nodeType == child.ELEMENT_NODE:
+            _unwrap_omitted(child, policy)
+            if _dom_implied_table_wrapper(child) and _omits_wrapper(child.nodeName, policy):
+                for grandchild in list(child.childNodes):
+                    parent.insertBefore(grandchild, child)
+                parent.removeChild(child)
+
+
+def _dom_implied_table_wrapper(element: DomElement) -> bool:
+    parent = element.parentNode
+    return (
+        _NAMESPACE_PREFIX.get(element.namespaceURI or "", "html") == "html"
+        and not element.hasAttributes()
+        and parent is not None
+        and parent.nodeType == parent.ELEMENT_NODE
+        and (element.nodeName, parent.nodeName) in _IMPLIED_WRAPPERS
+    )
 
 
 def _attr_name(name: str, *, foreign: bool) -> str:
@@ -319,14 +373,7 @@ def _element_violations(element: DomElement, policy: Policy) -> list[str]:
     tag = element.nodeName
     gate = {"html": policy.allow_html, "svg": policy.allow_svg, "math": policy.allow_mathml}[namespace]
     found: list[str] = []
-    parent = element.parentNode
-    implied_table_wrapper = (
-        namespace == "html"
-        and not element.hasAttributes()
-        and parent is not None
-        and parent.nodeType == parent.ELEMENT_NODE
-        and (tag, parent.nodeName) in {("tbody", "table"), ("tr", "tbody"), ("colgroup", "table")}
-    )
+    implied_table_wrapper = _dom_implied_table_wrapper(element)
     if (tag not in policy.tags and not implied_table_wrapper) or not gate:
         found.append(f"element {namespace}:{tag} not allowed")
     if (namespace, tag) in _BASELINE_ELEMENTS:
@@ -508,11 +555,11 @@ class _Run:
                 )
 
             self._record("string-path", "sanitize(str) != sanitize_node().inner_html", markup, policy, string_path)
-        if (detail := _mutation_detail(tree, serialized)) is not None:
+        if (detail := _mutation_detail(tree, serialized, policy)) is not None:
 
             def mutation(markup: str) -> str | None:
                 tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
-                return None if _depth(tree) >= _DEPTH_CAP else _mutation_detail(tree, tree.inner_html)
+                return None if _depth(tree) >= _DEPTH_CAP else _mutation_detail(tree, tree.inner_html, policy)
 
             self._record("mutation", detail, markup, policy, mutation)
         for violation in _violations(serialized, policy):
@@ -1137,9 +1184,35 @@ def _confirm_with_parse5(findings: list[tuple[_Finding, Policy]]) -> list[tuple[
             sanitize_node(parse_fragment(finding.markup, _CONTEXT, positions=False), policy)
             for finding, policy in mutations
         ]
-        dumps = subprocess.run(
+        dumps = _parse5_dumps(
+            [(tree.inner_html, policy) for tree, (_, policy) in zip(trees, mutations, strict=True)], node
+        )
+        verdicts = {
+            finding.signature: _parse5_verdict(tree, policy, dump)
+            for (finding, policy), tree, dump in zip(mutations, trees, dumps, strict=True)
+        }
+    return [
+        (dataclasses.replace(finding, parse5=verdicts.get(finding.signature, finding.parse5)), policy)
+        for finding, policy in findings
+    ]
+
+
+def _parse5_requests(serialized: Sequence[tuple[str, Policy]]) -> list[dict[str, str | list[str]]]:
+    return [
+        {"markup": markup, "omit": sorted({tag for tag, _ in _IMPLIED_WRAPPERS if _omits_wrapper(tag, policy)})}
+        for markup, policy in serialized
+    ]
+
+
+def _parse5_dumps(serialized: Sequence[tuple[str, Policy]], node: str) -> list[str]:
+    # Dump each output as parse5 re-parses it, with each implied table wrapper the policy omits removed.
+    #
+    # parse5 re-creates those wrappers on re-parse, as a browser does, so the runner drops them the way ``_unwrapped``
+    # drops them from turbohtml's tree. Python decides which tags are omitted; the runner only removes them.
+    return json.loads(
+        subprocess.run(
             [node, str(_NODE_DIR / "parse5_tree_runner.js")],
-            input=json.dumps([tree.inner_html for tree in trees]),
+            input=json.dumps(_parse5_requests(serialized)),
             capture_output=True,
             text=True,
             cwd=_NODE_DIR,
@@ -1147,14 +1220,11 @@ def _confirm_with_parse5(findings: list[tuple[_Finding, Policy]]) -> list[tuple[
             env={key: value for key, value in os.environ.items() if key not in {"LD_PRELOAD", "DYLD_INSERT_LIBRARIES"}},
             check=True,
         ).stdout
-        verdicts = {
-            finding.signature: "html5lib-only" if dump == "\n".join(_dump_turbohtml(tree.children)) else "confirmed"
-            for (finding, _), tree, dump in zip(mutations, trees, json.loads(dumps), strict=True)
-        }
-    return [
-        (dataclasses.replace(finding, parse5=verdicts.get(finding.signature, finding.parse5)), policy)
-        for finding, policy in findings
-    ]
+    )
+
+
+def _parse5_verdict(tree: Node, policy: Policy, dump: str) -> str:
+    return "html5lib-only" if dump == _normalized_dump(tree, policy) else "confirmed"
 
 
 if __name__ == "__main__":

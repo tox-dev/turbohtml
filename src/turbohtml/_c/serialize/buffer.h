@@ -12,7 +12,14 @@
 
 #include "core/vec.h" /* th_grow_cap overflow-safe buffer growth */
 
+#include <stdint.h>
 #include <string.h>
+
+struct th_clone_seen {
+    uint64_t *slots;
+    Py_ssize_t cap;
+    Py_ssize_t len;
+};
 
 typedef struct {
     Py_UCS4 *data;
@@ -20,8 +27,10 @@ typedef struct {
     Py_ssize_t cap;
     int failed;
     /* added to len for the attribute characters parser clones may still write: each clone attribute takes back twice
-       what it wrote, once as the output it is and once as the allowance it spent (see ser_clone_attr_fits) */
+       what it wrote, once as the output it is and once as the allowance it spent (see ser_clone_admit) */
     Py_ssize_t clone_credit;
+    /* the value sets this output has already written a clone of, allocated by the first clone that needs one */
+    struct th_clone_seen *clone_seen;
 } sbuf;
 
 /* Grow the buffer so at least extra more code points fit, doubling so a run of

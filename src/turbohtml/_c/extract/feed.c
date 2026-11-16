@@ -427,7 +427,7 @@ static PyObject *ucs4_trimmed(const Py_UCS4 *value, Py_ssize_t len) {
    (<description><![CDATA[<p>...</p>]]></description>), and the field's value is that markup verbatim, as an escaped
    description's is. NULL only on the excluded allocation-failure path. */
 static PyObject *node_text_trimmed(th_tree *tree, th_node *node) {
-    sbuf buffer = {NULL, 0, 0, 0, 0};
+    sbuf buffer = {NULL, 0, 0, 0, 0, NULL};
     for (th_node *child = node->first_child; child != NULL; child = preorder_next(child, node)) {
         if (child->type != TH_NODE_TEXT && child->type != TH_NODE_CDATA) {
             continue;
@@ -963,7 +963,7 @@ static PyObject *atom_xhtml_text(ns_index *ns, th_node *node, int binary) {
     if (!valid) {
         return node_text_trimmed(tree, node);
     }
-    sbuf out = {NULL, 0, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0, NULL};
     xhtml_ns scope = {ns, div, NULL, 0, 0, NULL, 0, 0};
     Py_ssize_t copied = 0;
     Py_ssize_t *spend = &copied;
