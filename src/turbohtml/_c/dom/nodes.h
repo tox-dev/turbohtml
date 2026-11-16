@@ -935,7 +935,7 @@ PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs);
 int meta_declaration_reads_back(PyObject *text, const char *encoding, const char *charset);
 
 /* The name the codec registry gives encoding, as a new reference: None when its CodecInfo carries no name, or NULL with
-   the lookup's exception set for an unknown codec. Defined in node.c beside the ISO-2022 check. */
+   the lookup's exception set for an unknown codec. Defined in node.c beside markup_encode. */
 PyObject *codec_registry_name(const char *encoding);
 
 /* The WHATWG name a meta_charset declaration writes for an encode() codec, or NULL with no exception set when no label
