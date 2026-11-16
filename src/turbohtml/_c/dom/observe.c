@@ -572,14 +572,19 @@ static PyObject *mo_observe(PyObject *self, PyObject *args, PyObject *kwds) {
     MutationObserverObject *observer = (MutationObserverObject *)self;
     th_node *target;
     PyObject *handle = node_owner_pair((NodeObject *)target_obj, &target);
+    int other_tree = 0;
+    Py_BEGIN_CRITICAL_SECTION(self);
     if (observer->handle != NULL && observer->handle != handle) {
+        other_tree = 1;
+    } else if (observer->handle == NULL) {
+        observer->handle = Py_NewRef(handle);
+    }
+    Py_END_CRITICAL_SECTION();
+    if (other_tree) {
         Py_DECREF(handle);
         free_names(filter, filter_count);
         PyErr_SetString(PyExc_ValueError, "target belongs to a different tree than an earlier one");
         return NULL;
-    }
-    if (observer->handle == NULL) {
-        observer->handle = Py_NewRef(handle);
     }
     Py_DECREF(handle); /* observer->handle now keeps the tree alive */
     th_tree *tree = ((HandleObject *)handle)->tree;
@@ -634,7 +639,7 @@ static PyObject *build_record(module_state *state, PyObject *handle, th_tree *tr
     if (record->kind == TH_MO_ATTRIBUTES) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, record->attr_atom, &name_len);
-        attr_name = PyUnicode_DecodeUTF8(name, name_len, "strict");
+        attr_name = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
     } else {
         attr_name = Py_NewRef(Py_None);
     }
@@ -697,16 +702,27 @@ static PyObject *drain_locked(MutationObserverObject *observer, PyObject *handle
     return records;
 }
 
+/* The tree the observer is bound to, as a new reference, or NULL before observe(). The read holds the observer's own
+   lock, since disconnect() on another thread clears the field on a free-threaded build. */
+static PyObject *mo_handle_ref(PyObject *self) {
+    MutationObserverObject *observer = (MutationObserverObject *)self;
+    PyObject *handle;
+    Py_BEGIN_CRITICAL_SECTION(self);
+    handle = observer->handle == NULL ? NULL : Py_NewRef(observer->handle);
+    Py_END_CRITICAL_SECTION();
+    return handle;
+}
+
 PyDoc_STRVAR(mo_take_records_doc, "take_records()\n--\n\n"
                                   "Return the queued MutationRecords and empty the queue.");
 
 static PyObject *mo_take_records(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     MutationObserverObject *observer = (MutationObserverObject *)self;
-    if (observer->handle == NULL) {
+    /* keeps the tree alive when a disconnect() during the drain drops the observer's reference */
+    PyObject *handle = mo_handle_ref(self);
+    if (handle == NULL) {
         return PyList_New(0);
     }
-    /* keeps the tree alive when a disconnect() during the drain drops the observer's reference */
-    PyObject *handle = Py_NewRef(observer->handle);
     PyObject *records;
     Py_BEGIN_CRITICAL_SECTION(handle);
     records = drain_locked(observer, handle);
@@ -724,11 +740,11 @@ PyDoc_STRVAR(mo_deliver_doc, "deliver()\n--\n\n"
 static PyObject *mo_deliver(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     MutationObserverObject *observer = (MutationObserverObject *)self;
     PyObject *records;
-    if (observer->handle == NULL) {
+    /* keeps the tree alive when a disconnect() during the drain drops the observer's reference */
+    PyObject *handle = mo_handle_ref(self);
+    if (handle == NULL) {
         records = PyList_New(0);
     } else {
-        /* keeps the tree alive when a disconnect() during the drain drops the observer's reference */
-        PyObject *handle = Py_NewRef(observer->handle);
         Py_BEGIN_CRITICAL_SECTION(handle);
         records = drain_locked(observer, handle);
         Py_END_CRITICAL_SECTION();
@@ -754,12 +770,16 @@ PyDoc_STRVAR(mo_disconnect_doc, "disconnect()\n--\n\n"
 static PyObject *mo_disconnect(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     MutationObserverObject *observer = (MutationObserverObject *)self;
     if (observer->observer != NULL) {
-        th_tree *tree = ((HandleObject *)observer->handle)->tree;
-        Py_BEGIN_CRITICAL_SECTION(observer->handle);
+        PyObject *handle = mo_handle_ref(self);
+        th_tree *tree = ((HandleObject *)handle)->tree;
+        Py_BEGIN_CRITICAL_SECTION(handle);
         mo_destroy(tree, observer->observer);
         Py_END_CRITICAL_SECTION();
         observer->observer = NULL;
+        Py_BEGIN_CRITICAL_SECTION(self);
         Py_CLEAR(observer->handle); /* GCOVR_EXCL_BR_LINE: a bound observer always has a handle to drop */
+        Py_END_CRITICAL_SECTION();
+        Py_DECREF(handle);
     }
     Py_RETURN_NONE;
 }

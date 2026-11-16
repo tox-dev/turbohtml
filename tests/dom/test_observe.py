@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gc
 from functools import partial
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 import pytest
 
@@ -688,6 +688,48 @@ def test_lone_surrogate_filter_name_is_rejected() -> None:
         MutationObserver().observe(div, attributes=True, attribute_filter=[chr(0xD800)])
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("\ud800", id="high-surrogate"),
+        pytest.param("\udfff", id="low-surrogate"),
+        pytest.param("a\ud800b", id="surrogate-inside"),
+        pytest.param("é\udc80", id="after-non-ascii"),
+    ],
+)
+def test_take_records_reads_back_a_lone_surrogate_attribute_name(name: str) -> None:
+    paragraph = _element(parse(f"<p {name}='1'>x</p>").find("p"))
+    observer = MutationObserver()
+    observer.observe(paragraph, attributes=True)
+    paragraph.attrs.clear()
+    assert [record.attribute_name for record in observer.take_records()] == [name]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("\ud800", id="high-surrogate"),
+        pytest.param("a\ud800b", id="surrogate-inside"),
+    ],
+)
+def test_deliver_passes_a_lone_surrogate_attribute_name(name: str) -> None:
+    paragraph = _element(parse(f"<p {name}='1'>x</p>").find("p"))
+    delivered: list[MutationRecord] = []
+    observer = MutationObserver(lambda records, _observer: delivered.extend(records))
+    observer.observe(paragraph, attributes=True)
+    paragraph.attrs.clear()
+    observer.deliver()
+    assert [record.attribute_name for record in delivered] == [name]
+
+
+def test_take_records_and_deliver_after_disconnect_are_empty() -> None:
+    observer = MutationObserver(lambda _records, _observer: pytest.fail("no records after disconnect"))
+    observer.observe(_div(), child_list=True)
+    observer.disconnect()
+    assert observer.take_records() == []
+    observer.deliver()
+
+
 def test_observer_is_garbage_collected() -> None:
     div = _div()
     observed = MutationObserver()
@@ -766,13 +808,20 @@ def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
 
 
 @pytest.mark.parametrize("drain", ["take_records", "deliver"])
-def test_failed_drain_drops_the_batch(drain: str) -> None:
-    paragraph: Final = _element(parse(f'<p title="{"A" * 200}" \ud800 lang="{"B" * 200}">x</p>').find("p"))
+def test_failed_drain_drops_the_batch(drain: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    paragraph: Final = _element(parse(f'<p title="{"A" * 200}" lang="{"B" * 200}">x</p>').find("p"))
     observer: Final = MutationObserver()
     observer.observe(paragraph, attributes=True, attribute_old_value=True)
-    paragraph.attrs.clear()  # removes last to first, so the name that has no str form sits between two old values
-    with pytest.raises(UnicodeDecodeError):
+    paragraph.attrs.clear()  # removes last to first, so the records hold two old values
+
+    def fail_record(_cls: type, *_args: object, **_kwargs: object) -> NoReturn:
+        msg = "record construction failed"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(MutationRecord, "__new__", fail_record)
+    with pytest.raises(RuntimeError, match="record construction failed"):
         getattr(observer, drain)()
+    monkeypatch.undo()
     assert observer.take_records() == []  # a queue still holding the batch frees its old values a second time
     paragraph.attrs["id"] = "a"
     assert [record.attribute_name for record in observer.take_records()] == ["id"]

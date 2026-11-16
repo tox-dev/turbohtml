@@ -5884,8 +5884,7 @@ def test_escaped_opening_raw_attributes(attributes: str, expected: str) -> None:
     "name", [pytest.param("\ud800", id="high-surrogate"), pytest.param("\udfff", id="low-surrogate")]
 )
 def test_escaped_opening_surrogate_attribute_name(name: str) -> None:
-    with pytest.raises(UnicodeDecodeError, match="invalid continuation byte"):
-        sanitize(f'<x valid="v" {name}="v">text</x>')
+    assert sanitize(f'<x valid="v" {name}="v">text</x>') == f'&lt;x valid="v" {name}="v"&gt;text&lt;/x&gt;'
 
 
 @pytest.mark.parametrize(
@@ -5910,13 +5909,41 @@ def test_document_node_return_types(
     )
 
 
-@pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(32, id="compacted")])
-@pytest.mark.parametrize("prefix", [pytest.param("", id="rejected"), pytest.param("data-", id="allowed-prefix")])
-def test_kept_element_surrogate_attribute_name(count: int, prefix: str) -> None:
-    attributes: Final = " ".join(f'data-{index}="x"' for index in range(count - 1))
+_LEADING_ATTRIBUTES: Final[str] = " ".join(f'data-{index}="x"' for index in range(31))
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param('<p \ud800="x">text</p>', "<p>text</p>", id="rejected-single"),
+        pytest.param(
+            f'<p {_LEADING_ATTRIBUTES} \ud800="x">text</p>',
+            f"<p {_LEADING_ATTRIBUTES}>text</p>",
+            id="rejected-compacted",
+        ),
+        pytest.param('<p data-\ud800="x">text</p>', '<p data-\ud800="x">text</p>', id="allowed-single"),
+        pytest.param(
+            f'<p {_LEADING_ATTRIBUTES} data-\ud800="x">text</p>',
+            f'<p {_LEADING_ATTRIBUTES} data-\ud800="x">text</p>',
+            id="allowed-compacted",
+        ),
+    ],
+)
+def test_kept_element_surrogate_attribute_name(html: str, expected: str) -> None:
     policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
-    with pytest.raises(UnicodeDecodeError, match="invalid continuation byte"):
-        sanitize(f'<p {attributes} {prefix}\ud800="x">text</p>', policy)
+    assert sanitize(html, policy) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param('<p a\ud800b="x" data-0="x">text</p>', '<p data-0="x">text</p>', id="inside-rejected"),
+        pytest.param('<p data-a\ud800b="x">text</p>', '<p data-a\ud800b="x">text</p>', id="inside-prefix-allowed"),
+    ],
+)
+def test_surrogate_attribute_name_policy(html: str, expected: str) -> None:
+    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
+    assert sanitize(html, policy) == expected
 
 
 @pytest.mark.parametrize(

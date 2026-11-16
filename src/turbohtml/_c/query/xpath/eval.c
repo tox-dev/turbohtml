@@ -2257,6 +2257,19 @@ Py_UCS4 *ucs4_from_ascii(const char *src, Py_ssize_t length, Py_ssize_t *len) {
     return buffer;
 }
 
+/* A UTF-8 name as code points. Surrogatepass reads back a lone surrogate a name holds, which no strict decode accepts.
+ */
+Py_UCS4 *ucs4_from_utf8(const char *src, Py_ssize_t length, Py_ssize_t *len) {
+    PyObject *text = PyUnicode_DecodeUTF8(src, length, "surrogatepass");
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: a name with a lone surrogate decodes, so only allocation can fail */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    *len = PyUnicode_GET_LENGTH(text);
+    Py_UCS4 *buffer = PyUnicode_AsUCS4Copy(text); /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+    Py_DECREF(text);
+    return buffer;
+}
+
 Py_UCS4 *item_string(struct th_tree *tree, xp_item item, Py_ssize_t *len) {
     if (item.attr == -2) {
         return ucs4_from_ascii(XP_XML_NS_URI, sizeof(XP_XML_NS_URI) - 1, len);

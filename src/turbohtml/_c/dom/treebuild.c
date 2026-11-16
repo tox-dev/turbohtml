@@ -110,7 +110,7 @@ static PyObject *attrs_tuple(th_tree *tree, th_node *node) {
     for (Py_ssize_t index = 0; index < count; index++) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attrs[index].name_atom, &name_len);
-        PyObject *name_obj = PyUnicode_FromStringAndSize(name, name_len);
+        PyObject *name_obj = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
         if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(result);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */

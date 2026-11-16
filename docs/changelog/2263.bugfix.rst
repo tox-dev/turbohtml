@@ -1,0 +1,1 @@
+Attribute names with a lone surrogate are now returned as parsed.
