@@ -3400,6 +3400,30 @@ def test_transform_exclude_result_prefixes_drops_only_listed() -> None:
             id="xslt-directive-does-not-keep-xslt-namespace",
         ),
         pytest.param(
+            'xmlns:p="urn:p"',
+            '<out xmlns:p="urn:p" xsl:exclude-result-prefixes="p"/>',
+            "<out/>",
+            id="literal-exclusion-unused-prefix",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p"',
+            '<out xsl:exclude-result-prefixes="p"><c/></out>',
+            "<out><c/></out>",
+            id="literal-exclusion-inherited",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p"',
+            '<out xsl:exclude-result-prefixes="p"><p:c/></out>',
+            '<out><p:c xmlns:p="urn:p"/></out>',
+            id="literal-exclusion-used-by-child",
+        ),
+        pytest.param(
+            'xmlns:p="urn:p" xmlns:q="urn:q"',
+            '<out xsl:exclude-result-prefixes="p"><q:c/></out>',
+            '<out xmlns:q="urn:q"><q:c/></out>',
+            id="literal-exclusion-lists-other-prefix",
+        ),
+        pytest.param(
             'xmlns:q="urn:q" exclude-result-prefixes="#default q"',
             "<out/>",
             "<out/>",
