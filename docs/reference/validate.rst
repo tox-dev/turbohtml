@@ -46,6 +46,11 @@ order does not place against a bound fails the facet, and so does every value wh
 the type. The range facets are not enforced on ``xs:gYear``, ``xs:gYearMonth``, ``xs:gMonth``, ``xs:gMonthDay`` or
 ``xs:gDay``: those validate as strings.
 
+An ``xs:any`` particle matches one child element for each occurrence its ``minOccurs`` and ``maxOccurs`` allow, when the
+``namespace`` attribute admits the element's namespace. ``processContents="strict"``, the default, requires a global
+element declaration for the matched element, ``lax`` validates it only when one exists, and ``skip`` does not validate
+it. An ``xs:anyAttribute`` admits undeclared unprefixed attributes the same way; prefixed attributes are not checked.
+
 Compiling a RELAX NG schema raises :class:`ValueError` for a grammar the RELAX NG specification forbids: a ``<ref>``
 with no ``name`` attribute (section 4.10), a reference cycle whose expansion never passes through an ``element``
 (section 4.19), and an ``interleave`` whose branches can match an element with the same name or can both match text
