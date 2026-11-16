@@ -2600,6 +2600,14 @@ _WIDE_STEP_OFFSET: Final[list[pytest.ParameterSet]] = [
     pytest.param(2**62 + 1, -(2**62), id="int64-range-offset"),
     pytest.param(_INT64_MAX, -(_INT64_MAX - 2), id="int64-max-step"),
     pytest.param(-_INT64_MAX, _INT64_MAX - 2, id="int64-max-negative-step"),
+    pytest.param(2**70, 1, id="beyond-int64-step"),
+    pytest.param(-(2**70), 2**70, id="beyond-int64-negative-step-offset"),
+    pytest.param(2**62 + 1, 2**62 + 1, id="positive-wide-step-residue-zero"),
+    pytest.param(2**62 + 1, 2**40, id="positive-wide-step-residue-past-int-max"),
+    pytest.param(2**40 + 7, 2**40 + 10, id="positive-wide-step-residue-below-offset"),
+    pytest.param(-(2**62 + 1), 2**62, id="negative-wide-step-residue-past-int-max"),
+    pytest.param(-(2**62 + 1), 2**62 + 1, id="negative-wide-step-residue-zero"),
+    pytest.param(-(2**62 + 1), 2**62 + 6, id="negative-wide-step-residue-in-range"),
 ]
 _TWELVE: Final[list[int]] = list(range(1, 13))
 _MARKED: Final[list[int]] = [index for index in _TWELVE if index % 3]
@@ -2631,6 +2639,19 @@ def _an_plus_b(step: int, offset: int, index: int) -> bool:
         return index == offset
     difference = index - offset
     return difference % step == 0 and difference // step >= 0
+
+
+@pytest.mark.parametrize(
+    ("step", "offset"),
+    [
+        pytest.param(2**70, 1, id="positive-step-past-int64"),
+        pytest.param(-(2**70), 2**70, id="negative-step-offset-past-int64"),
+    ],
+)
+def test_nth_beyond_int64_range_matches_the_exact_positions(step: int, offset: int) -> None:
+    document: Final = parse(f"<ul>{''.join(f'<li>{index}' for index in _TWELVE)}</ul>")
+    expected: Final = [str(index) for index in _an_plus_b_selected("nth-child", step, offset, _TWELVE)]
+    assert [element.text for element in document.select(f"li:nth-child({step}n{offset:+d})")] == expected
 
 
 @pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])
