@@ -178,20 +178,23 @@ static PyObject *normalize_userinfo(PyObject *userinfo) {
     return result;
 }
 
-/* The authority rebuilt from its WHATWG-canonical host and port. */
-static PyObject *normalize_netloc(const th_url_parts *parts, int web_only, int checked) {
-    PyObject *canonical = checked ? th_url_host_canonical_checked(parts->part[TH_URL_HOST], parts->kind)
-                          : parts->opaque_host && parts->kind != TH_HOST_IPV6
-                              ? th_url_opaque_host_canonical(parts->part[TH_URL_HOST])
-                              : th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
-    if (canonical == NULL) {
-        return NULL;
+/* The WHATWG-canonical host of an authority: checked for a web URL, so a host a browser cannot fetch comes back None
+   or raises a ValueError. */
+static PyObject *canonical_host(const th_url_parts *parts, int checked) {
+    if (checked) {
+        return th_url_host_canonical_checked(parts->part[TH_URL_HOST], parts->kind);
     }
+    return parts->opaque_host && parts->kind != TH_HOST_IPV6
+               ? th_url_opaque_host_canonical(parts->part[TH_URL_HOST])
+               : th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
+}
+
+/* The authority rebuilt from its canonical host (borrowed; None when the host is not fetchable) and port. */
+static PyObject *netloc_from_host(const th_url_parts *parts, PyObject *canonical, int web_only) {
     if (canonical == Py_None) {
-        return canonical;
+        return Py_NewRef(canonical);
     }
     PyObject *host = parts->kind == TH_HOST_IPV6 ? th_str_format("[%U]", canonical) : Py_NewRef(canonical);
-    Py_DECREF(canonical);
     if (host == NULL) { /* GCOVR_EXCL_BR_LINE: the host fold only fails on allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -225,6 +228,16 @@ static PyObject *normalize_netloc(const th_url_parts *parts, int web_only, int c
         Py_SETREF(netloc, Py_NewRef(Py_None));
     }
     Py_DECREF(host);
+    return netloc;
+}
+
+static PyObject *normalize_netloc(const th_url_parts *parts, int web_only, int checked) {
+    PyObject *canonical = canonical_host(parts, checked);
+    if (canonical == NULL) {
+        return NULL;
+    }
+    PyObject *netloc = netloc_from_host(parts, canonical, web_only);
+    Py_DECREF(canonical);
     return netloc;
 }
 
@@ -551,7 +564,8 @@ static PyObject *drop_dangling_ampersand(PyObject *path) {
 
 /* Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization. Returns NULL
    with a ValueError when a component cannot be percent-encoded (a lone surrogate). */
-static PyObject *normalize_parts(const th_url_parts *parts, const clean_options *options, int web_only) {
+static PyObject *normalize_parts(const th_url_parts *parts, const clean_options *options, int web_only,
+                                 PyObject *canonical) {
     PyObject *scheme = parts->part[TH_URL_SCHEME];
     int is_file =
         PyUnicode_GET_LENGTH(scheme) == 4 && PyUnicode_READ_CHAR(scheme, 0) == 'f' && str_equals(scheme, "file");
@@ -564,7 +578,16 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
         return NULL;
     }
     int has_netloc = PyUnicode_GET_LENGTH(parts->part[TH_URL_NETLOC]) > 0;
-    PyObject *netloc = has_netloc ? normalize_netloc(parts, web_only, web_only) : PyUnicode_FromString("");
+    PyObject *owned = NULL;
+    if (has_netloc && canonical == NULL) {
+        owned = canonical_host(parts, web_only);
+        if (owned == NULL) {
+            return NULL;
+        }
+        canonical = owned;
+    }
+    PyObject *netloc = has_netloc ? netloc_from_host(parts, canonical, web_only) : PyUnicode_FromString("");
+    Py_XDECREF(owned);
     PyObject *path = NULL;
     PyObject *query = NULL;
     PyObject *fragment = NULL;
@@ -662,7 +685,7 @@ PyObject *turbohtml_url_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
     }
     PyObject *result = NULL;
     if (clean_options_take(&options, allow, deny) == 0) {
-        result = normalize_parts(&parts, &options, 0);
+        result = normalize_parts(&parts, &options, 0, NULL);
     }
     clean_options_clear(&options);
     th_url_parts_clear(&parts);
@@ -671,12 +694,12 @@ PyObject *turbohtml_url_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
 
 /* Whether the scrubbed, split URL can be a fetchable web address: an http/https scheme and a non-empty host. The
    dotted-or-ported rule waits for normalize_netloc, because the spelled host can gain its dots only once canonical. */
-static int is_web_url(const th_url_parts *parts, PyObject *host) {
+static int is_web_url(const th_url_parts *parts) {
     PyObject *scheme = parts->part[TH_URL_SCHEME];
     if (!str_equals(scheme, "http") && !str_equals(scheme, "https")) {
         return 0;
     }
-    return PyUnicode_GET_LENGTH(host) > 0;
+    return PyUnicode_GET_LENGTH(parts->part[TH_URL_HOST]) > 0;
 }
 
 /* clean_url's pipeline over one str: scrub, split, the web gate, the language gate, then normalization. Returns the
@@ -696,12 +719,22 @@ static PyObject *clean(PyObject *url, const clean_options *options) {
         PyErr_Clear();
         Py_RETURN_NONE;
     }
-    PyObject *host = PyObject_CallMethod(parts.part[TH_URL_HOST], "lower", NULL);
     PyObject *result = NULL;
-    if (host == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a host */
-        goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyObject *host = NULL;
+    if (!is_web_url(&parts)) {
+        result = Py_NewRef(Py_None);
+        goto done;
     }
-    if (!is_web_url(&parts, host)) {
+    host = canonical_host(&parts, 1);
+    if (host == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: the checked host raises nothing else */
+            goto done;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear();
+        result = Py_NewRef(Py_None);
+        goto done;
+    }
+    if (host == Py_None) {
         result = Py_NewRef(Py_None);
         goto done;
     }
@@ -717,7 +750,7 @@ static PyObject *clean(PyObject *url, const clean_options *options) {
             goto done;
         }
     }
-    result = normalize_parts(&parts, options, 1);
+    result = normalize_parts(&parts, options, 1, host);
     if (result == NULL) {
         if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: normalization raises nothing else */
             goto done;                                   /* GCOVR_EXCL_LINE: allocation-failure path */

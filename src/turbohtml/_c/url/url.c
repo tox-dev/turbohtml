@@ -2638,8 +2638,8 @@ static int language_query_rejects(PyObject *query, PyObject *language, PyObject 
    language markers against the target `language`, the URL-based heuristics clean_url's language filter runs. A
    lang/language query parameter, a leading path segment that is an ISO 639-1 tag, and -- in strict mode -- a two-letter
    host label each reject the URL when they name a different language. `path` and `query` are raw components; `hostname`
-   is already lowercased. Returns True to keep, False to reject. Runs once per URL, only when a language filter is
-   active. */
+   is the canonical host the cleaner emits, so its label is the one a browser opens. Returns True to keep, False to
+   reject. Runs once per URL, only when a language filter is active. */
 PyObject *turbohtml_url_language_matches(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *query;
     PyObject *path;

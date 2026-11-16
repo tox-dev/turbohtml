@@ -252,6 +252,19 @@ def test_language_filter_still_screens_the_urls_themselves() -> None:
     assert extract_links(html, _BASE, UrlCleaning(language="en")) == {"https://test.com/en/page"}
 
 
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("https://%64e.test.com/page", id="percent-encoded-label"),
+        pytest.param("https://\uff44\uff45.test.com/page", id="fullwidth-label"),
+        pytest.param("https://de\uff0etest.com/page", id="fullwidth-separator"),
+    ],
+)
+def test_strict_language_filter_screens_the_canonical_host(href: str) -> None:
+    html = f'<a href="{href}">x</a>'
+    assert extract_links(html, _BASE, UrlCleaning(strict=True, language="en")) == set()
+
+
 def test_without_a_language_filter_hreflang_is_ignored() -> None:
     html = '<a href="https://test.com/example" hreflang="de-DE">x</a>'
     assert extract_links(html, _BASE) == {"https://test.com/example"}
