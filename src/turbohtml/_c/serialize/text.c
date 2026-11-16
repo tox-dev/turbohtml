@@ -251,10 +251,12 @@ static Py_ssize_t text_add_reference(text_ctx *ctx, const Py_UCS4 *url, Py_ssize
     return ++ctx->ref_count;
 }
 
-/* Emit a run of ASCII characters (a bracket, a footnote number's punctuation). */
-static void text_emit_ascii(text_ctx *ctx, const char *ascii) {
-    for (const char *cursor = ascii; *cursor != '\0'; cursor++) {
-        sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)*cursor);
+/* Emit a run of characters (a bracket, a footnote's punctuation, a configured cell separator), decoding
+   its UTF-8 to code points so a non-ASCII separator reads back as written. */
+static void text_emit_utf8(text_ctx *ctx, const char *text) {
+    Py_ssize_t len = (Py_ssize_t)strlen(text);
+    for (Py_ssize_t index = 0; index < len;) {
+        sbuf_putc(&ctx->out, utf8_next(text, len, &index));
         ctx->column++;
     }
     ctx->line_has_content = 1;
@@ -406,11 +408,12 @@ static void text_close_annotations(text_ctx *ctx, Py_ssize_t opened) {
     }
 }
 
-/* Emit an ASCII option string (a default image alt) through the word machinery
-   so it collapses and wraps like any other text. */
-static void text_emit_text2(text_ctx *ctx, const char *ascii) {
-    for (const char *cursor = ascii; *cursor != '\0'; cursor++) {
-        Py_UCS4 ch = (Py_UCS4)(unsigned char)*cursor;
+/* Emit an option string (a default image alt) through the word machinery so it collapses and wraps like
+   any other text, one code point at a time. */
+static void text_emit_text2(text_ctx *ctx, const char *text) {
+    Py_ssize_t len = (Py_ssize_t)strlen(text);
+    for (Py_ssize_t index = 0; index < len;) {
+        Py_UCS4 ch = utf8_next(text, len, &index);
         if (is_space(ch)) {
             ctx->space_pending = 1;
         } else {
@@ -751,7 +754,7 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
         /* WHATWG: <li value> sets this item's ordinal; the rest count up from it */
         text_ordinal_attr(ctx, child, "value", &frame->list.number);
         width = md_put_decimal(&ctx->out, frame->list.number) + 2;
-        text_emit_ascii(ctx, ". ");
+        text_emit_utf8(ctx, ". ");
         frame->list.number++;
     } else {
         Py_ssize_t before = ctx->out.len;
@@ -928,7 +931,7 @@ static void text_leave_table(text_ctx *ctx, text_table *table) {
         Py_ssize_t row_columns = table->offsets[row_index + 1] - row_start;
         for (Py_ssize_t col_index = 0; col_index < row_columns; col_index++) {
             if (col_index > 0) {
-                text_emit_ascii(ctx, ctx->opt->cell_separator);
+                text_emit_utf8(ctx, ctx->opt->cell_separator);
             }
             sbuf *cell = &table->grid[row_start + col_index];
             th_node *cell_node = table->cells[row_start + col_index];
@@ -1055,11 +1058,11 @@ static void text_leave(text_ctx *ctx) {
     }
     switch (frame->leave) {
     case TEXT_LEAVE_LINK_INLINE:
-        text_emit_ascii(ctx, " (");
+        text_emit_utf8(ctx, " (");
         TH_WORK_STEPS_ADD(frame->link.href_len);
         sbuf_put_run(&ctx->out, frame->link.href, frame->link.href_len);
         ctx->column += (int)frame->link.href_len;
-        text_emit_ascii(ctx, ")");
+        text_emit_utf8(ctx, ")");
         break;
     case TEXT_LEAVE_LINK_FOOTNOTE: {
         Py_ssize_t number = text_add_reference(ctx, frame->link.href, frame->link.href_len);
