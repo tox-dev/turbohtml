@@ -462,6 +462,9 @@ static Py_ssize_t md_cp_len(const char *text) {
 
 /* The unordered-list marker for a list depth levels deep: the bullets' code points, cycled. */
 static Py_UCS4 md_bullet_at(const char *bullets, Py_ssize_t depth) {
+    if (bullets[1] == '\0') {
+        return (unsigned char)bullets[0];
+    }
     Py_ssize_t len = (Py_ssize_t)strlen(bullets);
     Py_ssize_t index = 0;
     for (Py_ssize_t skip = depth % md_cp_len(bullets); skip > 0; skip--) {
