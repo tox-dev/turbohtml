@@ -17,7 +17,7 @@ from weakref import finalize, ref
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_fragment, parse_xml
+from turbohtml import Doctype, Document, Element, Text, XPath, XPathString, parse, parse_fragment, parse_xml
 from turbohtml.convert import css_to_xpath
 from turbohtml.query import XPathDepthError
 
@@ -3038,6 +3038,11 @@ _LXML_EXPRS: Final[tuple[str, ...]] = (
     "count(//p)",
     "count(//li)",
     "count(//article)",
+    "/node()",
+    "count(/node())",
+    "count(../node())",
+    "count(//node())",
+    "count(preceding-sibling::node())",
     "count(self::*)",
     "count(ancestor-or-self::*)",
     "string(//title)",
@@ -3094,6 +3099,31 @@ def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
     lxml_html: Final = pytest.importorskip("lxml.html")
     html: Final = _LXML_DOCS[doc_name]
     assert _root_element(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "/node()",
+        "/descendant::node()",
+        "/descendant-or-self::node()",
+        "self::node()",
+        "parent::node()",
+        "following-sibling::node()",
+        "preceding-sibling::node()",
+        "following::node()",
+        "preceding::node()",
+        "ancestor-or-self::node()",
+    ],
+)
+def test_node_test_never_yields_doctype(expr: str) -> None:
+    html: Final = "<!doctype html><html><body><p>x</p></body></html>"
+    doc: Final = parse(html)
+    doctype: Final = next(child for child in doc.children if isinstance(child, Doctype))
+    for context in (doc, _root_element(html), doctype):
+        selected: Final = context.xpath(expr)
+        assert isinstance(selected, list)
+        assert [node for node in selected if isinstance(node, Doctype)] == []
 
 
 class _Evaluate(Protocol):

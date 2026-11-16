@@ -882,8 +882,8 @@ static XP_STEP_INLINE int node_test_matches(struct th_node *node, const xn *step
         return node->type == TH_NODE_COMMENT;
     case NT_PI:
         return node->type == TH_NODE_PI;
-    default: /* NT_NODE */
-        return 1;
+    default: /* NT_NODE: every node but a doctype, which XPath 1.0 has no node type for */
+        return node->type != TH_NODE_DOCTYPE;
     }
 }
 
