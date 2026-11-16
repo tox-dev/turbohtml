@@ -865,8 +865,7 @@ int th_url_host_may_end_in_number(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
 /* The host buf[start,end) read the way the WHATWG host parser reads a special scheme's: percent-decoded, mapped to
    ASCII, then parsed as an IPv4 address when it ends in a number. Returns 1 with *out the dotted-decimal address, 0
    with *out the ASCII registered name, 2 for a host the parser rejects (a forbidden code point, a failed mapping, or a
-   number that is no address), 3 for a decoded host with a non-ASCII code point, which keeps the authority's own text,
-   or -1 with an error set. */
+   number that is no address), or -1 with an error set. */
 static int url_host_ipv4(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, PyObject **out) {
     PyObject *raw = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, buf + start, end - start);
     if (raw == NULL) { /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -877,7 +876,6 @@ static int url_host_ipv4(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, P
     if (decoded == NULL) { /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int non_ascii = !PyUnicode_IS_ASCII(decoded);
     PyObject *ascii = domain_to_ascii(decoded, 1);
     Py_DECREF(decoded);
     if (ascii == NULL) {
@@ -905,10 +903,6 @@ static int url_host_ipv4(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, P
     if (host_ends_in_number(ascii)) {
         Py_DECREF(ascii);
         return 2;
-    }
-    if (non_ascii) {
-        Py_DECREF(ascii);
-        return 3;
     }
     *out = ascii;
     return 0;

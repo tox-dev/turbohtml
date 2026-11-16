@@ -1402,6 +1402,33 @@ def test_resolve_links_decodes_a_percent_encoded_registered_name(href: str, expe
     assert _resolved_href(href, _HTTPS) == expected
 
 
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://\u4f8b.jp/p", "https://xn--fsq.jp/p", id="cjk-label"),
+        pytest.param("https://EXAMPLE.\u4f8b/p", "https://example.xn--fsq/p", id="upper-case-with-cjk-label"),
+        pytest.param("https://M\u00dcNCHEN.de/p", "https://xn--mnchen-3ya.de/p", id="upper-case-umlaut"),
+        pytest.param("https://\u212a.example/p", "https://k.example/p", id="kelvin-sign-folds"),
+        pytest.param("https://\u00e9t\u00e9.fr/p", "https://xn--t-9fab.fr/p", id="accented-label"),
+        pytest.param("https://a\u00adb.com/p", "https://ab.com/p", id="soft-hyphen-removed"),
+        pytest.param("https://\uff21\uff22.com/p", "https://ab.com/p", id="fullwidth-letters"),
+        pytest.param("https://\u4f8b.\u4f8b/p", "https://xn--fsq.xn--fsq/p", id="cjk-every-label"),
+        pytest.param("https://\u0130.com/p", "https://xn--i-9bb.com/p", id="dotted-capital-i"),
+        pytest.param("https://\u00df.de/p", "https://xn--zca.de/p", id="sharp-s"),
+        pytest.param("https://\u4f8b.jp:443/p", "https://xn--fsq.jp/p", id="default-port-dropped"),
+        pytest.param("https://\u4f8b.jp:8080/p", "https://xn--fsq.jp:8080/p", id="port-kept"),
+        pytest.param("https://\u4f8b.jp/a/../b", "https://xn--fsq.jp/b", id="dot-segment"),
+        pytest.param("https://\u4f8b.jp:/p", "https://xn--fsq.jp/p", id="empty-port"),
+        pytest.param("//\u4f8b.jp/p", "https://xn--fsq.jp/p", id="scheme-relative"),
+        pytest.param("https://\u4f8b.xn--fiqs8s/p", "https://xn--fsq.xn--fiqs8s/p", id="existing-ace-label-kept"),
+        pytest.param("https://%E4%BE%8B.jp/p", "https://xn--fsq.jp/p", id="percent-encoded-cjk"),
+        pytest.param("https://%c3%a9.com/p", "https://xn--9ca.com/p", id="percent-encoded-accent"),
+    ],
+)
+def test_resolve_links_punycodes_an_internationalized_host(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
 @pytest.mark.parametrize("href", ["https://%20.com/p", "https://%zz.com/p", "https://a%2Fb.com/p"])
 def test_resolve_links_keeps_an_escaped_name_with_a_forbidden_code_point(href: str) -> None:
     assert _resolved_href(href, _HTTPS) == href
