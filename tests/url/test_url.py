@@ -431,7 +431,7 @@ def test_base_url_uses_absolute_url_with_opaque_fallback() -> None:
         pytest.param("a:/é", "a:/x", id="unicode-hierarchical-path"),
         pytest.param("aé:foo", "x", id="unicode-invalid-scheme"),
         pytest.param("aéfoo", "x", id="unicode-no-colon"),
-        pytest.param("http:é", "http://x/", id="unicode-special-host"),
+        pytest.param("http:é", "http://xn--9ca/x", id="unicode-special-host"),
         pytest.param("file:é", "file:///x", id="unicode-file-path"),
         pytest.param("a:", "a:", id="empty-opaque-path"),
         pytest.param("a!b:foo", "x", id="ascii-invalid-scheme"),
