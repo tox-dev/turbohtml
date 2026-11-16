@@ -880,12 +880,12 @@ _URL_HINT_HTML: Final[str] = (
     "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
 )
 
-_TRANSLATE_CASES: Final[tuple[tuple[str, str], ...]] = (
-    ("type", "div"),
-    ("compound", "div.item a[href^='https']"),
-    ("structural", "ul li:nth-child(2n+1)"),
-    ("complex", "nav ul > li a[href$='.pdf']:not(.external)"),
-    ("group", "h1, h2, h3, section .title"),
+_TRANSLATE_CASES: Final[tuple[tuple[str, str, int], ...]] = (
+    ("type", "div", 360),
+    ("compound", "div.item a[href^='https']", 1),
+    ("structural", "ul li:nth-child(2n+1)", 1),
+    ("complex", "nav ul > li a[href$='.pdf']:not(.external)", 1),
+    ("group", "h1, h2, h3, section .title", 1),
 )
 
 _XPATH_ID_DOC: Final[str] = "".join(f"<i id=r{index}></i>" for index in range(5_000))
@@ -907,11 +907,11 @@ def _css_merge_inputs() -> tuple[tuple[str, str], ...]:
                 f"{count} identical media blocks",
                 "".join(f"@media screen{{.a{index}{{color:red}}}}" for index in range(count)),
             )
-            for count in (10, 100, 1_000)
+            for count in (256, 100, 1_000)
         ),
         *(
             (f"{count} identical declaration bodies", "".join(f".a{index}{{color:red}}" for index in range(count)))
-            for count in (10, 100, 1_000)
+            for count in (256, 100, 1_000)
         ),
         (
             "100 alternating media preludes",
@@ -931,7 +931,7 @@ def _css_conflict_inputs() -> tuple[tuple[str, str], ...]:
             )
             * repeats,
         )
-        for repeats, properties, value_length in ((32, 32, 128), (32, 32, 1), (1, 2, 1))
+        for repeats, properties, value_length in ((32, 32, 128), (32, 32, 1), (1, 224, 1))
     )
 
 
@@ -1623,7 +1623,7 @@ def _minify_cases() -> tuple[tuple[str, Case], ...]:
                     "}"
                 ),
             )
-            for count, reverse in ((8, True), (1024, False), (1024, True))
+            for count, reverse in ((896, True), (1024, False), (1024, True))
         ),
         *(
             (
@@ -1631,7 +1631,7 @@ def _minify_cases() -> tuple[tuple[str, Case], ...]:
                 "".join(f".number{index}{{{value.format(index=index)}}}" for index in range(1, count + 1)),
             )
             for label, value, count in (
-                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 1),
+                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 160),
                 ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 128),
                 ("zero exponent 2", "width:calc(0e2px + {index}px)", 128),
                 ("ordinary arithmetic", "width:calc(1e2px + {index}px)", 128),
@@ -1645,11 +1645,15 @@ def _minify_cases() -> tuple[tuple[str, Case], ...]:
                 f"{depth} nested variable fallbacks",
                 f"a{{width:{'var(--x,' * depth}1px{')' * depth}}}",
             )
-            for depth in (64, 4)
+            for depth in (64, 320)
         ),
         (
             "shallow transform and font functions",
-            'a{transform:translate(10px,0) scale(1,1)}@font-face{font-family:x;src:local("Arial")}',
+            "".join(
+                f"a{index}{{transform:translate({index}px,0) scale(1,1)}}"
+                f'@font-face{{font-family:x{index};src:local("Arial")}}'
+                for index in range(64)
+            ),
         ),
     )
 
@@ -1947,7 +1951,7 @@ def _minify_js_integer_cases() -> tuple[tuple[str, Case], ...]:
     for count, scale, offset, label in (
         (4096, 10, 1, "no trailing zeros"),
         (4096, 1000, 0, "three trailing zeros"),
-        (1, 10, 1, "no trailing zeros"),
+        (1_024, 10, 1, "no trailing zeros"),
     ):
         integers = ",".join(str((index + 1) * scale + offset) for index in range(count))
         cases.append((f"{count} integers / {label}", f"x=[{integers}]"))
@@ -2153,12 +2157,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "query-root-groups": lambda: (
         ("2,048 detached roots", ("detached", 2_048)),
         ("2,048 connected roots", ("connected", 2_048)),
-        ("4 connected roots", ("connected", 4)),
+        ("1,536 connected roots", ("connected", 1_536)),
         ("512 documents", ("documents", 512)),
     ),
     "query-roots": lambda: tuple(
         (f"{count} {order} roots", (count, order))
-        for count, order in ((512, "reversed"), (512, "shuffled"), (512, "sorted"), (4, "reversed"))
+        for count, order in ((512, "reversed"), (512, "shuffled"), (512, "sorted"), (2_048, "reversed"))
     ),
     "query-closest": lambda: (
         ("32,768 children, shared ancestor", (32_768, True)),
@@ -2199,10 +2203,18 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         *tuple(
             (
                 f"{size} nested elements, {relative}",
-                (f"div:has({relative})", f"{'<div>' * size}<a></a>{'</div>' * size}"),
+                (f"div:has({relative})", f"{'<div>' * size}<a></a>{'</div>' * size}", repeats),
             )
-            for size in (8, 100)
-            for relative in ("> a", "+ a", "~ a", "a")
+            for size, relative, repeats in (
+                (8, "> a", 500),
+                (8, "+ a", 1),
+                (8, "~ a", 1),
+                (8, "a", 1),
+                (100, "> a", 64),
+                (100, "+ a", 1),
+                (100, "~ a", 1),
+                (100, "a", 1),
+            )
         ),
         *tuple(
             (
@@ -2210,10 +2222,17 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 (
                     f"section:has({relative})",
                     (f"<section>{'<div>' * depth}<a></a>{'</div>' * depth}</section>") * 64,
+                    repeats,
                 ),
             )
-            for depth in (0, 64)
-            for relative in ("+ a", "~ a", "+ section a")
+            for depth, relative, repeats in (
+                (0, "+ a", 1),
+                (0, "~ a", 1),
+                (0, "+ section a", 1),
+                (64, "+ a", 100),
+                (64, "~ a", 1),
+                (64, "+ section a", 1),
+            )
         ),
     ),
     "select-default": lambda: (
@@ -2223,14 +2242,15 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 (
                     selector,
                     (f"<form>{'<span>x</span>' * prefix}{'<button>go</button>' * buttons}</form>") * forms,
+                    repeats,
                 ),
             )
-            for forms, prefix, buttons, selector in (
-                (1, 4096, 128, ":default"),
-                (1, 512, 64, ":default"),
-                (1, 8, 4, ":default"),
-                (128, 0, 1, ":default"),
-                (1, 4096, 128, "button"),
+            for forms, prefix, buttons, selector, repeats in (
+                (1, 4096, 128, ":default", 1),
+                (24, 512, 64, ":default", 1),
+                (1024, 8, 4, ":default", 1),
+                (2_560, 0, 1, ":default", 1),
+                (1, 4096, 128, "button", 50),
             )
         ),
         (
@@ -2238,6 +2258,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             (
                 ":default",
                 f"<form>{'<span>x</span>' * 4096}{'<button type=submit>go</button>' * 128}</form>",
+                1,
             ),
         ),
     ),
@@ -2485,12 +2506,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "match": _readpath_cases,
     "find-text": _readpath_cases,
     "find-text-exact": lambda: (
-        ("flat matches", ("<div>needle</div>" * 1_000, "needle")),
-        ("nested matches", (f"{'<div>' * 100}needle{'</div>' * 100}", "needle")),
-        ("nested short expectation", ("<div>" * 100 + "x" * 10_000 + "</div>" * 100, "needle")),
-        ("wide early mismatch", (f"<div>x{'<b>needle</b>' * 1_000}</div>", f"y{'needle' * 1_000}")),
-        ("wide match", (f"<div>{'<b>needle</b>' * 1_000}</div>", "needle" * 1_000)),
-        ("wide late mismatch", (f"<div>{'<b>needle</b>' * 1_000}</div>", f"{'needle' * 999}needlx")),
+        ("flat matches", ("<div>needle</div>" * 1_000, "needle", 1)),
+        ("nested matches", (f"{'<div>' * 100}needle{'</div>' * 100}", "needle", 1)),
+        ("nested short expectation", ("<div>" * 100 + "x" * 10_000 + "</div>" * 100, "needle", 24)),
+        ("wide early mismatch", (f"<div>x{'<b>needle</b>' * 1_000}</div>", f"y{'needle' * 1_000}", 1)),
+        ("wide match", (f"<div>{'<b>needle</b>' * 1_000}</div>", "needle" * 1_000, 8)),
+        ("wide late mismatch", (f"<div>{'<b>needle</b>' * 1_000}</div>", f"{'needle' * 999}needlx", 1)),
     ),
     "find-attr-presence": lambda: tuple(
         (
@@ -2847,9 +2868,9 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "path": _readpath_cases,
     "path-xpath": _readpath_cases,
     "translate": lambda: (
-        *_TRANSLATE_CASES,
+        *((label, (selector, repeats)) for label, selector, repeats in _TRANSLATE_CASES),
         *tuple(
-            (f"{count} {kind} literals", ",".join([selector] * count))
+            (f"{count} {kind} literals", (",".join([selector] * count), 1))
             for count in (1, 16, 128)
             for kind, selector in (
                 ("ID", "#identifier"),
@@ -2862,7 +2883,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             )
         ),
     ),
-    "specificity": lambda: _TRANSLATE_CASES,
+    "specificity": lambda: tuple((label, (selector, repeats)) for label, selector, repeats in _TRANSLATE_CASES),
     "xpath": _xpath_cases,
     "xpath-id": lambda: (("1,000 ids among 5,000 elements", _XPATH_ID_DOC),),
     "transform": _transform_cases,
@@ -2907,7 +2928,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                     f"{','.join(f'argument{index}' for index in range(count))}]}}"
                 ),
             )
-            for count in (8, 32, 54, 80)
+            for count in (256, 32, 54, 80)
         ),
         ("free-name conflicts", "function transform(value){return value+a+b+c}"),
         ("no local bindings", "console.log(document.title)"),
@@ -2928,7 +2949,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"""{",".join(f"keep{index}" if early else f"keep{index},value{index}" for index in range(count))}]}}"""
             ),
         )
-        for count, early in ((256, False), (1, False), (256, True))
+        for count, early in ((256, False), (80, False), (256, True))
     ),
     "minify-js-single-use": lambda: tuple(
         (
@@ -2943,7 +2964,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"""return[{",".join(f"v{index}" for index in range(count))}]}}"""
             ),
         )
-        for count, layout in ((256, "one declaration"), (256, "separate declarations"), (1, "one declaration"))
+        for count, layout in ((256, "one declaration"), (256, "separate declarations"), (128, "one declaration"))
     ),
     "minify-js-unused-declarations": lambda: tuple(
         (
@@ -2953,7 +2974,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"{','.join(f'keep{index}=g({index}),value{index}={index % 10}' for index in range(count))};return[]}}"
             ),
         )
-        for count in (256, 1)
+        for count in (256, 96)
     ),
     "minify-js-unlink": lambda: tuple(
         (
@@ -2968,7 +2989,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f""";return[{",".join(f"keep{index},value{index},value{index}" for index in range(count))}]}}"""
             ),
         )
-        for count, layout in ((256, "one declaration"), (256, "separate declarations"), (1, "one declaration"))
+        for count, layout in ((256, "one declaration"), (256, "separate declarations"), (64, "one declaration"))
     ),
     "minify-js-propagation": lambda: tuple(
         (
@@ -2988,7 +3009,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         )
         for count, layout in (
             (256, "interleaved declarations"),
-            (1, "interleaved declarations"),
+            (96, "interleaved declarations"),
             (256, "one declaration"),
         )
     ),
@@ -2997,10 +3018,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             f"{count} guard returns",
             f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}",
         )
-        for count in (512, 1)
+        for count in (512, 160)
     ),
     "minify-js-sequences": lambda: tuple(
-        (f"{count} expression statements", ";".join(f"f({index})" for index in range(count))) for count in (1000, 2)
+        (f"{count} expression statements", ";".join(f"f({index})" for index in range(count))) for count in (1000, 320)
     ),
     "stream": _stream_cases,
     "encoding-result": _encoding_result_cases,
