@@ -2300,6 +2300,34 @@ def test_atheris_driver_connects_exception_boundary(mocker: MockerFixture) -> No
     )
 
 
+@pytest.mark.parametrize(
+    ("sanitizer", "instrumented"),
+    [
+        pytest.param("address", 1, id="address"),
+        pytest.param("undefined", 1, id="undefined"),
+        pytest.param("coverage", 0, id="coverage"),
+    ],
+)
+def test_atheris_driver_instruments_all_except_in_coverage_runs(
+    mocker: MockerFixture, sanitizer: str, instrumented: int
+) -> None:
+    mocker.patch.dict(os.environ, {"SANITIZER": sanitizer})
+    runtime = mocker.MagicMock(  # simplint: ignore[mock-without-spec]  # optional Atheris has no importable API here
+        spec=["Setup", "Fuzz", "instrument_func", "instrument_all"]
+    )
+    runtime.instrument_func.side_effect = lambda callback: callback
+    mocker.patch("fuzz.atheris_driver.import_module", autospec=True, return_value=runtime)
+    mocker.patch("fuzz.atheris_driver.rejection_hook", autospec=True, return_value=partial(lambda _: None, 1))
+    mocker.patch("fuzz.atheris_driver.failure_hook", autospec=True, return_value=lambda _position: (0, False))
+    target = Target(name="cli", callback=lambda _data: None, exports=("turbohtml.__main__.main",))
+    fuzz([target], ["turbohtml.__main__"], "cli", ["driver"])
+    assert (runtime.instrument_all.call_count, runtime.Setup.call_count, runtime.Fuzz.call_count) == (
+        instrumented,
+        1,
+        1,
+    )
+
+
 def test_atheris_driver_rejects_gap_before_runtime(mocker: MockerFixture) -> None:
     load = mocker.patch("fuzz.atheris_driver.import_module", autospec=True)
     with pytest.raises(ValueError, match="Export ownership mismatch"):
