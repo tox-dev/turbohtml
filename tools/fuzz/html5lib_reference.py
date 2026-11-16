@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import types
 from collections.abc import Callable
 from typing import Any, Final, TypeAlias
 
@@ -26,13 +27,16 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
     in_body: Final = type(parser.phases["inBody"])
     end_handlers: Final = _with_method(in_body, "endTagHandler", in_body.endTagFormatting, _adoption_agency)
     end_handlers["br"] = _end_tag_br
+    end_handlers["select"] = _end_tag_select
+    start_handlers: Final = _with_method(in_body, "startTagHandler", in_body.startTagListItem, _start_tag_list_item)
+    start_handlers["select"] = _start_tag_select
     parser.phases["inBody"] = type(
         "CorrectedInBodyPhase",
         (in_body,),
         {
             "endTagFormatting": _adoption_agency,
             "endTagHandler": end_handlers,
-            "startTagHandler": _with_method(in_body, "startTagHandler", in_body.startTagListItem, _start_tag_list_item),
+            "startTagHandler": start_handlers,
             "processStartTag": _any_token_ends_newline_drop(in_body.processStartTag),
             "processEndTag": _any_token_ends_newline_drop(in_body.processEndTag),
             "processCharacters": _any_token_ends_newline_drop(in_body.processCharacters),
@@ -40,16 +44,35 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
             "processDoctype": _any_token_ends_newline_drop(in_body.processDoctype),
         },
     )(parser, parser.tree)
+    for name, phase_name in (("CorrectedInCellPhase", "inCell"), ("CorrectedInCaptionPhase", "inCaption")):
+        phase_class: Final = type(parser.phases[phase_name])
+        parser.phases[phase_name] = type(name, (phase_class,), {"processSpaceCharacters": _space_to_in_body})(
+            parser, parser.tree
+        )
     in_table_text: Final = type(parser.phases["inTableText"])
     parser.phases["inTableText"] = type(
         "CorrectedInTableTextPhase", (in_table_text,), {"processDoctype": _flush_table_text_on_doctype}
     )(parser, parser.tree)
     in_table: Final = type(parser.phases["inTable"])
+    in_table_space: Final = in_table.processSpaceCharacters
+
+    def _in_table_space(self: _Untyped, token: _Token) -> _Untyped:
+        # WHATWG "in table" hands whitespace to the in-body rules when the current node is not a table element, so the
+        # newline rule after pre, listing and textarea applies to it; html5lib keeps the in-table text rule.
+        if self.tree.openElements[-1].name in {"table", "tbody", "tfoot", "thead", "tr"}:
+            return in_table_space(self, token)
+        return self.parser.phases["inBody"].processSpaceCharacters(token)
+
     table_handlers: Final = copy.copy(inspect.getattr_static(in_table, "startTagHandler"))
     table_handlers.default = _in_table_start_tag_other
-    parser.phases["inTable"] = type("CorrectedInTablePhase", (in_table,), {"startTagHandler": table_handlers})(
-        parser, parser.tree
-    )
+    parser.phases["inTable"] = type(
+        "CorrectedInTablePhase",
+        (in_table,),
+        {
+            "startTagHandler": table_handlers,
+            "processSpaceCharacters": _in_table_space,
+        },
+    )(parser, parser.tree)
     for name, phase_name in (
         ("CorrectedInFramesetPhase", "inFrameset"),
         ("CorrectedAfterFramesetPhase", "afterFrameset"),
@@ -58,14 +81,16 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
         parser.phases[phase_name] = type(name, (phase_class,), {"processCharacters": _insert_frameset_whitespace})(
             parser, parser.tree
         )
-    in_select: Final = type(parser.phases["inSelect"])
-    select_handlers: Final = copy.copy(inspect.getattr_static(in_select, "startTagHandler"))
-    select_handlers.update(
-        dict.fromkeys(("caption", "table", "tbody", "tfoot", "thead", "tr", "td", "th"), _close_select_for_table_start)
-    )
-    parser.phases["inSelect"] = type("CorrectedInSelectPhase", (in_select,), {"startTagHandler": select_handlers})(
-        parser, parser.tree
-    )
+    original_reset: Final = parser.resetInsertionMode
+
+    def reset_insertion_mode(self: _Untyped) -> None:
+        # Fragment parsing keeps html5lib's own reset, which knows the fragment context element.
+        if self.innerHTML:
+            original_reset()
+            return
+        _walk_reset(self)
+
+    parser.resetInsertionMode = types.MethodType(reset_insertion_mode, parser)
     return parser
 
 
@@ -164,6 +189,20 @@ def _end_tag_br(self: _Untyped, token: _Token) -> None:
     self.parser.framesetOK = False
 
 
+def _end_tag_select(self: _Untyped, token: _Token) -> None:
+    if self.tree.elementInScope("select"):
+        _pop_through(self, "select")
+        self.parser.resetInsertionMode()
+    else:
+        self.parser.parseError("unexpected-end-tag", {"name": token["name"]})
+
+
+def _pop_through(self: _Untyped, name: str) -> None:
+    element = self.tree.openElements.pop()
+    while element.name != name:
+        element = self.tree.openElements.pop()
+
+
 def _start_tag_list_item(self: _Untyped, token: _Token) -> None:
     # html5lib ends the open list item or p through the current phase, which inside a table is the in-table phase;
     # its voodoo end-tag path clears insertFromTable, so the new item lands in the table instead of before it.
@@ -181,6 +220,19 @@ def _start_tag_list_item(self: _Untyped, token: _Token) -> None:
     self.tree.insertElement(token)
 
 
+def _start_tag_select(self: _Untyped, token: _Token) -> None:
+    # The current WHATWG spec has no "in select" insertion mode: a select start tag inside an open
+    # select closes it, and otherwise the element is inserted while the in-body rules keep handling its content.
+    if self.tree.elementInScope("select"):
+        self.parser.parseError("unexpected-select-in-select")
+        _pop_through(self, "select")
+        self.parser.resetInsertionMode()
+        return
+    self.tree.reconstructActiveFormattingElements()
+    self.tree.insertElement(token)
+    self.parser.framesetOK = False
+
+
 def _any_token_ends_newline_drop(process: _Process) -> _Process:
     # The newline after <pre>, <listing> or <textarea> is dropped only when it is the next token; html5lib keeps the
     # rule until a whitespace token arrives, so a <pre> followed by an end tag drops a later newline.
@@ -189,6 +241,11 @@ def _any_token_ends_newline_drop(process: _Process) -> _Process:
         return process(self, token)
 
     return process_token
+
+
+def _space_to_in_body(self: _Untyped, token: _Token) -> _Untyped:
+    # WHATWG "in cell" and "in caption" process whitespace with the in-body rules, which own the newline rule.
+    return self.parser.phases["inBody"].processSpaceCharacters(token)
 
 
 def _flush_table_text_on_doctype(self: _Untyped, token: _Token) -> _Token:
@@ -217,12 +274,30 @@ def _insert_frameset_whitespace(self: _Untyped, token: _Token) -> None:
         self.tree.insertText(whitespace)
 
 
-def _close_select_for_table_start(self: _Untyped, token: _Token) -> _Token:
-    # WHATWG "in select" closes the select for a table-structure start tag and reprocesses it; html5lib's former
-    # in-select rules nest the table inside the select instead, and only InSelectInTablePhase closes it.
-    self.parser.parseError("unexpected-table-element-start-tag-in-select", {"name": token["name"]})
-    self.endTagSelect(impliedTagToken("select"))
-    return token
+def _walk_reset(self: _Untyped) -> None:
+    # The current WHATWG reset rule has no case for select, so the walk passes over an open select to the element
+    # below it; html5lib's version maps select to its removed in-select mode.
+    new_modes: Final = {
+        "td": "inCell",
+        "th": "inCell",
+        "tr": "inRow",
+        "tbody": "inTableBody",
+        "thead": "inTableBody",
+        "tfoot": "inTableBody",
+        "caption": "inCaption",
+        "colgroup": "inColumnGroup",
+        "table": "inTable",
+        "head": "inBody",
+        "body": "inBody",
+        "frameset": "inFrameset",
+        "html": "beforeHead",
+    }
+    node = next(
+        node
+        for node in self.tree.openElements[::-1]
+        if node.namespace == self.tree.defaultNamespace and node.name in new_modes
+    )
+    self.phase = self.phases[new_modes[node.name]]
 
 
 __all__ = [
