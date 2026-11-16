@@ -589,23 +589,6 @@ static int css_color_keyword_or_hash(css_buf *pool, const css_token *token, int 
     return 1;
 }
 
-/* Drop CSS line continuations (a backslash followed by a newline) from a run, appending the rest to the pool. */
-static void css_strip_continuations(css_buf *pool, const css_char *text, Py_ssize_t len) {
-    Py_ssize_t index = 0;
-    while (index < len) {
-        if (text[index] == '\\' && index + 1 < len && (text[index + 1] == '\n' || text[index + 1] == '\r')) {
-            if (text[index + 1] == '\r' && index + 2 < len && text[index + 2] == '\n') {
-                index += 3;
-            } else {
-                index += 2;
-            }
-            continue;
-        }
-        cbuf_putc(pool, text[index]);
-        index++;
-    }
-}
-
 /* Whether a url body can drop its quotes and stay a url-token (CSS Syntax 3 §4): non-empty and free of whitespace,
    quotes, parens, backslash, and any non-printable code point (U+0000-08, U+000B, U+000E-1F, U+007F) -- a quoted
    string may carry those raw, but in url-token position they force a <bad-url-token>. */
@@ -641,6 +624,41 @@ static int css_hex_escape_ends(const css_char *text, Py_ssize_t end) {
         digits++;
     }
     return digits > 0 && css_escapes(text, end - digits);
+}
+
+/* Whether the output ends in a hex escape with fewer than six digits, which a following hex digit would extend. */
+static int css_hex_escape_open(const css_char *text, Py_ssize_t end) {
+    Py_ssize_t digits = 0;
+    while (digits < 6 && digits < end && css_is_hex(text[end - 1 - digits])) {
+        digits++;
+    }
+    return digits > 0 && digits < 6 && css_escapes(text, end - digits);
+}
+
+/* Drop CSS line continuations (a backslash followed by a newline) from a run, appending the rest to the pool. A
+   continuation right after a hex escape can make the next code point part of that escape, so the whitespace that
+   closes the escape is written when the next code point is a hex digit or whitespace (CSS Syntax 3 §4.3.7). */
+static void css_strip_continuations(css_buf *pool, const css_char *text, Py_ssize_t len) {
+    Py_ssize_t index = 0;
+    int joined = 0;
+    while (index < len) {
+        if (text[index] == '\\' && index + 1 < len && (text[index + 1] == '\n' || text[index + 1] == '\r')) {
+            if (text[index + 1] == '\r' && index + 2 < len && text[index + 2] == '\n') {
+                index += 3;
+            } else {
+                index += 2;
+            }
+            joined = 1;
+            continue;
+        }
+        if (joined && (css_is_hex(text[index]) || css_is_ws(text[index])) &&
+            css_hex_escape_open(pool->data, pool->len)) {
+            cbuf_putc(pool, ' ');
+        }
+        joined = 0;
+        cbuf_putc(pool, text[index]);
+        index++;
+    }
 }
 
 /* Whether text ends in the whitespace closing a hex escape, where a CRLF counts as one (CSS Syntax 3 §3.3). */
