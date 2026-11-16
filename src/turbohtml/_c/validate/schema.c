@@ -963,6 +963,9 @@ typedef struct th_schema {
     /* XSD position sets of one validate() call that no matcher holds, and the length they were made for */
     struct posset_spare *posset_spares;
     Py_ssize_t posset_size;
+    /* the xs:any particle that consumed each child of the complex element a validate() call matches */
+    th_node **wild_claims;
+    size_t wild_claim_cap;
     /* XSD name lookup list of one validate() call, refilled for each element, and the index over it that an element
        with many attributes builds */
     struct edecl *edecl_items;

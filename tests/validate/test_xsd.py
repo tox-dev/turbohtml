@@ -1219,12 +1219,198 @@ def test_choice_alternatives_of_different_lengths(alternatives: str, children: s
     assert check(schema, f"<r>{''.join(f'<{name}/>' for name in children)}</r>").valid is valid
 
 
+_WILD_DECLARATION: Final[str] = '<xs:element name="b" type="xs:int"/>'
+
+
+@pytest.mark.parametrize(
+    ("particle", "children", "valid"),
+    [
+        pytest.param('<xs:any processContents="skip"/>', "<a/>", False, id="required-needs-an-element"),
+        pytest.param('<xs:any processContents="skip"/>', "<a/><c/>", True, id="required-consumes-one"),
+        pytest.param('<xs:any processContents="skip"/>', "<a/><c/><d/>", False, id="required-consumes-one-only"),
+        pytest.param('<xs:any minOccurs="0" processContents="skip"/>', "<a/>", True, id="optional-may-be-absent"),
+        pytest.param('<xs:any maxOccurs="2" processContents="skip"/>', "<a/><c/><d/>", True, id="max-occurs-two"),
+        pytest.param(
+            '<xs:any maxOccurs="2" processContents="skip"/>', "<a/><c/><d/><e/>", False, id="max-occurs-two-exceeded"
+        ),
+        pytest.param(
+            '<xs:any namespace="##other" processContents="skip"/>',
+            "<a/><c/>",
+            False,
+            id="other-rejects-absent-namespace",
+        ),
+        pytest.param(
+            '<xs:any namespace="##other" processContents="skip"/>',
+            "<a/><x:c xmlns:x='urn:x'/>",
+            True,
+            id="other-admits-other-namespace",
+        ),
+        pytest.param(
+            '<xs:any namespace="##local" processContents="skip"/>',
+            "<a/><x:c xmlns:x='urn:x'/>",
+            False,
+            id="local-rejects-other-namespace",
+        ),
+        pytest.param(
+            '<xs:any namespace="##local" processContents="skip"/>', "<a/><c/>", True, id="local-admits-absent"
+        ),
+        pytest.param("<xs:any/>", "<a/><b>1</b>", True, id="strict-finds-global-declaration"),
+        pytest.param("<xs:any/>", "<a/><b>x</b>", False, id="strict-validates-global-declaration"),
+        pytest.param("<xs:any/>", "<a/><c/>", False, id="strict-needs-global-declaration"),
+        pytest.param('<xs:any processContents="skip"/>', "<a/><b>x</b>", True, id="skip-validates-nothing"),
+        pytest.param('<xs:any processContents="lax"/>', "<a/><b>x</b>", False, id="lax-validates-declaration"),
+        pytest.param('<xs:any processContents="lax"/>', "<a/><c/>", True, id="lax-without-declaration"),
+    ],
+)
+def test_wildcard_particle_in_sequence(particle: str, children: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence><xs:element name="a"/>{particle}'
+        f"</xs:sequence></xs:complexType></xs:element>{_WILD_DECLARATION}</xs:schema>"
+    )
+    assert check(schema, f"<r>{children}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("children", "valid"),
+    [
+        pytest.param("<a/>", True, id="element-alternative"),
+        pytest.param("<x:c xmlns:x='urn:x'/>", True, id="wildcard-alternative"),
+        pytest.param("", False, id="no-alternative"),
+        pytest.param("<c/>", False, id="absent-namespace-not-admitted"),
+    ],
+)
+def test_wildcard_alternative_in_choice(children: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:choice><xs:element name="a"/>'
+        '<xs:any namespace="##other" processContents="skip"/></xs:choice></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, f"<r>{children}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("children", "valid"),
+    [
+        pytest.param("<x:c xmlns:x='urn:x'/><b>1</b>", True, id="second-wildcard-takes-the-declared-child"),
+        pytest.param("<x:c xmlns:x='urn:x'/><b>x</b>", False, id="second-wildcard-validates-the-child"),
+        pytest.param(
+            "<x:c xmlns:x='urn:x'/><x:b xmlns:x='urn:x'>x</x:b>",
+            False,
+            id="second-wildcard-claims-the-namespaced-child",
+        ),
+    ],
+)
+def test_wildcard_pair_claims_each_child_once(children: str, *, valid: bool) -> None:
+    # the first wildcard admits the namespaced child, but the second consumes it, so its strict declaration applies
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:any namespace="##other" processContents="skip"/><xs:any processContents="strict"/>'
+        f"</xs:sequence></xs:complexType></xs:element>{_WILD_DECLARATION}</xs:schema>"
+    )
+    assert check(schema, f"<r>{children}</r>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("wildcard", "attributes", "valid"),
+    [
+        pytest.param('<xs:anyAttribute processContents="skip"/>', 'x="1" y="zz"', True, id="skip-admits-any"),
+        pytest.param('<xs:anyAttribute namespace="##other"/>', 'y="1"', False, id="other-rejects-absent-namespace"),
+        pytest.param('<xs:anyAttribute namespace="##local" processContents="skip"/>', 'y="1"', True, id="local-admits"),
+        pytest.param('<xs:anyAttribute processContents="strict"/>', 'x="12"', True, id="strict-validates-declaration"),
+        pytest.param('<xs:anyAttribute processContents="strict"/>', 'x="zz"', False, id="strict-rejects-bad-value"),
+        pytest.param('<xs:anyAttribute processContents="strict"/>', 'y="1"', False, id="strict-needs-declaration"),
+        pytest.param('<xs:anyAttribute processContents="lax"/>', 'x="zz"', False, id="lax-validates-declaration"),
+        pytest.param('<xs:anyAttribute processContents="lax"/>', 'y="zz"', True, id="lax-without-declaration"),
+        pytest.param("", 'y="1"', False, id="no-wildcard"),
+    ],
+)
+def test_any_attribute_admits_undeclared_attributes(wildcard: str, attributes: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:attribute name="x" type="xs:int"/><xs:element name="r"><xs:complexType>'
+        f"<xs:sequence/>{wildcard}</xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r {attributes}/>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("namespace", "child", "valid"),
+    [
+        pytest.param("##any", "<x:c xmlns:x='urn:x'/>", True, id="any-admits-another-namespace"),
+        pytest.param("##targetNamespace", "<t:c xmlns:t='urn:t'/>", True, id="target-admits-target"),
+        pytest.param("##targetNamespace", "<c/>", False, id="target-rejects-absent"),
+        pytest.param("##other", "<t:c xmlns:t='urn:t'/>", False, id="other-rejects-target"),
+        pytest.param("##other", "<x:c xmlns:x='urn:x'/>", True, id="other-admits-third-namespace"),
+        pytest.param("urn:x", "<x:c xmlns:x='urn:x'/>", True, id="uri-admits-its-namespace"),
+        pytest.param("urn:x", "<t:c xmlns:t='urn:t'/>", False, id="uri-rejects-other-namespace"),
+        pytest.param("urn:x ##local", "<c/>", True, id="list-admits-local"),
+        pytest.param("  ##local  ", "<c/>", True, id="list-ignores-surrounding-space"),
+    ],
+)
+def test_wildcard_namespace_constraint_in_target_namespace(namespace: str, child: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:element name="r"><xs:complexType><xs:sequence>'
+        f'<xs:element name="a"/><xs:any namespace="{namespace}" processContents="skip"/>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<t:r xmlns:t='urn:t'><a/>{child}</t:r>").valid is valid
+
+
+@pytest.mark.parametrize(("processing", "valid"), [("strict", False), ("lax", True)])
+def test_any_attribute_in_target_namespace_finds_no_global_attribute(processing: str, *, valid: bool) -> None:
+    # a global attribute is in the target namespace, and an unprefixed attribute is in no namespace
+    schema = (
+        f'<xs:schema {_XS} targetNamespace="urn:t" xmlns:t="urn:t"><xs:attribute name="x" type="xs:int"/>'
+        '<xs:element name="r"><xs:complexType><xs:sequence/>'
+        f'<xs:anyAttribute processContents="{processing}"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert check(schema, "<t:r xmlns:t='urn:t' x='zz'/>").valid is valid
+
+
+@pytest.mark.parametrize(
+    ("particles", "children", "valid"),
+    [
+        pytest.param(
+            '<xs:any minOccurs="0" processContents="strict"/><xs:element name="b" type="xs:int"/>',
+            "<b>1</b>",
+            True,
+            id="named-element-beside-wildcard",
+        ),
+        pytest.param(
+            '<xs:any minOccurs="0" processContents="strict"/><xs:element name="b" type="xs:int"/>',
+            "<b>x</b>",
+            False,
+            id="named-element-declaration-wins",
+        ),
+    ],
+)
+def test_wildcard_before_named_element(particles: str, children: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>{particles}</xs:sequence>'
+        "</xs:complexType></xs:element></xs:schema>"
+    )
+    assert check(schema, f"<r>{children}</r>").valid is valid
+
+
+def test_any_attribute_of_base_and_extension_admits_undeclared_attributes() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:complexType name="base"><xs:sequence/>'
+        '<xs:anyAttribute processContents="skip"/></xs:complexType>'
+        '<xs:element name="r"><xs:complexType><xs:complexContent><xs:extension base="base"><xs:sequence/>'
+        '<xs:anyAttribute processContents="skip"/></xs:extension></xs:complexContent></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert check(schema, '<r y="1" z="2"/>').valid
+
+
 _REPEATED_MODELS: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         '<xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="a"/><xs:element name="b"/></xs:choice>',
         id="choice",
     ),
     pytest.param('<xs:sequence><xs:element name="a" minOccurs="0" maxOccurs="unbounded"/></xs:sequence>', id="element"),
+    pytest.param(
+        '<xs:sequence><xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>',
+        id="wildcard",
+    ),
 ]
 
 
