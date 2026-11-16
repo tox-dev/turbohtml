@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import random
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
 import sys
 from functools import partial
@@ -2635,10 +2636,16 @@ def _an_plus_b_selected(pseudo: str, step: int, offset: int, members: list[int])
 
 
 def _an_plus_b(step: int, offset: int, index: int) -> bool:
+    step, offset = _clamp_int32(step), _clamp_int32(offset)
     if step == 0:
         return index == offset
     difference = index - offset
     return difference % step == 0 and difference // step >= 0
+
+
+def _clamp_int32(value: int) -> int:
+    # browsers saturate every An+B coefficient to the 32-bit int range before matching
+    return max(-(2**31), min(2**31 - 1, value))
 
 
 @pytest.mark.parametrize(
@@ -2648,10 +2655,61 @@ def _an_plus_b(step: int, offset: int, index: int) -> bool:
         pytest.param(-(2**70), 2**70, id="negative-step-offset-past-int64"),
     ],
 )
-def test_nth_beyond_int64_range_matches_the_exact_positions(step: int, offset: int) -> None:
+def test_nth_beyond_int64_range_matches_the_clamped_positions(step: int, offset: int) -> None:
     document: Final = parse(f"<ul>{''.join(f'<li>{index}' for index in _TWELVE)}</ul>")
     expected: Final = [str(index) for index in _an_plus_b_selected("nth-child", step, offset, _TWELVE)]
     assert [element.text for element in document.select(f"li:nth-child({step}n{offset:+d})")] == expected
+
+
+def _huge_pairs() -> list[pytest.ParameterSet]:
+    generator = random.Random(2311)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # seeded test data, not a secret
+    pairs: list[tuple[int, int]] = []
+    for _ in range(120):
+        step = generator.randrange(10 ** generator.randint(19, 60)) * generator.choice((1, -1))
+        pairs.extend((
+            (step, generator.randrange(-(10**60), 10**60)),
+            (step, generator.randrange(-40, 45) + generator.randint(-3, 3) * step),
+        ))
+    for _ in range(60):
+        step = generator.randint(1, _INT_MAX + 3) * generator.choice((1, -1))
+        pairs.append((step, generator.randrange(-(10**40), 10**40)))
+    return [pytest.param(step, offset, id=f"pair-{index}") for index, (step, offset) in enumerate(pairs)]
+
+
+_FORTY: Final[str] = f"<ul>{''.join(f'<li>{index}' for index in range(1, 41))}</ul>"
+
+
+_RESIDUE_EDGES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(-(2**31), 3, id="int-min-step"),
+    pytest.param(3, -(2**31), id="int-min-offset"),
+    pytest.param(-(2**31), -(2**31), id="int-min-step-and-offset"),
+    pytest.param(-(2**31), 2**31 + 9, id="int-min-step-offset-past-int-max"),
+    pytest.param(10**20 + 7, -(10**20 + 7) + 5, id="wide-step-residue-inside"),
+    pytest.param(10**20 + 7, -(10**20 + 7), id="wide-step-residue-zero"),
+    pytest.param(10**20 + 7, -(10**20 + 7) - 3_000_000_000, id="wide-step-residue-past-int-max"),
+    pytest.param(10**20 + 7, 3_000_000_000, id="wide-step-offset-past-int-max"),
+    pytest.param(-(10**20 + 7), 5, id="negative-wide-step-inside"),
+    pytest.param(2**40, 10**30, id="int64-step-wide-offset"),
+    pytest.param(2**40, -(10**30), id="int64-step-negative-wide-offset"),
+]
+
+
+@pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])
+@pytest.mark.parametrize(("step", "offset"), _RESIDUE_EDGES)
+def test_an_plus_b_residue_edges_match_the_exact_integers(pseudo: str, step: int, offset: int) -> None:
+    members: Final = list(range(1, 41))
+    expected: Final = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, members)]
+    document: Final = parse(_FORTY)
+    assert [element.text for element in document.select(f"li:{pseudo}({step}n{offset:+d})")] == expected
+
+
+@pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])
+@pytest.mark.parametrize(("step", "offset"), _huge_pairs())
+def test_an_plus_b_with_huge_coefficients_matches_the_exact_integers(pseudo: str, step: int, offset: int) -> None:
+    members: Final = list(range(1, 41))
+    expected: Final = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, members)]
+    document: Final = parse(_FORTY)
+    assert [element.text for element in document.select(f"li:{pseudo}({step}n{offset:+d})")] == expected
 
 
 @pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])

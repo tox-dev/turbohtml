@@ -426,22 +426,28 @@ static int sel_kw(const Py_UCS4 *name, Py_ssize_t len, const char *kw) {
     return 1;
 }
 
-/* Read a run of ASCII digits as a non-negative int64_t, saturating at INT64_MAX rather than overflowing; *seen
-   reports any digit. */
+/* Read a run of ASCII digits as a magnitude; *seen reports any digit. A magnitude past INT_MAX stops growing, which
+   keeps the value past INT_MAX and so still clamps the same way. */
 static int64_t sel_read_int(sel_parser *parser, int *seen) {
     int64_t value = 0;
     *seen = 0;
     while (parser->pos < parser->len && parser->src[parser->pos] >= '0' && parser->src[parser->pos] <= '9') {
         const int digit = (int)(parser->src[parser->pos] - '0');
-        value = value > (INT64_MAX - digit) / 10 ? INT64_MAX : value * 10 + digit;
+        value = value > INT_MAX ? value : value * 10 + digit;
         parser->pos++;
         *seen = 1;
     }
     return value;
 }
 
-/* Parse the An+B microsyntax (CSS Syntax §"The An+B microsyntax") into a/b,
-   including the even/odd keywords. pos starts after '(' and stops at the ')'. */
+/* A coefficient as browsers read it: its signed value saturated to the 32-bit int range, so -2^31 stays INT_MIN. */
+static int64_t sel_clamp_int(int negative, int64_t magnitude) {
+    const int64_t value = negative ? -magnitude : magnitude;
+    return value < INT_MIN ? INT_MIN : (value > INT_MAX ? INT_MAX : value);
+}
+
+/* Parse the An+B microsyntax (CSS Syntax §"The An+B microsyntax") into a/b, including the even/odd keywords. pos
+   starts after '(' and stops at the ')'. */
 static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
     sel_skip_ws(parser);
     if (parser->pos + 4 <= parser->len && sel_kw(parser->src + parser->pos, 4, "even")) {
@@ -467,10 +473,10 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
     const int64_t num = sel_read_int(parser, &seen_a);
     if (parser->pos < parser->len && (parser->src[parser->pos] | 32) == 'n') {
         parser->pos++;
-        *a = sign * (seen_a ? num : 1);
+        *a = seen_a ? sel_clamp_int(sign < 0, num) : sign;
         sel_skip_ws(parser);
         if (parser->pos < parser->len && (parser->src[parser->pos] == '+' || parser->src[parser->pos] == '-')) {
-            int bsign = parser->src[parser->pos] == '-' ? -1 : 1;
+            const int bsign = parser->src[parser->pos] == '-' ? -1 : 1;
             parser->pos++;
             sel_skip_ws(parser);
             int seen_b;
@@ -479,13 +485,13 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
                 sel_fail(parser, "expected a number after the sign in An+B");
                 return;
             }
-            *b = bsign * bval;
+            *b = sel_clamp_int(bsign < 0, bval);
         } else {
             *b = 0;
         }
     } else if (seen_a) {
         *a = 0;
-        *b = sign * num;
+        *b = sel_clamp_int(sign < 0, num);
     } else {
         sel_fail(parser, "expected An+B"); /* a bare sign with no digits and no 'n' is invalid */
         return;
@@ -493,51 +499,26 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
     sel_skip_ws(parser);
 }
 
-/* The pair the matcher reads for the parsed (already saturated) An+B = a/b: both within [-INT_MAX, INT_MAX], and
-   selecting the same sibling positions in [1, INT_MAX] as the parsed pair. A coefficient past the int range becomes a
-   residue that selects the same positions; a pair that selects nothing becomes (0, 0), since no sibling has index 0. */
+/* The pair the matcher reads for the An+B = a/b, with both coefficients inside the 32-bit int range. It selects the
+   sibling positions in [1, INT_MAX] that the exact integers select. A positive a keeps b when b >= 1 and otherwise
+   its residue in [0, a), which the positions congruent to b and not below it reduce to. A negative a whose magnitude
+   exceeds INT_MAX keeps at most the position b, since the step can be reached only once. */
 static void sel_nth_narrow(int64_t a, int64_t b, int *out_a, int *out_b) {
-    const int64_t top = INT_MAX;
-    int64_t pair_a = 0;
-    int64_t pair_b = 0;
+    int64_t pa = 0;
+    int64_t pb = 0;
     if (a == 0) {
-        pair_b = b >= 1 && b <= top ? b : 0;
+        pb = b >= 1 ? b : 0;
+    } else if (a > 0) {
+        pa = a;
+        pb = b >= 1 ? b : ((b % a) + a) % a;
+    } else if (b < 1) {
+        pa = -a <= INT_MAX ? a : 0;
     } else {
-        const int64_t period = a > 0 ? a : -a;
-        int64_t residue = b % period;
-        if (residue < 0) {
-            residue += period;
-        }
-        if (a > 0 && period > top) {
-            if (residue >= 1 && residue <= top && residue >= b) {
-                pair_a = top;
-                pair_b = residue;
-            }
-        } else if (a > 0) {
-            if (b <= 1) {
-                pair_a = period;
-                pair_b = residue;
-            } else if (b <= top) {
-                pair_a = period;
-                pair_b = b;
-            }
-        } else if (b >= top) {
-            if (period > top) {
-                if (residue >= 1 && residue <= top) {
-                    pair_a = -top;
-                    pair_b = residue;
-                }
-            } else {
-                pair_a = -period;
-                pair_b = top - (top - residue) % period;
-            }
-        } else if (b >= 1) {
-            pair_a = period > top ? -top : -period;
-            pair_b = b;
-        }
+        pa = -a <= INT_MAX ? a : 0;
+        pb = b;
     }
-    *out_a = (int)pair_a;
-    *out_b = (int)pair_b;
+    *out_a = (int)pa;
+    *out_b = (int)pb;
 }
 
 /* Parse the comma-separated selector list inside a :is()/:where()/:has(); defined

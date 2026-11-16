@@ -2042,6 +2042,8 @@ def test_computed_style_sweep_wide_nth_agrees_with_formula(step: int, offset: in
 
 
 def _nth_matches(step: int, offset: int, distance: int) -> bool:
+    # browsers saturate every An+B coefficient to the 32-bit int range before matching
+    step, offset = max(-(2**31), min(2**31 - 1, step)), max(-(2**31), min(2**31 - 1, offset))
     if step == 0:
         return distance == offset
     difference = distance - offset
