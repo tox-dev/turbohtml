@@ -1109,7 +1109,8 @@ typedef struct engine {
     Py_ssize_t xsl_prefix_len;
     int xsl_ns_dynamic;
     int xsl_marked; /* the xslt_marks classify the trees: dynamic, or some root does not bind the XSLT prefix itself */
-    int lre_excludes; /* some element of the stylesheet carries exclude-result-prefixes, so an ancestor may exclude a namespace */
+    int lre_excludes; /* some element of the stylesheet carries exclude-result-prefixes, so an ancestor may exclude a
+                         namespace */
     const Py_UCS4 *exclude_prefixes; /* aliases the stylesheet root's exclude-result-prefixes value */
     Py_ssize_t exclude_prefixes_len;
     const Py_UCS4 *cdata_elements; /* aliases xsl:output cdata-section-elements (space-separated QNames) */
