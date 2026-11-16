@@ -1,0 +1,2 @@
+An+B pseudo-classes such as ``:nth-child()`` now clamp each coefficient to the 32-bit ``int`` range, as browsers do,
+including its most negative value.

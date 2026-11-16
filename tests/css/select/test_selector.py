@@ -2636,10 +2636,16 @@ def _an_plus_b_selected(pseudo: str, step: int, offset: int, members: list[int])
 
 
 def _an_plus_b(step: int, offset: int, index: int) -> bool:
+    step, offset = _clamp_int32(step), _clamp_int32(offset)
     if step == 0:
         return index == offset
     difference = index - offset
     return difference % step == 0 and difference // step >= 0
+
+
+def _clamp_int32(value: int) -> int:
+    # browsers saturate every An+B coefficient to the 32-bit int range before matching
+    return max(-(2**31), min(2**31 - 1, value))
 
 
 @pytest.mark.parametrize(
@@ -2649,7 +2655,7 @@ def _an_plus_b(step: int, offset: int, index: int) -> bool:
         pytest.param(-(2**70), 2**70, id="negative-step-offset-past-int64"),
     ],
 )
-def test_nth_beyond_int64_range_matches_the_exact_positions(step: int, offset: int) -> None:
+def test_nth_beyond_int64_range_matches_the_clamped_positions(step: int, offset: int) -> None:
     document: Final = parse(f"<ul>{''.join(f'<li>{index}' for index in _TWELVE)}</ul>")
     expected: Final = [str(index) for index in _an_plus_b_selected("nth-child", step, offset, _TWELVE)]
     assert [element.text for element in document.select(f"li:nth-child({step}n{offset:+d})")] == expected
@@ -2674,6 +2680,10 @@ _FORTY: Final[str] = f"<ul>{''.join(f'<li>{index}' for index in range(1, 41))}</
 
 
 _RESIDUE_EDGES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(-(2**31), 3, id="int-min-step"),
+    pytest.param(3, -(2**31), id="int-min-offset"),
+    pytest.param(-(2**31), -(2**31), id="int-min-step-and-offset"),
+    pytest.param(-(2**31), 2**31 + 9, id="int-min-step-offset-past-int-max"),
     pytest.param(10**20 + 7, -(10**20 + 7) + 5, id="wide-step-residue-inside"),
     pytest.param(10**20 + 7, -(10**20 + 7), id="wide-step-residue-zero"),
     pytest.param(10**20 + 7, -(10**20 + 7) - 3_000_000_000, id="wide-step-residue-past-int-max"),
