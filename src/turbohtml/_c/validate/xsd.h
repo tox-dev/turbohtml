@@ -1966,32 +1966,32 @@ typedef struct {
     size_t capacity;
 } xattr_index;
 
-/* An instance attribute name split at its prefix. `bound` is 0 when the prefix has no declaration in scope, and such an
-   attribute has no namespace that a declaration or wildcard could admit. */
+/* An instance attribute name split at its prefix. A prefix with no declaration in scope leaves the whole name as the
+   local name in no namespace, which is how an HTML-parsed tree keeps it. */
 typedef struct {
     const char *local;
     Py_ssize_t local_len;
     const Py_UCS4 *uri;
     Py_ssize_t uri_len;
-    int bound;
 } xattr_name;
 
 static xattr_name xsd_attr_name(th_schema *schema, const char *name, Py_ssize_t len) {
-    xattr_name out = {name, len, NULL, 0, 1};
+    xattr_name out = {name, len, NULL, 0};
     for (Py_ssize_t at = 0; at < len; at++) {
         if (name[at] != ':') {
             continue;
         }
-        out.local = name + at + 1;
-        out.local_len = len - at - 1;
         if (at == 3 && memcmp(name, "xml", 3) == 0) {
+            out.local = name + at + 1;
+            out.local_len = len - at - 1;
             out.uri = xml_namespace_uri();
             out.uri_len = sizeof("http://www.w3.org/XML/1998/namespace") - 1;
             return out;
         }
         const Py_ssize_t index = ns_find_bytes(&schema->ns, name, at);
-        out.bound = index >= 0 && schema->ns.bindings[index].bound;
-        if (out.bound) {
+        if (index >= 0 && schema->ns.bindings[index].bound) {
+            out.local = name + at + 1;
+            out.local_len = len - at - 1;
             out.uri = schema->ns.bindings[index].uri;
             out.uri_len = schema->ns.bindings[index].uri_len;
         }
@@ -2036,8 +2036,7 @@ static int xsd_attr_is_decl(th_schema *schema, th_tree *tree, const th_node_attr
     Py_ssize_t name_len = 0;
     const char *bytes = th_attr_name(tree, attr->name_atom, &name_len);
     const xattr_name name = xsd_attr_name(schema, bytes, name_len);
-    return name.bound && u_eq_utf8(local, local_len, name.local, name.local_len) &&
-           u_eq_u(name.uri, name.uri_len, uri, uri_len);
+    return u_eq_utf8(local, local_len, name.local, name.local_len) && u_eq_u(name.uri, name.uri_len, uri, uri_len);
 }
 
 static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
@@ -2321,7 +2320,7 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
             continue;
         }
         const xattr_name qualified = xsd_attr_name(ctx->schema, abytes, alen);
-        if (!qualified.bound || xsd_attr_exempt(&qualified)) {
+        if (xsd_attr_exempt(&qualified)) {
             continue;
         }
         int known = 0;

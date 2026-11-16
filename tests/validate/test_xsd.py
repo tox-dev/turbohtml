@@ -1630,7 +1630,7 @@ def test_prefix_bound_only_in_an_earlier_sibling_has_no_namespace() -> None:
         '<xs:element name="head" minOccurs="0"><xs:complexType/></xs:element>'
         '<xs:element name="body"><xs:complexType><xs:sequence>'
         '<xs:element name="c" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
-        '<xs:anyAttribute processContents="strict"/></xs:complexType></xs:element>'
+        '<xs:anyAttribute namespace="##local" processContents="skip"/></xs:complexType></xs:element>'
         "</xs:sequence></xs:complexType></xs:element>"
         "</xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
@@ -1654,13 +1654,43 @@ def test_unbound_prefixed_attribute_does_not_match_a_declaration() -> None:
     assert not XMLSchema(schema).validate(parse(f"<html {items} p:g='12'></html>")).valid
 
 
-def test_unbound_prefix_attribute_has_no_namespace_to_check() -> None:
+@pytest.mark.parametrize(
+    ("wildcard", "valid"),
+    [
+        pytest.param('<xs:anyAttribute namespace="##local" processContents="skip"/>', True, id="local-skip-admits"),
+        pytest.param('<xs:anyAttribute namespace="##any" processContents="skip"/>', True, id="any-skip-admits"),
+        pytest.param('<xs:anyAttribute namespace="##local" processContents="lax"/>', True, id="local-lax-undeclared"),
+        pytest.param(
+            '<xs:anyAttribute namespace="##local" processContents="strict"/>', False, id="local-strict-undeclared"
+        ),
+        pytest.param('<xs:anyAttribute namespace="##other" processContents="skip"/>', False, id="other-rejects-absent"),
+        pytest.param('<xs:anyAttribute namespace="urn:p" processContents="skip"/>', False, id="uri-rejects-absent"),
+        pytest.param("", False, id="no-wildcard-rejects"),
+    ],
+)
+def test_unbound_prefixed_attribute_is_a_no_namespace_attribute(wildcard: str, *, valid: bool) -> None:
     schema = (
         f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:sequence>'
-        '<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence></xs:complexType>'
-        "</xs:element></xs:schema>"
+        '<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>'
+        f"{wildcard}</xs:complexType></xs:element></xs:schema>"
     )
-    assert XMLSchema(schema).validate(parse("<html p:a='1'></html>")).valid
+    assert XMLSchema(schema).validate(parse("<html p:a='1'></html>")).valid is valid
+
+
+@pytest.mark.parametrize(
+    ("attributes", "valid"),
+    [
+        pytest.param("a='12'", True, id="unprefixed-declaration"),
+        pytest.param("a='12' p:a='zz'", False, id="prefixed-name-is-not-the-declaration"),
+    ],
+)
+def test_unbound_prefixed_attribute_never_takes_a_declaration(attributes: str, *, valid: bool) -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="html"><xs:complexType><xs:sequence>'
+        '<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip"/></xs:sequence>'
+        '<xs:attribute name="a" type="xs:int"/></xs:complexType></xs:element></xs:schema>'
+    )
+    assert XMLSchema(schema).validate(parse(f"<html {attributes}></html>")).valid is valid
 
 
 @pytest.mark.parametrize(
