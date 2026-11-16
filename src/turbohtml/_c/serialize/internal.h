@@ -1595,9 +1595,7 @@ static inline Py_ssize_t ser_clone_start(const sbuf *out, const th_node *node) {
 
 static inline int ser_clone_first(sbuf *out, const th_node *node) {
     int added = th_clone_seen_add(&out->clone_seen, th_node_values_seq(node));
-    if (added < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+    out->failed |= added < 0;
     return added;
 }
 
@@ -1607,10 +1605,10 @@ static inline int ser_clone_fits(const sbuf *out, Py_ssize_t start, Py_ssize_t c
 
 static inline int ser_clone_admit(sbuf *out, Py_ssize_t start, const th_node *node, Py_ssize_t cost) {
     int added = ser_clone_first(out, node);
-    if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return 0;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (added != 0) {
+        return added > 0;
     }
-    return added || ser_clone_fits(out, start, cost);
+    return ser_clone_fits(out, start, cost);
 }
 
 /* Charge the attributes the clone wrote since start, free or not, so each one is spent once as output and once as the
