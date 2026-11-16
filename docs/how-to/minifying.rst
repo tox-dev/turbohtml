@@ -10,10 +10,11 @@ it carries with :func:`~turbohtml.clean.minify_js`.
 *******************
 
 Set the :class:`~turbohtml.Html` config's ``layout`` field to a :class:`~turbohtml.Minify` to shrink the markup. Every
-transform is round-trip safe: the minified bytes reparse to the same tree, so minifying never changes meaning. The four
-flags fold insignificant whitespace, omit the start/end tags the WHATWG rules make optional, drop redundant attribute
-quotes, and strip comments; all default on. Because ``layout`` holds one mode, a :class:`~turbohtml.Minify` and an
-:class:`~turbohtml.Indent` cannot be combined.
+transform is round-trip safe: the minified bytes reparse to the same tree, so minifying never changes meaning. The one
+exception is a carriage return in raw text such as ``script`` content, which has no character reference: it is written
+as a line feed, the form a parse reads it as. The four flags fold insignificant whitespace, omit the start/end tags the
+WHATWG rules make optional, drop redundant attribute quotes, and strip comments; all default on. Because ``layout``
+holds one mode, a :class:`~turbohtml.Minify` and an :class:`~turbohtml.Indent` cannot be combined.
 
 .. testcode::
 

@@ -924,7 +924,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 } else if (!(opts->minify_js && mini_emit_script_js(out, tree, node, opts)) &&
                            !(opts->minify_css && mini_emit_style_css(out, tree, node, opts->minify_css_baseline))) {
                     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-                        sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+                        sbuf_put_rawtext(out, need_text(tree, child), child->text_len);
                     }
                 }
                 if (node->atom == TH_TAG_PLAINTEXT) {
