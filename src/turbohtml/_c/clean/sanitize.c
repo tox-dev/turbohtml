@@ -544,27 +544,43 @@ static int refresh_url(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, 
     return *start < *end;
 }
 
-static int is_refresh_meta(sanitizer *s, th_node *element) {
+static int attribute_name_kept(sanitizer *s, PyObject *tag, const th_node_attr *attr, const char *name,
+                               Py_ssize_t name_len, int custom);
+
+/* Whether the element is a refresh meta: its first http-equiv that the name rules keep is the one the reparse reads, so
+   a case variant they drop does not decide. Returns 1, 0, or -1 on error. */
+static int is_refresh_meta(sanitizer *s, th_node *element, PyObject *tag, int custom) {
     if (reparsed_atom(element) != TH_TAG_META) {
         return 0;
     }
-    Py_ssize_t index = find_attr(s, element, "http-equiv");
-    if (index < 0) {
-        return 0;
-    }
-    /* refresh in either the HTML or the XML form of the value (has_xml_invalid) */
-    const th_node_attr *equiv = &element->attrs[index];
-    Py_ssize_t matched = 0;
-    for (Py_ssize_t pos = 0; pos < equiv->value_len; pos++) {
-        if (xml_char_invalid(equiv->value[pos])) {
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        const th_node_attr *equiv = &element->attrs[index];
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(s->tree, equiv->name_atom, &name_len);
+        if (!attr_name_is(name, name_len, "http-equiv")) {
             continue;
         }
-        if (matched == 7 || lower_ascii(equiv->value[pos]) != (Py_UCS4) "refresh"[matched]) {
-            return 0;
+        int kept = attribute_name_kept(s, tag, equiv, name, name_len, custom);
+        if (kept < 0) {
+            return -1;
         }
-        matched++;
+        if (!kept) {
+            continue;
+        }
+        /* refresh in either the HTML or the XML form of the value (has_xml_invalid) */
+        Py_ssize_t matched = 0;
+        for (Py_ssize_t pos = 0; pos < equiv->value_len; pos++) {
+            if (xml_char_invalid(equiv->value[pos])) {
+                continue;
+            }
+            if (matched == 7 || lower_ascii(equiv->value[pos]) != (Py_UCS4) "refresh"[matched]) {
+                return 0;
+            }
+            matched++;
+        }
+        return matched == 7;
     }
-    return matched == 7;
+    return 0;
 }
 
 static int attribute_prefix_matches(PyObject *prefix, const char *name, Py_ssize_t len) {
@@ -2144,10 +2160,13 @@ static int is_event_attribute(const char *name, Py_ssize_t name_len) {
 }
 
 /* Whether the value of attribute `name` is a URL or holds them: an href-like attribute, a srcset, or the content of a
-   refresh meta. */
-static int url_bearing(sanitizer *s, th_node *element, const char *name, Py_ssize_t name_len) {
-    return is_url_attr(name, name_len) || is_srcset_attr(name, name_len) ||
-           (attr_name_is(name, name_len, "content") && is_refresh_meta(s, element));
+   refresh meta. Returns 1, 0, or -1 on error. */
+static int url_bearing(sanitizer *s, th_node *element, PyObject *tag, int custom, const char *name,
+                       Py_ssize_t name_len) {
+    if (is_url_attr(name, name_len) || is_srcset_attr(name, name_len)) {
+        return 1;
+    }
+    return attr_name_is(name, name_len, "content") ? is_refresh_meta(s, element, tag, custom) : 0;
 }
 
 /* The URL checks of one form of a URL-bearing value: an href-like attribute's scheme, through bleach's check when
@@ -2200,7 +2219,7 @@ enum attribute_safety_result {
 
 /* Apply the safety rules that no policy callback can bypass. `isolate` is false before attribute_filter, which must see
    the original id/name, and true after a late write. */
-static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_node *element, PyObject *tag,
+static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_node *element, PyObject *tag, int custom,
                                                               Py_ssize_t index, int isolate) {
     th_node_attr *attr = &element->attrs[index];
     Py_ssize_t name_len = 0;
@@ -2218,7 +2237,11 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
         drop = !keep;
     }
     int url_disallowed = 0;
-    if (!drop && url_bearing(s, element, name, name_len)) {
+    int bearing = drop ? 0 : url_bearing(s, element, tag, custom, name, name_len);
+    if (bearing < 0) {
+        return ATTRIBUTE_SAFETY_ERROR;
+    }
+    if (bearing) {
         int bleach = s->bleach_url_policy && !isolate; /* GCOVR_EXCL_BR_LINE: migration does not rewrite attributes */
         int keep = url_value_allowed(s, element, attr, name, name_len, bleach);
         if (keep < 0) {                    /* GCOVR_EXCL_BR_LINE: url_value_allowed only fails on allocation failure */
@@ -2258,10 +2281,10 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
 }
 
 /* Re-check the values that will reach the serializer after callbacks and forced attributes have written them. */
-static int apply_late_attribute_safety(sanitizer *s, th_node *element, PyObject *tag) {
+static int apply_late_attribute_safety(sanitizer *s, th_node *element, PyObject *tag, int custom) {
     Py_ssize_t index = 0;
     while (index < element->attr_count) {
-        enum attribute_safety_result result = apply_attribute_safety_at(s, element, tag, index, 1);
+        enum attribute_safety_result result = apply_attribute_safety_at(s, element, tag, custom, index, 1);
         if (result == ATTRIBUTE_SAFETY_ERROR) { /* GCOVR_EXCL_BR_LINE: only allocation failures reach this path */
             return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -2367,6 +2390,7 @@ static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *t
 static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom, int compacted,
                                          dropped_trail *trail) {
     Py_ssize_t index = 0;
+    Py_ssize_t entered = element->attr_count;
     int late_written = 0;
     while (index < element->attr_count) {
         if (trail != NULL && element->attr_count - index == trail->unvisited) {
@@ -2391,7 +2415,7 @@ static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObjec
                 continue; /* the next attribute shifted into this slot */
             }
         }
-        enum attribute_safety_result safety = apply_attribute_safety_at(s, element, tag, index, 0);
+        enum attribute_safety_result safety = apply_attribute_safety_at(s, element, tag, custom, index, 0);
         if (safety == ATTRIBUTE_SAFETY_ERROR) { /* GCOVR_EXCL_BR_LINE: only allocation failures reach this path */
             return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -2424,6 +2448,11 @@ static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObjec
         }
         index++;
     }
+    /* A meta's refresh decision reads its first http-equiv that the name rules keep, so removing an attribute from a
+       meta can change the decision for a content the walk already checked. */
+    if (element->attr_count < entered && reparsed_atom(element) == TH_TAG_META) {
+        late_written = 1;
+    }
     while (trail != NULL && trail->next < trail->count) {
         if (record_compacted_drops(s, tag, trail) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on allocation */
             return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2449,7 +2478,7 @@ static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObjec
     if (!late_written) {
         return 0;
     }
-    return apply_late_attribute_safety(s, element, tag);
+    return apply_late_attribute_safety(s, element, tag, custom);
 }
 
 static TH_WALK_OUTLINE int sanitize_large_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom) {
