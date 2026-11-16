@@ -2390,7 +2390,6 @@ static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *t
 static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom, int compacted,
                                          dropped_trail *trail) {
     Py_ssize_t index = 0;
-    Py_ssize_t entered = element->attr_count;
     int late_written = 0;
     while (index < element->attr_count) {
         if (trail != NULL && element->attr_count - index == trail->unvisited) {
@@ -2412,12 +2411,16 @@ static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObjec
                     return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 th_node_attr_del(s->tree, element, name, name_len);
+                late_written |= reparsed_atom(element) == TH_TAG_META;
                 continue; /* the next attribute shifted into this slot */
             }
         }
         enum attribute_safety_result safety = apply_attribute_safety_at(s, element, tag, custom, index, 0);
         if (safety == ATTRIBUTE_SAFETY_ERROR) { /* GCOVR_EXCL_BR_LINE: only allocation failures reach this path */
             return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (safety != ATTRIBUTE_SAFETY_KEPT) {
+            late_written |= reparsed_atom(element) == TH_TAG_META;
         }
         if (safety == ATTRIBUTE_SAFETY_RESCAN) {
             index = 0;
@@ -2436,6 +2439,7 @@ static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObjec
             }
             late_written |= filtered;
             if (element->attr_count < before) {
+                late_written |= reparsed_atom(element) == TH_TAG_META;
                 continue; /* the filter deleted it */
             }
         }
@@ -2447,11 +2451,6 @@ static TH_WALK_INLINE int vet_attributes(sanitizer *s, th_node *element, PyObjec
             return -1;                                                           /* GCOVR_EXCL_LINE */
         }
         index++;
-    }
-    /* A meta's refresh decision reads its first http-equiv that the name rules keep, so removing an attribute from a
-       meta can change the decision for a content the walk already checked. */
-    if (element->attr_count < entered && reparsed_atom(element) == TH_TAG_META) {
-        late_written = 1;
     }
     while (trail != NULL && trail->next < trail->count) {
         if (record_compacted_drops(s, tag, trail) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on allocation */
