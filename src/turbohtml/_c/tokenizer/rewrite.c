@@ -580,6 +580,7 @@ typedef struct {
     int live; /* cleared once the handler returns, so a stashed handle raises */
     /* text/comment edits recorded here, applied by the driver after the handler */
     int removed;
+    int subtree;            /* remove or replace dropped the element with its content, so a prepend goes too */
     PyObject *replace_html; /* replacement for the whole node, or NULL */
     int replace_raw;
     PyObject *before_html; /* emitted before the node (accumulated) */
@@ -754,6 +755,7 @@ static PyObject *rw_replace(rw_handle *self, PyObject *args, PyObject *kwds) {
         return NULL;
     }
     self->removed = 1;
+    self->subtree = 1;
     self->replace_raw = rw_text_is_raw(self, raw, 0);
     Py_XSETREF(self->replace_html, Py_NewRef(content));
     if (self->kind == RW_ELEMENT) {
@@ -769,6 +771,7 @@ static PyObject *rw_remove(rw_handle *self, PyObject *Py_UNUSED(ignored)) {
         return NULL;
     }
     self->removed = 1;
+    self->subtree = 1;
     Py_CLEAR(self->replace_html);
     if (self->kind == RW_ELEMENT) {
         self->open->drop_content = 1;
@@ -2719,11 +2722,15 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     }
     if (removed) {
         /* the tags are dropped, so nothing a handler wrote lands between them: there is no raw-text content left to
-           check, and what was appended to a raw-text element is ordinary text now */
+           check, and what was appended to or prepended to a raw-text element is ordinary text now */
         open.literal = 0;
         if (ctx->append_text != NULL) {
             Py_SETREF(open.append_html, ctx->append_text);
             ctx->append_text = NULL;
+        }
+        if (handle->before_text != NULL && !handle->subtree) {
+            Py_XSETREF(handle->before_html, handle->before_text);
+            handle->before_text = NULL;
         }
     } else if (handle != NULL && ctx->mirror == NULL) {
         /* the tags stay, so the content stays raw text; while the mirror runs, rw_mirror_opened decides */
@@ -2749,7 +2756,7 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         }
         open.content_start = ctx->out.len;
         /* prepend content, then any inner replacement, all inside the element */
-        if (!removed && handle != NULL && handle->before_html != NULL) {
+        if (handle != NULL && handle->before_html != NULL && !handle->subtree) {
             rw_out_str(&ctx->out, handle->before_html);
         }
         if (!removed && open.append_html != NULL && open.drop_content) {
