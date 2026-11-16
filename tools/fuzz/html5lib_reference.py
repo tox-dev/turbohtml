@@ -50,10 +50,14 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
     parser.phases["inTable"] = type("CorrectedInTablePhase", (in_table,), {"startTagHandler": table_handlers})(
         parser, parser.tree
     )
-    in_frameset: Final = type(parser.phases["inFrameset"])
-    parser.phases["inFrameset"] = type(
-        "CorrectedInFramesetPhase", (in_frameset,), {"processCharacters": _insert_frameset_whitespace}
-    )(parser, parser.tree)
+    for name, phase_name in (
+        ("CorrectedInFramesetPhase", "inFrameset"),
+        ("CorrectedAfterFramesetPhase", "afterFrameset"),
+    ):
+        phase_class: Final = type(parser.phases[phase_name])
+        parser.phases[phase_name] = type(name, (phase_class,), {"processCharacters": _insert_frameset_whitespace})(
+            parser, parser.tree
+        )
     in_select: Final = type(parser.phases["inSelect"])
     select_handlers: Final = copy.copy(inspect.getattr_static(in_select, "startTagHandler"))
     select_handlers.update(

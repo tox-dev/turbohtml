@@ -79,6 +79,8 @@ def test_encoding_oracle_table_and_select_shapes(markup: str, expected: str) -> 
         pytest.param("<frameset>x", "", id="frameset-letter-ignored"),
         pytest.param("</br><frameset>/", "/", id="end-tag-br-closes-frameset-window"),
         pytest.param("</br>\t<frameset>", "\t", id="end-tag-br-then-whitespace"),
+        pytest.param("<frameset></frameset>y ", " ", id="after-frameset-whitespace-after-letter"),
+        pytest.param("<frameset></frameset>x", "", id="after-frameset-letter-ignored"),
     ],
 )
 def test_encoding_oracle_frameset_and_end_tag_br(markup: str, expected: str) -> None:
