@@ -174,6 +174,12 @@ def links_absolutize(tree: HTMLTree) -> None:
             anchor.setattr("href", urljoin(_LINKS_BASE, href))
 
 
+def _encoding_result(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        encoding(data)
+
+
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse": (parse, "resiliparse"),
     "parse-formatting": (parse, "resiliparse"),
@@ -193,7 +199,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize": (serialize, "resiliparse"),
     "navigate": (navigate, "resiliparse"),
     "encoding": (encoding, "resiliparse"),
-    "encoding-result": (encoding, "resiliparse"),
+    "encoding-result": (_encoding_result, "resiliparse"),
     "extract-attr": (extract_attr, "resiliparse"),
     "extract-text": (extract_text, "resiliparse"),
     "links-extract": (links_extract, "resiliparse"),

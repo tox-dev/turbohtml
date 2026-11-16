@@ -821,8 +821,8 @@ _PHONE_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
     ("fullwidth (1 KiB)", ("valid", _PHONE_FULLWIDTH * 15)),
     ("ucs2 prose, no digits (100 KiB)", ("valid", "\u4e2d\u6587\u7684\u6587\u672c\u6bb5\u843d " * 12_800)),
     ("ucs4 prose, no digits (100 KiB)", ("valid", "\U0001f600 emoji prose here " * 4_000)),
-    ("short text, 1 region (40 B)", ("valid", "call 650-253-0000 or write to us today")),
-    ("short text, 8 regions (40 B)", ("regions-8", "call 650-253-0000 or write to us today")),
+    ("short text, 1 region (1.5 KB)", ("valid", "call 650-253-0000 or write to us today " * 38)),
+    ("short text, 8 regions (1.5 KB)", ("regions-8", "call 650-253-0000 or write to us today " * 38)),
     ("has_link, mixed corpus (1 KiB)", ("has", _PHONE_MIXED * 5)),
 )
 
@@ -1135,7 +1135,7 @@ def _annotation_rule_cases() -> tuple[tuple[str, Case], ...]:
             "49 matching tag rules, 1,000 spans",
             (broad, tuple((f"span#data-{index}", (str(index),)) for index in range(49))),
         ),
-        ("49 mostly irrelevant rules, one span", ("<p><span>x</span></p>", unrelated)),
+        ("49 mostly irrelevant rules, 383 spans", (f"<p>{'<span>x</span>' * 383}</p>", unrelated)),
         ("three rules, 1,000 spans", (f"<p>{'<span>x</span>' * 1_000}</p>", unrelated[-3:])),
         (
             "interleaved wildcard rules, alternating tags",
@@ -1144,7 +1144,7 @@ def _annotation_rule_cases() -> tuple[tuple[str, Case], ...]:
                 (("span", ("span",)), ("#data-x", ("wild",)), ("b", ("bold",)), *unrelated[:5]),
             ),
         ),
-        ("eight rules, one span", ("<p><span>x</span></p>", (*unrelated[:7], unrelated[-1]))),
+        ("eight rules, 388 spans", (f"<p>{'<span>x</span>' * 388}</p>", (*unrelated[:7], unrelated[-1]))),
     )
 
 
@@ -1801,7 +1801,7 @@ def _normalize_cases() -> tuple[tuple[str, Case], ...]:
         ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
         ("utf-8 page (95 kB)", large_text(filename, url)),
         ("32 KiB ASCII prefix, composable suffix", f"{'abc ' * 8192}e\u0301"),
-        ("small ASCII prefix, composable suffix", "abc e\u0301"),
+        ("52 KB ASCII prefix, composable suffix", f"{'abc ' * 13_000}e\u0301"),
         ("4,096 composable combining pairs", "e\u0301" * 4096),
         ("4,096 Hangul jamo triples", "\u1100\u1161\u11a8" * 4096),
         ("10,000 Hebrew combining marks", "\u05d0" + "\u05b1" * 5000 + "\u05b0" * 5000),
@@ -1964,17 +1964,25 @@ def _encoding_chunks_cases() -> tuple[tuple[str, tuple[int, bytes]], ...]:
     mixed: Final = japanese + ascii_body
     return (
         ("Japanese prefix, 64 KiB ASCII suffix, 4 KiB chunks", (4096, mixed)),
-        ("Japanese prefix, short ASCII suffix, 16-byte chunks", (16, japanese + b"plain ASCII suffix")),
+        ("Japanese prefix, 2,088-byte ASCII suffix, 16-byte chunks", (16, japanese + b"plain ASCII suffix" * 116)),
         ("Japanese prefix, 64 KiB ASCII suffix, one feed", (len(mixed), mixed)),
         ("64 KiB ASCII, 4 KiB chunks", (4096, ascii_body)),
     )
 
 
-def _encoding_result_cases() -> tuple[tuple[str, bytes], ...]:
+def _encoding_result_cases() -> tuple[tuple[str, tuple[int, bytes]], ...]:
     return (
-        ("short ambiguous legacy bytes", "déjà vu, bientôt à Paris".encode("cp1252")),
-        ("short ASCII", b"A short plain message"),
-        ("UTF-8 byte-order mark", b"\xef\xbb\xbfhello"),
+        ("ambiguous legacy bytes, 11 detections", (11, "déjà vu, bientôt à Paris".encode("cp1252"))),
+        ("ASCII, 62 detections", (62, b"A short plain message")),
+        ("UTF-8 byte-order mark, 64 detections", (64, b"\xef\xbb\xbfhello")),
+    )
+
+
+def _encoding_result_stream_cases() -> tuple[tuple[str, tuple[int, bytes]], ...]:
+    return (
+        ("ambiguous legacy bytes, 10 detections", (10, "déjà vu, bientôt à Paris".encode("cp1252"))),
+        ("ASCII, 18 detections", (18, b"A short plain message")),
+        ("UTF-8 byte-order mark, 24 detections", (24, b"\xef\xbb\xbfhello")),
     )
 
 
@@ -1988,6 +1996,30 @@ def _minify_js_integer_cases() -> tuple[tuple[str, Case], ...]:
         integers = ",".join(str((index + 1) * scale + offset) for index in range(count))
         cases.append((f"{count} integers / {label}", f"x=[{integers}]"))
     return tuple(cases)
+
+
+_ENCODED_PARAGRAPHS: Final[str] = "<p>café</p>" * 680
+
+
+def _prefixed_root(count: int) -> tuple[str, str]:
+    prefixes = " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
+    values = " ".join(f'p{index}:value="x"' for index in range(count))
+    return f"{count} prefixes and attributes", f"<root {prefixes} {values}/>"
+
+
+def _serialize_attributes_case(count: int, order: str, repeat: int, *, sorting: bool) -> tuple[str, tuple[str, bool]]:
+    attributes = " ".join(
+        f'a{index:04d}="value"' for index in (reversed(range(count)) if order == "reversed" else range(count))
+    )
+    element = f"<div {attributes}>text</div>"
+    plural = "s" if repeat != 1 else ""
+    return f"{count} attributes, {order}, sorting {sorting}, {repeat} element{plural}", (element * repeat, sorting)
+
+
+def _disallowed_tags(mode: str, count: int, tags: int) -> tuple[str, tuple[str, str]]:
+    attributes = "".join(f' a{index}="value"' for index in range(count))
+    label = f"{mode} tag with {count} attribute{'s' if count != 1 else ''}"
+    return (label if tags == 1 else f"{label}, {tags} tags", (mode, f"<x{attributes}>text</x>" * tags))
 
 
 INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
@@ -2022,10 +2054,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     ),
     "parse": _parse_cases,
     "parse-encoded": lambda: (
-        ("tiny UTF-16LE", ("utf-16le", "<p>café</p>".encode("utf-16le"))),
-        ("tiny UTF-16BE", ("utf-16be", "<p>café</p>".encode("utf-16be"))),
-        ("tiny UTF-8", ("utf-8", "<p>café</p>".encode())),
-        ("16 KiB UTF-16LE", ("utf-16le", (f"<p>{'café' * 2048}</p>").encode("utf-16le"))),
+        ("680 paragraphs, UTF-16LE", ("utf-16le", _ENCODED_PARAGRAPHS.encode("utf-16le"))),
+        ("680 paragraphs, UTF-16BE", ("utf-16be", _ENCODED_PARAGRAPHS.encode("utf-16be"))),
+        ("680 paragraphs, UTF-8", ("utf-8", _ENCODED_PARAGRAPHS.encode())),
+        ("352 KiB UTF-16LE", ("utf-16le", (f"<p>{'café' * 45_000}</p>").encode("utf-16le"))),
     ),
     "parse-foster": lambda: tuple(
         (
@@ -2077,29 +2109,24 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         (f"{count} attributes", f"""<root {" ".join(f'a{index}="value"' for index in range(count))}/>""")
         for count in (1, 10, 100, 1_000)
     ),
-    "parse-xml-append": lambda: tuple(
-        (f"{label} / value=a", f"""<root {" ".join(f'a{index}="a"' for index in range(count))}/>""")
-        for count, label in ((1_000, "1,000 attributes"), (1, "1 attribute"))
+    "parse-xml-append": lambda: (
+        ("1,000 attributes / value=a", f"""<root {" ".join(f'a{index}="a"' for index in range(1_000))}/>"""),
+        ("1 attribute / value=a, 760 elements", f"""<r>{'<root a0="a"/>' * 760}</r>"""),
     ),
     "parse-xml-values": lambda: (
         ("64 KiB clean value", f'<root value="{"a" * 65536}"/>'),
         ("64 KiB reference-rich source", f'<root value="{"a&amp;b " * 8192}"/>'),
-        ("five value characters", '<root value="hello"/>'),
+        ("107k value characters", f'<root value="{"hello" * 21_400}"/>'),
     ),
     "parse-xml-text": lambda: (
         ("64 KiB clean text", f"<root>{'a' * 65536}</root>"),
         ("64 KiB reference-rich source", f"<root>{'a&amp;b ' * 8192}</root>"),
-        ("five text characters", "<root>hello</root>"),
+        ("294k text characters", f"<root>{'hello' * 58_800}</root>"),
     ),
-    "parse-xml-prefixes": lambda: tuple(
-        (
-            f"{count} prefixes and attributes",
-            (
-                f"""<root {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))} """
-                f"""{" ".join(f'p{index}:value="x"' for index in range(count))}/>"""
-            ),
-        )
-        for count in (128, 1, 1_000)
+    "parse-xml-prefixes": lambda: (
+        _prefixed_root(128),
+        ("1 prefix and attribute, 305 elements", f"""<r>{'<root xmlns:p0="urn:0" p0:value="x"/>' * 305}</r>"""),
+        _prefixed_root(1_000),
     ),
     "parse-xml-names": lambda: (
         (
@@ -2568,10 +2595,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         *_readpath_cases(),
         ("4,096 short Text descendants", f"<main>{'<span>a</span>' * 4096}</main>"),
         ("one Text descendant (256 KiB)", f"<main>{'a' * (256 << 10)}</main>"),
-        ("tiny Text descendant", "<p>text</p>"),
-        ("Latin-1 Text descendant (16 Ki chars)", f"<p>{'é' * 16_384}</p>"),
-        ("BMP Text descendant (16 Ki chars)", f"<p>{'雪' * 16_384}</p>"),
-        ("astral Text descendant (16 Ki chars)", f"<p>{'😀' * 16_384}</p>"),
+        ("Text descendant (385k chars)", f"<p>{'text' * 96_250}</p>"),
+        ("Latin-1 Text descendant (360k chars)", f"<p>{'é' * 360_000}</p>"),
+        ("BMP Text descendant (360k chars)", f"<p>{'雪' * 360_000}</p>"),
+        ("astral Text descendant (210k chars)", f"<p>{'😀' * 210_000}</p>"),
     ),
     "serialize": _readpath_cases,
     "parse-inner": _readpath_cases,
@@ -2698,13 +2725,13 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),
     ),
-    "sanitize-disallowed": lambda: tuple(
-        (
-            f"{mode} tag with {count} attribute{'s' if count != 1 else ''}",
-            (mode, f"""<x{"".join(f' a{index}="value"' for index in range(count))}>text</x>"""),
-        )
-        for mode in ("escape", "strip")
-        for count in (1, 64, 1024)
+    "sanitize-disallowed": lambda: (
+        _disallowed_tags("escape", 1, 220),
+        _disallowed_tags("escape", 64, 1),
+        _disallowed_tags("escape", 1024, 1),
+        _disallowed_tags("strip", 1, 400),
+        _disallowed_tags("strip", 64, 16),
+        _disallowed_tags("strip", 1024, 1),
     ),
     "sanitize-templates": lambda: (
         ("templated 4 KiB", _SANITIZE_TEMPLATES * 20),
@@ -2718,7 +2745,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "sanitize-attributes": lambda: (
         ("1024 rejected attributes", f"""<p {" ".join(f'a{index}="x"' for index in range(1_024))}>x</p>"""),
         ("1024 allowed attributes", f"""<p {" ".join(f'data-{index}="x"' for index in range(1_024))}>x</p>"""),
-        ("four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>'),
+        ("112 elements with four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>' * 112),
         ("256 elements with four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>' * 256),
     ),
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
@@ -2794,13 +2821,13 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
     ),
     "phone-format": lambda: (
-        ("20 numbers, international", ("international", _PHONE_HELD)),
+        ("260 numbers, international", ("international", _PHONE_HELD * 13)),
         ("20 numbers, national", ("national", _PHONE_HELD)),
         ("20 numbers, RFC 3966", ("rfc3966", _PHONE_HELD)),
         ("20 numbers, E.164", ("e164", _PHONE_HELD)),
-        ("20 Uzbekistan numbers, international", ("international", (("UZ", "+998 90 123 45 67"),) * 20)),
-        ("20 US numbers, international", ("international", (("US", "+1 650-253-0000"),) * 20)),
-        ("20 Uzbekistan numbers, E.164", ("e164", (("UZ", "+998 90 123 45 67"),) * 20)),
+        ("260 Uzbekistan numbers, international", ("international", (("UZ", "+998 90 123 45 67"),) * 260)),
+        ("260 US numbers, international", ("international", (("US", "+1 650-253-0000"),) * 260)),
+        ("300 Uzbekistan numbers, E.164", ("e164", (("UZ", "+998 90 123 45 67"),) * 300)),
     ),
     "phone-construct": lambda: (("construct 20 US numbers", (("US", "+1 650-253-0000"),) * 20),),
     "markdown": lambda: (
@@ -2833,16 +2860,17 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     ),
     "tables-spans": lambda: tuple(
         (
-            f"{kind} / {span} columns / {size} text characters",
+            f"{kind} / {span} columns / {size} text characters / {tables} tables",
             (
                 kind,
                 (
                     f"<table><tr><th colspan={span!s}>header</th></tr><tr><td "
                     f"colspan={span!s}>{'x' * size}</td></tr></table>"
-                ),
+                )
+                * tables,
             ),
         )
-        for kind, span, size in (("rows", 128, 4096), ("rows", 1, 16), ("records", 128, 4096))
+        for kind, span, size, tables in (("rows", 128, 69_000, 1), ("rows", 1, 16, 80), ("records", 128, 68_500, 1))
     ),
     "tables-wide": lambda: (("10k columns", ("rows", f"<table><tr>{'<td>x</td>' * 10_000}</tr></table>")),),
     "article": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
@@ -3067,7 +3095,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     ),
     "stream": _stream_cases,
     "encoding-result": _encoding_result_cases,
-    "encoding-result-stream": _encoding_result_cases,
+    "encoding-result-stream": _encoding_result_stream_cases,
     "encoding-chunks": _encoding_chunks_cases,
     "encoding": _encoding_cases,
     "decode": _decode_cases,
@@ -3159,29 +3187,11 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("900 mixed-site links", _EXTERNAL_LINKS_HTML),
         ("900 mixed-site links / 64 subdomains", _EXTERNAL_LINKS_HTML.replace("https://", f"https://{'s.' * 64}")),
     ),
-    "serialize-attributes": lambda: tuple(
-        (
-            f"{count} attributes, {order}, sorting {sorting}",
-            (
-                (
-                    "<div "
-                    f"""{
-                        " ".join(
-                            f'a{index:04d}="value"'
-                            for index in (reversed(range(count)) if order == "reversed" else range(count))
-                        )
-                    }"""
-                    ">text</div>"
-                ),
-                sorting,
-            ),
-        )
-        for count, order, sorting in (
-            (1024, "reversed", True),
-            (1024, "sorted", True),
-            (8, "reversed", True),
-            (1024, "reversed", False),
-        )
+    "serialize-attributes": lambda: (
+        _serialize_attributes_case(1024, "reversed", 1, sorting=True),
+        _serialize_attributes_case(1024, "sorted", 1, sorting=True),
+        _serialize_attributes_case(8, "reversed", 222, sorting=True),
+        _serialize_attributes_case(1024, "reversed", 1, sorting=False),
     ),
     "is-valid": lambda: _validation_verdict_cases(_VALIDATE_XSD),
     "is-valid-rng": lambda: _validation_verdict_cases(_VALIDATE_RNG),
@@ -3191,7 +3201,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             ("48k named characters", "é©\u03b1Ω∑€" * 8192),
             ("48k ASCII characters", "abcxyz" * 8192),
             ("48k unnamed characters", "😀" * 49152),
-            ("short mixed text", "café &amp; \u03b1 😀"),
+            ("1025 repeats of short mixed text", "café &amp; \u03b1 😀" * 1025),
         )
     ),
     "transform-text": _transform_text_cases,

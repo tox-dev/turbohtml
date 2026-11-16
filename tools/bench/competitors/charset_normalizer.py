@@ -17,7 +17,13 @@ def encoding(data: bytes) -> None:
     from_bytes(data).best()
 
 
+def _encoding_result(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        encoding(data)
+
+
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "encoding": (encoding, "charset-normalizer"),
-    "encoding-result": (encoding, "charset-normalizer"),
+    "encoding-result": (_encoding_result, "charset-normalizer"),
 }

@@ -289,6 +289,12 @@ def _equality_pair(count: int, variant: str) -> tuple[Tag, Tag]:
     return left, right
 
 
+def _encoding_result(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        encoding(data)
+
+
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "node-equals": (_node_equals, "BeautifulSoup (html.parser)"),
     "collapse-whitespace": (
@@ -335,7 +341,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "strip-tags": (strip_tags, "BeautifulSoup (html.parser)"),
     "rewrite": (rewrite, "BeautifulSoup (html.parser)"),
     "encoding": (encoding, "BeautifulSoup (html.parser)"),
-    "encoding-result": (encoding, "BeautifulSoup (html.parser)"),
+    "encoding-result": (_encoding_result, "BeautifulSoup (html.parser)"),
     "edit": (Mutating(setup=functools.partial(fresh, "html.parser"), run=edit), "BeautifulSoup (html.parser)"),
     "set-html": (Mutating(setup=functools.partial(fresh, "html.parser"), run=set_html), "BeautifulSoup (html.parser)"),
     "set-text": (Mutating(setup=functools.partial(fresh, "html.parser"), run=set_text), "BeautifulSoup (html.parser)"),

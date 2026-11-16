@@ -1281,6 +1281,18 @@ def _encoding(data: bytes) -> None:
     _detect_encoding(data)
 
 
+def _encoding_result(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        _detect_encoding(data)
+
+
+def _encoding_result_stream(case: tuple[int, bytes]) -> None:
+    count, data = case
+    for _ in range(count):
+        _encoding_stream(data)
+
+
 def _decode(case: tuple[str, bytes]) -> None:
     # Decode a legacy byte stream with turbohtml's WHATWG decoders, reached through the codecs detect registers.
     label, data = case
@@ -1837,8 +1849,8 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-js-unused-declarations": (minify_js, "turbohtml"),
     "minify-js-var-initialization": (minify_js, "turbohtml"),
     "stream": (_stream, "turbohtml"),
-    "encoding-result": (_encoding, "turbohtml"),
-    "encoding-result-stream": (_encoding_stream, "turbohtml"),
+    "encoding-result": (_encoding_result, "turbohtml"),
+    "encoding-result-stream": (_encoding_result_stream, "turbohtml"),
     "encoding-chunks": (_encoding_chunks, "turbohtml"),
     "encoding": (_encoding, "turbohtml"),
     "decode": (_decode, "turbohtml"),
