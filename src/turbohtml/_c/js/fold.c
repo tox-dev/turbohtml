@@ -1408,47 +1408,106 @@ static void fold_arithmetic(F *folder, int32_t idx) {
     }
 }
 
-/* Fold `"a" + "b"` to `"ab"` (ECMA-262 13.15.3, string concatenation is exact). The operand values
-   are decoded and the result re-encoded rather than the raw lexemes spliced: a trailing variable-length
-   escape (a legacy octal or a `\x`) in the left operand would otherwise absorb the right operand's first
-   character and change the value (`"\1"+"2"` is `"1","2"`, not the single octal `"\12"`; #437). */
-static void fold_concat(F *folder, int32_t idx, int32_t owned_mark) {
-    jm_node *node = &folder->prog->nodes[idx];
-    const jm_node *left = &folder->prog->nodes[node->a];
-    const jm_node *right = &folder->prog->nodes[node->b];
-    if (left->kind != JN_STRING || right->kind != JN_STRING || left->str[0] != right->str[0]) {
-        return; /* same-quote operands only, so the result keeps that quote and re-encoding stays minimal */
+/* The decoded operands of a `+` chain, joined left to right (ECMA-262 13.15.3). The operand values are decoded and the
+   joined value re-encoded rather than the raw lexemes spliced: a trailing variable-length escape (a legacy octal or a
+   `\x`) in the left operand would otherwise absorb the right operand's first character and change the value
+   (`"\1"+"2"` is `"1","2"`, not the single octal `"\12"`; #437). The run decodes each operand once and encodes the
+   value once, where the last `+` it joined stands, so a chain of n operands costs one pass over its text. */
+typedef struct {
+    Py_UCS4 *value;   /* the decoded operands joined so far */
+    Py_ssize_t len;   /* the code points in value */
+    Py_ssize_t cap;   /* the code points value can hold */
+    Py_UCS4 quote;    /* the quote every joined operand uses */
+    int32_t join;     /* the last `+` the run joined, whose node takes the value; -1 while none */
+    int32_t boundary; /* the owned count right after the last joined operand's walk */
+    int32_t mark;     /* the owned count before the chain's first operand was walked */
+    int open;         /* whether the next `+` can still join */
+} concat_run;
+
+static int concat_reserve(F *folder, concat_run *run, Py_ssize_t extra) {
+    if (run->len + extra <= run->cap) {
+        return 1;
     }
-    Py_UCS4 quote = left->str[0];
-    Py_ssize_t value_cap = left->str_len + right->str_len; /* neither decoded value outgrows its lexeme */
-    /* one scratch block: the decoded value, then the lexeme re-encoded after it (the widest escape is 6 wide) */
-    Py_UCS4 *scratch = jm_malloc((size_t)(value_cap * 7 + 2) * sizeof(Py_UCS4));
-    if (scratch == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+    Py_ssize_t cap = run->cap < 64 ? 64 : run->cap;
+    while (cap < run->len + extra) {
+        cap *= 2;
+    }
+    Py_UCS4 *grown = jm_realloc(run->value, (size_t)cap * sizeof(Py_UCS4));
+    if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
+        run->open = 0;            /* GCOVR_EXCL_LINE */
+        return 0;                 /* GCOVR_EXCL_LINE */
+    }
+    run->value = grown;
+    run->cap = cap;
+    return 1;
+}
+
+/* The first operand of a chain starts the run: a string literal, or nothing joins. */
+static void concat_start(F *folder, concat_run *run, int32_t first) {
+    const jm_node *operand = &folder->prog->nodes[first];
+    if (operand->kind != JN_STRING) {
+        run->open = 0;
+        return;
+    }
+    run->quote = operand->str[0];
+    if (!concat_reserve(folder, run, operand->str_len)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return;                                           /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t len = jm_str_decode(operand->str, operand->str_len, run->value);
+    if (len < 0) { /* an operand with an escape that has no value is left as written */
+        run->open = 0;
+        return;
+    }
+    run->len = len;
+}
+
+/* Join the walked right operand of the `+` at idx, once the run has not stopped. */
+static void concat_join(F *folder, concat_run *run, int32_t idx, int32_t right_index) {
+    if (!run->open) {
+        return;
+    }
+    const jm_node *right = &folder->prog->nodes[right_index];
+    /* same-quote operands only, so the result keeps that quote and re-encoding stays minimal */
+    if (right->kind != JN_STRING || right->str[0] != run->quote) {
+        run->open = 0;
+        return;
+    }
+    if (!concat_reserve(folder, run, right->str_len)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return;                                         /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t right_len = jm_str_decode(right->str, right->str_len, run->value + run->len);
+    if (right_len < 0) { /* an operand with an escape that has no value is left as written */
+        run->open = 0;
+        return;
+    }
+    TH_WORK_STEPS_ADD(right_len);
+    run->len += right_len;
+    run->join = idx;
+    run->boundary = folder->prog->owned_count;
+}
+
+/* Replace the node the run last joined with the literal of the whole joined value. Its lexeme is owned before the
+   lexemes of the joined operands are released, so an allocation failure leaves the tree as it was. Every buffer the
+   joined operands owned was synthesized for a node the collapse unlinks, and keeping them until the program is freed
+   would make an n-literal chain hold n/2 copies of its joined value. */
+static void concat_commit(F *folder, concat_run *run) {
+    Py_UCS4 *lexeme = jm_malloc((size_t)(run->len * 6 + 2) * sizeof(Py_UCS4)); /* the widest escape is 6 wide */
+    if (lexeme == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
         return;                   /* GCOVR_EXCL_LINE */
     }
-    Py_UCS4 *value = scratch;
-    Py_ssize_t value_len = jm_str_decode(left->str, left->str_len, value);
-    Py_ssize_t right_len = value_len < 0 ? -1 : jm_str_decode(right->str, right->str_len, value + value_len);
-    if (right_len < 0) { /* an operand with an escape that has no value is left as written */
-        jm_free(scratch);
-        return;
-    }
-    value_len += right_len;
-    Py_UCS4 *lexeme = scratch + value_cap;
-    lexeme[0] = quote;
-    Py_ssize_t inner = jm_str_encode(value, value_len, quote, lexeme + 1);
-    lexeme[inner + 1] = quote;
+    lexeme[0] = run->quote;
+    TH_WORK_STEPS_ADD(run->len);
+    Py_ssize_t inner = jm_str_encode(run->value, run->len, run->quote, lexeme + 1);
+    lexeme[inner + 1] = run->quote;
     const Py_UCS4 *owned = jm_program_own(folder->prog, lexeme, inner + 2);
-    jm_free(scratch);
+    jm_free(lexeme);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return;          /* GCOVR_EXCL_LINE */
     }
-    /* Every lexeme owned since the walk entered this node was synthesized for a node below it, and the rewrite
-       unlinks all of them. Keeping them until the program is freed would make an n-literal chain hold n/2 copies of
-       its joined value. */
-    jm_program_disown(folder->prog, owned_mark);
-    node = &folder->prog->nodes[idx];
+    jm_program_release(folder->prog, run->mark, run->boundary);
+    jm_node *node = &folder->prog->nodes[run->join];
     node->kind = JN_STRING;
     node->str = owned;
     node->str_len = inner + 2;
@@ -1516,15 +1575,43 @@ static void walk_target(F *folder, int32_t idx, int32_t depth) {
     }
 }
 
-/* A `+` walks its operands, then joins them if both are strings. The buffers the operands' folds made are released by
-   that join, so the count taken here marks where this subtree's buffers start. */
-static TH_NOINLINE void walk_plus(F *folder, int32_t idx, int32_t depth) {
+static inline void note_depth(F *folder, int32_t depth) {
+    if (depth > folder->deepest) {
+        folder->deepest = depth;
+    }
+}
+
+static int is_plus(const F *folder, int32_t idx) {
+    const jm_node *node = &folder->prog->nodes[idx];
+    return node->kind == JN_BINARY && node->op == JT_PLUS;
+}
+
+/* Walk a `+` chain down its left spine, joining each operand into run as it is walked. Each level is walked as the
+   recursive walk would walk it, so the depths and the arithmetic fold of every level stay the same. */
+static void walk_plus_chain(F *folder, int32_t idx, int32_t depth, concat_run *run) {
     int32_t child_a = folder->prog->nodes[idx].a;
     int32_t child_b = folder->prog->nodes[idx].b;
-    int32_t owned_mark = folder->prog->owned_count;
-    walk(folder, child_a, depth + 1);
+    if (is_plus(folder, child_a)) {
+        note_depth(folder, depth + 1);
+        walk_plus_chain(folder, child_a, depth + 1, run);
+        fold_arithmetic(folder, child_a);
+    } else {
+        walk(folder, child_a, depth + 1);
+        concat_start(folder, run, child_a);
+    }
     walk(folder, child_b, depth + 1);
-    fold_concat(folder, idx, owned_mark);
+    concat_join(folder, run, idx, child_b);
+}
+
+/* A `+` walks its operands, then joins them if both are strings. The owned count taken here marks where the buffers
+   of this chain's operands start. */
+static TH_NOINLINE void walk_plus(F *folder, int32_t idx, int32_t depth) {
+    concat_run run = {NULL, 0, 0, 0, -1, -1, folder->prog->owned_count, 1};
+    walk_plus_chain(folder, idx, depth, &run);
+    if (run.join >= 0) {
+        concat_commit(folder, &run);
+    }
+    jm_free(run.value);
 }
 
 static TH_NOINLINE void walk_block(F *folder, int32_t idx, int32_t depth, int member) {
@@ -1602,9 +1689,7 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
     if (idx < 0) {
         return;
     }
-    if (depth > folder->deepest) {
-        folder->deepest = depth;
-    }
+    note_depth(folder, depth);
     jm_node *node = &folder->prog->nodes[idx];
     int kind = node->kind;
     switch (kind) {
