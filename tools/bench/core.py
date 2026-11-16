@@ -14,7 +14,7 @@ import sys
 from collections import deque
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import turbohtml
 from turbohtml import Markdown as _Markdown
@@ -68,6 +68,7 @@ from turbohtml.validate import RelaxNG as _RelaxNG
 from turbohtml.validate import XMLSchema as _XMLSchema
 
 from ._attributes import fill_equality_pair  # simplint: ignore[private-import-path]  # shared benchmark helper
+from .operations import ColdFind
 from .timing import Mutating
 
 if TYPE_CHECKING:
@@ -378,13 +379,7 @@ def _find(text: str) -> None:
     _parsed(text).find_all("a")
 
 
-class _ColdFind(NamedTuple):
-    query_kind: str
-    document: turbohtml.Document
-    repeats: int
-
-
-def _find_cold(case: _ColdFind) -> None:
+def _find_cold(case: ColdFind) -> None:
     for _ in range(case.repeats):
         if case.query_kind == "find":
             case.document.find("a")
@@ -394,9 +389,9 @@ def _find_cold(case: _ColdFind) -> None:
             case.document.find_all("a", limit=1)
 
 
-def _find_cold_setup(case: tuple[str, str, int]) -> _ColdFind:
+def _find_cold_setup(case: tuple[str, str, int]) -> ColdFind:
     query_kind, source, repeats = case
-    return _ColdFind(query_kind, turbohtml.parse(source), repeats)
+    return ColdFind(query_kind, turbohtml.parse(source), repeats)
 
 
 def _select(text: str) -> None:

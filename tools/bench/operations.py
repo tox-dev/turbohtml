@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
 from textwrap import dedent
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from . import corpus
 from .corpus import (
@@ -32,6 +32,13 @@ from .corpus import (
 )
 
 Case: TypeAlias = str | int | bytes | tuple["Case", ...]
+
+
+class ColdFind(NamedTuple):
+    query_kind: str
+    document: Document
+    repeats: int
+
 
 if TYPE_CHECKING:
     from collections.abc import Buffer, Callable
@@ -79,6 +86,13 @@ if TYPE_CHECKING:
         | Callable[[tuple[int, str]], None]
         | Callable[[tuple[int, str]], str]
         | Callable[[tuple[int, str]], bool]
+        | Callable[[tuple[int, str]], list[tuple[str, str]]]
+        | Callable[[tuple[int, str, int]], None]
+        | Callable[[tuple[int, str, int]], bool]
+        | Callable[[tuple[int, bool, int]], None]
+        | Callable[[tuple[str, str, int]], None]
+        | Callable[[tuple[str, int]], None]
+        | Callable[[tuple[str, str, str, str] | tuple[str, str, str, str, int]], None]
         | Callable[[tuple[int, bool]], None]
         | Callable[[tuple[int, bool]], PyQuery]
         | Callable[[tuple[int, bytes]], None]
@@ -94,6 +108,12 @@ if TYPE_CHECKING:
         | Mutating[tuple[int, int, int, str], Callable[[], tuple[bool, ...]], tuple[bool, ...]]
         | Mutating[tuple[int, int], Element, None]
         | Mutating[tuple[int, str], Callable[[], None], None]
+        | Mutating[tuple[int, str, int], Callable[[], None], None]
+        | Mutating[tuple[int, int, int], list[Element], None]
+        | Mutating[tuple[str, bool, int], Callable[[], str | bytes], str | bytes]
+        | Mutating[tuple[str, int], tuple[Token, int], list[tuple[str, str]] | None]
+        | Mutating[tuple[str, str, int], ColdFind, None]
+        | Mutating[str, list[Element], None]
         | Mutating[tuple[str, bool], Callable[[], str | bytes], str | bytes]
         | Mutating[str, Token, list[tuple[str, str]] | None]
         | Mutating[tuple[str, str], tuple[str, Document], None]
@@ -3192,4 +3212,5 @@ __all__ = [
     "OPERATIONS",
     "SIZE_OPS",
     "Case",
+    "ColdFind",
 ]
