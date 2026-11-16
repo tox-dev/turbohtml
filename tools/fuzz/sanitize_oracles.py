@@ -1184,9 +1184,32 @@ def _confirm_with_parse5(findings: list[tuple[_Finding, Policy]]) -> list[tuple[
             sanitize_node(parse_fragment(finding.markup, _CONTEXT, positions=False), policy)
             for finding, policy in mutations
         ]
-        dumps = subprocess.run(
+        dumps = _parse5_dumps(
+            [(tree.inner_html, policy) for tree, (_, policy) in zip(trees, mutations, strict=True)], node
+        )
+        verdicts = {
+            finding.signature: _parse5_verdict(tree, policy, dump)
+            for (finding, policy), tree, dump in zip(mutations, trees, dumps, strict=True)
+        }
+    return [
+        (dataclasses.replace(finding, parse5=verdicts.get(finding.signature, finding.parse5)), policy)
+        for finding, policy in findings
+    ]
+
+
+def _parse5_dumps(serialized: Sequence[tuple[str, Policy]], node: str) -> list[str]:
+    # Dump each output as parse5 re-parses it, with each implied table wrapper the policy omits removed.
+    #
+    # parse5 re-creates those wrappers on re-parse, as a browser does, so the runner drops them the way ``_unwrapped``
+    # drops them from turbohtml's tree. Python decides which tags are omitted; the runner only removes them.
+    requests = [
+        {"markup": markup, "omit": sorted({tag for tag, _ in _IMPLIED_WRAPPERS if _omits_wrapper(tag, policy)})}
+        for markup, policy in serialized
+    ]
+    return json.loads(
+        subprocess.run(
             [node, str(_NODE_DIR / "parse5_tree_runner.js")],
-            input=json.dumps([tree.inner_html for tree in trees]),
+            input=json.dumps(requests),
             capture_output=True,
             text=True,
             cwd=_NODE_DIR,
@@ -1194,14 +1217,11 @@ def _confirm_with_parse5(findings: list[tuple[_Finding, Policy]]) -> list[tuple[
             env={key: value for key, value in os.environ.items() if key not in {"LD_PRELOAD", "DYLD_INSERT_LIBRARIES"}},
             check=True,
         ).stdout
-        verdicts = {
-            finding.signature: "html5lib-only" if dump == _normalized_dump(tree, policy) else "confirmed"
-            for (finding, policy), tree, dump in zip(mutations, trees, json.loads(dumps), strict=True)
-        }
-    return [
-        (dataclasses.replace(finding, parse5=verdicts.get(finding.signature, finding.parse5)), policy)
-        for finding, policy in findings
-    ]
+    )
+
+
+def _parse5_verdict(tree: Node, policy: Policy, dump: str) -> str:
+    return "html5lib-only" if dump == _normalized_dump(tree, policy) else "confirmed"
 
 
 if __name__ == "__main__":
