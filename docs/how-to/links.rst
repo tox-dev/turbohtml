@@ -150,7 +150,9 @@ raw-text element and ``Linkify.skip_tags`` are skipped the same way.
 
     <body><p>See <a href=https://example.com rel=nofollow>https://example.com</a> for details.</body>
 
-The string form accepts a node as well; it links a copy and hands back the HTML, leaving the node as it was.
+The string form accepts a node as well; it links a copy and hands back the HTML, leaving the node as it was. That HTML
+holds the node's children as they read inside a plain element, so the text of a raw-text node such as ``style`` or
+``xmp`` comes back escaped.
 
 **************************
  Find links in plain text

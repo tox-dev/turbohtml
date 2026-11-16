@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from turbohtml._html import (  # simplint: ignore[private-import-path]  # native extension lives in the root package
+    Element,
     Minify,
     Node,
     PhoneConfig,
@@ -36,6 +37,7 @@ from turbohtml._internal import (  # simplint: ignore[private-import-path]  # mi
 
 __all__ = [
     "CSSMinify",
+    "Element",
     "JSMinify",
     "Minify",
     "Node",
