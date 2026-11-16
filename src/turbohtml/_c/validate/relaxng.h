@@ -1662,6 +1662,22 @@ static RNG_NOINLINE int rng_repeat_absorbs(th_schema *schema, pattern *head, con
     return covered;
 }
 
+#define RNG_GROUP_COVER_STEPS 32
+
+/* The choice a derivative of group(p1, p2) makes when p1 is nullable: `left` continues p1's round and `right` starts
+   p2 without it. Both end in the same element content, so when `left`'s tail covers `right`'s, `left` matches
+   everything `right` does, since the group's nullable sibling lets `left` run on. Each place of a doubled group would
+   otherwise keep its own branch. */
+static pattern *rng_group_choice(th_schema *schema, pattern *left, pattern *right) {
+    if (schema->routing == NULL || left->type != P_AFTER || right->type != P_AFTER || left->p1 != right->p1) {
+        return pat_choice(schema, left, right);
+    }
+    int budget = RNG_GROUP_COVER_STEPS;
+    int covered = rng_covers(schema, right->p2, left->p2, &budget);
+    (void)rng_event_spend(schema, RNG_GROUP_COVER_STEPS - budget);
+    return covered ? left : pat_choice(schema, left, right);
+}
+
 static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t norm_len = 0;
     const Py_UCS4 *norm = dt_normalize_ws(schema, facets->ws, value, len, &norm_len);
@@ -1864,7 +1880,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
         }
         pattern *left = pat_group(schema, rng_text_deriv(schema, p->p1, value, len), p->p2);
         if (rng_nullable(schema, p->p1)) {
-            return pat_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
+            return rng_group_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
         }
         return left;
     }
@@ -1951,7 +1967,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, patte
         }
         pattern *left = rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 0);
         if (rng_nullable(schema, p->p1)) {
-            return pat_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
+            return rng_group_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
         }
         return left;
     }
@@ -2739,7 +2755,8 @@ static RNG_NOINLINE pattern *route_text(th_schema *schema, pattern *p, const Py_
     if (p->type == P_INTERLEAVE) {
         return pat_choice(schema, first, route_join(schema, p, p->p1, rng_text_deriv(schema, p->p2, value, len)));
     }
-    return rng_nullable(schema, p->p1) ? pat_choice(schema, first, rng_text_deriv(schema, p->p2, value, len)) : first;
+    return rng_nullable(schema, p->p1) ? rng_group_choice(schema, first, rng_text_deriv(schema, p->p2, value, len))
+                                       : first;
 }
 
 static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qname *name) {
@@ -2761,7 +2778,7 @@ static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qna
     default: { /* P_GROUP */
         pattern *first = left ? route_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p, p->p2, 1) : none;
         if (right && rng_nullable(schema, p->p1)) {
-            return pat_choice(schema, first, rng_start_tag_open(schema, p->p2, name));
+            return rng_group_choice(schema, first, rng_start_tag_open(schema, p->p2, name));
         }
         return first;
     }
