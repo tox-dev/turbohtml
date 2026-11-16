@@ -212,8 +212,11 @@ def _shadow(count: int) -> None:
     _ = list(host.flattened_children)
 
 
-def _shadow_slot(case: tuple[int, str]) -> None:
-    _slotted(case).assigned_nodes()
+def _shadow_slot(case: tuple[int, str, int]) -> None:
+    size, markup, repeats = case
+    slot: Final = _slotted((size, markup))
+    for _ in range(repeats):
+        slot.assigned_nodes()
 
 
 @functools.cache
@@ -329,30 +332,38 @@ def _tokenize(text: str) -> None:
         pass
 
 
-def _render_options_setup(case: tuple[str, bool]) -> Callable[[], str | bytes]:
+def _render_options_setup(case: tuple[str, bool, int]) -> Callable[[], str | bytes]:
     node: Final = turbohtml.Element("p", children=[turbohtml.Text("x")])
-    kind, supplied = case
+    kind, supplied, repeats = case
     if kind == "html":
-        return functools.partial(node.serialize, turbohtml.Html()) if supplied else node.serialize
-    if kind == "text":
-        return functools.partial(node.to_text, turbohtml.PlainText()) if supplied else node.to_text
-    return functools.partial(node.canonicalize, turbohtml.Canonical()) if supplied else node.canonicalize
+        render = functools.partial(node.serialize, turbohtml.Html()) if supplied else node.serialize
+    elif kind == "text":
+        render = functools.partial(node.to_text, turbohtml.PlainText()) if supplied else node.to_text
+    else:
+        render = functools.partial(node.canonicalize, turbohtml.Canonical()) if supplied else node.canonicalize
+
+    def run() -> str | bytes:
+        return [render() for _ in range(repeats)][-1]
+
+    return run
 
 
 def _render_options(render: Callable[[], str | bytes]) -> str | bytes:
     return render()
 
 
-def _token_attribute_setup(text: str) -> turbohtml.Token:
-    return next(iter(turbohtml.tokenize(text)))
+def _token_attribute_setup(case: tuple[str, int]) -> tuple[turbohtml.Token, int]:
+    text, repeats = case
+    return next(iter(turbohtml.tokenize(text))), repeats
 
 
-def _token_attributes(token: turbohtml.Token) -> list[tuple[str, str]] | None:
-    return token.attrs
+def _token_attributes(prepared: tuple[turbohtml.Token, int]) -> list[tuple[str, str]] | None:
+    token, repeats = prepared
+    return [token.attrs for _ in range(repeats)][-1]
 
 
-def _tokenize_attributes(text: str) -> None:
-    for token in turbohtml.tokenize(text):
+def _tokenize_attributes(case: tuple[str, int]) -> None:
+    for token in turbohtml.tokenize(case[0]):
         _ = token.attrs
 
 
@@ -568,6 +579,13 @@ def _serialize_xml(text: str) -> None:
 def _canonicalize(text: str) -> None:
     # Canonicalize a parsed document to Canonical XML (c14n) with turbohtml's canonicalize method.
     _ = _parsed(text).canonicalize()
+
+
+def _canonicalize_deep(case: tuple[str, int]) -> None:
+    text, repeats = case
+    document: Final = _parsed(text)
+    for _ in range(repeats):
+        _ = document.canonicalize()
 
 
 def _minify(text: str) -> str:
@@ -1053,9 +1071,12 @@ def _rewrite(text: str) -> None:
     )
 
 
-def _rewrite_attributes(case: tuple[int, str]) -> None:
+def _rewrite_attributes(case: tuple[int, str, int]) -> None:
     # Exclude attribute-name preparation from steady-state timing.
-    _lib_rewrite(case[1], elements=(("x", _rewrite_attribute_handler(case[0])),))
+    count, text, repeats = case
+    handler: Final = _rewrite_attribute_handler(count)
+    for _ in range(repeats):
+        _lib_rewrite(text, elements=(("x", handler),))
 
 
 @functools.cache
@@ -1441,8 +1462,8 @@ def _range_partial_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     return run
 
 
-def _observe_registrations_setup(case: tuple[int, str]) -> Callable[[], None]:
-    count, variant = case
+def _observe_registrations_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, variant, repeats = case
     root: Final = turbohtml.Element("div")
     root.set_inner_html(f"{'<div>' * 100}target{'</div>' * 100}{'<span></span>' * count}")
     target: Final = root.select("div")[-1]
@@ -1453,45 +1474,54 @@ def _observe_registrations_setup(case: tuple[int, str]) -> Callable[[], None]:
         observer.observe(root, attributes=True, subtree=True)
 
     def run() -> None:
-        target.attrs["data-change"] = "changed"
-        observer.take_records()
+        for _ in range(repeats):
+            target.attrs["data-change"] = "changed"
+            observer.take_records()
 
     return run
 
 
-def _shadow_fallback_setup(case: tuple[int, str]) -> Callable[[], None]:
+def _shadow_fallback_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, _variant, repeats = case
     host: Final = turbohtml.Element("div")
     shadow: Final = host.attach_shadow("open")
-    shadow.set_inner_html(f"<slot>{'<slot>fallback</slot>' * case[0]}</slot>")
+    shadow.set_inner_html(f"<slot>{'<slot>fallback</slot>' * count}</slot>")
     first: Final = shadow.select("slot")[0]
 
     def run() -> None:
-        first.assigned_nodes(flatten=True)
+        for _ in range(repeats):
+            first.assigned_nodes(flatten=True)
 
     return run
 
 
-def _shadow_assignment_setup(case: tuple[int, str]) -> Callable[[], None]:
+def _shadow_assignment_setup(case: tuple[int, str, int]) -> Callable[[], None]:
+    count, _variant, repeats = case
     host: Final = turbohtml.Element("div")
-    host.set_inner_html("".join(f'<i slot="name-{index}">{index}</i>' for index in range(case[0])))
+    host.set_inner_html("".join(f'<i slot="name-{index}">{index}</i>' for index in range(count)))
     shadow: Final = host.attach_shadow("open")
-    shadow.set_inner_html("".join(f'<slot name="name-{index}">fallback</slot>' for index in range(case[0])))
+    shadow.set_inner_html("".join(f'<slot name="name-{index}">fallback</slot>' for index in range(count)))
 
     def run() -> None:
-        _ = host.flattened_children
+        for _ in range(repeats):
+            _ = host.flattened_children
 
     return run
 
 
-def _prune_shared_setup(case: tuple[int, int]) -> turbohtml.Element:
-    depth, matches = case
-    root: Final = turbohtml.Element("main")
-    root.set_inner_html("<section>" * depth + "<b>keep</b><i>drop</i>" * matches + "</section>" * depth)
-    return root
+def _prune_shared_setup(case: tuple[int, int, int]) -> list[turbohtml.Element]:
+    depth, matches, repeats = case
+    roots: Final[list[turbohtml.Element]] = []
+    for _ in range(repeats):
+        root: Final = turbohtml.Element("main")
+        root.set_inner_html("<section>" * depth + "<b>keep</b><i>drop</i>" * matches + "</section>" * depth)
+        roots.append(root)
+    return roots
 
 
-def _prune_shared(root: turbohtml.Element) -> None:
-    root.prune("b")
+def _prune_shared(roots: list[turbohtml.Element]) -> None:
+    for root in roots:
+        root.prune("b")
 
 
 def _query_roots(case: tuple[int, str]) -> None:
@@ -1513,8 +1543,11 @@ def _query_closest(case: tuple[int, bool]) -> None:
     _query_parents_case(case).closest("main")
 
 
-def _node_closest(case: tuple[int, bool]) -> None:
-    _query_parents_case(case)[0].closest("main")
+def _node_closest(case: tuple[int, bool, int]) -> None:
+    count, shared, repeats = case
+    node: Final = _query_parents_case((count, shared))[0]
+    for _ in range(repeats):
+        node.closest("main")
 
 
 def _query_parents(case: tuple[int, bool]) -> None:
@@ -1539,8 +1572,10 @@ def _query_siblings_case(case: tuple[int, bool]) -> _Query:
     return selected if all_selected else selected.eq(0)
 
 
-def _form_data_fieldsets(text: str) -> list[tuple[str, str]]:
-    return _form_data_case(text).form_data()
+def _form_data_fieldsets(case: tuple[int, str]) -> list[tuple[str, str]]:
+    repeats, text = case
+    form: Final = _form_data_case(text)
+    return [form.form_data() for _ in range(repeats)][-1]
 
 
 @functools.cache
@@ -1680,7 +1715,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize-xml": (_serialize_xml, "turbohtml"),
     "canonicalize": (_canonicalize, "turbohtml"),
     "canonicalize-attrs": (_canonicalize, "turbohtml"),
-    "canonicalize-deep": (_canonicalize, "turbohtml"),
+    "canonicalize-deep": (_canonicalize_deep, "turbohtml"),
     "lossless-serialize": (Mutating(setup=_parse_source_locations, run=_lossless_serialize), "turbohtml"),
     "minify": (_minify, "turbohtml"),
     "edit": (Mutating(setup=turbohtml.parse, run=_edit), "turbohtml"),

@@ -169,6 +169,13 @@ def canonicalize(text: str) -> None:
     lxml_etree.tostring(_parsed(text), method="c14n")
 
 
+def canonicalize_deep(case: tuple[str, int]) -> None:
+    text, repeats = case
+    tree: Final = _parsed(text)
+    for _ in range(repeats):
+        lxml_etree.tostring(tree, method="c14n")
+
+
 def extract_attr(text: str) -> None:
     # Read every anchor's href with lxml's XPath attribute selection.
     _parsed(text).xpath("//a/@href")
@@ -550,7 +557,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize": (serialize, "lxml"),
     "serialize-xml": (serialize_xml, "lxml method=xml"),
     "canonicalize": (canonicalize, "lxml method=c14n"),
-    "canonicalize-deep": (canonicalize, "lxml method=c14n"),
+    "canonicalize-deep": (canonicalize_deep, "lxml method=c14n"),
     "extract-attr": (extract_attr, "lxml"),
     "extract-text": (extract_text, "lxml"),
     "strip-remove": (strip_remove, "lxml"),
