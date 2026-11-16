@@ -369,19 +369,22 @@ _XPATH_CALLS: Final[MappingProxyType[str, Callable[[HtmlElement, str], object]]]
 })
 
 
-def _xpath_scaling(case: tuple[str, str]) -> None:
-    _parsed(case[1]).xpath(case[0], namespaces=_EXSLT_NS)
+def _xpath_scaling(case: tuple[str, str] | tuple[str, str, int]) -> None:
+    expression, text = case[:2]
+    for _ in range(case[2] if len(case) == 3 else 1):
+        _parsed(text).xpath(expression, namespaces=_EXSLT_NS)
 
 
-def xpath(case: tuple[str, str]) -> None:
+def xpath(case: tuple[str, str] | tuple[str, str, int]) -> None:
     # Evaluate one XPath feature class with lxml's libxml2 engine, by case kind.
-    kind, text = case
+    kind, text = case[:2]
     if (call := _XPATH_CALLS.get(kind)) is None:
         # libxml2 is an XPath 1.0 engine; the XPath 2.0 string functions turbohtml adds have nothing to run on here,
         # so the worker records this sentence as the empty cell's reason rather than a bare KeyError token
         unsupported = "lxml's libxml2 is XPath 1.0, without the XPath 2.0 string functions"
         raise NotImplementedError(unsupported)
-    call(_parsed(text), text)
+    for _ in range(case[2] if len(case) == 3 else 1):
+        call(_parsed(text), text)
 
 
 @functools.cache
