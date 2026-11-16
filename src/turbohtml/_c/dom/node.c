@@ -2585,18 +2585,26 @@ PyObject *codec_registry_name(const char *encoding) {
     return name;
 }
 
-/* Whether encoding resolves to one of CPython's ISO-2022 codecs (iso2022_jp and its variants, iso2022_kr): 1 or 0, or
-   -1 with the registry's LookupError set. */
-static int codec_is_iso2022(const char *encoding) {
-    PyObject *name = codec_registry_name(encoding);
-    if (name == NULL) {
+/* Whether the codec writes U+000E, U+000F or U+001B as bytes that switch a decoder's state: 1 or 0, or -1 with an
+   exception set. Encoding Japanese, Hangul and Han text reaches the switch bytes of every ISO-2022 codec, whatever its
+   name, while hz and UTF-7 spell their switches as "~{" and "+" and write no raw shift byte. */
+static int codec_emits_shift_bytes(const char *encoding) {
+    static const Py_UCS4 probe_chars[] = {0x3042, 0xAC00, 0x4E2D};
+    PyObject *probe = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, probe_chars, Py_ARRAY_LENGTH(probe_chars));
+    /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+    PyObject *encoded = probe == NULL ? NULL : PyUnicode_AsEncodedString(probe, encoding, "replace");
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XDECREF(probe);
+    if (encoded == NULL) {
         return -1;
     }
-    const char *resolved = PyUnicode_Check(name) ? PyUnicode_AsUTF8(name) : NULL;
-    int iso2022 = resolved != NULL && strncmp(resolved, "iso2022", 7) == 0;
-    PyErr_Clear(); /* a codec a search function registered without a str name is not one of CPython's */
-    Py_DECREF(name);
-    return iso2022;
+    const char *bytes = PyBytes_AS_STRING(encoded);
+    int shifting = 0;
+    for (Py_ssize_t index = 0; index < PyBytes_GET_SIZE(encoded) && !shifting; index++) {
+        shifting = bytes[index] == 0x0E || bytes[index] == 0x0F || bytes[index] == 0x1B;
+    }
+    Py_DECREF(encoded);
+    return shifting;
 }
 
 /* The first U+000E, U+000F or U+001B in text, or -1: each sweep stops where the one before it matched. */
@@ -2613,25 +2621,20 @@ static Py_ssize_t shift_code_find(PyObject *text) {
     return first;
 }
 
-static int label_may_be_iso2022(const char *encoding) {
-    return strstr(encoding, "2022") != NULL;
-}
-
 /* CPython's ISO-2022 encoders write U+000E, U+000F and U+001B unchanged, and a decoder reads those bytes as shift
    codes that change how the bytes after them are read, so markup holding one would not read back as serialized. The
    WHATWG ISO-2022-JP encoder errors on all three for that reason
    (https://encoding.spec.whatwg.org/#iso-2022-jp-encoder), so under those codecs they are characters the encoding
    cannot represent: a strict encode raises UnicodeEncodeError, and charrefs writes them the way "xmlcharrefreplace"
-   writes every other such character. Only a label containing "2022" pays for the scan, because CPython gives every
-   ISO-2022 codec name and alias that substring. */
+   writes every other such character. Only text holding a shift code pays for the codec probe. */
 PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs) {
     const char *errors = charrefs ? "xmlcharrefreplace" : NULL;
-    Py_ssize_t shift = label_may_be_iso2022(encoding) ? shift_code_find(text) : -1;
-    int iso2022 = shift < 0 ? 0 : codec_is_iso2022(encoding);
-    if (iso2022 < 0) {
+    Py_ssize_t shift = shift_code_find(text);
+    int stateful = shift < 0 ? 0 : codec_emits_shift_bytes(encoding);
+    if (stateful < 0) {
         return NULL;
     }
-    if (!iso2022) {
+    if (!stateful) {
         return PyUnicode_AsEncodedString(text, encoding, errors);
     }
     if (!charrefs) {
