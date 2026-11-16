@@ -1395,13 +1395,13 @@ def test_formatting_end_tag_keeps_current_node_listed_below_marker() -> None:
 @pytest.mark.parametrize(
     ("free_slots", "tail", "expected"),
     [
-        pytest.param(4, "y", "<b><i>x</i></b></div><b><i>y</i></b>", id="refused-at-cap"),
-        pytest.param(4, "</u>y", "<b><i>x</i></b></div><b><i>y</i></b>", id="refused-then-end-tag"),
+        pytest.param(4, "y", "<b><i><u></u>y</i></b>", id="reopened-past-cap"),
+        pytest.param(4, "</u>y", "<b><i>y</i></b>", id="past-cap-then-end-tag"),
         pytest.param(412, "y", "<b><i><u>x</u></i></b></div><b><i><u>y</u></i></b>", id="below-cap"),
     ],
 )
-def test_formatting_refused_at_depth_cap_is_not_reopened(free_slots: int, tail: str, expected: str) -> None:
-    # the <u> the cap refuses leaves the list, so no later text reopens it once the nesting closes
+def test_formatting_past_depth_cap_is_reopened_after_the_nesting(free_slots: int, tail: str, expected: str) -> None:
+    # the formatting elements stay listed past the cap, so the text after the nesting reopens them as the spec does
     body = parse(f"<p><b><i><u></p>{'<div>' * (_DEPTH_CAP - free_slots)}x</div>{tail}").find("body")
     assert body is not None
     assert expected in body.inner_html
@@ -2090,12 +2090,11 @@ def test_table_part_rejected_at_depth_cap_keeps_later_content(
 
 
 @pytest.mark.parametrize(("make", "nesting"), _CAPPED_PARSES)
-def test_col_rejected_at_depth_cap_keeps_its_table_and_attributes(
+def test_col_past_depth_cap_keeps_every_column_and_attribute(
     make: Callable[[str], Document | DocumentFragment], nesting: int
 ) -> None:
-    table = make(f"{'<div>' * nesting}<table><col span=2><col id=c2>").find("table")
-    assert table is not None
-    assert [(child.tag, dict(child.attrs)) for child in table.children if isinstance(child, Element)] == [
+    root = make(f"{'<div>' * nesting}<table><col span=2><col id=c2>")
+    assert [(col.tag, dict(col.attrs)) for col in root.find_all("col")] == [
         ("col", {"span": "2"}),
         ("col", {"id": "c2"}),
     ]
@@ -2120,31 +2119,19 @@ def test_formatting_element_survives_table_part_refused_at_depth_cap(markup: str
 
 
 @pytest.mark.parametrize(
-    ("content", "expected"),
+    ("content", "templates"),
     [
-        pytest.param(
-            "<template><template></template>x", "<template><template></template>x</template>", id="in-template"
-        ),
-        pytest.param(
-            "<template><br><template></template>x", "<template><br><template></template>x</template>", id="in-body"
-        ),
-        pytest.param(
-            "<template><col><template></template></template>x",
-            "<template><col><template></template></template>x",
-            id="in-column-group",
-        ),
-        pytest.param(
-            "<template><br><template><col></template>x",
-            "<template><br><template></template><col>x</template>",
-            id="mode-switched-inside",
-        ),
+        pytest.param("<template><template></template>x", 3, id="in-template"),
+        pytest.param("<template><br><template></template>x", 3, id="in-body"),
+        pytest.param("<template><col><template></template></template>x", 3, id="in-column-group"),
+        pytest.param("<template><br><template><col></template>x", 3, id="mode-switched-inside"),
     ],
 )
-def test_refused_template_end_tag_closes_only_itself(content: str, expected: str) -> None:
-    # the second template fills the stack, so the third is refused and its content lands beside it
-    outer = parse(f"{'<span>' * (_DEPTH_CAP - 4)}<template>{content}").find("template")
-    assert outer is not None
-    assert outer.inner_html == expected
+def test_template_past_depth_cap_closes_only_itself(content: str, templates: int) -> None:
+    # the nested templates are all kept, and each end tag closes its own template, so the text after them stays in order
+    document = parse(f"{'<span>' * (_DEPTH_CAP - 4)}<template>{content}")
+    assert len(document.find_all("template")) == templates
+    assert document.text == "x"
 
 
 def test_table_closed_under_refused_template_keeps_later_text() -> None:
@@ -2153,51 +2140,52 @@ def test_table_closed_under_refused_template_keeps_later_text() -> None:
     assert parse(markup).text == "x"
 
 
-def test_stray_template_end_tag_at_depth_cap_is_ignored() -> None:
-    # the parse reached the cap, so the end tag looks for a refused template record, and no template is open at all
+def test_stray_template_end_tag_past_depth_cap_is_ignored() -> None:
+    # no template is open, so the end tag changes nothing and the text after the nesting is kept
     document = parse(f"{'<div>' * _DEPTH_CAP}</template>x")
     assert document.find("template") is None
-    assert document.html.endswith(f"<div></div><div></div>x{'</div>' * (_DEPTH_CAP - 2)}</body></html>")
+    assert document.text == "x"
+    assert len(document.find_all("div")) == _DEPTH_CAP
 
 
 @pytest.mark.parametrize(
     "nesting",
     [
         pytest.param(_DEPTH_CAP - 1, id="fits-under-cap"),
-        pytest.param(_DEPTH_CAP, id="first-refused"),
+        pytest.param(_DEPTH_CAP, id="first-past-cap"),
         pytest.param(_DEPTH_CAP + 5, id="well-past-cap"),
     ],
 )
-def test_frameset_refused_at_depth_cap_keeps_every_frame(nesting: int) -> None:
-    # a refused frameset's end tag must not close an ancestor, or the frames after it are dropped
+def test_frameset_past_depth_cap_keeps_every_frame(nesting: int) -> None:
+    # a frameset past the cap must not take its end tag to an ancestor, or the frames after it are dropped
     document = parse(f"{'<frameset>' * nesting}<frame>{'</frameset><frame>' * nesting}")
     assert len(document.find_all("frame")) == nesting
 
 
-def test_noframes_refused_at_depth_cap_keeps_the_frameset_open() -> None:
+def test_noframes_past_depth_cap_keeps_its_frame_and_text() -> None:
     document = parse(f"{'<frameset>' * (_DEPTH_CAP - 1)}<noframes>x</noframes><frame>")
-    assert document.find_all("frameset")[-1].inner_html == "<noframes></noframes>x<frame>"
+    assert (len(document.find_all("frame")), len(document.find_all("noframes")), document.text) == (1, 1, "x")
 
 
 @pytest.mark.parametrize(
-    ("tag", "inner"),
+    ("tag", "text"),
     [
-        pytest.param("script", "<script></script>xtail", id="script"),
-        pytest.param("style", "<style></style>xtail", id="style"),
-        pytest.param("textarea", "<textarea></textarea>xtail", id="textarea"),
-        pytest.param("title", "<title></title>xtail", id="title"),
-        pytest.param("xmp", "<xmp></xmp>xtail", id="xmp"),
-        pytest.param("iframe", "<iframe></iframe>xtail", id="iframe"),
-        pytest.param("noembed", "<noembed></noembed>xtail", id="noembed"),
-        pytest.param("noframes", "<noframes></noframes>xtail", id="noframes"),
-        pytest.param("noscript", "<noscript></noscript>xtail", id="noscript"),
-        pytest.param("plaintext", "<plaintext></plaintext>x&lt;/plaintext&gt;tail", id="plaintext"),
+        pytest.param("script", "xtail", id="script"),
+        pytest.param("style", "xtail", id="style"),
+        pytest.param("textarea", "xtail", id="textarea"),
+        pytest.param("title", "xtail", id="title"),
+        pytest.param("xmp", "xtail", id="xmp"),
+        pytest.param("iframe", "xtail", id="iframe"),
+        pytest.param("noembed", "xtail", id="noembed"),
+        pytest.param("noframes", "xtail", id="noframes"),
+        pytest.param("noscript", "xtail", id="noscript"),
+        pytest.param("plaintext", "x</plaintext>tail", id="plaintext"),
     ],
 )
-def test_raw_text_element_refused_at_depth_cap_keeps_its_parent_open(tag: str, inner: str) -> None:
-    # the end tag of a refused element must not close the div it was refused under
+def test_raw_text_element_past_depth_cap_keeps_the_text_in_order(tag: str, text: str) -> None:
+    # the raw-text element sits past the cap, so its end tag must not close an ancestor and the tail stays after the x
     document = parse(f"<!doctype html><html><body>{'<div>' * (_DEPTH_CAP - 2)}<{tag}>x</{tag}>tail", scripting=True)
-    assert document.find_all("div")[-1].inner_html == inner
+    assert (len(document.find_all(tag)), document.text) == (1, text)
 
 
 def test_capped_parse_round_trips_through_serialization() -> None:
@@ -2211,10 +2199,14 @@ def test_sanitize_of_deeply_nested_input_does_not_overflow() -> None:
     assert result.count("&lt;div&gt;") == _PATHOLOGICAL  # div is escaped, not kept, but every one survives
 
 
-@pytest.mark.parametrize("levels", [pytest.param(400, id="under-cap"), pytest.param(511, id="at-cap")])
-def test_nesting_below_the_cap_is_left_untouched(levels: int) -> None:
+@pytest.mark.parametrize(
+    ("levels", "deepest"),
+    [pytest.param(400, 402, id="under-cap"), pytest.param(511, _DEPTH_CAP, id="at-cap")],
+)
+def test_nesting_at_the_cap_keeps_every_div_and_stops_the_dom_there(levels: int, deepest: int) -> None:
+    # html and body plus the divs, nested up to the cap; the divs past it stay in the document beside the deepest one
     doc = parse("<div>" * levels)
-    assert _max_element_depth(doc) == levels + 2  # html + body + every div, fully nested
+    assert (_max_element_depth(doc), len(doc.find_all("div"))) == (deepest, levels)
 
 
 def test_deep_parsed_xml_text_and_serialization_are_complete() -> None:
@@ -2304,7 +2296,8 @@ def test_markdown_closes_every_nested_emphasis() -> None:
 
 def test_annotated_text_labels_every_nested_div() -> None:
     document = parse(f"<body>{'<div>' * 511}x")
-    assert document.to_annotated_text({"div": ["t"]}) == ("x", [(0, 1, "t")] * 510)
+    # the text lands in the deepest div the cap allows, so the 509 divs above it enclose it; the two below stay beside
+    assert document.to_annotated_text({"div": ["t"]}) == ("x", [(0, 1, "t")] * 509)
 
 
 @pytest.mark.parametrize("duplicate", [pytest.param(copy.copy, id="copy"), pytest.param(copy.deepcopy, id="deepcopy")])

@@ -916,11 +916,11 @@ def test_generation_foreign_unmatched_p_null(markup: str, expected: str) -> None
     ("nesting", "oracle_calls"),
     [
         pytest.param(500, 1, id="reference-at-limit"),
-        pytest.param(501, 0, id="reference-past-limit"),
+        pytest.param(501, 1, id="reference-past-limit"),
         pytest.param(2501, 0, id="parser-past-limit"),
     ],
 )
-def test_encoding_oracle_skips_markup_past_the_nesting_limit(
+def test_encoding_oracle_compares_deep_markup_up_to_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
 ) -> None:
     parse_reference: Final = mocker.spy(html5lib.HTMLParser, "parse")
@@ -928,11 +928,11 @@ def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     assert parse_reference.call_count == oracle_calls
 
 
-def test_encoding_oracle_keeps_parser_text_at_the_tree_depth_cap(mocker: MockerFixture) -> None:
+def test_encoding_oracle_matches_the_reference_past_the_tree_depth_cap(mocker: MockerFixture) -> None:
     parse_reference: Final = mocker.spy(html5lib.HTMLParser, "parse")
     data: Final = (f">{'<div>' * 509}\x01\x00<table><tr><ud>a<=d>c<td>d").encode()
-    assert encoding_observation(data) == ">\x01da<=d>c"
-    assert parse_reference.call_count == 0
+    assert encoding_observation(data) == ">\x01a<=d>cd"
+    assert parse_reference.call_count == 1
 
 
 @pytest.mark.parametrize(

@@ -472,19 +472,14 @@ static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
 }
 
-static int stack_at_depth_cap(const th_tree *tree) {
-    return tree->open_len >= TH_MAX_TREE_DEPTH;
+/* The lowest open-element index a search of the stack reads. The stack grows with the input, but a search reads only
+   the top TH_MAX_TREE_DEPTH entries, the window the depth cap used to leave, so a stray end tag costs the same at any
+   depth. */
+static Py_ssize_t stack_window_floor(const th_tree *tree) {
+    return tree->open_len > TH_MAX_TREE_DEPTH ? tree->open_len - TH_MAX_TREE_DEPTH : 0;
 }
 
 static int stack_push(th_tree *tree, th_node *node) {
-    if (tree->open_len >= TH_MAX_TREE_DEPTH) {
-        /* Runaway nesting: leave the element in the DOM (it was already inserted under
-           the deepest open element) but do not descend into it, so subsequent start
-           tags become its siblings. This bounds tree depth the way browsers do, which
-           keeps the recursive tree walks off a deep C stack and caps the O(depth^2)
-           parse cost of a long run of start tags. */
-        return 1;
-    }
     if (tree->open_len == tree->open_cap) {
         size_t cap;
         size_t bytes;
@@ -507,18 +502,10 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_p_count++;
     }
     tree->stack_version++;
-    /* the push cap keeps every element short of TH_DEEP_NEST ancestors */
     if (tree->open_len >= TH_HAS_MEMO_DEPTH) {
         tree->nest_bound &= TH_NEST_CAPPED;
     }
     return 1;
-}
-
-/* stack_push reports success even when the depth cap keeps the node off the stack */
-static int stack_push_kept(th_tree *tree, th_node *node) {
-    Py_ssize_t open_len_before = tree->open_len;
-    stack_push(tree, node);
-    return tree->open_len != open_len_before;
 }
 
 static void maybe_clone_option(th_tree *tree, th_node *option);
@@ -594,7 +581,7 @@ static int is_scope_boundary(const th_node *node) {
 }
 
 static int find_in_scope(th_tree *tree, uint16_t atom) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) {
         th_node *node = tree->open[index];
         if (node->ns == TH_NS_HTML && node->atom == atom) {
             return 1;
@@ -618,7 +605,7 @@ static int has_in_scope(th_tree *tree, uint16_t atom) {
 /* List-item scope: the default boundaries plus ol and ul. */
 static int has_in_list_item_scope(th_tree *tree, uint16_t atom) {
     /* The html element bounds the stack walk. */
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         /* Foreign content runs under the foreign rules before any list-item scope check. */
         if (node->ns == TH_NS_HTML /* GCOVR_EXCL_BR_LINE */ && node->atom == atom) {
@@ -693,7 +680,7 @@ static void clear_to(th_tree *tree, uint16_t atom_a, uint16_t atom_b, uint16_t a
    nearest HTML table, template or html")? */
 static int has_in_table_scope(th_tree *tree, uint16_t atom) {
     /* The html element bounds the stack walk. */
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         if (node->ns != TH_NS_HTML) {
             continue;
@@ -711,7 +698,7 @@ static int has_in_table_scope(th_tree *tree, uint16_t atom) {
 /* The appropriate place for inserting a node: normally the current node, but
    when foster parenting is active and the current node is a table-context
    element, the location just before the nearest table (templates deferred). */
-static void insertion_location_target(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
+static void insertion_location_place(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
     *before = NULL;
     /* content goes into a template's content fragment, not the element itself;
        an html template always carries that content node as its first child */
@@ -751,6 +738,42 @@ static void insertion_location_target(th_tree *tree, th_node *target, th_node **
         return;
     }
     *parent = target;
+}
+
+/* Whether node has at least limit ancestors. The walk stops at limit steps, so it costs at most limit. */
+static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
+    Py_ssize_t count = 0;
+    for (const th_node *up = node->parent; up != NULL; up = up->parent) {
+        if (++count >= limit) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The open-element stack is never refused, but the DOM stops at TH_MAX_TREE_DEPTH levels: an append under a parent with
+   that many ancestors goes to the parent's parent instead (Blink attaches the same way). Nodes the capped parent placed
+   after itself were created after it, so they stay in front of the new node: the insertion point is after them. A
+   sibling created before the parent, such as a table a reconstructed element was foster-parented before, still bounds
+   the run. Foster parenting inserts before a table, which is shallower than the cap, so only appends can need the move.
+   A template's content fragment counts as its template. A stack no taller than the cap cannot reach it, which skips
+   the walk. */
+static void cap_insertion_point(th_tree *tree, th_node **parent, th_node **before) {
+    if (*before != NULL || tree->open_len + 1 < TH_MAX_TREE_DEPTH ||
+        !has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)) {
+        return;
+    }
+    th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
+    *parent = anchor->parent;
+    *before = anchor->next_sibling;
+    while (*before != NULL && (*before)->seq > anchor->seq) {
+        *before = (*before)->next_sibling;
+    }
+}
+
+static void insertion_location_target(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
+    insertion_location_place(tree, target, parent, before);
+    cap_insertion_point(tree, parent, before);
 }
 
 static void insertion_location(th_tree *tree, th_node **parent, th_node **before) {
@@ -2571,7 +2594,7 @@ static Py_ssize_t afe_index_of(th_tree *tree, th_node *node) {
 }
 
 static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) {
         if (tree->open[index] == node) {
             return index;
         }
@@ -2582,7 +2605,7 @@ static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
 /* Scans down from the top and skips foreign elements, as pop_until_atom does: a foreign template is not the template
    the rules look for. */
 static Py_ssize_t stack_index_of_atom(th_tree *tree, uint16_t atom) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) {
         if (tree->open[index]->ns == TH_NS_HTML && tree->open[index]->atom == atom) {
             return index;
         }
@@ -2615,8 +2638,8 @@ static int afe_on_stack(th_tree *tree, th_node *node) {
 }
 
 /* The most active formatting elements one reconstruction reopens: the entries nearest the end of the list, the ones
-   that apply most closely to what follows. The standard reopens every entry that has left the stack, and below
-   TH_MAX_TREE_DEPTH nothing else bounds the run, so unclosed start tags that differ (Noah's Ark drops only the
+   that apply most closely to what follows. The standard reopens every entry that has left the stack, and nothing
+   else bounds the run, so unclosed start tags that differ (Noah's Ark drops only the
    repeats) cost each later block one clone apiece: entries x blocks nodes. Real markup leaves a handful open across
    a block. */
 #define TH_MAX_RECONSTRUCTED_FORMATTING 16
@@ -2653,17 +2676,6 @@ static void reconstruct_afe(th_tree *tree) {
         tree->afe_len -= excess;
     }
     for (; index < tree->afe_len; index++) {
-        if (tree->open_len >= TH_MAX_TREE_DEPTH) {
-            /* stack_push would refuse the clone, so the entry would stay unopened and every later token would clone
-               the whole tail again; as in afe_push_if_open, an element the depth cap keeps off the stack leaves
-               the list */
-            for (Py_ssize_t dropped = index; dropped < tree->afe_len; dropped++) {
-                tree->afe[dropped]->afe_listed = 0;
-            }
-            tree->afe_len = index;
-            tree->afe_hash_valid = 0;
-            return;
-        }
         th_node *clone = clone_formatting(tree, tree->afe[index]);
         if (clone == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -2872,7 +2884,8 @@ static int has_p_in_button_scope(th_tree *tree) {
     if (tree->open_p_count == 0) {
         return 0;
     }
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE: a p is on the stack */
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
+         index--) { /* GCOVR_EXCL_BR_LINE: a p is on the stack */
         th_node *node = tree->open[index];
         if (node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
             return 1;
@@ -3050,7 +3063,6 @@ enum mode {
     M_AFTER_HEAD,
     M_IN_BODY,
     M_TEXT,
-    M_TEXT_REFUSED, /* text of a raw-text element the depth cap kept off the stack */
     M_IN_TABLE,
     M_IN_CAPTION,
     M_IN_COLUMN_GROUP,
@@ -3064,9 +3076,6 @@ enum mode {
     M_AFTER_AFTER_BODY,
     M_AFTER_AFTER_FRAMESET,
 };
-
-/* Set on the template mode record of a template the depth cap kept off the stack of open elements. */
-#define TMPL_REFUSED 0x100
 
 /* The stack of template insertion modes: a <template> pushes one, the
    in-template mode replaces its top as content selects a sub-mode, and reset
@@ -3101,33 +3110,26 @@ static void tmpl_pop(th_tree *tree) {
 static void tmpl_set(th_tree *tree, enum mode mode) {
     /* tmpl_set runs only while a template insertion mode is on the stack. */
     if (tree->tmpl_len > 0 /* GCOVR_EXCL_BR_LINE */) {
-        tree->tmpl[tree->tmpl_len - 1] = (tree->tmpl[tree->tmpl_len - 1] & TMPL_REFUSED) | (int)mode;
+        tree->tmpl[tree->tmpl_len - 1] = (int)mode;
     }
 }
 
 /* tmpl_top runs only for a template element, which carries a pushed mode. */
 static enum mode tmpl_top(th_tree *tree) {
-    return (enum mode)(tree->tmpl[tree->tmpl_len - 1] & ~TMPL_REFUSED);
+    return (enum mode)tree->tmpl[tree->tmpl_len - 1];
 }
 
-/* A template refused at the depth cap stays off the stack but still opens its marker and its mode record, so what
-   follows parses as its content. The record is flagged so that the template's own end tag pops it and the marker
-   instead of closing the nearest open template, an ancestor. */
 static void stack_push_template(th_tree *tree, th_node *node) {
-    int kept = stack_push_kept(tree, node);
+    stack_push(tree, node);
     afe_push_marker(tree);
-    tmpl_push(tree, kept ? M_IN_TEMPLATE : M_IN_TEMPLATE | TMPL_REFUSED);
-}
-
-static int current_template_refused(const th_tree *tree) {
-    return tree->tmpl_len > 0 && (tree->tmpl[tree->tmpl_len - 1] & TMPL_REFUSED);
+    tmpl_push(tree, M_IN_TEMPLATE);
 }
 
 /* Reset the insertion mode appropriately: pick the mode implied by the current
    stack of open elements (used when leaving cells, captions, selects, …). */
 static enum mode reset_insertion_mode(th_tree *tree) {
     /* context resolves the bottom element */
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         int last = (index == 0);
         uint16_t atom;
@@ -3297,13 +3299,9 @@ typedef struct {
 
 enum th_drain { TH_DRAIN_NEXT, TH_DRAIN_REPROCESS };
 
-/* Push a raw-text or RCDATA element and return the insertion mode for its text. An element the depth cap keeps off the
-   stack gets M_TEXT_REFUSED, so its end tag leaves the parent it was refused under open. Out of line, each of the ten
-   text-mode entries stays a call and a store. */
+/* Push a raw-text or RCDATA element and return the insertion mode for its text. Out of line, each of the ten text-mode
+   entries stays a call and a store. */
 static TH_NOINLINE enum mode stack_push_text(th_tree *tree, th_node *node) {
-    if (tree->open_len >= TH_MAX_TREE_DEPTH) {
-        return M_TEXT_REFUSED;
-    }
     stack_push(tree, node);
     return M_TEXT;
 }
@@ -3730,9 +3728,7 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
         uint16_t atom = tok_atom(tok);
         if (atom == TH_TAG_FRAMESET) {
             th_node *fs = insert_element(tree, tok);
-            if (!stack_push_kept(tree, fs)) {
-                tree->refused_frameset_count++;
-            }
+            stack_push(tree, fs);
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_FRAME) {
@@ -3750,10 +3746,6 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
     }
     /* a DOCTYPE is ignored before the switch, so the kind!=end-tag branch here is dead */
     if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_FRAMESET) { /* GCOVR_EXCL_BR_LINE */
-        if (tree->refused_frameset_count > 0) {
-            tree->refused_frameset_count--;
-            return TH_DRAIN_NEXT;
-        }
         if (current_node(tree)->atom != TH_TAG_HTML) {
             stack_pop(tree);
         }
@@ -3963,7 +3955,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_LI) {
             Py_ssize_t barrier = -1;
             /* html bounds the stack walk */
-            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+            for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
+                 index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
                 /* only an HTML li starts the walk, as pop_until_atom skips foreign elements */
                 if (tree->open[index]->ns == TH_NS_HTML && open_atom == TH_TAG_LI) {
@@ -3985,7 +3978,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_DD || atom == TH_TAG_DT) {
             Py_ssize_t barrier = -1;
             /* html bounds the stack walk */
-            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+            for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
+                 index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
                 if (tree->open[index]->ns == TH_NS_HTML && (open_atom == TH_TAG_DD || open_atom == TH_TAG_DT)) {
                     generate_implied_end_tags(tree, open_atom);
@@ -4220,7 +4214,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (is_heading_atom(atom)) {
             int in_scope = 0;
             /* html bounds the stack walk */
-            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+            for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
+                 index--) { /* GCOVR_EXCL_BR_LINE */
                 if (is_heading(tree->open[index])) {
                     in_scope = 1;
                     break;
@@ -4255,8 +4250,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 tree->form = NULL;
                 int in_scope = 0;
                 /* the html element is a scope boundary, so the walk always breaks before the stack bottom */
-                for (Py_ssize_t index = tree->open_len - 1; node != NULL && index >= 0 /* GCOVR_EXCL_BR_LINE */;
-                     index--) {
+                for (Py_ssize_t index = tree->open_len - 1;
+                     node != NULL && index >= stack_window_floor(tree) /* GCOVR_EXCL_BR_LINE */; index--) {
                     if (tree->open[index] == node) {
                         in_scope = 1;
                         break;
@@ -4335,7 +4330,7 @@ static void afe_push_if_open(th_tree *tree, th_node *node) {
     }
 }
 
-static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc, int pushed) {
+static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc) {
     if (tok->kind == TH_TEXT) {
         if (slice_can_span(tree, tok)) {
             Py_ssize_t off = tok->src_start + tree->text_offset;
@@ -4360,17 +4355,15 @@ static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc, int
         insert_text(tree, text, len);
         return TH_DRAIN_NEXT;
     }
-    /* the end tag closes the raw-text/RCDATA element; a depth-capped one never reached the stack */
-    if (pushed) {
-        th_node *element = current_node(tree);
-        /* the tokenizer reads a script's end tag only outside the double escaped state, so a re-parse of its text,
-           which the inserts merge into one node, ends there too and the serializer can skip its scan; the end of input
-           pops a script elsewhere, so the one it ends inside keeps the scan */
-        if (element->atom == TH_TAG_SCRIPT && element->first_child != NULL) {
-            element->first_child->script_text_closes = 1;
-        }
-        stack_pop(tree);
+    /* the end tag closes the raw-text/RCDATA element on top of the stack */
+    th_node *element = current_node(tree);
+    /* the tokenizer reads a script's end tag only outside the double escaped state, so a re-parse of its text,
+       which the inserts merge into one node, ends there too and the serializer can skip its scan; the end of input
+       pops a script elsewhere, so the one it ends inside keeps the scan */
+    if (element->atom == TH_TAG_SCRIPT && element->first_child != NULL) {
+        element->first_child->script_text_closes = 1;
     }
+    stack_pop(tree);
     dc->mode = dc->original_mode;
     return TH_DRAIN_NEXT;
 }
@@ -4418,9 +4411,7 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         if (atom == TH_TAG_CAPTION) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             th_node *node = insert_element(tree, tok);
-            if (!stack_push_kept(tree, node)) {
-                return TH_DRAIN_NEXT;
-            }
+            stack_push(tree, node);
             afe_push_marker(tree);
             dc->mode = M_IN_CAPTION;
             return TH_DRAIN_NEXT;
@@ -4428,19 +4419,12 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         if (atom == TH_TAG_COLGROUP) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             th_node *node = insert_element(tree, tok);
-            if (!stack_push_kept(tree, node)) {
-                return TH_DRAIN_NEXT;
-            }
+            stack_push(tree, node);
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_COL) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-            if (stack_at_depth_cap(tree)) {
-                /* no colgroup can be opened at the cap, so the col stays a child of the table */
-                insert_void_element(tree, tok);
-                return TH_DRAIN_NEXT;
-            }
             th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
             stack_push(tree, cg);
             dc->mode = M_IN_COLUMN_GROUP;
@@ -4690,10 +4674,7 @@ static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
             th_node *node = insert_element(tree, tok);
-            /* A cell outside the depth-capped stack cannot be closed in cell mode. */
-            if (!stack_push_kept(tree, node)) {
-                return TH_DRAIN_NEXT;
-            }
+            stack_push(tree, node);
             afe_push_marker(tree);
             dc->mode = M_IN_CELL;
             return TH_DRAIN_NEXT;
@@ -4917,11 +4898,7 @@ reprocess:;
        spec routes them through in-head); in-body/in-head/in-template keep
        their own handlers for the active-formatting interactions */
     if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
-        if (current_template_refused(tree)) {
-            afe_clear_to_marker(tree);
-            tmpl_pop(tree);
-            dc->mode = reset_insertion_mode(tree);
-        } else if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
+        if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
             generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
             /* an element still open inside the template may have pushed its own formatting marker, which the clear
                below leaves behind, shielding an outer a/nobr the output's explicit end tags no longer shield */
@@ -4997,10 +4974,7 @@ reprocess:;
         action = drain_in_body(tree, tok, dc);
         break;
     case M_TEXT:
-        action = drain_text(tree, tok, dc, 1);
-        break;
-    case M_TEXT_REFUSED:
-        action = drain_text(tree, tok, dc, 0);
+        action = drain_text(tree, tok, dc);
         break;
     case M_IN_TABLE:
         action = drain_in_table(tree, tok, dc);
@@ -5078,16 +5052,16 @@ static int noscript_cut_stack(const th_tree *tree) {
 }
 
 /* Record the noscript a start tag just built, given the open-element count and node sequence from before the token.
-   The parse ignores the tag in some modes, and the depth cap keeps the element off the stack, which leaves no node to
-   record but a span that cannot be stable. The span stays open when the tag left the builder where a raw-text reading
-   does, one element deeper, so its close can be compared against the state saved here. That state is also where a cut
-   can start: no active formatting element to reconstruct, and a form pointer that the minified markup sets alike. */
+   The parse ignores the tag in some modes, which leaves no node to record. The span stays open when the tag left the
+   builder where a raw-text reading does, one element deeper, so its close can be compared against the state saved
+   here. That state is also where a cut can start: no active formatting element to reconstruct, and a form pointer that
+   the minified markup sets alike. */
 static void noscript_opened(th_tree *tree, th_insert *dc, th_noscript_track *track, Py_ssize_t start,
                             Py_ssize_t open_before, uint32_t seq_before) {
     th_node *top = current_node(tree);
     int created = tree->node_seq != seq_before;
     int pushed = created && top->seq == tree->node_seq - 1 && top->ns == TH_NS_HTML;
-    if (!pushed && !stack_at_depth_cap(tree)) {
+    if (!pushed) {
         return;
     }
     if (track->count == track->cap) {
@@ -5107,7 +5081,7 @@ static void noscript_opened(th_tree *tree, th_insert *dc, th_noscript_track *tra
         track->cap = (Py_ssize_t)cap;
     }
     th_noscript_span *span = &track->spans[track->count];
-    span->node = pushed ? top : NULL;
+    span->node = top;
     span->seq = tree->node_seq - 1;
     span->start = start;
     span->content = th_tok_position(dc->sm);
@@ -5118,7 +5092,7 @@ static void noscript_opened(th_tree *tree, th_insert *dc, th_noscript_track *tra
     span->html_attrs = span->html->attr_count;
     span->body = tree->open[1]->atom == TH_TAG_BODY ? tree->open[1] : NULL;
     span->body_attrs = span->body != NULL ? span->body->attr_count : 0;
-    if (pushed && track->open < 0 && tree->open_len == open_before + 1) {
+    if (track->open < 0 && tree->open_len == open_before + 1) {
         track->open = track->count;
         track->open_len = open_before;
         track->mode = dc->mode == M_IN_HEAD_NOSCRIPT ? M_IN_HEAD : effective_mode(dc);
@@ -5136,7 +5110,8 @@ static void noscript_opened(th_tree *tree, th_insert *dc, th_noscript_track *tra
 
 /* The open noscript left the stack: it is stable when the token that closed it is the first `</noscript` after its
    start tag and the builder is back where the raw-text reading puts it -- the same open elements, active formatting
-   elements, form pointer, insertion mode and html/body attributes. A cleared frameset-ok is kept apart, since it only
+   elements, form pointer, insertion mode and html/body attributes, and the element sits where the cap lets it hold
+   its content. A cleared frameset-ok is kept apart, since it only
    matters to a later <frameset>. Every comparison is evaluated, so the result does not depend on which one fails. */
 static void noscript_closed(th_tree *tree, th_insert *dc, th_noscript_track *track, Py_ssize_t end) {
     th_noscript_span *span = &track->spans[track->open];
@@ -5151,6 +5126,9 @@ static void noscript_closed(th_tree *tree, th_insert *dc, th_noscript_track *tra
                    (afe_last == track->afe_last) & (tree->form == track->form) &
                    ((int)effective_mode(dc) == track->mode) & (tree->open[0]->attr_count == track->html_attrs) &
                    (body_attrs == track->body_attrs);
+    if (span->stable && has_ancestors_at_least(span->node, TH_MAX_TREE_DEPTH)) {
+        span->stable = 0;
+    }
     if (span->stable) {
         span->stable = !source_ends_noscript(tree, span->content, end);
     }
@@ -5963,7 +5941,6 @@ static int shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, s
     dest->stack_version = src->stack_version;
     dest->scope_version = src->stack_version - 1;
     dest->open_p_count = src->open_p_count;
-    dest->refused_frameset_count = src->refused_frameset_count;
     dest->afe_stack_hint = -1;
     dest->frameset_ok = src->frameset_ok;
     dest->drop_newline = src->drop_newline;
@@ -6080,7 +6057,6 @@ int th_shadow_body(const th_shadow *shadow, Py_ssize_t *line, Py_ssize_t *col) {
 int th_shadow_parkable(const th_shadow *shadow) {
     switch (shadow->dc.mode) {
     case M_TEXT:
-    case M_TEXT_REFUSED:
     case M_IN_FRAMESET:
     case M_AFTER_FRAMESET:
     case M_AFTER_AFTER_FRAMESET:

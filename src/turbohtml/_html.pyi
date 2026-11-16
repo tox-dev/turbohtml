@@ -526,6 +526,3 @@ def _coverage_flush() -> None: ...
 
 # The tree builder's attribute reads that decide whether an attribute edit starts the streaming rewriter's scout.
 def _builder_reads_attr(namespace: str, tag: str, name: str, /) -> bool: ...
-
-# The open-element depth cap of the streaming rewriter: 8192, a tenth of that in the fuzz-only build.
-_REWRITE_MAX_DEPTH: int

@@ -116,7 +116,6 @@ struct th_tree {
     uint16_t ctx_atom; /* the fragment context element's atom (reset uses it) */
     int scope_result;
     int open_p_count;
-    int refused_frameset_count; /* framesets the depth cap kept off the stack; their </frameset> must not pop */
     Py_ssize_t open_cap;
     Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
