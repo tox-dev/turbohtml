@@ -1716,6 +1716,17 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         PyMem_Free(base_parts.buf);
         return NULL;
     }
+    if (link && base_parts.has_scheme && !base_special && !url_hierarchical(&base_parts) && !ref_parts.has_scheme &&
+        !ref_parts.has_netloc && ref_parts.path_end == ref_parts.path_start && !ref_parts.has_query &&
+        ref_parts.has_fragment) {
+        PyObject *fragment_only = build_url(
+            1, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, 0, base_parts.buf, 0, 0, base_parts.buf,
+            base_parts.path_start, base_parts.path_end, base_parts.has_query, base_parts.buf, base_parts.query_start,
+            base_parts.query_end, 1, ref_parts.buf, ref_parts.fragment_start, ref_parts.fragment_end);
+        PyMem_Free(base_parts.buf);
+        PyMem_Free(ref_parts.buf);
+        return fragment_only;
+    }
     /* The effective scheme is the reference's own or, lacking one, the base's. Relative resolution only runs when that
        scheme is the base's and is one RFC 3986 resolves against; otherwise urljoin returns the reference verbatim
        (leading whitespace and all) -- a reference under a foreign scheme, or any reference under a base whose scheme is
