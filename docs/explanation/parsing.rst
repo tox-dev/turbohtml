@@ -181,6 +181,7 @@ inherits its tree's flag.
 *************************
 
 The open-element stack has no depth limit, so insertion modes, end tags and foster parenting follow the spec at any
-depth. The DOM stops at 512 levels, as Blink's does. A node that would nest deeper is appended to the parent of its
-deepest allowed ancestor, after the content already placed there. Text keeps its source order, but the tree past the cap
-is flatter than the one a parser without a cap builds, so ``len`` of the deepest path is at most 512.
+depth. The DOM stops at 512 levels, as Blink's does, and a template's content fragment counts as one of those levels. A
+node that would nest deeper is appended to the parent of its deepest allowed ancestor, after the content already placed
+there. Text keeps its source order, but the tree past the cap is flatter than the one a parser without a cap builds, so
+``len`` of the deepest path is at most 512.

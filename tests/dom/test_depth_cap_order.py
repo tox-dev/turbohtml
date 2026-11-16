@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from typing import Final
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import Element, Node, parse
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _DEPTH_CAP: Final[int] = 512
 _DEPTHS: Final[list[pytest.ParameterSet]] = [
@@ -69,6 +73,12 @@ def test_dom_depth_stays_within_the_cap(depth: int) -> None:
     assert deepest <= _DEPTH_CAP
 
 
+# a cell closed by its own end tag, or by a row or body start, leaves the b after the table in the text
+_CELL_CLOSED_TEXT: Final[Mapping[tuple[str, str], str]] = MappingProxyType({
+    ("<table><tr><td>", tag): "ba" for tag in ("</td>", "<tr>", "<tbody>")
+})
+
+
 @pytest.mark.parametrize(
     "tag",
     [
@@ -113,6 +123,31 @@ def test_dom_depth_stays_within_the_cap(depth: int) -> None:
         pytest.param("<select>", id="select"),
     ],
 )
-def test_searches_that_run_past_the_window_keep_text_order(context: str, tag: str) -> None:
-    # the search reaches the bottom of the window before any match, so each one stops there and keeps the text in order
-    assert parse(f"{context}{'<x-open>' * 600}a{tag}b").text == "ab"
+def test_searches_past_the_depth_find_their_element(context: str, tag: str) -> None:
+    assert parse(f"{context}{'<x-open>' * 600}a{tag}b").text == _CELL_CLOSED_TEXT.get((context, tag), "ab")
+
+
+@pytest.mark.parametrize("tail", ["x</b>y", "<p>x</b>y</p>", "x</b>y<b>z</b>w"])
+@pytest.mark.parametrize("depth", [pytest.param(_DEPTH_CAP * 2, id="1024"), pytest.param(2000, id="2000")])
+def test_adoption_agency_past_the_depth_keeps_text_order(tail: str, depth: int) -> None:
+    # the formatting element sits below the cap, so the agency moves the block above it and clones the element there
+    assert parse(f"{'<div>' * depth}<b><div>{tail}").text == parse(f"<b><div>{tail}").text
+
+
+@pytest.mark.parametrize("depth", _DEPTHS)
+def test_table_body_past_the_depth_finds_its_table_section(depth: int) -> None:
+    # the table body and its row sit below the divs, so the table-scope searches must reach past the cap to find them
+    assert parse(f"<table><tr><td>a</td>{'<div>' * depth}<table><thead>c<tr>E").text == "acE"
+
+
+@pytest.mark.parametrize("depth", _DEPTHS)
+def test_templates_count_toward_the_depth_cap(depth: int) -> None:
+    document = parse(f"{'<template>' * (depth // 2)}<table><tr>c<td>E")
+    deepest = 0
+    stack: list[tuple[Node, int]] = [(document, 0)]
+    while stack:
+        node, level = stack.pop()
+        if isinstance(node, Element):
+            deepest = max(deepest, level)
+        stack.extend((child, level + 1) for child in getattr(node, "children", []) or [])
+    assert deepest <= _DEPTH_CAP

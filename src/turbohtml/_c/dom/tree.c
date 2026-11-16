@@ -472,11 +472,188 @@ static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
 }
 
-/* The lowest open-element index a search of the stack reads. The stack grows with the input, but a search reads only
-   the top TH_MAX_TREE_DEPTH entries, the window the depth cap used to leave, so a stray end tag costs the same at any
-   depth. */
-static Py_ssize_t stack_window_floor(const th_tree *tree) {
-    return tree->open_len > TH_MAX_TREE_DEPTH ? tree->open_len - TH_MAX_TREE_DEPTH : 0;
+/* The open stack grows past the depth cap, and a search must see all of it: the table and scope walks must find an
+   element below the cap or stop at a boundary below it. A block summary per TH_MAX_TREE_DEPTH entries lets a search
+   skip the blocks that hold none of its atoms, so a search costs about one block per cap's worth of nesting. */
+#define STACK_BLOCK TH_MAX_TREE_DEPTH
+
+static void atom_set_add(th_atom_set *set, uint16_t atom) {
+    set->bits[atom / 64] |= (uint64_t)1 << (atom % 64);
+}
+
+static int atom_sets_meet(const th_atom_set *left, const th_atom_set *right) {
+    for (int word = 0; word < TH_ATOM_WORDS; word++) {
+        if (left->bits[word] & right->bits[word]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void block_add(th_stack_block *block, const th_node *node) {
+    if (block->count[node->atom]++ == 0) {
+        atom_set_add(&block->present, node->atom);
+    }
+}
+
+static void block_drop(th_stack_block *block, const th_node *node) {
+    if (--block->count[node->atom] == 0) {
+        block->present.bits[node->atom / 64] &= ~((uint64_t)1 << (node->atom % 64));
+    }
+}
+
+static int blocks_reserve(th_tree *tree, Py_ssize_t count) {
+    if (count <= tree->open_block_cap) {
+        return 1;
+    }
+    Py_ssize_t cap = tree->open_block_cap * 2 > count ? tree->open_block_cap * 2 : count;
+    th_stack_block *grown = PyMem_Realloc(tree->open_blocks, (size_t)cap * sizeof(th_stack_block));
+    if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    memset(grown + tree->open_block_cap, 0, (size_t)(cap - tree->open_block_cap) * sizeof(th_stack_block));
+    tree->open_blocks = grown;
+    tree->open_block_cap = cap;
+    return 1;
+}
+
+/* Recount the blocks from the one holding index `from` up to the top of the stack or of the old stack, whichever is
+   higher. A stack that never passed one block has no summaries to recount. */
+static void blocks_recount(th_tree *tree, Py_ssize_t from, Py_ssize_t old_len) {
+    if (tree->open_blocks == NULL) {
+        return;
+    }
+    Py_ssize_t first = from / STACK_BLOCK;
+    Py_ssize_t last_old = (old_len - 1) / STACK_BLOCK;
+    Py_ssize_t last = (tree->open_len - 1) / STACK_BLOCK;
+    Py_ssize_t top = last_old > last ? last_old : last;
+    memset(&tree->open_blocks[first], 0, (size_t)(top - first + 1) * sizeof(th_stack_block));
+    for (Py_ssize_t index = first * STACK_BLOCK; index < tree->open_len; index++) {
+        block_add(&tree->open_blocks[index / STACK_BLOCK], tree->open[index]);
+    }
+}
+
+enum stack_scan {
+    SCAN_ATOM,    /* an element with the atom */
+    SCAN_SCOPE,   /* the atom, or a default scope boundary */
+    SCAN_LIST,    /* the atom, or a list-item scope boundary */
+    SCAN_TABLE,   /* the atom, or a table-scope boundary */
+    SCAN_BUTTON,  /* a p, or a button-scope boundary */
+    SCAN_HEADING, /* a heading, or a default scope boundary */
+    SCAN_RESET,   /* a table-context or body atom, or the fragment context atom */
+};
+
+static void scope_boundary_atoms(th_atom_set *set) {
+    static const uint16_t boundary[] = {
+        TH_TAG_APPLET,
+        TH_TAG_CAPTION,
+        TH_TAG_HTML,
+        TH_TAG_MARQUEE,
+        TH_TAG_OBJECT,
+        TH_TAG_SELECT,
+        TH_TAG_TABLE,
+        TH_TAG_TD,
+        TH_TAG_TEMPLATE,
+        TH_TAG_TH,
+        TH_TAG_MI,
+        TH_TAG_MO,
+        TH_TAG_MN,
+        TH_TAG_MS,
+        TH_TAG_MTEXT,
+        TH_TAG_ANNOTATION_XML,
+        TH_TAG_FOREIGNOBJECT,
+        TH_TAG_DESC,
+        TH_TAG_TITLE,
+    };
+    for (size_t index = 0; index < sizeof(boundary) / sizeof(boundary[0]); index++) {
+        atom_set_add(set, boundary[index]);
+    }
+}
+
+/* The highest index at or below `index` whose block may hold an atom the scan reads, or -1. A search visits every entry
+   from there down, so a block that holds none of its atoms is skipped whole; the entries it visits are checked as
+   before. */
+static Py_ssize_t stack_scan(const th_tree *tree, Py_ssize_t index, enum stack_scan kind, uint16_t atom) {
+    if (tree->open_blocks == NULL) {
+        return index;
+    }
+    th_atom_set wanted = {{0}};
+    switch (kind) {
+    case SCAN_ATOM:
+        atom_set_add(&wanted, atom);
+        break;
+    case SCAN_SCOPE:
+        scope_boundary_atoms(&wanted);
+        atom_set_add(&wanted, atom);
+        break;
+    case SCAN_LIST:
+        scope_boundary_atoms(&wanted);
+        atom_set_add(&wanted, TH_TAG_OL);
+        atom_set_add(&wanted, TH_TAG_UL);
+        atom_set_add(&wanted, atom);
+        break;
+    case SCAN_TABLE:
+        atom_set_add(&wanted, TH_TAG_TABLE);
+        atom_set_add(&wanted, TH_TAG_TEMPLATE);
+        atom_set_add(&wanted, TH_TAG_HTML);
+        atom_set_add(&wanted, atom);
+        break;
+    case SCAN_BUTTON:
+        scope_boundary_atoms(&wanted);
+        atom_set_add(&wanted, TH_TAG_P);
+        atom_set_add(&wanted, TH_TAG_BUTTON);
+        break;
+    case SCAN_HEADING:
+        scope_boundary_atoms(&wanted);
+        atom_set_add(&wanted, TH_TAG_H1);
+        atom_set_add(&wanted, TH_TAG_H2);
+        atom_set_add(&wanted, TH_TAG_H3);
+        atom_set_add(&wanted, TH_TAG_H4);
+        atom_set_add(&wanted, TH_TAG_H5);
+        atom_set_add(&wanted, TH_TAG_H6);
+        break;
+    default: /* SCAN_RESET */
+        atom_set_add(&wanted, TH_TAG_TD);
+        atom_set_add(&wanted, TH_TAG_TH);
+        atom_set_add(&wanted, TH_TAG_TR);
+        atom_set_add(&wanted, TH_TAG_TBODY);
+        atom_set_add(&wanted, TH_TAG_THEAD);
+        atom_set_add(&wanted, TH_TAG_TFOOT);
+        atom_set_add(&wanted, TH_TAG_CAPTION);
+        atom_set_add(&wanted, TH_TAG_COLGROUP);
+        atom_set_add(&wanted, TH_TAG_TABLE);
+        atom_set_add(&wanted, TH_TAG_TEMPLATE);
+        atom_set_add(&wanted, TH_TAG_HEAD);
+        atom_set_add(&wanted, TH_TAG_FRAMESET);
+        atom_set_add(&wanted, TH_TAG_HTML);
+        atom_set_add(&wanted, TH_TAG_BODY);
+        atom_set_add(&wanted, atom);
+        break;
+    }
+    while (index >= 0) {
+        if (atom_sets_meet(&tree->open_blocks[index / STACK_BLOCK].present, &wanted)) {
+            return index;
+        }
+        index = index / STACK_BLOCK * STACK_BLOCK - 1;
+    }
+    return -1;
+}
+
+/* An open element nests at most this many levels deep: each stack entry is one level, and each template's content
+   fragment is one more. The stack alone undercounts a document of nested templates, which the DOM cap sees. */
+static Py_ssize_t stack_depth_bound(const th_tree *tree) {
+    return tree->open_len + tree->open_templates;
+}
+
+static int is_html_template(const th_node *node) {
+    return node->ns == TH_NS_HTML && node->atom == TH_TAG_TEMPLATE;
+}
+
+static void note_stack_depth(th_tree *tree) {
+    if (stack_depth_bound(tree) >= TH_HAS_MEMO_DEPTH) {
+        tree->nest_bound &= TH_NEST_CAPPED;
+    }
 }
 
 static int stack_push(th_tree *tree, th_node *node) {
@@ -501,10 +678,24 @@ static int stack_push(th_tree *tree, th_node *node) {
     if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
         tree->open_p_count++;
     }
-    tree->stack_version++;
-    if (tree->open_len >= TH_HAS_MEMO_DEPTH) {
-        tree->nest_bound &= TH_NEST_CAPPED;
+    if (is_html_template(node)) {
+        tree->open_templates++;
     }
+    if (tree->open_blocks != NULL || tree->open_len > STACK_BLOCK) {
+        Py_ssize_t index = tree->open_len - 1;
+        int building = tree->open_blocks == NULL;
+        Py_ssize_t blocks = index / STACK_BLOCK + 1;
+        if (!blocks_reserve(tree, blocks)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 0;                        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        if (building) {
+            blocks_recount(tree, 0, index);
+        } else {
+            block_add(&tree->open_blocks[index / STACK_BLOCK], node);
+        }
+    }
+    tree->stack_version++;
+    note_stack_depth(tree);
     return 1;
 }
 
@@ -519,6 +710,12 @@ static void stack_pop_any(th_tree *tree) {
         popped->left_stack = 1;
         if (popped->ns == TH_NS_HTML && popped->atom == TH_TAG_P) {
             tree->open_p_count--;
+        }
+        if (is_html_template(popped)) {
+            tree->open_templates--;
+        }
+        if (tree->open_blocks != NULL) {
+            block_drop(&tree->open_blocks[tree->open_len / STACK_BLOCK], popped);
         }
         /* record that an end tag named this element (as opposed to an implied or
            EOF close) so escape-mode sanitizing reproduces the author's `</tag>` */
@@ -581,7 +778,8 @@ static int is_scope_boundary(const th_node *node) {
 }
 
 static int find_in_scope(th_tree *tree, uint16_t atom) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) {
+    for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_SCOPE, atom); index >= 0;
+         index = stack_scan(tree, index - 1, SCAN_SCOPE, atom)) {
         th_node *node = tree->open[index];
         if (node->ns == TH_NS_HTML && node->atom == atom) {
             return 1;
@@ -605,7 +803,8 @@ static int has_in_scope(th_tree *tree, uint16_t atom) {
 /* List-item scope: the default boundaries plus ol and ul. */
 static int has_in_list_item_scope(th_tree *tree, uint16_t atom) {
     /* The html element bounds the stack walk. */
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) { /* GCOVR_EXCL_BR_LINE */
+    for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_LIST, atom); index >= 0; /* GCOVR_EXCL_BR_LINE */
+         index = stack_scan(tree, index - 1, SCAN_LIST, atom)) {
         th_node *node = tree->open[index];
         /* Foreign content runs under the foreign rules before any list-item scope check. */
         if (node->ns == TH_NS_HTML /* GCOVR_EXCL_BR_LINE */ && node->atom == atom) {
@@ -680,7 +879,8 @@ static void clear_to(th_tree *tree, uint16_t atom_a, uint16_t atom_b, uint16_t a
    nearest HTML table, template or html")? */
 static int has_in_table_scope(th_tree *tree, uint16_t atom) {
     /* The html element bounds the stack walk. */
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) { /* GCOVR_EXCL_BR_LINE */
+    for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_TABLE, atom); index >= 0; /* GCOVR_EXCL_BR_LINE */
+         index = stack_scan(tree, index - 1, SCAN_TABLE, atom)) {
         th_node *node = tree->open[index];
         if (node->ns != TH_NS_HTML) {
             continue;
@@ -756,10 +956,10 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
    after itself were created after it, so they stay in front of the new node: the insertion point is after them. A
    sibling created before the parent, such as a table a reconstructed element was foster-parented before, still bounds
    the run. Foster parenting inserts before a table, which is shallower than the cap, so only appends can need the move.
-   A template's content fragment counts as its template. A stack no taller than the cap cannot reach it, which skips
-   the walk. */
+   A template's content fragment counts as its template. A stack whose depth bound stays below the cap cannot reach it,
+   which skips the walk. */
 static void cap_insertion_point(th_tree *tree, th_node **parent, th_node **before) {
-    if (*before != NULL || tree->open_len + 1 < TH_MAX_TREE_DEPTH ||
+    if (*before != NULL || stack_depth_bound(tree) + 1 < TH_MAX_TREE_DEPTH ||
         !has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)) {
         return;
     }
@@ -2312,10 +2512,14 @@ static void afe_remove_at(th_tree *tree, Py_ssize_t index) {
 }
 
 /* Remove the open-elements-stack entry at index, shifting the tail down. */
+/* No template is removed here: the callers remove a formatting element, a form, an a, or the elements between a
+   formatting element and its furthest block, which hold no special element and so no template. */
 static void stack_remove_at(th_tree *tree, Py_ssize_t index) {
     tree->open[index]->left_stack = 1;
+    Py_ssize_t old_len = tree->open_len;
     memmove(&tree->open[index], &tree->open[index + 1], (size_t)(tree->open_len - index - 1) * sizeof(th_node *));
     tree->open_len--;
+    blocks_recount(tree, index, old_len);
     tree->stack_version++;
 }
 
@@ -2594,7 +2798,8 @@ static Py_ssize_t afe_index_of(th_tree *tree, th_node *node) {
 }
 
 static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) {
+    for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_ATOM, node->atom); index >= 0;
+         index = stack_scan(tree, index - 1, SCAN_ATOM, node->atom)) {
         if (tree->open[index] == node) {
             return index;
         }
@@ -2605,7 +2810,8 @@ static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
 /* Scans down from the top and skips foreign elements, as pop_until_atom does: a foreign template is not the template
    the rules look for. */
 static Py_ssize_t stack_index_of_atom(th_tree *tree, uint16_t atom) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) {
+    for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_ATOM, atom); index >= 0;
+         index = stack_scan(tree, index - 1, SCAN_ATOM, atom)) {
         if (tree->open[index]->ns == TH_NS_HTML && tree->open[index]->atom == atom) {
             return index;
         }
@@ -2868,12 +3074,13 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         Py_ssize_t fs = stack_index_of(tree, fmt);
         stack_remove_at(tree, fs);
         Py_ssize_t furthest_now = stack_index_of(tree, furthest);
-        if (!stack_push(tree, NULL)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return 1;                  /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        if (!stack_push(tree, fmt_clone)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return 1;                       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         memmove(&tree->open[furthest_now + 2], &tree->open[furthest_now + 1],
                 (size_t)(tree->open_len - furthest_now - 2) * sizeof(th_node *));
         tree->open[furthest_now + 1] = fmt_clone;
+        blocks_recount(tree, furthest_now + 1, tree->open_len);
         tree->stack_version++;
     }
     return 1;
@@ -2884,8 +3091,8 @@ static int has_p_in_button_scope(th_tree *tree) {
     if (tree->open_p_count == 0) {
         return 0;
     }
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
-         index--) { /* GCOVR_EXCL_BR_LINE: a p is on the stack */
+    Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_BUTTON, TH_TAG_P);
+    for (; index >= 0; index = stack_scan(tree, index - 1, SCAN_BUTTON, TH_TAG_P)) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         if (node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
             return 1;
@@ -3129,7 +3336,9 @@ static void stack_push_template(th_tree *tree, th_node *node) {
    stack of open elements (used when leaving cells, captions, selects, …). */
 static enum mode reset_insertion_mode(th_tree *tree) {
     /* context resolves the bottom element */
-    for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree); index--) { /* GCOVR_EXCL_BR_LINE */
+    uint16_t context = tree->fragment_root != NULL ? tree->ctx_atom : TH_TAG_UNKNOWN;
+    Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_RESET, context);
+    for (; index >= 0; index = stack_scan(tree, index - 1, SCAN_RESET, context)) { /* GCOVR_EXCL_BR_LINE: html bounds */
         th_node *node = tree->open[index];
         int last = (index == 0);
         uint16_t atom;
@@ -3625,6 +3834,9 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
                     /* the head is removed from under the template on the
                        stack; the template itself stays open */
                     tree->open[tree->open_len - 1] = node;
+                    tree->open_templates++;
+                    note_stack_depth(tree);
+                    blocks_recount(tree, tree->open_len - 1, tree->open_len);
                     tree->stack_version++;
                     afe_push_marker(tree);
                     tmpl_push(tree, M_IN_TEMPLATE);
@@ -3959,8 +4171,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_LI) {
             Py_ssize_t barrier = -1;
             /* html bounds the stack walk */
-            for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
-                 index--) { /* GCOVR_EXCL_BR_LINE */
+            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
                 /* only an HTML li starts the walk, as pop_until_atom skips foreign elements */
                 if (tree->open[index]->ns == TH_NS_HTML && open_atom == TH_TAG_LI) {
@@ -3982,8 +4193,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_DD || atom == TH_TAG_DT) {
             Py_ssize_t barrier = -1;
             /* html bounds the stack walk */
-            for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
-                 index--) { /* GCOVR_EXCL_BR_LINE */
+            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
                 if (tree->open[index]->ns == TH_NS_HTML && (open_atom == TH_TAG_DD || open_atom == TH_TAG_DT)) {
                     generate_implied_end_tags(tree, open_atom);
@@ -4219,8 +4429,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (is_heading_atom(atom)) {
             int in_scope = 0;
             /* html bounds the stack walk */
-            for (Py_ssize_t index = tree->open_len - 1; index >= stack_window_floor(tree);
-                 index--) { /* GCOVR_EXCL_BR_LINE */
+            for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_HEADING, TH_TAG_UNKNOWN); index >= 0;
+                 index = stack_scan(tree, index - 1, SCAN_HEADING, TH_TAG_UNKNOWN)) {
                 if (is_heading(tree->open[index])) {
                     in_scope = 1;
                     break;
@@ -4255,8 +4465,9 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 tree->form = NULL;
                 int in_scope = 0;
                 /* the html element is a scope boundary, so the walk always breaks before the stack bottom */
-                for (Py_ssize_t index = tree->open_len - 1;
-                     node != NULL && index >= stack_window_floor(tree) /* GCOVR_EXCL_BR_LINE */; index--) {
+                for (Py_ssize_t index = node != NULL ? stack_scan(tree, tree->open_len - 1, SCAN_SCOPE, node->atom)
+                                                     : -1;
+                     index >= 0; index = stack_scan(tree, index - 1, SCAN_SCOPE, node->atom)) {
                     if (tree->open[index] == node) {
                         in_scope = 1;
                         break;
@@ -5662,6 +5873,7 @@ void th_tree_free(th_tree *tree) {
         block = next;
     }
     PyMem_Free(tree->open);
+    PyMem_Free(tree->open_blocks);
     PyMem_Free(tree->afe);
     PyMem_Free(tree->afe_hashes);
     PyMem_Free(tree->tmpl);

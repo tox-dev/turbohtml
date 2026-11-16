@@ -105,6 +105,20 @@ typedef struct th_attr_names th_attr_names;
 struct xp_ns_index;
 void xp_ns_index_free(struct xp_ns_index *index);
 
+/* A set of TH_TAG_* atoms as a bitmask, for the scope searches that skip stack blocks holding none of their atoms. */
+#define TH_ATOM_WORDS ((TH_TAG_XMP + 64) / 64)
+typedef struct {
+    uint64_t bits[TH_ATOM_WORDS];
+} th_atom_set;
+
+/* The open-element stack entries in one TH_MAX_TREE_DEPTH-sized block: how many of each atom they hold, and the atoms
+   held at all. A search skips a block whose atoms miss its set, so a deep stack costs a search about one block per
+   TH_MAX_TREE_DEPTH entries instead of one per entry. */
+typedef struct {
+    uint16_t count[TH_TAG_XMP + 1];
+    th_atom_set present;
+} th_stack_block;
+
 struct th_tree {
     struct xp_ns_index *ns_index; /* the XPath namespace index of an XML tree, built on first namespaced query */
     arena_block *arena;
@@ -116,7 +130,10 @@ struct th_tree {
     uint16_t ctx_atom; /* the fragment context element's atom (reset uses it) */
     int scope_result;
     int open_p_count;
+    int open_templates; /* templates on the stack: each one's content fragment adds a DOM level */
     Py_ssize_t open_cap;
+    th_stack_block *open_blocks; /* per-block summaries of open, built once the stack passes one block; NULL before */
+    Py_ssize_t open_block_cap;
     Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
