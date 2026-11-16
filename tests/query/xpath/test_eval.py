@@ -2088,7 +2088,30 @@ def _elements(result: XPathResult) -> list[Element]:
 @pytest.mark.parametrize(
     ("expression", "plain"),
     [
-        pytest.param("//*/@i[ancestor::b]", "//*/@i[ancestor::*[self::b]]", id="attribute-context"),
+        pytest.param("//*/@i[ancestor::b]", "//*/@i[ancestor::*[self::b][position() > 0]]", id="ancestor"),
+        pytest.param(
+            "//*/@i[ancestor-or-self::b]",
+            "//*/@i[ancestor-or-self::*[self::b][position() > 0]]",
+            id="ancestor-or-self",
+        ),
+        pytest.param("//*/@i[preceding::b]", "//*/@i[preceding::*[self::b][position() > 0]]", id="preceding"),
+        pytest.param("//*/@i[following::b]", "//*/@i[following::*[self::b][position() > 0]]", id="following"),
+        pytest.param("//*/@i[following::b/c]", "//*/@i[following::*[self::b][position() > 0]/c]", id="following-rest"),
+        pytest.param(
+            "//*/@i[count(preceding::b) = 0]", "//*/@i[count(preceding::*[self::b][position() > 0]) = 0]", id="count"
+        ),
+    ],
+)
+def test_walk_predicate_on_an_attribute_agrees_with_the_plain_walk(expression: str, plain: str) -> None:
+    document: Final = _random_document(5, 300)
+    assert [str(node) for node in _elements(document.xpath(expression))] == [
+        str(node) for node in _elements(document.xpath(plain))
+    ]
+
+
+@pytest.mark.parametrize(
+    ("expression", "plain"),
+    [
         pytest.param("//a[ancestor::b or sign()]", "//a[ancestor::*[self::b] or sign()]", id="python-call"),
     ],
 )

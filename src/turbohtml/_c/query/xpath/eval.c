@@ -4185,6 +4185,8 @@ typedef struct {
     uint32_t base;  /* the step's index shifted past the walk kinds */
     int32_t rest;   /* the step after the walked one, or -1 */
     int predicated; /* the step's predicates, none of which reads the position, judge each node */
+    enum xp_axis axis;
+    int owned; /* the context is an attribute or namespace node, and the walk starts at its owner element */
 } walk_plan;
 
 static struct th_node *walk_next(struct th_node *node, enum xp_walk_kind kind) {
@@ -4396,7 +4398,7 @@ static int walk_preceding(const walk_plan *plan, struct th_node *node, struct th
 
 /* The nearest good node on the axis from node, in the order the axis lists its nodes, and how many there are. */
 static int walk_axis(const walk_plan *plan, struct th_node *node, struct th_node **nearest, Py_ssize_t *count) {
-    switch (plan->step->axis) {
+    switch (plan->axis) {
     case AX_ANCESTOR:
         return walk_fill(plan, XW_PARENT, node, nearest, count);
     case AX_ANCESTOR_OR_SELF: {
@@ -4436,8 +4438,8 @@ static int walk_axis(const walk_plan *plan, struct th_node *node, struct th_node
         return rc;
     }
     default: { /* AX_FOLLOWING */
-        struct th_node *after = NULL;
-        int rc = walk_after(plan, node, &after);
+        struct th_node *after = plan->owned ? node->first_child : NULL;
+        int rc = after != NULL ? 0 : walk_after(plan, node, &after);
         if (rc < 0 || after == NULL) {
             *nearest = NULL;
             *count = 0;
@@ -4467,7 +4469,7 @@ static int walk_scan(const walk_plan *plan, struct th_node *node, struct th_node
     enum xp_walk_kind kind = XW_PARENT;
     struct th_node *ancestor = NULL;
     struct th_node *candidate = NULL;
-    switch (plan->step->axis) {
+    switch (plan->axis) {
     case AX_ANCESTOR:
         candidate = node->parent;
         break;
@@ -4489,6 +4491,10 @@ static int walk_scan(const walk_plan *plan, struct th_node *node, struct th_node
         break;
     default: { /* AX_FOLLOWING */
         kind = XW_DOC_NEXT;
+        if (plan->owned && node->first_child != NULL) {
+            candidate = node->first_child;
+            break;
+        }
         struct th_node *up = node;
         for (; up != NULL && up->next_sibling == NULL; up = up->parent) {
             if (--budget == 0) {
@@ -4542,18 +4548,26 @@ static int walk_nearest_only(const xp_program *prog, const xn *step) {
    step is on a walked axis with no predicate or with only [1], and whose evaluation can run no Python code. */
 static int walk_applies(const xp_program *prog, int32_t path_idx, const xp_ctx *ctx) {
     const xn *root = &prog->nodes[path_idx];
-    if (root->first < 0 || root->second >= 0 || ctx->attr != -1 || prog->has_python_calls ||
-        ctx->before_python != NULL || ctx->extension != NULL || ctx->name_test != NULL) {
+    if (root->first < 0 || root->second >= 0 || prog->has_python_calls || ctx->before_python != NULL ||
+        ctx->extension != NULL || ctx->name_test != NULL) {
         return 0;
     }
     const xn *step = &prog->nodes[root->first];
     switch (step->axis) {
     case AX_ANCESTOR:
-    case AX_ANCESTOR_OR_SELF:
-    case AX_PRECEDING_SIBLING:
-    case AX_FOLLOWING_SIBLING:
     case AX_PRECEDING:
     case AX_FOLLOWING:
+        break;
+    case AX_ANCESTOR_OR_SELF:
+        if (ctx->attr != -1 && !root->absolute && step->test == NT_NODE) {
+            return 0;
+        }
+        break;
+    case AX_PRECEDING_SIBLING:
+    case AX_FOLLOWING_SIBLING:
+        if (ctx->attr != -1 && !root->absolute) {
+            return 0;
+        }
         break;
     default:
         return 0;
@@ -4583,6 +4597,8 @@ static int walk_begin(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, wal
     plan->base = (uint32_t)root->first << 3;
     plan->rest = step->next;
     plan->predicated = step->first >= 0 && !walk_nearest_only(prog, step);
+    plan->owned = ctx->attr != -1 && !root->absolute;
+    plan->axis = plan->owned && step->axis == AX_ANCESTOR ? AX_ANCESTOR_OR_SELF : step->axis;
     *start = root->absolute ? tree_root(ctx) : ctx->node;
     return 0;
 }
