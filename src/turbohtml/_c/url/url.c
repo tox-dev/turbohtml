@@ -1521,6 +1521,8 @@ static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssi
 
 /* The path of ref from `from` to its query and fragment, with dot segments resolved; a special scheme also reads each
    backslash as a separator. Returns a new buffer of *len code points, or NULL with MemoryError set. */
+static const Py_UCS4 ROOT_PATH[] = {'/'};
+
 static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t *len, int special) {
     Py_ssize_t capacity = ref->path_end - from + 4;
     url_seg *scratch = PyMem_Malloc((size_t)capacity * sizeof(url_seg));
@@ -1541,6 +1543,9 @@ static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t
         none.buf = ref->buf;
         none.path_start = none.path_end = from;
         *len = merge_path(&none, &tail, scratch, resolved, out, 0, 0, special, 1);
+    }
+    if (*len == 0 && special) {
+        out[(*len)++] = '/';
     }
     PyMem_Free(scratch);
     PyMem_Free(resolved);
@@ -1854,10 +1859,12 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
                 fragment_buf = base_parts.buf;
             }
         }
+        int root_path = link && base_special && base_parts.has_netloc && base_parts.path_end == base_parts.path_start;
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end,
                            base_parts.has_netloc, base_parts.buf, base_parts.netloc_start, base_parts.netloc_end,
-                           base_parts.buf, base_parts.path_start, base_parts.path_end, query_has, query_buf,
-                           query_start, query_end, fragment_has, fragment_buf, fragment_start, fragment_end);
+                           root_path ? ROOT_PATH : base_parts.buf, root_path ? 0 : base_parts.path_start,
+                           root_path ? 1 : base_parts.path_end, query_has, query_buf, query_start, query_end,
+                           fragment_has, fragment_buf, fragment_start, fragment_end);
     } else {
         Py_ssize_t base_len = base_parts.path_end - base_parts.path_start;
         Py_ssize_t ref_len = ref_parts.path_end - ref_parts.path_start;
