@@ -839,12 +839,12 @@ _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
 )
 
 _FIND_COLD_BODY: Final[str] = "<span>x</span>" * 10_000
-_FIND_COLD_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
-    ("find early hit", ("find", f"<a>x</a>{_FIND_COLD_BODY}")),
-    ("find late hit", ("find", f"{_FIND_COLD_BODY}<a>x</a>")),
-    ("find miss", ("find", _FIND_COLD_BODY)),
-    ("find_all", ("all", f"<a>x</a>{_FIND_COLD_BODY}")),
-    ("find_all limit=1", ("limit", f"<a>x</a>{_FIND_COLD_BODY}")),
+_FIND_COLD_CASES: Final[tuple[tuple[str, tuple[str, str, int]], ...]] = (
+    ("find early hit", ("find", f"<a>x</a>{_FIND_COLD_BODY}", 1_000)),
+    ("find late hit", ("find", f"{_FIND_COLD_BODY}<a>x</a>", 1)),
+    ("find miss", ("find", _FIND_COLD_BODY, 1)),
+    ("find_all", ("all", f"<a>x</a>{_FIND_COLD_BODY}", 1)),
+    ("find_all limit=1", ("limit", f"<a>x</a>{_FIND_COLD_BODY}", 1)),
 )
 
 _MARKDOWN_ARTICLE: Final[str] = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
@@ -2182,7 +2182,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "treewalk": _readpath_cases,
     "chain": _readpath_cases,
     "range-clone": _readpath_cases,
-    "range-boundary": lambda: (("1000 start, 1024 ranges", (1_000, "start", 1_024)), ("1000 end, 800 ranges", (1_000, "end", 800))),
+    "range-boundary": lambda: (
+        ("1000 start, 1024 ranges", (1_000, "start", 1_024)),
+        ("1000 end, 800 ranges", (1_000, "end", 800)),
+    ),
     "range-contained": lambda: (("1000 clone", (1_000, "clone", 1_024)), ("1 clone", (1, "clone", 1_024))),
     "range-partial": lambda: (("1000 clone", (1_000, "clone", 1_024)), ("1 clone", (1, "clone", 1_024))),
     "links-extract": _readpath_cases,

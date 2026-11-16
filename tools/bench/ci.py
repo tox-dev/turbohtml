@@ -43,6 +43,12 @@ def _spec() -> str:
     return corpus_text(relative, encoding)
 
 
+@cache
+def _repeated_spec() -> str:
+    # Return the whatwg spec repeated end to end, so each document query walks a document of ~8 MB.
+    return _spec() * 36
+
+
 def _xpath_case() -> tuple[str, str]:
     # Return the ``(kind, document)`` pair the xpath operation expects, over the spec.
     return "//a[@href]", _spec()
@@ -107,6 +113,9 @@ _DOCUMENT_OPS: Final[tuple[str, ...]] = (
 
 _LOADERS: Final[dict[str, Callable[[], Case]]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
 _LOADERS["xpath"] = _xpath_case
+_LOADERS.update(
+    dict.fromkeys(("find", "select", "select-has", "match", "extract-text", "strip-comments"), _repeated_spec)
+)
 _LOADERS["escape"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
 _LOADERS["unescape"] = partial(corpus.corpus, "war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
 _LOADERS["encoding"] = lambda: corpus.corpus("war-and-peace/2600.txt", _TEXT_BYTES).encode("cp1252")
