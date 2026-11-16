@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
 from textwrap import dedent
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
 from . import corpus
 from .corpus import (
@@ -93,6 +93,8 @@ if TYPE_CHECKING:
         | Mutating[str, LexborHTMLParser, None]
         | Mutating[tuple[int, int, int, str], Callable[[], tuple[bool, ...]], tuple[bool, ...]]
         | Mutating[tuple[int, int], Element, None]
+        | Mutating[Any, Any, Any]
+        | Callable[[Any], object]
         | Mutating[tuple[int, str], Callable[[], None], None]
         | Mutating[tuple[str, bool], Callable[[], str | bytes], str | bytes]
         | Mutating[str, Token, list[tuple[str, str]] | None]
