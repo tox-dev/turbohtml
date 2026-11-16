@@ -5712,6 +5712,30 @@ _INVALID: Final[list[pytest.ParameterSet]] = [
     pytest.param('<xs:element name="" type="xs:string"/>', "requires a name", id="empty-global-name"),
     pytest.param('<xs:element ref="v"/>', "requires a name", id="global-reference"),
     pytest.param(
+        '<xs:group><xs:sequence><xs:element name="a" type="xs:string"/></xs:sequence></xs:group>',
+        "global group requires a name",
+        id="unnamed-global-group",
+    ),
+    pytest.param(
+        '<xs:group name=""><xs:sequence/></xs:group>', "global group requires a name", id="empty-global-group"
+    ),
+    pytest.param(
+        "<xs:complexType><xs:sequence/></xs:complexType>",
+        "global complexType requires a name",
+        id="unnamed-complex-type",
+    ),
+    pytest.param(
+        '<xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType>',
+        "global simpleType requires a name",
+        id="unnamed-simple-type",
+    ),
+    pytest.param('<xs:attribute type="xs:string"/>', "global attribute requires a name", id="unnamed-attribute"),
+    pytest.param(
+        '<xs:attributeGroup><xs:attribute name="x" type="xs:string"/></xs:attributeGroup>',
+        "global attributeGroup requires a name",
+        id="unnamed-attribute-group",
+    ),
+    pytest.param(
         '<xs:simpleType name="notAType"><xs:restriction base="xs:string"/></xs:simpleType>'
         '<xs:element name="v" type="xs:notAType"/>',
         "does not resolve",
