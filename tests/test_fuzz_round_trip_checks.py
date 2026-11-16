@@ -889,6 +889,16 @@ def test_generation_changed_decoder_text(data: bytes) -> None:
         encoding_observation(data, decode=lambda _data, _codec: "<p>wrong</p>")
 
 
+def test_generation_reference_text_mismatch(mocker: MockerFixture) -> None:
+    mocker.patch(
+        "fuzz.generation_targets.parse_reference",
+        autospec=True,
+        return_value=html5lib.parse("<p>wrong</p>", namespaceHTMLElements=False),
+    )
+    with pytest.raises(AssertionError, match="Encoded parser text differs"):
+        encoding_observation(b"<p>kept</p>")
+
+
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
@@ -913,13 +923,13 @@ def test_generation_foreign_unmatched_p_null(markup: str, expected: str) -> None
 def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
 ) -> None:
-    parse_reference: Final = mocker.spy(html5lib, "parse")
+    parse_reference: Final = mocker.spy(html5lib.HTMLParser, "parse")
     assert encoding_observation((f"{'<div>' * nesting}kept").encode()) == "kept"
     assert parse_reference.call_count == oracle_calls
 
 
 def test_encoding_oracle_keeps_parser_text_at_the_tree_depth_cap(mocker: MockerFixture) -> None:
-    parse_reference: Final = mocker.spy(html5lib, "parse")
+    parse_reference: Final = mocker.spy(html5lib.HTMLParser, "parse")
     data: Final = (f">{'<div>' * 509}\x01\x00<table><tr><ud>a<=d>c<td>d").encode()
     assert encoding_observation(data) == ">\x01da<=d>c"
     assert parse_reference.call_count == 0

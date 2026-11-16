@@ -7,12 +7,12 @@ import re
 from importlib import import_module
 from typing import TYPE_CHECKING, Final
 
-import html5lib
 from html5lib.constants import namespaces
 
 from turbohtml import Node, parse
 
 from .atheris_registry import Target
+from .html5lib_reference import parse_reference
 from .markdown_structure_generators import MarkdownProfileError, markdown_html_check, markdown_source_check
 
 if TYPE_CHECKING:
@@ -77,7 +77,7 @@ def encoding_observation(
         # The C tree builder flattens past 512 open elements; html5lib does not.
         if nesting > 500:
             return document.text
-        reference: Final = html5lib.parse(decoded, namespaceHTMLElements=False)
+        reference: Final = parse_reference(decoded)
         expected: Final = _reference_text(reference)
         # html5lib's former in-select rules ignore style and title content that the current HTML parser keeps.
         if unicode_text != expected and not document.select("select style, select title"):
@@ -94,7 +94,7 @@ def encoding_observation(
                 "\0" in decoded
                 and "</p>" in decoded.lower()
                 and misplaced_p
-                and unicode_text == _reference_text(html5lib.parse(without_p_nulls, namespaceHTMLElements=False))
+                and unicode_text == _reference_text(parse_reference(without_p_nulls))
             ):
                 msg = f"Encoded parser text differs: {document.text!r} != {expected!r}"
                 raise AssertionError(msg)

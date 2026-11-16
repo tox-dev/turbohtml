@@ -43,6 +43,8 @@ from turbohtml import Comment, Element, Namespace, Node, Text, parse_fragment
 from turbohtml.clean import DEFAULT_CSS_PROPERTIES, OnDisallowed, Policy, sanitize, sanitize_node
 from turbohtml.extract import normalize_url
 
+from .html5lib_reference import html5lib_parser
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from xml.dom.minidom import DocumentFragment as DomFragment
@@ -339,7 +341,7 @@ def _elements(root: Node) -> Iterator[Element]:
 
 def _reparse(serialized: str) -> DomFragment:
     # Parse ``serialized`` the way ``innerHTML`` assignment does: a <div> fragment with scripting on.
-    parser = html5lib.HTMLParser(tree=_DOM_BUILDER, namespaceHTMLElements=False)
+    parser = html5lib_parser(tree=_DOM_BUILDER, namespaceHTMLElements=False)
     return parser.parseFragment(serialized, container=_CONTEXT, scripting=True)
 
 
