@@ -19,6 +19,12 @@
 #endif
 #endif
 
+#if defined(_MSC_VER)
+#define XSD_FORCEINLINE __forceinline
+#else
+#define XSD_FORCEINLINE inline __attribute__((always_inline))
+#endif
+
 /* An expected element name plus the declaration that supplies its type. */
 typedef struct edecl {
     const Py_UCS4 *uri;
@@ -1995,7 +2001,8 @@ static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
 }
 
 /* Validate one declared attribute against the instance, honoring use/fixed/default. */
-static void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl, const xattr_index *attrs) {
+static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl,
+                                                   const xattr_index *attrs) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
     th_tree *inst = ctx->tree;
