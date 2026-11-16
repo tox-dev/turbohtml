@@ -1422,6 +1422,8 @@ typedef struct {
     int32_t boundary; /* the owned count right after the last joined operand's walk */
     int32_t mark;     /* the owned count before the chain's first operand was walked */
     int open;         /* whether the next `+` can still join */
+    int started;      /* whether the first operand is decoded into value, which waits for the first join */
+    int32_t first;    /* the chain's first operand, a string literal while the run is open */
 } concat_run;
 
 static int concat_reserve(F *folder, concat_run *run, Py_ssize_t extra) {
@@ -1451,15 +1453,24 @@ static void concat_start(F *folder, concat_run *run, int32_t first) {
         return;
     }
     run->quote = operand->str[0];
+    run->first = first;
+}
+
+/* Decode the first operand into the run when the first join needs its value, so a chain that never joins allocates
+   nothing. */
+static int concat_begin(F *folder, concat_run *run) {
+    const jm_node *operand = &folder->prog->nodes[run->first];
     if (!concat_reserve(folder, run, operand->str_len)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        return;                                           /* GCOVR_EXCL_LINE */
+        return 0;                                         /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t len = jm_str_decode(operand->str, operand->str_len, run->value);
     if (len < 0) { /* an operand with an escape that has no value is left as written */
         run->open = 0;
-        return;
+        return 0;
     }
     run->len = len;
+    run->started = 1;
+    return 1;
 }
 
 /* Join the walked right operand of the `+` at idx, once the run has not stopped. */
@@ -1471,6 +1482,9 @@ static void concat_join(F *folder, concat_run *run, int32_t idx, int32_t right_i
     /* same-quote operands only, so the result keeps that quote and re-encoding stays minimal */
     if (right->kind != JN_STRING || right->str[0] != run->quote) {
         run->open = 0;
+        return;
+    }
+    if (!run->started && !concat_begin(folder, run)) {
         return;
     }
     if (!concat_reserve(folder, run, right->str_len)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -1606,7 +1620,7 @@ static void walk_plus_chain(F *folder, int32_t idx, int32_t depth, concat_run *r
 /* A `+` walks its operands, then joins them if both are strings. The owned count taken here marks where the buffers
    of this chain's operands start. */
 static TH_NOINLINE void walk_plus(F *folder, int32_t idx, int32_t depth) {
-    concat_run run = {NULL, 0, 0, 0, -1, -1, folder->prog->owned_count, 1};
+    concat_run run = {NULL, 0, 0, 0, -1, -1, folder->prog->owned_count, 1, 0, -1};
     walk_plus_chain(folder, idx, depth, &run);
     if (run.join >= 0) {
         concat_commit(folder, &run);
