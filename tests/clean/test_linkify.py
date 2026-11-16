@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final, assert_type, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Document, Element, Text, parse, parse_fragment
+from turbohtml import Document, Element, Range, Text, parse, parse_fragment
 from turbohtml.clean import (
     DEFAULT_CALLBACKS,
     LinkCandidate,
@@ -1205,6 +1205,25 @@ def test_process_existing_keeps_a_lone_surrogate_attribute(name: str) -> None:
 def test_process_existing_veto_unwraps_anchor() -> None:
     html = '<a href="http://x.com">click</a>'
     assert linkify(html, Linkify(callbacks=[lambda _link: None], process_existing=True)) == "click"
+
+
+def test_linkify_node_moves_boundaries_past_the_replaced_text() -> None:
+    doc = parse("<div id=a><p>see example.com ok</p></div>")
+    paragraph = doc.select("p")[0]
+    inside = Range(paragraph.children[0], 14)
+    after = Range(paragraph, 1)
+    linkify_node(doc.select("div")[0], Linkify(callbacks=[]))
+    assert paragraph.html == '<p>see <a href="http://example.com">example.com</a> ok</p>'
+    assert (inside.start_container == paragraph, inside.start_offset) == (True, 3)
+    assert (after.start_container == paragraph, after.start_offset) == (True, 3)
+
+
+def test_vetoed_existing_anchor_moves_a_boundary_in_its_text_to_the_parent() -> None:
+    paragraph = parse('<p>hi <a href="http://x.com">click</a></p>').select("p")[0]
+    inside = Range(paragraph.children[1].children[0], 1)
+    linkify_node(paragraph, Linkify(callbacks=[lambda _link: None], process_existing=True))
+    assert paragraph.html == "<p>hi click</p>"
+    assert (inside.start_container == paragraph, inside.start_offset) == (True, 2)
 
 
 def test_process_existing_can_change_text() -> None:

@@ -732,9 +732,7 @@ static Py_UCS4 *text_room(th_tree *tree, th_node *node, Py_ssize_t len, Py_ssize
     return grown;
 }
 
-/* Replace a node's character data with a copy of len code points. Returns 0, or -1 with MemoryError set on allocation
-   failure. */
-int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len) {
+static int replace_char_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len) {
     const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
     if (old == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
         PyErr_NoMemory();                    /* GCOVR_EXCL_LINE: allocation failure */
@@ -759,11 +757,7 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
     return 0;
 }
 
-/* Remove the [from, to) code-point run from a node's character data without copying the text that stays: the arena
-   keeps every buffer until the tree is freed, so a copy per edit grows with the number of edits. A run at either end
-   narrows the node's view of its buffer; a run in the middle closes up in place once the node owns its buffer, which
-   costs one copy on the first such edit. Returns 0, or -1 with MemoryError set on allocation failure. */
-int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
+static int delete_char_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
     const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
     if (old == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
         PyErr_NoMemory();                    /* GCOVR_EXCL_LINE: allocation failure */
@@ -797,6 +791,29 @@ int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_
         node->text = (Py_UCS4 *)th_empty_text;
         node->text_capacity_shift = 0;
     }
+    return 0;
+}
+
+/* Replace a node's character data with a copy of len code points: the DOM replace-data edit over the whole value,
+   which moves live Range boundaries. Returns 0, or -1 with MemoryError set on allocation failure. */
+int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len) {
+    Py_ssize_t old_len = node->text_len;
+    if (replace_char_data(tree, node, data, len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (tree->live_ranges != NULL) {
+        th_live_replace_data(tree, node, 0, old_len, len);
+    }
+    return 0;
+}
+
+/* Remove the [from, to) code-point run from a node's character data, the DOM replace-data edit with empty data. The
+   text that stays is not copied (see delete_char_data). Returns 0, or -1 with MemoryError set on allocation failure. */
+int th_node_delete_data(th_tree *tree, th_node *node, Py_ssize_t from, Py_ssize_t to) {
+    if (delete_char_data(tree, node, from, to) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_live_replace_data(tree, node, from, to - from, 0);
     return 0;
 }
 
@@ -983,6 +1000,14 @@ int th_tree_has_observers(const th_tree *tree) {
     return tree->observers != NULL;
 }
 
+int th_tree_has_live_ranges(const th_tree *tree) {
+    return tree->live_ranges != NULL;
+}
+
+struct th_live_range **th_tree_live_ranges_ptr(th_tree *tree) {
+    return &tree->live_ranges;
+}
+
 int th_tree_has_iterators(const th_tree *tree) {
     return tree->node_iterator_count > 0;
 }
@@ -1102,6 +1127,9 @@ void th_node_remove_silent(th_tree *tree, th_node *child) {
     if (tree->node_iterator_count > 0) {
         run_pre_removing_steps(tree, child);
     }
+    if (tree->live_ranges != NULL) {
+        th_live_removed(tree, child);
+    }
     node_remove(child);
 }
 
@@ -1173,6 +1201,9 @@ static TH_NOINLINE void child_inserted_hooked(th_tree *tree, th_node *parent, th
 
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
     node_append(parent, child);
+    if (tree->live_ranges != NULL) {
+        th_live_inserted(tree, child);
+    }
     if (tree->nest_bound != 0) {
         child_inserted_hooked(tree, parent, child);
     }
@@ -1338,8 +1369,18 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
     return NULL;
 }
 
+void th_node_insert_before_live(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
+    th_node_insert_before(parent, child, ref);
+    if (tree->live_ranges != NULL) {
+        th_live_inserted(tree, child);
+    }
+}
+
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
+    if (tree->live_ranges != NULL) {
+        th_live_inserted(tree, child);
+    }
     if (tree->nest_bound != 0) {
         child_inserted_hooked(tree, parent, child);
     }
@@ -2065,7 +2106,7 @@ th_tree *th_tree_copy_document(th_tree *src) {
 }
 
 static inline void normalize_unlink(th_tree *tree, th_node *child, int iterators) {
-    if (iterators) {
+    if (iterators || tree->live_ranges != NULL) {
         th_node_remove_silent(tree, child);
     } else {
         node_remove(child);
@@ -2085,6 +2126,9 @@ static int normalize_children(th_tree *tree, th_node *root, int iterators) {
             Py_ssize_t merged_len = child->text_len;
             while (end != NULL && end->type == TH_NODE_TEXT) {
                 th_node *after = end->next_sibling;
+                if (tree->live_ranges != NULL) {
+                    th_live_merged(tree, end, child, merged_len);
+                }
                 if (end->text_len == 0) {
                     normalize_unlink(tree, end, iterators);
                 } else {

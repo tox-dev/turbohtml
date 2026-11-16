@@ -481,6 +481,21 @@ void th_node_remove_observed(th_tree *tree, th_node *child);
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child);
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref);
 
+/* The DOM live-range update rules (dom/range.c), run by the edits above and by normalize while the tree has a live
+   Range. replace_data moves the boundaries of node after its data changes count code points at offset by data_len;
+   removed and inserted update the boundaries of a child that was just unlinked or linked; split moves the boundaries
+   past offset of node to tail, the new node after it; merged moves the boundaries of a text node normalize folds
+   into into, which starts at offset. */
+struct th_live_range;
+int th_tree_has_live_ranges(const th_tree *tree);
+struct th_live_range **th_tree_live_ranges_ptr(th_tree *tree);
+void th_node_insert_before_live(th_tree *tree, th_node *parent, th_node *child, th_node *ref);
+void th_live_replace_data(th_tree *tree, th_node *node, Py_ssize_t offset, Py_ssize_t count, Py_ssize_t data_len);
+void th_live_removed(th_tree *tree, th_node *child);
+void th_live_inserted(th_tree *tree, th_node *child);
+void th_live_split(th_tree *tree, th_node *node, Py_ssize_t offset, th_node *tail);
+void th_live_merged(th_tree *tree, th_node *part, th_node *into, Py_ssize_t offset);
+
 /* The MutationObserver registry (dom/observe.c) lives in the tree's fields, but that
    engine cannot include the tree-internal header (its Node bindings clash with the
    tree-builder's link inlines), so it reaches the registry through these accessors.

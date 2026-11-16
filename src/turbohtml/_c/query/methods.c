@@ -3174,7 +3174,7 @@ static int prune_keep_match(th_node_map *keep, th_node *node, th_node *origin) {
    pass; the callers pass it as a literal, so the compiler clones each pass and a tree with no live iterator unlinks
    without testing for one. */
 static inline void query_unlink(th_tree *tree, th_node *node, int iterators) {
-    if (iterators) {
+    if (iterators || th_tree_has_live_ranges(tree)) {
         th_node_remove_silent(tree, node);
     } else {
         th_node_remove(node);
@@ -3324,7 +3324,7 @@ static void unwrap_matches(th_tree *tree, const node_snapshot *snapshot, int ite
         while (node->first_child != NULL) {
             th_node *child = node->first_child;
             query_unlink(tree, child, iterators);
-            th_node_insert_before(parent, child, node);
+            th_node_insert_before_live(tree, parent, child, node);
         }
         query_unlink(tree, node, iterators);
     }

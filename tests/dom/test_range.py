@@ -22,6 +22,7 @@ from turbohtml import (
     parse,
     parse_xml,
 )
+from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -547,30 +548,6 @@ def test_insert_node_rejects_bad_boundary(container: Node) -> None:
         boundary.insert_node(Element("b"))
 
 
-_STALE_OPERATIONS: Final[list[pytest.ParameterSet]] = [
-    pytest.param(lambda boundary: boundary.clone_contents(), id="clone_contents"),
-    pytest.param(lambda boundary: boundary.extract_contents(), id="extract_contents"),
-    pytest.param(lambda boundary: boundary.delete_contents(), id="delete_contents"),
-    pytest.param(lambda boundary: boundary.surround_contents(Element("em")), id="surround_contents"),
-    pytest.param(lambda boundary: boundary.insert_node(Element("em")), id="insert_node"),
-    pytest.param(lambda boundary: boundary.common_ancestor_container, id="common_ancestor_container"),
-]
-
-_STALE_COMPARISONS: Final[tuple[pytest.ParameterSet, ...]] = (
-    pytest.param(lambda boundary: boundary.compare_point(boundary.start_container, 0), id="compare_point"),
-    pytest.param(lambda boundary: boundary.is_point_in_range(boundary.start_container, 0), id="is_point_in_range"),
-    pytest.param(lambda boundary: boundary.intersects_node(boundary.start_container), id="intersects_node"),
-    pytest.param(
-        lambda boundary: boundary.compare_boundary_points(Range.END_TO_END, Range(boundary.start_container)),
-        id="compare_boundary_points",
-    ),
-    pytest.param(
-        lambda boundary: Range(boundary.start_container).compare_boundary_points(Range.END_TO_START, boundary),
-        id="compare_boundary_points-source",
-    ),
-)
-
-
 def _wrap_last_match_first(text: Text) -> None:
     for offset in range(len(text.data) - 2, -1, -2):  # the earlier offsets stay valid
         hit = Range(text, offset)
@@ -684,38 +661,182 @@ def test_insert_node_at_stale_offset_past_children() -> None:
     assert _tags(div.children) == ["p", "i", "x"]
 
 
-@pytest.mark.parametrize("operation", _STALE_OPERATIONS)
-@pytest.mark.parametrize("start", [pytest.param(10, id="start-past-text"), pytest.param(1, id="end-past-text")])
-def test_stale_offset_past_text_raises(operation: Callable[[Range], object], start: int) -> None:
+def test_replaced_text_moves_boundaries_into_the_new_value() -> None:
     text = Text("A" * 64)
     Element("p", children=[text])
-    boundary = Range(text, start)
-    boundary.set_end(text, 60)
+    inside = Range(text, 10)
+    inside.set_end(text, 60)
     text.data = "xy"
-    with pytest.raises(IndexError, match="out of range for its container after a tree edit"):
-        operation(boundary)
+    assert (inside.start_offset, inside.end_offset) == (0, 0)
+    assert inside.compare_point(text, 1) == 1
 
 
-@pytest.mark.parametrize("operation", [*_STALE_OPERATIONS, *_STALE_COMPARISONS])
-def test_boundaries_split_across_roots_raise(operation: Callable[[Range], object]) -> None:
-    doc = parse("<p id=a>one<b>two</b>three</p>")
+def test_deleted_run_moves_later_boundaries_back() -> None:
+    text = Text("abcdefgh")
+    Element("p", children=[text])
+    inside = Range(text, 3)
+    before = Range(text, 1)
+    after = Range(text, 6)
+    cut = Range(text, 2)
+    cut.set_end(text, 4)
+    cut.delete_contents()
+    assert text.data == "abefgh"
+    assert (inside.start_offset, before.start_offset) == (2, 1)
+    assert (after.start_offset, after.end_offset) == (4, 4)
+
+
+def test_split_moves_later_boundaries_into_the_new_node() -> None:
+    text = Text("abcdefgh")
+    paragraph = Element("p", children=[text])
+    later = Range(text, 6)
+    at_split = Range(text, 3)
+    at_parent = Range(paragraph, 1)
+    Range(text, 3).insert_node(Element("br"))
+    tail = paragraph.children[2]
+    assert (later.start_container == tail, later.start_offset) == (True, 3)
+    assert (at_split.start_container == text, at_split.start_offset) == (True, 3)
+    assert (at_parent.start_container == paragraph, at_parent.start_offset) == (True, 3)
+
+
+def test_normalize_folds_boundaries_into_the_first_text() -> None:
+    first, second = Text("ab"), Text("cd")
+    paragraph = Element("p", children=[first, second])
+    in_second = Range(second, 1)
+    between = Range(paragraph, 1)
+    paragraph.normalize()
+    assert len(paragraph.children) == 1
+    assert (in_second.start_container == first, in_second.start_offset) == (True, 3)
+    assert (between.start_container == paragraph, between.start_offset) == (True, 1)
+
+
+def test_removed_element_moves_its_boundaries_to_the_parent() -> None:
+    doc = parse("<p>one<b>two</b>three</p>")
+    paragraph = _found(doc, "p")
     bold = _found(doc, "b")
-    boundary = Range(bold, 1)
-    boundary.set_end(_by_id(doc, "a"), 2)
+    inside = Range(bold.children[0], 1)
+    after = Range(paragraph, 3)
     bold.decompose()
-    with pytest.raises(ValueError, match="no longer share a root"):
+    assert (inside.start_container == paragraph, inside.start_offset) == (True, 1)
+    assert (after.start_container == paragraph, after.start_offset) == (True, 2)
+
+
+def test_normalize_folds_an_empty_text_boundary_into_the_text_before() -> None:
+    first = Text("ab")
+    paragraph = Element("p", children=[first, Text(""), Text("cd")])
+    at_empty = Range(paragraph.children[1], 0)
+    paragraph.normalize()
+    assert len(paragraph.children) == 1
+    assert (at_empty.start_container == first, at_empty.start_offset) == (True, 2)
+
+
+def test_decomposing_a_detached_element_keeps_live_ranges() -> None:
+    doc = parse("<p><b>x</b>y</p>")
+    bold = _found(doc, "b")
+    boundary = Range(doc, 0)
+    bold.decompose()
+    bold.decompose()
+    assert boundary.start_container == doc
+
+
+def test_unwrap_moves_a_boundary_in_the_moved_text_to_the_parent() -> None:
+    doc = parse("<p>one<b>two</b>three</p>")
+    paragraph = _found(doc, "p")
+    boundary = Range(_found(doc, "b").children[0], 1)
+    _found(doc, "b").unwrap()
+    assert paragraph.html == "<p>onetwothree</p>"
+    assert (boundary.start_container == paragraph, boundary.start_offset) == (True, 2)
+
+
+def test_prune_moves_a_boundary_inside_a_removed_text_to_its_parent() -> None:
+    doc = parse("<p>one<b>two</b>three</p>")
+    paragraph = _found(doc, "p")
+    inside = Range(paragraph.children[0], 1)
+    doc.prune("b")
+    assert (inside.start_container == paragraph, inside.start_offset) == (True, 0)
+
+
+def test_appended_child_keeps_boundaries_on_their_container() -> None:
+    paragraph = Element("p", children=[Text("a")])
+    at_end = Range(paragraph, 1)
+    paragraph.append(Element("b"))
+    assert (at_end.start_container == paragraph, at_end.start_offset) == (True, 1)
+
+
+def test_strip_tags_moves_a_boundary_in_the_unwrapped_text_to_the_parent() -> None:
+    doc = parse("<p>one<b>two</b>three</p>")
+    paragraph = _found(doc, "p")
+    boundary = Range(_found(doc, "b").children[0], 1)
+    doc.strip_tags("b")
+    assert paragraph.html == "<p>onetwothree</p>"
+    assert (boundary.start_container == paragraph, boundary.start_offset) == (True, 2)
+
+
+def test_insertion_moves_a_boundary_that_only_ends_in_the_parent() -> None:
+    paragraph = Element("p", children=[Text("a"), Element("i")])
+    after_text = Range(paragraph, 2)
+    start_in_text = Range(paragraph.children[0], 0)
+    start_in_text.set_end(paragraph, 2)
+    paragraph.children[1].insert_before(Element("b"))
+    assert (start_in_text.end_container == paragraph, start_in_text.end_offset) == (True, 3)
+    assert (after_text.start_container == paragraph, after_text.start_offset) == (True, 3)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(lambda boundary: boundary.clone_contents(), id="clone_contents"),
+        pytest.param(lambda boundary: boundary.extract_contents(), id="extract_contents"),
+        pytest.param(lambda boundary: boundary.delete_contents(), id="delete_contents"),
+    ],
+)
+def test_content_operation_past_the_boundary_path_limit_raises(operation: Callable[[Range], object]) -> None:
+    doc = parse_xml(f"<r>{'<p>' * 400}<i>x</i>{'</p>' * 400}{'<q>' * 400}<j>y</j>{'</q>' * 400}</r>")
+    boundary = Range(_found(doc, "i").children[0], 0)
+    boundary.set_end(_found(doc, "j").children[0], 1)
+    with pytest.raises(RecursionError, match="does not support boundary paths"):
         operation(boundary)
 
 
-@pytest.mark.parametrize("operation", _STALE_OPERATIONS)
-def test_boundaries_reordered_by_edit_raise(operation: Callable[[Range], object]) -> None:
-    doc = parse("<p><i>a</i><b>b</b></p>")
-    italic = _found(doc, "i")
-    boundary = Range(italic.children[0], 0)
-    boundary.set_end(_found(doc, "b").children[0], 1)
-    _found(doc, "p").append(italic)
-    with pytest.raises(ValueError, match="start follows its end"):
-        operation(boundary)
+@pytest.mark.parametrize(
+    "replace",
+    [
+        pytest.param(lambda paragraph: paragraph.set_inner_html("<i>x</i>"), id="set_inner_html"),
+        pytest.param(lambda paragraph: paragraph.set_text("x"), id="set_text"),
+        pytest.param(lambda paragraph: paragraph.clear(), id="clear"),
+    ],
+)
+def test_replacing_children_collapses_a_boundary_in_the_removed_text(replace: Callable[[Element], object]) -> None:
+    paragraph = _found(parse("<p>hello <b>bold</b> tail</p>"), "p")
+    boundary = Range(paragraph.children[0], 2)
+    replace(paragraph)
+    assert (boundary.start_container == paragraph, boundary.start_offset) == (True, 0)
+    assert (boundary.end_container == paragraph, boundary.end_offset) == (True, 0)
+
+
+def test_shadow_set_inner_html_collapses_a_boundary_in_the_removed_child() -> None:
+    root = _by_id(parse("<div id=h><span>s</span></div>"), "h").attach_shadow(mode="open")
+    root.append(Element("p"))
+    boundary = Range(root.children[0], 0)
+    root.set_inner_html("<i>q</i>")
+    assert (boundary.start_container == root, boundary.start_offset) == (True, 0)
+
+
+def test_transform_with_strip_space_leaves_source_boundaries_in_place() -> None:
+    doc = parse_xml("<r><a>x</a>   <b>y</b></r>")
+    root = _found(doc, "r")
+    whitespace = root.children[1]
+    inside = Range(whitespace, 1)
+    after = Range(root, 2)
+    stylesheet = Transform(
+        parse_xml(
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:strip-space elements="*"/><xsl:output method="text"/>'
+            '<xsl:template match="/">x</xsl:template></xsl:stylesheet>'
+        )
+    )
+    assert stylesheet(doc) == "x"
+    assert (inside.start_container == whitespace, inside.start_offset) == (True, 1)
+    assert (after.start_container == root, after.start_offset) == (True, 2)
 
 
 def test_insert_node_rejects_self() -> None:
@@ -1020,8 +1141,8 @@ def test_insert_node_leaves_non_collapsed_range() -> None:
     div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
-    boundary.insert_node(Element("b"))  # a non-collapsed range keeps its end untouched
-    assert boundary.end_offset == 2
+    boundary.insert_node(Element("b"))  # the end follows the child inserted before it
+    assert boundary.end_offset == 3
     assert not boundary.collapsed
 
 
