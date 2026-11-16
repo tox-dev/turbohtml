@@ -1,1 +1,2 @@
-Inserting or replacing HTML inside a MathML annotation-xml with an HTML encoding now creates HTML elements, matching a reparse of the output.
+Inserting or replacing HTML inside a MathML annotation-xml with an HTML encoding now creates HTML elements, and
+sanitizing MathML children placed there escapes them.

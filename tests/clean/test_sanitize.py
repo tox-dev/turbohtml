@@ -3374,6 +3374,186 @@ def test_annotation_xml_integration_follows_kept_encoding(html: str, policy: Pol
     assert sanitize(html, policy) == expected
 
 
+_SPLICE_POLICY: Final[Policy] = Policy(
+    tags=frozenset({"math", "annotation-xml", "textarea", "style"}),
+    attributes={"annotation-xml": frozenset({"encoding"})},
+    strip_comments=False,
+)
+
+
+def test_spliced_integration_point_content_sanitizes_like_the_parsed_string() -> None:
+    # the textarea's content is raw text, so the comment and style below it are escaped; a splice that left the
+    # textarea in MathML would keep both as live nodes
+    host = parse('<math><annotation-xml encoding="text/html"></annotation-xml></math>')
+    point = host.find("annotation-xml")
+    root = host.find("math")
+    assert point is not None
+    assert root is not None
+    inner = "<textarea>a<!--b--><style>p{color:red}</style></textarea>"
+    point.set_inner_html(inner)
+    expected = (
+        '<math><annotation-xml encoding="text/html"><textarea>a&lt;!--b--&gt;&lt;style&gt;p{color:red}&lt;/style&gt;'
+        "</textarea></annotation-xml></math>"
+    )
+    assert sanitize_node(root, _SPLICE_POLICY).html == expected
+    assert (
+        sanitize(f'<math><annotation-xml encoding="text/html">{inner}</annotation-xml></math>', _SPLICE_POLICY)
+        == expected
+    )
+
+
+_MUTATION_POLICY: Final[Policy] = Policy(
+    tags=frozenset({
+        "math",
+        "mi",
+        "mo",
+        "mrow",
+        "mglyph",
+        "malignmark",
+        "annotation-xml",
+        "textarea",
+        "svg",
+        "foreignObject",
+        "g",
+        "circle",
+    }),
+    attributes={"annotation-xml": frozenset({"encoding"})},
+)
+
+
+@pytest.mark.parametrize(
+    ("host", "host_tag", "moved", "moved_tag", "expected"),
+    [
+        pytest.param(
+            '<math><annotation-xml encoding="text/html"></annotation-xml></math>',
+            "annotation-xml",
+            "<math><mrow><textarea>a</textarea></mrow></math>",
+            "textarea",
+            '<math><annotation-xml encoding="text/html">&lt;textarea&gt;a&lt;/textarea&gt;</annotation-xml></math>',
+            id="annotation-xml-mathml-textarea",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="text/html"></annotation-xml></math>',
+            "annotation-xml",
+            "<math><mi>a</mi></math>",
+            "mi",
+            '<math><annotation-xml encoding="text/html">&lt;mi&gt;a&lt;/mi&gt;</annotation-xml></math>',
+            id="annotation-xml-mathml-mi",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="text/html"></annotation-xml></math>',
+            "annotation-xml",
+            "<math><mrow><math>a</math></mrow></math>",
+            "math",
+            '<math><annotation-xml encoding="text/html">'
+            "<math><mrow><math>a</math></mrow></math></annotation-xml></math>",
+            id="annotation-xml-mathml-math",
+        ),
+        pytest.param(
+            "<math><mi></mi></math>",
+            "mi",
+            "<math><mrow><mo>a</mo></mrow></math>",
+            "mo",
+            "<math><mi>&lt;mo&gt;a&lt;/mo&gt;</mi></math>",
+            id="text-point-mathml-mo",
+        ),
+        pytest.param(
+            "<math><mi></mi></math>",
+            "mi",
+            "<math><mrow><mi>a</mi></mrow></math>",
+            "mi",
+            "<math><mi>&lt;mi&gt;a&lt;/mi&gt;</mi></math>",
+            id="text-point-mathml-mi",
+        ),
+        pytest.param(
+            "<math><mi></mi></math>",
+            "mi",
+            "<math><mrow><mglyph>a</mglyph></mrow></math>",
+            "mglyph",
+            "<math><mi><mglyph>a</mglyph></mi></math>",
+            id="text-point-mathml-mglyph",
+        ),
+        pytest.param(
+            "<math><mi></mi></math>",
+            "mi",
+            "<math><mrow><malignmark>a</malignmark></mrow></math>",
+            "malignmark",
+            "<math><mi><malignmark>a</malignmark></mi></math>",
+            id="text-point-mathml-malignmark",
+        ),
+        pytest.param(
+            "<math><mi></mi></math>",
+            "mi",
+            "<math><mrow><math>a</math></mrow></math>",
+            "math",
+            "<math><mi><math><mrow><math>a</math></mrow></math></mi></math>",
+            id="text-point-mathml-math",
+        ),
+        pytest.param(
+            "<math><mrow></mrow></math>",
+            "mrow",
+            "<math><mi>a</mi></math>",
+            "mi",
+            "<math><mrow><mi>a</mi></mrow></math>",
+            id="plain-mathml-keeps-mi",
+        ),
+        pytest.param(
+            "<svg><foreignObject></foreignObject></svg>",
+            "foreignobject",
+            "<svg><g>a</g></svg>",
+            "g",
+            "<svg><foreignObject>&lt;g&gt;a&lt;/g&gt;</foreignObject></svg>",
+            id="foreign-object-svg-g",
+        ),
+        pytest.param(
+            "<svg><foreignObject></foreignObject></svg>",
+            "foreignobject",
+            "<svg><svg>a</svg></svg>",
+            "svg",
+            "<svg><foreignObject><svg><svg>a</svg></svg></foreignObject></svg>",
+            id="foreign-object-svg-svg",
+        ),
+        pytest.param(
+            "<svg><g></g></svg>",
+            "g",
+            "<svg><circle></circle></svg>",
+            "circle",
+            "<svg><g><circle></circle></g></svg>",
+            id="plain-svg-keeps-circle",
+        ),
+    ],
+)
+def test_foreign_child_moved_under_a_point_is_a_mutation(
+    host: str, host_tag: str, moved: str, moved_tag: str, expected: str
+) -> None:
+    # the parser never puts these children under the host, so a DOM move is the only way to reach each case
+    target = parse(host).find(host_tag)
+    source = parse(moved).find(moved_tag)
+    assert target is not None
+    assert source is not None
+    target.append(source)
+    root = target.parent
+    assert root is not None
+    assert sanitize_node(root, _MUTATION_POLICY).html == expected
+
+
+def test_xml_tree_keeps_mathml_children_of_an_annotation_xml() -> None:
+    # an XML tree serializes each node in its own namespace, so the HTML integration point rules leave it alone
+    policy = Policy(
+        tags=frozenset({"math", "annotation-xml", "mi"}),
+        attributes={"annotation-xml": frozenset({"encoding"})},
+        xml=True,
+    )
+    tree = parse_xml(
+        '<math xmlns="http://www.w3.org/1998/Math/MathML">'
+        '<annotation-xml encoding="text/html"><mi>x</mi></annotation-xml></math>'
+    )
+    assert (
+        sanitize_node(tree, policy).html
+        == '<math><annotation-xml encoding="text/html"><mi>x</mi></annotation-xml></math>'
+    )
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
