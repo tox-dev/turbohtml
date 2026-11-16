@@ -381,6 +381,24 @@ def test_url_join_preprocesses_operands(base: str, reference: str, expected: str
         pytest.param("http://a/b/c", "///", "http://a/", id="no-host"),
         pytest.param("http://a/b/c", "../g", "http://a/g", id="relative-path"),
         pytest.param("http://a/b/c", "ftp:///h/p", "ftp://h/p", id="foreign-special-scheme"),
+        pytest.param("http://a/b/c", "ftp:h/p", "ftp://h/p", id="foreign-special-no-slash"),
+        pytest.param("http://a/b/c", "ftp:/h/p", "ftp://h/p", id="foreign-special-one-slash"),
+        pytest.param("http://a/b/c", "ftp:\\h/p", "ftp://h/p", id="foreign-special-one-backslash"),
+        pytest.param("http://a/b/c", "ftp:h\\p", "ftp://h/p", id="foreign-special-backslash-path"),
+        pytest.param("http://a/b/c", "ftp:\\\\h/p", "ftp://h/p", id="foreign-special-backslashes"),
+        pytest.param("http://a/b/c", "ftp:/", "ftp:/", id="foreign-special-one-slash-no-host"),
+        pytest.param("https://a/b/c", "https://h/p\\q", "https://h/p/q", id="same-scheme-backslash-path"),
+        pytest.param("https://a/b/c", "x\\y", "https://a/b/x/y", id="relative-backslash-path"),
+        pytest.param("https://a/b/c", "\\x\\y", "https://a/x/y", id="rooted-backslash-path"),
+        pytest.param("https://a/b/c", "https:h\\p", "https://a/b/h/p", id="same-scheme-relative-backslash"),
+        pytest.param("https://a/b/c", "x/%2e/y", "https://a/b/x/y", id="relative-encoded-dot"),
+        pytest.param("https://a/b/c", "ftp:h/a/../x", "ftp://h/x", id="foreign-special-dot-segments"),
+        pytest.param("https://a/b/c", "ftp:h/%2E%2e/x", "ftp://h/x", id="foreign-special-encoded-dot-segments"),
+        pytest.param("https://a/b/c", "ftp:h/a/..", "ftp://h/", id="foreign-special-dot-to-root"),
+        pytest.param("http://a/b/c", "WSS://h/p", "wss://h/p", id="foreign-special-uppercase-scheme"),
+        pytest.param("http://a/b/c", "ftp://\\h/p", "ftp://h/p", id="foreign-special-backslash-authority"),
+        pytest.param("http://a/b/c", "ftp://?q", "ftp://?q", id="foreign-special-no-host-before-query"),
+        pytest.param("http://a/b/c", "ftp://#f", "ftp://#f", id="foreign-special-no-host-before-fragment"),
         pytest.param("http://a/b/c", "WSS:////h/p?q#f", "wss://h/p?q#f", id="foreign-special-uppercase-four-slashes"),
         pytest.param("http://a/b/c", "ftp:///", "ftp:///", id="foreign-special-no-host"),
         pytest.param("http://a/b/c", "sftp:///h/p", "sftp:///h/p", id="foreign-non-special-verbatim"),
@@ -395,9 +413,15 @@ def test_url_join_link_skips_extra_special_authority_slashes(base: str, referenc
     assert _url_join_link(base, reference) == expected
 
 
+_SPECIAL_SCHEMES: Final[frozenset[str]] = frozenset({"ftp", "http", "https", "ws", "wss"})
+
+
 def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
+    # a special scheme other than the base's is read as WHATWG reads it, with or without slashes, so it is not compared
     for base, reference in _corpus():
-        if not reference.startswith("///"):
+        scheme = reference.partition(":")[0].lower()
+        foreign = scheme in _SPECIAL_SCHEMES and scheme != base.partition(":")[0]
+        if not reference.startswith("///") and not foreign:
             assert _join_link(base, reference) == _join(base, reference), (base, reference)
 
 

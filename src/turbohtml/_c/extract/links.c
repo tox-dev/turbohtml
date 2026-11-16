@@ -707,31 +707,39 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
     return status;
 }
 
-/* Whether the text from the ':' at `colon` opens an authority of two slashes with no host before the next slash,
-   backslash, '?', '#' or the end: the form whose host a browser reads after its extra slashes. */
-static int url_empty_special_authority(const Py_UCS4 *value, Py_ssize_t colon, Py_ssize_t end) {
-    if (colon + 2 >= end) {
+/* Whether the absolute special-scheme reference from `start` reads the same in the link join as it is written: a
+   lowercase scheme, two slashes and a host, and no backslash, tab, CR or LF. Any other form (no slashes, one slash, an
+   empty authority, a backslash, an upper-case scheme) takes the join, which reads the host and separators as WHATWG
+   does. */
+static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
+    if (colon + 3 >= end || value[colon + 1] != '/' || value[colon + 2] != '/') {
         return 0;
     }
-    int first = (value[colon + 1] == '/') | (value[colon + 1] == '\\');
-    int second = (value[colon + 2] == '/') | (value[colon + 2] == '\\');
-    if (!(first & second)) {
+    Py_UCS4 host = value[colon + 3];
+    if (host == '/' || host == '\\' || host == '?' || host == '#') {
         return 0;
     }
-    if (colon + 3 == end) {
-        return 1;
+    for (Py_ssize_t index = start; index < colon; index++) {
+        if (value[index] != lower_ascii(value[index])) {
+            return 0;
+        }
     }
-    Py_UCS4 next = value[colon + 3];
-    return (next == '/') | (next == '\\') | (next == '?') | (next == '#');
+    for (Py_ssize_t index = colon + 1; index < end; index++) {
+        Py_UCS4 c = value[index];
+        if (c == '\\' || c == '\t' || c == '\r' || c == '\n') {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* True when resolve_links can prove urljoin(base, [start, end)) returns the URL byte-for-byte, so the urljoin call (the
    bulk of resolve's cost, stdlib Python) is skipped for an already-absolute link. Mirrors CPython urllib.parse.urljoin:
-   a reference with a scheme differing from the base's (case-insensitively) is returned verbatim, except a special
-   scheme with an empty authority, whose host the link join reads after the extra slashes; a same-scheme absolute
-   reference (scheme://netloc...) is reserialized, which reproduces the input only when the scheme is already lowercase,
-   an authority is present, and no tab/CR/LF (which urlsplit strips) appears. The same-scheme case is enabled only for
-   an http/https base, whose scheme reserializes through urlunsplit's netloc branch. */
+   a reference with a scheme differing from the base's (case-insensitively) is returned verbatim, unless it is a special
+   scheme the link join rewrites (url_special_link_plain); a same-scheme absolute reference (scheme://netloc...) is
+   reserialized, which reproduces the input only when the scheme is already lowercase, an authority is present, and no
+   tab/CR/LF (which urlsplit strips) or backslash appears. The same-scheme case is enabled only for an http/https base,
+   whose scheme reserializes through urlunsplit's netloc branch. */
 static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, const char *base_scheme,
                                   Py_ssize_t base_scheme_len, int base_netloc_scheme) {
     if (!is_ascii_alpha(value[start])) { /* a scheme starts with a letter; a span is never empty (start < end) */
@@ -754,7 +762,7 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         same_scheme = lower_ascii(value[start + index]) == (Py_UCS4)(unsigned char)base_scheme[index];
     }
     if (!same_scheme) {
-        return !(url_empty_special_authority(value, colon, end) && th_url_scheme_special(value, start, colon));
+        return url_special_link_plain(value, start, colon, end) || !th_url_scheme_special(value, start, colon);
     }
     if (!base_netloc_scheme) {
         return 0;
@@ -774,7 +782,8 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         return 0;
     }
     for (Py_ssize_t index = start; index < end; index++) {
-        if (value[index] == '\t' || value[index] == '\r' || value[index] == '\n') {
+        Py_UCS4 c = value[index];
+        if (c <= '\\' && (c == '\t' || c == '\r' || c == '\n' || c == '\\')) {
             return 0;
         }
     }

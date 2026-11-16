@@ -57,9 +57,9 @@ link-bearing location in C: ``<a href>``, the URLs hidden in ``srcset`` candidat
 and CSS ``url()``/``@import`` in a ``style`` attribute or a ``<style>`` sheet, so the capability no hand-rolled
 ``find_all`` loop reaches comes for free. The walk locates the URL spans and splices replacements back in place. Each
 reference is resolved by a C port of the RFC 3986 reference transform that :func:`urllib.parse.urljoin` runs, not by
-calling urljoin. Under a special scheme the port reads backslashes as slashes, and for links it also skips the extra
-slashes before the host, as a browser does. urljoin reads such a link as a path on the base host, so
-:meth:`~turbohtml.Node.resolve_links` and urljoin disagree on links with extra slashes.
+calling urljoin. Under a special scheme the port reads backslashes as slashes, and for links it also reads the host of a
+special scheme that differs from the base's after the slashes, as a browser does. urljoin reads such a link as a path on
+the base host, so :meth:`~turbohtml.Node.resolve_links` and urljoin disagree on these links.
 
 Generating HTML is the one place a builder helper earns a little Python of its own. :data:`turbohtml.build.E` adds no
 tree mechanics: every ``E.<tag>(...)`` call constructs a real :class:`~turbohtml.Element` and appends its children
