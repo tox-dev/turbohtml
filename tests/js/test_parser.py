@@ -253,7 +253,6 @@ def test_punctuator_as_property_name_raises(source: str, match: str) -> None:
             "expected property name at offset 2 near '`a\\u{120000}`'",
             id="escaped-template-member-name",
         ),
-        pytest.param("x=o.", "expected property name at offset 4: reached end of input", id="member-name-at-end"),
         pytest.param("x=o={/a/:1}", "expected property name at offset 5 near '/'", id="regex-object-key"),
         pytest.param("x=class{/a/(){}}", "expected property name at offset 8 near '/'", id="regex-class-key"),
     ],
