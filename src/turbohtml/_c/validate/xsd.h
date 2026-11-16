@@ -1265,7 +1265,7 @@ static xnode *xsd_cache_facets_at(th_schema *schema, th_node *node, xnode *paren
     return own;
 }
 
-static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind);
+static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind, int required);
 static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex);
 static int xsd_require_members(th_schema *schema, th_node *node, const char *attr, int list);
 static TH_NOINLINE int xsd_is_builtin_type(const Py_UCS4 *local, Py_ssize_t local_len);
@@ -1322,21 +1322,17 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
             return xsd_require_members(schema, node, "memberTypes", 0);
         }
     } else if (kind == XSD_ELEMENT) {
-        if (xsd_require_ref(schema, node, &schema->elements, "element") < 0 || xsd_require_type(schema, node, 1) < 0) {
+        if (xsd_require_ref(schema, node, &schema->elements, "element", 0) < 0 ||
+            xsd_require_type(schema, node, 1) < 0) {
             return -1;
         }
     } else if (kind == XSD_ATTRIBUTE) {
-        if (xsd_require_ref(schema, node, &schema->attributes, "attribute") < 0 ||
+        if (xsd_require_ref(schema, node, &schema->attributes, "attribute", 0) < 0 ||
             xsd_require_type(schema, node, 0) < 0) {
             return -1;
         }
     } else if (kind == XSD_GROUP) {
-        Py_ssize_t ref_len = 0;
-        if (node->parent != schema->root && xsd_attr(schema->tree, node, "ref", &ref_len) == NULL) {
-            PyErr_SetString(PyExc_ValueError, "a group in a content model must have a ref attribute");
-            return -1;
-        }
-        if (xsd_require_ref(schema, node, &schema->groups, "group") < 0) {
+        if (xsd_require_ref(schema, node, &schema->groups, "group", node->parent != schema->root) < 0) {
             return -1;
         }
         if (xsd_check_all_slot(schema, node) < 0) {
@@ -1344,7 +1340,7 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
         }
         return xsd_check_all_occurs(schema, node);
     } else if (kind == XSD_ATTRIBUTE_GROUP) {
-        return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
+        return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group", 0);
     } else if (kind == XSD_EXTENSION || kind == XSD_RESTRICTION) {
         if (kind == XSD_EXTENSION && is_schema_el(schema, node->parent, XSD_NS, "complexContent")) {
             schema->complex_extension = 1;
@@ -1354,10 +1350,14 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
     return 0;
 }
 
-static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind) {
+static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind, int required) {
     Py_ssize_t ref_len = 0;
     const Py_UCS4 *ref = xsd_attr(schema->tree, node, "ref", &ref_len);
     if (ref == NULL) {
+        if (required) {
+            PyErr_Format(PyExc_ValueError, "a %s in a content model must have a ref attribute", kind);
+            return -1;
+        }
         return 0;
     }
     const Py_UCS4 *local, *prefix;
