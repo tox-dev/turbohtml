@@ -3070,7 +3070,7 @@ sha256 = "967fb13b4e393315772b8f6b1f83601efe9fa5d7566ccce46780f2dbd85e4c09"
 [[packages]]
 name = "minify-html"
 version = "0.18.1"
-marker = "(\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups) and python_version < '3.15'"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
@@ -5136,7 +5136,7 @@ sha256 = "ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2"
 [[packages]]
 name = "simple-html"
 version = "3.1.1"
-marker = "(\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups) and python_version < '3.15'"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
@@ -6776,7 +6776,6 @@ command-line = [
     "--all-groups",
     "--all-extras",
     "--no-cache",
-    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"

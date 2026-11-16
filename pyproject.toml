@@ -173,7 +173,7 @@ bench = [
   "markupsafe>=3.0.3",
   "markyp-html>=0.2306.2",
   "microdata>=0.8",
-  "minify-html>=0.18.1; python_version<'3.15'", # PyO3 0.27 in its build stops at CPython 3.14
+  "minify-html>=0.18.1",
   "newspaper3k>=0.2.8",
   "nh3>=0.3.7",
   "opengraph-py3>=0.71",
@@ -187,7 +187,7 @@ bench = [
   "resiliparse>=1.0.9",
   "rjsmin>=1.2.5",
   "selectolax>=0.4.13",
-  "simple-html>=3.1.1; python_version<'3.15'",  # mypyc rejects CPython 3.15 headers while building the sdist
+  "simple-html>=3.1.1",
   "soupsieve>=2.10",
   "trafilatura>=2.3",
   "urlextract>=1.10",
@@ -265,6 +265,11 @@ dependency-groups.release = { requires-python = ">=3.15" }
 dependency-groups.release-news = { requires-python = ">=3.15" }
 dependency-groups.release-notes = { requires-python = ">=3.15" }
 dependency-groups.release-prepare = { requires-python = ">=3.15" }
+# PyO3 0.27 refuses CPython versions newer than 3.14 unless it may build against the forward-compatible ABI
+extra-build-variables.minify-html = { PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1" }
+# simple-html's sdist pins mypy 1.18.2, whose mypyc runtime uses APIs CPython 3.15 deprecates;
+# mypy compiles with -Werror, so those deprecation warnings fail the build
+extra-build-variables.simple-html = { CFLAGS = "-Wno-error=deprecated-declarations" }
 
 [tool.cibuildwheel]
 # abi3 is impossible here (the SWAR paths need the non-limited PyUnicode buffer
