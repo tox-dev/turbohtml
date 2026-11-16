@@ -1777,6 +1777,112 @@ def test_meta_content_without_refresh_is_not_scheme_checked(html: str) -> None:
     assert sanitize(html, _allow_all({"meta", "x"}, {"http-equiv", "content", "name"})) == html
 
 
+_REFRESH_URL: Final[str] = "0;url=javascript:void(0)"
+# the case variant, the refresh http-equiv and the content in every order, since the walk meets them one at a time
+_REFRESH_ORDERS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(("variant", "refresh", "content"), id="variant-refresh-content"),
+    pytest.param(("variant", "content", "refresh"), id="variant-content-refresh"),
+    pytest.param(("refresh", "variant", "content"), id="refresh-variant-content"),
+    pytest.param(("refresh", "content", "variant"), id="refresh-content-variant"),
+    pytest.param(("content", "variant", "refresh"), id="content-variant-refresh"),
+    pytest.param(("content", "refresh", "variant"), id="content-refresh-variant"),
+]
+_REFRESH_VARIANTS: Final[list[pytest.ParameterSet]] = [
+    pytest.param("HTTP-EQUIV", id="upper"),
+    pytest.param("Http-Equiv", id="title"),
+]
+# element attribute counts on either side of 32, where start tags used to take different paths
+_REFRESH_SIZES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(31, id="31-attributes"),
+    pytest.param(35, id="35-attributes"),
+]
+_REFRESH_KEPT: Final[str] = '<r><meta http-equiv="refresh"></meta></r>'
+
+
+@pytest.mark.parametrize("total", _REFRESH_SIZES)
+@pytest.mark.parametrize("variant", _REFRESH_VARIANTS)
+@pytest.mark.parametrize("order", _REFRESH_ORDERS)
+def test_refresh_content_is_judged_on_the_attributes_written(order: tuple[str, ...], variant: str, total: int) -> None:
+    html = sanitize_node(_refresh_root(_refresh_xml(variant, order, total)), _refresh_policy()).html
+    assert html == _REFRESH_KEPT
+    refresh = parse(html).meta_refresh()
+    assert refresh is None or not refresh[1].startswith("javascript:")
+
+
+def _refresh_root(xml: str) -> Element:
+    root = parse_xml(xml).root
+    assert root is not None
+    return root
+
+
+def _refresh_xml(variant: str, order: tuple[str, ...], total: int) -> str:
+    fields = {
+        "variant": f'{variant}="x"',
+        "refresh": 'http-equiv="refresh"',
+        "content": f'content="{_REFRESH_URL}"',
+    }
+    padding = [f'pad{index}="v"' for index in range(total - len(order))]
+    return f"<r><meta {' '.join([*(fields[name] for name in order), *padding])}/></r>"
+
+
+def _refresh_policy() -> Policy:
+    return Policy(tags=frozenset({"r", "meta"}), attributes={"meta": frozenset({"http-equiv", "content"})})
+
+
+@pytest.mark.parametrize("total", _REFRESH_SIZES)
+@pytest.mark.parametrize("variant", _REFRESH_VARIANTS)
+@pytest.mark.parametrize("order", _REFRESH_ORDERS)
+def test_refresh_content_removal_is_reported(order: tuple[str, ...], variant: str, total: int) -> None:
+    out, removed = sanitize_report_node(_refresh_root(_refresh_xml(variant, order, total)), _refresh_policy())
+    assert out.html == _REFRESH_KEPT
+    expected = {("meta", name) for name in (variant, "content", *(f"pad{index}" for index in range(total - 3)))}
+    assert {(item.tag, item.attribute) for item in removed} == expected
+    assert len(removed) == len(expected)
+
+
+@pytest.mark.parametrize("total", _REFRESH_SIZES)
+@pytest.mark.parametrize("variant", _REFRESH_VARIANTS)
+def test_refresh_content_is_checked_after_filter_deletes_variant(variant: str, total: int) -> None:
+    policy = replace(_refresh_policy(), attribute_filter=lambda _tag, name, value: None if name == variant else value)
+    html = sanitize_node(_refresh_root(_refresh_xml(variant, ("content", "variant", "refresh"), total)), policy).html
+    assert html == _REFRESH_KEPT
+
+
+@pytest.mark.parametrize("total", _REFRESH_SIZES)
+@pytest.mark.parametrize("variant", _REFRESH_VARIANTS)
+def test_refresh_content_is_checked_after_value_rule_removes_variant(variant: str, total: int) -> None:
+    values = {variant: frozenset({"y"}), "http-equiv": frozenset({"refresh"})}
+    policy = replace(_refresh_policy(), attribute_values={"meta": values})
+    html = sanitize_node(_refresh_root(_refresh_xml(variant, ("content", "variant", "refresh"), total)), policy).html
+    assert html == _REFRESH_KEPT
+
+
+def test_refresh_content_is_checked_after_filter_writes_refresh() -> None:
+    policy = replace(
+        _refresh_policy(),
+        attribute_filter=lambda _tag, name, value: "refresh" if name == "http-equiv" else value,
+    )
+    html = sanitize_node(_refresh_root(f'<r><meta content="{_REFRESH_URL}" http-equiv="x"/></r>'), policy).html
+    assert html == _REFRESH_KEPT
+
+
+def test_refresh_content_is_checked_after_set_attributes_writes_refresh() -> None:
+    policy = replace(_refresh_policy(), set_attributes={"meta": {"http-equiv": "refresh"}})
+    html = sanitize_node(_refresh_root(f'<r><meta content="{_REFRESH_URL}"/></r>'), policy).html
+    assert html == _REFRESH_KEPT
+
+
+def test_refresh_decision_propagates_a_failing_prefix_check() -> None:
+    # the disallowed http-equiv is checked against the prefixes while the content's refresh decision is made
+    policy = replace(
+        _refresh_policy(),
+        attributes={"meta": frozenset({"content"})},
+        attribute_prefixes=frozenset({"\ud800"}),
+    )
+    with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
+        sanitize_node(_refresh_root(f'<r><meta content="{_REFRESH_URL}" http-equiv="refresh"/></r>'), policy)
+
+
 def test_eleven_char_non_srcset_attribute_is_not_url_checked() -> None:
     # placeholder is eleven characters but is not imagesrcset, so its value is never scheme-checked.
     policy = _allow_all({"x"}, {"placeholder"})
