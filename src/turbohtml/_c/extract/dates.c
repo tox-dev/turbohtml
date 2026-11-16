@@ -1110,8 +1110,8 @@ static int markers_role(th_tree *tree, th_node *node, const date_markers *marker
 }
 
 /* Date-marked elements nested in one another each scan the text of their whole subtree, and the walk then descends
-   into them, so text under nested markers is scanned once per marked ancestor, up to TH_MAX_TREE_DEPTH times. Past
-   this depth an element is dated by its datetime/title attribute only. */
+   into them, so text under nested markers is scanned once per marked ancestor. Past DATE_TEXT_NESTING such levels an
+   element is dated by its datetime/title attribute only, which bounds each text to that many scans. */
 #define DATE_TEXT_NESTING 8
 
 /* The temporal-markup stage: <time> elements, and elements whose class/id/itemprop marks them as a date. A
