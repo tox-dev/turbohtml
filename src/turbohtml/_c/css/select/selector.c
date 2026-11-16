@@ -426,14 +426,14 @@ static int sel_kw(const Py_UCS4 *name, Py_ssize_t len, const char *kw) {
     return 1;
 }
 
-/* Read a run of ASCII digits as a non-negative int, saturating at INT_MAX rather
+/* Read a run of ASCII digits as a non-negative int64_t, saturating at INT64_MAX rather
    than overflowing; *seen reports any digit. */
-static int sel_read_int(sel_parser *parser, int *seen) {
-    int value = 0;
+static int64_t sel_read_int(sel_parser *parser, int *seen) {
+    int64_t value = 0;
     *seen = 0;
     while (parser->pos < parser->len && parser->src[parser->pos] >= '0' && parser->src[parser->pos] <= '9') {
         const int digit = (int)(parser->src[parser->pos] - '0');
-        value = value > (INT_MAX - digit) / 10 ? INT_MAX : value * 10 + digit;
+        value = value > (INT64_MAX - digit) / 10 ? INT64_MAX : value * 10 + digit;
         parser->pos++;
         *seen = 1;
     }
@@ -442,7 +442,7 @@ static int sel_read_int(sel_parser *parser, int *seen) {
 
 /* Parse the An+B microsyntax (CSS Syntax §"The An+B microsyntax") into a/b,
    including the even/odd keywords. pos starts after '(' and stops at the ')'. */
-static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
+static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
     sel_skip_ws(parser);
     if (parser->pos + 4 <= parser->len && sel_kw(parser->src + parser->pos, 4, "even")) {
         parser->pos += 4;
@@ -464,7 +464,7 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
         parser->pos++;
     }
     int seen_a;
-    int num = sel_read_int(parser, &seen_a);
+    const int64_t num = sel_read_int(parser, &seen_a);
     if (parser->pos < parser->len && (parser->src[parser->pos] | 32) == 'n') {
         parser->pos++;
         *a = sign * (seen_a ? num : 1);
@@ -474,7 +474,7 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
             parser->pos++;
             sel_skip_ws(parser);
             int seen_b;
-            int bval = sel_read_int(parser, &seen_b);
+            const int64_t bval = sel_read_int(parser, &seen_b);
             if (!seen_b) {
                 sel_fail(parser, "expected a number after the sign in An+B");
                 return;
@@ -482,8 +482,8 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
             *b = bsign * bval;
             if (*b < 0 && *a != 0) {
                 /* a descending series that starts below 1 matches no position, and an ascending one matches the same
-                   positions from b % a, so the reduction changes no match and no translated XPath; a step of -1 then
-                   never keeps a negative offset, which keeps sel_nth_matches away from INT_MIN % -1 */
+                   positions from b % a, so the reduction changes no match and no translated XPath; a negative offset
+                   then pairs only with a positive step, which sel_nth_matches relies on */
                 *b = *a < 0 ? 0 : *b % *a;
             }
         } else {
@@ -2220,16 +2220,16 @@ walk:;
     return index;
 }
 
-/* Whether a 1-based index satisfies An+B for some non-negative n. sel_parse_anb leaves a
-   negative b only with a = 0 or above -a, so the difference cannot reach INT_MIN with
-   a = -1 (a hardware divide error on x86). Past INT_MAX the unsigned subtraction wraps
-   to a negative difference that reads as no match, which is wrong only for a position
-   beyond INT_MAX / 2, a position that needs over a billion siblings. */
-static int sel_nth_matches(int a, int b, int index) {
+/* Whether a 1-based index satisfies An+B for some non-negative n. sel_parse_anb pairs a negative b with a positive
+   a, so index - b is positive and can pass INT64_MAX: that case divides the unsigned sum. */
+static int sel_nth_matches(int64_t a, int64_t b, int64_t index) {
     if (a == 0) {
         return index == b;
     }
-    const int diff = (int)((unsigned)index - (unsigned)b);
+    if (b < 0) {
+        return ((uint64_t)index + (uint64_t)-b) % (uint64_t)a == 0;
+    }
+    const int64_t diff = index - b;
     return diff % a == 0 && diff / a >= 0;
 }
 
@@ -5108,6 +5108,9 @@ static void sel_sweep_plan_compound(sel_sweep *sweep, const sel_compound *compou
         } else if (simple->pseudo == PSEUDO_SCOPE) {
             sel_sweep_mark(sweep, SEL_SWEEP_SCOPE);
         } else if (simple->pseudo == PSEUDO_NTH_CHILD || simple->pseudo == PSEUDO_NTH_LAST_CHILD) {
+            /* sel_sweep_nth keeps its moduli and offsets in int spans, so a coefficient past INT_MAX takes the walk */
+            sweep->failed |= simple->nth_a > INT_MAX || simple->nth_a < -INT_MAX || simple->nth_b > INT_MAX ||
+                             simple->nth_b < -INT_MAX;
             sel_sweep_mark(sweep, SEL_SWEEP_NTH);
         } else {
             sel_sweep_mark(sweep, SEL_SWEEP_LIST);
