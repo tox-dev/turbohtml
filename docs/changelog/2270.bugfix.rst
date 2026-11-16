@@ -1,0 +1,2 @@
+``minify_js()`` raises an error for a string, template or regex token where a property name must be, such as after ``.``
+or as a template key.

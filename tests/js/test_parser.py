@@ -233,6 +233,50 @@ def test_punctuator_as_property_name_raises(source: str, match: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param("o={`t`:1}", "expected property name at offset 3 near '`t`'", id="object-template-key"),
+        pytest.param("class C{`t`(){}}", "expected property name at offset 8 near '`t`'", id="class-template-key"),
+        pytest.param("x=a.`t`", "expected property name at offset 4 near '`t`'", id="template-member-name"),
+        pytest.param("x=a?.`t`", "expected property name at offset 5 near '`t`'", id="template-optional-member-name"),
+        pytest.param("x=new.`t`", "expected property name at offset 6 near '`t`'", id="template-new-meta-property"),
+        pytest.param('x=a."b"', "expected property name at offset 4 near '\"b\"'", id="string-member-name"),
+        pytest.param('x=a?."b"', "expected property name at offset 5 near '\"b\"'", id="string-optional-member-name"),
+        pytest.param('x=new."b"', "expected property name at offset 6 near '\"b\"'", id="string-new-meta-property"),
+        pytest.param(
+            'o."\\u{1234567}"',
+            "expected property name at offset 2 near '\"\\u{1234567}\"'",
+            id="escaped-string-member-name",
+        ),
+        pytest.param(
+            "x.`a\\u{120000}`",
+            "expected property name at offset 2 near '`a\\u{120000}`'",
+            id="escaped-template-member-name",
+        ),
+        pytest.param("x=o.", "expected property name at offset 4: reached end of input", id="member-name-at-end"),
+        pytest.param("x=o={/a/:1}", "expected property name at offset 5 near '/'", id="regex-object-key"),
+        pytest.param("x=class{/a/(){}}", "expected property name at offset 8 near '/'", id="regex-class-key"),
+    ],
+)
+def test_literal_token_as_property_name_raises(source: str, match: str) -> None:
+    # only an identifier name, or a string, number or bigint key that parse_key reads as a literal, names a property
+    with pytest.raises(ValueError, match=re.escape(match)):
+        minify_js(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('x={"a":1,1:2,1n:3,[k]:4}', "x={a:1,1:2,1n:3,[k]:4}", id="object-literal-keys"),
+        pytest.param('class C{"m"(){}1(){}2n(){}}', "class C{m(){}1(){}2n(){}}", id="class-literal-keys"),
+        pytest.param('x=a?.["b"]', "x=a?.b", id="computed-string-optional-member"),
+    ],
+)
+def test_literal_property_names_minify_to(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("x={abc,b,}", "x={abc,b}", id="trailing-comma"),
@@ -300,10 +344,6 @@ def test_identifier_escape_decodes(source: str, expected: str) -> None:
         pytest.param("x.#\\u0030", "offset 2 near '#\\u0030'", id="digit-leads-private-name"),
         pytest.param("({k\\u{1FFFFF}:0})", "offset 2 near 'k\\u{1FFFFF}'", id="object-key"),
         pytest.param("class K{#n\\u{2A0000};}", "offset 8 near '#n\\u{2A0000}'", id="private-field"),
-        # the parser reads whatever token follows a `.` as the property name, so a literal's escapes arrive here too
-        pytest.param('o."\\u{1234567}"', "offset 2 near '\"\\u{1234567}\"'", id="string-for-a-name"),
-        pytest.param('x."\\n"', "offset 2 near '\"\\n\"'", id="string-escape-that-is-not-u"),
-        pytest.param("x.`a\\u{120000}`", "offset 2 near '`a\\u{120000}`'", id="template-for-a-name"),
     ],
 )
 def test_invalid_identifier_escape_raises(source: str, match: str) -> None:
