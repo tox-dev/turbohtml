@@ -1,0 +1,2 @@
+Range facets on ``xs:gYear``, ``xs:gYearMonth``, ``xs:gMonth``, ``xs:gMonthDay`` and ``xs:gDay`` now reject values
+outside their bounds.

@@ -39,14 +39,15 @@ left unmatched have no verdict. Lower the repeat counts to stay within it.
 
 The range facets ``minInclusive``, ``maxInclusive``, ``minExclusive`` and ``maxExclusive`` compare an ``xs:decimal`` or
 an integer type exactly, digit by digit, and an ``xs:float`` or ``xs:double`` by value. An ``xs:date``, ``xs:dateTime``,
-``xs:time`` or ``xs:duration`` is compared by the order XSD 1.0 part 2 gives the type. Years are numbered as in XSD 1.1,
-where 0000 is 1 BCE and -0001 is 2 BCE. That order is partial: a value with a timezone and one without are ordered only
-when they lie more than fourteen hours apart, and two durations only when they compare the same way from each of the
-specification's four reference dates, so ``P1M`` is neither below nor above ``P30D``. A value the order does not place
-against a bound fails the facet, and so does every value when the bound is not itself a value of the type. XSD 1.0 part
-2 makes ``NaN`` equal to itself and unordered with every other ``xs:float`` or ``xs:double`` value, so an inclusive
-``NaN`` bound admits only ``NaN``, and an exclusive ``NaN`` bound admits no value. The range facets are not enforced on
-``xs:gYear``, ``xs:gYearMonth``, ``xs:gMonth``, ``xs:gMonthDay`` or ``xs:gDay``: those validate as strings.
+``xs:time`` or ``xs:duration`` is compared by the order XSD 1.0 part 2 gives the type, and an ``xs:gYear``,
+``xs:gYearMonth``, ``xs:gMonth``, ``xs:gMonthDay`` or ``xs:gDay`` by the order XSD 1.1 part 2 gives it: each field it
+leaves out takes its value from 1972-12-31, and a missing day takes the last day of its month. Years are numbered as in
+XSD 1.1, where 0000 is 1 BCE and -0001 is 2 BCE. That order is partial: a value with a timezone and one without are
+ordered only when they lie more than fourteen hours apart, and two durations only when they compare the same way from
+each of the specification's four reference dates, so ``P1M`` is neither below nor above ``P30D``. A value the order does
+not place against a bound fails the facet, and so does every value when the bound is not itself a value of the type. XSD
+1.0 part 2 makes ``NaN`` equal to itself and unordered with every other ``xs:float`` or ``xs:double`` value, so an
+inclusive ``NaN`` bound admits only ``NaN``, and an exclusive ``NaN`` bound admits no value.
 
 An ``xs:any`` particle matches one child element for each occurrence its ``minOccurs`` and ``maxOccurs`` allow, when the
 ``namespace`` attribute admits the element's namespace. ``processContents="strict"``, the default, requires a global
