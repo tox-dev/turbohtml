@@ -645,6 +645,7 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.xml_ns = (th_xml_ns_spend){0, 0, TH_XML_NS_BASE};
     self->cursor.unwrap = (th_xml_unwrap){.spend = {0, 0, TH_XML_NS_BASE}};
     self->cursor.clone_credit = 0;
+    self->cursor.clone_seen = NULL;
     self->indent = indent;
     self->indent_len = indent_len;
     self->mutation_version = ((HandleObject *)handle)->mutation_version;
@@ -656,6 +657,7 @@ static void serialize_iter_dealloc(PyObject *self) {
     Py_DECREF(((SerializeIterObject *)self)->handle);
     Py_XDECREF(((SerializeIterObject *)self)->layout);
     th_xml_unwrap_free(&((SerializeIterObject *)self)->cursor.unwrap);
+    th_clone_seen_free(((SerializeIterObject *)self)->cursor.clone_seen);
     type->tp_free(self);
     Py_DECREF(type);
 }

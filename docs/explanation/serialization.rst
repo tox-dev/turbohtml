@@ -47,6 +47,14 @@ hold a ``>``, which ends an HTML doctype) keeps only its name and, on a quirks p
 mode. The transforms that would *not* round-trip (deleting whitespace between block elements, or omitting a tag whose
 reparse changes nesting) are exactly the ones turbohtml declines to make.
 
+An unclosed formatting element is reopened in every block after it, and each copy carries the attributes of its one
+start tag. The first copy of a value set is written with all its attributes, since the tree holds that value once. Each
+later copy of the same value set draws its attributes on a budget that the output written before it funds, so the output
+stays linear in the size of the input. A copy the budget does not cover writes none of its attributes. The ``html``,
+``serialize()``, ``to_source()``, ``canonicalize()`` and :class:`~turbohtml.Minify` writers share this budget, and
+``to_text()`` funds the link targets of its copies with the padding its text provides. The Markdown writer funds its own
+copies with rendered text and start tags.
+
 ***************************
  HTML vs XML serialization
 ***************************

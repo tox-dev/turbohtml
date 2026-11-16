@@ -4347,8 +4347,8 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_drop = ctx->drop_space;
     table->saved_table_end = ctx->table_end;
     ctx->table_end = -1;
-    ctx->out = (sbuf){NULL, 0, 0, 0, 0};
-    ctx->prefix = (sbuf){NULL, 0, 0, 0, 0};
+    ctx->out = (sbuf){NULL, 0, 0, 0, 0, NULL};
+    ctx->prefix = (sbuf){NULL, 0, 0, 0, 0, NULL};
     Py_ssize_t outer = ctx->marker_count;
     ctx->marker_base = outer;
     ctx->pending = NULL;

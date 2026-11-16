@@ -708,37 +708,6 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, int is_ap
     if (ns_count > 1) {
         qsort(namespaces, (size_t)ns_count, sizeof(c14n_xml_ns), c14n_xml_ns_cmp);
     }
-    Py_ssize_t clone_start = ser_clone_start(out, node);
-    /* a clone that cannot declare a prefix writes no attribute, so none uses an undeclared one */
-    int clone_full = 0;
-    for (Py_ssize_t index = 0; index < ns_count; index++) {
-        const c14n_xml_ns *namespace = &namespaces[index];
-        if (clone_start >= 0 && !ser_clone_attr_fits(out, clone_start, namespace->prefix_len + namespace->uri_len)) {
-            clone_full = 1;
-            break;
-        }
-        int copy = namespace->owner != node;
-        if (copy && !c14n_ns_copy_funded(out, scope->copied, namespace->prefix_len + namespace->uri_len + 10)) {
-            if (namespaces != stack_namespaces) {
-                PyMem_Free(namespaces);
-            }
-            out->failed = 1;
-            return;
-        }
-        Py_ssize_t start = out->len;
-        sbuf_puts(out, " xmlns");
-        if (namespace->prefix_len > 0) {
-            sbuf_putc(out, ':');
-            sbuf_put_utf8(out, namespace->prefix, namespace->prefix_len);
-        }
-        sbuf_puts(out, "=\"");
-        c14n_put_attr(out, namespace->uri, namespace->uri_len);
-        sbuf_putc(out, '"');
-        if (copy) {
-            scope->copied += out->len - start; /* what was written: escaping can lengthen the URI */
-        }
-    }
-
     Py_ssize_t attr_capacity = node->attr_count;
     if (is_apex && !opts->exclusive) {
         for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
@@ -820,12 +789,43 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, int is_ap
     if (count > 1) {
         qsort(attrs, (size_t)count, sizeof(c14n_xml_attr), c14n_xml_attr_cmp);
     }
-    for (Py_ssize_t index = 0; index < count; index++) {
-        Py_ssize_t cost = attrs[index].name_len + attrs[index].value_len;
-        if (clone_start >= 0 && (clone_full || !ser_clone_attr_fits(out, clone_start, cost))) {
+    Py_ssize_t clone_start = ser_clone_start(out, node);
+    if (clone_start >= 0) {
+        Py_ssize_t cost = 0;
+        for (Py_ssize_t index = 0; index < ns_count; index++) {
+            cost += namespaces[index].prefix_len + namespaces[index].uri_len;
+        }
+        for (Py_ssize_t index = 0; index < count; index++) {
+            cost += attrs[index].name_len + attrs[index].value_len;
+        }
+        if (!ser_clone_admit(out, clone_start, node, cost)) {
+            ns_count = 0;
+            count = 0;
+        }
+    }
+    for (Py_ssize_t index = 0; index < ns_count; index++) {
+        const c14n_xml_ns *namespace = &namespaces[index];
+        int copy = namespace->owner != node;
+        if (copy && !c14n_ns_copy_funded(out, scope->copied, namespace->prefix_len + namespace->uri_len + 10)) {
+            out->failed = 1;
+            count = 0;
             break;
         }
-        TH_WORK_STEPS_ADD(cost);
+        Py_ssize_t start = out->len;
+        sbuf_puts(out, " xmlns");
+        if (namespace->prefix_len > 0) {
+            sbuf_putc(out, ':');
+            sbuf_put_utf8(out, namespace->prefix, namespace->prefix_len);
+        }
+        sbuf_puts(out, "=\"");
+        c14n_put_attr(out, namespace->uri, namespace->uri_len);
+        sbuf_putc(out, '"');
+        if (copy) {
+            scope->copied += out->len - start; /* what was written: escaping can lengthen the URI */
+        }
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        TH_WORK_STEPS_ADD(attrs[index].name_len + attrs[index].value_len);
         sbuf_putc(out, ' ');
         sbuf_put_utf8(out, attrs[index].name, attrs[index].name_len);
         sbuf_puts(out, "=\"");
@@ -1012,7 +1012,7 @@ static void c14n_xml_document(sbuf *out, th_tree *tree, th_node *doc, const th_c
 }
 
 Py_UCS4 *th_node_canonicalize_xml(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
-    sbuf out = {NULL, 0, 0, 0, 0};
+    sbuf out = {NULL, 0, 0, 0, 0, NULL};
     if (node->type == TH_NODE_DOCUMENT) {
         sbuf_presize_for_c14n(&out, tree);
         c14n_xml_document(&out, tree, node, opts);
