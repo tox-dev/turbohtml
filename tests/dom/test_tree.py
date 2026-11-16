@@ -457,6 +457,32 @@ def test_cr_character_reference_is_tree_whitespace(html: str, expected: str) -> 
 
 
 @pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        # a template start tag sets frameset-ok to "not ok", so a frameset under an open template is ignored
+        pytest.param(
+            "<h><template><frameset>x",
+            "<html><head></head><body><h><template>x</template></h></body></html>",
+            id="frameset-ignored-under-template-in-body",
+        ),
+        pytest.param(
+            "<v><template>\t<frameset>",
+            "<html><head></head><body><v><template>\t</template></v></body></html>",
+            id="frameset-ignored-under-template-after-whitespace",
+        ),
+        # an implied body sets frameset-ok to "ok" again, so the frameset replaces it once the template has closed
+        pytest.param(
+            "<template></template><y><frameset>x",
+            "<html><head><template></template></head><frameset></frameset></html>",
+            id="implied-body-restores-frameset-ok",
+        ),
+    ],
+)
+def test_frameset_follows_template_frameset_ok(html: str, expected: str) -> None:
+    assert parse(html).serialize() == expected
+
+
+@pytest.mark.parametrize(
     ("source", "equivalent"),
     [
         pytest.param("<table><caption></body>a</caption>v", "<table><caption>a</caption>v", id="caption-ignores-body"),

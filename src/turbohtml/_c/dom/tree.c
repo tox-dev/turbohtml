@@ -3485,6 +3485,7 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_TEMPLATE) {
             th_node *node = insert_template(tree, tok);
+            tree->frameset_ok = 0; /* a template start tag sets frameset-ok to "not ok" */
             stack_push(tree, node);
             afe_push_marker(tree);
             tmpl_push(tree, M_IN_TEMPLATE);
@@ -3622,6 +3623,7 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
                 stack_push(tree, tree->head); /* insert into the head element */
                 if (atom == TH_TAG_TEMPLATE) {
                     th_node *node = insert_template(tree, tok);
+                    tree->frameset_ok = 0; /* a template start tag sets frameset-ok to "not ok" */
                     /* the head is removed from under the template on the
                        stack; the template itself stays open */
                     tree->open[tree->open_len - 1] = node;
@@ -3652,6 +3654,7 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
         th_node *body = insert_implicit(tree, TH_TAG_BODY, TH_TAG_SPECIAL);
         stack_push(tree, body);
     }
+    tree->frameset_ok = 1; /* the implied body resets frameset-ok to "ok" */
     dc->mode = M_IN_BODY;
     return TH_DRAIN_REPROCESS;
 }
@@ -3665,6 +3668,7 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_TEMPLATE) {
             stack_push_template(tree, insert_template(tree, tok));
+            tree->frameset_ok = 0; /* a template start tag sets frameset-ok to "not ok" */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
@@ -4170,6 +4174,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_TEMPLATE) {
             stack_push_template(tree, insert_template(tree, tok));
+            tree->frameset_ok = 0; /* a template start tag sets frameset-ok to "not ok" */
             dc->mode = M_IN_TEMPLATE;
             return TH_DRAIN_NEXT;
         }
@@ -4938,6 +4943,7 @@ reprocess:;
          dc->mode == M_IN_COLUMN_GROUP || dc->mode == M_IN_CAPTION) &&
         tok_atom(tok) == TH_TAG_TEMPLATE) {
         stack_push_template(tree, insert_template(tree, tok));
+        tree->frameset_ok = 0; /* a template start tag sets frameset-ok to "not ok" */
         dc->mode = M_IN_TEMPLATE;
         goto token_done;
     }
