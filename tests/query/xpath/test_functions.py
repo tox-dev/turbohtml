@@ -13,7 +13,6 @@ from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-impo
 
 import pytest
 from bench.ci import benchmarks
-from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
 import turbohtml
@@ -1159,7 +1158,7 @@ def test_id_nodes_benchmark_output(name: str) -> None:
     ],
 )
 def test_translate_benchmark_result(case: int, expected: str) -> None:
-    expression, source = cast("tuple[str, str]", INPUTS["xpath-translate"]()[case][1])
+    expression, source = cast("tuple[str, ...]", INPUTS["xpath-translate"]()[case][1])[:2]
     document: Final = parse(source)
     assert document.xpath(expression) == expected
 
@@ -1842,9 +1841,13 @@ def test_concat_benchmark_output(name: str, length: int) -> None:
 @pytest.mark.parametrize("name", ["xpath-replace", "xpath-replace-short"])
 def test_replace_benchmark_output(name: str) -> None:
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
-    case = cast("tuple[str, str, str, str]", load())
-    operation = cast("Callable[[tuple[str, str, str, str]], str]", OPERATIONS["xpath-replace"][0])
-    assert operation(case) == case[3]
+    text, search, replacement, expected = cast("tuple[str, ...]", load())[:4]
+    assert (
+        parse("<p></p>").xpath(
+            "str:replace($text, $search, $replacement)", text=text, search=search, replacement=replacement
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize("function", [pytest.param("re:test", id="exslt"), pytest.param("matches", id="xpath2")])

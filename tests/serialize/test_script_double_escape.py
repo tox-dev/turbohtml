@@ -81,7 +81,9 @@ def test_to_source_doubles_the_end_tag_the_source_wrote() -> None:
     ],
 )
 def test_script_text_ending_double_escaped_takes_two_end_tags(text: str, write: Callable[[Node], str]) -> None:
-    assert write(Element("script", children=[Text(text)])) == f"<script>{text}</script></script>"
+    # a raw-text CR is written as LF, which a re-parse reads back as the same whitespace
+    written: Final = text.replace("\r", "\n")
+    assert write(Element("script", children=[Text(text)])) == f"<script>{written}</script></script>"
 
 
 @pytest.mark.parametrize("write", _WRITERS)

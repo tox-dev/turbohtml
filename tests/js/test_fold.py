@@ -1795,7 +1795,11 @@ def test_declaration_reads_preserve_behavior(source: str, expected: str) -> None
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 @pytest.mark.parametrize(
     ("case", "count"),
-    [pytest.param(0, 256, id="grouped"), pytest.param(1, 256, id="separate"), pytest.param(2, 1, id="single")],
+    [
+        pytest.param(0, 256, id="grouped"),
+        pytest.param(1, 256, id="separate"),
+        pytest.param(2, 128, id="one-declaration"),
+    ],
 )
 def test_single_use_initializers_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-single-use"]()[case][1]
@@ -1808,7 +1812,11 @@ def test_single_use_initializers_preserve_call_order(case: int, count: int) -> N
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 @pytest.mark.parametrize(
     ("case", "count"),
-    [pytest.param(0, 256, id="grouped"), pytest.param(1, 256, id="separate"), pytest.param(2, 1, id="single")],
+    [
+        pytest.param(0, 256, id="grouped"),
+        pytest.param(1, 256, id="separate"),
+        pytest.param(2, 64, id="one-declaration"),
+    ],
 )
 def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unlink"]()[case][1]
@@ -1835,7 +1843,7 @@ def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
             [[value for index in range(256) for value in (index, index % 10)], list(range(256))],
             id="many",
         ),
-        pytest.param(1, [[0, 0], [0]], id="one"),
+        pytest.param(1, [[v for index in range(80) for v in (index, index % 10)], list(range(80))], id="80"),
         pytest.param(2, [[None] * 256, [None] * 256], id="early"),
     ],
 )
@@ -1848,7 +1856,7 @@ def test_var_initialization_benchmark_order(case: int, rows: list[list[int | Non
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
-@pytest.mark.parametrize(("case", "count"), [pytest.param(0, 256, id="many"), pytest.param(1, 1, id="one")])
+@pytest.mark.parametrize(("case", "count"), [pytest.param(0, 256, id="many"), pytest.param(1, 96, id="few")])
 def test_unused_declarators_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unused-declarations"]()[case][1]
     assert isinstance(source, str)

@@ -1096,7 +1096,7 @@ _MISDECODED_XFAIL: Final[pytest.MarkDecorator] = pytest.mark.xfail(
 )
 def test_encoding_result_turbohtml_detect_preserves_decoded_text(case: int, expected: str) -> None:
     library: Final = pytest.importorskip("turbohtml.detect")
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     assert data.decode(library.detect(data).codec).removeprefix("﻿") == expected
 
 
@@ -1107,7 +1107,7 @@ def test_encoding_result_turbohtml_detect_preserves_decoded_text(case: int, expe
 )
 def test_encoding_result_turbohtml_stream_preserves_decoded_text(case: int, expected: str) -> None:
     library: Final = pytest.importorskip("turbohtml.detect")
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     detector: Final = library.EncodingDetector()
     detector.feed(data)
     assert data.decode(detector.close().codec).removeprefix("﻿") == expected
@@ -1130,7 +1130,7 @@ def test_encoding_result_turbohtml_stream_preserves_decoded_text(case: int, expe
 )
 def test_encoding_result_chardet_detect_preserves_decoded_text(module: str, case: int, expected: str) -> None:
     library: Final = pytest.importorskip(module)
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     assert data.decode(library.detect(data)["encoding"]).removeprefix("﻿") == expected
 
 
@@ -1151,7 +1151,7 @@ def test_encoding_result_chardet_detect_preserves_decoded_text(module: str, case
 )
 def test_encoding_result_chardet_stream_preserves_decoded_text(module: str, case: int, expected: str) -> None:
     library: Final = pytest.importorskip(module)
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     detector: Final = library.UniversalDetector()
     detector.feed(data)
     detector.close()
@@ -1168,7 +1168,7 @@ def test_encoding_result_chardet_stream_preserves_decoded_text(module: str, case
 )
 def test_encoding_result_charset_normalizer_preserves_decoded_text(case: int, expected: str) -> None:
     library: Final = pytest.importorskip("charset_normalizer")
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     match: Final = library.from_bytes(data).best()
     assert match is not None
     assert data.decode(match.encoding).removeprefix("﻿") == expected
@@ -1181,7 +1181,7 @@ def test_encoding_result_charset_normalizer_preserves_decoded_text(case: int, ex
 )
 def test_encoding_result_bs4_preserves_decoded_text(case: int, expected: str) -> None:
     library: Final = pytest.importorskip("bs4")
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     encoding: Final = library.UnicodeDammit(data).original_encoding
     assert encoding is not None
     assert data.decode(encoding).removeprefix("﻿") == expected
@@ -1194,7 +1194,7 @@ def test_encoding_result_bs4_preserves_decoded_text(case: int, expected: str) ->
 )
 def test_encoding_result_resiliparse_preserves_decoded_text(case: int, expected: str) -> None:
     library: Final = pytest.importorskip("resiliparse.parse.encoding")
-    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    data: Final = cast("tuple[int, bytes]", INPUTS["encoding-result"]()[case][1])[1]
     encoding: Final = library.detect_encoding(data)
     assert encoding is not None
     assert data.decode(encoding).removeprefix("﻿") == expected

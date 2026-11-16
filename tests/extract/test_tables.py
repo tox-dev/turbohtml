@@ -451,33 +451,33 @@ def test_table_span_rows_are_independent() -> None:
 
 
 @pytest.mark.parametrize(
-    ("case", "columns", "size"),
-    [pytest.param(0, 128, 4096, id="large-span"), pytest.param(1, 1, 16, id="ordinary")],
+    ("case", "columns", "size", "tables"),
+    [pytest.param(0, 128, 69_000, 1, id="large-span"), pytest.param(1, 1, 16, 80, id="ordinary")],
 )
-def test_table_span_rows_benchmark(case: int, columns: int, size: int) -> None:
+def test_table_span_rows_benchmark(case: int, columns: int, size: int, tables: int) -> None:
     source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[case][1])[1]
-    assert parse(source).tables() == [[["header"] * columns, ["x" * size] * columns]]
+    assert parse(source).tables() == [[["header"] * columns, ["x" * size] * columns]] * tables
 
 
 def test_table_span_records_benchmark() -> None:
     source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[2][1])[1]
-    assert parse(source).select("table")[0].records() == [{"header": "x" * 4096}]
+    assert parse(source).select("table")[0].records() == [{"header": "x" * 68_500}]
 
 
 @pytest.mark.parametrize(
-    ("case", "columns", "size"),
-    [pytest.param(0, 128, 4096, id="large-span"), pytest.param(1, 1, 16, id="ordinary")],
+    ("case", "columns", "size", "tables"),
+    [pytest.param(0, 128, 69_000, 1, id="large-span"), pytest.param(1, 1, 16, 80, id="ordinary")],
 )
 @pytest.mark.oracle
-def test_table_span_header_rows_differ(case: int, columns: int, size: int) -> None:
+def test_table_span_header_rows_differ(case: int, columns: int, size: int, tables: int) -> None:
     pandas: Final = pytest.importorskip("pandas")
     source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[case][1])[1]
     assert (
         parse(source).tables(),
         [frame.to_numpy().tolist() for frame in pandas.read_html(io.StringIO(source))],
     ) == (
-        [[["header"] * columns, ["x" * size] * columns]],
-        [[["x" * size] * columns]],
+        [[["header"] * columns, ["x" * size] * columns]] * tables,
+        [[["x" * size] * columns]] * tables,
     )
 
 
@@ -489,6 +489,6 @@ def test_table_span_duplicate_headers_differ() -> None:
         parse(source).select("table")[0].records(),
         pandas.read_html(io.StringIO(source), header=0)[0].to_dict("records"),
     ) == (
-        [{"header": "x" * 4096}],
-        [{"header" if index == 0 else f"header.{index}": "x" * 4096 for index in range(128)}],
+        [{"header": "x" * 68_500}],
+        [{"header" if index == 0 else f"header.{index}": "x" * 68_500 for index in range(128)}],
     )
