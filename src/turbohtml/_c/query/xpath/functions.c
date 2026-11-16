@@ -2195,6 +2195,17 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     if (sig != NULL && (argc < sig->min_args || (sig->max_args >= 0 && argc > sig->max_args))) {
         return raise_arity(fn, sig, argc);
     }
+    if (func_is(fn, "count") && argc == 1 && prog->nodes[fn->first].kind == XN_PATH) {
+        Py_ssize_t selected;
+        int walked = xp_count_walk(prog, fn->first, ctx, &selected);
+        if (walked < 0) {
+            return walked;
+        }
+        if (walked > 0) {
+            result_number(out, (double)selected);
+            return 0;
+        }
+    }
     xp_result small_args[3];
     xp_result *args = argc == 0 ? NULL : small_args;
     if (argc > 3) {

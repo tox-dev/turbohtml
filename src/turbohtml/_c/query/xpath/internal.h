@@ -375,5 +375,8 @@ int xp_pattern_is_static(const xp_program *prog);
 int xp_pattern_reads_call(const xp_program *prog);
 int xp_step_reads_position(const xp_program *prog, int32_t step_index);
 int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
+/* The number of nodes count() of the path at path_idx selects from the context, answered from the walk memo, or 0 with
+   nothing counted when the memo does not apply. */
+int xp_count_walk(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, Py_ssize_t *count);
 
 #endif /* TURBOHTML_XPATH_INTERNAL_H */
