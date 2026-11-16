@@ -1383,8 +1383,28 @@ def test_resolve_links_keeps_a_host_the_ipv4_parser_rejects(href: str) -> None:
     assert _resolved_href(href, _HTTPS) == href
 
 
-def test_resolve_links_keeps_an_escaped_registered_name_as_written() -> None:
-    assert _resolved_href("https://%41.com:443/p", _HTTPS) == "https://%41.com/p"
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://%41.com:443/p", "https://a.com/p", id="escaped-name-decoded"),
+        pytest.param("https://A%42.com/p", "https://ab.com/p", id="escaped-and-upper-case"),
+        pytest.param("https://%61%62.com/p", "https://ab.com/p", id="escaped-letters"),
+        pytest.param("https://x.%41/p", "https://x.a/p", id="escaped-last-label"),
+        pytest.param("https://%41.%42.%43/p", "https://a.b.c/p", id="escaped-every-label"),
+        pytest.param("https://a%2E/p", "https://a./p", id="escaped-dot-kept-as-trailing-dot"),
+        pytest.param("https://%2e%2e.com/p", "https://...com/p", id="escaped-dot-in-label"),
+        pytest.param("https://u%41@%41.com:443/p", "https://u%41@a.com/p", id="userinfo-kept"),
+        pytest.param("https://%41%42/p", "https://ab/p", id="single-label"),
+        pytest.param("https://%41.com/a/../b", "https://a.com/b", id="escaped-host-with-dot-segment"),
+    ],
+)
+def test_resolve_links_decodes_a_percent_encoded_registered_name(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
+@pytest.mark.parametrize("href", ["https://%20.com/p", "https://%zz.com/p", "https://a%2Fb.com/p"])
+def test_resolve_links_keeps_an_escaped_name_with_a_forbidden_code_point(href: str) -> None:
+    assert _resolved_href(href, _HTTPS) == href
 
 
 # WHATWG removes the dot segments of a path under every scheme, not only the special ones

@@ -1,0 +1,2 @@
+``Node.resolve_links()`` now decodes a percent-encoded host name, as browsers do, so ``https://%41.com/p`` resolves to
+``https://a.com/p`` instead of keeping the escapes.
