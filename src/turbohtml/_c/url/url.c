@@ -1649,6 +1649,28 @@ static PyObject *join_nonspecial_absolute(const url_ref *ref) {
     return joined;
 }
 
+/* A special scheme's base with no authority reads its first segment as the host, after any slashes
+   (https://url.spec.whatwg.org/#special-authority-ignore-slashes-state), so "http:opaque" is the host "opaque". Returns
+   the base rewritten with that authority as a new string, None when there is no host to read, or NULL with an error. */
+static PyObject *url_special_base_with_authority(const url_ref *base) {
+    Py_ssize_t host_start = base->path_start;
+    while (host_start < base->path_end && url_slash(base->buf[host_start], 1)) {
+        host_start++;
+    }
+    Py_ssize_t host_end = host_start;
+    while (host_end < base->path_end && !url_slash(base->buf[host_end], 1)) {
+        host_end++;
+    }
+    if (host_end == host_start) {
+        Py_RETURN_NONE;
+    }
+    return build_url(1, base->buf, base->scheme_start, base->scheme_end, 1, base->buf, host_start, host_end, base->buf,
+                     host_end, base->path_end, base->has_query, base->buf, base->query_start, base->query_end,
+                     base->has_fragment, base->buf, base->fragment_start, base->fragment_end);
+}
+
+static PyObject *join_url(PyObject *base, PyObject *target, int document, int link);
+
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
    ported so the C entry points (th_url_join, th_url_join_link, th_url_document_join, and the c14n base join) resolve
    links without importing urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or
@@ -1723,6 +1745,21 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
     /* a schemeless reference inherits the base's scheme, so its '\' handling follows whether the base is special */
     int base_special =
         base_parts.has_scheme && url_scheme_special(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end);
+    if (link && base_special && (!base_parts.has_netloc || base_parts.netloc_start == base_parts.netloc_end) &&
+        !scheme_eq(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, "file")) {
+        PyObject *rewritten = url_special_base_with_authority(&base_parts);
+        if (rewritten == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyMem_Free(base_parts.buf); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;                /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (rewritten != Py_None) {
+            PyMem_Free(base_parts.buf);
+            PyObject *joined = join_url(rewritten, target, document, link);
+            Py_DECREF(rewritten);
+            return joined;
+        }
+        Py_DECREF(rewritten);
+    }
     if (parse_ref(target, &ref_parts, c14n ? 0 : base_special, c14n) < 0) {
         PyMem_Free(base_parts.buf);
         return NULL;

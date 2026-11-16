@@ -1061,6 +1061,39 @@ def test_resolve_links_extra_authority_slash_boundaries(base: str, href: str, ex
 
 
 @pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("http:opaque", "x", "http://opaque/x", id="relative"),
+        pytest.param("http:opaque", "/x", "http://opaque/x", id="root-relative"),
+        pytest.param("http:opaque", "../x", "http://opaque/x", id="dot-segment"),
+        pytest.param("http:opaque", "?q", "http://opaque/?q", id="query"),
+        pytest.param("http:opaque", "#f", "http://opaque/#f", id="fragment"),
+        pytest.param("http:opaque", "//h/x", "http://h/x", id="network-path"),
+        pytest.param("http:a/b", "x", "http://a/x", id="path-after-host"),
+        pytest.param("http:opaque#old", "x", "http://opaque/x", id="old-fragment-dropped"),
+        pytest.param("https:opaque?q#old", "#f", "https://opaque/?q#f", id="query-kept-fragment-replaced"),
+        pytest.param("http:/a", "x", "http://a/x", id="one-slash-host"),
+        pytest.param("http:///opaque", "x", "http://opaque/x", id="extra-slashes-host"),
+        pytest.param("http:///opaque", "#f", "http://opaque/#f", id="extra-slashes-fragment"),
+        pytest.param("http:////opaque/a", "x", "http://opaque/x", id="four-slashes-path-replaced"),
+    ],
+)
+def test_resolve_links_reads_the_host_of_a_special_base_without_authority(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("http:", "x", "http:/x", id="special-base-without-host"),
+        pytest.param("file:a/b", "x", "file:a/x", id="file-base-without-authority"),
+    ],
+)
+def test_resolve_links_joins_bases_outside_the_host_rule_as_before(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
+@pytest.mark.parametrize(
     "html",
     [
         pytest.param('<a href="">x</a>', id="empty-href"),
