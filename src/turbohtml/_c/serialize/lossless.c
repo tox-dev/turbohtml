@@ -41,8 +41,8 @@ void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize_t end)
 }
 
 /* The WHATWG-conformant escaping the reserialized parts fall back to. */
-static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    0, 0, NULL, 0,
-                                                NULL,          NULL, NULL, NULL, NULL, 0};
+static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0,    0,    NULL, 0,    0, 0,   NULL, 0,
+                                                NULL,          NULL, NULL, NULL, NULL, 0, NULL};
 
 /* Whether the source code points [start, end) hold a "<" or "&", which element content reads back as markup or a
    character reference. A span is whatever slice of the input the tokenizer left untouched, not only data-state text: a

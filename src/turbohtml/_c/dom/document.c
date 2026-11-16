@@ -2481,6 +2481,24 @@ const char *meta_charset_label(const char *encoding) {
     return entry->canonical;
 }
 
+/* Whether text, encoded with encoding, reads back as the same text when a reader decodes the bytes with the label
+   charset that meta_charset declared (WHATWG decoder). 1 or 0, or -1 with an exception set. */
+int meta_declaration_reads_back(PyObject *text, const char *encoding, const char *charset) {
+    const th_encoding_entry *entry = th_encoding_lookup(charset, (Py_ssize_t)strlen(charset));
+    PyObject *bytes = markup_encode(text, encoding, 0);
+    if (bytes == NULL) {
+        return -1;
+    }
+    PyObject *read = th_decode(entry, (const unsigned char *)PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
+    Py_DECREF(bytes);
+    if (read == NULL) { /* GCOVR_EXCL_BR_LINE: the decoder fails only on allocation */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int same = PyObject_RichCompareBool(read, text, Py_EQ);
+    Py_DECREF(read);
+    return same;
+}
+
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"markup",    "encoding",         "strict",    "detect_encoding",
                                "positions", "source_locations", "scripting", "allow_declarative_shadow_roots",
