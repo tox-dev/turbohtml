@@ -1011,9 +1011,27 @@ def test_resolve_links_skips_extra_authority_slashes_in_every_location(markup: s
         ),
         pytest.param("file:///srv/www/page.html", "///etc/hosts", "file:///etc/hosts", id="file-base-empty-host"),
         pytest.param("sftp://s.test/a/b", "///c/d", "sftp://s.test/c/d", id="non-special-base"),
+        pytest.param(_HTTPS, "ftp:///elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-scheme"),
+        pytest.param(_HTTPS, "WSS:////elsewhere.test/x", "wss://elsewhere.test/x", id="foreign-uppercase-four-slashes"),
+        pytest.param(_HTTPS, "http:///elsewhere.test?q#f", "http://elsewhere.test?q#f", id="foreign-host-then-query"),
+        pytest.param(_HTTPS, "ftp:///", "ftp:///", id="foreign-special-no-host"),
+        pytest.param(_HTTPS, "sftp:///elsewhere.test/x", "sftp:///elsewhere.test/x", id="foreign-non-special-verbatim"),
+        pytest.param(_HTTPS, "file:///elsewhere.test/x", "file:///elsewhere.test/x", id="foreign-file-verbatim"),
+        pytest.param(
+            "foo://f.test/a", "ws:///elsewhere.test/x", "ws://elsewhere.test/x", id="non-special-base-foreign"
+        ),
+        pytest.param(
+            "file:///srv/www/page.html", "wss:///elsewhere.test/x", "wss://elsewhere.test/x", id="file-base-foreign"
+        ),
+        pytest.param(_HTTPS, "ftp:", "ftp:", id="foreign-scheme-no-slashes"),
+        pytest.param(_HTTPS, "ftp:x", "ftp:x", id="foreign-scheme-opaque"),
+        pytest.param(_HTTPS, "ftp://", "ftp://", id="foreign-special-authority-only"),
+        pytest.param(_HTTPS, "ftp://elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-special-host-kept"),
+        pytest.param(_HTTPS, "ftp:///elsewhere.test:21/x", "ftp://elsewhere.test:21/x", id="foreign-port-kept"),
+        pytest.param(_HTTPS, "ftp:\\\\\\elsewhere.test/x", "ftp://elsewhere.test/x", id="foreign-backslash-authority"),
     ],
 )
-def test_resolve_links_keeps_extra_authority_slash_boundaries(base: str, href: str, expected: str) -> None:
+def test_resolve_links_extra_authority_slash_boundaries(base: str, href: str, expected: str) -> None:
     assert _resolved_href(href, base) == expected
 
 

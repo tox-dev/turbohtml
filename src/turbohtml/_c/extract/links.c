@@ -17,6 +17,7 @@
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/nodes.h"
 #include "dom/tree.h"
+#include "url/url.h"
 
 #include <string.h>
 
@@ -706,9 +707,28 @@ static int splice_value(link_walk *walk, th_node *target, const char *attr_name,
     return status;
 }
 
+/* Whether the text from the ':' at `colon` opens an authority of two slashes with no host before the next slash,
+   backslash, '?', '#' or the end: the form whose host a browser reads after its extra slashes. */
+static int url_empty_special_authority(const Py_UCS4 *value, Py_ssize_t colon, Py_ssize_t end) {
+    if (colon + 2 >= end) {
+        return 0;
+    }
+    int opened =
+        (value[colon + 1] == '/' | value[colon + 1] == '\\') & (value[colon + 2] == '/' | value[colon + 2] == '\\');
+    if (!opened) {
+        return 0;
+    }
+    if (colon + 3 == end) {
+        return 1;
+    }
+    Py_UCS4 next = value[colon + 3];
+    return (next == '/') | (next == '\\') | (next == '?') | (next == '#');
+}
+
 /* True when resolve_links can prove urljoin(base, [start, end)) returns the URL byte-for-byte, so the urljoin call (the
    bulk of resolve's cost, stdlib Python) is skipped for an already-absolute link. Mirrors CPython urllib.parse.urljoin:
-   a reference with a scheme differing from the base's (case-insensitively) is returned verbatim; a same-scheme absolute
+   a reference with a scheme differing from the base's (case-insensitively) is returned verbatim, except a special
+   scheme with an empty authority, whose host the link join reads after the extra slashes; a same-scheme absolute
    reference (scheme://netloc...) is reserialized, which reproduces the input only when the scheme is already lowercase,
    an authority is present, and no tab/CR/LF (which urlsplit strips) appears. The same-scheme case is enabled only for
    an http/https base, whose scheme reserializes through urlunsplit's netloc branch. */
@@ -734,7 +754,7 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         same_scheme = lower_ascii(value[start + index]) == (Py_UCS4)(unsigned char)base_scheme[index];
     }
     if (!same_scheme) {
-        return 1;
+        return !(url_empty_special_authority(value, colon, end) && th_url_scheme_special(value, start, colon));
     }
     if (!base_netloc_scheme) {
         return 0;
