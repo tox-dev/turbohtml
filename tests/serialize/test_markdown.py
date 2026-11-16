@@ -2483,6 +2483,54 @@ def test_tables(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<table><td><table><!-", "| <table></table> |\n| --- |", id="table-dash-comment-at-eof"),
+        pytest.param(
+            "<table><td><table><tr><td>a<!--b---></td></tr></table></td></table>",
+            "| <table><tr><td>a</td></tr></table> |\n| --- |",
+            id="table-dash-comment",
+        ),
+        pytest.param(
+            "<table><td><table><tr><td>a<!--b-->c</td></tr></table></td></table>",
+            "| <table><tr><td>ac</td></tr></table> |\n| --- |",
+            id="table-comment",
+        ),
+        pytest.param(
+            "<table><td><ul><li>a<!--b---></li></ul></td></table>",
+            "| <ul><li>a</li></ul> |\n| --- |",
+            id="ul-dash-comment",
+        ),
+        pytest.param(
+            "<table><td><ul><li>a<!--b-->c</li></ul></td></table>", "| <ul><li>ac</li></ul> |\n| --- |", id="ul-comment"
+        ),
+        pytest.param(
+            "<table><td><ol><li>a<!--b---></li></ol></td></table>",
+            "| <ol><li>a</li></ol> |\n| --- |",
+            id="ol-dash-comment",
+        ),
+        pytest.param(
+            "<table><td><ol><li>a<!--b-->c</li></ol></td></table>", "| <ol><li>ac</li></ol> |\n| --- |", id="ol-comment"
+        ),
+        pytest.param(
+            "<b><table><tr><td>a<!--b---></td></tr><tr><td>c</td><td>d</td></tr></table></b>",
+            "<table><tbody><tr><td><strong>a</strong></td></tr>"
+            "<tr><td><strong>c</strong></td><td><strong>d</strong></td></tr></tbody></table>",
+            id="raw-table-dash-comment",
+        ),
+    ],
+)
+def test_comments_are_dropped_from_cell_html(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_comments_stay_in_a_raw_html_block() -> None:
+    assert md("<table><tr><td rowspan=2><!--c-->a</td></tr><tr><td>b</td></tr></table>") == (
+        '<table><tbody><tr><td rowspan="2"><!--c-->a</td></tr><tr><td>b</td></tr></tbody></table>'
+    )
+
+
 def test_raw_table_respects_ignored_emphasis() -> None:
     options: Final = Markdown(inline=Markdown.Inline(ignore_emphasis=True))
     assert parse("<b><table><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></table></b>").to_markdown(options) == (
@@ -3084,8 +3132,8 @@ def test_nested_table_survives_the_round_trip(depth: int) -> None:
         ),
         pytest.param(
             "<table><td><table><td><!-- it's `x` -- a > b -> c -->`t`",
-            "| <table><tr><td><!-- it's `x` -- a > b -> c -->\\`t\\`</td></tr></table> |\n| --- |",
-            id="comment-kept",
+            "| <table><tr><td>\\`t\\`</td></tr></table> |\n| --- |",
+            id="comment-dropped",
         ),
     ],
 )
@@ -5125,7 +5173,7 @@ def test_alt_image_with_empty_alt_opens_no_emphasis() -> None:
         pytest.param(
             '<table><tr><td><table><tr><td><!--a\nb--><img src="a\nb"></td></tr></table></td></tr></table>',
             Markdown(),
-            '| <table><tr><td><!--a b--><img src="a&#10;b"></td></tr></table> |\n| --- |',
+            '| <table><tr><td><img src="a&#10;b"></td></tr></table> |\n| --- |',
             id="cell-html-preserves-line-break-in-attribute",
         ),
         pytest.param(

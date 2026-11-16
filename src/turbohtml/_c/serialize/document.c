@@ -732,6 +732,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         break;
     case TH_NODE_COMMENT:
+        /* CommonMark's inline comment rule does not match data ending in "-", so the comment would show as text */
+        if (opts->markdown == TH_MARKDOWN_HTML_INLINE || opts->markdown == TH_MARKDOWN_HTML_CELL) {
+            break;
+        }
         sbuf_puts(out, "<!--");
         if (opts->xml) {
             /* HTML parsers read XHTML output too, the sanitizer's inner_xml among them */

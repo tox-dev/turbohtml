@@ -2443,15 +2443,13 @@ static Py_ssize_t md_tbody_tag(const Py_UCS4 *text, Py_ssize_t len) {
     return 0;
 }
 
-/* The length of the tag or comment at the head of text, which starts at its `<`. Text never holds a bare `<` and an
-   attribute value never holds a `>`, since the serializer writes them as `&lt;` and `&gt;`; inline HTML has no raw text
-   or processing instruction, which would. A `<!` here is always a comment, whose data may hold `>`, so only `-->` ends
-   it. */
+/* The length of the tag at the head of text, which starts at its `<`. Text never holds a bare `<` and an attribute
+   value never holds a `>`, since the serializer writes them as `&lt;` and `&gt;`; inline HTML has no comment, raw text
+   or processing instruction, which would. The one `<!` left is a CDATA section, and it holds no `>`: one that does is
+   written as escaped text. */
 static Py_ssize_t md_markup_length(const Py_UCS4 *text, Py_ssize_t len) {
-    int comment = text[1] == '!';
-    /* the serializer closes every tag and comment, so the scan always ends on its closing `>` */
-    for (Py_ssize_t index = comment ? 6 : 1; index < len; index++) { /* GCOVR_EXCL_BR_LINE */
-        if (text[index] == '>' && (!comment || (text[index - 1] == '-' && text[index - 2] == '-'))) {
+    for (Py_ssize_t index = 1; index < len; index++) { /* GCOVR_EXCL_BR_LINE */
+        if (text[index] == '>') {
             return index + 1;
         }
     }

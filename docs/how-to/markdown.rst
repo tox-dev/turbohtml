@@ -109,10 +109,10 @@ each one keeps the outermost ``<strong>``, ``<em>`` or strikethrough run and dro
 own kind, which reads the same.
 
 A pipe table holds one line of inline content per cell, so a table or a list *inside* a cell has no Markdown spelling of
-its own; the GFM spec is explicit that "block-level elements cannot be inserted in a table". Both keep their source
-HTML, which is legal in a cell and renders as the real thing wherever a reader takes embedded HTML, and a ``<br>`` in a
-cell stays a ``<br>`` for the same reason. Pass ``Markdown.Tables(cell_blocks="text")`` to flatten block layout while
-keeping compact list markers:
+its own; the GFM spec is explicit that "block-level elements cannot be inserted in a table". Both keep their source HTML
+without its comments, which is legal in a cell and renders as the real thing wherever a reader takes embedded HTML, and
+a ``<br>`` in a cell stays a ``<br>`` for the same reason. Pass ``Markdown.Tables(cell_blocks="text")`` to flatten block
+layout while keeping compact list markers:
 
 .. testcode::
 
