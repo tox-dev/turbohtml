@@ -22,6 +22,7 @@ from turbohtml import (
     parse,
     parse_xml,
 )
+from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -794,6 +795,48 @@ def test_content_operation_past_the_boundary_path_limit_raises(operation: Callab
     boundary.set_end(_found(doc, "j").children[0], 1)
     with pytest.raises(RecursionError, match="does not support boundary paths"):
         operation(boundary)
+
+
+@pytest.mark.parametrize(
+    "replace",
+    [
+        pytest.param(lambda paragraph: paragraph.set_inner_html("<i>x</i>"), id="set_inner_html"),
+        pytest.param(lambda paragraph: paragraph.set_text("x"), id="set_text"),
+        pytest.param(lambda paragraph: paragraph.clear(), id="clear"),
+    ],
+)
+def test_replacing_children_collapses_a_boundary_in_the_removed_text(replace: Callable[[Element], object]) -> None:
+    paragraph = _found(parse("<p>hello <b>bold</b> tail</p>"), "p")
+    boundary = Range(paragraph.children[0], 2)
+    replace(paragraph)
+    assert (boundary.start_container == paragraph, boundary.start_offset) == (True, 0)
+    assert (boundary.end_container == paragraph, boundary.end_offset) == (True, 0)
+
+
+def test_shadow_set_inner_html_collapses_a_boundary_in_the_removed_child() -> None:
+    root = _by_id(parse("<div id=h><span>s</span></div>"), "h").attach_shadow(mode="open")
+    root.append(Element("p"))
+    boundary = Range(root.children[0], 0)
+    root.set_inner_html("<i>q</i>")
+    assert (boundary.start_container == root, boundary.start_offset) == (True, 0)
+
+
+def test_transform_with_strip_space_leaves_source_boundaries_in_place() -> None:
+    doc = parse_xml("<r><a>x</a>   <b>y</b></r>")
+    root = _found(doc, "r")
+    whitespace = root.children[1]
+    inside = Range(whitespace, 1)
+    after = Range(root, 2)
+    stylesheet = Transform(
+        parse_xml(
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:strip-space elements="*"/><xsl:output method="text"/>'
+            '<xsl:template match="/">x</xsl:template></xsl:stylesheet>'
+        )
+    )
+    assert stylesheet(doc) == "x"
+    assert (inside.start_container == whitespace, inside.start_offset) == (True, 1)
+    assert (after.start_container == root, after.start_offset) == (True, 2)
 
 
 def test_insert_node_rejects_self() -> None:

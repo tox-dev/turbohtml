@@ -1573,7 +1573,7 @@ static void unwrap_anchor(th_tree *tree, th_node *anchor) {
     while (anchor->first_child != NULL) {
         th_node *child = anchor->first_child;
         th_node_remove_silent(tree, child);
-        th_node_insert_before(parent, child, anchor);
+        th_node_insert_before_live(tree, parent, child, anchor);
     }
     th_node_remove_silent(tree, anchor);
 }
@@ -1793,7 +1793,7 @@ TH_NODE_API(static, int, apply_text,
             while (fragment->first_child != NULL) {
                 th_node *child = fragment->first_child;
                 th_node_remove(child);
-                th_node_insert_before(parent, child, node);
+                th_node_insert_before_live(tree, parent, child, node);
             }
             th_node_remove_silent(tree, node);
             handle_drop_slots((HandleObject *)handle);

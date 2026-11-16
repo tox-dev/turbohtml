@@ -489,6 +489,7 @@ void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *chi
 struct th_live_range;
 int th_tree_has_live_ranges(const th_tree *tree);
 struct th_live_range **th_tree_live_ranges_ptr(th_tree *tree);
+void th_node_insert_before_live(th_tree *tree, th_node *parent, th_node *child, th_node *ref);
 void th_live_replace_data(th_tree *tree, th_node *node, Py_ssize_t offset, Py_ssize_t count, Py_ssize_t data_len);
 void th_live_removed(th_tree *tree, th_node *child);
 void th_live_inserted(th_tree *tree, th_node *child);

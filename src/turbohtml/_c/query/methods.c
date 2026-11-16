@@ -3324,10 +3324,7 @@ static void unwrap_matches(th_tree *tree, const node_snapshot *snapshot, int ite
         while (node->first_child != NULL) {
             th_node *child = node->first_child;
             query_unlink(tree, child, iterators);
-            th_node_insert_before(parent, child, node);
-            if (th_tree_has_live_ranges(tree)) {
-                th_live_inserted(tree, child);
-            }
+            th_node_insert_before_live(tree, parent, child, node);
         }
         query_unlink(tree, node, iterators);
     }

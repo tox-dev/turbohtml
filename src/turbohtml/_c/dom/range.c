@@ -157,8 +157,7 @@ static Py_ssize_t node_length(HandleObject *handle, th_node *node) {
    next to the new one cannot tell which side it is on and is dropped. Stale cursors move too, which is harmless: the
    next lookup empties them. */
 static void range_insert_before(HandleObject *handle, th_node *parent, th_node *child, th_node *ref) {
-    th_node_insert_before(parent, child, ref);
-    th_live_inserted(handle->tree, child);
+    th_node_insert_before_live(handle->tree, parent, child, ref);
     for (size_t slot = 0; slot < SIBLING_CURSORS; slot++) {
         struct sibling_cursor *cursor = &handle->sibling_cursors[slot];
         if (cursor->parent != parent) {

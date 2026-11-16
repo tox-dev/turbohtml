@@ -1369,6 +1369,13 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
     return NULL;
 }
 
+void th_node_insert_before_live(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
+    th_node_insert_before(parent, child, ref);
+    if (tree->live_ranges != NULL) {
+        th_live_inserted(tree, child);
+    }
+}
+
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
     if (tree->live_ranges != NULL) {
