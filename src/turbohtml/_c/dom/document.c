@@ -2481,16 +2481,103 @@ const char *meta_charset_label(const char *encoding) {
     return entry->canonical;
 }
 
-/* Whether text, encoded with encoding, reads back as the same text when a reader decodes the bytes with the label
-   charset that meta_charset declared (WHATWG decoder). 1 or 0, or -1 with an exception set. */
-int meta_declaration_reads_back(PyObject *text, const char *encoding, const char *charset) {
-    const th_encoding_entry *entry = th_encoding_lookup(charset, (Py_ssize_t)strlen(charset));
-    PyObject *bytes = markup_encode(text, encoding, 0);
-    if (bytes == NULL) {
+/* The byte range a single-byte codec writes differently under the label entry: -1 when no byte disagrees (the codec
+   and the label decode every byte alike), -2 when the codec is not single-byte, otherwise lo << 8 | hi, the least and
+   greatest disagreeing byte. A byte the codec cannot decode (U+FFFD under replace) is never one it writes. Cached by
+   codec name, since the codec's table is fixed for a name; -3 with an exception set on failure. */
+static long single_byte_disagreement(const char *encoding, const th_encoding_entry *entry) {
+    static PyObject *cache = NULL;
+    if (cache == NULL) {
+        cache = PyDict_New();
+        if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: dict allocation cannot be forced from a test */
+            return -3;       /* GCOVR_EXCL_LINE */
+        }
+    }
+    PyObject *key = PyUnicode_FromString(encoding);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: name allocation cannot be forced from a test */
+        return -3;     /* GCOVR_EXCL_LINE */
+    }
+    PyObject *cached = PyDict_GetItemWithError(cache, key);
+    if (cached != NULL) {
+        Py_DECREF(key);
+        return PyLong_AsLong(cached);
+    }
+    unsigned char every[256];
+    for (size_t index = 0; index < sizeof(every); index++) {
+        every[index] = (unsigned char)index;
+    }
+    PyObject *codec = PyUnicode_Decode((const char *)every, sizeof(every), encoding, "replace");
+    if (codec == NULL) { /* GCOVR_EXCL_BR_LINE: the codec decodes every byte with replace */
+        Py_DECREF(key);  /* GCOVR_EXCL_LINE */
+        return -3;       /* GCOVR_EXCL_LINE */
+    }
+    long packed = -1;
+    if (PyUnicode_GET_LENGTH(codec) != (Py_ssize_t)sizeof(every)) { /* GCOVR_EXCL_BR_LINE: a single-byte label's codec is single-byte */
+        packed = -2;                                                  /* GCOVR_EXCL_LINE */
+    } else {
+        const uint16_t *table = th_sb_index[entry->single];
+        unsigned lo = 256;
+        unsigned hi = 0;
+        for (unsigned index = 0; index < 256; index++) {
+            Py_UCS4 point = PyUnicode_READ_CHAR(codec, (Py_ssize_t)index);
+            if (point != 0xFFFD && table[index] != point) {
+                lo = lo < index ? lo : index;
+                hi = hi > index ? hi : index;
+            }
+        }
+        if (lo <= hi) {
+            packed = (long)(lo << 8 | hi);
+        }
+    }
+    Py_DECREF(codec);
+    PyObject *value = PyLong_FromLong(packed);
+    int stored = value == NULL ? -1 : PyDict_SetItem(cache, key, value);
+    Py_XDECREF(value);
+    Py_DECREF(key);
+    if (stored < 0) { /* GCOVR_EXCL_BR_LINE: the cache insert fails only on allocation */
+        return -3;    /* GCOVR_EXCL_LINE */
+    }
+    return packed;
+}
+
+/* Whether the bytes of a single-byte encoding read back under the single-byte label entry without a difference: 1 when
+   no byte the codec can write decodes differently under the label (so every written character reads back as written),
+   0 when some byte in the output may, -1 with an exception set. The codec's own decoding of each byte is the one a
+   charmap codec's encoder inverts, so a byte the codec writes for a character decodes to that character under it. */
+static int single_byte_bytes_agree(const char *encoding, const th_encoding_entry *entry, const unsigned char *data,
+                                   Py_ssize_t len) {
+    long packed = single_byte_disagreement(encoding, entry);
+    if (packed == -3) {
         return -1;
     }
-    PyObject *read = th_decode(entry, (const unsigned char *)PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes));
-    Py_DECREF(bytes);
+    if (packed == -2) {
+        return 0;
+    }
+    if (packed == -1) {
+        return 1;
+    }
+    unsigned lo = (unsigned)(packed >> 8);
+    unsigned span = (unsigned)(packed & 0xFF) - lo;
+    unsigned hit = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hit |= (unsigned)(data[index] - lo) <= span;
+    }
+    return hit == 0;
+}
+
+/* Whether the encoded bytes read back as the same text when a reader decodes them with the label charset that
+   meta_charset declared (WHATWG decoder). 1 or 0, or -1 with an exception set. */
+int declaration_reads_back(PyObject *text, PyObject *bytes, const char *encoding, const char *charset) {
+    const th_encoding_entry *entry = th_encoding_lookup(charset, (Py_ssize_t)strlen(charset));
+    const unsigned char *data = (const unsigned char *)PyBytes_AS_STRING(bytes);
+    Py_ssize_t len = PyBytes_GET_SIZE(bytes);
+    if (entry->kind == TH_DEC_SINGLE_BYTE) {
+        int agree = single_byte_bytes_agree(encoding, entry, data, len);
+        if (agree != 0) {
+            return agree;
+        }
+    }
+    PyObject *read = th_decode(entry, data, len);
     if (read == NULL) { /* GCOVR_EXCL_BR_LINE: the decoder fails only on allocation */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }

@@ -2226,6 +2226,17 @@ def test_encode_meta_charset_iso2022_shift_code_raises_the_codec_error() -> None
         parse("<p>\x1b</p>").encode("iso2022_jp", Html(meta_charset=True))
 
 
+@pytest.mark.parametrize("encoding", [pytest.param("latin-1", id="first"), pytest.param("latin-1", id="repeat")])
+def test_encode_meta_charset_refuses_c1_on_every_call(encoding: str) -> None:
+    # the per-codec byte range is cached, so the second and later calls must still refuse the misread bytes
+    for _ in range(2):
+        with pytest.raises(ValueError, match="windows-1252"):
+            parse("<p>\x85</p>").encode(encoding, Html(meta_charset=True))
+    assert parse("<p>a\xe9</p>").encode(encoding, Html(meta_charset=True)).decode("latin-1").endswith(
+        "<p>a\xe9</p></body></html>"
+    )
+
+
 def test_encode_meta_charset_utf8_keeps_c1_controls() -> None:
     out: Final = parse("<p>\x85</p>").encode("utf-8", Html(meta_charset=True))
     assert out.decode("utf-8").endswith("<p>\x85</p></body></html>")

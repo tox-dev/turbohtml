@@ -2364,7 +2364,8 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
    so a tree with no head and no charset meta is not refused. It is borrowed only
    for the duration of the call. */
 static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj, int sort_attributes,
-                                    int meta_charset, int xml, const char *encoding, int inner) {
+                                    int meta_charset, int xml, const char *encoding, int inner,
+                                    const char **declared_label) {
     const char *charset = "utf-8";
     int unlabelled = 0;
     int *charset_missing = NULL;
@@ -2435,20 +2436,10 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
-    if (result == NULL || !declared) { /* GCOVR_EXCL_BR_LINE: result is NULL only on allocation failure */
-        return result;
+    if (declared && declared_label != NULL) {
+        *declared_label = charset;
     }
-    int reads_back = meta_declaration_reads_back(result, encoding, charset);
-    if (reads_back == 1) {
-        return result;
-    }
-    Py_DECREF(result);
-    if (reads_back < 0) {
-        return NULL;
-    }
-    return PyErr_Format(PyExc_ValueError,
-                        "meta_charset cannot declare %s for %s: the encoded output does not read back as written",
-                        charset, encoding);
+    return result;
 }
 
 /* The first unstable noscript span, or NULL. */
@@ -2528,7 +2519,8 @@ static int parse_html_spec(PyObject *spec, PyObject **formatter_obj, PyObject **
 /* Serialize self to a str under the Html config in spec (a borrowed dict of the
    config's non-default values, or NULL for the defaults), declaring encoding under
    meta_charset. */
-static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const char *encoding, int inner) {
+static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const char *encoding, int inner,
+                                          const char **declared_label) {
     PyObject *formatter_obj = NULL;
     PyObject *layout_obj = NULL;
     int sort_attributes = 0;
@@ -2537,20 +2529,22 @@ static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const 
     if (parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset, &xml) < 0) {
         return NULL;
     }
-    return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, xml, encoding, inner);
+    return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, xml, encoding, inner,
+                              declared_label);
 }
 
 /* Resolve a serialize/encode call's options object to a str rendering, declaring encoding under meta_charset
    (NULL for the str output). None renders the defaults; otherwise the config's _unpack() supplies its keywords. */
-static PyObject *node_serialize_options(PyObject *self, PyObject *options, const char *encoding, int inner) {
+static PyObject *node_serialize_options(PyObject *self, PyObject *options, const char *encoding, int inner,
+                                        const char **declared_label) {
     if (options == NULL || options == Py_None) {
-        return node_serialize_str(self, NULL, NULL, 0, 0, 0, encoding, inner);
+        return node_serialize_str(self, NULL, NULL, 0, 0, 0, encoding, inner, declared_label);
     }
     PyObject *spec = config_unpack(options, state_of(self)->html_config_type, "Html");
     if (spec == NULL) {
         return NULL;
     }
-    PyObject *result = node_serialize_from_spec(self, spec, encoding, inner);
+    PyObject *result = node_serialize_from_spec(self, spec, encoding, inner, declared_label);
     Py_DECREF(spec);
     return result;
 }
@@ -2564,7 +2558,7 @@ TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$p", keywords, &options, &inner)) {
         return NULL;
     }
-    return node_serialize_options(self, options, NULL, inner);
+    return node_serialize_options(self, options, NULL, inner, NULL);
 }
 
 PyObject *codec_registry_name(const char *encoding) {
@@ -2666,11 +2660,23 @@ TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, P
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|sO$p", keywords, &encoding, &options, &inner)) {
         return NULL;
     }
-    PyObject *text = node_serialize_options(self, options, encoding, inner);
+    const char *declared_label = NULL;
+    PyObject *text = node_serialize_options(self, options, encoding, inner, &declared_label);
     if (text == NULL) {
         return NULL;
     }
     PyObject *encoded = markup_encode(text, encoding, 0);
+    if (encoded != NULL && declared_label != NULL) {
+        int reads_back = declaration_reads_back(text, encoded, encoding, declared_label);
+        if (reads_back == 0) {
+            Py_CLEAR(encoded);
+            PyErr_Format(PyExc_ValueError,
+                         "meta_charset cannot declare %s for %s: the encoded output does not read back as written",
+                         declared_label, encoding);
+        } else if (reads_back < 0) {
+            Py_CLEAR(encoded);
+        }
+    }
     Py_DECREF(text);
     return encoded;
 }
