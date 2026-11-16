@@ -1,0 +1,2 @@
+XSD ``xs:any`` and ``xs:anyAttribute`` wildcards now match the elements and attributes their namespace, occurrence and
+processing settings admit, so validation verdicts follow them.

@@ -181,6 +181,12 @@ def test_nested_lists_without_items_add_no_indent(depth: int) -> None:
             id="custom-separator",
         ),
         pytest.param(
+            "<table><tr><td>a</td><td>b</td></tr></table>",
+            PlainText(table_cell_separator="│"),
+            "a│b",
+            id="custom-separator-non-ascii",
+        ),
+        pytest.param(
             "<table><tr><!--c--><td>a</td></tr><tr><td>bb</td></tr></table>",
             PlainText(),
             "a\nbb",
@@ -275,6 +281,12 @@ def test_links_and_images(html: str, opts: PlainText, expected: str) -> None:
             PlainText(images=True, default_image_alt="an img"),
             "a an img b",
             id="alt-spaces",
+        ),
+        pytest.param(
+            '<p>a <img src="i"> b</p>',
+            PlainText(images=True, default_image_alt="ǅ é"),
+            "a ǅ é b",
+            id="alt-non-ascii",
         ),
     ],
 )

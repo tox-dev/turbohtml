@@ -6772,3 +6772,45 @@ def test_minify_css_selector_is_idempotent(seed: int) -> None:
     source = rng.choice([rule, f"@media /*!p*/ screen{{{rule}}}"])
     once = minify_css(source)
     assert minify_css(once) == once, source
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('a{b:"\\41\\\n1"}', 'a{b:"\\41 1"}', id="hex-escape-then-digit"),
+        pytest.param('a{b:"\\41\\\r\n1"}', 'a{b:"\\41 1"}', id="hex-escape-then-crlf-digit"),
+        pytest.param('a{b:"\\41\\\n\\\n1"}', 'a{b:"\\41 1"}', id="hex-escape-then-two-continuations"),
+        pytest.param('a{b:"\\4\\\n1"}', 'a{b:"\\4 1"}', id="one-digit-escape-then-digit"),
+        pytest.param('a{b:"\\41\\\nb"}', 'a{b:"\\41 b"}', id="hex-escape-then-hex-letter"),
+        pytest.param('a{b:"\\41\\\n g"}', 'a{b:"\\41  g"}', id="hex-escape-then-space"),
+        pytest.param('a{b:"\\41\\\ng"}', 'a{b:"\\41g"}', id="hex-escape-then-non-hex"),
+        pytest.param('a{b:"\\000041\\\n1"}', 'a{b:"\\0000411"}', id="six-digit-escape-then-digit"),
+        pytest.param('a{b:"\\\\41\\\n1"}', 'a{b:"\\\\411"}', id="escaped-backslash-then-digit"),
+        pytest.param('a{b:"x\\\n1"}', 'a{b:"x1"}', id="no-escape-then-digit"),
+        pytest.param('a{b:url("\\\n41")}', "a{b:url(41)}", id="quoted-url-continuation-first"),
+        pytest.param('a{b:url("\\41\\\n1")}', 'a{b:url("\\41 1")}', id="quoted-url-body"),
+        pytest.param('a{b:local("\\41\\\n1")}', 'a{b:local("\\41 1")}', id="local-name"),
+    ],
+)
+def test_minify_css_string_continuation_after_hex_escape(source: str, expected: str) -> None:
+    minified = minify_css(source)
+    assert minified == expected
+    assert _css_string_values(minified) == _css_string_values(source)
+
+
+def _css_string_values(css: str) -> list[str]:
+    rule = next(node for node in tinycss2.parse_stylesheet(css) if node.type == "qualified-rule")
+    declaration = next(node for node in tinycss2.parse_declaration_list(rule.content) if node.type == "declaration")
+    return _string_values(declaration.value)
+
+
+def _string_values(
+    nodes: list[Any],  # simplint: ignore[imprecise-annotation]  # tinycss2 nodes share no static type
+) -> list[str]:
+    values: list[str] = []
+    for node in nodes:
+        if node.type in {"string", "url"}:
+            values.append(node.value)
+        elif node.type == "function":
+            values.extend(_string_values(node.arguments))
+    return values

@@ -4574,6 +4574,30 @@ def _configured_markdown(html: str, options: Markdown) -> str:
             "* a\n- b",
             id="bullets-adjacent-list-switches-from-configured",
         ),
+        pytest.param(
+            "<ul><li>a</li><li>b</li></ul>",
+            Markdown(lists=Markdown.Lists(bullets="•")),
+            "• a\n• b",
+            id="bullets-non-ascii",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li></ul></li></ul>",
+            Markdown(lists=Markdown.Lists(bullets="•◦")),
+            "• a\n  ◦ b",
+            id="bullets-non-ascii-cycled-by-depth",
+        ),
+        pytest.param(
+            "<ul><li>a</li></ul><ul><li>b</li></ul>",
+            Markdown(lists=Markdown.Lists(bullets="•")),
+            "• a\n- b",
+            id="bullets-non-ascii-adjacent-list-switches",
+        ),
+        pytest.param(
+            "<ul><li>a</li></ul>",
+            Markdown(lists=Markdown.Lists(bullets="🔹")),
+            "🔹 a",
+            id="bullets-non-ascii-astral",
+        ),
     ],
 )
 def test_bullets(html: str, opts: Markdown, expected: str) -> None:
@@ -4607,6 +4631,12 @@ def test_bullets(html: str, opts: Markdown, expected: str) -> None:
             Markdown(inline=Markdown.Inline(strong="•")),
             "<strong>\u00a0x<br>y</strong>",
             id="strong-non-ascii-falls-back-to-html",
+        ),
+        pytest.param(
+            "<p><b><i>x</i></b></p>",
+            Markdown(inline=Markdown.Inline(strong="«", emphasis="»")),
+            "«»x»«",
+            id="strong-and-emphasis-non-ascii-share-lead-byte",
         ),
         pytest.param(
             "<p>a<b>x</b><i>y</i><s>z</s>b</p>",

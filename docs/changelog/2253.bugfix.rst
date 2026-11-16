@@ -1,0 +1,1 @@
+Compiling an XSD schema now raises ``ValueError`` for a group in a content model that has no ``ref`` attribute, instead of accepting it.
