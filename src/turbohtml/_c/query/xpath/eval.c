@@ -1513,7 +1513,7 @@ static void root_store(addr_map *roots, const struct th_node *node, struct th_no
 
 /* The walk memo: what a predicate's axis walk found from each node it has passed, keyed by the node and a tag of the
    step and the walk (enum xp_walk_kind). Contexts whose walks share a stretch of the tree then read the stretch once.
-   An entry summarises the walk from its node in one direction: the nearest good node the walk reaches, and how many
+   An entry summarizes the walk from its node in one direction: the nearest good node the walk reaches, and how many
    good nodes it reaches. */
 enum xp_walk_kind {
     XW_GOOD,      /* the node passes the step's test and its rest; cached only when the step has a rest */
@@ -1557,7 +1557,8 @@ static walk_entry *walk_find(const walk_map *map, const struct th_node *node, ui
 }
 
 /* Add an entry the caller has just found absent. */
-static int walk_put(walk_map *map, const struct th_node *node, uint32_t tag, struct th_node *nearest, Py_ssize_t count) {
+static int walk_put(walk_map *map, const struct th_node *node, uint32_t tag, struct th_node *nearest,
+                    Py_ssize_t count) {
     if ((map->count + 1) * 2 > map->capacity) {
         size_t capacity = map->capacity == 0 ? 64 : map->capacity * 2;
         walk_map grown = {PyMem_Calloc(capacity, sizeof(walk_entry)), capacity, map->count};
@@ -4139,9 +4140,9 @@ static int eval_path_step_inner(const xp_program *prog, const xn *step, const st
     return 0;
 }
 
-/* A predicate path with one step on an ancestor, sibling, preceding or following axis, and at most a rest of steps after
-   it, answers from the walk memo: a predicate evaluated from each of many nodes would otherwise walk the same stretch
-   again for each, which is quadratic when no node passes the test. The first XP_WALK_SCAN candidates are walked
+/* A predicate path with one step on an ancestor, sibling, preceding or following axis, and at most a rest of steps
+   after it, answers from the walk memo: a predicate evaluated from each of many nodes would otherwise walk the same
+   stretch again for each, which is quadratic when no node passes the test. The first XP_WALK_SCAN candidates are walked
    directly, so a predicate that finds its node near by builds no memo. Each answer is the one the plain walk gives,
    and the memo is used only when no Python code can run during the evaluation to move nodes. */
 #define XP_WALK_SCAN 16
@@ -4181,8 +4182,9 @@ typedef struct {
     step_match match;
     xp_ctx *ctx;
     walk_map *walks;
-    uint32_t base; /* the step's index shifted past the walk kinds */
-    int32_t rest;  /* the step after the walked one, or -1 */
+    uint32_t base;  /* the step's index shifted past the walk kinds */
+    int32_t rest;   /* the step after the walked one, or -1 */
+    int predicated; /* the step's predicates, none of which reads the position, judge each node */
 } walk_plan;
 
 static struct th_node *walk_next(struct th_node *node, enum xp_walk_kind kind) {
@@ -4225,22 +4227,34 @@ static int walk_rest_holds(const walk_plan *plan, struct th_node *node) {
     return holds;
 }
 
+/* Whether node passes the step's predicates, which read nothing but the node. */
+static int walk_predicates_hold(const walk_plan *plan, struct th_node *node) {
+    xp_item item = {node, -1};
+    xp_nodeset one = {.items = &item, .len = 1};
+    int rc = apply_predicates(plan->prog, plan->step->first, -1, plan->ctx, &one, XP_HELD_DEPTH + XP_PREDICATE_DEPTH);
+    return rc < 0 ? rc : (int)one.len;
+}
+
 static int walk_good(const walk_plan *plan, struct th_node *node) {
     TH_WORK_STEP();
     int matched = node_test_matches(node, plan->step, &plan->match);
-    if (matched <= 0 || plan->rest < 0) {
+    if (matched <= 0 || (plan->rest < 0 && !plan->predicated)) {
         return matched;
     }
     walk_entry *known = walk_find(plan->walks, node, plan->base + XW_GOOD);
     if (known != NULL) {
         return (int)known->count;
     }
-    int holds = walk_rest_holds(plan, node);
+    int holds = plan->predicated ? walk_predicates_hold(plan, node) : 1;
+    if (holds > 0 && plan->rest >= 0) {
+        holds = walk_rest_holds(plan, node);
+    }
     if (holds < 0) {
         return holds;
     }
-    if (walk_put(plan->walks, node, plan->base + XW_GOOD, NULL, holds) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                                                            /* GCOVR_EXCL_LINE */
+    if (walk_put(plan->walks, node, plan->base + XW_GOOD, NULL, holds) <
+        0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1; /* GCOVR_EXCL_LINE */
     }
     return holds;
 }
@@ -4289,8 +4303,8 @@ static int walk_fill(const walk_plan *plan, enum xp_walk_kind kind, struct th_no
         struct th_node *value = good ? next : below_nearest;
         Py_ssize_t total = good + below_count;
         if (walk_put(plan->walks, chain.items[index], tag, value, total) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
-            rc = -1;                                                           /* GCOVR_EXCL_LINE */
-            break;                                                             /* GCOVR_EXCL_LINE */
+            rc = -1;                                                            /* GCOVR_EXCL_LINE */
+            break;                                                              /* GCOVR_EXCL_LINE */
         }
         below_nearest = value;
         below_count = total;
@@ -4544,7 +4558,7 @@ static int walk_applies(const xp_program *prog, int32_t path_idx, const xp_ctx *
     default:
         return 0;
     }
-    if (step->first < 0) {
+    if (step->first < 0 || !step->positional) {
         return 1;
     }
     return step->next < 0 && walk_nearest_only(prog, step);
@@ -4568,6 +4582,7 @@ static int walk_begin(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, wal
     plan->walks = &caches->walks;
     plan->base = (uint32_t)root->first << 3;
     plan->rest = step->next;
+    plan->predicated = step->first >= 0 && !walk_nearest_only(prog, step);
     *start = root->absolute ? tree_root(ctx) : ctx->node;
     return 0;
 }
