@@ -881,7 +881,7 @@ _URL_HINT_HTML: Final[str] = (
 )
 
 _TRANSLATE_CASES: Final[tuple[tuple[str, str, int], ...]] = (
-    ("type", "div", 256),
+    ("type", "div", 360),
     ("compound", "div.item a[href^='https']", 1),
     ("structural", "ul li:nth-child(2n+1)", 1),
     ("complex", "nav ul > li a[href$='.pdf']:not(.external)", 1),
@@ -931,7 +931,7 @@ def _css_conflict_inputs() -> tuple[tuple[str, str], ...]:
             )
             * repeats,
         )
-        for repeats, properties, value_length in ((32, 32, 128), (32, 32, 1), (1, 48, 1))
+        for repeats, properties, value_length in ((32, 32, 128), (32, 32, 1), (1, 224, 1))
     )
 
 
@@ -2203,7 +2203,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 (f"div:has({relative})", f"{'<div>' * size}<a></a>{'</div>' * size}", repeats),
             )
             for size, relative, repeats in (
-                (8, "> a", 300),
+                (8, "> a", 500),
                 (8, "+ a", 1),
                 (8, "~ a", 1),
                 (8, "a", 1),
