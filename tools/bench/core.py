@@ -396,6 +396,13 @@ def _select_scaling(case: tuple[str, str]) -> None:
     _parsed(case[1]).select(case[0])
 
 
+def _select_repeated(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.select(selector)
+
+
 _XPATH_REPLACE_DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p></p>")
 
 
@@ -439,9 +446,12 @@ def _find_text(text: str) -> None:
     _parsed(text).find_all(text=_FIND_TEXT_PATTERN)
 
 
-def _find_text_exact(case: tuple[str, str]) -> None:
+def _find_text_exact(case: tuple[str, str, int]) -> None:
     # Reuse the parsed tree to isolate exact descendant-text matching.
-    _parsed(case[0]).find_all("div", text=case[1])
+    text, needle, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.find_all("div", text=needle)
 
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
@@ -1282,14 +1292,18 @@ def _idna(urls: tuple[str, ...]) -> None:
         _normalize_url(url)
 
 
-def _translate(selector: str) -> None:
+def _translate(case: tuple[str, int]) -> None:
     # Translate one CSS selector to XPath 1.0 with turbohtml's C translator.
-    _css_to_xpath(selector)
+    selector, repeats = case
+    for _ in range(repeats):
+        _css_to_xpath(selector)
 
 
-def _specificity(selector: str) -> None:
+def _specificity(case: tuple[str, int]) -> None:
     # Weigh a CSS selector list's specificity with turbohtml's C selector parser.
-    _css_specificity(selector)
+    selector, repeats = case
+    for _ in range(repeats):
+        _css_specificity(selector)
 
 
 def _urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
@@ -1604,8 +1618,8 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "select": (_select, "turbohtml"),
     "select-has": (_select_has, "turbohtml"),
     "select-nth": (_select_scaling, "turbohtml"),
-    "select-default": (_select_scaling, "turbohtml"),
-    "select-relative": (_select_scaling, "turbohtml"),
+    "select-default": (_select_repeated, "turbohtml"),
+    "select-relative": (_select_repeated, "turbohtml"),
     "xpath-wide": (_xpath_scaling, "turbohtml"),
     "xpath-distinct": (_xpath_scaling, "turbohtml"),
     "xpath-set": (_xpath_scaling, "turbohtml"),
