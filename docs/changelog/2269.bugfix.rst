@@ -1,0 +1,1 @@
+A label passed as encoding= that contains a NUL byte now raises LookupError, and the error shows the whole label.

@@ -66,12 +66,16 @@ def test_encoding_argument(data: bytes, encoding_arg: str, expected: str) -> Non
         pytest.param("", id="empty-label"),
         pytest.param("   ", id="whitespace-label"),
         pytest.param("x" * 80, id="overlong-label"),
+        pytest.param("latin1\x00junk", id="nul-after-label"),
+        pytest.param("\x00latin1", id="nul-before-label"),
+        pytest.param("utf-8\x00", id="nul-trailing"),
     ],
 )
 def test_unknown_encoding_argument_raises(encoding_arg: str) -> None:
     # an unknown label is an error, not a silent windows-1252 fallback, matching Document.encode
-    with pytest.raises(LookupError, match="unknown encoding"):
+    with pytest.raises(LookupError, match="unknown encoding") as error:
         parse(b"<p>x", encoding=encoding_arg)
+    assert str(error.value) == f"unknown encoding: {encoding_arg}"
 
 
 def test_unknown_encoding_argument_raises_even_with_bom() -> None:
