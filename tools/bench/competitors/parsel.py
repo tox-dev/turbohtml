@@ -54,16 +54,22 @@ def find_text(text: str) -> None:
     _parsed(text).xpath('//*[contains(., "test")]')
 
 
-def _find_text_exact(case: tuple[str, str]) -> None:
-    _parsed(case[0]).xpath("//div[string(.) = $expected]", expected=case[1])
+def _find_text_exact(case: tuple[str, str, int]) -> None:
+    text, needle, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.xpath("//div[string(.) = $expected]", expected=needle)
 
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
     _parsed(case[0]).xpath("//p[@data-x]" if case[1] else "//p[not(@data-x)]")
 
 
-def _select_relative(case: tuple[str, str]) -> None:
-    _parsed(case[1]).css(case[0])
+def _select_relative(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.css(selector)
 
 
 def text_content(text: str) -> None:
