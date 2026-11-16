@@ -2416,6 +2416,22 @@ def test_encode_refuses_a_shift_code_under_a_codec_that_switches_on_one_byte(shi
         codecs.unregister(search)
 
 
+def test_encode_keeps_markup_under_a_codec_that_refuses_the_probe_text() -> None:
+    def encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+        if any(ord(character) > 0x7F for character in text):
+            msg = "refused"
+            raise ValueError(msg)
+        return text.encode("ascii", errors), len(text)
+
+    info: Final = codecs.CodecInfo(encode, codecs.lookup("ascii").decode, name="turbohtml_refuses_probe")
+    search: Final = {"turbohtml_refuses_probe": info}.get
+    codecs.register(search)
+    try:
+        assert parse("<p>x</p>").select("p")[0].encode("turbohtml_refuses_probe") == b"<p>x</p>"
+    finally:
+        codecs.unregister(search)
+
+
 @pytest.mark.parametrize("codec", ["hz", "utf-7"])
 def test_encode_writes_shift_codes_that_a_stateful_codec_reads_back(codec: str) -> None:
     doc: Final = parse("<p>\x0e\x0f\x1b~{+</p>")

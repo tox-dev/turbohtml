@@ -2585,12 +2585,17 @@ PyObject *codec_registry_name(const char *encoding) {
 static int codec_emits_shift_bytes(const char *encoding) {
     static const Py_UCS4 probe_chars[] = {0x3042, 0xAC00, 0x4E2D};
     PyObject *probe = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, probe_chars, Py_ARRAY_LENGTH(probe_chars));
-    /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
-    PyObject *encoded = probe == NULL ? NULL : PyUnicode_AsEncodedString(probe, encoding, "replace");
-    /* GCOVR_EXCL_BR_STOP */
-    Py_XDECREF(probe);
+    if (probe == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *encoded = PyUnicode_AsEncodedString(probe, encoding, "replace");
+    Py_DECREF(probe);
     if (encoded == NULL) {
-        return -1;
+        if (PyErr_ExceptionMatches(PyExc_LookupError)) {
+            return -1;
+        }
+        PyErr_Clear(); /* a codec that refuses the sample text is not one that writes shift bytes for it */
+        return 0;
     }
     const char *bytes = PyBytes_AS_STRING(encoded);
     int shifting = 0;
@@ -2620,15 +2625,16 @@ static Py_ssize_t shift_code_find(PyObject *text) {
    WHATWG ISO-2022-JP encoder errors on all three for that reason
    (https://encoding.spec.whatwg.org/#iso-2022-jp-encoder), so under those codecs they are characters the encoding
    cannot represent: a strict encode raises UnicodeEncodeError, and charrefs writes them the way "xmlcharrefreplace"
-   writes every other such character. Only text holding a shift code pays for the codec probe. */
+   writes every other such character. The codec probe is a fixed cost per call, so the scan of the text runs only for
+   codecs that switch. */
 PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs) {
     const char *errors = charrefs ? "xmlcharrefreplace" : NULL;
-    Py_ssize_t shift = shift_code_find(text);
-    int stateful = shift < 0 ? 0 : codec_emits_shift_bytes(encoding);
+    int stateful = codec_emits_shift_bytes(encoding);
     if (stateful < 0) {
         return NULL;
     }
-    if (!stateful) {
+    Py_ssize_t shift = stateful ? shift_code_find(text) : -1;
+    if (shift < 0) {
         return PyUnicode_AsEncodedString(text, encoding, errors);
     }
     if (!charrefs) {
