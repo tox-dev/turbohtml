@@ -1182,7 +1182,7 @@ def _transform_text_cases() -> tuple[tuple[str, Case], ...]:
     cases: Final[list[tuple[str, Case]]] = []
     payload: Final = "payload " * 8
     for kind in ("builtin", "literal", "xsl:text"):
-        for count in (4096, 4):
+        for count in (4096, 1_400):
             if kind == "builtin":
                 body = "<xsl:apply-templates/>"
                 source = f"<r>{(f'<p>{payload}</p>') * count}</r>"
@@ -1216,14 +1216,14 @@ def _transform_key_cases() -> tuple[tuple[str, Case], ...]:
             ("shared attribute key", "@key", "same", '<i key="same"/>', 8192),
             ("repeated node-set keys", "t", "same", "<i><t>same</t><t>other</t><t>same</t></i>", 2048),
             ("unique keys", "@key", "k0", '<i key="k{index}"/>', 8192),
-            ("small shared key", "'same'", "same", "<i/>", 4),
+            ("small shared key", "'same'", "same", "<i/>", 2_000),
         )
     )
 
 
 def _transform_scope_cases() -> tuple[tuple[str, Case], ...]:
     cases: Final[list[tuple[str, Case]]] = []
-    for scope, count in (("local", 1024), ("local", 4), ("global", 1024), ("global", 4)):
+    for scope, count in (("local", 1024), ("local", 2_000), ("global", 1024), ("global", 2_000)):
         declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
         sheet: Final = (
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
@@ -1242,7 +1242,7 @@ def _transform_namespace_cases() -> tuple[tuple[str, Case], ...]:
         ("deep repeated leaf", 32, 512, True, False),
         ("deep alternating leaves", 32, 512, True, True),
         ("shallow repeated leaf", 1, 512, True, False),
-        ("single leaf", 1, 1, True, False),
+        ("shallow leaf run", 1, 400, True, False),
         ("namespace-free repeated leaf", 32, 512, False, False),
     ):
         prefix: Final = f"p{(depth - 1) % 8}:" if namespaced else ""
@@ -1326,10 +1326,10 @@ def _transform_sort_cases() -> tuple[tuple[str, Case], ...]:
         )
         for label, select, kind, sizes in (
             ("numeric sort", "@key", "number", (120, 2_000)),
-            ("integer expression sort", "number(@key)", "number", (8, 2_000)),
-            ("string expression numeric sort", "string(@key)", "number", (8, 2_000)),
-            ("text sort", "@key", "text", (8, 2_000)),
-            ("fraction expression sort", "number(@key) div 7", "number", (8, 2_000)),
+            ("integer expression sort", "number(@key)", "number", (300, 2_000)),
+            ("string expression numeric sort", "string(@key)", "number", (300, 2_000)),
+            ("text sort", "@key", "text", (300, 2_000)),
+            ("fraction expression sort", "number(@key) div 7", "number", (300, 2_000)),
         )
         for rows in sizes
     )
