@@ -325,10 +325,10 @@ static void set_ident(P *parser, int32_t node) {
 static int32_t leaf(P *parser, jm_kind kind) {
     int32_t index = jm_node_new(parser->prog, kind);
     if (kind == JN_IDENT) {
-        /* Only a value-bearing token names anything: at a punctuator lx.text still spans the last token that did,
-           so the name read there would be an earlier token's. Punctuators follow the value-bearing kinds in jm_tok,
-           and the end of input is let through, since its text is empty and repeats no earlier name. */
-        if (parser->lx.kind > JT_TEMPLATE_TAIL) {
+        /* Only an identifier name (or a private name) is a property name: a punctuator reads an earlier token's text,
+           the end of input has none, and a string, number or template is a key only where parse_key takes it as a
+           literal, never after `.`, `?.` or `new.`. */
+        if (parser->lx.kind != JT_IDENT && parser->lx.kind != JT_PRIVATE) {
             fail(parser, "expected property name");
         }
         set_ident(parser, index);
@@ -1730,7 +1730,7 @@ static void parse_key(P *parser, int32_t owner) {
         parser->prog->nodes[owner].flags |= JN_F_COMPUTED;
         set_a(parser, owner, parse_assign(parser, 0));
         expect(parser, JT_RBRACK, "expected ]");
-    } else if (at(parser, JT_STRING) || at(parser, JT_NUM)) {
+    } else if (at(parser, JT_STRING) || at(parser, JT_NUM) || at(parser, JT_BIGINT)) {
         set_a(parser, owner, leaf(parser, at(parser, JT_STRING) ? JN_STRING : JN_NUM));
     } else {
         set_a(parser, owner, leaf(parser, JN_IDENT));
