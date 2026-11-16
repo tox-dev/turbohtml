@@ -303,11 +303,14 @@ static const th_encoding_entry *th_encoding_lookup(const char *label, Py_ssize_t
     while (len > 0 && is_attr_space((unsigned char)label[len - 1])) {
         len--;
     }
-    if (len <= 0 || len >= (Py_ssize_t)sizeof(lowered) || memchr(label, '\0', (size_t)len) != NULL) {
+    if (len <= 0 || len >= (Py_ssize_t)sizeof(lowered)) {
         return NULL;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
         unsigned char ch = (unsigned char)label[index];
+        if (ch == '\0') {
+            return NULL;
+        }
         lowered[index] = (char)lower_ascii(ch);
     }
     lowered[len] = '\0';
