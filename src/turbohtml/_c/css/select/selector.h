@@ -268,6 +268,7 @@ typedef struct {
     Py_ssize_t err_pos;     /* the position the failing token starts at, for the error message */
     const char *err_reason; /* a human-readable reason for the failure */
     Py_ssize_t compounds;   /* every compound parsed, nested lists included: no chain is longer than this */
+    int scoped;             /* a :scope was parsed, nested lists included */
 } sel_parser;
 
 /* The deepest functional-pseudo nesting (:is()/:where()/:has()/:not(), and the 'of S'

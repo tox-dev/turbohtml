@@ -1475,8 +1475,9 @@ typedef struct {
     css_specificity *specificities;
     const th_node *style;
     int supported;
-    int nests_climbs; /* a rule's selector climbs from its climbs (sel_compiled.climbs 2) */
-    Py_ssize_t chain; /* the longest chain of a rule's selector (sel_compiled.chain) */
+    int nests_climbs;      /* a rule's selector climbs from its climbs (sel_compiled.climbs 2) */
+    Py_ssize_t chain;      /* the longest chain of a rule's selector (sel_compiled.chain) */
+    size_t selector_chars; /* the characters of its rules' selectors, which fund the cascade's walks */
 } css_sheet;
 
 typedef struct {
@@ -1951,7 +1952,9 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
         Py_ssize_t alternative_count = 0;
         int nests_climbs = 0;
         Py_ssize_t chain = 0;
+        size_t selector_chars = 0;
         for (Py_ssize_t rule = 0; rule < rule_count; rule++) {
+            selector_chars += (size_t)rules[rule].selector_len;
             PyObject *selector = css_slice_str(rules[rule].selector, rules[rule].selector_len);
             if (selector == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 Py_ssize_t done = rule; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1990,6 +1993,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
         sheets[count - 1].compiled = compiled;
         sheets[count - 1].nests_climbs = nests_climbs;
         sheets[count - 1].chain = chain;
+        sheets[count - 1].selector_chars = selector_chars;
         if (alternative_count == 0) {
             continue;
         }
@@ -2220,9 +2224,7 @@ static int css_compute_map(module_state *state, HandleObject *handle, th_node *e
         size_t selector_chars = 0;
         for (Py_ssize_t sheet = 0; sheet < sheet_count; sheet++) {
             rules += (size_t)sheets[sheet].rule_count;
-            for (Py_ssize_t rule = 0; rule < sheets[sheet].rule_count; rule++) {
-                selector_chars += (size_t)sheets[sheet].rules[rule].selector_len;
-            }
+            selector_chars += sheets[sheet].selector_chars;
         }
         const size_t nodes = th_tree_node_count(handle->tree);
         cache->deep_memo.limit = th_css_deep_memo_limit(rules, nodes);
