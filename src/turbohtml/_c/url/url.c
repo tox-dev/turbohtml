@@ -1435,6 +1435,17 @@ static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t
    '/'. Returns the joined URL (NULL with an exception when the allocation fails), or a borrowed Py_None when the
    scheme is not one of these, the reference has none of the forms above, or no host follows, so the caller goes on
    with the RFC 3986 join. It never writes either part, so the join keeps no extra value alive across the call. */
+/* join_extra_slash_authority returns None for every other reference, so the link join only calls it for these. */
+static int reaches_extra_slash_authority(const url_ref *base_parts, const url_ref *ref_parts, PyObject *target) {
+    if (ref_parts->has_scheme &&
+        (!base_parts->has_scheme || !spans_equal(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end,
+                                                 ref_parts->buf, ref_parts->scheme_start, ref_parts->scheme_end))) {
+        return 1;
+    }
+    return ref_parts->has_netloc && (ref_parts->netloc_end == ref_parts->netloc_start ||
+                                     PyUnicode_FindChar(target, '\\', 0, PyUnicode_GET_LENGTH(target), 1) != -1);
+}
+
 static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_parts, const url_ref *ref_parts) {
     int empty_authority = ref_parts->has_netloc && ref_parts->netloc_end == ref_parts->netloc_start;
     int same_scheme = ref_parts->has_scheme && base_parts->has_scheme &&
@@ -1608,7 +1619,7 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         PyMem_Free(ref_parts.buf);
         return absolute;
     }
-    if (link && (ref_parts.has_scheme || ref_parts.has_netloc)) {
+    if (link && reaches_extra_slash_authority(&base_parts, &ref_parts, target)) {
         PyObject *authority = join_extra_slash_authority(&base_parts, &ref_parts);
         if (authority != Py_None) {
             PyMem_Free(base_parts.buf);
