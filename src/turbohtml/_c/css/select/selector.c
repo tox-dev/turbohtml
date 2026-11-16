@@ -426,35 +426,68 @@ static int sel_kw(const Py_UCS4 *name, Py_ssize_t len, const char *kw) {
     return 1;
 }
 
-/* Read a run of ASCII digits as a non-negative int64_t, saturating at INT64_MAX rather than overflowing; *seen
-   reports any digit. */
-static int64_t sel_read_int(sel_parser *parser, int *seen) {
-    int64_t value = 0;
-    *seen = 0;
-    while (parser->pos < parser->len && parser->src[parser->pos] >= '0' && parser->src[parser->pos] <= '9') {
-        const int digit = (int)(parser->src[parser->pos] - '0');
-        value = value > (INT64_MAX - digit) / 10 ? INT64_MAX : value * 10 + digit;
-        parser->pos++;
-        *seen = 1;
-    }
-    return value;
+/* An An+B coefficient as written. A magnitude of at most 18 digits is held in value; a longer one keeps its significant
+   digits in digits (most significant first, no leading zero) and counts them in len. */
+typedef struct {
+    int neg;
+    int64_t value;
+    const Py_UCS4 *digits;
+    Py_ssize_t len;
+} sel_coef;
+
+#define SEL_COEF_VALUE_DIGITS 18
+
+static sel_coef sel_small_coef(int neg, int64_t value) {
+    sel_coef coef = {neg, value, NULL, 0};
+    return coef;
 }
 
-/* Parse the An+B microsyntax (CSS Syntax §"The An+B microsyntax") into a/b,
-   including the even/odd keywords. pos starts after '(' and stops at the ')'. */
-static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
+static int sel_coef_big(const sel_coef *coef) {
+    return coef->digits != NULL;
+}
+
+static int sel_coef_zero(const sel_coef *coef) {
+    return !sel_coef_big(coef) && coef->value == 0;
+}
+
+/* Read a run of ASCII digits as a coefficient magnitude; *seen reports any digit. */
+static sel_coef sel_read_coef(sel_parser *parser, int *seen) {
+    const Py_ssize_t first = parser->pos;
+    while (parser->pos < parser->len && parser->src[parser->pos] >= '0' && parser->src[parser->pos] <= '9') {
+        parser->pos++;
+    }
+    *seen = parser->pos > first;
+    Py_ssize_t start = first;
+    while (start < parser->pos && parser->src[start] == '0') {
+        start++;
+    }
+    sel_coef coef = {0, 0, NULL, parser->pos - start};
+    if (coef.len > SEL_COEF_VALUE_DIGITS) {
+        coef.digits = parser->src + start;
+        return coef;
+    }
+    coef.len = 0;
+    for (Py_ssize_t at = start; at < parser->pos; at++) {
+        coef.value = coef.value * 10 + (int64_t)(parser->src[at] - '0');
+    }
+    return coef;
+}
+
+/* Parse the An+B microsyntax (CSS Syntax §"The An+B microsyntax") into a/b, including the even/odd keywords. pos starts
+   after '(' and stops at the ')'. */
+static void sel_parse_anb(sel_parser *parser, sel_coef *a, sel_coef *b) {
     sel_skip_ws(parser);
     if (parser->pos + 4 <= parser->len && sel_kw(parser->src + parser->pos, 4, "even")) {
         parser->pos += 4;
-        *a = 2;
-        *b = 0;
+        *a = sel_small_coef(0, 2);
+        *b = sel_small_coef(0, 0);
         sel_skip_ws(parser);
         return;
     }
     if (parser->pos + 3 <= parser->len && sel_kw(parser->src + parser->pos, 3, "odd")) {
         parser->pos += 3;
-        *a = 2;
-        *b = 1;
+        *a = sel_small_coef(0, 2);
+        *b = sel_small_coef(0, 1);
         sel_skip_ws(parser);
         return;
     }
@@ -464,28 +497,30 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
         parser->pos++;
     }
     int seen_a;
-    const int64_t num = sel_read_int(parser, &seen_a);
+    const sel_coef num = sel_read_coef(parser, &seen_a);
     if (parser->pos < parser->len && (parser->src[parser->pos] | 32) == 'n') {
         parser->pos++;
-        *a = sign * (seen_a ? num : 1);
+        *a = seen_a ? num : sel_small_coef(0, 1);
+        a->neg = sign < 0;
         sel_skip_ws(parser);
         if (parser->pos < parser->len && (parser->src[parser->pos] == '+' || parser->src[parser->pos] == '-')) {
-            int bsign = parser->src[parser->pos] == '-' ? -1 : 1;
+            const int bsign = parser->src[parser->pos] == '-' ? -1 : 1;
             parser->pos++;
             sel_skip_ws(parser);
             int seen_b;
-            const int64_t bval = sel_read_int(parser, &seen_b);
+            *b = sel_read_coef(parser, &seen_b);
             if (!seen_b) {
                 sel_fail(parser, "expected a number after the sign in An+B");
                 return;
             }
-            *b = bsign * bval;
+            b->neg = bsign < 0;
         } else {
-            *b = 0;
+            *b = sel_small_coef(0, 0);
         }
     } else if (seen_a) {
-        *a = 0;
-        *b = sign * num;
+        *a = sel_small_coef(0, 0);
+        *b = num;
+        b->neg = sign < 0;
     } else {
         sel_fail(parser, "expected An+B"); /* a bare sign with no digits and no 'n' is invalid */
         return;
@@ -493,51 +528,184 @@ static void sel_parse_anb(sel_parser *parser, int64_t *a, int64_t *b) {
     sel_skip_ws(parser);
 }
 
-/* The pair the matcher reads for the parsed (already saturated) An+B = a/b: both within [-INT_MAX, INT_MAX], and
-   selecting the same sibling positions in [1, INT_MAX] as the parsed pair. A coefficient past the int range becomes a
-   residue that selects the same positions; a pair that selects nothing becomes (0, 0), since no sibling has index 0. */
-static void sel_nth_narrow(int64_t a, int64_t b, int *out_a, int *out_b) {
-    const int64_t top = INT_MAX;
-    int64_t pair_a = 0;
-    int64_t pair_b = 0;
-    if (a == 0) {
-        pair_b = b >= 1 && b <= top ? b : 0;
-    } else {
-        const int64_t period = a > 0 ? a : -a;
-        int64_t residue = b % period;
-        if (residue < 0) {
-            residue += period;
+/* The decimal digits of a magnitude, least significant first, without a leading zero; len is 0 for zero. */
+typedef struct {
+    uint8_t *digits;
+    Py_ssize_t len;
+} sel_dec;
+
+static void sel_dec_trim(sel_dec *x) {
+    while (x->len > 0 && x->digits[x->len - 1] == 0) {
+        x->len--;
+    }
+}
+
+static void sel_dec_load(sel_dec *out, const sel_coef *coef) {
+    if (sel_coef_big(coef)) {
+        for (Py_ssize_t at = 0; at < coef->len; at++) {
+            out->digits[at] = (uint8_t)(coef->digits[coef->len - 1 - at] - '0');
         }
-        if (a > 0 && period > top) {
-            if (residue >= 1 && residue <= top && residue >= b) {
-                pair_a = top;
-                pair_b = residue;
-            }
-        } else if (a > 0) {
-            if (b <= 1) {
-                pair_a = period;
-                pair_b = residue;
-            } else if (b <= top) {
-                pair_a = period;
-                pair_b = b;
-            }
-        } else if (b >= top) {
-            if (period > top) {
-                if (residue >= 1 && residue <= top) {
-                    pair_a = -top;
-                    pair_b = residue;
-                }
-            } else {
-                pair_a = -period;
-                pair_b = top - (top - residue) % period;
-            }
-        } else if (b >= 1) {
-            pair_a = period > top ? -top : -period;
-            pair_b = b;
+        out->len = coef->len;
+        return;
+    }
+    out->len = 0;
+    for (int64_t rest = coef->value; rest > 0; rest /= 10) {
+        out->digits[out->len++] = (uint8_t)(rest % 10);
+    }
+}
+
+static int sel_dec_compare(const sel_dec *x, const sel_dec *y) {
+    if (x->len != y->len) {
+        return x->len < y->len ? -1 : 1;
+    }
+    for (Py_ssize_t at = x->len; at-- > 0;) {
+        if (x->digits[at] != y->digits[at]) {
+            return x->digits[at] < y->digits[at] ? -1 : 1;
         }
     }
-    *out_a = (int)pair_a;
-    *out_b = (int)pair_b;
+    return 0;
+}
+
+/* x -= y, for x >= y. */
+static void sel_dec_subtract(sel_dec *x, const sel_dec *y) {
+    int borrow = 0;
+    for (Py_ssize_t at = 0; at < x->len; at++) {
+        const int digit = x->digits[at] - borrow - (at < y->len ? y->digits[at] : 0);
+        borrow = digit < 0;
+        x->digits[at] = (uint8_t)(digit + (borrow ? 10 : 0));
+    }
+    sel_dec_trim(x);
+}
+
+/* r = x modulo m, for m > 0: each digit of x, most significant first, shifts into the remainder, which the multiples
+   of m then come off. r needs room for m->len + 2 digits. */
+static void sel_dec_remainder(const sel_dec *x, const sel_dec *m, sel_dec *r) {
+    r->len = 0;
+    for (Py_ssize_t at = x->len; at-- > 0;) {
+        memmove(r->digits + 1, r->digits, (size_t)r->len);
+        r->digits[0] = x->digits[at];
+        r->len++;
+        sel_dec_trim(r);
+        while (sel_dec_compare(r, m) >= 0) {
+            sel_dec_subtract(r, m);
+        }
+    }
+}
+
+/* The value of a magnitude of at most 10 digits. */
+static int64_t sel_dec_value(const sel_dec *x) {
+    int64_t value = 0;
+    for (Py_ssize_t at = x->len; at-- > 0;) {
+        value = value * 10 + x->digits[at];
+    }
+    return value;
+}
+
+static int sel_dec_within(const sel_dec *x, int64_t limit) {
+    return x->len <= 10 && sel_dec_value(x) <= limit;
+}
+
+/* Where b falls for the An+B pair: at or below 0, one of the positions 1..INT_MAX, or above INT_MAX. */
+enum { SEL_BELOW, SEL_INSIDE, SEL_ABOVE };
+
+static int sel_coef_class(const sel_coef *coef) {
+    if (coef->neg) {
+        return SEL_BELOW;
+    }
+    if (sel_coef_big(coef)) {
+        return SEL_ABOVE;
+    }
+    if (coef->value < 1) {
+        return SEL_BELOW;
+    }
+    return coef->value > INT_MAX ? SEL_ABOVE : SEL_INSIDE;
+}
+
+/* The pair for An+B with a = sign * m, where m_fits says m <= INT_MAX, b in its class (b itself when inside), and r
+   the residue b mod m, which r_fits says is at most INT_MAX. The pair selects the same positions in [1, INT_MAX]:
+   a positive a keeps the positions p >= b with p = b (mod m), a negative a keeps p <= b with p = b (mod m); a wide m
+   leaves at most the one position r; and a pair that selects nothing is (0, 0), since no sibling has index 0. */
+static void sel_nth_table(int negative, int m_fits, int64_t m, int b_class, int64_t b, int r_fits, int64_t r,
+                          int64_t *pa, int64_t *pb) {
+    const int64_t top = INT_MAX;
+    if (!negative) {
+        if (b_class == SEL_ABOVE) {
+            *pa = 0;
+            *pb = 0;
+        } else if (b_class == SEL_INSIDE) {
+            *pa = m_fits ? m : 0;
+            *pb = b;
+        } else if (m_fits) {
+            *pa = m;
+            *pb = r;
+        } else {
+            *pa = 0;
+            *pb = r_fits && r >= 1 ? r : 0;
+        }
+    } else if (b_class == SEL_BELOW) {
+        *pa = m_fits ? -m : 0;
+        *pb = 0;
+    } else if (b_class == SEL_INSIDE) {
+        *pa = m_fits ? -m : 0;
+        *pb = b;
+    } else if (m_fits) {
+        *pa = -m;
+        *pb = top - (top - r) % m;
+    } else {
+        *pa = 0;
+        *pb = r_fits && r >= 1 ? r : 0;
+    }
+}
+
+/* The pair the matcher reads for the parsed An+B = a/b, exact for every sibling position: both coefficients stay within
+   [-INT_MAX, INT_MAX] and select the same positions in [1, INT_MAX] as the exact integers. Returns 0, or -1 when the
+   wide remainder cannot allocate, with the parse error set. */
+static int sel_nth_narrow(sel_parser *parser, const sel_coef *a, const sel_coef *b, int *out_a, int *out_b) {
+    const int64_t top = INT_MAX;
+    int64_t pa = 0;
+    int64_t pb = 0;
+    if (sel_coef_zero(a)) {
+        if (sel_coef_class(b) == SEL_INSIDE) {
+            pb = b->value;
+        }
+    } else if (!sel_coef_big(a) && !sel_coef_big(b)) {
+        const int64_t m = a->value;
+        const int64_t bs = b->neg ? -b->value : b->value;
+        const int64_t r = ((bs % m) + m) % m;
+        sel_nth_table(a->neg, m <= top, m, sel_coef_class(b), bs, r <= top, r, &pa, &pb);
+    } else {
+        const Py_ssize_t a_digits = sel_coef_big(a) ? a->len : SEL_COEF_VALUE_DIGITS + 1;
+        const Py_ssize_t b_digits = sel_coef_big(b) ? b->len : SEL_COEF_VALUE_DIGITS + 1;
+        const Py_ssize_t cap = (a_digits > b_digits ? a_digits : b_digits) + 2;
+        uint8_t *block = PyMem_Malloc((size_t)cap * 4);
+        if (block == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            sel_fail(parser, NULL); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        sel_dec modulus = {block, 0};
+        sel_dec magnitude = {block + cap, 0};
+        sel_dec rem = {block + 2 * cap, 0};
+        sel_dec wide = {block + 3 * cap, 0};
+        sel_dec_load(&modulus, a);
+        sel_dec_load(&magnitude, b);
+        sel_dec_remainder(&magnitude, &modulus, &rem);
+        sel_dec *residue = &rem;
+        if (b->neg && rem.len > 0) {
+            memcpy(wide.digits, modulus.digits, (size_t)modulus.len);
+            wide.len = modulus.len;
+            sel_dec_subtract(&wide, &rem);
+            residue = &wide;
+        }
+        const int r_fits = sel_dec_within(residue, top);
+        const int64_t r = r_fits ? sel_dec_value(residue) : 0;
+        const int64_t bs = sel_coef_class(b) == SEL_INSIDE ? b->value : 0;
+        sel_nth_table(a->neg, sel_coef_big(a) ? 0 : a->value <= top, sel_coef_big(a) ? 0 : a->value, sel_coef_class(b),
+                      b->neg ? -bs : bs, r_fits, r, &pa, &pb);
+        PyMem_Free(block);
+    }
+    *out_a = (int)pa;
+    *out_b = (int)pb;
+    return 0;
 }
 
 /* Parse the comma-separated selector list inside a :is()/:where()/:has(); defined
@@ -703,13 +871,15 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             return;
         }
         parser->pos++;
-        int64_t nth_a;
-        int64_t nth_b;
+        sel_coef nth_a;
+        sel_coef nth_b;
         sel_parse_anb(parser, &nth_a, &nth_b);
         if (parser->error) {
             return;
         }
-        sel_nth_narrow(nth_a, nth_b, &simple->nth_a, &simple->nth_b);
+        if (sel_nth_narrow(parser, &nth_a, &nth_b, &simple->nth_a, &simple->nth_b) != 0) { /* GCOVR_EXCL_BR_LINE */
+            return; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         /* the Level-4 'of S' clause filters the sibling list by a selector; it is
            valid only on :nth-child()/:nth-last-child(), not the -of-type variants */
         if (parser->pos < parser->len && sel_is_ident(parser->src[parser->pos])) {
