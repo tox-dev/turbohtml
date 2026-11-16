@@ -1726,7 +1726,13 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
         const th_encoding_entry *labeled = th_encoding_lookup(enc_arg, enc_len);
         if (labeled == NULL) {
             PyBuffer_Release(&view);
-            PyErr_Format(PyExc_LookupError, "unknown encoding: %s", enc_arg);
+            PyObject *label =
+                PyUnicode_FromStringAndSize(enc_arg, enc_len); /* GCOVR_EXCL_BR_LINE: label is valid UTF-8 */
+            if (label == NULL) {                               /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return NULL;                                   /* GCOVR_EXCL_LINE */
+            }
+            PyErr_Format(PyExc_LookupError, "unknown encoding: %U", label);
+            Py_DECREF(label);
             return NULL;
         }
         if (entry == NULL) {
