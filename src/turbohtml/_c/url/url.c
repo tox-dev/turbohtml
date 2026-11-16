@@ -1552,6 +1552,92 @@ static Py_UCS4 *url_special_path(const url_ref *ref, Py_ssize_t from, Py_ssize_t
     return out;
 }
 
+/* Whether ch is percent-encoded in a userinfo (https://url.spec.whatwg.org/#userinfo-percent-encode-set): a C0 control,
+   a space, DEL or a non-ASCII code point, or one of the delimiters " # < > ? ` { } / : ; = @ [ \\ ] ^ |. */
+static int userinfo_escaped(Py_UCS4 ch) {
+    return ch <= 0x20 || ch > 0x7E || strchr("\"#<>?`{}/:;=@[\\]^|", (int)ch) != NULL;
+}
+
+static int userinfo_utf8_bytes(Py_UCS4 ch, unsigned char *bytes) {
+    if (ch < 0x80) {
+        bytes[0] = (unsigned char)ch;
+        return 1;
+    }
+    if (ch < 0x800) {
+        bytes[0] = (unsigned char)(0xC0 | (ch >> 6));
+        bytes[1] = (unsigned char)(0x80 | (ch & 0x3F));
+        return 2;
+    }
+    if (ch < 0x10000) {
+        bytes[0] = (unsigned char)(0xE0 | (ch >> 12));
+        bytes[1] = (unsigned char)(0x80 | ((ch >> 6) & 0x3F));
+        bytes[2] = (unsigned char)(0x80 | (ch & 0x3F));
+        return 3;
+    }
+    bytes[0] = (unsigned char)(0xF0 | (ch >> 18));
+    bytes[1] = (unsigned char)(0x80 | ((ch >> 12) & 0x3F));
+    bytes[2] = (unsigned char)(0x80 | ((ch >> 6) & 0x3F));
+    bytes[3] = (unsigned char)(0x80 | (ch & 0x3F));
+    return 4;
+}
+
+/* The authority buf[start,end) with its userinfo (everything before the last '@') percent-encoded as WHATWG writes it.
+   The first ':' is the username's end and stays as written. Returns 0 when nothing needs escaping, 1 with *out a new
+   buffer of *len code points, or -1 with an error set. */
+static int url_encode_userinfo(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, Py_UCS4 **out, Py_ssize_t *len) {
+    *out = NULL;
+    Py_ssize_t at = end;
+    while (at > start && buf[at - 1] != '@') {
+        at--;
+    }
+    if (at == start) {
+        return 0;
+    }
+    Py_ssize_t user_end = at - 1;
+    int need = 0;
+    int colon = 0;
+    for (Py_ssize_t index = start; index < user_end; index++) {
+        if (buf[index] == ':' && !colon) {
+            colon = 1;
+        } else {
+            need |= userinfo_escaped(buf[index]);
+        }
+    }
+    if (!need) {
+        return 0;
+    }
+    Py_UCS4 *fixed = PyMem_Malloc((size_t)(end - start) * 12 * sizeof(Py_UCS4) + sizeof(Py_UCS4));
+    if (fixed == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t written = 0;
+    colon = 0;
+    for (Py_ssize_t index = start; index < user_end; index++) {
+        Py_UCS4 ch = buf[index];
+        if (ch == ':' && !colon) {
+            colon = 1;
+            fixed[written++] = ch;
+        } else if (userinfo_escaped(ch)) {
+            unsigned char bytes[4];
+            int count = userinfo_utf8_bytes(ch, bytes);
+            for (int byte = 0; byte < count; byte++) {
+                fixed[written++] = '%';
+                fixed[written++] = (Py_UCS4)(unsigned char)HEX_UPPER[bytes[byte] >> 4];
+                fixed[written++] = (Py_UCS4)(unsigned char)HEX_UPPER[bytes[byte] & 0x0f];
+            }
+        } else {
+            fixed[written++] = ch;
+        }
+    }
+    for (Py_ssize_t index = user_end; index < end; index++) {
+        fixed[written++] = buf[index];
+    }
+    *out = fixed;
+    *len = written;
+    return 1;
+}
+
 /* https://url.spec.whatwg.org/#special-authority-slashes-state and
    https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme that is not the base's reads
    its host after every slash and backslash that follows the scheme, zero or more of them, so `ftp:h/p` and `ftp:/h/p`
@@ -1600,22 +1686,34 @@ static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_part
     if (path == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_UCS4 *netloc = NULL;
-    Py_ssize_t netloc_len = host_end - host_start;
-    int fixed = url_authority_port_fixed(
-        ref_parts->buf, host_start, host_end,
-        url_default_port(scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end), &netloc,
-        &netloc_len);
-    if (fixed < 0) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    Py_UCS4 *escaped = NULL;
+    Py_ssize_t escaped_len = 0;
+    int user = url_encode_userinfo(ref_parts->buf, host_start, host_end, &escaped, &escaped_len);
+    if (user < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(path); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    const Py_UCS4 *source = user ? escaped : ref_parts->buf;
+    Py_ssize_t source_start = user ? 0 : host_start;
+    Py_ssize_t source_end = user ? escaped_len : host_end;
+    Py_UCS4 *netloc = NULL;
+    Py_ssize_t netloc_len = source_end - source_start;
+    int fixed = url_authority_port_fixed(
+        source, source_start, source_end,
+        url_default_port(scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end), &netloc,
+        &netloc_len);
+    if (fixed < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(path);    /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(escaped); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     PyObject *joined =
         build_url(1, scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end, 1,
-                  fixed ? netloc : ref_parts->buf, fixed ? 0 : host_start, fixed ? netloc_len : host_end, path, 0,
-                  path_len, ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
+                  fixed ? netloc : source, fixed ? 0 : source_start, fixed ? netloc_len : source_end, path, 0, path_len,
+                  ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
                   ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
     PyMem_Free(netloc);
+    PyMem_Free(escaped);
     PyMem_Free(path);
     return joined;
 }
@@ -1641,10 +1739,19 @@ static PyObject *join_nonspecial_absolute(const url_ref *ref) {
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     url_guard_hostless_path(path, &path_len, ref->has_netloc);
-    PyObject *joined =
-        build_url(1, ref->buf, ref->scheme_start, ref->scheme_end, ref->has_netloc, ref->buf, ref->netloc_start,
-                  ref->netloc_end, path, 0, path_len, ref->has_query, ref->buf, ref->query_start, ref->query_end,
-                  ref->has_fragment, ref->buf, ref->fragment_start, ref->fragment_end);
+    Py_UCS4 *escaped = NULL;
+    Py_ssize_t escaped_len = 0;
+    int user =
+        ref->has_netloc ? url_encode_userinfo(ref->buf, ref->netloc_start, ref->netloc_end, &escaped, &escaped_len) : 0;
+    if (user < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(path); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *joined = build_url(
+        1, ref->buf, ref->scheme_start, ref->scheme_end, ref->has_netloc, user ? escaped : ref->buf,
+        user ? 0 : ref->netloc_start, user ? escaped_len : ref->netloc_end, path, 0, path_len, ref->has_query, ref->buf,
+        ref->query_start, ref->query_end, ref->has_fragment, ref->buf, ref->fragment_start, ref->fragment_end);
+    PyMem_Free(escaped);
     PyMem_Free(path);
     return joined;
 }
@@ -1815,9 +1922,27 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         Py_UCS4 *path = ref_parts.buf;
         Py_ssize_t path_from = ref_parts.path_start;
         int netloc_fixed = 0;
+        Py_UCS4 *escaped = NULL;
+        Py_ssize_t escaped_len = 0;
+        const Py_UCS4 *source = ref_parts.buf;
+        Py_ssize_t source_start = ref_parts.netloc_start;
+        Py_ssize_t source_end = ref_parts.netloc_end;
+        if (link && !scheme_eq(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, "file")) {
+            int user = url_encode_userinfo(ref_parts.buf, source_start, source_end, &escaped, &escaped_len);
+            if (user < 0) {                 /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyMem_Free(base_parts.buf); /* GCOVR_EXCL_LINE: allocation-failure path */
+                PyMem_Free(ref_parts.buf);  /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            if (user) {
+                source = escaped;
+                source_start = 0;
+                source_end = escaped_len;
+            }
+        }
         if (link && base_special) {
             netloc_fixed = url_authority_port_fixed(
-                ref_parts.buf, ref_parts.netloc_start, ref_parts.netloc_end,
+                source, source_start, source_end,
                 url_default_port(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end), &netloc, &netloc_len);
         }
         if (link) {
@@ -1830,13 +1955,14 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
             path_from = 0;
         }
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, 1,
-                           netloc_fixed ? netloc : ref_parts.buf, netloc_fixed ? 0 : ref_parts.netloc_start,
-                           netloc_fixed ? netloc_len : ref_parts.netloc_end, path, path_from, path_from + path_len,
+                           netloc_fixed ? netloc : source, netloc_fixed ? 0 : source_start,
+                           netloc_fixed ? netloc_len : source_end, path, path_from, path_from + path_len,
                            ref_parts.has_query, ref_parts.buf, ref_parts.query_start, ref_parts.query_end,
                            ref_parts.has_fragment, ref_parts.buf, ref_parts.fragment_start, ref_parts.fragment_end);
         if (path != ref_parts.buf) {
             PyMem_Free(path);
         }
+        PyMem_Free(escaped);
         PyMem_Free(netloc);
     } else if (ref_parts.path_end == ref_parts.path_start) {
         int query_has = ref_parts.has_query;

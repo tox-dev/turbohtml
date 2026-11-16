@@ -1535,6 +1535,43 @@ def test_resolve_links_roots_a_base_without_a_path(base: str, href: str, expecte
     assert _resolved_href(href, base) == expected
 
 
+# A userinfo is percent-encoded with the userinfo set, the first ':' separates the username from the password, and an
+# escape that is already there is kept (https://url.spec.whatwg.org/#userinfo-percent-encode-set).
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://u\u00fc@h/p", "https://u%C3%BC@h/p", id="non-ascii"),
+        pytest.param("https://a b@h/p", "https://a%20b@h/p", id="space"),
+        pytest.param('https://a"b@h/p', "https://a%22b@h/p", id="quote"),
+        pytest.param("https://a<b>@h/p", "https://a%3Cb%3E@h/p", id="angle-brackets"),
+        pytest.param("https://a:b:c@h/p", "https://a:b%3Ac@h/p", id="second-colon-escaped"),
+        pytest.param("https://a@b@c@h/p", "https://a%40b%40c@h/p", id="earlier-at-escaped"),
+        pytest.param("https://a%20b@h/p", "https://a%20b@h/p", id="existing-escape-kept"),
+        pytest.param("https://a%zz@h/p", "https://a%zz@h/p", id="invalid-escape-kept"),
+        pytest.param("https://u:p q@h:443/p", "https://u:p%20q@h/p", id="password-and-default-port"),
+        pytest.param("https://a;b@h/p", "https://a%3Bb@h/p", id="semicolon"),
+        pytest.param("//a b@h/p", "https://a%20b@h/p", id="network-path"),
+        pytest.param("foo://a b@h/p", "foo://a%20b@h/p", id="non-special-scheme"),
+        pytest.param("https://a b@h/p?q#f", "https://a%20b@h/p?q#f", id="query-and-fragment-kept"),
+        pytest.param("https://\u4f8b@h/p", "https://%E4%BE%8B@h/p", id="three-byte-code-point"),
+        pytest.param("https://\U0001f600@h/p", "https://%F0%9F%98%80@h/p", id="four-byte-code-point"),
+        pytest.param("foo://user@h/p", "foo://user@h/p", id="non-special-plain-kept"),
+        pytest.param("foo://a@b@h/p", "foo://a%40b@h/p", id="non-special-earlier-at-escaped"),
+        pytest.param("foo://a:b:c@h/p", "foo://a:b%3Ac@h/p", id="non-special-second-colon-escaped"),
+        pytest.param("foo://u@h:80/p", "foo://u@h:80/p", id="non-special-port-kept"),
+        pytest.param("foo:x", "foo:x", id="non-special-opaque-kept"),
+        pytest.param("foo:/a/b", "foo:/a/b", id="non-special-path-kept"),
+        pytest.param("foo://u@h?q", "foo://u@h?q", id="non-special-query-ends-authority"),
+        pytest.param("foo://u@h#f", "foo://u@h#f", id="non-special-fragment-ends-authority"),
+        pytest.param("foo://h:80/p", "foo://h:80/p", id="non-special-port-without-userinfo"),
+        pytest.param("foo://u:p@h/p", "foo://u:p@h/p", id="non-special-username-and-password"),
+        pytest.param("foo://u@Host:80/p", "foo://u@Host:80/p", id="non-special-host-case-kept"),
+    ],
+)
+def test_resolve_links_percent_encodes_the_userinfo(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
 # A tab/CR/LF inside an otherwise-skippable absolute link forces the rejoin urlsplit would strip it in; a character
 # reference carries the raw control byte past the input stream's CR/LF normalization so each lands in the value.
 @pytest.mark.parametrize(
