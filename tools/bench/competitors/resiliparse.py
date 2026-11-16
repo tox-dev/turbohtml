@@ -71,11 +71,14 @@ def select_has(text: str) -> None:
     _document(_parsed(text)).query_selector_all("div:has(a)")
 
 
-def _select_relative(case: tuple[str, str]) -> None:
-    if case[0] == "section:has(+ section a)":
+def _select_relative(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    if selector == "section:has(+ section a)":
         msg: Final = "resiliparse returns no matches for section:has(+ section a)"
         raise NotImplementedError(msg)
-    _document(_parsed(case[1])).query_selector_all(case[0])
+    document = _document(_parsed(text))
+    for _ in range(repeats):
+        document.query_selector_all(selector)
 
 
 def text_content(text: str) -> None:

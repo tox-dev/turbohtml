@@ -914,10 +914,10 @@ def _css_merge_inputs() -> tuple[tuple[str, str], ...]:
             for count in (256, 100, 1_000)
         ),
         (
-            "100 alternating media preludes",
-            "".join(f"@media {'screen' if index % 2 else 'print'}{{.a{index}{{color:red}}}}" for index in range(100)),
+            "200 alternating media preludes",
+            "".join(f"@media {'screen' if index % 2 else 'print'}{{.a{index}{{color:red}}}}" for index in range(200)),
         ),
-        ("100 rules with comment barriers", "/*!keep*/".join(f".a{index}{{color:red}}" for index in range(100))),
+        ("200 rules with comment barriers", "/*!keep*/".join(f".a{index}{{color:red}}" for index in range(200))),
     )
 
 
@@ -1632,12 +1632,12 @@ def _minify_cases() -> tuple[tuple[str, Case], ...]:
             )
             for label, value, count in (
                 ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 160),
-                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 128),
-                ("zero exponent 2", "width:calc(0e2px + {index}px)", 128),
-                ("ordinary arithmetic", "width:calc(1e2px + {index}px)", 128),
+                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 320),
+                ("zero exponent 2", "width:calc(0e2px + {index}px)", 320),
+                ("ordinary arithmetic", "width:calc(1e2px + {index}px)", 320),
                 ("negative exponent", "width:calc(1e-2px + {index}px)", 128),
-                ("large dimension exponent", "width:1e10000px", 128),
-                ("unitless exponent", "z-index:1e4", 128),
+                ("large dimension exponent", "width:1e10000px", 320),
+                ("unitless exponent", "z-index:1e4", 320),
             )
         ),
         *(
@@ -1645,7 +1645,7 @@ def _minify_cases() -> tuple[tuple[str, Case], ...]:
                 f"{depth} nested variable fallbacks",
                 f"a{{width:{'var(--x,' * depth}1px{')' * depth}}}",
             )
-            for depth in (64, 320)
+            for depth in (384, 320)
         ),
         (
             "shallow transform and font functions",
@@ -2162,7 +2162,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     ),
     "query-roots": lambda: tuple(
         (f"{count} {order} roots", (count, order))
-        for count, order in ((512, "reversed"), (512, "shuffled"), (512, "sorted"), (2_048, "reversed"))
+        for count, order in ((2_048, "reversed"), (2_048, "shuffled"), (2_048, "sorted"), (2_048, "reversed"))
     ),
     "query-closest": lambda: (
         ("32,768 children, shared ancestor", (32_768, True)),
@@ -2246,7 +2246,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 ),
             )
             for forms, prefix, buttons, selector, repeats in (
-                (1, 4096, 128, ":default", 1),
+                (4, 4096, 128, ":default", 1),
                 (24, 512, 64, ":default", 1),
                 (1024, 8, 4, ":default", 1),
                 (2_560, 0, 1, ":default", 1),
@@ -2254,10 +2254,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             )
         ),
         (
-            "1 form, 4096 spans, 128 explicit submit buttons",
+            "4 forms, 4096 spans, 128 explicit submit buttons",
             (
                 ":default",
-                f"<form>{'<span>x</span>' * 4096}{'<button type=submit>go</button>' * 128}</form>",
+                f"<form>{'<span>x</span>' * 4096}{'<button type=submit>go</button>' * 128}</form>" * 4,
                 1,
             ),
         ),
@@ -2506,7 +2506,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "match": _readpath_cases,
     "find-text": _readpath_cases,
     "find-text-exact": lambda: (
-        ("flat matches", ("<div>needle</div>" * 1_000, "needle", 1)),
+        ("flat matches", ("<div>needle</div>" * 1_000, "needle", 4)),
         ("nested matches", (f"{'<div>' * 100}needle{'</div>' * 100}", "needle", 1)),
         ("nested short expectation", ("<div>" * 100 + "x" * 10_000 + "</div>" * 100, "needle", 24)),
         ("wide early mismatch", (f"<div>x{'<b>needle</b>' * 1_000}</div>", f"y{'needle' * 1_000}", 1)),
@@ -2871,7 +2871,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         *((label, (selector, repeats)) for label, selector, repeats in _TRANSLATE_CASES),
         *tuple(
             (f"{count} {kind} literals", (",".join([selector] * count), 1))
-            for count in (1, 16, 128)
+            for count in (1, 16, 1_024)
             for kind, selector in (
                 ("ID", "#identifier"),
                 ("equality", '[data-x="value"]'),
@@ -2928,7 +2928,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                     f"{','.join(f'argument{index}' for index in range(count))}]}}"
                 ),
             )
-            for count in (256, 32, 54, 80)
+            for count in (256, 32, 192, 224)
         ),
         ("free-name conflicts", "function transform(value){return value+a+b+c}"),
         ("no local bindings", "console.log(document.title)"),
