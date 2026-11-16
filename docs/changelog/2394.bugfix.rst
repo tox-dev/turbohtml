@@ -1,0 +1,2 @@
+``Node.resolve_links()`` now resolves a fragment-only link against a base with an opaque path, such as ``foo:a/b``, by
+keeping the base path and query and taking the link fragment, as browsers do.

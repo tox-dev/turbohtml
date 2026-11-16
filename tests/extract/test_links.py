@@ -1449,6 +1449,29 @@ def test_resolve_links_removes_dot_segments_under_any_scheme(base: str, href: st
     assert _resolved_href(href, base) == expected
 
 
+# A fragment-only reference keeps an opaque base's path and query and takes the reference's fragment
+# (https://url.spec.whatwg.org/#path-state); a reference with a path or query under an opaque base is rejected and kept.
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("foo:a/b", "#f", "foo:a/b#f", id="fragment"),
+        pytest.param("foo:a/b#old", "#f", "foo:a/b#f", id="replaces-base-fragment"),
+        pytest.param("foo:a/b?q#old", "#f", "foo:a/b?q#f", id="keeps-base-query"),
+        pytest.param("foo:a/b?q", "#", "foo:a/b?q#", id="empty-fragment"),
+        pytest.param("foo:a/b", "#a#b", "foo:a/b#a#b", id="second-hash-kept"),
+        pytest.param("foo:a/b", "#f?q", "foo:a/b#f?q", id="question-mark-in-fragment"),
+        pytest.param("mailto:x@x.com", "#x", "mailto:x@x.com#x", id="mailto-base"),
+        pytest.param("data:,", "#", "data:,#", id="data-base"),
+        pytest.param("about:blank", "#x", "about:blank#x", id="about-base"),
+        pytest.param("foo:/a/b", "#f", "foo:/a/b#f", id="hierarchical-base-unchanged"),
+        pytest.param("foo:a/b", "?q#f", "?q#f", id="query-rejected-kept"),
+        pytest.param("foo:a/b", "x", "x", id="path-rejected-kept"),
+    ],
+)
+def test_resolve_links_resolves_a_fragment_against_an_opaque_base(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
 # A tab/CR/LF inside an otherwise-skippable absolute link forces the rejoin urlsplit would strip it in; a character
 # reference carries the raw control byte past the input stream's CR/LF normalization so each lands in the value.
 @pytest.mark.parametrize(
