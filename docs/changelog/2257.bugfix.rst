@@ -1,1 +1,2 @@
-``minify_js()`` folds long chains of string literals joined with ``+`` in time that grows linearly with the chain's length.
+``minify_js()`` folds long chains of string literals joined with ``+`` in time that grows linearly with the chain's
+length.
