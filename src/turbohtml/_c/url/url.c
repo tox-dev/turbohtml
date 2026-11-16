@@ -1160,7 +1160,8 @@ static Py_ssize_t split_segments(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_
 /* 1 for a single-dot path segment, 2 for a double-dot one, 0 for any other segment. A special scheme also reads %2e in
    any case as a dot, so "%2E%2e" is a double-dot segment (https://url.spec.whatwg.org/#single-dot-path-segment). */
 static int url_dot_candidate(const url_seg *segment) {
-    return segment->start < segment->end && (segment->buf[segment->start] == '.' || segment->buf[segment->start] == '%');
+    return segment->start < segment->end &&
+           (segment->buf[segment->start] == '.' || segment->buf[segment->start] == '%');
 }
 
 static int url_dot_segment(const url_seg *segment, int special) {
@@ -1324,45 +1325,69 @@ static int url_default_port(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end
     return -1;
 }
 
-/* The authority buf[start,end) as the WHATWG port state writes it (https://url.spec.whatwg.org/#port-state): an empty
-   port, or the default port of the special scheme, is dropped, and a port with leading zeros is written in decimal.
-   Returns 0 when the authority is already written that way, 1 with *out holding a new buffer of *len code points, or
-   -1 with MemoryError set. A port above 65535 is a parse failure, which the join leaves as written. */
+/* The authority buf[start,end) as WHATWG writes it (https://url.spec.whatwg.org/#port-state and
+   https://url.spec.whatwg.org/#host-parsing): an empty port, or the default port of the special scheme, is dropped, a
+   port with leading zeros is written in decimal, and the ASCII letters of the host are lowercase. Userinfo keeps its
+   case. Returns 0 when the authority is already written that way, 1 with *out holding a new buffer of *len code points,
+   or -1 with MemoryError set. A port above 65535 is a parse failure, which the join leaves as written. */
 static int url_authority_port_fixed(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end, int def, Py_UCS4 **out,
                                     Py_ssize_t *len) {
     *out = NULL;
     if (def < 0) {
         return 0;
     }
+    Py_ssize_t host_start = start;
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (buf[index] == '@') {
+            host_start = index + 1;
+        }
+    }
     Py_ssize_t digits = end;
-    while (digits > start && buf[digits - 1] >= '0' && buf[digits - 1] <= '9') {
+    /* the byte before host_start is a slash, a backslash or '@', so the digit run stops there */
+    while ((Py_UCS4)(buf[digits - 1] - '0') < 10) {
         digits--;
     }
-    if (digits == start || buf[digits - 1] != ':') {
-        return 0;
+    int has_port = buf[digits - 1] == ':';
+    Py_ssize_t host_end = has_port ? digits - 1 : end;
+    int upper = 0;
+    for (Py_ssize_t index = host_start; index < host_end; index++) {
+        upper |= buf[index] >= 'A' && buf[index] <= 'Z';
     }
-    Py_ssize_t colon = digits - 1;
+    int drop = 0;
+    int zeros = 0;
     long port = 0;
-    for (Py_ssize_t index = digits; index < end && port <= 65535; index++) {
-        port = port * 10 + (buf[index] - '0');
+    if (has_port && digits == end) {
+        drop = 1;
+    } else if (has_port) {
+        zeros = end - digits > 1 && buf[digits] == '0';
+        for (Py_ssize_t index = digits; index < end; index++) {
+            port = port * 10 + (buf[index] - '0');
+            if (port > 65535) {
+                port = 65536;
+            }
+        }
+        if (port > 65535) {
+            return 0;
+        }
+        drop = port == def;
     }
-    if (port > 65535) {
+    if (!upper && !drop && !zeros) {
         return 0;
     }
-    int drop = digits == end || port == def;
-    if (!drop && !(end - digits > 1 && buf[digits] == '0')) {
-        return 0;
-    }
-    Py_ssize_t written = 0;
     Py_UCS4 *fixed = PyMem_Malloc((size_t)(end - start + 8) * sizeof(Py_UCS4));
-    if (fixed == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (fixed == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    for (Py_ssize_t index = start; index < colon; index++) {
+    Py_ssize_t written = 0;
+    for (Py_ssize_t index = start; index < host_start; index++) {
         fixed[written++] = buf[index];
     }
-    if (!drop) {
+    for (Py_ssize_t index = host_start; index < host_end; index++) {
+        Py_UCS4 c = buf[index];
+        fixed[written++] = c >= 'A' && c <= 'Z' ? c | 0x20 : c;
+    }
+    if (has_port && !drop) {
         char text[8];
         int count = snprintf(text, sizeof(text), ":%ld", port);
         for (int index = 0; index < count; index++) {
@@ -1441,19 +1466,19 @@ static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_part
     }
     Py_UCS4 *netloc = NULL;
     Py_ssize_t netloc_len = host_end - host_start;
-    int fixed = url_authority_port_fixed(ref_parts->buf, host_start, host_end,
-                                         url_default_port(scheme_parts->buf, scheme_parts->scheme_start,
-                                                          scheme_parts->scheme_end),
-                                         &netloc, &netloc_len);
-    if (fixed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(path);  /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    int fixed = url_authority_port_fixed(
+        ref_parts->buf, host_start, host_end,
+        url_default_port(scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end), &netloc,
+        &netloc_len);
+    if (fixed < 0) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(path); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *joined = build_url(1, scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end, 1,
-                                 fixed ? netloc : ref_parts->buf, fixed ? 0 : host_start,
-                                 fixed ? netloc_len : host_end, path, 0, path_len, ref_parts->has_query,
-                                 ref_parts->buf, ref_parts->query_start, ref_parts->query_end, ref_parts->has_fragment,
-                                 ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
+    PyObject *joined =
+        build_url(1, scheme_parts->buf, scheme_parts->scheme_start, scheme_parts->scheme_end, 1,
+                  fixed ? netloc : ref_parts->buf, fixed ? 0 : host_start, fixed ? netloc_len : host_end, path, 0,
+                  path_len, ref_parts->has_query, ref_parts->buf, ref_parts->query_start, ref_parts->query_end,
+                  ref_parts->has_fragment, ref_parts->buf, ref_parts->fragment_start, ref_parts->fragment_end);
     PyMem_Free(netloc);
     PyMem_Free(path);
     return joined;
@@ -1610,10 +1635,10 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
                 ref_parts.buf, ref_parts.netloc_start, ref_parts.netloc_end,
                 url_default_port(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end), &netloc, &netloc_len);
             path = url_special_path(&ref_parts, ref_parts.path_start, &path_len);
-            if (path == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                PyMem_Free(base_parts.buf);                 /* GCOVR_EXCL_LINE: allocation-failure path */
-                PyMem_Free(ref_parts.buf);                  /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;                                /* GCOVR_EXCL_LINE: allocation-failure path */
+            if (path == NULL) {             /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyMem_Free(base_parts.buf); /* GCOVR_EXCL_LINE: allocation-failure path */
+                PyMem_Free(ref_parts.buf);  /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             path_from = 0;
         }
