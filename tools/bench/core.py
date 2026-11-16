@@ -399,15 +399,22 @@ def _select_scaling(case: tuple[str, str]) -> None:
 _XPATH_REPLACE_DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p></p>")
 
 
-def _xpath_replace(case: tuple[str, str, str, str]) -> list[turbohtml.Node | str] | float | bool | str:
-    text, search, replacement, _expected = case
-    return _XPATH_REPLACE_DOCUMENT.xpath(
-        "str:replace($text, $search, $replacement)", text=text, search=search, replacement=replacement
-    )
+def _xpath_replace(case: tuple[str, str, str, str] | tuple[str, str, str, str, int]) -> None:
+    text, search, replacement, _expected = case[:4]
+    for _ in range(case[4] if len(case) == 5 else 1):
+        _XPATH_REPLACE_DOCUMENT.xpath(
+            "str:replace($text, $search, $replacement)", text=text, search=search, replacement=replacement
+        )
 
 
 def _xpath_scaling(case: tuple[str, str]) -> None:
     _parsed(case[1]).xpath(case[0])
+
+
+def _xpath_repeated(case: tuple[str, str] | tuple[str, str, int]) -> None:
+    expression, text = case[:2]
+    for _ in range(case[2] if len(case) == 3 else 1):
+        _parsed(text).xpath(expression)
 
 
 def _computed_style(text: str) -> None:
@@ -1188,10 +1195,11 @@ _XPATH_CALLS: Final[MappingProxyType[str, Callable[[turbohtml.Document, str], ob
 })
 
 
-def _xpath(case: tuple[str, str]) -> None:
+def _xpath(case: tuple[str, str] | tuple[str, str, int]) -> None:
     # Evaluate one XPath feature class with turbohtml's compiled-program engine, by case kind.
-    kind, text = case
-    _XPATH_CALLS[kind](_parsed(text), text)
+    kind, text = case[:2]
+    for _ in range(case[2] if len(case) == 3 else 1):
+        _XPATH_CALLS[kind](_parsed(text), text)
 
 
 def _xpath_id(text: str) -> None:
@@ -1607,14 +1615,14 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "select-default": (_select_scaling, "turbohtml"),
     "select-relative": (_select_scaling, "turbohtml"),
     "xpath-wide": (_xpath_scaling, "turbohtml"),
-    "xpath-distinct": (_xpath_scaling, "turbohtml"),
-    "xpath-set": (_xpath_scaling, "turbohtml"),
-    "xpath-compare": (_xpath_scaling, "turbohtml"),
-    "xpath-translate": (_xpath_scaling, "turbohtml"),
+    "xpath-distinct": (_xpath_repeated, "turbohtml"),
+    "xpath-set": (_xpath_repeated, "turbohtml"),
+    "xpath-compare": (_xpath_repeated, "turbohtml"),
+    "xpath-translate": (_xpath_repeated, "turbohtml"),
     "xpath-replace": (_xpath_replace, "turbohtml"),
-    "xpath-concat": (_xpath_scaling, "turbohtml"),
+    "xpath-concat": (_xpath_repeated, "turbohtml"),
     "xpath-id-nodes": (_xpath_scaling, "turbohtml"),
-    "xpath-order": (_xpath_scaling, "turbohtml"),
+    "xpath-order": (_xpath_repeated, "turbohtml"),
     "computed-style-deep": (_computed_style, "turbohtml"),
     "computed-style": (_computed_style, "turbohtml"),
     "computed-style-selectors": (_computed_style, "turbohtml"),
