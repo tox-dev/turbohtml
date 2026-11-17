@@ -8242,11 +8242,11 @@ def test_number_benchmark_lxml_current_expression() -> None:
     ("index", "count"),
     [
         pytest.param(0, 4096, id="builtin-many"),
-        pytest.param(1, 4, id="builtin-small"),
+        pytest.param(1, 1_400, id="builtin-small"),
         pytest.param(2, 4096, id="literal-many"),
-        pytest.param(3, 4, id="literal-small"),
+        pytest.param(3, 1_400, id="literal-small"),
         pytest.param(4, 4096, id="explicit-many"),
-        pytest.param(5, 4, id="explicit-small"),
+        pytest.param(5, 1_400, id="explicit-small"),
     ],
 )
 def test_transform_text_benchmark(index: int, count: int) -> None:
