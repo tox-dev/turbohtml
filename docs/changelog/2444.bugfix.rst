@@ -1,0 +1,2 @@
+XPath predicates that select the nearest node with ``[1]`` before another predicate, such as ``ancestor::b[1][@x]``, no
+longer slow down quadratically on long documents; results are unchanged.

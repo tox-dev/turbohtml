@@ -2130,6 +2130,39 @@ def test_existence_test_without_walks_matches_the_positional_form(
         pytest.param("//a[descendant::b[1]/c]", _chain_with_b_at_bottom, id="descendant-nearest-then-child"),
         pytest.param("//a[descendant::b/c]", _chain_with_b_at_bottom, id="descendant-then-child"),
         pytest.param("//a[descendant-or-self::b[2]]", _nested_chain, id="descendant-or-self-second"),
+        pytest.param("//a[ancestor::b[1][c]]", _nested_chain, id="ancestor-nearest-then-predicate-none"),
+        pytest.param("//a[ancestor::b[1][c]]", _chain_under_b, id="ancestor-nearest-then-predicate-far"),
+        pytest.param("//a[ancestor-or-self::b[1][c]]", _nested_chain, id="ancestor-or-self-nearest-then-predicate"),
+        pytest.param("//a[ancestor::b[2][c]]", _nested_chain, id="ancestor-second-then-predicate"),
+        pytest.param("//a[ancestor::b[1][2]]", _nested_chain, id="ancestor-nearest-then-position"),
+        pytest.param("//a[preceding::b[1][c]]", _siblings, id="preceding-nearest-then-predicate-none"),
+        pytest.param("//a[preceding::b[1][c]]", _b_then_siblings, id="preceding-nearest-then-predicate-far"),
+        pytest.param("//a[following::b[1][c]]", _siblings_then_b, id="following-nearest-then-predicate-far"),
+        pytest.param(
+            "//a[preceding-sibling::b[1][c]]", _b_then_siblings, id="preceding-sibling-nearest-then-predicate"
+        ),
+        pytest.param(
+            "//a[following-sibling::b[1][c]]", _siblings_then_b, id="following-sibling-nearest-then-predicate"
+        ),
+        pytest.param(
+            "//a[ancestor-or-self::b[1][c]]", _chain_under_b, id="ancestor-or-self-nearest-then-predicate-far"
+        ),
+        pytest.param("//a[following::b[1][c]]", _siblings, id="following-nearest-then-predicate-none"),
+        pytest.param("//a[following-sibling::b[1][c]]", _siblings, id="following-sibling-nearest-then-predicate-none"),
+        pytest.param("//a[descendant::b[1][c]]", _chain_with_b_at_bottom, id="descendant-nearest-then-predicate"),
+        *(
+            pytest.param(f"//a[{axis}::b{sel}]", build, id=f"{axis}{sel}")
+            for axis, build in (
+                ("ancestor", _nested_chain),
+                ("ancestor-or-self", _nested_chain),
+                ("preceding", _b_then_siblings),
+                ("following", _siblings_then_b),
+                ("preceding-sibling", _b_then_siblings),
+                ("following-sibling", _siblings_then_b),
+                ("descendant", _chain_with_b_at_bottom),
+            )
+            for sel in ("[2][c]", "[last()][c]")
+        ),
     ],
 )
 def test_walk_predicate_grows_linearly(
@@ -2255,6 +2288,66 @@ def test_walk_predicate_grows_linearly(
         pytest.param(
             "ancestor::b[2 = last()]", "ancestor::*[self::b][position() > 0][2 = last()]", id="number-equals-last"
         ),
+        pytest.param("ancestor::b[1][c]", "ancestor::*[self::b][position() = 1 and c]", id="nearest-then-predicate"),
+        pytest.param("ancestor::b[1][c][d]", "ancestor::*[self::b][position() = 1 and c and d]", id="nearest-then-two"),
+        pytest.param("ancestor::b[1][not(d)]", "ancestor::*[self::b][position() = 1 and not(d)]", id="nearest-not"),
+        pytest.param(
+            "ancestor::b[1][2]", "ancestor::*[self::b][position() = 1 and position() = 2]", id="nearest-then-position"
+        ),
+        pytest.param("ancestor::b[2][c]", "ancestor::*[self::b][position() = 2 and c]", id="second-then-predicate"),
+        pytest.param(
+            "ancestor::b[@i][1][c]", "ancestor::*[self::b][@i][position() = 1 and c]", id="filter-nearest-predicate"
+        ),
+        pytest.param(
+            "ancestor-or-self::b[1][c]",
+            "ancestor-or-self::*[self::b][position() = 1 and c]",
+            id="self-or-ancestor-nearest-then-predicate",
+        ),
+        pytest.param(
+            "ancestor::b[1][c]/d", "ancestor::*[self::b][position() = 1 and c]/d", id="nearest-then-predicate-rest"
+        ),
+        pytest.param("preceding::b[1][d]", "preceding::*[self::b][position() = 1 and d]", id="preceding-nearest-then"),
+        pytest.param(
+            "following::b[1][not(c)]", "following::*[self::b][position() = 1 and not(c)]", id="following-nearest-then"
+        ),
+        pytest.param(
+            "preceding-sibling::b[1][c]",
+            "preceding-sibling::*[self::b][position() = 1 and c]",
+            id="preceding-sibling-nearest-then",
+        ),
+        pytest.param(
+            "following-sibling::b[1][d]",
+            "following-sibling::*[self::b][position() = 1 and d]",
+            id="following-sibling-nearest-then",
+        ),
+        pytest.param(
+            "descendant::b[1][c]", "descendant::*[self::b][position() = 1 and c]", id="descendant-nearest-then"
+        ),
+        *(
+            pytest.param(f"{axis}::b{sel}", f"{axis}::*[self::b][position() > 0]{sel}", id=f"{axis}{sel}")
+            for axis in (
+                "ancestor",
+                "ancestor-or-self",
+                "preceding",
+                "following",
+                "preceding-sibling",
+                "following-sibling",
+                "descendant",
+            )
+            for sel in (
+                "[1][c]",
+                "[1][c]/d",
+                "[2][c]",
+                "[last()][c]",
+                "[1][2]",
+                "[1][position() = 1]",
+                "[1][position() = 2]",
+                "[1][last() = 1]",
+                "[2][last() = 1]",
+                "[2][position() = 2]",
+                "[last()][c][d]",
+            )
+        ),
     ],
 )
 @pytest.mark.parametrize("seed", [1, 2, 3])
@@ -2265,6 +2358,8 @@ def test_walk_predicate_agrees_with_the_plain_walk(expression: str, plain: str, 
         assert [node.attr("i") for node in _elements(context.xpath(expression))] == expected
         assert context.xpath(f"count({expression})") == len(expected)
         assert context.xpath(f"boolean({expression})") is bool(expected)
+    outer: Final = [node.attr("i") for node in _elements(document.xpath("//*")) if node.xpath(plain)]
+    assert [node.attr("i") for node in _elements(document.xpath(f"//*[{expression}]"))] == outer
 
 
 def _random_document(seed: int, size: int) -> turbohtml.Node:
@@ -2401,6 +2496,14 @@ def test_walk_predicate_on_an_attribute_agrees_with_the_plain_walk(expression: s
         pytest.param("//*/@i[ancestor-or-self::node()[count(1)][2]]", TypeError, "count", id="attribute-predicate"),
         pytest.param(
             "//*/@i[descendant-or-self::node()[count(1)][2]]", TypeError, "count", id="attribute-descendant-predicate"
+        ),
+        pytest.param("//a[ancestor::b[1][count(1)]]", TypeError, "count", id="nearest-then-predicate"),
+        pytest.param("//a[ancestor::b[2][count(1)]]", TypeError, "count", id="second-then-predicate"),
+        pytest.param("//a[descendant::b[1][count(1)]]", TypeError, "count", id="descendant-nearest-then-predicate"),
+        pytest.param("//a[count(ancestor::b[1][count(1)]) = 0]", TypeError, "count", id="count-nearest-then-predicate"),
+        pytest.param("//a[count(ancestor::b[2][count(1)]) = 0]", TypeError, "count", id="count-second-then-predicate"),
+        pytest.param(
+            "//a[count(descendant::b[1][count(1)]) = 0]", TypeError, "count", id="count-descendant-then-predicate"
         ),
     ],
 )
