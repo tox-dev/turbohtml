@@ -1,0 +1,2 @@
+RELAX NG validation no longer raises ``ValueError`` as too ambiguous for a valid document with repeated blocks of
+optional elements, and checking a block takes time in proportion to the elements it holds.

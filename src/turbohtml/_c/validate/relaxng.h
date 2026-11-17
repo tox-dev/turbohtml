@@ -95,6 +95,9 @@ struct pattern {
         };
     };
     uint32_t seq; /* creation number within the compile or the validation, so a trie's shape follows the input alone */
+    signed char weak; /* -1 unknown, else 1 when removing an item keeps a match */
+    pattern *uniform; /* the one content every element inside holds: RNG_UNIFORM_NONE with no element, RNG_UNIFORM_MIXED
+                         when they differ or cannot be judged, NULL while unknown */
     union {
         facetset *facets;
         const rng_route *route; /* group, choice, interleave: the container join that made it, or NULL */
@@ -123,6 +126,12 @@ typedef struct patintern {
     unsigned shift; /* 64 - log2(cap): the slot is the hash's top bits, where the multiply mixes every operand bit */
 } patintern;
 
+/* The `uniform` sentinels. They are compared by address and never matched, so each one is only a distinct pointer. */
+static pattern rng_uniform_none_node;
+static pattern rng_uniform_mixed_node;
+#define RNG_UNIFORM_NONE (&rng_uniform_none_node)
+#define RNG_UNIFORM_MIXED (&rng_uniform_mixed_node)
+
 static RNG_FORCEINLINE pattern *pat_new(th_schema *schema, int type) {
     pattern *pattern = arena_alloc(&schema->mem, sizeof(*pattern));
     if (pattern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -135,11 +144,48 @@ static RNG_FORCEINLINE pattern *pat_new(th_schema *schema, int type) {
         type == P_REF || type == P_CHOICE || type == P_GROUP || type == P_INTERLEAVE || type == P_ONEMORE
             ? -1
             : type == P_EMPTY || type == P_TEXT;
+    pattern->weak = type == P_REF || type == P_CHOICE || type == P_GROUP || type == P_INTERLEAVE || type == P_ONEMORE
+                        ? -1
+                        : type == P_EMPTY || type == P_TEXT || type == P_NOTALLOWED || type == P_ELEMENT;
+    pattern->uniform = type == P_EMPTY || type == P_TEXT || type == P_NOTALLOWED ? RNG_UNIFORM_NONE
+                       : type == P_ELEMENT || type == P_REF || type == P_CHOICE || type == P_GROUP ||
+                               type == P_INTERLEAVE || type == P_ONEMORE
+                           ? NULL
+                           : RNG_UNIFORM_MIXED;
     return pattern;
 }
 
 static pattern *intern_find(const patintern *table, int type, pattern *p1, pattern *p2);
 static void intern_insert(th_schema *schema, patintern *table, pattern *node);
+
+/* The weak answer of a choice, group or interleave from its operands', -1 while one of them is unknown. A group needs
+   each operand nullable as well: removing an item from a match of one operand leaves the other matching nothing. */
+static int pat_weak_join(int type, const pattern *p1, const pattern *p2) {
+    if (p1->weak < 0 || p2->weak < 0) {
+        return -1;
+    }
+    if (type == P_CHOICE) {
+        return p1->weak && p2->weak;
+    }
+    if (p1->nullable < 0 || p2->nullable < 0) {
+        return -1;
+    }
+    return p1->weak && p1->nullable && p2->weak && p2->nullable;
+}
+
+/* The uniform answer of a join: the content both sides share, NONE for a side without elements, or MIXED. */
+static pattern *pat_uniform_join(pattern *first, pattern *second) {
+    if (first == NULL || second == NULL) {
+        return NULL;
+    }
+    if (first == RNG_UNIFORM_NONE) {
+        return second;
+    }
+    if (second == RNG_UNIFORM_NONE || first == second) {
+        return first;
+    }
+    return RNG_UNIFORM_MIXED;
+}
 
 static pattern *pat_binary(th_schema *schema, int type, pattern *p1, pattern *p2) {
     if (schema->intern != NULL) {
@@ -156,6 +202,10 @@ static pattern *pat_binary(th_schema *schema, int type, pattern *p1, pattern *p2
     node->p2 = p2;
     if (type != P_AFTER && p1->nullable >= 0 && p2->nullable >= 0) {
         node->nullable = type == P_CHOICE ? p1->nullable || p2->nullable : p1->nullable && p2->nullable;
+    }
+    if (type != P_AFTER) {
+        node->weak = pat_weak_join(type, p1, p2);
+        node->uniform = pat_uniform_join(p1->uniform, p2->uniform);
     }
     if (schema->intern != NULL) {
         intern_insert(schema, schema->intern, node);
@@ -238,6 +288,10 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
    it; one that doubles with each define passes it within a few. */
 #define RNG_CHOICE_PER_NODE 24
 #define RNG_CHOICE_FLOOR 256
+
+/* How deep rng_weak_of follows a chain of unknown patterns before it answers not weak without keeping the answer, so a
+   deep chain costs the stack a bounded number of frames. */
+#define RNG_WEAK_DEPTH 64
 
 /* The schema document holds each define once, including those a grammar builds only during validation. The first
    merge wide enough to need the limit computes it, so a validation that never builds a wide choice pays nothing. */
@@ -668,6 +722,8 @@ static pattern *pat_onemore(th_schema *schema, pattern *p1) {
     }
     node->p1 = p1;
     node->nullable = p1->nullable;
+    node->weak = p1->weak;
+    node->uniform = p1->uniform;
     if (schema->intern != NULL) {
         intern_insert(schema, schema->intern, node);
     }
@@ -1661,20 +1717,146 @@ static RNG_NOINLINE int rng_repeat_absorbs(th_schema *schema, pattern *head, con
     return covered;
 }
 
-#define RNG_GROUP_COVER_STEPS 32
+/* The weak and uniform answers of a pattern this validation built, computed together on first use and kept on the node.
+   A compiled node is settled by rng_settle, so its answers are known here and nothing is written to it. The walk never
+   enters element content, and the compile rejects a reference cycle with no element in it, so it cannot revisit a node.
+   A chain past RNG_WEAK_DEPTH is left unknown and answers conservatively, which bounds the stack. */
+static void rng_shape_of(th_schema *schema, pattern *p, int depth);
 
-/* The choice a derivative of group(p1, p2) makes when p1 is nullable: `left` continues p1's round and `right` starts
-   p2 without it. Both end in the same element content, so when `left`'s tail covers `right`'s, `left` matches
-   everything `right` does, since the group's nullable sibling lets `left` run on. Each place of a doubled group would
-   otherwise keep its own branch. */
-static pattern *rng_group_choice(th_schema *schema, pattern *left, pattern *right) {
-    if (schema->routing == NULL || left->type != P_AFTER || right->type != P_AFTER || left->p1 != right->p1) {
-        return pat_choice(schema, left, right);
+static int rng_weak_of(th_schema *schema, pattern *p, int depth) {
+    rng_shape_of(schema, p, depth);
+    return p->weak == 1;
+}
+
+static pattern *rng_uniform_of(th_schema *schema, pattern *p, int depth) {
+    rng_shape_of(schema, p, depth);
+    return p->uniform == NULL ? RNG_UNIFORM_MIXED : p->uniform;
+}
+
+static int rng_closed(th_schema *schema, pattern *p, int depth) {
+    return rng_weak_of(schema, p, depth) && rng_nullable(schema, p);
+}
+
+static void rng_shape_of(th_schema *schema, pattern *p, int depth) {
+    if ((p->weak >= 0 && p->uniform != NULL) || depth >= RNG_WEAK_DEPTH) {
+        return;
     }
-    int budget = RNG_GROUP_COVER_STEPS;
-    int covered = rng_covers(schema, right->p2, left->p2, &budget);
-    (void)rng_event_spend(schema, RNG_GROUP_COVER_STEPS - budget);
-    return covered ? left : pat_choice(schema, left, right);
+    if (p->type == P_ELEMENT) {
+        p->uniform = p->p1;
+        return;
+    }
+    (void)rng_event_spend(schema, 1);
+    int weak;
+    pattern *uniform;
+    switch (p->type) {
+    case P_CHOICE:
+        weak = rng_weak_of(schema, p->p1, depth + 1) && rng_weak_of(schema, p->p2, depth + 1);
+        uniform = pat_uniform_join(rng_uniform_of(schema, p->p1, depth + 1), rng_uniform_of(schema, p->p2, depth + 1));
+        break;
+    case P_GROUP:
+    case P_INTERLEAVE:
+        weak = rng_closed(schema, p->p1, depth + 1) && rng_closed(schema, p->p2, depth + 1);
+        uniform = pat_uniform_join(rng_uniform_of(schema, p->p1, depth + 1), rng_uniform_of(schema, p->p2, depth + 1));
+        break;
+    case P_ONEMORE:
+        weak = rng_weak_of(schema, p->p1, depth + 1);
+        uniform = rng_uniform_of(schema, p->p1, depth + 1);
+        break;
+    default: /* P_REF */
+        weak = rng_weak_of(schema, rng_resolve(schema, p->def_index), depth + 1);
+        uniform = rng_uniform_of(schema, rng_resolve(schema, p->def_index), depth + 1);
+    }
+    p->weak = (signed char)weak;
+    p->uniform = uniform;
+}
+
+/* The continuation a left leaf leaves for the tail: a start-tag leaf continues past its element, a text leaf is the
+   continuation itself. It covers the tail when it matches everything the tail does, which holds when it is the tail or
+   a group of a nullable operand and the tail, since that operand can match nothing. Every group a left side builds
+   ends in the tail it was derived for (pat_group(R, tail) in rng_apply_after and route_apply_after, pat_group(text, p2)
+   in the text derivatives), so a group leaf is such a group and needs no check on its second operand. */
+static int rng_covers_tail(th_schema *schema, pattern *rest, const pattern *tail) {
+    return rest == tail || (rest->type == P_GROUP && rng_nullable(schema, rest->p1));
+}
+
+typedef struct rng_cover {
+    const pattern *content;
+    struct rng_cover *next;
+} rng_cover;
+
+static int rng_cover_has(const rng_cover *covers, const pattern *content) {
+    for (const rng_cover *cover = covers; cover != NULL; cover = cover->next) {
+        if (cover->content == content) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Records the content of each start-tag leaf of `p` that covers `tail`, once per content. */
+static void rng_gather_covers(th_schema *schema, pattern *p, const pattern *tail, rng_cover **covers,
+                              Py_ssize_t *work) {
+    if (p->type == P_CHOICE) {
+        rng_gather_covers(schema, p->p1, tail, covers, work);
+        rng_gather_covers(schema, p->p2, tail, covers, work);
+        return;
+    }
+    ++*work;
+    if (p->type != P_AFTER || !rng_covers_tail(schema, p->p2, tail) || rng_cover_has(*covers, p->p1)) {
+        return;
+    }
+    rng_cover *cover = arena_alloc(&schema->mem, sizeof(*cover));
+    if (cover == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;          /* GCOVR_EXCL_LINE: without the cover the right leaf stays, which is sound */
+    }
+    cover->content = p->p1;
+    cover->next = *covers;
+    *covers = cover;
+}
+
+/* `p` without its start-tag leaves whose content a cover holds; a leaf keeps its place in the choice otherwise. */
+static pattern *rng_choice_without(th_schema *schema, pattern *p, const rng_cover *covers, Py_ssize_t *work) {
+    if (p->type == P_CHOICE) {
+        pattern *first = rng_choice_without(schema, p->p1, covers, work);
+        pattern *second = rng_choice_without(schema, p->p2, covers, work);
+        return first == p->p1 && second == p->p2 ? p : pat_choice(schema, first, second);
+    }
+    ++*work;
+    return rng_cover_has(covers, p->p1) ? schema->p_notallowed : p;
+}
+
+static RNG_FORCEINLINE pattern *rng_start_tag_open(th_schema *schema, pattern *p, const qname *name);
+
+/* The choice a start-tag derivative of group(p1, p2) makes when p1 is nullable: `left` continues p1's round, and the
+   right side starts p2 without it. A right leaf `after(c, R)` matches x<c> followed by R, and R lies in L(tail) for the
+   closed tail, so a left leaf `after(c, T)` covering the tail matches it. When every element of the tail has the
+   content c, the right side is covered whole and is not derived at all; otherwise it is derived and the leaves a cover
+   holds go. */
+static pattern *rng_group_choice(th_schema *schema, pattern *left, pattern *tail, const qname *name) {
+    if (!rng_closed(schema, tail, 0)) {
+        return pat_choice(schema, left, rng_start_tag_open(schema, tail, name));
+    }
+    pattern *uniform = rng_uniform_of(schema, tail, 0);
+    rng_cover *covers = NULL;
+    Py_ssize_t work = 0;
+    rng_gather_covers(schema, left, tail, &covers, &work);
+    (void)rng_event_spend(schema, work);
+    if (uniform == RNG_UNIFORM_NONE || rng_cover_has(covers, uniform)) {
+        return left;
+    }
+    pattern *right = rng_start_tag_open(schema, tail, name);
+    Py_ssize_t filter = 0;
+    right = rng_choice_without(schema, right, covers, &filter);
+    (void)rng_event_spend(schema, filter);
+    return pat_choice(schema, left, right);
+}
+
+/* Whether the left side of a text derivative of group(p1, p2), with p1 nullable, covers the closed tail. That side is
+   one group(text derivative of p1, p2), the tail itself when that derivative is empty, or NotAllowed, so covering is a
+   test on it. Text removed from a match of the tail leaves a match of it, so the text derivative of p2, which matches
+   the rest of such a match, lies in L(tail) <= L(T) and need not be derived. */
+static int rng_text_covered(th_schema *schema, pattern *left, pattern *tail) {
+    return rng_closed(schema, tail, 0) && rng_covers_tail(schema, left, tail);
 }
 
 static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets, const Py_UCS4 *value, Py_ssize_t len) {
@@ -1878,10 +2060,12 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
             return route_text(schema, p, value, len);
         }
         pattern *left = pat_group(schema, rng_text_deriv(schema, p->p1, value, len), p->p2);
-        if (rng_nullable(schema, p->p1)) {
-            return rng_group_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
+        if (!rng_nullable(schema, p->p1)) {
+            return left;
         }
-        return left;
+        return rng_text_covered(schema, left, p->p2)
+                   ? left
+                   : pat_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
     }
     case P_AFTER:
         return pat_after(schema, rng_text_deriv(schema, p->p1, value, len), p->p2);
@@ -1966,7 +2150,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, patte
         }
         pattern *left = rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 0);
         if (rng_nullable(schema, p->p1)) {
-            return rng_group_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
+            return rng_group_choice(schema, left, p->p2, name);
         }
         return left;
     }
@@ -2271,11 +2455,11 @@ typedef struct route_key {
     Py_ssize_t len, cap;
 } route_key;
 
-/* An event's key. Names and text are arena or tree pointers that never move or get reused within a validation, so
-   equal bytes are the same key. Every field is as wide as a pointer, so the struct holds no padding to compare. */
+/* The key of the last walk up: its kind and the lengths of its names, whose code points the routing keeps in reach_text
+   (the URI, then the local name or the value). The key holds copies and never points into the document, so an event
+   that spells a name the last walk up already took reuses its marks, however many elements spell it. */
 typedef struct route_event {
     Py_ssize_t kind; /* ROUTE_NONE for no event */
-    const Py_UCS4 *uri, *local;
     Py_ssize_t uri_len, local_len;
 } route_event;
 
@@ -2285,9 +2469,11 @@ typedef struct rng_routing {
     route_define *defines; /* by define index */
     route_key *keys;       /* open addressed */
     size_t key_cap, key_len;
-    int value_ws;      /* 1 << mode for each whitespace mode some value operand uses */
-    size_t stamp;      /* walks up taken */
-    route_event reach; /* the event the marks belong to; a new route or define adds units, which drops it */
+    int value_ws;        /* 1 << mode for each whitespace mode some value operand uses */
+    size_t stamp;        /* walks up taken */
+    route_event reach;   /* the event the marks belong to; a new route or define adds units, which drops it */
+    Py_UCS4 *reach_text; /* the code points of reach's URI and local name, reused and grown with the arena */
+    Py_ssize_t reach_text_cap;
     route_unit **work;
     Py_ssize_t work_len, work_cap;
     /* Start tag close takes no name, so its derivative of a routed node holds across events: an element's content
@@ -2609,12 +2795,43 @@ static int route_mark(th_schema *schema, route_state *state, int index) {
     return 0;
 }
 
+/* Whether `len` code points at `stored` are those at `text`; an empty name matches any pointer. */
+static int route_text_same(const Py_UCS4 *stored, const Py_UCS4 *text, Py_ssize_t len) {
+    return len == 0 || memcmp(stored, text, (size_t)len * sizeof(Py_UCS4)) == 0;
+}
+
+/* Copies the URI and local name of a walk up's key into the routing's buffer. The buffer holds the last key only, so it
+   is reused for each new key and grows with the arena. */
+static int route_reach_keep(th_schema *schema, const Py_UCS4 *uri, Py_ssize_t uri_len, const Py_UCS4 *local,
+                            Py_ssize_t local_len) {
+    rng_routing *routing = schema->routing;
+    Py_ssize_t need = uri_len + local_len;
+    if (need > routing->reach_text_cap) {
+        Py_ssize_t cap = routing->reach_text_cap * 2 > need ? routing->reach_text_cap * 2 : need;
+        Py_UCS4 *text = arena_alloc(&schema->mem, (size_t)cap * sizeof(Py_UCS4));
+        if (text == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        routing->reach_text = text;
+        routing->reach_text_cap = cap;
+    }
+    if (uri_len > 0) {
+        memcpy(routing->reach_text, uri, (size_t)uri_len * sizeof(Py_UCS4));
+    }
+    if (local_len > 0) {
+        memcpy(routing->reach_text + uri_len, local, (size_t)local_len * sizeof(Py_UCS4));
+    }
+    return 0;
+}
+
 /* Marks the operands the event's key reaches: the units that hold it, and every unit above them. */
 static int route_reach(th_schema *schema, int kind, const Py_UCS4 *uri, Py_ssize_t uri_len, const Py_UCS4 *local,
                        Py_ssize_t local_len) {
     rng_routing *routing = schema->routing;
-    const route_event event = {kind, uri, local, uri_len, local_len};
-    if (memcmp(&event, &routing->reach, sizeof(event)) == 0) {
+    const route_event *reach = &routing->reach;
+    if (reach->kind == kind && reach->uri_len == uri_len && reach->local_len == local_len &&
+        route_text_same(routing->reach_text, uri, uri_len) &&
+        route_text_same(routing->reach_text + uri_len, local, local_len)) {
         return 0;
     }
     routing->stamp++;
@@ -2650,10 +2867,14 @@ static int route_reach(th_schema *schema, int kind, const Py_UCS4 *uri, Py_ssize
             }
         }
     }
-    routing->reach = event;
+    if (route_reach_keep(schema, uri, uri_len, local, local_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        return -1;                                                      /* GCOVR_EXCL_LINE */
+    }
+    routing->reach.kind = kind;
+    routing->reach.uri_len = uri_len;
+    routing->reach.local_len = local_len;
     return 0;
 }
-
 static int route_int_cmp(const void *left, const void *right) {
     int left_int = *(const int *)left;
     int right_int = *(const int *)right;
@@ -2754,8 +2975,12 @@ static RNG_NOINLINE pattern *route_text(th_schema *schema, pattern *p, const Py_
     if (p->type == P_INTERLEAVE) {
         return pat_choice(schema, first, route_join(schema, p, p->p1, rng_text_deriv(schema, p->p2, value, len)));
     }
-    return rng_nullable(schema, p->p1) ? rng_group_choice(schema, first, rng_text_deriv(schema, p->p2, value, len))
-                                       : first;
+    if (!rng_nullable(schema, p->p1)) {
+        return first;
+    }
+    return rng_text_covered(schema, first, p->p2)
+               ? first
+               : pat_choice(schema, first, rng_text_deriv(schema, p->p2, value, len));
 }
 
 static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qname *name) {
@@ -2777,7 +3002,7 @@ static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qna
     default: { /* P_GROUP */
         pattern *first = left ? route_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p, p->p2, 1) : none;
         if (right && rng_nullable(schema, p->p1)) {
-            return rng_group_choice(schema, first, rng_start_tag_open(schema, p->p2, name));
+            return rng_group_choice(schema, first, p->p2, name);
         }
         return first;
     }
@@ -3314,6 +3539,71 @@ static int rng_local_is(th_node *node, const char *local);
 static int rng_grammar_components(th_schema *schema, th_node *container, def_entry *starts);
 static int rng_check_scopes(th_schema *schema, th_node *node);
 
+#define RNG_SETTLE_SEEN 1
+#define RNG_SETTLE_NULLABLE 2
+
+/* Settles the nullable, weak and uniform answers of every node the compiled start tree holds, once the compile is over
+   and before validations share the schema. A reference resolves only during validation, so it holds MIXED contents
+   here. Its weak answer is 0, and so is that of every node the constructors left unknown: such a node has a reference
+   on its weak spine, since only a reference (or a node above one) leaves weak unknown, and a choice, group or repeat is
+   weak only when every operand on that spine is. The tree has no cycles at this point, so one walk settles each node
+   after its operands. Every node reachable from the start tree leaves with its weak and uniform answers known, which is
+   why rng_shape_of never writes a compiled node. */
+static int rng_settle(th_schema *schema, pattern *p, unsigned char *seen) {
+    if (seen[p->seq] & RNG_SETTLE_SEEN) {
+        return (seen[p->seq] & RNG_SETTLE_NULLABLE) != 0;
+    }
+    seen[p->seq] = RNG_SETTLE_SEEN;
+    int first = p->p1 != NULL && rng_settle(schema, p->p1, seen);
+    int second = p->p2 != NULL && rng_settle(schema, p->p2, seen);
+    int nullable = p->nullable;
+    if (nullable < 0) {
+        switch (p->type) {
+        case P_CHOICE:
+            nullable = first || second;
+            break;
+        case P_GROUP:
+        case P_INTERLEAVE:
+            nullable = first && second;
+            break;
+        case P_ONEMORE:
+            nullable = first;
+            break;
+        default: /* P_REF */
+            nullable = 0;
+        }
+    }
+    if (p->weak < 0) {
+        p->weak = 0;
+    }
+    if (p->uniform == NULL) {
+        switch (p->type) {
+        case P_ELEMENT:
+            p->uniform = p->p1;
+            break;
+        case P_REF:
+            p->uniform = RNG_UNIFORM_MIXED;
+            break;
+        case P_ONEMORE:
+            p->uniform = p->p1->uniform;
+            break;
+        default: /* P_CHOICE, P_GROUP, P_INTERLEAVE */
+            p->uniform = pat_uniform_join(p->p1->uniform, p->p2->uniform);
+        }
+    }
+    seen[p->seq] |= nullable ? RNG_SETTLE_NULLABLE : 0;
+    return nullable;
+}
+
+static void rng_settle_weak(th_schema *schema) {
+    unsigned char *seen = arena_alloc(&schema->mem, schema->pattern_count);
+    if (seen == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;         /* GCOVR_EXCL_LINE: the compile raises the MemoryError */
+    }
+    memset(seen, 0, schema->pattern_count);
+    rng_settle(schema, schema->start, seen);
+}
+
 static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_root) {
     qname root_name = schema_direct_qname(schema, schema->root);
     if (!u_eq_ascii(root_name.uri, root_name.uri_len, RNG_NS)) {
@@ -3342,7 +3632,11 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
             return 0;
         }
         schema->start = rng_build(schema, schema->root);
-        return PyErr_Occurred() ? 0 : 1;
+        if (PyErr_Occurred()) {
+            return 0;
+        }
+        rng_settle_weak(schema);
+        return 1;
     }
     def_entry starts = {0};
     if (rng_grammar_components(schema, schema->root, &starts) < 0) {
@@ -3373,7 +3667,11 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
         }
     }
     schema->start = rng_combine(schema, &starts);
-    return PyErr_Occurred() ? 0 : 1;
+    if (PyErr_Occurred()) {
+        return 0;
+    }
+    rng_settle_weak(schema);
+    return 1;
 }
 
 /* Gather the start and define components of a grammar, looking through div (4.11, and the divs 4.7 makes of each
