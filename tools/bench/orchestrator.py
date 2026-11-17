@@ -11,13 +11,20 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import os
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tomllib
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from statistics import fmean
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pgo_build
 
@@ -27,6 +34,7 @@ from .report import render
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from typing import TypeIs
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _TOOLS_DIR: Final[Path] = Path(__file__).resolve().parents[1]
@@ -35,6 +43,11 @@ _COMPETITOR_TIMEOUT: Final[float] = (
     5400.0  # seconds for one competitor's whole operation; generous so a slow library that reparses
 )
 # the page every mutation iteration (BeautifulSoup) or walks multi-megabyte input (dominate) is measured, not dropped
+_CPU_SYSFS: Final[Path] = Path("/sys/devices/system/cpu")
+_DURATIONS_FILE: Final[Path] = _TOOLS_DIR / ".bench_data" / "durations.json"
+# jobs print their output and update the shared progress from worker threads; one lock keeps each write whole
+_OUTPUT_LOCK: Final[threading.Lock] = threading.Lock()
+_Job: TypeAlias = tuple[str, str]
 
 
 def _string_tuple(node: ast.Tuple) -> tuple[str, ...]:
@@ -76,7 +89,7 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
 _COMPETITORS: Final[dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = _discover()
 
 
-def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
+def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> None:
     # Dispatch a CLI command to the matching report, forwarding any extra pyperf options to every worker.
     #
     # One workdir spans the whole command, so the (profile-guided, when ``pgo``) core wheel is built once and every venv
@@ -89,38 +102,73 @@ def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
     prefetch()  # the worker venvs carry no HTTP client; fill the download cache here, where one is installed
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        if command in _COMPETITORS:
-            _report_package(command, pyperf_args, workdir=workdir, core_python=baseline_python(workdir, pgo=pgo))
-        elif command == "core":
-            core_python = baseline_python(workdir, pgo=pgo)
-            for operation in OPERATIONS:
-                render(operation, run_worker(core_python, "core", operation, workdir, pyperf_args))
-        elif command == "interpreters":
+        if command == "interpreters":
             from . import (  # ruff:ignore[import-outside-top-level]  # imports orchestrator, so bind it late
                 interpreters,
             )
 
             interpreters.build(workdir, pyperf_args)
-        elif command == "all":
-            core_python = baseline_python(workdir, pgo=pgo)
-            for operation in OPERATIONS:
-                _report_operation(operation, pyperf_args, workdir=workdir, core_python=core_python)
-        elif command in OPERATIONS:
-            _report_operation(command, pyperf_args, workdir=workdir, core_python=baseline_python(workdir, pgo=pgo))
         else:
-            choices = ", ".join(["core", "all", "interpreters", *OPERATIONS, *_COMPETITORS])
-            msg = f"unknown command {command!r}; choose one of: {choices}"
-            raise SystemExit(msg)
+            plan = _plan(command)
+            pythons = _provision(workdir, _competitors(plan), pgo=pgo)
+            _Schedule(plan, pythons, workdir=workdir, pyperf_args=pyperf_args, jobs=jobs).execute()
 
 
-def _report_package(competitor: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
-    # Render one competitor's report: it against the turbohtml baseline across every operation it implements.
-    reqs, operation_names, pip_options = _COMPETITORS[competitor]
-    competitor_python = venv_python(workdir, competitor, reqs, pip_options)
-    for operation in operation_names:
-        stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
-        stats.update(run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
-        render(operation, stats)
+def _plan(command: str) -> dict[str, tuple[str, ...]]:
+    # Map each operation to the targets whose runs fill its table: turbohtml first, then competitors in discovery order.
+    if command in _COMPETITORS:
+        return dict.fromkeys(_COMPETITORS[command][1], ("core", command))
+    if command == "core":
+        return dict.fromkeys(OPERATIONS, ("core",))
+    if command == "all":
+        return {operation: ("core", *_packages_for(operation)) for operation in OPERATIONS}
+    if command in OPERATIONS:
+        return {command: ("core", *_packages_for(command))}
+    choices = ", ".join(["core", "all", "interpreters", *OPERATIONS, *_COMPETITORS])
+    msg = f"unknown command {command!r}; choose one of: {choices}"
+    raise SystemExit(msg)
+
+
+def _packages_for(operation: str) -> list[str]:
+    # Every competitor module that implements the operation, in discovery order.
+    return [name for name, (_, operation_names, _pip) in _COMPETITORS.items() if operation in operation_names]
+
+
+def _provision(workdir: Path, competitors: list[str], *, pgo: bool) -> dict[str, Path]:
+    # Build every venv before the first worker runs, so no two runs ever provision a venv while another measures.
+    #
+    # Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies,
+    # metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops just that competitor's column
+    # with a note.
+    pythons = {"core": baseline_python(workdir, pgo=pgo)}
+    for competitor in competitors:
+        requirements, _operation_names, pip_options = _COMPETITORS[competitor]
+        try:
+            pythons[competitor] = venv_python(workdir, competitor, requirements, pip_options)
+        except subprocess.CalledProcessError:
+            _report(f"skipping {competitor}: it did not install in its isolated venv")
+    return pythons
+
+
+def baseline_python(workdir: Path, *, pgo: bool) -> Path:
+    # Provision the turbohtml baseline venv, plain by default or with the shipped PGO+LTO release recipe when ``pgo``.
+    #
+    # The plain path builds the turbohtml wheel and installs it -- fast, good for iterating. The ``pgo`` path
+    # instead reproduces what ships: the venv gets the build backend, then :func:`pgo_build.build` drives the two-phase
+    # profile-guided, link-time-optimized editable install (``--no-build-isolation``, so the backend has to live in the
+    # venv), leaving the baseline measured against a release-representative binary.
+    if not pgo:
+        _uv("build", "--wheel", "--out-dir", str(workdir), str(REPO_ROOT))
+        return venv_python(workdir, "core", (str(next(workdir.glob("*.whl"))),))
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    python = venv_python(workdir, "core", tuple(pyproject["build-system"]["requires"]))
+    pgo_build.build(str(python), workdir / "core-pgo-build", REPO_ROOT, "full", system=False)
+    return python
+
+
+def _uv(*args: str) -> None:
+    # Run a uv subcommand, surfacing its output only on failure.
+    subprocess.run(["uv", *args], check=True, capture_output=True, text=True)
 
 
 def venv_python(
@@ -147,35 +195,239 @@ def venv_python(
     return python
 
 
-def _uv(*args: str) -> None:
-    # Run a uv subcommand, surfacing its output only on failure.
-    subprocess.run(["uv", *args], check=True, capture_output=True, text=True)
+def _report(message: str) -> None:
+    # Print a note under the output lock, so it never lands inside another job's block.
+    with _OUTPUT_LOCK:
+        print(message, file=sys.stderr)
 
 
-def baseline_python(workdir: Path, *, pgo: bool) -> Path:
-    # Provision the turbohtml baseline venv, plain by default or with the shipped PGO+LTO release recipe when ``pgo``.
-    #
-    # The plain path builds the turbohtml wheel and installs it -- fast, good for iterating. The ``pgo`` path
-    # instead reproduces what ships: the venv gets the build backend, then :func:`pgo_build.build` drives the two-phase
-    # profile-guided, link-time-optimized editable install (``--no-build-isolation``, so the backend has to live in the
-    # venv), leaving the baseline measured against a release-representative binary.
-    if not pgo:
-        _uv("build", "--wheel", "--out-dir", str(workdir), str(REPO_ROOT))
-        return venv_python(workdir, "core", (str(next(workdir.glob("*.whl"))),))
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    python = venv_python(workdir, "core", tuple(pyproject["build-system"]["requires"]))
-    pgo_build.build(str(python), workdir / "core-pgo-build", REPO_ROOT, "full", system=False)
-    return python
+def _competitors(plan: dict[str, tuple[str, ...]]) -> list[str]:
+    # Every competitor the plan runs, each once, in the order the plan first meets it.
+    found: dict[str, None] = {}
+    for targets in plan.values():
+        found.update(dict.fromkeys(target for target in targets if target != "core"))
+    return list(found)
+
+
+class _Schedule:
+    def __init__(
+        self,
+        plan: dict[str, tuple[str, ...]],
+        pythons: dict[str, Path],
+        *,
+        workdir: Path,
+        pyperf_args: tuple[str, ...],
+        jobs: int,
+    ) -> None:
+        self._pythons = pythons
+        self._workdir = workdir
+        self._pyperf_args = pyperf_args
+        self._jobs = jobs
+        self._cpus: queue.SimpleQueue[int] = queue.SimpleQueue()
+        if jobs > 1:
+            for cpu in physical_cpus():
+                self._cpus.put(cpu)
+        self._progress = _Progress(
+            {
+                operation: tuple(target for target in targets if target in pythons)
+                for operation, targets in plan.items()
+            },
+            jobs,
+        )
+        self._failed = threading.Event()
+
+    def execute(self) -> None:
+        pool = ThreadPoolExecutor(max_workers=self._jobs)
+        try:
+            for future in as_completed([pool.submit(self._run, job) for job in self._progress.ordered()]):
+                future.result()
+        finally:
+            pool.shutdown(cancel_futures=True)
+
+    def _run(self, job: _Job) -> None:
+        if self._failed.is_set():
+            return
+        self._progress.start(job)
+        try:
+            self._progress.finish(job, self._measure(job))
+        except BaseException:
+            # a worker thread would otherwise pick up the next queued run before the failure reaches the caller
+            self._failed.set()
+            raise
+
+    def _measure(self, job: _Job) -> dict[str, dict[str, float | str]]:
+        if self._jobs == 1:
+            return self._dispatch(job, self._pyperf_args)
+        cpu = self._cpus.get()
+        try:
+            return self._dispatch(job, (*self._pyperf_args, f"--affinity={cpu}"))
+        finally:
+            self._cpus.put(cpu)
+
+    def _dispatch(self, job: _Job, pyperf_args: tuple[str, ...]) -> dict[str, dict[str, float | str]]:
+        operation, target = job
+        python = self._pythons[target]
+        capture = self._jobs > 1
+        if target == "core":
+            return run_worker(python, job, self._workdir, pyperf_args, capture=capture)
+        # A measurement failure propagates and fails the benchmark, except the two a competitor can be blamed for.
+        #
+        # A competitor can install cleanly yet fail to *import*, when its bundled native library clashes with another
+        # wheel's ABI in the shared venv (html5-parser returns an lxml tree, so the two must share one libxml2, which
+        # its ``PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import
+        # boundary later, so it drops the column with a note too.
+        #
+        # Only a crash *after* the library imported -- during measurement, where the fault is the benchmark and not the
+        # toolchain -- is left to propagate rather than silently blanking the column. The two are told apart by whether
+        # the worker died inside ``importlib.import_module``.
+        #
+        # A competitor that instead hangs -- runs past the per-operation timeout without finishing -- is killed and its
+        # column dropped with a note, so one pathological library or input cannot stall the whole sweep.
+        try:
+            return run_worker(python, job, self._workdir, pyperf_args, capture=capture)
+        except subprocess.TimeoutExpired:
+            _report(f"skipping {target}: it did not finish {operation} within {_COMPETITOR_TIMEOUT:.0f}s")
+            return {}
+        except subprocess.CalledProcessError as error:
+            if "importlib.import_module" not in (error.stderr or ""):
+                raise
+            _report(f"skipping {target}: it installed but failed to import in its isolated venv")
+            return {}
+
+
+def physical_cpus() -> list[int]:
+    # Two hardware threads of one core share its execution units, so one CPU per core keeps concurrent jobs from
+    # measuring each other; the lowest usable sibling stands for each core.
+    usable = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else set(range(os.cpu_count() or 1))
+    return [cpu for cpu in sorted(usable) if _is_first_sibling(cpu, usable)]
+
+
+def _is_first_sibling(cpu: int, usable: set[int]) -> bool:
+    try:
+        siblings = _cpu_list(
+            (_CPU_SYSFS / f"cpu{cpu}" / "topology" / "thread_siblings_list").read_text(encoding="utf-8")
+        )
+    except FileNotFoundError:
+        return True
+    return cpu == min(siblings & usable)
+
+
+def _cpu_list(text: str) -> set[int]:
+    # Expand a sysfs CPU list such as ``0,16`` or ``0-3,8``.
+    cpus: set[int] = set()
+    for part in text.split(","):
+        low, _, high = part.partition("-")
+        cpus.update(range(int(low), int(high or low) + 1))
+    return cpus
+
+
+class _Progress:
+    def __init__(self, plan: dict[str, tuple[str, ...]], jobs: int) -> None:
+        self._plan = plan
+        self._jobs = jobs
+        try:
+            loaded = json.loads(_DURATIONS_FILE.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            loaded = {}
+        # a missing or corrupt cache counts as empty: the durations only steer the order and the ETA, never a result
+        self._durations: dict[str, float] = loaded if _is_durations(loaded) else {}
+        self._pending: list[_Job] = []
+        for operation, targets in plan.items():
+            self._pending.extend((operation, target) for target in targets)
+        self._total = len(self._pending)
+        self._running: dict[_Job, float] = {}
+        self._results: dict[_Job, dict[str, dict[str, float | str]]] = {}
+        self._seconds: list[float] = []
+        self._unrendered: deque[str] = deque(plan)
+        self._started_at = time.monotonic()
+
+    def ordered(self) -> list[_Job]:
+        if self._jobs == 1:
+            return list(self._pending)
+        # a run timed in an earlier sweep starts first, so the longest one is never left for the tail
+        return sorted(self._pending, key=lambda job: -self._durations.get(_duration_key(job), -math.inf))
+
+    def start(self, job: _Job) -> None:
+        with _OUTPUT_LOCK:
+            self._pending.remove(job)
+            self._running[job] = time.monotonic()
+
+    def finish(self, job: _Job, stats: dict[str, dict[str, float | str]]) -> None:
+        operation, target = job
+        with _OUTPUT_LOCK:
+            now = time.monotonic()
+            seconds = now - self._running.pop(job)
+            self._durations[_duration_key(job)] = seconds
+            _save_durations(self._durations)
+            self._seconds.append(seconds)
+            self._results[job] = stats
+            self._render_ready()
+            print(
+                f"[{len(self._results)}/{self._total}] {target} {operation} took {_clock(seconds)}; "
+                f"elapsed {_clock(now - self._started_at)}, eta {_clock(self._eta(now))}",
+                file=sys.stderr,
+            )
+
+    def _render_ready(self) -> None:
+        while self._unrendered:
+            operation = self._unrendered[0]
+            targets = self._plan[operation]
+            if any((operation, target) not in self._results for target in targets):
+                return
+            stats: dict[str, dict[str, float | str]] = {}
+            for target in targets:
+                stats.update(self._results[operation, target])
+            render(operation, stats)
+            self._unrendered.popleft()
+
+    def _eta(self, now: float) -> float:
+        fallback = fmean(self._seconds)
+        pending = sum(self._durations.get(_duration_key(job), fallback) for job in self._pending)
+        remaining = sum(
+            max(0.0, self._durations.get(_duration_key(job), fallback) - (now - started))
+            for job, started in self._running.items()
+        )
+        return (pending + remaining) / self._jobs
+
+
+def _is_durations(value: object) -> TypeIs[dict[str, float]]:
+    return isinstance(value, dict) and all(
+        isinstance(key, str) and isinstance(seconds, int | float) for key, seconds in value.items()
+    )
+
+
+def _duration_key(job: _Job) -> str:
+    operation, target = job
+    return f"{target}:{operation}"
+
+
+def _save_durations(durations: dict[str, float]) -> None:
+    # Write through a temporary file, so an interrupted sweep never leaves a half-written cache behind.
+    _DURATIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    staging = _DURATIONS_FILE.with_name(f"{_DURATIONS_FILE.name}.tmp")
+    staging.write_text(json.dumps(durations, indent=2, sort_keys=True), encoding="utf-8")
+    staging.replace(_DURATIONS_FILE)
+
+
+def _clock(seconds: float) -> str:
+    minutes, rest = divmod(round(seconds), 60)
+    return f"{minutes}m{rest:02d}s"
 
 
 def run_worker(
-    python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
+    python: Path,
+    job: _Job,
+    workdir: Path,
+    pyperf_args: tuple[str, ...],
+    *,
+    capture: bool = False,
 ) -> dict[str, dict[str, float | str]]:
-    # Run the worker for one (target, operation) in the given venv and return its per-case stats.
+    # Run the worker for one (operation, target) in the given venv and return its per-case stats.
     #
     # A competitor is bounded by ``_COMPETITOR_TIMEOUT``: past it the worker is killed and
     # :class:`subprocess.TimeoutExpired` propagates, so a library that hangs on one input cannot freeze the sweep. The
     # core baseline runs untimed -- turbohtml is the thing under test, so its slow cases are measured, never dropped.
+    operation, target = job
     timeout = None if target == "core" else _COMPETITOR_TIMEOUT
     out = workdir / f"{target}-{operation}.json"
     env = {
@@ -186,77 +438,32 @@ def run_worker(
         "BENCH_OUT": str(out),
     }
     # stderr is captured so a failure carries the traceback (the caller reads it to tell an import-time environment
-    # clash from a real measurement crash); stdout stays inherited so pyperf's per-case lines stream live.
+    # clash from a real measurement crash); stdout stays inherited so pyperf's per-case lines stream live, unless a
+    # parallel job captures it to print as one block once the worker ends.
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [str(python), "-m", "bench.worker", *pyperf_args],
             check=True,
             env=env,
+            stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE,
             text=True,
             timeout=timeout,
         )
     except subprocess.CalledProcessError as error:
-        sys.stderr.write(error.stderr or "")
+        with _OUTPUT_LOCK:
+            sys.stderr.write(error.stderr or "")
         raise
+    if capture:
+        with _OUTPUT_LOCK:
+            sys.stdout.write(completed.stdout)
     return json.loads(out.read_text(encoding="utf-8"))
-
-
-def _report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
-    # Render one operation: the turbohtml baseline against every competitor that implements it, each isolated.
-    stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
-    for competitor in _packages_for(operation):
-        stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
-    render(operation, stats)
-
-
-def _packages_for(operation: str) -> list[str]:
-    # Every competitor module that implements the operation, in discovery order.
-    return [name for name, (_, operation_names, _pip) in _COMPETITORS.items() if operation in operation_names]
-
-
-def _try_competitor(
-    workdir: Path, competitor: str, operation: str, pyperf_args: tuple[str, ...]
-) -> dict[str, dict[str, float | str]]:
-    # Provision the competitor's venv then run it; a measurement failure propagates and fails the benchmark.
-    #
-    # Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies,
-    # metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops just that competitor's column
-    # with a note.
-    #
-    # A competitor can also install cleanly yet fail to *import*, when its bundled native library clashes with another
-    # wheel's ABI in the shared venv (html5-parser returns an lxml tree, so the two must share one libxml2, which its
-    # ``PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import boundary
-    # later, so it drops the column with a note too.
-    #
-    # Only a crash *after* the library imported -- during measurement, where the fault is the benchmark and not the
-    # toolchain -- is left to propagate rather than silently blanking the column. The two are told apart by whether the
-    # worker died inside ``importlib.import_module``.
-    #
-    # A competitor that instead hangs -- runs past the per-operation timeout without finishing -- is killed and its
-    # column dropped with a note, so one pathological library or input cannot stall the whole sweep.
-    try:
-        python = venv_python(workdir, competitor, _COMPETITORS[competitor][0], _COMPETITORS[competitor][2])
-    except subprocess.CalledProcessError:
-        print(f"skipping {competitor}: it did not install in its isolated venv", file=sys.stderr)
-        return {}
-    try:
-        return run_worker(python, competitor, operation, workdir, pyperf_args)
-    except subprocess.TimeoutExpired:
-        print(
-            f"skipping {competitor}: it did not finish {operation} within {_COMPETITOR_TIMEOUT:.0f}s", file=sys.stderr
-        )
-        return {}
-    except subprocess.CalledProcessError as error:
-        if "importlib.import_module" not in (error.stderr or ""):
-            raise
-        print(f"skipping {competitor}: it installed but failed to import in its isolated venv", file=sys.stderr)
-        return {}
 
 
 __all__ = [
     "REPO_ROOT",
     "baseline_python",
+    "physical_cpus",
     "run",
     "run_worker",
     "venv_python",

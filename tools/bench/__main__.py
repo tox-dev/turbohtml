@@ -1,5 +1,5 @@
 """
-CLI entry point: ``python -m bench [--pgo] <command>``.
+CLI entry point: ``python -m bench [--pgo] [--jobs N] <command>``.
 
 Commands: ``core`` (turbohtml baseline for every operation), ``all`` (every operation table), ``interpreters`` (the same
 turbohtml under each interpreter it supports, written straight to its docs feed), an operation name (cross-package
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from bench import report
-from bench.orchestrator import run
+from bench.orchestrator import physical_cpus, run
 
 
 def main() -> None:
@@ -33,13 +33,31 @@ def main() -> None:
     pgo = "--pgo" in arguments  # kept out of the pyperf passthrough: it selects how the core wheel is built
     if pgo:
         arguments.remove("--pgo")
+    jobs = 1
+    if "--jobs" in arguments:
+        position = arguments.index("--jobs")
+        try:
+            jobs = int(arguments[position + 1])
+        except (IndexError, ValueError) as error:
+            msg = "--jobs takes the number of runs to execute at once"
+            raise SystemExit(msg) from error
+        del arguments[position : position + 2]
+        cores = len(physical_cpus())
+        if not 1 <= jobs <= cores:
+            msg = f"--jobs must be between 1 and {cores}, the physical cores this machine has"
+            raise SystemExit(msg)
+        if jobs > 1 and any(argument.partition("=")[0] == "--affinity" for argument in arguments):
+            msg = (
+                "--affinity cannot be combined with --jobs above 1: each parallel run is already pinned to its own core"
+            )
+            raise SystemExit(msg)
     if not arguments:
         msg = (
-            "usage: python -m bench [--table-json DIR] [--pgo] <core|all|interpreters|operation|package> "
-            "[pyperf options...]"
+            "usage: python -m bench [--table-json DIR] [--pgo] [--jobs N] "
+            "<core|all|interpreters|operation|package> [pyperf options...]"
         )
         raise SystemExit(msg)
-    run(arguments[0], tuple(arguments[1:]), pgo=pgo)
+    run(arguments[0], tuple(arguments[1:]), pgo=pgo, jobs=jobs)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,11 @@ much more time. Most operations are a single call; a few aggregate workloads (``
 the ``construct`` and ``emit`` breakdowns decompose that write path into the constructor and the serializer in
 isolation. Numbers vary with input and hardware.
 
+``--jobs N`` runs N workers at once, so a sweep finishes sooner. Each concurrent run is pinned to its own physical core,
+which the harness chooses itself, so ``--affinity`` is rejected alongside it. Concurrent runs share last-level cache and
+memory bandwidth, and the CPU lowers its boost clock under load, so keep N at or below the physical core count and
+compare numbers only against runs made with the same N.
+
 The ``collapse-whitespace``, ``strip-comments``, and ``transform-tree`` operations time DOM transformations with fresh
 input trees prepared outside each measurement. ``serialize-inner`` measures configured child serialization. These
 operations also have CodSpeed cases in the shared registry. Use the same release build and corpus for comparisons;
