@@ -6,7 +6,7 @@
 
 static int collapse_subtree(th_tree *tree, th_node *root);
 static int preserve_whitespace(th_tree *tree, const th_node *node);
-static int collapse_text(th_tree *tree, th_node *node, int *last_space);
+static int collapse_text(th_tree *tree, th_node *node, int *last_space, int live);
 
 PyObject *turbohtml_transform_node(PyObject *module, PyObject *const *args, Py_ssize_t count) {
     if (count == 0) {
@@ -98,12 +98,13 @@ static int collapse_subtree(th_tree *tree, th_node *root) {
             return 0;
         }
     }
+    const int live = th_tree_has_live_ranges(tree);
     int last_space = 0;
     th_node *node = root;
     while (node != NULL) {
         if (node->type == TH_NODE_TEXT) {
-            if (collapse_text(tree, node, &last_space) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return -1;                                    /* GCOVR_EXCL_LINE: allocation failure */
+            if (collapse_text(tree, node, &last_space, live) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                          /* GCOVR_EXCL_LINE: allocation failure */
             }
         } else {
             last_space = 0;
@@ -150,7 +151,7 @@ static void collapse_live_runs(th_tree *tree, th_node *node, int kind, const voi
     }
 }
 
-static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
+static int collapse_text(th_tree *tree, th_node *node, int *last_space, int live) {
     int kind = PyUnicode_4BYTE_KIND;
     const void *data = node->text;
     if (text_is_span(node)) {
@@ -161,8 +162,7 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
         return -1;                                   /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_ssize_t length = 0;
-    const int initial = *last_space;
-    int previous = initial;
+    int previous = *last_space;
     int changed = 0;
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         Py_UCS4 character = PyUnicode_READ(kind, data, index);
@@ -183,6 +183,9 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
             return -1;        /* GCOVR_EXCL_LINE: allocation failure */
         }
     }
+    if (live) {
+        collapse_live_runs(tree, node, kind, data, *last_space);
+    }
     Py_ssize_t written = 0;
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         Py_UCS4 character = PyUnicode_READ(kind, data, index);
@@ -202,9 +205,6 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
             }
         }
         th_mo_char_data_changed(tree, node, old, node->text_len);
-    }
-    if (th_tree_has_live_ranges(tree)) {
-        collapse_live_runs(tree, node, kind, data, initial);
     }
     node->text = output;
     node->text_len = length;

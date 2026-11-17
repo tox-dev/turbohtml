@@ -790,10 +790,10 @@ def test_normalize_moves_parent_boundaries_at_merged_texts_into_the_first_text()
     after_texts = Range(paragraph, 4)
     paragraph.normalize()
     assert first.data == "abcdef"
-    assert (before_merge.start_container is paragraph, before_merge.start_offset) == (True, 0)
-    assert (at_second.start_container is first, at_second.start_offset) == (True, 2)
-    assert (at_third.start_container is first, at_third.start_offset) == (True, 4)
-    assert (after_texts.start_container is paragraph, after_texts.start_offset) == (True, 2)
+    assert (before_merge.start_container == paragraph, before_merge.start_offset) == (True, 0)
+    assert (at_second.start_container == first, at_second.start_offset) == (True, 2)
+    assert (at_third.start_container == first, at_third.start_offset) == (True, 4)
+    assert (after_texts.start_container == paragraph, after_texts.start_offset) == (True, 2)
 
 
 def test_normalize_moves_a_boundary_from_the_issue_example_into_the_merged_text() -> None:
@@ -824,7 +824,7 @@ def test_normalize_moves_parent_boundaries_across_empty_and_merged_texts(
     boundary = Range(paragraph, offset)
     paragraph.normalize()
     containers = {"first": first, "paragraph": paragraph}
-    assert (boundary.start_container is containers[container], boundary.start_offset) == (True, expected)
+    assert (boundary.start_container == containers[container], boundary.start_offset) == (True, expected)
 
 
 def test_normalize_moves_end_boundaries_on_the_parent_and_in_text() -> None:
@@ -833,7 +833,7 @@ def test_normalize_moves_end_boundaries_on_the_parent_and_in_text() -> None:
     span = Range(first, 1)
     span.set_end(paragraph, 1)
     paragraph.normalize()
-    assert (span.end_container is first, span.end_offset) == (True, 2)
+    assert (span.end_container == first, span.end_offset) == (True, 2)
 
 
 def test_normalize_moves_a_boundary_in_an_empty_text_after_the_only_text_into_it() -> None:
@@ -842,7 +842,7 @@ def test_normalize_moves_a_boundary_in_an_empty_text_after_the_only_text_into_it
     inside = Range(empty, 0)
     paragraph.normalize()
     assert len(paragraph.children) == 1
-    assert (inside.start_container is first, inside.start_offset) == (True, 2)
+    assert (inside.start_container == first, inside.start_offset) == (True, 2)
 
 
 def test_normalize_moves_a_boundary_in_a_leading_empty_text_to_the_parent() -> None:
@@ -851,7 +851,7 @@ def test_normalize_moves_a_boundary_in_a_leading_empty_text_to_the_parent() -> N
     inside = Range(empty, 0)
     paragraph.normalize()
     assert paragraph.html == "<p>ab</p>"
-    assert (inside.start_container is paragraph, inside.start_offset) == (True, 0)
+    assert (inside.start_container == paragraph, inside.start_offset) == (True, 0)
 
 
 def test_removed_element_moves_its_boundaries_to_the_parent() -> None:
