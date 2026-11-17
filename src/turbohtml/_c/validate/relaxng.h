@@ -46,7 +46,6 @@ enum {
     P_LIST,
     P_AFTER,
     P_REF,
-    P_SEQ,
 };
 
 enum { NC_ANY, NC_NAME, NC_NS, NC_CHOICE, NC_EXCEPT };
@@ -70,42 +69,6 @@ struct nsnode {
 };
 
 typedef struct rng_route rng_route;
-typedef struct rng_seq rng_seq;
-
-/* The operands of one attribute-free <group>, in order. Node `start` of a sequence is group(operands[start], the node
-   from start + 1), so a derivative walks the operands and never recurses down the chain. */
-struct rng_seq {
-    Py_ssize_t count;
-    pattern **operands;    /* none is Empty or NotAllowed */
-    Py_ssize_t *run_end;   /* the last index of the run of structurally equal operands that starts at each index */
-    Py_ssize_t *run_start; /* the first index of the run an index belongs to */
-    pattern **nodes;       /* nodes[index] is the sequence from index on; nodes[count] is Empty */
-    uint64_t hash;         /* pat_hash of the operands, so equal bases meet in a table */
-};
-
-/* The covers results of one event, keyed by the pair. A crossed residual reaches one pair through many routes, so the
-   check judges each pair once per event: a pair's entry is current only while its event number matches. */
-typedef struct cover_memo_entry {
-    const pattern *x, *y;
-    size_t event;
-    int covered;
-} cover_memo_entry;
-
-typedef struct cover_memo {
-    cover_memo_entry *slots;
-    size_t cap;   /* power of two, 0 until first insert */
-    size_t count; /* entries of the event `count_event` */
-    size_t count_event;
-} cover_memo;
-
-/* Bases with equal operands are one base, so a sequence of equal blocks is one run and two residuals of one base
-   compare by pointer. The compile's table is read-only once validation starts; a validation adds its own table for the
-   bases it builds. */
-typedef struct rng_seq_table {
-    rng_seq **slots; /* open addressed by hash; NULL marks a free slot */
-    size_t cap;      /* power of two, 0 until first insert */
-    size_t count;
-} rng_seq_table;
 
 struct pattern {
     int type;
@@ -116,13 +79,11 @@ struct pattern {
        that a container join made, or that derives from one, keeps its route where data keeps its facets. */
     union {
         nameclass *nc;
-        pattern *leaf;           /* choice: one of its leaves, whose number carries the bits all of them share */
-        const rng_seq *sequence; /* sequence: the operands it walks */
+        pattern *leaf; /* choice: one of its leaves, whose number carries the bits all of them share */
     };
     union {
         int def_index;
-        int bit;   /* choice: the highest bit in which a leaf number of p1 differs from one of p2 */
-        int start; /* sequence: the index of its first operand */
+        int bit; /* choice: the highest bit in which a leaf number of p1 differs from one of p2 */
     };
     union {
         struct {
@@ -355,7 +316,6 @@ static void memo_begin_event(th_schema *schema, pattern *root) {
     }
     schema->memo_budget = schema->memo_free;
     schema->event_work = 0;
-    schema->covers_event++;
 }
 
 /* Every derivative call takes one step off the budget, so only the first call past the free steps sees -1. The memo
@@ -1106,261 +1066,6 @@ static pattern *route_fold(th_schema *schema, pat_join_fn join, rng_route *route
     return joined;
 }
 
-/* Whether `p` may take an attribute derivative: an attribute pattern outside any element, a ref to a define the compile
-   scan found holding one, or a join of such. */
-static int rng_attr_bearing(th_schema *schema, const pattern *p) {
-    switch (p->type) {
-    case P_ATTRIBUTE:
-        return 1;
-    case P_REF:
-        return schema->defines.items[p->def_index].scan_attrs;
-    case P_CHOICE:
-    case P_GROUP:
-    case P_INTERLEAVE:
-        return rng_attr_bearing(schema, p->p1) || rng_attr_bearing(schema, p->p2);
-    case P_ONEMORE:
-        return rng_attr_bearing(schema, p->p1);
-    default:
-        return 0;
-    }
-}
-
-static int nc_same(const nameclass *left, const nameclass *right) {
-    if (left->type != right->type) {
-        return 0;
-    }
-    switch (left->type) {
-    case NC_ANY:
-        return 1;
-    case NC_NAME:
-        return (left->hash == right->hash) & u_eq_u(left->uri, left->uri_len, right->uri, right->uri_len) &
-               u_eq_u(left->local, left->local_len, right->local, right->local_len);
-    case NC_NS:
-        return u_eq_u(left->uri, left->uri_len, right->uri, right->uri_len);
-    default: /* NC_CHOICE and NC_EXCEPT */
-        return nc_same(left->a, right->a) & nc_same(left->b, right->b);
-    }
-}
-
-/* Whether `left` and `right` are one pattern up to the node they are, so they match the same strings. A `0` is always
-   safe, and only costs a run its collapse, so the kinds it cannot compare answer that way. */
-static int pat_same(const pattern *left, const pattern *right) {
-    if (left == right) {
-        return 1;
-    }
-    if (left->type != right->type) {
-        return 0;
-    }
-    switch (left->type) {
-    case P_REF:
-        return left->def_index == right->def_index;
-    case P_ELEMENT:
-    case P_ATTRIBUTE:
-        return nc_same(left->nc, right->nc) & pat_same(left->p1, right->p1);
-    case P_ONEMORE:
-        return pat_same(left->p1, right->p1);
-    case P_CHOICE:
-    case P_GROUP:
-    case P_INTERLEAVE:
-        return pat_same(left->p1, right->p1) && pat_same(left->p2, right->p2);
-    case P_SEQ:
-        return (left->sequence == right->sequence) & (left->start == right->start);
-    default:
-        return 0;
-    }
-}
-
-static uint64_t rng_hash_mix(uint64_t hash, uint64_t value) {
-    return ((hash ^ value) * UINT64_C(0x9E3779B97F4A7C15)) ^ (hash >> 29);
-}
-
-static uint64_t nc_hash(const nameclass *nc) {
-    switch (nc->type) {
-    case NC_NAME:
-        return nc->hash;
-    case NC_NS: {
-        uint64_t hash = NC_NS;
-        for (Py_ssize_t index = 0; index < nc->uri_len; index++) {
-            hash = rng_hash_mix(hash, nc->uri[index]);
-        }
-        return hash;
-    }
-    case NC_CHOICE:
-    case NC_EXCEPT:
-        return rng_hash_mix(rng_hash_mix(nc->type, nc_hash(nc->a)), nc_hash(nc->b));
-    default: /* NC_ANY */
-        return nc->type;
-    }
-}
-
-/* Consistent with pat_same: equal patterns hash alike, so a table probe compares only patterns that hash alike. */
-static uint64_t pat_hash(const pattern *p) {
-    switch (p->type) {
-    case P_REF:
-        return rng_hash_mix(P_REF, (uint64_t)p->def_index);
-    case P_ELEMENT:
-    case P_ATTRIBUTE:
-        return rng_hash_mix(rng_hash_mix(p->type, nc_hash(p->nc)), pat_hash(p->p1));
-    case P_ONEMORE:
-        return rng_hash_mix(P_ONEMORE, pat_hash(p->p1));
-    case P_CHOICE:
-    case P_GROUP:
-    case P_INTERLEAVE:
-        return rng_hash_mix(rng_hash_mix(p->type, pat_hash(p->p1)), pat_hash(p->p2));
-    case P_SEQ:
-        return rng_hash_mix(p->sequence->hash, (uint64_t)p->start);
-    default:
-        return (uint64_t)p->type;
-    }
-}
-
-/* Builds the operands of a container join that holds no attribute pattern as one sequence. Each run of equal operands
-   keeps its end, so a derivative takes one alternative per run instead of one per operand. A join with an attribute
-   pattern stays a balanced tree, whose attribute derivative tries every operand. */
-static rng_seq *rng_seq_probe(const rng_seq_table *table, uint64_t hash, pattern *const *operands, Py_ssize_t count) {
-    if (table == NULL) {
-        return NULL;
-    }
-    size_t slot = (size_t)(hash ^ (hash >> 32)) & (table->cap - 1);
-    for (rng_seq *seq = table->slots[slot]; seq != NULL; seq = table->slots[slot]) {
-        if ((seq->hash == hash) & (seq->count == count)) {
-            Py_ssize_t index = 0;
-            while (index < count && pat_same(seq->operands[index], operands[index])) {
-                index++;
-            }
-            if (index == count) {
-                return seq;
-            }
-        }
-        slot = (slot + 1) & (table->cap - 1);
-    }
-    return NULL;
-}
-
-static int rng_seq_insert(th_schema *schema, rng_seq_table **table_ref, rng_seq *seq) {
-    rng_seq_table *table = *table_ref;
-    if (table == NULL) {
-        table = arena_alloc(&schema->mem, sizeof(*table));
-        if (table == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return -1;       /* GCOVR_EXCL_LINE */
-        }
-        memset(table, 0, sizeof(*table));
-        *table_ref = table;
-    }
-    if (table->count * 2 >= table->cap) {
-        size_t cap = table->cap == 0 ? 16 : table->cap * 2;
-        rng_seq **slots = arena_alloc(&schema->mem, cap * sizeof(rng_seq *));
-        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return -1;       /* GCOVR_EXCL_LINE */
-        }
-        memset(slots, 0, cap * sizeof(rng_seq *));
-        for (size_t index = 0; index < table->cap; index++) {
-            rng_seq *existing = table->slots[index];
-            if (existing != NULL) {
-                size_t slot = (size_t)(existing->hash ^ (existing->hash >> 32)) & (cap - 1);
-                while (slots[slot] != NULL) {
-                    slot = (slot + 1) & (cap - 1);
-                }
-                slots[slot] = existing;
-            }
-        }
-        table->slots = slots;
-        table->cap = cap;
-    }
-    size_t slot = (size_t)(seq->hash ^ (seq->hash >> 32)) & (table->cap - 1);
-    while (table->slots[slot] != NULL) {
-        slot = (slot + 1) & (table->cap - 1);
-    }
-    table->slots[slot] = seq;
-    table->count++;
-    return 0;
-}
-
-static pattern *rng_seq_build(th_schema *schema, rng_route *route) {
-    for (int index = 0; index < route->count; index++) {
-        if (route->operands[index]->type == P_NOTALLOWED) {
-            return schema->p_notallowed;
-        }
-        if (rng_attr_bearing(schema, route->operands[index])) {
-            return route_fold(schema, pat_group, route);
-        }
-    }
-    Py_ssize_t count = 0;
-    pattern **operands = arena_alloc(&schema->mem, (size_t)route->count * sizeof(pattern *));
-    if (operands == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    for (int index = 0; index < route->count; index++) {
-        if (route->operands[index]->type != P_EMPTY) {
-            operands[count++] = route->operands[index];
-        }
-    }
-    if (count < 2) {
-        return count == 0 ? schema->p_empty : operands[0];
-    }
-    uint64_t hash = UINT64_C(0xcbf29ce484222325) ^ (uint64_t)count;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        hash = rng_hash_mix(hash, pat_hash(operands[index]));
-    }
-    rng_seq *shared = rng_seq_probe(schema->seq_table, hash, operands, count);
-    if (shared == NULL) {
-        shared = rng_seq_probe(schema->seq_local, hash, operands, count);
-    }
-    if (shared != NULL) {
-        return shared->nodes[0];
-    }
-    rng_seq *seq = arena_alloc(&schema->mem, sizeof(*seq));
-    Py_ssize_t *run_end = arena_alloc(&schema->mem, (size_t)count * sizeof(Py_ssize_t));
-    pattern **nodes = arena_alloc(&schema->mem, (size_t)(count + 1) * sizeof(pattern *));
-    Py_ssize_t *run_start = arena_alloc(&schema->mem, (size_t)count * sizeof(Py_ssize_t));
-    rng_route *base_route = route_new(schema, count, P_GROUP);
-    /* GCOVR_EXCL_BR_START: arena OOM is unforceable */
-    if (seq == NULL || run_end == NULL || run_start == NULL || nodes == NULL || base_route == NULL) {
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    /* GCOVR_EXCL_BR_STOP */
-    memcpy(base_route->operands, operands, (size_t)count * sizeof(pattern *));
-    seq->count = count;
-    seq->operands = operands;
-    seq->run_end = run_end;
-    seq->run_start = run_start;
-    seq->nodes = nodes;
-    seq->hash = hash;
-    for (Py_ssize_t index = count - 1; index >= 0; index--) {
-        run_end[index] =
-            index + 1 < count && pat_same(operands[index], operands[index + 1]) ? run_end[index + 1] : index;
-    }
-    run_start[0] = 0;
-    for (Py_ssize_t index = 1; index < count; index++) {
-        run_start[index] = run_end[index - 1] >= index ? run_start[index - 1] : index;
-    }
-    nodes[count] = schema->p_empty;
-    for (Py_ssize_t index = count - 1; index >= 0; index--) {
-        pattern *node = pat_new(schema, P_SEQ);
-        if (node == NULL) {              /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-        }
-        node->p1 = operands[index];
-        node->p2 = nodes[index + 1];
-        node->start = (int)index;
-        node->sequence = seq;
-        node->route = base_route;
-        node->lo = (int)index;
-        node->mid = (int)index + 1;
-        node->hi = (int)count;
-        node->nullable =
-            node->p1->nullable >= 0 && node->p2->nullable >= 0 ? node->p1->nullable && node->p2->nullable : -1;
-        nodes[index] = node;
-    }
-    base_route->root = nodes[0];
-    /* GCOVR_EXCL_BR_START: arena OOM is unforceable */
-    if (rng_seq_insert(schema, schema->intern != NULL ? &schema->seq_local : &schema->seq_table, seq) < 0) {
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    /* GCOVR_EXCL_BR_STOP */
-    return nodes[0];
-}
-
 /* What a container does with the pattern its children join into. */
 enum {
     RNG_WRAP_NONE,
@@ -1593,9 +1298,7 @@ static pattern *rng_build_close(th_schema *schema, const rng_build_frame *frame)
     if (frame->wrap == RNG_WRAP_DATA) {
         return frame->made;
     }
-    pattern *joined = frame->route == NULL       ? frame->joined
-                      : frame->join == pat_group ? rng_seq_build(schema, frame->route)
-                                                 : route_fold(schema, frame->join, frame->route);
+    pattern *joined = frame->route != NULL ? route_fold(schema, frame->join, frame->route) : frame->joined;
     switch (frame->wrap) {
     case RNG_WRAP_CONTENT:
         frame->made->p1 = joined;
@@ -1818,8 +1521,6 @@ static RNG_NOINLINE int rng_nullable_walk(th_schema *schema, pattern *p) {
     return rng_nullable_memo(schema, p);
 }
 
-static int rng_seq_nullable(th_schema *schema, pattern *p);
-
 static RNG_FORCEINLINE int rng_nullable_step(th_schema *schema, pattern *p) {
     switch (p->type) {
     case P_CHOICE:
@@ -1835,102 +1536,72 @@ static RNG_FORCEINLINE int rng_nullable_step(th_schema *schema, pattern *p) {
         return rng_nullable(schema, p->p1) && rng_nullable(schema, p->p2);
     case P_ONEMORE:
         return rng_nullable(schema, p->p1);
-    case P_SEQ:
-        return rng_seq_nullable(schema, p);
     default: /* P_REF; the compile-time 4.19 check rules out a ref that recurses here without an element */
         return rng_nullable(schema, rng_resolve(schema, p->def_index));
     }
 }
 
-/* Whether every operand from the sequence's start on is nullable. Equal operands are nullable together, so a run
-   costs one test. */
-static int rng_seq_nullable(th_schema *schema, pattern *p) {
-    const rng_seq *seq = p->sequence;
-    for (Py_ssize_t index = p->start; index < seq->count; index = seq->run_end[index] + 1) {
-        if (!rng_nullable(schema, seq->operands[index])) {
-            return 0;
-        }
-    }
-    return 1;
-}
+/* Steps one rng_covers check may take: a walk down the deepest schema pattern and back. A derivative rebuilds only
+   the path from a join down to the operand it matched, so the check follows that path, and the sides the derivative
+   left alone compare by pointer. */
+#define RNG_COVER_STEPS (2 * TH_VALIDATE_MAX_DEPTH)
 
-/* The patterns that can cover another one; a leaf covers only itself. A sequence covers as the group it unfolds to. */
-#define RNG_COVER_TYPES (RNG_JOIN_TYPES | (1u << P_ONEMORE) | (1u << P_REF) | (1u << P_SEQ))
+/* The patterns that can cover another one; a leaf covers only itself. */
+#define RNG_COVER_TYPES (RNG_JOIN_TYPES | (1u << P_ONEMORE) | (1u << P_REF))
 
 static int route_locate(th_schema *schema, const rng_route *outer, const rng_route *inner);
-static int rng_covers(th_schema *schema, pattern *x, pattern *y);
-
-/* The operator a join's sides join by: a sequence joins its operand with the rest of it, as a group does. */
-static RNG_FORCEINLINE int rng_join_view(const pattern *p) {
-    return p->type == P_SEQ ? P_GROUP : p->type;
-}
+static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget);
 
 /* Whether `x` covered by the side of the join `y` that holds operand `index` of its route means `y` covers it. */
-static int rng_covers_side(th_schema *schema, pattern *x, pattern *y, int index) {
+static int rng_covers_side(th_schema *schema, pattern *x, pattern *y, int index, int *budget) {
     int first = index < y->mid;
     pattern *side = first ? y->p1 : y->p2;
     pattern *other = first ? y->p2 : y->p1;
     if (y->type != P_CHOICE && !rng_nullable(schema, other)) {
         return 0;
     }
-    return rng_covers(schema, x, side);
+    return rng_covers(schema, x, side, budget);
 }
 
 /* Whether `x` and `y` join by one operator and each side of `y` covers the side of `x` it faces. */
-static int rng_covers_sides(th_schema *schema, pattern *x, pattern *y) {
-    return rng_join_view(x) == rng_join_view(y) && rng_covers(schema, x->p1, y->p1) && rng_covers(schema, x->p2, y->p2);
+static int rng_covers_sides(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    return x->type == y->type && rng_covers(schema, x->p1, y->p1, budget) && rng_covers(schema, x->p2, y->p2, budget);
 }
 
-/* Whether a sequence `y` covers `x`: side by side, or its first operand covers `x` and the rest is nullable, or `x` is
-   covered by what follows the run its first operand starts. The run's operands are nullable and equal, so that tail is
-   the sequence without the run, and one step covers the whole run instead of one per operand. */
-static int rng_covers_seq(th_schema *schema, pattern *x, pattern *y) {
-    const rng_seq *seq = y->sequence;
-    if (rng_join_view(x) == P_GROUP && rng_covers(schema, x->p1, y->p1) && rng_covers(schema, x->p2, y->p2)) {
-        return 1;
-    }
-    if (rng_nullable(schema, y->p2) && rng_covers(schema, x, y->p1)) {
-        return 1;
-    }
-    return rng_nullable(schema, y->p1) && rng_covers(schema, x, seq->nodes[seq->run_end[y->start] + 1]);
-}
-
-/* rng_covers for a group, choice, interleave or sequence `y`. A routed `x` says by its operand range, or by the
-   position of its route among the operands of `y`, which side of `y` it stands for, so the check descends one side. */
-static int rng_covers_join(th_schema *schema, pattern *x, pattern *y) {
-    if (schema->routing != NULL && x->route != NULL && x->route == y->route) {
+/* rng_covers for a group, choice or interleave `y`. A routed `x` says by its operand range, or by the position of its
+   route among the operands of `y`, which side of `y` it stands for, so the check descends one side. */
+static int rng_covers_join(th_schema *schema, pattern *x, pattern *y, int *budget) {
+    if (x->route != NULL && x->route == y->route) {
         if (x->hi <= y->mid || x->lo >= y->mid) {
-            return rng_covers_side(schema, x, y, x->lo);
+            return rng_covers_side(schema, x, y, x->lo, budget);
         }
-        return rng_covers_sides(schema, x, y);
+        return rng_covers_sides(schema, x, y, budget);
     }
-    if (schema->routing != NULL && x->route != NULL && y->route != NULL) {
+    if (x->route != NULL && y->route != NULL) {
         int index = route_locate(schema, y->route, x->route);
         if (index >= 0) {
-            return rng_covers_side(schema, x, y, index);
+            return rng_covers_side(schema, x, y, index, budget);
         }
     }
     if (y->type == P_CHOICE) {
-        return rng_covers(schema, x, y->p1) || rng_covers(schema, x, y->p2);
+        return rng_covers(schema, x, y->p1, budget) || rng_covers(schema, x, y->p2, budget);
     }
-    if (y->type == P_SEQ) {
-        return rng_covers_seq(schema, x, y);
-    }
-    return rng_covers_sides(schema, x, y) || (rng_nullable(schema, y->p2) && rng_covers(schema, x, y->p1)) ||
-           (rng_nullable(schema, y->p1) && rng_covers(schema, x, y->p2));
+    return rng_covers_sides(schema, x, y, budget) ||
+           (rng_nullable(schema, y->p2) && rng_covers(schema, x, y->p1, budget)) ||
+           (rng_nullable(schema, y->p1) && rng_covers(schema, x, y->p2, budget));
 }
 
-static int rng_covers_walk(th_schema *schema, pattern *x, pattern *y) {
+static int rng_covers_walk(th_schema *schema, pattern *x, pattern *y, int *budget) {
     if (x->type == P_CHOICE) {
-        return rng_covers(schema, x->p1, y) && rng_covers(schema, x->p2, y);
+        return rng_covers(schema, x->p1, y, budget) && rng_covers(schema, x->p2, y, budget);
     }
     if (y->type == P_ONEMORE) {
-        return rng_covers(schema, x->type == P_ONEMORE ? x->p1 : x, y->p1);
+        return rng_covers(schema, x->type == P_ONEMORE ? x->p1 : x, y->p1, budget);
     }
     if (y->type == P_REF) {
-        return rng_covers(schema, x, rng_resolve(schema, y->def_index));
+        return rng_covers(schema, x, rng_resolve(schema, y->def_index), budget);
     }
-    return rng_covers_join(schema, x, y);
+    return rng_covers_join(schema, x, y, budget);
 }
 
 /* Whether the derived group or interleave `x` and the join `y` stand for the same operands of one route, so that
@@ -1945,174 +1616,66 @@ static RNG_FORCEINLINE int rng_refused(const pattern *x, const pattern *y) {
     return rng_counterpart(x, y) && (x->derived & RNG_REFUSED);
 }
 
-static int rng_covers_memo_find(th_schema *schema, const pattern *x, const pattern *y, int *covered) {
-    const cover_memo *memo = schema->covers;
-    if (memo == NULL) {
-        return 0;
-    }
-    size_t slot = (size_t)(pat_key_hash(0, (pattern *)x, (pattern *)y) >> 32) & (memo->cap - 1);
-    while (memo->slots[slot].event == schema->covers_event) {
-        if (memo->slots[slot].x == x && memo->slots[slot].y == y) {
-            *covered = memo->slots[slot].covered;
-            return 1;
-        }
-        slot = (slot + 1) & (memo->cap - 1);
-    }
-    return 0;
-}
-
-static void rng_covers_memo_add(th_schema *schema, const pattern *x, const pattern *y, int covered) {
-    if (schema->covers == NULL) {
-        schema->covers = arena_alloc(&schema->mem, sizeof(*schema->covers));
-        if (schema->covers == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;                   /* GCOVR_EXCL_LINE: the check is just not remembered */
-        }
-        memset(schema->covers, 0, sizeof(*schema->covers));
-    }
-    cover_memo *memo = schema->covers;
-    if (memo->count_event != schema->covers_event) {
-        memo->count = 0;
-        memo->count_event = schema->covers_event;
-    }
-    if (memo->count * 2 >= memo->cap) {
-        size_t cap = memo->cap == 0 ? 64 : memo->cap * 2;
-        cover_memo_entry *slots = arena_alloc(&schema->mem, cap * sizeof(cover_memo_entry));
-        if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return;          /* GCOVR_EXCL_LINE */
-        }
-        memset(slots, 0, cap * sizeof(cover_memo_entry));
-        for (size_t index = 0; index < memo->cap; index++) {
-            cover_memo_entry existing = memo->slots[index];
-            if (existing.event == schema->covers_event) {
-                size_t slot = (size_t)(pat_key_hash(0, (pattern *)existing.x, (pattern *)existing.y) >> 32) & (cap - 1);
-                while (slots[slot].event == schema->covers_event) {
-                    slot = (slot + 1) & (cap - 1);
-                }
-                slots[slot] = existing;
-            }
-        }
-        memo->slots = slots;
-        memo->cap = cap;
-    }
-    size_t slot = (size_t)(pat_key_hash(0, (pattern *)x, (pattern *)y) >> 32) & (memo->cap - 1);
-    while (memo->slots[slot].event == schema->covers_event) {
-        slot = (slot + 1) & (memo->cap - 1);
-    }
-    memo->slots[slot] = (cover_memo_entry){x, y, schema->covers_event, covered};
-    memo->count++;
-}
-
-/* Whether the sequence `x` covers the sequence `y` of the same base: the operands `y` starts with that `x` skips must
-   be nullable, and each run of them is tested once. */
-static int rng_seq_covers(th_schema *schema, const pattern *x, const pattern *y) {
-    if (x->start < y->start) {
-        return 0;
-    }
-    const rng_seq *seq = x->sequence;
-    for (Py_ssize_t index = y->start; index < x->start; index = seq->run_end[index] + 1) {
-        if (!rng_nullable(schema, seq->operands[index])) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /* Whether every string `x` matches, `y` matches too, judged by structure: true only when that holds, false when it
-   does not. A join covers a join of the same operator side by side, and a side whose sibling is nullable; a choice
-   covers what either side covers; an after covers an after whose two sides it covers. Every step is one unit of the
-   event's work, so a check that runs long makes the event too ambiguous instead of costing a fixed budget. A derived
-   group or interleave that its counterpart does not cover keeps RNG_REFUSED, and route_inherit passes the mark to the
-   joins built over it: a restarted round rebuilds one path and shares the rest with the round it came from, so
-   rng_repeat_absorbs refuses it at once. A mark can only refuse, and a refusal keeps a group the residual could have
-   dropped, so it never changes a verdict. */
-static int rng_covers(th_schema *schema, pattern *x, pattern *y) {
+   does not or the check runs out of `budget`. A join covers a join of the same operator side by side, and a side
+   whose sibling is nullable; a choice covers what either side covers. A derived group or interleave that its
+   counterpart does not cover keeps RNG_REFUSED, and route_inherit passes the mark to the joins built over it: a
+   restarted round rebuilds one path and shares the rest with the round it came from, so rng_repeat_absorbs refuses
+   it at once.
+   A mark can only refuse, and a refusal keeps a group the residual could have dropped, so it never changes a
+   verdict. */
+static int rng_covers(th_schema *schema, pattern *x, pattern *y, int *budget) {
     if (schema_stack_low(schema)) {
         return 0;
     }
-    if (x == y || pat_same(x, y)) {
+    if (x == y) {
         return 1;
     }
     if (x->type == P_EMPTY) {
         return rng_nullable(schema, y);
     }
-    if (x->type == P_AFTER) {
+    if (!((RNG_COVER_TYPES >> y->type) & 1) || --*budget < 0) {
         return 0;
-    }
-    if (x->type == P_SEQ && y->type == P_SEQ && x->sequence == y->sequence) {
-        return rng_seq_covers(schema, x, y);
-    }
-    if (!((RNG_COVER_TYPES >> y->type) & 1)) {
-        return 0;
-    }
-    int covered;
-    if (rng_covers_memo_find(schema, x, y, &covered)) {
-        return covered;
     }
     TH_WORK_STEP();
-    covered = rng_covers_walk(schema, x, y);
+    int covered = rng_covers_walk(schema, x, y, budget);
     if (!covered && rng_counterpart(x, y)) {
         x->derived |= RNG_REFUSED;
     }
-    rng_covers_memo_add(schema, x, y, covered);
     return covered;
 }
 
 /* Whether group(`head`, `rest`) is `rest` alone, which holds when `rest` repeats some p zero or more times and `head`
    is nullable and covered by p: p* then matches what head, p* does. A derivative of a repeat whose content is nullable
    restarts the repeat at every event, so without this the residual keeps one such group for each place the current
-   round could have started, and every event derives all of them. */
+   round could have started, and every event derives all of them. The check's steps count as the event's work, so an
+   ambiguous schema that makes many checks reaches the work limit as its derivatives would; past it, the next memo
+   entry stops the event. */
 static RNG_NOINLINE int rng_repeat_absorbs(th_schema *schema, pattern *head, const pattern *rest) {
     pattern *repeat = rest->p1->type == P_EMPTY ? rest->p2 : rest->p2->type == P_EMPTY ? rest->p1 : NULL;
     if (repeat == NULL || repeat->type != P_ONEMORE || rng_refused(head, repeat->p1) || !rng_nullable(schema, head)) {
         return 0;
     }
-    return rng_covers(schema, head, repeat);
+    int budget = RNG_COVER_STEPS;
+    int covered = rng_covers(schema, head, repeat, &budget);
+    (void)rng_event_spend(schema, RNG_COVER_STEPS - budget);
+    return covered;
 }
 
-/* Whether every alternative of `x` (a choice of residual after-trees, a group or a sequence) matches a string `y` does,
-   judged the way rng_covers judges. An after covers an after when both of its sides do. */
-static int rng_after_covers(th_schema *schema, pattern *x, pattern *y) {
-    if (x == y || x->type == P_NOTALLOWED) {
-        return 1;
-    }
-    if (x->type == P_CHOICE) {
-        return rng_after_covers(schema, x->p1, y) & rng_after_covers(schema, x->p2, y);
-    }
-    if (y->type == P_CHOICE) {
-        return rng_after_covers(schema, x, y->p1) | rng_after_covers(schema, x, y->p2);
-    }
-    if (x->type == P_AFTER && y->type == P_AFTER) {
-        return rng_covers(schema, x->p1, y->p1) && rng_covers(schema, x->p2, y->p2);
-    }
-    return rng_covers(schema, x, y);
-}
+#define RNG_GROUP_COVER_STEPS 32
 
-/* The choice a derivative makes of two alternatives: an alternative that another one covers is dropped, so a residual
-   keeps the earliest start of each sequence and not one branch per place an event could have consumed from. */
-static int rng_may_dominate(const pattern *left, const pattern *right) {
-    if (left->type == P_AFTER && right->type == P_AFTER && left->p2->type == P_SEQ && right->p2->type == P_SEQ) {
-        return left->p2->sequence == right->p2->sequence;
-    }
-    return 1;
-}
-
-static pattern *rng_choice(th_schema *schema, pattern *left, pattern *right) {
-    if (left->type == P_NOTALLOWED) {
-        return right;
-    }
-    if (right->type == P_NOTALLOWED) {
-        return left;
-    }
-    if (!rng_may_dominate(left, right)) {
+/* The choice a derivative of group(p1, p2) makes when p1 is nullable: `left` continues p1's round and `right` starts
+   p2 without it. Both end in the same element content, so when `left`'s tail covers `right`'s, `left` matches
+   everything `right` does, since the group's nullable sibling lets `left` run on. Each place of a doubled group would
+   otherwise keep its own branch. */
+static pattern *rng_group_choice(th_schema *schema, pattern *left, pattern *right) {
+    if (schema->routing == NULL || left->type != P_AFTER || right->type != P_AFTER || left->p1 != right->p1) {
         return pat_choice(schema, left, right);
     }
-    if (rng_after_covers(schema, right, left)) {
-        return left;
-    }
-    if (rng_after_covers(schema, left, right)) {
-        return right;
-    }
-    return pat_choice(schema, left, right);
+    int budget = RNG_GROUP_COVER_STEPS;
+    int covered = rng_covers(schema, right->p2, left->p2, &budget);
+    (void)rng_event_spend(schema, RNG_GROUP_COVER_STEPS - budget);
+    return covered ? left : pat_choice(schema, left, right);
 }
 
 static int rng_datatype_ok(th_schema *schema, int datatype_id, facetset *facets, const Py_UCS4 *value, Py_ssize_t len) {
@@ -2297,36 +1860,9 @@ static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const
     return rng_nullable(schema, derived) ? schema->p_empty : schema->p_notallowed;
 }
 
-/* Gives the groups of `alt` that continue a sequence from the operand `head` stands for the route and operand range of
-   `head`, the way route_join gives a derived join its source's ranges, so the covers check can place them. */
-static void rng_seq_label(pattern *alt, const pattern *head) {
-    switch (alt->type) {
-    case P_CHOICE:
-        rng_seq_label(alt->p1, head);
-        rng_seq_label(alt->p2, head);
-        return;
-    case P_AFTER:
-        rng_seq_label(alt->p2, head);
-        return;
-    case P_GROUP:
-        alt->route = head->route;
-        alt->lo = head->lo;
-        alt->mid = head->mid;
-        alt->hi = head->hi;
-        alt->derived = 1;
-        return;
-    default:
-        return;
-    }
-}
-
-static RNG_NOINLINE pattern *rng_seq_text(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
-
 static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *p, const Py_UCS4 *value,
                                                     Py_ssize_t len) {
     switch (p->type) {
-    case P_SEQ:
-        return rng_seq_text(schema, p, value, len);
     case P_CHOICE:
         if (rng_routed(schema, p)) {
             return route_text(schema, p, value, len);
@@ -2344,7 +1880,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
         }
         pattern *left = pat_group(schema, rng_text_deriv(schema, p->p1, value, len), p->p2);
         if (rng_nullable(schema, p->p1)) {
-            return rng_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
+            return rng_group_choice(schema, left, rng_text_deriv(schema, p->p2, value, len));
         }
         return left;
     }
@@ -2381,7 +1917,6 @@ static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, in
 static pattern *rng_apply_after_interleave_left(th_schema *schema, pattern *p, const qname *name);
 static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, const qname *name);
 
-static RNG_NOINLINE pattern *rng_seq_open(th_schema *schema, pattern *p, const qname *name);
 static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name);
 
 static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern *p, const qname *name);
@@ -2407,17 +1942,13 @@ static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern 
     return rng_start_tag_open_memo(schema, p, name);
 }
 
-/* The start-tag derivative of a sequence, walked like rng_seq_text: a run's first operand stands for the run. */
-
 static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name) {
     switch (p->type) {
-    case P_SEQ:
-        return rng_seq_open(schema, p, name);
     case P_CHOICE:
         if (rng_routed(schema, p)) {
             return route_open(schema, p, name);
         }
-        return rng_choice(schema, rng_start_tag_open(schema, p->p1, name), rng_start_tag_open(schema, p->p2, name));
+        return pat_choice(schema, rng_start_tag_open(schema, p->p1, name), rng_start_tag_open(schema, p->p2, name));
     case P_ELEMENT:
         return nc_contains(p->nc, name) ? pat_after(schema, p->p1, schema->p_empty) : schema->p_notallowed;
     case P_INTERLEAVE:
@@ -2436,7 +1967,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, patte
         }
         pattern *left = rng_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p->p2, 0);
         if (rng_nullable(schema, p->p1)) {
-            return rng_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
+            return rng_group_choice(schema, left, rng_start_tag_open(schema, p->p2, name));
         }
         return left;
     }
@@ -2455,7 +1986,7 @@ static pattern *rng_apply_after(th_schema *schema, pattern *p, pattern *tail, in
         return pat_after(schema, p->p1, combined);
     }
     if (p->type == P_CHOICE) {
-        return rng_choice(schema, rng_apply_after(schema, p->p1, tail, as_after),
+        return pat_choice(schema, rng_apply_after(schema, p->p1, tail, as_after),
                           rng_apply_after(schema, p->p2, tail, as_after));
     }
     return schema->p_notallowed;
@@ -2471,7 +2002,7 @@ static pattern *rng_apply_after_interleave(th_schema *schema, pattern *derived, 
         return pat_after(schema, derived->p1, combined);
     }
     if (derived->type == P_CHOICE) {
-        return rng_choice(schema, rng_apply_after_interleave(schema, derived->p1, other, other_on_right),
+        return pat_choice(schema, rng_apply_after_interleave(schema, derived->p1, other, other_on_right),
                           rng_apply_after_interleave(schema, derived->p2, other, other_on_right));
     }
     return schema->p_notallowed;
@@ -2723,11 +2254,6 @@ struct route_state {
     Py_ssize_t mark_len, mark_cap;
     size_t mark_stamp; /* the walk up the marks belong to */
     int marks_sorted;
-    int *any_elements; /* the operands whose names match any element, ascending */
-    Py_ssize_t any_len;
-    int *texts; /* a sequence's operands that hold text, ascending: the units a text event can reach */
-    Py_ssize_t text_len;
-    int *lead; /* a sequence's operands: the unit each one is held through, its run's first one when it shares it */
 };
 
 typedef struct route_define {
@@ -2946,14 +2472,6 @@ static int route_scan(th_schema *schema, route_unit *unit, int *bits, pattern *p
         return route_scan(schema, unit, bits, p->p1);
     case P_REF:
         return route_scan_define(schema, unit, bits, p->def_index);
-    case P_SEQ: { /* a schema sequence is scanned as its base, which the route the scan reaches holds */
-        route_state *state = route_state_get(schema, p->route);
-        if (state == NULL || route_parent_add(schema, &state->self, unit) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
-            return -1;                                                           /* GCOVR_EXCL_LINE */
-        }
-        *bits |= state->bits;
-        return state->nullable;
-    }
     case P_CHOICE:
     case P_GROUP:
     case P_INTERLEAVE: {
@@ -2974,25 +2492,6 @@ static int route_scan(th_schema *schema, route_unit *unit, int *bits, pattern *p
     }
     default: /* P_EMPTY or P_NOTALLOWED; a static pattern holds no After */
         return p->nullable;
-    }
-}
-
-/* Whether `p` holds nothing a route links: no reference and no join another route owns, so the operands of one run can
-   share the unit of its first one. A reference stays a unit of its own, since route_locate tells two of them apart by
-   position. */
-static int rng_linkless(const pattern *p) {
-    switch (p->type) {
-    case P_REF:
-    case P_SEQ:
-        return 0;
-    case P_CHOICE:
-    case P_GROUP:
-    case P_INTERLEAVE:
-        return (p->route == NULL) & rng_linkless(p->p1) & rng_linkless(p->p2);
-    case P_ONEMORE:
-        return rng_linkless(p->p1);
-    default:
-        return 1;
     }
 }
 
@@ -3031,35 +2530,13 @@ static RNG_NOINLINE route_state *route_state_build(th_schema *schema, const rng_
     state->counts = counts;
     int choice = route->type == P_CHOICE;
     int joined = !choice;
-    const rng_seq *seq = route->root->type == P_SEQ ? route->root->sequence : NULL;
-    int *scanned = seq == NULL ? NULL : arena_alloc(&schema->mem, (size_t)(2 * count) * sizeof(int));
-    state->lead = seq == NULL ? NULL : arena_alloc(&schema->mem, (size_t)count * sizeof(int));
-    if (seq != NULL && (scanned == NULL || state->lead == NULL)) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return NULL;                                               /* GCOVR_EXCL_LINE */
-    }
     for (int index = 0; index < count; index++) {
         units[index].owner = state;
         units[index].index = index;
         int bits = 0;
-        int nullable;
-        Py_ssize_t lead = index;
-        if (seq != NULL && seq->run_start[index] != index && rng_linkless(route->operands[index])) {
-            lead = seq->run_start[index];
-        }
-        if (lead == index) {
-            nullable = route_scan(schema, &units[index], &bits, route->operands[index]);
-            if (nullable < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return NULL;    /* GCOVR_EXCL_LINE */
-            }
-        } else {
-            bits = scanned[2 * lead];
-            nullable = scanned[2 * lead + 1];
-        }
-        if (seq != NULL) {
-            state->lead[index] = (int)lead;
-            Py_ssize_t slot = 2 * (Py_ssize_t)index;
-            scanned[slot] = bits;
-            scanned[slot + 1] = nullable;
+        int nullable = route_scan(schema, &units[index], &bits, route->operands[index]);
+        if (nullable < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return NULL;    /* GCOVR_EXCL_LINE */
         }
         state->bits |= bits;
         bits |= nullable << ROUTE_NULLABLE;
@@ -3070,44 +2547,6 @@ static RNG_NOINLINE route_state *route_state_build(th_schema *schema, const rng_
         }
     }
     state->nullable = joined;
-    state->any_len = 0;
-    for (int index = 0; index < count; index++) {
-        state->any_len +=
-            (seq == NULL || state->lead[index] == index) && counts[(index + 1) * ROUTE_COLUMNS + ROUTE_ANY_ELEMENT] !=
-                                                                counts[index * ROUTE_COLUMNS + ROUTE_ANY_ELEMENT];
-    }
-    state->text_len = 0;
-    for (int index = 0; seq != NULL && index < count; index++) {
-        state->text_len += state->lead[index] == index && counts[(index + 1) * ROUTE_COLUMNS + ROUTE_TEXT] !=
-                                                              counts[index * ROUTE_COLUMNS + ROUTE_TEXT];
-    }
-    if (state->text_len > 0) {
-        state->texts = arena_alloc(&schema->mem, (size_t)state->text_len * sizeof(int));
-        if (state->texts == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return NULL;            /* GCOVR_EXCL_LINE */
-        }
-        Py_ssize_t fill = 0;
-        for (int index = 0; index < count; index++) {
-            if (state->lead[index] == index &&
-                counts[(index + 1) * ROUTE_COLUMNS + ROUTE_TEXT] != counts[index * ROUTE_COLUMNS + ROUTE_TEXT]) {
-                state->texts[fill++] = index;
-            }
-        }
-    }
-    if (state->any_len > 0) {
-        state->any_elements = arena_alloc(&schema->mem, (size_t)state->any_len * sizeof(int));
-        if (state->any_elements == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return NULL;                   /* GCOVR_EXCL_LINE */
-        }
-        Py_ssize_t fill = 0;
-        for (int index = 0; index < count; index++) {
-            if ((seq == NULL || state->lead[index] == index) &&
-                counts[(index + 1) * ROUTE_COLUMNS + ROUTE_ANY_ELEMENT] !=
-                    counts[index * ROUTE_COLUMNS + ROUTE_ANY_ELEMENT]) {
-                state->any_elements[fill++] = index;
-            }
-        }
-    }
     routing->states[route->id] = state;
     routing->reach.kind = ROUTE_NONE;
     return state;
@@ -3224,9 +2663,6 @@ static int route_int_cmp(const void *left, const void *right) {
 
 /* Whether an operand in [lo, hi) counts in `column`, or, with `marked`, the last walk up reached one there. */
 static int route_holds(const th_schema *schema, route_state *state, int column, int lo, int hi, int marked) {
-    if (lo == hi) {
-        return 0;
-    }
     const int *counts = state->counts;
     if (counts[hi * ROUTE_COLUMNS + column] != counts[lo * ROUTE_COLUMNS + column]) {
         return 1;
@@ -3238,11 +2674,10 @@ static int route_holds(const th_schema *schema, route_state *state, int column, 
         qsort(state->marks, (size_t)state->mark_len, sizeof(int), route_int_cmp);
         state->marks_sorted = 1;
     }
-    Py_ssize_t from = state->lead == NULL ? lo : state->lead[lo];
     Py_ssize_t low = 0, high = state->mark_len;
     while (low < high) {
         Py_ssize_t middle = low + (high - low) / 2;
-        if (state->marks[middle] < from) {
+        if (state->marks[middle] < lo) {
             low = middle + 1;
         } else {
             high = middle;
@@ -3268,138 +2703,6 @@ static route_state *route_enter(th_schema *schema, const pattern *p, int kind, c
     return state;
 }
 
-/* The right side of a join whose own range is empty is the continuation past the join, which sits in its own route:
-   only a side that has a route gives an empty span (route_side), so the continuation always has one. The continuation
-   takes the event only when one of its operands holds it, so it is derived only then. */
-static int route_continuation_holds(th_schema *schema, const pattern *p, int kind, int column, const Py_UCS4 *uri,
-                                    Py_ssize_t uri_len, const Py_UCS4 *local, Py_ssize_t local_len) {
-    const pattern *continuation = p->p2;
-    route_state *state = route_enter(schema, continuation, kind, uri, uri_len, local, local_len);
-    if (state == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return 1;        /* GCOVR_EXCL_LINE */
-    }
-    return route_holds(schema, state, column, continuation->lo, continuation->hi, 1);
-}
-
-/* The first operand at or after `start` that is not nullable, or the count when every one from `start` on is. */
-static Py_ssize_t route_first_plain(const route_state *state, Py_ssize_t start, Py_ssize_t count) {
-    const int *counts = state->counts;
-    Py_ssize_t low = start, high = count;
-    while (low < high) {
-        Py_ssize_t middle = low + (high - low) / 2;
-        if (middle - start + 1 >
-            counts[(middle + 1) * ROUTE_COLUMNS + ROUTE_NULLABLE] - counts[start * ROUTE_COLUMNS + ROUTE_NULLABLE]) {
-            high = middle;
-        } else {
-            low = middle + 1;
-        }
-    }
-    return low;
-}
-
-/* The first index at or after `low` in the ascending `items`, or `len`. */
-static Py_ssize_t route_lower(const int *items, Py_ssize_t len, Py_ssize_t low) {
-    Py_ssize_t from = 0, to = len;
-    while (from < to) {
-        Py_ssize_t middle = from + (to - from) / 2;
-        if (items[middle] < low) {
-            from = middle + 1;
-        } else {
-            to = middle;
-        }
-    }
-    return from;
-}
-
-/* The start-tag derivative of a sequence walked over the operands the event can reach, when routing is on: the marked
-   operands and the wildcard ones, from the start to the first operand that is not nullable. An operand the event does
-   not reach derives to NotAllowed and is skipped, so the walk costs the reached operands and not the whole run. */
-/* A sequence's first walk starts routing, so the operands it builds are indexed before the residual grows, instead of
-   at the next event after the step allowance. A validation with no sequence never routes, so its events keep their
-   plain joins. */
-static void rng_seq_start_routing(th_schema *schema, pattern *p) {
-    if (schema->routing == NULL) {
-        rng_routing_event(schema, p);
-    }
-}
-
-static RNG_NOINLINE pattern *rng_seq_routed(th_schema *schema, pattern *p, route_state *state, const qname *name,
-                                            const Py_UCS4 *value, Py_ssize_t len) {
-    const rng_seq *seq = p->sequence;
-    int is_text = name == NULL;
-    const int *extra = is_text ? state->texts : state->any_elements;
-    Py_ssize_t extra_len = is_text ? state->text_len : state->any_len;
-    Py_ssize_t limit = route_first_plain(state, p->start, seq->count);
-    Py_ssize_t last = limit < seq->count ? limit : seq->count - 1;
-    int marked = state->mark_stamp == schema->routing->stamp;
-    if (marked && !state->marks_sorted) {
-        qsort(state->marks, (size_t)state->mark_len, sizeof(int), route_int_cmp);
-        state->marks_sorted = 1;
-    }
-    Py_ssize_t unit = state->lead[p->start];
-    Py_ssize_t mark_at = marked ? route_lower(state->marks, state->mark_len, unit) : 0;
-    Py_ssize_t mark_len = marked ? state->mark_len : 0;
-    Py_ssize_t extra_at = route_lower(extra, extra_len, unit);
-    pattern *derived = schema->p_notallowed;
-    Py_ssize_t next = p->start;
-    for (;;) {
-        Py_ssize_t index = -1;
-        if (mark_at < mark_len && state->marks[mark_at] <= last) {
-            index = state->marks[mark_at];
-        }
-        if (extra_at < extra_len && extra[extra_at] <= last && (index < 0 || extra[extra_at] <= index)) {
-            index = extra[extra_at];
-        }
-        if (index < 0) {
-            return derived;
-        }
-        if (index < p->start) {
-            index = p->start;
-        }
-        Py_ssize_t run_next = seq->run_end[index] + 1;
-        mark_at = route_lower(state->marks, mark_len, run_next);
-        extra_at = route_lower(extra, extra_len, run_next);
-        if (index < next) {
-            continue;
-        }
-        TH_WORK_STEP();
-        pattern *operand = seq->operands[index];
-        pattern *alt =
-            is_text ? pat_group(schema, rng_text_deriv(schema, operand, value, len), seq->nodes[index + 1])
-                    : rng_apply_after(schema, rng_start_tag_open(schema, operand, name), seq->nodes[index + 1], 0);
-        rng_seq_label(alt, seq->nodes[index]);
-        derived = rng_choice(schema, derived, alt);
-        next = run_next;
-    }
-}
-
-static RNG_NOINLINE pattern *rng_seq_open(th_schema *schema, pattern *p, const qname *name) {
-    rng_seq_start_routing(schema, p);
-    if (schema->routing == NULL) {   /* GCOVR_EXCL_BR_LINE: routing needs arena memory */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    route_state *state = route_enter(schema, p, ROUTE_ELEMENT, name->uri, name->uri_len, name->local, name->local_len);
-    if (state == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    return rng_seq_routed(schema, p, state, name, NULL, 0);
-}
-
-/* The text derivative of a sequence: an alternative for each run of operands the walk reaches, as group(derivative of
-   the run's first operand, the rest of the sequence after it). A run's later members give alternatives that the first
-   one's tail covers, since they are nullable. */
-static RNG_NOINLINE pattern *rng_seq_text(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
-    rng_seq_start_routing(schema, p);
-    if (schema->routing == NULL) {   /* GCOVR_EXCL_BR_LINE: routing needs arena memory */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    route_state *state = route_enter(schema, p, ROUTE_VALUE, NULL, 0, value, len);
-    if (state == NULL) {             /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    return rng_seq_routed(schema, p, state, NULL, value, len);
-}
-
 /* applyAfter for the routed group or interleave `src`, whose side `other` stays and whose other side derived to
    `derived`: each After tail joins `other` on the side it came from, keeping the ranges of `src`. */
 static pattern *route_apply_after(th_schema *schema, pattern *derived, const pattern *src, pattern *other,
@@ -3410,7 +2713,7 @@ static pattern *route_apply_after(th_schema *schema, pattern *derived, const pat
         return pat_after(schema, derived->p1, combined);
     }
     if (derived->type == P_CHOICE) {
-        return rng_choice(schema, route_apply_after(schema, derived->p1, src, other, other_on_right),
+        return pat_choice(schema, route_apply_after(schema, derived->p1, src, other, other_on_right),
                           route_apply_after(schema, derived->p2, src, other, other_on_right));
     }
     return schema->p_notallowed;
@@ -3452,15 +2755,8 @@ static RNG_NOINLINE pattern *route_text(th_schema *schema, pattern *p, const Py_
     if (p->type == P_INTERLEAVE) {
         return pat_choice(schema, first, route_join(schema, p, p->p1, rng_text_deriv(schema, p->p2, value, len)));
     }
-    return rng_nullable(schema, p->p1) ? rng_choice(schema, first, rng_text_deriv(schema, p->p2, value, len)) : first;
-}
-
-static int route_right_element(th_schema *schema, route_state *state, const pattern *p, const qname *name) {
-    if (p->mid == p->hi) {
-        return route_continuation_holds(schema, p, ROUTE_ELEMENT, ROUTE_ANY_ELEMENT, name->uri, name->uri_len,
-                                        name->local, name->local_len);
-    }
-    return route_holds(schema, state, ROUTE_ANY_ELEMENT, p->mid, p->hi, 1);
+    return rng_nullable(schema, p->p1) ? rng_group_choice(schema, first, rng_text_deriv(schema, p->p2, value, len))
+                                       : first;
 }
 
 static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qname *name) {
@@ -3470,24 +2766,21 @@ static RNG_NOINLINE pattern *route_open(th_schema *schema, pattern *p, const qna
         return none;     /* GCOVR_EXCL_LINE */
     }
     int left = route_holds(schema, state, ROUTE_ANY_ELEMENT, p->lo, p->mid, 1);
+    int right = route_holds(schema, state, ROUTE_ANY_ELEMENT, p->mid, p->hi, 1);
     switch (p->type) {
-    case P_CHOICE: {
-        int right = route_holds(schema, state, ROUTE_ANY_ELEMENT, p->mid, p->hi, 1);
-        return rng_choice(schema, left ? rng_start_tag_open(schema, p->p1, name) : none,
+    case P_CHOICE:
+        return pat_choice(schema, left ? rng_start_tag_open(schema, p->p1, name) : none,
                           right ? rng_start_tag_open(schema, p->p2, name) : none);
-    }
-    case P_INTERLEAVE: {
-        int right = route_holds(schema, state, ROUTE_ANY_ELEMENT, p->mid, p->hi, 1);
+    case P_INTERLEAVE:
         return pat_choice(
             schema, left ? route_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p, p->p2, 1) : none,
             right ? route_apply_after(schema, rng_start_tag_open(schema, p->p2, name), p, p->p1, 0) : none);
-    }
     default: { /* P_GROUP */
         pattern *first = left ? route_apply_after(schema, rng_start_tag_open(schema, p->p1, name), p, p->p2, 1) : none;
-        if (!rng_nullable(schema, p->p1) || !route_right_element(schema, state, p, name)) {
-            return first;
+        if (right && rng_nullable(schema, p->p1)) {
+            return rng_group_choice(schema, first, rng_start_tag_open(schema, p->p2, name));
         }
-        return rng_choice(schema, first, rng_start_tag_open(schema, p->p2, name));
+        return first;
     }
     }
 }
