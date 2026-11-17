@@ -1117,13 +1117,21 @@ def test_resolve_links_reads_the_host_of_a_special_base_without_authority(base: 
 
 
 @pytest.mark.parametrize(
-    ("base", "href", "expected"),
+    ("base", "href"),
     [
-        pytest.param("http:", "x", "http:/x", id="special-base-without-host"),
+        pytest.param("http:", "x", id="special-base-without-host"),
+        pytest.param("http:/", "x", id="special-base-one-slash"),
+        pytest.param("https://h:99999/a", "x", id="port-out-of-range"),
+        pytest.param("https://[h/a", "x", id="unbalanced-ipv6"),
     ],
 )
-def test_resolve_links_joins_bases_outside_the_host_rule_as_before(base: str, href: str, expected: str) -> None:
-    assert _resolved_href(href, base) == expected
+def test_resolve_links_leaves_links_under_a_base_the_url_standard_rejects_as_written(base: str, href: str) -> None:
+    assert _resolved_href(href, base) == href
+
+
+def test_resolve_links_keeps_an_over_length_base_as_written() -> None:
+    base = f"https://H/{'a/' * 1100}"
+    assert _resolved_href("x", base) == f"{base}x"
 
 
 @pytest.mark.parametrize(
@@ -1143,11 +1151,6 @@ def test_resolve_links_joins_bases_outside_the_host_rule_as_before(base: str, hr
 )
 def test_resolve_links_normalizes_the_base_before_joining(base: str, href: str, expected: str) -> None:
     assert _resolved_href(href, base) == expected
-
-
-def test_resolve_links_raises_on_an_unbalanced_ipv6_base() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        _resolved_href("x", "https://[h/a")
 
 
 @pytest.mark.parametrize(
