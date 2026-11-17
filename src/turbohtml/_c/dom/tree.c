@@ -731,8 +731,7 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_cap = (Py_ssize_t)cap;
     }
     tree->open[tree->open_len++] = node;
-    if (node != NULL && node->ns == TH_NS_HTML &&
-        node->atom == TH_TAG_P) { /* GCOVR_EXCL_BR_LINE: NULL only on allocation failure */
+    if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) { /* GCOVR_EXCL_BR_LINE: alloc failure */
         tree->open_p_count++;
     }
     if (!stack_push_checks(tree, node)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
