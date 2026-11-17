@@ -911,7 +911,11 @@ TH_NODE_API(static, PyObject *, range_new, (PyTypeObject * type, PyObject *args,
 static void range_dealloc(PyObject *self) {
     RangeObject *range = (RangeObject *)self;
     PyTypeObject *type = Py_TYPE(self);
-    live_untrack(range);
+    if (range->live_tree != NULL) {
+        Py_BEGIN_CRITICAL_SECTION(range->start_handle); /* walkers of the live-range list hold this tree's lock */
+        live_untrack(range);
+        Py_END_CRITICAL_SECTION();
+    }
     Py_XDECREF(range->start_handle);
     Py_XDECREF(range->end_handle);
     type->tp_free(self);
