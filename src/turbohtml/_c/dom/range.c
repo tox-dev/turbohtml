@@ -806,18 +806,30 @@ void th_live_split(th_tree *tree, th_node *node, Py_ssize_t offset, th_node *tai
     }
 }
 
-/* normalize folds part into into, whose text is offset code points long at that point: the boundaries in part move
-   to the same point in into. */
+/* The normalize merge for one boundary: a point in part moves to the same point in into, and a point on part's parent
+   at part's index moves to the end of into, where the merged text now sits. */
+static void merged_point(th_node **container, Py_ssize_t *position, th_node *part, th_node *into, Py_ssize_t offset,
+                         Py_ssize_t *index) {
+    if (*container == part) {
+        *container = into;
+        *position += offset;
+    } else if (*container == part->parent) {
+        if (*index < 0) {
+            *index = index_in_parent(part);
+        }
+        if (*position == *index) {
+            *container = into;
+            *position = offset;
+        }
+    }
+}
+
+/* normalize folds part into into, whose text is offset code points long at that point. */
 void th_live_merged(th_tree *tree, th_node *part, th_node *into, Py_ssize_t offset) {
+    Py_ssize_t index = -1;
     for (RangeObject *range = *th_tree_live_ranges_ptr(tree); range != NULL; range = range->live_next) {
-        if (range->start_node == part) {
-            range->start_node = into;
-            range->start_offset += offset;
-        }
-        if (range->end_node == part) {
-            range->end_node = into;
-            range->end_offset += offset;
-        }
+        merged_point(&range->start_node, &range->start_offset, part, into, offset, &index);
+        merged_point(&range->end_node, &range->end_offset, part, into, offset, &index);
     }
 }
 
