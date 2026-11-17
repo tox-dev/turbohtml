@@ -1976,6 +1976,30 @@ def _with_tail(tail: str, *, first: bool) -> str:
     return _crossed_chain("<text/>", f"<group>{walk}</group>", "group", count=11)
 
 
+@pytest.mark.parametrize("first", [pytest.param(True, id="tail-first"), pytest.param(False, id="tail-last")])
+@pytest.mark.parametrize(
+    ("tail", "xml", "valid"),
+    [pytest.param(*row[:3], id=row[3]) for row in _TAILS if row[3].startswith("list-")],
+)
+def test_rng_shared_define_memo_paths_after_valued_ladder(tail: str, xml: str, *, valid: bool, first: bool) -> None:
+    # each rung holds an optional value, which is not weak, so no rung's tail is closed and the text keeps its places
+    assert rng_ok(_valued_with_tail(tail, first=first), xml) is valid
+
+
+def _valued_with_tail(tail: str, *, first: bool) -> str:
+    walk = f'<ref name="d0"/>{tail}' if first else f'{tail}<ref name="d0"/>'
+    defines = "".join(
+        f'<define name="{name}{index}"><group><optional><value>v{index}</value></optional><group>'
+        f'<ref name="{left}{index + 1}"/><ref name="{right}{index + 1}"/></group></group></define>'
+        for index in range(11)
+        for name, left, right in (("d", "d", "e"), ("e", "e", "d"))
+    )
+    return rgrammar(
+        f'<start><element name="r"><group>{walk}</group></element></start>{defines}'
+        '<define name="d11"><text/></define><define name="e11"><text/></define>'
+    )
+
+
 @pytest.mark.parametrize(
     ("schema", "xml", "valid"),
     [
@@ -4868,10 +4892,24 @@ _X_TEXT_HALVES: Final[str] = (
     f"<group><text/>{_repeat(_X_OPTIONAL, 4)}"
     f"<text/>{''.join(_X_OPTIONAL.format(index) for index in range(4, 8))}</group>"
 )
+# each element carries its own attribute, so no two of them have the same content and no one content covers a half
+_X_DISTINCT_OPTIONAL: Final[str] = (
+    '<optional><element name="x{0}"><attribute name="a{0}"/><empty/></element></optional>'
+)
+
+
+def _distinct_text_halves(size: int) -> str:
+    first = "".join(_X_DISTINCT_OPTIONAL.format(index) for index in range(size))
+    second = "".join(_X_DISTINCT_OPTIONAL.format(index) for index in range(size, 2 * size))
+    return f"<group><text/>{first}<text/>{second}</group>"
 
 
 def _xs(*indexes: int) -> str:
     return "".join(f"<x{index}/>" for index in indexes)
+
+
+def _xas(*indexes: int) -> str:
+    return "".join(f'<x{index} a{index}="1"/>' for index in indexes)
 
 
 def _xs_but(*skipped: int) -> str:
@@ -4893,6 +4931,8 @@ def _xs_but(*skipped: int) -> str:
         ),
         pytest.param(_X_TEXT_HALVES, "", "t", _xs(5), True, id="text-in-both-halves"),
         pytest.param(_X_TEXT_HALVES, "", "t", _xs(5, 1), False, id="text-in-both-halves-reordered"),
+        pytest.param(_distinct_text_halves(4), "", "t", _xas(5), True, id="distinct-halves-4"),
+        pytest.param(_distinct_text_halves(4), "", "t", _xas(5, 1), False, id="distinct-halves-4-reordered"),
         pytest.param(
             f"<interleave>{_repeat(_X_WITH_ATTRIBUTE, 20)}</interleave>",
             ' a3="1"',
