@@ -317,13 +317,16 @@ static PyObject *url_percent_encode_slow(PyObject *url, int check_encoded_dot) {
             }
         }
     }
+    const char *path_start = out + prefix_written;
+    Py_ssize_t path_len = written - prefix_written;
     if (hierarchical &&
         (check_encoded_dot == 2 ||
-         (check_encoded_dot && (url_has_literal_dot_path(out + prefix_written, written - prefix_written) ||
-                                url_has_encoded_dot(out + prefix_written, written - prefix_written))) ||
-         (backslash_path && (memchr(out + prefix_written, '.', (size_t)(written - prefix_written)) != NULL ||
-                             memchr(out + prefix_written, '%', (size_t)(written - prefix_written)) != NULL)))) {
-        PyObject *path = PyUnicode_DecodeASCII(out + prefix_written, written - prefix_written, "strict");
+         (check_encoded_dot &&
+          (url_has_literal_dot_path(path_start, path_len) ||
+           url_has_encoded_dot(path_start, path_len))) || /* GCOVR_EXCL_BR_LINE: LLVM splits the short-circuit edge */
+         (backslash_path &&
+          (memchr(path_start, '.', (size_t)path_len) != NULL || memchr(path_start, '%', (size_t)path_len) != NULL)))) {
+        PyObject *path = PyUnicode_DecodeASCII(path_start, path_len, "strict");
         if (path == NULL) {    /* GCOVR_EXCL_BR_LINE: encoded path contains ASCII only */
             PyMem_Free(out);   /* GCOVR_EXCL_LINE: decode-failure path */
             Py_DECREF(scalar); /* GCOVR_EXCL_LINE: decode-failure path */

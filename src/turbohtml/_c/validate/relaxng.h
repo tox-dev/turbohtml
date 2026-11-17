@@ -233,8 +233,9 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
 #define MEMO_FREE_STEPS 1024
 #endif
 
-/* Leaves a choice built during validation may hold for each element of the schema, and at least the floor. A residual
-   with two levels of nested ambiguity stays under it; one that doubles with each define passes it within a few. */
+/* Leaves a choice built during validation may hold for each element of the schema; both checks against the limit pass
+   the floor first, so a small schema still allows the floor. A residual with two levels of nested ambiguity stays under
+   it; one that doubles with each define passes it within a few. */
 #define RNG_CHOICE_PER_NODE 24
 #define RNG_CHOICE_FLOOR 256
 
@@ -242,9 +243,7 @@ enum { MEMO_NULLABLE, MEMO_TEXT, MEMO_OPEN, MEMO_ATT, MEMO_CLOSE };
    merge wide enough to need the limit computes it, so a validation that never builds a wide choice pays nothing. */
 static RNG_NOINLINE Py_ssize_t rng_choice_limit(th_schema *schema) {
     if (schema->choice_limit == 0) {
-        Py_ssize_t nodes = schema_count_elements(th_tree_document(schema->tree));
-        schema->choice_limit =
-            nodes * RNG_CHOICE_PER_NODE > RNG_CHOICE_FLOOR ? nodes * RNG_CHOICE_PER_NODE : RNG_CHOICE_FLOOR;
+        schema->choice_limit = schema_count_elements(th_tree_document(schema->tree)) * RNG_CHOICE_PER_NODE;
     }
     return schema->choice_limit;
 }
@@ -602,7 +601,7 @@ static RNG_NOINLINE pattern *pat_choice_merge(th_schema *schema, pattern *p1, pa
     if (rng_event_spend(schema, work)) {
         return schema->p_notallowed;
     }
-    /* the limit is never below RNG_CHOICE_FLOOR, so a smaller choice needs no check */
+    /* a choice within RNG_CHOICE_FLOOR is allowed whatever the schema size, so it needs no check */
     if (trie_size(merged) > RNG_CHOICE_FLOOR && trie_size(merged) > rng_choice_limit(schema)) {
         schema->choice_limit = -1;
         return schema->p_notallowed;
