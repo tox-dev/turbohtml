@@ -379,6 +379,7 @@ typedef struct {
     th_node *node;
     PyObject *append_html;    /* emit just before the end tag (already escaped) */
     PyObject *after_html;     /* emit just after the end tag (already escaped) */
+    PyObject *after_raw;      /* emit just after the content of an unclosed raw-text element (CR folded, unescaped) */
     th_node *shadow;          /* the element of the th_shadow this entry follows, or NULL */
     th_node *mirrored;        /* the SVG/MathML element the mirror opened for the start tag, or NULL */
     Py_ssize_t content_start; /* output offset where the element's content begins */
@@ -394,6 +395,7 @@ typedef struct {
     uint8_t drop_content;   /* suppress this element's inner tokens */
     uint8_t drop_end_tag;   /* do not emit the element's end tag */
     uint8_t literal;        /* a handler wrote unescaped text into this raw-text element */
+    uint8_t after_literal;  /* after() wrote non-html text into this raw-text element */
     uint8_t ns;             /* the namespace the tree builder gives the element (the node stays HTML for matching) */
     uint8_t integration;    /* RW_TEXT_INTEGRATION or RW_HTML_INTEGRATION as the start tag read, before any edit */
     int8_t model;           /* the content model the start tag switched to, or -1 */
@@ -764,6 +766,14 @@ static PyObject *rw_after(rw_handle *self, PyObject *args, PyObject *kwds) {
     int text_raw = rw_text_is_raw(self, raw, 0);
     if (rw_accumulate(slot, content, text_raw) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
         return NULL;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (self->kind == RW_ELEMENT && rw_model_is_raw(self->open->model)) {
+        if (rw_accumulate(&self->open->after_raw, content, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
+            return NULL;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (!raw) {
+            self->open->after_literal = 1;
+        }
     }
     Py_RETURN_NONE;
 }
@@ -2131,6 +2141,7 @@ static Py_ssize_t rw_pop_to(rw_ctx *ctx, Py_ssize_t keep) {
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
+        Py_XDECREF(open->after_raw);
     }
     return closed;
 }
@@ -2781,6 +2792,7 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
         }
         Py_XDECREF(open.append_html);
         Py_XDECREF(open.after_html);
+        Py_XDECREF(open.after_raw);
         if (handle != NULL) {
             handle->live = 0;
             Py_DECREF(handle);
@@ -3042,6 +3054,7 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
+        Py_XDECREF(open->after_raw);
         ctx->open_len -= open->long_values;
         rw_free_node(ctx, open->node);
     }
@@ -3072,6 +3085,7 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
     }
     Py_XDECREF(closing->append_html);
     Py_XDECREF(closing->after_html);
+    Py_XDECREF(closing->after_raw);
     ctx->open_len -= closing->long_values;
     rw_close_name(ctx, closing);
     rw_free_node(ctx, closing->node);
@@ -3345,6 +3359,7 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     for (Py_ssize_t index = 0; index < ctx->depth; index++) {
         Py_XDECREF(ctx->stack[index].append_html);
         Py_XDECREF(ctx->stack[index].after_html);
+        Py_XDECREF(ctx->stack[index].after_raw);
         rw_free_node(ctx, ctx->stack[index].node);
     }
     th_shadow_free(ctx->shadow); /* its text spans the tokenizer's input, freed below */
@@ -3541,15 +3556,21 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         if (emit && open->append_html != NULL) {
             rw_out_str(&ctx.out, open->append_html);
         }
-        /* PLAINTEXT has no end tag, so nothing written into it can end it */
-        if (emit && open->literal && open->model != TH_INIT_PLAINTEXT && rw_raw_content_closes_early(&ctx, open)) {
-            break; /* still on the spine, so rw_ctx_clear frees it */
-        }
-        if (emit && open->after_html != NULL) {
+        int inside =
+            open->after_raw != NULL && !open->drop_end_tag && (ctx.mirror == NULL || rw_output_raw(&ctx, open));
+        if (emit && inside) {
+            rw_out_str(&ctx.out, open->after_raw);
+        } else if (emit && open->after_html != NULL) {
             rw_out_str(&ctx.out, open->after_html);
+        }
+        /* PLAINTEXT has no end tag, so nothing written into it can end it */
+        if (emit && (open->literal || (inside && open->after_literal)) && open->model != TH_INIT_PLAINTEXT &&
+            rw_raw_content_closes_early(&ctx, open)) {
+            break; /* still on the spine, so rw_ctx_clear frees it */
         }
         Py_XDECREF(open->append_html);
         Py_XDECREF(open->after_html);
+        Py_XDECREF(open->after_raw);
         ctx.open_len -= open->long_values;
         rw_free_node(&ctx, open->node);
         ctx.depth--;
