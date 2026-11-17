@@ -1666,7 +1666,7 @@ static TH_NOINLINE PyObject *join_extra_slash_authority(const url_ref *base_part
     for (Py_ssize_t index = ref_parts->path_start; index < ref_parts->path_end && !backslash_path; index++) {
         backslash_path = ref_parts->buf[index] == '\\';
     }
-    if ((!ref_parts->has_scheme || same_scheme) && !empty_authority && !(ref_parts->has_netloc && backslash_path)) {
+    if ((!ref_parts->has_scheme || same_scheme) && !empty_authority && !backslash_path) {
         return Py_None;
     }
     const url_ref *scheme_parts = ref_parts->has_scheme ? ref_parts : base_parts;
@@ -1911,7 +1911,7 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         }
         PyObject *resolved = th_url_resolve(base, input);
         Py_DECREF(input);
-        if (resolved == NULL && PyErr_ExceptionMatches(PyExc_ValueError)) {
+        if (resolved == NULL && PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             PyErr_Clear();
             return Py_NewRef(target);
         }
@@ -1922,8 +1922,7 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         return NULL;
     }
     if (link && base_parts.has_scheme && !base_special && !url_hierarchical(&base_parts) && !ref_parts.has_scheme &&
-        !ref_parts.has_netloc && ref_parts.path_end == ref_parts.path_start && !ref_parts.has_query &&
-        ref_parts.has_fragment) {
+        !ref_parts.has_netloc && ref_parts.path_end == ref_parts.path_start && !ref_parts.has_query) {
         PyObject *fragment_only = build_url(
             1, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, 0, base_parts.buf, 0, 0, base_parts.buf,
             base_parts.path_start, base_parts.path_end, base_parts.has_query, base_parts.buf, base_parts.query_start,
@@ -1950,8 +1949,6 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         ref_parts.has_scheme &&
         !(base_parts.has_scheme && spans_equal(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end,
                                                ref_parts.buf, ref_parts.scheme_start, ref_parts.scheme_end));
-    int hierarchical = document && (base_parts.has_netloc || (base_parts.path_end > base_parts.path_start &&
-                                                              base_parts.buf[base_parts.path_start] == '/'));
     int nonspecial_base = link && base_parts.has_scheme && !base_special && url_hierarchical(&base_parts);
     int relative = c14n || (scheme_has && scheme_is_relative(scheme_buf, scheme_start, scheme_end)) ||
                    (nonspecial_base && !ref_parts.has_scheme);
@@ -2001,8 +1998,7 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
         PyMem_Free(ref_parts.buf);
         return absolute;
     }
-    if (scheme_differs || (scheme_has && !relative && !(document && !ref_parts.has_scheme && hierarchical)) ||
-        (document && ref_parts.has_scheme && !base_special)) {
+    if (scheme_differs || (scheme_has && !relative)) {
         PyMem_Free(base_parts.buf);
         PyMem_Free(ref_parts.buf);
         return Py_NewRef(target);
