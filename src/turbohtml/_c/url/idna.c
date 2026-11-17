@@ -730,6 +730,218 @@ static Py_ssize_t emit_label(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, P
     return emit_encoded(out, at, scratch, decoded, scratch + decoded);
 }
 
+/* The bidi class and joining type rows of data/idna_table.h, in the order tools/generate_idna.py numbers them. */
+typedef enum {
+    BIDI_L,
+    BIDI_R,
+    BIDI_AL,
+    BIDI_EN,
+    BIDI_ES,
+    BIDI_ET,
+    BIDI_AN,
+    BIDI_CS,
+    BIDI_NSM,
+    BIDI_BN,
+    BIDI_B,
+    BIDI_S,
+    BIDI_WS,
+    BIDI_ON,
+    BIDI_LRE,
+    BIDI_LRO,
+    BIDI_RLE,
+    BIDI_RLO,
+    BIDI_PDF,
+    BIDI_LRI,
+    BIDI_RLI,
+    BIDI_FSI,
+    BIDI_PDI,
+} idna_bidi_class;
+
+typedef enum {
+    JOIN_U,
+    JOIN_C,
+    JOIN_D,
+    JOIN_L,
+    JOIN_R,
+    JOIN_T,
+} idna_joining_type;
+
+#define IDNA_VIRAMA_CCC 9
+#define IDNA_ZWNJ 0x200C
+#define IDNA_ZWJ 0x200D
+
+static uint8_t property_value(const th_idna_property_row *rows, int count, Py_UCS4 cp) {
+    int lo = 0;
+    int hi = count - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (cp < rows[mid].first) {
+            hi = mid - 1;
+        } else if (cp > rows[mid].last) {
+            lo = mid + 1;
+        } else {
+            return rows[mid].value;
+        }
+    }
+    return 0;
+}
+
+static uint8_t bidi_of(Py_UCS4 cp) {
+    return property_value(th_idna_bidi, th_idna_bidi_count, cp);
+}
+
+static uint8_t joining_of(Py_UCS4 cp) {
+    return property_value(th_idna_joining, th_idna_joining_count, cp);
+}
+
+static uint8_t mark_of(Py_UCS4 cp) {
+    return property_value(th_idna_mark, th_idna_mark_count, cp);
+}
+
+/* RFC 5893 section 2, the Bidi rule UTS #46 applies with CheckBidi: a label with no R, AL or AN is left-to-right and
+   passes; otherwise its first character sets the direction and the rule's six conditions must all hold. */
+static int bidi_label_ok(const Py_UCS4 *label, Py_ssize_t len) {
+    int bidi_label = 0;
+    for (Py_ssize_t index = 0; index < len && !bidi_label; index++) {
+        uint8_t klass = bidi_of(label[index]);
+        bidi_label = klass == BIDI_R || klass == BIDI_AL || klass == BIDI_AN;
+    }
+    if (!bidi_label) {
+        return 1;
+    }
+    uint8_t first = bidi_of(label[0]);
+    int rtl;
+    if (first == BIDI_R || first == BIDI_AL) {
+        rtl = 1;
+    } else if (first == BIDI_L) {
+        rtl = 0;
+    } else {
+        return 0;
+    }
+    Py_ssize_t last = len - 1;
+    while (last > 0 && bidi_of(label[last]) == BIDI_NSM) {
+        last--;
+    }
+    uint8_t ending = bidi_of(label[last]);
+    int saw_en = 0;
+    int saw_an = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        uint8_t klass = bidi_of(label[index]);
+        if (rtl) {
+            int allowed = klass == BIDI_R || klass == BIDI_AL || klass == BIDI_AN || klass == BIDI_EN ||
+                          klass == BIDI_ES || klass == BIDI_CS || klass == BIDI_ET || klass == BIDI_ON ||
+                          klass == BIDI_BN || klass == BIDI_NSM;
+            if (!allowed) {
+                return 0;
+            }
+            saw_en |= klass == BIDI_EN;
+            saw_an |= klass == BIDI_AN;
+        } else {
+            int allowed = klass == BIDI_L || klass == BIDI_EN || klass == BIDI_ES || klass == BIDI_CS ||
+                          klass == BIDI_ET || klass == BIDI_ON || klass == BIDI_BN || klass == BIDI_NSM;
+            if (!allowed) {
+                return 0;
+            }
+        }
+    }
+    if (rtl) {
+        return (ending == BIDI_R || ending == BIDI_AL || ending == BIDI_EN || ending == BIDI_AN) && !(saw_en && saw_an);
+    }
+    return ending == BIDI_L || ending == BIDI_EN;
+}
+
+/* RFC 5892 appendix A.1: a ZWNJ at `at` is valid after a virama, or between a joining letter (L or D, skipping
+   transparent T) on its left and a right-joining one (R or D, skipping T) on its right. */
+static int zwnj_joins(const Py_UCS4 *label, Py_ssize_t len, Py_ssize_t at) {
+    Py_ssize_t before = at;
+    while (before > 0 && joining_of(label[before - 1]) == JOIN_T) {
+        before--;
+    }
+    if (before == 0 || (joining_of(label[before - 1]) != JOIN_L && joining_of(label[before - 1]) != JOIN_D)) {
+        return 0;
+    }
+    Py_ssize_t after = at + 1;
+    while (after < len && joining_of(label[after]) == JOIN_T) {
+        after++;
+    }
+    return after < len && (joining_of(label[after]) == JOIN_R || joining_of(label[after]) == JOIN_D);
+}
+
+/* RFC 5892 appendix A.1 and A.2 (CheckJoiners): a ZWJ needs a virama before it, a ZWNJ a virama or a joining context.
+ */
+static int joiners_ok(const Py_UCS4 *label, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (label[index] != IDNA_ZWNJ && label[index] != IDNA_ZWJ) {
+            continue;
+        }
+        if (index > 0 && ccc_of(label[index - 1]) == IDNA_VIRAMA_CCC) {
+            continue;
+        }
+        if (label[index] == IDNA_ZWJ || !zwnj_joins(label, len, index)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether a non-empty label is a valid U-label: each code point maps to itself, the label is in NFC, and it passes
+   the Bidi and joiner rules. `scratch` holds the NFC comparison and needs room for eight code points per input. */
+static int label_valid(const Py_UCS4 *label, Py_ssize_t len, Py_UCS4 *scratch) {
+    if (mark_of(label[0]) != 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (map_row(label[index])->status != 0) {
+            return 0;
+        }
+    }
+    if (!nfc_is_normalized(label, len)) {
+        Py_ssize_t normal = nfc(label, len, scratch);
+        if (normal != len) {
+            return 0;
+        }
+        for (Py_ssize_t index = 0; index < len; index++) {
+            if (scratch[index] != label[index]) {
+                return 0;
+            }
+        }
+    }
+    return bidi_label_ok(label, len) && joiners_ok(label, len);
+}
+
+/* UTS #46 validity for a host that has non-ASCII input: every label is a valid U-label, and an "xn--" label is valid
+   punycode whose decoding is a valid U-label that is not ASCII. An all-ASCII host skips these checks, as WHATWG and
+   Node do, so an ASCII "xn--" label keeps the verbatim advisory handling emit_label gives it. Returns 1 when valid, 0
+   when a label is not, and -1 when a buffer cannot be allocated. */
+static int host_labels_valid(const Py_UCS4 *norm, Py_ssize_t norm_len, Py_UCS4 *scratch) {
+    Py_ssize_t label_start = 0;
+    for (Py_ssize_t index = 0; index <= norm_len; index++) {
+        if (index < norm_len && norm[index] != '.') {
+            continue;
+        }
+        const Py_UCS4 *label = norm + label_start;
+        Py_ssize_t len = index - label_start;
+        label_start = index + 1;
+        if (!has_xn_prefix(label, len)) {
+            if (!span_is_ascii(label, len) && !label_valid(label, len, scratch)) {
+                return 0;
+            }
+            continue;
+        }
+        if (!span_is_ascii(label, len)) {
+            return 0;
+        }
+        Py_ssize_t decoded = puny_decode(label + 4, len - 4, scratch);
+        if (decoded == PUNY_NO_MEMORY) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (decoded <= 0 || span_is_ascii(scratch, decoded) || !label_valid(scratch, decoded, scratch + decoded)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 typedef enum {
     IDNA_OK,
     IDNA_DISALLOWED,
@@ -778,10 +990,18 @@ static idna_status idna_to_ascii(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS
         TH_IDNA_FREE(scratch);            /* GCOVR_EXCL_LINE: allocation-failure path */
         return IDNA_NO_MEMORY;            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    idna_status status = IDNA_OK;
+    if (!span_is_ascii(input, in_len)) {
+        int valid = host_labels_valid(norm, norm_len, scratch);
+        if (valid < 0) {             /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            status = IDNA_NO_MEMORY; /* GCOVR_EXCL_LINE: allocation-failure path */
+        } else if (!valid) {
+            status = IDNA_DISALLOWED;
+        }
+    }
     Py_ssize_t at = 0;
     Py_ssize_t label_start = 0;
-    idna_status status = IDNA_OK;
-    for (Py_ssize_t index = 0; index <= norm_len; index++) {
+    for (Py_ssize_t index = 0; status == IDNA_OK && index <= norm_len; index++) {
         if (index < norm_len && norm[index] != '.') {
             continue;
         }
