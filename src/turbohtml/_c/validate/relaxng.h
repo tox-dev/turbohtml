@@ -2867,9 +2867,8 @@ static int route_reach(th_schema *schema, int kind, const Py_UCS4 *uri, Py_ssize
             }
         }
     }
-    if (route_reach_keep(schema, uri, uri_len, local, local_len) <
-        0) {       /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1; /* GCOVR_EXCL_LINE */
+    if (route_reach_keep(schema, uri, uri_len, local, local_len) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        return -1;                                                      /* GCOVR_EXCL_LINE */
     }
     routing->reach.kind = kind;
     routing->reach.uri_len = uri_len;
