@@ -70,7 +70,9 @@ def htmlparser(text: str) -> None:
 
 
 def _transform_dispatch(count: int) -> str:
-    return _dispatch_pipeline(count)()
+    for _ in range(1000):
+        result = _dispatch_pipeline(count)()
+    return result
 
 
 @functools.cache

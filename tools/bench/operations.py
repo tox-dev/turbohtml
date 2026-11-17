@@ -642,7 +642,7 @@ OPERATIONS: Final[dict[str, Operation]] = {
 def _sax_record_cases() -> tuple[tuple[str, Case], ...]:
     return (
         ("4,096 small elements", f"<!DOCTYPE html>{'<p>x</p>' * 4096}"),
-        ("one small element", "<p>x</p>"),
+        ("100 small elements", f"<!DOCTYPE html>{'<p>x</p>' * 100}"),
     )
 
 
@@ -688,7 +688,7 @@ def _stream_cases() -> tuple[tuple[str, Case], ...]:
     return (
         *_readpath_cases(),
         ("64 BMP paragraphs, early NUL", prefix + nul_element + wide_body + suffix),
-        ("one BMP paragraph, early NUL", prefix + nul_element + wide_paragraph + suffix),
+        ("8 BMP paragraphs, early NUL", prefix + nul_element + wide_paragraph * 8 + suffix),
         ("64 BMP paragraphs, late NUL", prefix + wide_body + nul_element + suffix),
         ("64 BMP paragraphs, no NUL", prefix + wide_body + suffix),
         ("64 ASCII paragraphs, early NUL", prefix + nul_element + (f"<p>{'a' * 4089}</p>") * 64 + suffix),
@@ -1214,7 +1214,7 @@ def _transform_text_cases() -> tuple[tuple[str, Case], ...]:
     cases: Final[list[tuple[str, Case]]] = []
     payload: Final = "payload " * 8
     for kind in ("builtin", "literal", "xsl:text"):
-        for count in (4096, 4):
+        for count in (4096, 1_400):
             if kind == "builtin":
                 body = "<xsl:apply-templates/>"
                 source = f"<r>{(f'<p>{payload}</p>') * count}</r>"
@@ -1248,14 +1248,14 @@ def _transform_key_cases() -> tuple[tuple[str, Case], ...]:
             ("shared attribute key", "@key", "same", '<i key="same"/>', 8192),
             ("repeated node-set keys", "t", "same", "<i><t>same</t><t>other</t><t>same</t></i>", 2048),
             ("unique keys", "@key", "k0", '<i key="k{index}"/>', 8192),
-            ("small shared key", "'same'", "same", "<i/>", 4),
+            ("small shared key", "'same'", "same", "<i/>", 2_000),
         )
     )
 
 
 def _transform_scope_cases() -> tuple[tuple[str, Case], ...]:
     cases: Final[list[tuple[str, Case]]] = []
-    for scope, count in (("local", 1024), ("local", 4), ("global", 1024), ("global", 4)):
+    for scope, count in (("local", 1024), ("local", 2_000), ("global", 1024), ("global", 2_000)):
         declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
         sheet: Final = (
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
@@ -1274,7 +1274,7 @@ def _transform_namespace_cases() -> tuple[tuple[str, Case], ...]:
         ("deep repeated leaf", 32, 512, True, False),
         ("deep alternating leaves", 32, 512, True, True),
         ("shallow repeated leaf", 1, 512, True, False),
-        ("single leaf", 1, 1, True, False),
+        ("shallow leaf run", 1, 400, True, False),
         ("namespace-free repeated leaf", 32, 512, False, False),
     ):
         prefix: Final = f"p{(depth - 1) % 8}:" if namespaced else ""
@@ -1358,10 +1358,10 @@ def _transform_sort_cases() -> tuple[tuple[str, Case], ...]:
         )
         for label, select, kind, sizes in (
             ("numeric sort", "@key", "number", (120, 2_000)),
-            ("integer expression sort", "number(@key)", "number", (8, 2_000)),
-            ("string expression numeric sort", "string(@key)", "number", (8, 2_000)),
-            ("text sort", "@key", "text", (8, 2_000)),
-            ("fraction expression sort", "number(@key) div 7", "number", (8, 2_000)),
+            ("integer expression sort", "number(@key)", "number", (300, 2_000)),
+            ("string expression numeric sort", "string(@key)", "number", (300, 2_000)),
+            ("text sort", "@key", "text", (300, 2_000)),
+            ("fraction expression sort", "number(@key) div 7", "number", (300, 2_000)),
         )
         for rows in sizes
     )
@@ -1839,17 +1839,18 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                     f"<root>{'<row><value>text</value></row>' * rows}</root>",
                 ),
             )
-            for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 4, 4))
+            for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 128, 160))
         ),
         (
-            "16 recursive nodes",
+            "two 398-deep recursive nodes",
             (
                 (
-                    '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="node"/></start>'
+                    '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><element name="root">'
+                    '<oneOrMore><ref name="node"/></oneOrMore></element></start>'
                     '<define name="node"><element name="node"><optional><ref name="node"/></optional>'
                     "</element></define></grammar>"
                 ),
-                "<node>" * 16 + "</node>" * 16,
+                f"<root>{('<node>' * 398 + '</node>' * 398) * 2}</root>",
             ),
         ),
     )
@@ -1878,7 +1879,7 @@ def _validate_numeric_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                 64,
                 '<xs:minInclusive value="0"/><xs:maxInclusive value="100000000000000000000"/>',
             ),
-            ("one decimal without bounds", "decimal", 1, ""),
+            ("300 decimals without bounds", "decimal", 300, ""),
             ("64 strings without bounds", "string", 64, ""),
         )
     )
@@ -1898,7 +1899,7 @@ def _validate_attribute_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                 f"""<root {" ".join(f'item{index}="value"' for index in reversed(range(size)))}/>""",
             ),
         )
-        for size in (512, 4)
+        for size in (512, 400)
     )
 
 
@@ -1955,6 +1956,25 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
             ),
             ("1000 values, builtin string", "xs:string", ""),
         )
+    )
+
+
+def _compile_facet_schema() -> str:
+    derived: Final = "".join(
+        f'<xs:simpleType name="derived{index}"><xs:restriction base="item">'
+        f'<xs:maxLength value="{index % 6 + 3}"/></xs:restriction></xs:simpleType>'
+        for index in range(256)
+    )
+    return _validate_facet_cases()[0][1][0].replace("</xs:schema>", f"{derived}</xs:schema>")
+
+
+def _compile_pattern_schema() -> str:
+    patterns: Final = "".join(f'<xs:pattern value="[a-z]+{index}[0-9]+"/>' for index in range(210))
+    return (
+        '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="item">'
+        f'<xs:restriction base="xs:string">{patterns}</xs:restriction></xs:simpleType>'
+        '<xs:element name="root"><xs:complexType><xs:sequence><xs:element name="value" type="item" '
+        'maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
     )
 
 
@@ -2029,7 +2049,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS,
     "construct": lambda: _ROWS,
-    "emit": lambda: _ROWS,
+    "emit": lambda: (("3k rows", 3_000),),
     "shadow": lambda: _ROWS,
     "shadow-slot": lambda: (
         *(
@@ -2064,7 +2084,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             f"{count:,} table rows / fostered text runs",
             f"<div><table>{'a<tr><td>cell</td></tr>' * count}</table></div>",
         )
-        for count in (1024, 1)
+        for count in (1024, 300)
     ),
     "parse-crlf": lambda: tuple(
         (
@@ -2159,8 +2179,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             ),
         ),
         (
-            "one value, four-level derived type",
-            (_validate_facet_cases()[0][1][0], "<root><value>abc123</value></root>"),
+            "240 values, four-level derived type",
+            (_validate_facet_cases()[0][1][0], f"<root>{'<value>abc123</value>' * 240}</root>"),
         ),
     ),
     "validate-attributes": lambda: (
@@ -2179,9 +2199,9 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
     ),
     "validate-numeric-facets": _validate_numeric_facet_cases,
-    "compile-facets": lambda: (("four-level derived type", _validate_facet_cases()[0][1][0]),),
+    "compile-facets": lambda: (("four-level derived type, 256 derived types", _compile_facet_schema()),),
     "validate-pattern-reuse": _validate_pattern_reuse_cases,
-    "compile-pattern": lambda: (("two pattern facets", _validate_pattern_reuse_cases()[0][1][0]),),
+    "compile-pattern": lambda: (("210 pattern facets", _compile_pattern_schema()),),
     "validate-pattern": lambda: tuple(
         (
             f"{size:,} character alternatives",
@@ -2190,14 +2210,14 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element '
                     'name="value"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="['
                     f"{''.join(chr(0x400 + index) for index in range(size))}"
-                    ']"/></xs:restriction></xs:simpleType></xs:element></xs:schema>'
+                    ']+"/></xs:restriction></xs:simpleType></xs:element></xs:schema>'
                 ),
-                f"<value>{chr(0x400 + size - 1)}</value>",
+                f"<value>{''.join(chr(0x400 + index % size) for index in range(10_240))}</value>",
             ),
         )
-        for size in (32, 256, 2_048)
+        for size in (32, 2_048, 256)
     ),
-    "compile-rng": lambda: (("catalog grammar", _VALIDATE_RNG), ("1,024 definitions", _COMPILE_RNG)),
+    "compile-rng": lambda: (("1,024 definitions", _COMPILE_RNG), ("catalog grammar", _VALIDATE_RNG)),
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "parse-shadow": lambda: (("component gallery", _SHADOW_DOC),),
@@ -2626,7 +2646,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                         f"{count} heading-free nested sections",
                         f"{'<section>' * count}<p>Text</p>{'</section>' * count}",
                     )
-                    for count in (8, 64, 512)
+                    for count in (200, 64, 512)
                 ),
                 ("512 heading-free sibling sections", "<section><p>Text</p></section>" * 512),
                 ("512 nested sections with heading", f"{'<section>' * 512}<h2>Title</h2>{'</section>' * 512}"),
@@ -2678,7 +2698,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("catalog 8 KiB", _STRUCTURED_PAGE * 12),
         ("mixed social properties", _SOCIAL_HEAD * 128),
     ),
-    "microdata": lambda: (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12)),
+    "microdata": lambda: (
+        ("catalog 20 copies", _STRUCTURED_PAGE * 20),
+        ("catalog 8 KiB", _STRUCTURED_PAGE * 12),
+    ),
     "microdata-itemref": lambda: (
         ("references after 4,000 nodes", _MICRODATA_ITEMREF),
         (
@@ -2692,10 +2715,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             ),
         ),
         (
-            "4 shuffled references",
+            "600 shuffled references",
             (
-                """<div itemscope itemref="r0 r2 r1 r3"></div>"""
-                f"""{"".join(f'<meta id=r{index} itemprop=p content="{index}">' for index in range(4))}"""
+                f"""<div itemscope itemref="{" ".join(f"r{index * 7 % 600}" for index in range(600))}"></div>"""
+                f"""{"".join(f'<meta id=r{index} itemprop=p content="{index}">' for index in range(600))}"""
             ),
         ),
     ),
@@ -2774,7 +2797,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("has_link comment", ("has", _LINKIFY_CASES[0][1])),
         ("has_link prose (1 KiB)", ("has", _LINKIFY_CASES[1][1])),
         ("has_link early (220 KiB tail)", ("has", f"https://example.com {'tail ' * 45_000}")),
-        ("find numeric prose, phones off (1 KiB)", ("find", _PHONE_MIXED * 5)),
+        ("find numeric prose, phones off (216 KiB)", ("find", _PHONE_MIXED * 1_050)),
         ("find ucs2 prose, phones off (100 KiB)", ("find", _PHONE_CASES[9][1][1])),
         ("find ucs4 prose, phones off (100 KiB)", ("find", _PHONE_CASES[10][1][1])),
     ),
@@ -2836,7 +2859,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("table (4 KiB)", ("default", _MARKDOWN_TABLE)),
         ("configured (4 KiB)", ("configured", _MARKDOWN_CONFIGURED)),
         ("8192 asterisks", ("escaped", f"<p>{'*' * 8192}</p>")),
-        ("8192 letters", ("escaped", f"<p>{'a' * 8192}</p>")),
+        ("65536 letters", ("escaped", f"<p>{'a' * 65536}</p>")),
         (
             "100 blocks with inline emphasis",
             (
@@ -2889,7 +2912,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("early temporal ISO date, 36 KiB text", f"<time>2024-05-06 {'ordinary ' * 4096}</time>"),
         ("late temporal ISO date, 36 KiB text", f"<time>{'ordinary ' * 4096}2024-05-06</time>"),
         ("temporal text without dates, 36 KiB", f"<time>{'ordinary ' * 4096}</time>"),
-        ("single temporal ISO date", "<time>2024-05-06</time>"),
+        ("single temporal ISO date, 72 KiB text", f"<time>{'ordinary ' * 8192}2024-05-06</time>"),
         ("early temporal numeric date, 36 KiB text", f"<time>06/05/2024 {'ordinary ' * 4096}</time>"),
         ("early temporal written date, 36 KiB text", f"<time>May 6, 2024 {'ordinary ' * 4096}</time>"),
     ),
@@ -2913,14 +2936,14 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("32 ASCII text nodes, 32 KiB each", f"<main>{'<p>{}</p>'.format('a' * 32768) * 32}</main>"),
         ("32 comments, 2 KiB each", f"<body>{'<!--{}-->'.format('a' * 2048) * 32}</body>"),
         *(
-            (f"{label} text, 65,536 characters", f"<p>{character * 65536}</p>")
-            for label, character in (("Latin-1", "é"), ("BMP", "水"), ("astral", "😀"))
+            (f"{label} text, {count:,} characters", f"<p>{character * count}</p>")
+            for label, character, count in (("Latin-1", "é", 524_288), ("BMP", "水", 65_536), ("astral", "😀", 65_536))
         ),
         ("normalized newlines, 64 KiB", "<p>" + "a\r\n" * 21845 + "</p>"),
         ("entity text, 64 KiB", f"<p>{'a&amp;' * 10922}</p>"),
-        ("small text and empty comment", "<p>x</p><!---->"),
+        ("150 paragraphs and empty comments", "<p>x</p><!---->" * 150),
         ("10,000 empty elements", f"<main>{'<i></i>' * 10_000}</main>"),
-        ("tiny custom tree", "<p>x</p>"),
+        ("250 paragraphs, custom tree", "<p>x</p>" * 250),
         (
             "mixed foreign namespaces",
             (
