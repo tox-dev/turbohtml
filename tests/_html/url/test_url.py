@@ -435,7 +435,8 @@ _BARE_BASE: Final[re.Pattern[str]] = re.compile(
 
 def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
     # a special scheme other than the base's is read as WHATWG reads it, with or without slashes, so it is not compared;
-    # a special base with no authority reads its first segment as the host, which the RFC join does not do
+    # a special base with no authority reads its first segment as the host, which the RFC join does not do;
+    # a reference with whitespace or non-ASCII is resolved the way WHATWG resolves it, which the RFC join does not do
     for base, reference in _corpus():
         scheme = reference.partition(":")[0].lower()
         foreign = scheme in _SPECIAL_SCHEMES and scheme != base.partition(":")[0]
@@ -455,7 +456,15 @@ def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
             "?",
             "#",
         }
-        skipped = (foreign, file_reference, opaque_fragment, bare_authority, bare_base, special_no_authority)
+        skipped = (
+            foreign,
+            file_reference,
+            opaque_fragment,
+            bare_authority,
+            bare_base,
+            special_no_authority,
+            any(ch <= " " or ch > "~" for ch in reference),
+        )
         if not reference.startswith("///") and not any(skipped):
             assert _join_link(base, reference) == _join(base, reference), (base, reference)
 

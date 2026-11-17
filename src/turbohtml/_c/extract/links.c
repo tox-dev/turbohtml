@@ -868,6 +868,17 @@ static int url_authority_escapes(const Py_UCS4 *value, Py_ssize_t start, Py_ssiz
     return 0;
 }
 
+/* Whether value[start,end) holds a code point the URL standard percent-encodes in a path, query or fragment: a C0
+   control or space, DEL, or any non-ASCII code point. A reference holding one takes the join, which encodes it. */
+static int url_path_needs_encoding(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (value[index] <= 0x20 || value[index] >= 0x7F) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
     Py_ssize_t stop = colon + 3;
     Py_ssize_t host = stop;
@@ -919,11 +930,8 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     if (stop == end || value[stop] != '/') {
         return 0;
     }
-    static const Py_UCS4 rejects[] = {'\t', '\r', '\n', '\\'};
-    for (size_t choice = 0; choice < sizeof(rejects) / sizeof(rejects[0]); choice++) {
-        if (url_find_char(value, stop, end, rejects[choice]) >= 0) {
-            return 0;
-        }
+    if (url_path_needs_encoding(value, stop, end) || url_find_char(value, stop, end, '\\') >= 0) {
+        return 0;
     }
     return !url_path_has_dot_candidate(value, stop, end);
 }
@@ -995,7 +1003,7 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     if (!same_scheme) {
         return url_special_link_plain(value, start, colon, end) ||
                (!th_url_scheme_special(value, start, colon) && !url_path_has_dot_candidate(value, colon + 1, end) &&
-                !url_authority_escapes(value, colon + 1, end));
+                !url_authority_escapes(value, colon + 1, end) && !url_path_needs_encoding(value, colon + 1, end));
     }
     if (!base_netloc_scheme) {
         return 0;

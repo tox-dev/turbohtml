@@ -1152,7 +1152,7 @@ static int base_url_removed(Py_UCS4 point) {
     return point == '\t' || point == '\n' || point == '\r';
 }
 
-static PyObject *base_url_input(PyObject *href) {
+PyObject *th_url_parser_input(PyObject *href) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(href);
     int kind = PyUnicode_KIND(href);
     const void *data = PyUnicode_DATA(href);
@@ -1250,7 +1250,7 @@ static th_node *in_document_next(th_node *current, th_node *root) {
 /* Parse `href` the way a <base href> is parsed against `fallback`, the base URL used when `href` does not parse. A base
    resolve_links is given takes the same parse, so its links resolve against the normalized base. */
 PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback) {
-    PyObject *input = base_url_input(href);
+    PyObject *input = th_url_parser_input(href);
     if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE */
     }
@@ -1278,7 +1278,7 @@ PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback) {
 /* The URL standard's parse of an absolute base, with no HTML base policy applied: NULL with a ValueError when the base
    does not parse, which a special scheme without a host does not. */
 PyObject *th_url_base_parse(PyObject *href) {
-    PyObject *input = base_url_input(href);
+    PyObject *input = th_url_parser_input(href);
     if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }

@@ -317,6 +317,9 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback);
 PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback);
 PyObject *th_url_base_parse(PyObject *href);
 PyObject *th_url_normalize_base(PyObject *base);
+/* The URL parser's input: `href` without its leading and trailing C0 controls and spaces, and without any tab, LF or
+   CR. A new reference. */
+PyObject *th_url_parser_input(PyObject *href);
 
 /* Implemented in tables.c, the engine behind Element.rows()/records() and Node.tables(). Each takes the wrapping node
    (owner, for the per-tree handle) and the already-derived tree+node the thin C methods in dom/element.c and dom/node.c
