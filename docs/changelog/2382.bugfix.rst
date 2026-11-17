@@ -1,0 +1,2 @@
+RELAX NG schemas that repeat blocks of optional elements now accept valid documents instead of raising ``ValueError`` as
+too ambiguous, and validate each block in time linear in its elements.
