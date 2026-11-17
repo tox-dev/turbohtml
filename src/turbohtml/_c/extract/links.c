@@ -928,12 +928,27 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     return !url_path_has_dot_candidate(value, stop, end);
 }
 
+static int url_scheme_is_file(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon) {
+    static const char name[] = "file";
+    if (colon - start != 4) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < 4; index++) {
+        if (lower_ascii(value[start + index]) != (Py_UCS4)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Whether the absolute special-scheme reference from `start` reads the same in the link join as it is written: a
-   lowercase scheme, two slashes and a host, and the authority and path checks of url_special_text_plain. Any other form
-   (no slashes, one slash, an empty authority, an upper-case scheme) takes the join, which reads the host and separators
-   as WHATWG does. */
+   lowercase scheme other than file, two slashes and a host, and the authority and path checks of
+   url_special_text_plain. Any other form (no slashes, one slash, an empty authority, an upper-case scheme, a file URL,
+   whose host and empty path the URL standard rewrites) takes the join, which reads the host and separators as WHATWG
+   does. */
 static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
-    if (colon + 3 >= end || value[colon + 1] != '/' || value[colon + 2] != '/') {
+    if (url_scheme_is_file(value, start, colon) || colon + 3 >= end || value[colon + 1] != '/' ||
+        value[colon + 2] != '/') {
         return 0;
     }
     Py_UCS4 host = value[colon + 3];

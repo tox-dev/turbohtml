@@ -1,0 +1,2 @@
+``Node.resolve_links()`` now reads ``file:`` links as browsers do, so ``file://h`` becomes ``file://h/`` and
+``file://localhost/a`` becomes ``file:///a``, where the link was kept as written before.
