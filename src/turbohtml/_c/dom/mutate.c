@@ -2129,14 +2129,9 @@ static int normalize_children(th_tree *tree, th_node *root, int iterators) {
                 if (tree->live_ranges != NULL) {
                     th_live_merged(tree, end, child, merged_len);
                 }
-                if (end->text_len == 0) {
-                    normalize_unlink(tree, end, iterators);
-                } else {
-                    merged_len += end->text_len;
-                }
+                merged_len += end->text_len;
                 end = after;
             }
-            next = child->next_sibling;
             if (merged_len > child->text_len) {
                 if (need_text(tree, child) == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
                     return -1;                        /* GCOVR_EXCL_LINE: allocation failure */
@@ -2149,6 +2144,9 @@ static int normalize_children(th_tree *tree, th_node *root, int iterators) {
                 }
                 Py_ssize_t offset = child->text_len;
                 for (th_node *part = child->next_sibling; part != end; part = part->next_sibling) {
+                    if (part->text_len == 0) {
+                        continue;
+                    }
                     const Py_UCS4 *text = need_text(tree, part);
                     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text realization fails only on allocation failure */
                         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */

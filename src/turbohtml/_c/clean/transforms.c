@@ -127,6 +127,29 @@ static int preserve_whitespace(th_tree *tree, const th_node *node) {
             node->atom == TH_TAG_TEXTAREA || node->atom == TH_TAG_LISTING || node->atom == TH_TAG_TITLE);
 }
 
+/* Each run the collapse drops is a replace-data edit with empty data. The runs go right to left, so each offset is its
+   position in the original text, and a live Range boundary inside a run lands where the run was. */
+static void drop_run(th_tree *tree, th_node *node, Py_ssize_t start, Py_ssize_t end) {
+    th_live_replace_data(tree, node, start, end - start, 0);
+}
+
+static void collapse_live_runs(th_tree *tree, th_node *node, int kind, const void *data, int previous) {
+    Py_ssize_t run_end = -1;
+    for (Py_ssize_t index = node->text_len - 1; index >= 0; index--) {
+        int preceded = index > 0 ? is_space(PyUnicode_READ(kind, data, index - 1)) : previous;
+        int dropped = preceded && is_space(PyUnicode_READ(kind, data, index));
+        if (dropped && run_end < 0) {
+            run_end = index + 1;
+        } else if (!dropped && run_end >= 0) {
+            drop_run(tree, node, index + 1, run_end);
+            run_end = -1;
+        }
+    }
+    if (run_end >= 0) {
+        drop_run(tree, node, 0, run_end);
+    }
+}
+
 static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
     int kind = PyUnicode_4BYTE_KIND;
     const void *data = node->text;
@@ -138,7 +161,8 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
         return -1;                                   /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_ssize_t length = 0;
-    int previous = *last_space;
+    const int initial = *last_space;
+    int previous = initial;
     int changed = 0;
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         Py_UCS4 character = PyUnicode_READ(kind, data, index);
@@ -178,6 +202,9 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
             }
         }
         th_mo_char_data_changed(tree, node, old, node->text_len);
+    }
+    if (th_tree_has_live_ranges(tree)) {
+        collapse_live_runs(tree, node, kind, data, initial);
     }
     node->text = output;
     node->text_len = length;
