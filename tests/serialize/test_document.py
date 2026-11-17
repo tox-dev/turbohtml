@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from html.entities import codepoint2name
 from itertools import combinations_with_replacement, product
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Protocol, cast
+from typing import TYPE_CHECKING, Final, NoReturn, Protocol, cast
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
     ElementTree as ET,
 )
@@ -35,9 +35,10 @@ from turbohtml import (
     parse_fragment,
     parse_xml,
 )
+from turbohtml.etree import fragment_fromstring, tostring
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
@@ -2430,6 +2431,247 @@ def test_encode_keeps_markup_under_a_codec_that_refuses_the_probe_text() -> None
         assert parse("<p>x</p>").select("p")[0].encode("turbohtml_refuses_probe") == b"<p>x</p>"
     finally:
         codecs.unregister(search)
+
+
+@pytest.fixture
+def register_codec() -> Iterator[Callable[[str, codecs.CodecInfo], None]]:
+    searches: Final[list[Callable[[str], codecs.CodecInfo | None]]] = []
+
+    def register(name: str, info: codecs.CodecInfo) -> None:
+        search: Final = {name: info}.get
+        codecs.register(search)
+        searches.append(search)
+
+    yield register
+    for search in searches:
+        codecs.unregister(search)
+
+
+def test_encode_refuses_a_shift_code_past_a_codec_switch_for_a_later_character(
+    register_codec: Callable[[str, codecs.CodecInfo], None],
+) -> None:
+    # the CJK samples are outside the codec's repertoire, so only the sweep reaches U+0100 and its switch
+    register_codec("turbohtml_esc_latin", _codec_info(_EscLatinEncoder))
+    doc: Final = parse("<p>a\x1b</p>")
+    with pytest.raises(UnicodeEncodeError, match="shift code") as refused:
+        doc.encode("turbohtml_esc_latin")
+    assert refused.value.start == doc.serialize().index("\x1b")
+
+
+def _codec_info(encoder: type[codecs.IncrementalEncoder]) -> codecs.CodecInfo:
+    def encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+        return encoder(errors).encode(text, final=True), len(text)
+
+    return codecs.CodecInfo(
+        encode=encode,
+        decode=codecs.lookup("ascii").decode,
+        incrementalencoder=encoder,
+        incrementaldecoder=codecs.IncrementalDecoder,
+    )
+
+
+class _EscLatinEncoder(codecs.IncrementalEncoder):
+    def __init__(self, errors: str = "strict") -> None:
+        super().__init__(errors)
+        self.extended = False
+
+    def encode(self, input: str, final: bool = False) -> bytes:  # ruff:ignore[builtin-argument-shadowing, boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # the codecs API passes final positionally
+        out = bytearray()
+        for character in input:
+            if (code := ord(character)) < 0x80:
+                if self.extended:
+                    out += b"\x1b(B"
+                    self.extended = False
+                out += character.encode("ascii")
+            elif 0x100 <= code <= 0x17F:
+                if not self.extended:
+                    out += b"\x1b$B"
+                    self.extended = True
+                out.append(code - 0x100 + 0x21)
+            else:
+                msg = "esc-latin"
+                raise UnicodeEncodeError(msg, input, 0, 1, "unsupported")
+        if final and self.extended:
+            out += b"\x1b(B"
+            self.extended = False
+        return bytes(out)
+
+
+def test_element_tree_writes_a_shift_code_as_a_reference_under_a_stateful_codec(
+    register_codec: Callable[[str, codecs.CodecInfo], None],
+) -> None:
+    register_codec("turbohtml_esc_latin_etree", _codec_info(_EscLatinEncoder))
+    tree: Final = fragment_fromstring("<p>a\x1b</p>")
+    assert tostring(tree, encoding="turbohtml_esc_latin_etree", method="text") == b"a&#27;"
+
+
+def test_encode_keeps_a_shift_code_under_a_stateless_codec_with_a_narrow_repertoire(
+    register_codec: Callable[[str, codecs.CodecInfo], None],
+) -> None:
+    register_codec("turbohtml_narrow_latin", _codec_info(_NarrowEncoder))
+    assert parse("<p>\x1bĀ</p>").select("p")[0].encode("turbohtml_narrow_latin") == b"<p>\x1b\x80</p>"
+
+
+class _NarrowEncoder(codecs.IncrementalEncoder):
+    def encode(self, input: str, final: bool = False) -> bytes:  # ruff:ignore[builtin-argument-shadowing, boolean-type-hint-positional-argument, boolean-default-value-positional-argument, unused-method-argument, no-self-use]  # the codecs API passes final positionally
+        return codecs.charmap_encode(input, "strict", _NARROW_TABLE)[0]
+
+
+_NARROW_TABLE: Final[dict[int, int]] = {code: code for code in range(0x80)} | {
+    0x100 + offset: 0x80 + offset for offset in range(0x80)
+}
+
+
+def test_encode_refuses_a_shift_code_under_a_codec_that_switches_only_in_its_final_flush(
+    register_codec: Callable[[str, codecs.CodecInfo], None],
+) -> None:
+    # the body writes no escape, so the switch is the flush after a character of the narrow repertoire
+    register_codec("turbohtml_flush_latin", _codec_info(_FlushShiftEncoder))
+    with pytest.raises(UnicodeEncodeError, match="shift code"):
+        parse("<p>\x1b</p>").select("p")[0].encode("turbohtml_flush_latin")
+
+
+class _FlushShiftEncoder(_NarrowEncoder):
+    def __init__(self, errors: str = "strict") -> None:
+        super().__init__(errors)
+        self.wide = False
+
+    def encode(self, input: str, final: bool = False) -> bytes:  # ruff:ignore[builtin-argument-shadowing, boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # the codecs API passes final positionally
+        self.wide = self.wide or any(0x100 <= ord(character) <= 0x17F for character in input)
+        out = super().encode(input, final)
+        if final and self.wide:
+            out += b"\x1b(B"
+            self.wide = False
+        return out
+
+
+def test_encode_probes_a_codec_once(register_codec: Callable[[str, codecs.CodecInfo], None]) -> None:
+    created: list[str] = []
+
+    class CountingEncoder(_NarrowEncoder):
+        def __init__(self, errors: str = "strict") -> None:
+            created.append(errors)
+            super().__init__(errors)
+
+    info: Final = codecs.CodecInfo(
+        encode=lambda text, errors="strict": codecs.charmap_encode(text, errors, _NARROW_TABLE),
+        decode=codecs.lookup("ascii").decode,
+        incrementalencoder=CountingEncoder,
+    )
+    register_codec("turbohtml_counted_latin", info)
+    first: Final = parse("<p>x</p>").encode("turbohtml_counted_latin")
+    probes: Final = len(created)
+    assert probes > 0
+    assert parse("<p>x</p>").encode("turbohtml_counted_latin") == first
+    assert len(created) == probes
+
+
+def test_encode_probes_a_codec_again_after_it_is_re_registered() -> None:
+    narrow: Final = {"turbohtml_swapped_latin": _codec_info(_NarrowEncoder)}.get
+    codecs.register(narrow)
+    try:
+        assert parse("<p>\x1b</p>").select("p")[0].encode("turbohtml_swapped_latin") == b"<p>\x1b</p>"
+    finally:
+        codecs.unregister(narrow)
+    swapped: Final = {"turbohtml_swapped_latin": _codec_info(_EscLatinEncoder)}.get
+    codecs.register(swapped)
+    try:
+        with pytest.raises(UnicodeEncodeError, match="shift code"):
+            parse("<p>aĀ\x1b</p>").select("p")[0].encode("turbohtml_swapped_latin")
+    finally:
+        codecs.unregister(swapped)
+
+
+def test_encode_probes_codec_infos_that_compare_equal_separately() -> None:
+    # CodecInfo compares as its four functions and streams, so these two are equal but for their incremental encoders
+    def encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+        return codecs.charmap_encode(text, errors, _NARROW_TABLE)
+
+    plain: Final = codecs.CodecInfo(encode, codecs.lookup("ascii").decode, incrementalencoder=_NarrowEncoder)
+    flushing: Final = codecs.CodecInfo(encode, codecs.lookup("ascii").decode, incrementalencoder=_FlushShiftEncoder)
+    assert plain == flushing
+    plain_search: Final = {"turbohtml_equal_plain": plain}.get
+    codecs.register(plain_search)
+    try:
+        assert parse("<p>\x1b</p>").select("p")[0].encode("turbohtml_equal_plain") == b"<p>\x1b</p>"
+    finally:
+        codecs.unregister(plain_search)
+    flushing_search: Final = {"turbohtml_equal_flushing": flushing}.get
+    codecs.register(flushing_search)
+    try:
+        with pytest.raises(UnicodeEncodeError, match="shift code"):
+            parse("<p>\x1b</p>").select("p")[0].encode("turbohtml_equal_flushing")
+    finally:
+        codecs.unregister(flushing_search)
+
+
+def test_encode_refuses_a_shift_code_under_a_plain_tuple_codec_info(
+    register_codec: Callable[[str, codecs.CodecInfo], None],
+) -> None:
+    # a search function may return a bare 4-tuple, which has no incremental encoder attribute
+    def encode(text: str, errors: str = "strict") -> tuple[bytes, int]:
+        return _EscLatinEncoder(errors).encode(text, final=True), len(text)
+
+    register_codec("turbohtml_plain_esc", cast("codecs.CodecInfo", (encode, codecs.lookup("ascii").decode, None, None)))
+    with pytest.raises(UnicodeEncodeError, match="shift code"):
+        parse("<p>a\x1b</p>").select("p")[0].encode("turbohtml_plain_esc")
+
+
+@pytest.mark.parametrize("kind", ["constructor-fails", "flush-fails", "returns-text"])
+def test_encode_keeps_a_shift_code_when_the_incremental_encoder_fails(
+    kind: str, register_codec: Callable[[str, codecs.CodecInfo], None]
+) -> None:
+    # a probe that cannot run is not one that writes shift codes, as with a one-shot encode that refuses the sample text
+    encoder: Final[type[codecs.IncrementalEncoder]] = {
+        "constructor-fails": _StartFailsEncoder,
+        "flush-fails": _FlushFailsEncoder,
+        "returns-text": _TextEncoder,
+    }[kind]
+    info: Final = codecs.CodecInfo(
+        encode=lambda text, errors="strict": codecs.charmap_encode(text, errors, _NARROW_TABLE),
+        decode=codecs.lookup("ascii").decode,
+        incrementalencoder=encoder,
+    )
+    register_codec("turbohtml_broken_incremental", info)
+    assert parse("<p>\x1b</p>").select("p")[0].encode("turbohtml_broken_incremental") == b"<p>\x1b</p>"
+
+
+class _StartFailsEncoder(codecs.IncrementalEncoder):
+    def __init__(self, errors: str = "strict") -> None:  # ruff:ignore[unused-method-argument]  # the constructor is what fails
+        msg = "cannot start"
+        raise ValueError(msg)
+
+
+class _FlushFailsEncoder(_NarrowEncoder):
+    def encode(self, input: str, final: bool = False) -> bytes:  # ruff:ignore[builtin-argument-shadowing, boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # the codecs API passes final positionally
+        if final:
+            msg = "flush refused"
+            raise ValueError(msg)
+        return super().encode(input, final)
+
+
+class _TextEncoder(_NarrowEncoder):
+    def encode(self, input: str, final: bool = False) -> bytes:  # ruff:ignore[builtin-argument-shadowing, boolean-type-hint-positional-argument, boolean-default-value-positional-argument, unused-method-argument, no-self-use]  # the codecs API passes final positionally
+        return cast("bytes", input)
+
+
+def test_encode_keeps_a_shift_code_when_a_codec_info_attribute_lookup_fails(
+    register_codec: Callable[[str, codecs.CodecInfo], None],
+) -> None:
+    # the lookup error is an exception from the probe, so it is cleared and the codec is not flagged
+    info: Final = _BrokenInfo((codecs.lookup("ascii").encode, codecs.lookup("ascii").decode, None, None))
+    register_codec("turbohtml_broken_info", cast("codecs.CodecInfo", info))
+    assert parse("<p>\x1b</p>").select("p")[0].encode("turbohtml_broken_info") == b"<p>\x1b</p>"
+
+
+class _BrokenInfo(tuple):
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> NoReturn:
+        if name == "incrementalencoder":
+            msg = "broken codec"
+            raise RuntimeError(msg)
+        raise AttributeError(name)
 
 
 @pytest.mark.parametrize("codec", ["hz", "utf-7"])

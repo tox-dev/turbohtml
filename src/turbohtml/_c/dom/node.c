@@ -2818,12 +2818,17 @@ TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args
     return node_serialize_options(self, options, NULL, inner, NULL);
 }
 
-PyObject *codec_registry_name(const char *encoding) {
+static PyObject *codec_lookup(const char *encoding) {
     PyObject *codecs = PyImport_ImportModule("codecs");
     /* GCOVR_EXCL_BR_START: the untested arm requires the codecs module to fail to import */
     PyObject *info = codecs == NULL ? NULL : PyObject_CallMethod(codecs, "lookup", "s", encoding);
     /* GCOVR_EXCL_BR_STOP */
     Py_XDECREF(codecs);
+    return info;
+}
+
+PyObject *codec_registry_name(const char *encoding) {
+    PyObject *info = codec_lookup(encoding);
     if (info == NULL) {
         return NULL;
     }
@@ -2836,30 +2841,155 @@ PyObject *codec_registry_name(const char *encoding) {
     return name;
 }
 
-/* Whether the codec writes U+000E, U+000F or U+001B as bytes that switch a decoder's state: 1 or 0, or -1 with an
-   exception set. Encoding Japanese, Hangul and Han text reaches the switch bytes of every ISO-2022 codec, whatever its
-   name, while hz and UTF-7 spell their switches as "~{" and "+" and write no raw shift byte. */
-static int codec_emits_shift_bytes(const char *encoding) {
-    static const Py_UCS4 probe_chars[] = {0x3042, 0xAC00, 0x4E2D};
-    PyObject *probe = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, probe_chars, Py_ARRAY_LENGTH(probe_chars));
-    if (probe == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+static int buffer_has_shift_code(PyObject *data) {
+    Py_buffer view;
+    if (PyObject_GetBuffer(data, &view, PyBUF_SIMPLE) < 0) {
+        return -1;
     }
-    PyObject *encoded = PyUnicode_AsEncodedString(probe, encoding, "replace");
-    Py_DECREF(probe);
-    if (encoded == NULL) {
-        if (PyErr_ExceptionMatches(PyExc_LookupError)) {
-            return -1;
-        }
-        PyErr_Clear(); /* a codec that refuses the sample text is not one that writes shift bytes for it */
-        return 0;
-    }
-    const char *bytes = PyBytes_AS_STRING(encoded);
+    const unsigned char *bytes = view.buf;
     int shifting = 0;
-    for (Py_ssize_t index = 0; index < PyBytes_GET_SIZE(encoded) && !shifting; index++) {
+    for (Py_ssize_t index = 0; index < view.len && !shifting; index++) {
         shifting = bytes[index] == 0x0E || bytes[index] == 0x0F || bytes[index] == 0x1B;
     }
-    Py_DECREF(encoded);
+    PyBuffer_Release(&view);
+    return shifting;
+}
+
+static int encode_once_writes_shift(PyObject *info, PyObject *text, const char *errors) {
+    /* codecs.lookup guarantees a 4-tuple, so item 0 is the encode function even when info is a plain tuple */
+    PyObject *pair = PyObject_CallFunction(PyTuple_GET_ITEM(info, 0), "Os", text, errors);
+    PyObject *data = pair == NULL ? NULL : PySequence_GetItem(pair, 0);
+    Py_XDECREF(pair);
+    if (data == NULL) {
+        return -1;
+    }
+    int shifting = buffer_has_shift_code(data);
+    Py_DECREF(data);
+    return shifting;
+}
+
+static int encoder_writes_shift(PyObject *info, PyObject *text, const char *errors) {
+    PyObject *encoder_type = PyObject_GetAttrString(info, "incrementalencoder");
+    if (encoder_type == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_AttributeError)) {
+            return -1;
+        }
+        PyErr_Clear(); /* a plain tuple from a search function carries no incremental encoder */
+    }
+    if (encoder_type == NULL || encoder_type == Py_None) {
+        Py_XDECREF(encoder_type);
+        return encode_once_writes_shift(info, text, errors);
+    }
+    PyObject *encoder = PyObject_CallFunction(encoder_type, "s", errors);
+    Py_DECREF(encoder_type);
+    PyObject *body = encoder == NULL ? NULL : PyObject_CallMethod(encoder, "encode", "O", text);
+    PyObject *flush = body == NULL ? NULL : PyObject_CallMethod(encoder, "encode", "sO", "", Py_True);
+    Py_XDECREF(encoder);
+    PyObject *out = flush == NULL ? NULL : PyNumber_Add(body, flush);
+    Py_XDECREF(body);
+    Py_XDECREF(flush);
+    if (out == NULL) {
+        return -1;
+    }
+    int shifting = buffer_has_shift_code(out);
+    Py_DECREF(out);
+    return shifting;
+}
+
+static int run_writes_shift(PyObject *info, const Py_UCS4 *code_points, Py_ssize_t count) {
+    PyObject *text = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, code_points, count);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int shifting = encoder_writes_shift(info, text, "ignore");
+    Py_DECREF(text);
+    if (shifting >= 0) {
+        return shifting;
+    }
+    PyErr_Clear(); /* a codec that ignores errors= still raises on a run holding one character it cannot encode */
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *character = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, &code_points[index], 1);
+        if (character == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        shifting = encoder_writes_shift(info, character, "strict");
+        Py_DECREF(character);
+        if (shifting < 0) {
+            PyErr_Clear(); /* outside the codec's repertoire, so this character writes nothing */
+            continue;
+        }
+        if (shifting) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int codec_sweep_writes_shift(PyObject *info) {
+    static const Py_UCS4 samples[] = {0x3042, 0xAC00, 0x4E2D};
+    int shifting = run_writes_shift(info, samples, Py_ARRAY_LENGTH(samples));
+    Py_UCS4 run[256];
+    Py_ssize_t count = 0;
+    for (Py_UCS4 code = 0x80; shifting == 0 && code <= 0xFFFF; code++) {
+        if (code >= 0xD800 && code <= 0xDFFF) {
+            continue;
+        }
+        run[count++] = code;
+        if (count == Py_ARRAY_LENGTH(run)) {
+            shifting = run_writes_shift(info, run, count);
+            count = 0;
+        }
+    }
+    return shifting == 0 ? run_writes_shift(info, run, count) : shifting;
+}
+
+/* The entry holds info, so its address, the cache key, cannot be taken by another codec while the entry stands. */
+static int codec_remember(module_state *state, PyObject *key, PyObject *info, int shifting) {
+    PyObject *entry = Py_BuildValue("(OO)", info, shifting ? Py_True : Py_False);
+    if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int stored;
+    Py_BEGIN_CRITICAL_SECTION(state->codec_shift_cache);
+    stored = PyDict_SetItem(state->codec_shift_cache, key, entry);
+    Py_END_CRITICAL_SECTION();
+    Py_DECREF(entry);
+    return stored;
+}
+
+/* Whether the codec writes U+000E, U+000F or U+001B as bytes that switch a decoder's state: 1 or 0, or -1 with an
+   exception set. A codec writes its switch bytes only for characters in its repertoire, which nothing exposes, so the
+   three CJK samples are tried first (every ISO-2022 codec switches for them) and then the whole BMP outside ASCII is
+   encoded through the incremental encoder, final flush included. The answer is cached per codec object, keyed by its
+   identity: CodecInfo compares as a tuple of its four functions and streams, so two codecs can compare equal while
+   their incremental encoders differ. codecs.lookup returns the same object until the codec is unregistered. hz and
+   UTF-7 spell their switches as "~{" and "+" and write no raw shift byte. */
+static int codec_emits_shift_bytes(module_state *state, const char *encoding) {
+    PyObject *info = codec_lookup(encoding);
+    if (info == NULL) {
+        return -1;
+    }
+    PyObject *key = PyLong_FromVoidPtr(info);
+    if (key == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(info); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int shifting = -1;
+    Py_BEGIN_CRITICAL_SECTION(state->codec_shift_cache);
+    PyObject *entry = PyDict_GetItem(state->codec_shift_cache, key);
+    shifting = entry == NULL ? -1 : PyTuple_GET_ITEM(entry, 1) == Py_True;
+    Py_END_CRITICAL_SECTION();
+    if (shifting < 0) {
+        /* the sweep calls into codec code, so it runs outside the critical section */
+        shifting = codec_sweep_writes_shift(info);
+        /* GCOVR_EXCL_START: the sweep and the store fail only on allocation */
+        if (shifting >= 0 && codec_remember(state, key, info, shifting) < 0) {
+            shifting = -1;
+        }
+        /* GCOVR_EXCL_STOP */
+    }
+    Py_DECREF(key);
+    Py_DECREF(info);
     return shifting;
 }
 
@@ -2882,11 +3012,11 @@ static Py_ssize_t shift_code_find(PyObject *text) {
    WHATWG ISO-2022-JP encoder errors on all three for that reason
    (https://encoding.spec.whatwg.org/#iso-2022-jp-encoder), so under those codecs they are characters the encoding
    cannot represent: a strict encode raises UnicodeEncodeError, and charrefs writes them the way "xmlcharrefreplace"
-   writes every other such character. The codec probe is a fixed cost per call, so the scan of the text runs only for
+   writes every other such character. The codec probe is cached per codec, so the scan of the text runs only for
    codecs that switch. */
-PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs) {
+PyObject *markup_encode(module_state *state, PyObject *text, const char *encoding, int charrefs) {
     const char *errors = charrefs ? "xmlcharrefreplace" : NULL;
-    int stateful = codec_emits_shift_bytes(encoding);
+    int stateful = codec_emits_shift_bytes(state, encoding);
     if (stateful < 0) {
         return NULL;
     }
@@ -2928,7 +3058,7 @@ TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, P
     if (text == NULL) {
         return NULL;
     }
-    PyObject *encoded = markup_encode(text, encoding, 0);
+    PyObject *encoded = markup_encode(state_of(self), text, encoding, 0);
     if (encoded != NULL && declared_label != NULL) {
         int reads_back = declaration_reads_back(text, encoded, encoding, declared_label);
         /* GCOVR_EXCL_START: the read-back fails only on allocation */
