@@ -42,6 +42,29 @@ def test_text_blockquote_indent_stops_at_the_nesting_cap() -> None:
     assert text.rsplit("\n", 1)[-1] == f"{' ' * 68}x"
 
 
+def test_markdown_root_item_past_the_nesting_cap_stops_indenting() -> None:
+    item = parse(f"{'<li><ul>' * 9}s").select_one("li")
+    assert item.to_markdown() == "\n".join([*_root_item_markers(9), f"{' ' * 16}s"])
+
+
+# a list item rendered as the root is not walked for the cap, so its nested lists count from the item's indent
+def _root_item_markers(count: int) -> list[str]:
+    return [f"{'  ' * level}- " for level in range(count)]
+
+
+def test_markdown_root_quote_past_the_nesting_cap_drops_its_marker() -> None:
+    item = parse(f"{'<li><ul>' * 8}<blockquote><blockquote>q").select_one("li")
+    lines = [*_root_item_markers(8), f"{' ' * 16}> ", f"{' ' * 16}>", f"{' ' * 16}> q"]
+    assert item.to_markdown() == "\n".join(lines)
+
+
+def test_markdown_root_code_past_the_nesting_cap_is_fenced() -> None:
+    item = parse(f"{'<li><ul>' * 9}<pre>  c\n  d</pre>").select_one("li")
+    fence = f"{' ' * 16}```"
+    lines = [*_root_item_markers(9), fence, f"{' ' * 16}  c", f"{' ' * 16}  d", fence]
+    assert item.to_markdown(Markdown(code=Markdown.Code(block_style="indented"))) == "\n".join(lines)
+
+
 @pytest.mark.parametrize(
     ("source", "method", "expected"),
     [

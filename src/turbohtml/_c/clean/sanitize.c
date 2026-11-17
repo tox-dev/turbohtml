@@ -643,8 +643,8 @@ static int attr_allowed(sanitizer *s, PyObject *tag, uint32_t atom, const char *
     }
     /* Non-ASCII names still need UTF-8 validation even without an exact-name rule. */
     PyObject *attr = PyUnicode_DecodeUTF8(name, len, "surrogatepass");
-    if (attr == NULL) {
-        return -1;
+    if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int allowed = 0;
     for (int which = 0; which < 2 && !allowed; which++) {
@@ -2967,9 +2967,9 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
         PyObject *name_str = PyUnicode_DecodeUTF8(name, name_len, "surrogatepass");
-        if (name_str == NULL) {
-            Py_DECREF(pieces);
-            return NULL;
+        if (name_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(pieces);  /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         PyObject *piece;
         if (attr->value == NULL) {
