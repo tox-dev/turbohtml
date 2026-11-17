@@ -1487,7 +1487,9 @@ def test_computed_style_first_legend_refreshes_after_insert() -> None:
     ("case_index", "expected"),
     [
         pytest.param(0, ("blue",) * 512, id="deep-missing"),
-        pytest.param(1, ("red",) * 510 + ("blue",) * 2, id="deep-matching"),
+        # past the depth cap the parser attaches deeper nodes beside their deepest allowed ancestor, so the last three
+        # divs hold no match
+        pytest.param(1, ("red",) * 509 + ("blue",) * 3, id="deep-matching"),
         pytest.param(2, ("red", "blue") * 2_048, id="wide-positional"),
         pytest.param(3, ("red",) * 8, id="shallow-has"),
     ],
