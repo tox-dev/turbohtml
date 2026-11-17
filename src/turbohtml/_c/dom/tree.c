@@ -574,10 +574,7 @@ static void scope_boundary_atoms(th_atom_set *set) {
 /* The highest index at or below `index` whose block may hold an atom the scan reads, or -1. A search visits every entry
    from there down, so a block that holds none of its atoms is skipped whole; the entries it visits are checked as
    before. */
-static Py_ssize_t stack_scan(const th_tree *tree, Py_ssize_t index, enum stack_scan kind, uint16_t atom) {
-    if (tree->open_blocks == NULL) {
-        return index;
-    }
+static Py_ssize_t stack_scan_blocks(const th_tree *tree, Py_ssize_t index, enum stack_scan kind, uint16_t atom) {
     th_atom_set wanted = {{0}};
     switch (kind) {
     case SCAN_ATOM:
@@ -640,6 +637,11 @@ static Py_ssize_t stack_scan(const th_tree *tree, Py_ssize_t index, enum stack_s
     return -1;
 }
 
+/* A shallow stack has no block summaries, so every search reads all of it and needs no call per entry. */
+static inline Py_ssize_t stack_scan(const th_tree *tree, Py_ssize_t index, enum stack_scan kind, uint16_t atom) {
+    return tree->open_blocks == NULL ? index : stack_scan_blocks(tree, index, kind, atom);
+}
+
 /* An open element nests at most this many levels deep: each stack entry is one level, and each template's content
    fragment is one more. The stack alone undercounts a document of nested templates, which the DOM cap sees. */
 static Py_ssize_t stack_depth_bound(const th_tree *tree) {
@@ -654,6 +656,56 @@ static void note_stack_depth(th_tree *tree) {
     if (stack_depth_bound(tree) >= TH_HAS_MEMO_DEPTH) {
         tree->nest_bound &= TH_NEST_CAPPED;
     }
+}
+
+/* A template's content fragment is one more level, so a template that enters the stack adds to the depth bound. */
+static void note_template_pushed(th_tree *tree) {
+    tree->open_templates++;
+    tree->stack_tracked = 1;
+    note_stack_depth(tree);
+    if (stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
+        tree->depth_near_cap = 1;
+    }
+}
+
+/* The block summaries are built once the stack passes STACK_LAZY_BLOCKS entries. From then on every push and pop
+   updates them, so the push check runs on every push. */
+#define STACK_LAZY_BLOCKS 64
+
+static int stack_blocks_push(th_tree *tree, th_node *node) {
+    Py_ssize_t index = tree->open_len - 1;
+    int building = tree->open_blocks == NULL;
+    if (!blocks_reserve(tree, index / STACK_BLOCK + 1)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return 0;                                         /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    if (building) {
+        blocks_recount(tree, 0, index);
+        tree->stack_tracked = 1;
+        tree->push_check_at = 0;
+    } else {
+        block_add(&tree->open_blocks[index / STACK_BLOCK], node);
+    }
+    return 1;
+}
+
+/* The checks a push makes once the stack reaches push_check_at: the nest bound and the depth cap from the same depth
+   and the block summaries. A push to a shallow stack skips them with one compare. */
+static inline int stack_push_checks(th_tree *tree, th_node *node) {
+    if (tree->open_len < tree->push_check_at) {
+        return 1;
+    }
+    if (tree->open_blocks == NULL && tree->open_len < TH_HAS_MEMO_DEPTH) {
+        tree->push_check_at = TH_HAS_MEMO_DEPTH; /* also how a zeroed tree sets its first gate */
+        return 1;
+    }
+    tree->nest_bound &= TH_NEST_CAPPED;
+    if (stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
+        tree->depth_near_cap = 1;
+    }
+    if (tree->open_blocks != NULL || tree->open_len > STACK_LAZY_BLOCKS) {
+        return stack_blocks_push(tree, node);
+    }
+    return 1;
 }
 
 static int stack_push(th_tree *tree, th_node *node) {
@@ -678,24 +730,10 @@ static int stack_push(th_tree *tree, th_node *node) {
     if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
         tree->open_p_count++;
     }
-    if (is_html_template(node)) {
-        tree->open_templates++;
-    }
-    if (tree->open_blocks != NULL || tree->open_len > STACK_BLOCK) {
-        Py_ssize_t index = tree->open_len - 1;
-        int building = tree->open_blocks == NULL;
-        Py_ssize_t blocks = index / STACK_BLOCK + 1;
-        if (!blocks_reserve(tree, blocks)) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return 0;                        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        if (building) {
-            blocks_recount(tree, 0, index);
-        } else {
-            block_add(&tree->open_blocks[index / STACK_BLOCK], node);
-        }
+    if (!stack_push_checks(tree, node)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return 0;                         /* GCOVR_EXCL_LINE: allocation failure */
     }
     tree->stack_version++;
-    note_stack_depth(tree);
     return 1;
 }
 
@@ -711,11 +749,13 @@ static void stack_pop_any(th_tree *tree) {
         if (popped->ns == TH_NS_HTML && popped->atom == TH_TAG_P) {
             tree->open_p_count--;
         }
-        if (is_html_template(popped)) {
-            tree->open_templates--;
-        }
-        if (tree->open_blocks != NULL) {
-            block_drop(&tree->open_blocks[tree->open_len / STACK_BLOCK], popped);
+        if (tree->stack_tracked) {
+            if (is_html_template(popped)) {
+                tree->open_templates--;
+            }
+            if (tree->open_blocks != NULL) {
+                block_drop(&tree->open_blocks[tree->open_len / STACK_BLOCK], popped);
+            }
         }
         /* record that an end tag named this element (as opposed to an implied or
            EOF close) so escape-mode sanitizing reproduces the author's `</tag>` */
@@ -958,9 +998,8 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
    the run. Foster parenting inserts before a table, which is shallower than the cap, so only appends can need the move.
    A template's content fragment counts as its template. A stack whose depth bound stays below the cap cannot reach it,
    which skips the walk. */
-static void cap_insertion_point(th_tree *tree, th_node **parent, th_node **before) {
-    if (*before != NULL || stack_depth_bound(tree) + 1 < TH_MAX_TREE_DEPTH ||
-        !has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)) {
+static TH_NOINLINE void cap_insertion_walk(th_node **parent, th_node **before) {
+    if (!has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)) {
         return;
     }
     th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
@@ -973,7 +1012,9 @@ static void cap_insertion_point(th_tree *tree, th_node **parent, th_node **befor
 
 static void insertion_location_target(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
     insertion_location_place(tree, target, parent, before);
-    cap_insertion_point(tree, parent, before);
+    if (tree->depth_near_cap && *before == NULL && stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
+        cap_insertion_walk(parent, before);
+    }
 }
 
 static void insertion_location(th_tree *tree, th_node **parent, th_node **before) {
@@ -2798,8 +2839,7 @@ static Py_ssize_t afe_index_of(th_tree *tree, th_node *node) {
 }
 
 static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
-    for (Py_ssize_t index = stack_scan(tree, tree->open_len - 1, SCAN_ATOM, node->atom); index >= 0;
-         index = stack_scan(tree, index - 1, SCAN_ATOM, node->atom)) {
+    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
         if (tree->open[index] == node) {
             return index;
         }
@@ -3328,6 +3368,7 @@ static enum mode tmpl_top(th_tree *tree) {
 
 static void stack_push_template(th_tree *tree, th_node *node) {
     stack_push(tree, node);
+    note_template_pushed(tree);
     afe_push_marker(tree);
     tmpl_push(tree, M_IN_TEMPLATE);
 }
@@ -3694,6 +3735,7 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
             th_node *node = insert_template(tree, tok);
             tree->frameset_ok = 0; /* a template start tag sets frameset-ok to "not ok" */
             stack_push(tree, node);
+            note_template_pushed(tree);
             afe_push_marker(tree);
             tmpl_push(tree, M_IN_TEMPLATE);
             dc->mode = M_IN_TEMPLATE;
@@ -3834,8 +3876,7 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
                     /* the head is removed from under the template on the
                        stack; the template itself stays open */
                     tree->open[tree->open_len - 1] = node;
-                    tree->open_templates++;
-                    note_stack_depth(tree);
+                    note_template_pushed(tree);
                     blocks_recount(tree, tree->open_len - 1, tree->open_len);
                     tree->stack_version++;
                     afe_push_marker(tree);
@@ -6138,6 +6179,9 @@ static int shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, s
         if (copy == NULL || !stack_push(dest, copy)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             th_tree_free(dest);                        /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (is_html_template(copy)) {
+            note_template_pushed(dest);
         }
     }
     for (Py_ssize_t index = 0; index < src->afe_len; index++) {

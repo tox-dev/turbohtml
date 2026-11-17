@@ -131,11 +131,15 @@ struct th_tree {
     int scope_result;
     int open_p_count;
     int open_templates; /* templates on the stack: each one's content fragment adds a DOM level */
+    int depth_near_cap; /* the depth bound has reached the cap once; set and never cleared, so an insertion checks only
+                           then */
     Py_ssize_t open_cap;
     th_stack_block *open_blocks; /* per-block summaries of open, built once the stack passes one block; NULL before */
     Py_ssize_t open_block_cap;
-    Py_ssize_t nest_bound; /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
-    th_node **afe;         /* active formatting elements; NULL entry is a scope marker */
+    Py_ssize_t push_check_at; /* a push to this many entries or more runs the depth and block checks (see stack_push) */
+    int stack_tracked;        /* a template or block summary is on the stack, so a pop checks them */
+    Py_ssize_t nest_bound;    /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
+    th_node **afe;            /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     Py_ssize_t afe_stack_hint;
     uint64_t *afe_hashes;
