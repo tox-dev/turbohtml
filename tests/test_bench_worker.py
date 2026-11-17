@@ -57,6 +57,11 @@ def test_worker_startup_uses_elapsed_time() -> None:
     assert ("startup" in OPERATIONS, "startup" in {name for name, _, _ in benchmarks()}) == (True, False)
 
 
+def test_ci_gates_dispatch_only_on_staged_cases() -> None:
+    gated: Final = {name for name, _, _ in benchmarks() if name.startswith("transform-dispatch")}
+    assert gated == {"transform-dispatch-1", "transform-dispatch-4", "transform-dispatch-16"}
+
+
 @pytest.mark.parametrize(
     "name",
     [

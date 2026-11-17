@@ -611,8 +611,11 @@ def benchmarks() -> Iterator[tuple[str, Timed, Callable[[], Case]]]:
     # A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
     # retires the flaky small-input benchmark and gates the large-input one as a fresh identity.
     for name, (run, _owner) in OPERATIONS.items():
-        if name == "startup" or name in _ADDITIONAL_CASES:
-            continue  # Explicit cases retain their configured position; startup needs a fresh interpreter.
+        # Explicit cases retain their configured position; startup needs a fresh interpreter. The zero-stage dispatch
+        # case runs too few instructions to clear Valgrind's jitter floor, and its 1-, 4- and 16-stage ids gate the
+        # same code.
+        if name in {"startup", "transform-dispatch"} or name in _ADDITIONAL_CASES:
+            continue
         identity = _RESIZED[name][0] if name in _RESIZED else name
         yield identity, run, _loader_for(name)
     for identity, (name, case_index) in _ADDITIONAL_CASES.items():
