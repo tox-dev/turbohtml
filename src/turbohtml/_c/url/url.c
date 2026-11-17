@@ -2845,11 +2845,12 @@ PyObject *turbohtml_url_scrub(PyObject *Py_UNUSED(module), PyObject *arg) {
     if (work == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    /* "".join(...split()): drop every whitespace code point, leaving the non-whitespace runs concatenated */
+    /* drop the ASCII tab and line breaks the URL standard removes everywhere, so a URL broken across lines rejoins; the
+       other whitespace stays for the split and the percent-encoder, which encode it where a browser does */
     Py_ssize_t count = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         Py_UCS4 ch = PyUnicode_READ(kind, data, index);
-        if (!Py_UNICODE_ISSPACE(ch)) {
+        if (ch != '\t' && ch != '\n' && ch != '\r') {
             work[count++] = ch;
         }
     }
