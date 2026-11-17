@@ -986,7 +986,7 @@ TH_NODE_API(, PyObject *, turbohtml_document_extract_links, (PyObject * self, Py
         PyErr_SetString(PyExc_ValueError, "external_only requires a base_url to compare hosts against");
         return NULL;
     }
-    PyObject *site = base_url == Py_None ? PyUnicode_FromString("") : site_of(base_url);
+    PyObject *site = base_url == Py_None || !external_only ? PyUnicode_FromString("") : site_of(base_url);
     if (site == NULL) {
         return NULL;
     }
@@ -998,6 +998,12 @@ TH_NODE_API(, PyObject *, turbohtml_document_extract_links, (PyObject * self, Py
     PyObject *seen = NULL;
     PyObject *cleaned_of = NULL;
     if (base == NULL) { /* GCOVR_EXCL_BR_LINE: invalid hrefs use the fallback; only allocation can fail */
+        goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *normalized = th_url_normalize_base(base);
+    Py_DECREF(base);
+    base = normalized;
+    if (base == NULL) { /* GCOVR_EXCL_BR_LINE: only allocation can fail here */
         goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     hrefs = PyList_New(0);

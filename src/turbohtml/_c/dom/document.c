@@ -1298,6 +1298,23 @@ PyObject *th_url_base_parse(PyObject *href) {
     return parsed;
 }
 
+/* The base a link resolves against, read the way the URL standard parses it: an absolute base that does not parse comes
+   back "", so its links stay as written, and a base over TH_BASE_URL_MAX stays as given. */
+PyObject *th_url_normalize_base(PyObject *base) {
+    PyObject *parsed = th_url_base_parse(base);
+    if (parsed == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation can fail here */
+            return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear();
+        return PyUnicode_New(0, 0);
+    }
+    if (PyUnicode_GET_LENGTH(parsed) > TH_BASE_URL_MAX) {
+        Py_SETREF(parsed, Py_NewRef(base));
+    }
+    return parsed;
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
    when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
    TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named base. The

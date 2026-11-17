@@ -1403,26 +1403,6 @@ static Py_ssize_t base_scheme_of(PyObject *base_url, char *out, Py_ssize_t cap) 
     return 0;
 }
 
-/* The base as a browser parses it, so links resolve against the normalized base. A relative base is joined as written,
-   and so is a base that does not parse: an empty base leaves each link as written, as the URL standard does. */
-static PyObject *normalized_base(PyObject *base_url, Py_ssize_t scheme_len) {
-    if (scheme_len == 0) {
-        return Py_NewRef(base_url);
-    }
-    PyObject *parsed = th_url_base_parse(base_url);
-    if (parsed == NULL) {
-        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation can fail here */
-            return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        PyErr_Clear();
-        return PyUnicode_New(0, 0);
-    }
-    if (PyUnicode_GET_LENGTH(parsed) > TH_BASE_URL_MAX) {
-        Py_SETREF(parsed, Py_NewRef(base_url));
-    }
-    return parsed;
-}
-
 /* Node.resolve_links(base_url) -> None. Rewrites every link absolute against base_url with functools.partial bound over
    the C _url_join_link, so a reference's host matches the one a browser resolves -- including the WHATWG backslash and
    extra-slash authority forms stdlib urllib.parse.urljoin misattributes -- without reinventing RFC 3986 resolution. */
@@ -1455,7 +1435,7 @@ PyObject *turbohtml_node_resolve_links(PyObject *owner, th_tree *tree, th_node *
         Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: attribute-failure path */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    PyObject *base = normalized_base(base_url, base_scheme_len);
+    PyObject *base = th_url_normalize_base(base_url);
     if (base == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_DECREF(partial); /* GCOVR_EXCL_LINE: allocation-failure path */
         Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: allocation-failure path */
