@@ -1,0 +1,2 @@
+Minifying a document whose ``<noscript>`` holds a ``<frameset>`` tag now returns the markup as written, instead of
+dropping its content.

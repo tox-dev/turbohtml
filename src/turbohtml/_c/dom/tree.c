@@ -5402,6 +5402,10 @@ static TH_NOINLINE void drain_tracked(th_tree *tree, th_insert *dc, th_token *to
     if (tok->kind == TH_START_TAG && tok->atom == TH_TAG_FRAMESET && track->frameset_span >= 0) {
         track->spans[track->frameset_span].stable = 0;
     }
+    if (tok->kind == TH_START_TAG && tok->atom == TH_TAG_FRAMESET && track->open >= 0 && tree->frameset_ok) {
+        /* a frameset that replaces the body detaches the open noscript, which minify would never copy */
+        track->spans[track->open].cut = 0;
+    }
     drain_token(tree, dc, tok);
     if (track->open >= 0 && track->spans[track->open].node->left_stack) {
         noscript_closed(tree, dc, track, ends ? offset : -1);

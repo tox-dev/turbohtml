@@ -1248,6 +1248,9 @@ _NOSCRIPT_DOCUMENTS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<table><tr><td>a  b<noscript><i>c</noscript>d</td></tr></table>", id="table-ancestor"),
     pytest.param("<table><colgroup><noscript><i>c</noscript></table>", id="column-group"),
     pytest.param("<head><noscript><noscript><i>c</noscript></head>", id="nested-in-head"),
+    pytest.param("<span><noscript><frameset></noscript></span>", id="frameset-in-noscript"),
+    pytest.param("<h1><noscript><frameset><x></noscript></h1>", id="frameset-in-noscript-under-heading"),
+    pytest.param("<p>a<noscript><frameset></noscript>", id="frameset-ignored-in-noscript"),
 ]
 _NOSCRIPT_LAYOUTS: Final[list[pytest.ParameterSet]] = [
     pytest.param(Minify(), id="default"),
