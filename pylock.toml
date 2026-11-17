@@ -2692,7 +2692,7 @@ sha256 = "cc037270ba500a65e7235409dcddcae8ef37300f26dea826b61d917bf0236880"
 
 [[packages]]
 name = "markdown-it-py"
-version = "4.2.0"
+version = "4.3.0"
 marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
@@ -2701,22 +2701,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "markdown_it_py-4.2.0.tar.gz"
-upload-time = 2026-05-07T12:08:28.360612+00:00
-url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz"
-size = 82454
+name = "markdown_it_py-4.3.0.tar.gz"
+upload-time = 2026-11-10T16:18:30.467403+00:00
+url = "https://files.pythonhosted.org/packages/16/fc/cee2c45553c9a9bf77d8b0c391560c556d7ed756b1f0bb35eb5d48db09ea/markdown_it_py-4.3.0.tar.gz"
+size = 242701
 
 [packages.sdist.hashes]
-sha256 = "04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49"
+sha256 = "91a58fa5b72c71a40cf7177250fd767480d7a2bb3ac426ccfb76fb90305fdaaa"
 
 [[packages.wheels]]
-name = "markdown_it_py-4.2.0-py3-none-any.whl"
-upload-time = 2026-05-07T12:08:27.182789+00:00
-url = "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl"
-size = 91687
+name = "markdown_it_py-4.3.0-py3-none-any.whl"
+upload-time = 2026-11-10T16:18:28.975379+00:00
+url = "https://files.pythonhosted.org/packages/c9/31/5f0ac2f1a1c67423c995c731a11cd4ad05d081a2be969d74f868bdb9cc70/markdown_it_py-4.3.0-py3-none-any.whl"
+size = 96951
 
 [packages.wheels.hashes]
-sha256 = "9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a"
+sha256 = "7aa1511a46c39138de78d9eba92ce47e63124d8003fc98b3a351909e04239efa"
 
 [[packages]]
 name = "markdownify"
@@ -2912,7 +2912,7 @@ sha256 = "7305a50efd2a140d7c83505b58e3ac5df2b09e293f9bbe72f6c7bee8c678b005"
 
 [[packages]]
 name = "mdit-py-plugins"
-version = "0.6.1"
+version = "0.7.0"
 marker = "\"dev\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
@@ -2921,22 +2921,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "mdit_py_plugins-0.6.1.tar.gz"
-upload-time = 2026-05-13T09:03:38.910230+00:00
-url = "https://files.pythonhosted.org/packages/59/fc/f8d0863f8862f25602c0404d75568e89fb6b4109804645e5cdfb1be5cf56/mdit_py_plugins-0.6.1.tar.gz"
-size = 56114
+name = "mdit_py_plugins-0.7.0.tar.gz"
+upload-time = 2026-11-10T16:29:31.081315+00:00
+url = "https://files.pythonhosted.org/packages/ad/a4/77a4e1be19fd9b08993c76d5e54979ac836b327754f1f5fecfed1b56cc67/mdit_py_plugins-0.7.0.tar.gz"
+size = 51268
 
 [packages.sdist.hashes]
-sha256 = "a2bca0f039f39dbd35fb74ae1b5f998608c437463371f0ff7f49a19a17a114d0"
+sha256 = "26d2179227aaf4d1dc7acffe7a738cbd15cade6b5a61cff0a2cbf9fed93efede"
 
 [[packages.wheels]]
-name = "mdit_py_plugins-0.6.1-py3-none-any.whl"
-upload-time = 2026-05-13T09:03:37.760000+00:00
-url = "https://files.pythonhosted.org/packages/a5/69/6da5581c6a7fede7dc261bf4e67d6adca4196f176b43288b55b3db395b6e/mdit_py_plugins-0.6.1-py3-none-any.whl"
-size = 66663
+name = "mdit_py_plugins-0.7.0-py3-none-any.whl"
+upload-time = 2026-11-10T16:29:29.847227+00:00
+url = "https://files.pythonhosted.org/packages/4d/d3/d07e61326f150944ead0da9d0b39fb20d7fa367bbc951b10fca6bb1c7382/mdit_py_plugins-0.7.0-py3-none-any.whl"
+size = 72937
 
 [packages.wheels.hashes]
-sha256 = "214c82fb2ac524472ab6a5bcab1de80f73b50443e187f401bfd77efbc7c6481d"
+sha256 = "7f8e30403f3dd8bfe3afcdcbc6e61066d3f2e714167507b9c26eb385ec399353"
 
 [[packages]]
 name = "mdurl"
@@ -4435,7 +4435,7 @@ sha256 = "a1fae8fca11e4bc61e38491c2aafff29e430b3c5e272d51ae52fb895bc4c0fac"
 
 [[packages]]
 name = "python-sbom"
-version = "0.2.0"
+version = "0.3.1"
 marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.11"
 dependencies = [
@@ -4447,22 +4447,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "python_sbom-0.2.0.tar.gz"
-upload-time = 2026-11-09T19:55:28.285589+00:00
-url = "https://files.pythonhosted.org/packages/bf/53/5bfde63647ca663bea12754720a79e650183660c16a0dedb3f758afbe352/python_sbom-0.2.0.tar.gz"
-size = 272435
+name = "python_sbom-0.3.1.tar.gz"
+upload-time = 2026-11-10T00:30:46.773335+00:00
+url = "https://files.pythonhosted.org/packages/e7/c8/433fce09ca6d9580e71b1bcde4db4da5c1f77039536deca9d373f1b7886e/python_sbom-0.3.1.tar.gz"
+size = 289516
 
 [packages.sdist.hashes]
-sha256 = "f91f502985245c88ab6625b6c383b55145d156b3c2bf4ce572b97204974c698b"
+sha256 = "37d0fa3d0a16fddc3d88099e147e164ddb3055e8bc3424506ef41dd80f723a73"
 
 [[packages.wheels]]
-name = "python_sbom-0.2.0-py3-none-any.whl"
-upload-time = 2026-11-09T19:55:26.743445+00:00
-url = "https://files.pythonhosted.org/packages/d8/f9/4135abb36765cd0cc90fb05f09de143b7667aedfeec6a96fd5cb3b1cf75f/python_sbom-0.2.0-py3-none-any.whl"
-size = 202661
+name = "python_sbom-0.3.1-py3-none-any.whl"
+upload-time = 2026-11-10T00:30:44.860017+00:00
+url = "https://files.pythonhosted.org/packages/4d/14/f144bdd2ced56c3ffb5e6f85761a8ed203955de25f56803cebf584db2b71/python_sbom-0.3.1-py3-none-any.whl"
+size = 205103
 
 [packages.wheels.hashes]
-sha256 = "9e28fb50a1dd6e16d1c58f0731505a8ea9e29dc7bc5e002b6600381a2b1d2415"
+sha256 = "fd7a64f0293c033ac8ed8946c3c2513e936eacb7c297fe5110e5bb06d42aafc9"
 
 [[packages]]
 name = "pytz"
@@ -5201,28 +5201,28 @@ sha256 = "7e207fa178741da09cdee59d3ecec3827ad5f92b1fc5c9ff3755b639f71f5752"
 
 [[packages]]
 name = "soupsieve"
-version = "4.0.1"
+version = "4.1"
 marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.11.5"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "soupsieve-4.0.1.tar.gz"
-upload-time = 2026-11-04T16:36:27.749881+00:00
-url = "https://files.pythonhosted.org/packages/01/7c/a64eedae0b7776cb9602d2da9cb8f8caae8e1b4c1da5e8e87bf1e68121ec/soupsieve-4.0.1.tar.gz"
-size = 153302
+name = "soupsieve-4.1.tar.gz"
+upload-time = 2026-11-10T01:59:50.399344+00:00
+url = "https://files.pythonhosted.org/packages/95/48/21a393ff731b8f928fa4f8176f9a7ceba2252ee60a5149f25b45c292aa5c/soupsieve-4.1.tar.gz"
+size = 161955
 
 [packages.sdist.hashes]
-sha256 = "7621e3c5f6b371ed2c5eabaac5de300ac3d66d05e6d7f34783e31b63c4f90c75"
+sha256 = "ca9abf7126667010d8f6e9b39bfc1bc3b23c8aed9bcb0f54a754dde969bb8aab"
 
 [[packages.wheels]]
-name = "soupsieve-4.0.1-py3-none-any.whl"
-upload-time = 2026-11-04T16:36:26.158796+00:00
-url = "https://files.pythonhosted.org/packages/2c/5c/4f68370847b561a389dd9a2d7eb3d19fd8cbb8acbae543a0c6b8d0d9700b/soupsieve-4.0.1-py3-none-any.whl"
-size = 50688
+name = "soupsieve-4.1-py3-none-any.whl"
+upload-time = 2026-11-10T01:59:48.571612+00:00
+url = "https://files.pythonhosted.org/packages/88/73/6a2087c72975cfc07394623bca8d17654342ea4055ae368deafe5a81a542/soupsieve-4.1-py3-none-any.whl"
+size = 52302
 
 [packages.wheels.hashes]
-sha256 = "2e68cf7dd5a0f29d81f9d485275ccf294e6475f615e211895d91cb81f8614f04"
+sha256 = "e4d667b3974ce6e038e7390486b8093369854a1d345ffdd4c121dfc4a782e809"
 
 [[packages]]
 name = "sphinx"
@@ -5411,7 +5411,7 @@ sha256 = "fb543fd386d917746c9a2c50360c7905b605726b9355cd26e9974857afeae06e"
 
 [[packages]]
 name = "sphinx-design"
-version = "0.7.0"
+version = "0.8.0"
 marker = "\"dev\" in dependency_groups or \"docs\" in dependency_groups"
 requires-python = ">=3.11"
 dependencies = [
@@ -5420,22 +5420,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "sphinx_design-0.7.0.tar.gz"
-upload-time = 2026-01-19T13:12:53.297780+00:00
-url = "https://files.pythonhosted.org/packages/13/7b/804f311da4663a4aecc6cf7abd83443f3d4ded970826d0c958edc77d4527/sphinx_design-0.7.0.tar.gz"
-size = 2203582
+name = "sphinx_design-0.8.0.tar.gz"
+upload-time = 2026-11-10T17:16:39.673298+00:00
+url = "https://files.pythonhosted.org/packages/b0/c3/5d0f3aff52337edea9fe1d3f35ecba8a235b0490afb185544299a03a97d0/sphinx_design-0.8.0.tar.gz"
+size = 2254778
 
 [packages.sdist.hashes]
-sha256 = "d2a3f5b19c24b916adb52f97c5f00efab4009ca337812001109084a740ec9b7a"
+sha256 = "57fa4d96378525122947ab6109c6e490190e3119dc10f3e3adf6b71444bf3bb4"
 
 [[packages.wheels]]
-name = "sphinx_design-0.7.0-py3-none-any.whl"
-upload-time = 2026-01-19T13:12:51.077508+00:00
-url = "https://files.pythonhosted.org/packages/30/cf/45dd359f6ca0c3762ce0490f681da242f0530c49c81050c035c016bfdd3a/sphinx_design-0.7.0-py3-none-any.whl"
-size = 2220350
+name = "sphinx_design-0.8.0-py3-none-any.whl"
+upload-time = 2026-11-10T17:16:37.538629+00:00
+url = "https://files.pythonhosted.org/packages/b9/9a/e929b7fb9497d8e12bcda1777a7076f7c38d644216e91665bcfff6cab90d/sphinx_design-0.8.0-py3-none-any.whl"
+size = 2288922
 
 [packages.wheels.hashes]
-sha256 = "f82bf179951d58f55dca78ab3706aeafa496b741a91b1911d371441127d64282"
+sha256 = "861fecb064c3da5ff48031a237692ccb7c2e671f8c4aa84d4b9eef3cb8fd9c91"
 
 [[packages]]
 name = "sphinx-issues"
@@ -6175,55 +6175,55 @@ sha256 = "b854164df26db268af05f49aa5c0344b10e27a494343ff05b1e0bad3b135f5a7"
 
 [[packages]]
 name = "ty"
-version = "0.0.99"
+version = "0.0.100"
 marker = "\"dev\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "ty-0.0.99.tar.gz"
-upload-time = 2026-11-06T10:12:11.882390+00:00
-url = "https://files.pythonhosted.org/packages/3a/cd/6a98a3aaaff380637dd7f0c38e065d8857dd2f9cd871fca7385e5002a8f5/ty-0.0.99.tar.gz"
-size = 8222583
+name = "ty-0.0.100.tar.gz"
+upload-time = 2026-11-09T20:16:27.534294+00:00
+url = "https://files.pythonhosted.org/packages/2a/b4/ac430b910566e28b1cd01faf7ee07ca38bcd7585b30fce8fd25dfc104edc/ty-0.0.100.tar.gz"
+size = 8238916
 
 [packages.sdist.hashes]
-sha256 = "6a08d4f220e750a8c14c897c39145c5aeff385df456f837b233c35897ff5ea2e"
+sha256 = "ca75081ead663c077e40b90c38b6e9f039b6d168051e02918a8a1d7ecc4fa0dd"
 
 [[packages.wheels]]
-name = "ty-0.0.99-py3-none-macosx_11_0_arm64.whl"
-upload-time = 2026-11-06T10:11:26.945502+00:00
-url = "https://files.pythonhosted.org/packages/e7/5f/856ecab2d9a6f59512cf6c2f8c55a69aace0fa79f91e035431faff88cbb2/ty-0.0.99-py3-none-macosx_11_0_arm64.whl"
-size = 13417256
+name = "ty-0.0.100-py3-none-macosx_11_0_arm64.whl"
+upload-time = 2026-11-09T20:15:47.498997+00:00
+url = "https://files.pythonhosted.org/packages/57/3f/7a6790546398fdf4d2dcd2c496a9f229c018f9a72f8e95120432ee85609c/ty-0.0.100-py3-none-macosx_11_0_arm64.whl"
+size = 13437855
 
 [packages.wheels.hashes]
-sha256 = "7cb88d3e7513dbf9d68c1e212999b7deb867fa3ac90efa8647c626e987f4cc26"
+sha256 = "c45a02b8d11675f009124ee082b070204e5c57721acb3b44b0567721db3710d5"
 
 [[packages.wheels]]
-name = "ty-0.0.99-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-upload-time = 2026-11-06T10:11:29.847678+00:00
-url = "https://files.pythonhosted.org/packages/99/c1/8443d935355cb43e1dac2fe348633978402181667d19cbda6780d3b47e2f/ty-0.0.99-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-size = 14271405
+name = "ty-0.0.100-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+upload-time = 2026-11-09T20:15:49.849582+00:00
+url = "https://files.pythonhosted.org/packages/4b/45/ad4c8b88eacdb0e09590dbb90ca15b3eeebdaf91bfbfae265a00cad6608c/ty-0.0.100-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+size = 14317038
 
 [packages.wheels.hashes]
-sha256 = "8480617183adff4381c63d5fcfa9318aa9adc39ba3dd5d243374f2ae1e5534e1"
+sha256 = "1e85f94c680722635e07e24949faf2c52b62139e721ba724981801ac47ab6e67"
 
 [[packages.wheels]]
-name = "ty-0.0.99-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-upload-time = 2026-11-06T10:11:44.491890+00:00
-url = "https://files.pythonhosted.org/packages/9a/da/be073b201d788ebf49095f8c4be8755cdfc21be8c854814089802c93fd9d/ty-0.0.99-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-size = 16672215
+name = "ty-0.0.100-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+upload-time = 2026-11-09T20:16:05.195593+00:00
+url = "https://files.pythonhosted.org/packages/b8/56/02b46b2a5f78f6edbd29afde54fce4461dd6462f901974deac0c9c1a987b/ty-0.0.100-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+size = 16749475
 
 [packages.wheels.hashes]
-sha256 = "a95383fa343765ddbb1a2bc79038d89c9cfb12fdf3b829b69f7d95d47d8d9f1c"
+sha256 = "e23076fd67dc5c740a5cd292f3bbc10b82127dd01df3cb559e12b3144ceef72d"
 
 [[packages.wheels]]
-name = "ty-0.0.99-py3-none-win_amd64.whl"
-upload-time = 2026-11-06T10:12:06.188926+00:00
-url = "https://files.pythonhosted.org/packages/c7/58/0a0c01cfde5c1c4ed28f430fc7b689fa280d899b6affd8e6be93fff55bc7/ty-0.0.99-py3-none-win_amd64.whl"
-size = 14384759
+name = "ty-0.0.100-py3-none-win_amd64.whl"
+upload-time = 2026-11-09T20:16:22.858900+00:00
+url = "https://files.pythonhosted.org/packages/3b/35/2becc700b2384a2d0b373626ed59c6706d2089888a14721199dba1aa3094/ty-0.0.100-py3-none-win_amd64.whl"
+size = 14440120
 
 [packages.wheels.hashes]
-sha256 = "af3964132653c4612b077da5937e4c49b6977e7619a9d0e5c4df635abd9cd0d4"
+sha256 = "01c230d3046f0d5e8ab6e1def4131aab21659a1d290cc88b39b4fde04bfad0c0"
 
 [[packages]]
 name = "types-html5lib"
@@ -6768,14 +6768,15 @@ size = 11280
 sha256 = "04e15df7083642d5b791e51f597cffef8a92d770ecf5160c529b5a7b53b40100"
 
 [tool.nab]
-nab-version = "0.0.27"
-created-at = 2026-11-16T19:06:03.652113+00:00
+nab-version = "0.0.28"
+created-at = 2026-11-17T17:17:16.510029+00:00
 command-line = [
     "nab",
     "lock",
     "--all-groups",
     "--all-extras",
     "--no-cache",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
@@ -6789,6 +6790,6 @@ platforms = [
 
 [tool.nab.validation]
 version = 1
-all-inputs-sha256 = "c9174473929a372f5292aeed86f70e8b2c44899f08513ae7b0301f220d82683c"
-selection-inputs-sha256 = "855f323c88fa81432ed9bbfba254b2966db1be8bb6e3d589996446be1aaac407"
-contents-sha256 = "aeabb6c3b25b6e98b61d030da669b57cb12f02351ab3247d0d972cd65b48f8a1"
+all-inputs-sha256 = "fc972e51a10393cb1d88a6557164b7ff0c1811b42fe564bea283d4945c6a7a27"
+selection-inputs-sha256 = "c14df54bf5cf7c93ee5666398731d351cecbe42d8066033582db85d7cabd1714"
+contents-sha256 = "d83dac2825a21478543ec9d7a7cfb866a5e1ca9f48414c675e02367c93c556af"
