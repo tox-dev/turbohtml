@@ -29,6 +29,8 @@ _XFAIL: Final[MappingProxyType[str, str]] = MappingProxyType({
     "REC/test-12.4-1": "not yet supported: generate-id over the namespace:: axis needs the XPath namespace axis",
     "REC/test-5.2-10": "not yet supported: id() over DTD-declared ID attributes needs a DTD layer the parser "
     "does not have",
+    "REC/test-7.1.1-3": "libxslt keeps the namespace that the literal result element's xsl:exclude-result-prefixes "
+    "excludes; XSLT 1.0 7.1.1 drops it",
 })
 
 
