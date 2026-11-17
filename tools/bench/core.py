@@ -14,7 +14,7 @@ import sys
 from collections import deque
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import turbohtml
 from turbohtml import Markdown as _Markdown
