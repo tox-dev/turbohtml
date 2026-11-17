@@ -63,6 +63,8 @@ def test_idna_shared_public_target(host: str, expected: str) -> None:
         pytest.param("a\u200cb.com", id="zwnj-between-latin"),
         pytest.param("\u0915\u200db.com", id="zwj-without-virama"),
         pytest.param("\u0628\u200cb.com", id="zwnj-with-right-joining-context-missing"),
+        pytest.param("xn--a-xbb.\u65e5\u672c", id="punycode-decodes-to-decomposed-label"),
+        pytest.param("xn--q-xbb6h.\u65e5\u672c", id="punycode-decodes-to-unordered-marks"),
     ],
 )
 def test_idna_validity_keeps_an_invalid_host_as_written(host: str) -> None:
@@ -79,6 +81,11 @@ def test_idna_validity_keeps_an_invalid_host_as_written(host: str) -> None:
         pytest.param("\u0628\u200c\u0628.com", "xn--ngba799q.com", id="zwnj-between-joining-letters"),
         pytest.param("\u0915\u094d\u200db.com", "xn--b-tud2o090g.com", id="zwj-after-virama"),
         pytest.param("\u0915\u094d\u200d\u0915.com", "xn--11ba1o090g.com", id="zwj-between-letters"),
+        pytest.param("\u05d0-\u05d1.com", "xn----zhce.com", id="rtl-hyphen-separator"),
+        pytest.param("\u05d0,\u05d1.com", "xn--,-zhce.com", id="rtl-comma-separator"),
+        pytest.param("\u05d0$\u05d1.com", "xn--$-zhce.com", id="rtl-currency-sign"),
+        pytest.param("\u05d0!\u05d1.com", "xn--!-zhce.com", id="rtl-neutral-punctuation"),
+        pytest.param("\ua872\u200c\u1820.com", "xn--26e961b7q8j.com", id="zwnj-after-left-joining-letter"),
     ],
 )
 def test_idna_validity_accepts_a_valid_bidi_or_joiner_host(host: str, expected: str) -> None:

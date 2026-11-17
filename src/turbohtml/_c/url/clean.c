@@ -448,8 +448,6 @@ PyObject *th_url_document_canonical(PyObject *url, int normalize_dot) {
         Py_SETREF(path, th_url_remove_file_dot_segments(path));
     } else if (has_netloc && parts.special && PyUnicode_GET_LENGTH(parts.part[TH_URL_PATH]) == 0) {
         path = PyUnicode_FromString("/");
-    } else if (parts.special && str_holds(parts.part[TH_URL_PATH], '\\')) {
-        path = PyObject_CallMethod(parts.part[TH_URL_PATH], "replace", "ss", "\\", "/");
     } else {
         path = Py_NewRef(parts.part[TH_URL_PATH]);
     }

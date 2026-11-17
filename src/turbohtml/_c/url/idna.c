@@ -794,7 +794,7 @@ static uint8_t mark_of(Py_UCS4 cp) {
 }
 
 /* RFC 5893 section 2, the Bidi rule UTS #46 applies with CheckBidi: a label with no R, AL or AN is left-to-right and
-   passes; otherwise its first character sets the direction and the rule's six conditions must all hold. */
+   passes. Any other label must start with R or AL: a left-to-right start admits no R, AL or AN, so it fails. */
 static int bidi_label_ok(const Py_UCS4 *label, Py_ssize_t len) {
     int bidi_label = 0;
     for (Py_ssize_t index = 0; index < len && !bidi_label; index++) {
@@ -805,12 +805,7 @@ static int bidi_label_ok(const Py_UCS4 *label, Py_ssize_t len) {
         return 1;
     }
     uint8_t first = bidi_of(label[0]);
-    int rtl;
-    if (first == BIDI_R || first == BIDI_AL) {
-        rtl = 1;
-    } else if (first == BIDI_L) {
-        rtl = 0;
-    } else {
+    if (first != BIDI_R && first != BIDI_AL) {
         return 0;
     }
     Py_ssize_t last = len - 1;
@@ -822,27 +817,15 @@ static int bidi_label_ok(const Py_UCS4 *label, Py_ssize_t len) {
     int saw_an = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         uint8_t klass = bidi_of(label[index]);
-        if (rtl) {
-            int allowed = klass == BIDI_R || klass == BIDI_AL || klass == BIDI_AN || klass == BIDI_EN ||
-                          klass == BIDI_ES || klass == BIDI_CS || klass == BIDI_ET || klass == BIDI_ON ||
-                          klass == BIDI_BN || klass == BIDI_NSM;
-            if (!allowed) {
-                return 0;
-            }
-            saw_en |= klass == BIDI_EN;
-            saw_an |= klass == BIDI_AN;
-        } else {
-            int allowed = klass == BIDI_L || klass == BIDI_EN || klass == BIDI_ES || klass == BIDI_CS ||
-                          klass == BIDI_ET || klass == BIDI_ON || klass == BIDI_BN || klass == BIDI_NSM;
-            if (!allowed) {
-                return 0;
-            }
+        int allowed = klass == BIDI_R || klass == BIDI_AL || klass == BIDI_AN || klass == BIDI_EN || klass == BIDI_ES ||
+                      klass == BIDI_CS || klass == BIDI_ET || klass == BIDI_ON || klass == BIDI_BN || klass == BIDI_NSM;
+        if (!allowed) {
+            return 0;
         }
+        saw_en |= klass == BIDI_EN;
+        saw_an |= klass == BIDI_AN;
     }
-    if (rtl) {
-        return (ending == BIDI_R || ending == BIDI_AL || ending == BIDI_EN || ending == BIDI_AN) && !(saw_en && saw_an);
-    }
-    return ending == BIDI_L || ending == BIDI_EN;
+    return (ending == BIDI_R || ending == BIDI_AL || ending == BIDI_EN || ending == BIDI_AN) && !(saw_en && saw_an);
 }
 
 /* RFC 5892 appendix A.1: a ZWNJ at `at` is valid after a virama, or between a joining letter (L or D, skipping

@@ -915,7 +915,7 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
             }
         } else {
             upper |= c >= 'A' && c <= 'Z';
-            escaped |= c == '%' || c >= 0x80;
+            escaped |= c == '%';
         }
     }
     if (upper || escaped) {
