@@ -95,6 +95,41 @@ def test_base_url_empty_href_rejects_malformed_fallback(fallback: str) -> None:
         parse('<base href="">').base_url(fallback)
 
 
+@pytest.mark.parametrize(
+    ("fallback", "expected"),
+    [
+        pytest.param("http:site.example", "http://site.example/", id="opaque-special-host"),
+        pytest.param("https:/site.example/p", "https://site.example/p", id="one-slash-authority"),
+        pytest.param("HTTP://Site.Example", "http://site.example/", id="scheme-and-host-lowercased"),
+        pytest.param("http://site.example/a b", "http://site.example/a%20b", id="space-percent-encoded"),
+        pytest.param("https://site.com/p\\q", "https://site.com/p/q", id="backslash-path"),
+        pytest.param("https://site.com/p#old", "https://site.com/p#old", id="fragment-kept"),
+        pytest.param("https://h:99999/", "https://h:99999/", id="unparsable-kept-as-written"),
+        pytest.param("", "", id="empty-kept"),
+    ],
+)
+def test_base_url_normalizes_fallback_without_base_element(fallback: str, expected: str) -> None:
+    assert parse("<p>no base</p>").base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
+    ("fallback", "expected"),
+    [
+        pytest.param("http:site.example", "http://site.example/x", id="opaque-special-host"),
+        pytest.param("HTTP://Site.Example/a", "http://site.example/x", id="uppercase-fallback"),
+    ],
+)
+def test_base_url_resolves_base_href_against_normalized_fallback(fallback: str, expected: str) -> None:
+    assert parse('<base href="x">').base_url(fallback) == expected
+
+
+def test_base_url_does_not_cap_the_caller_fallback() -> None:
+    long_path = "a/" * 1100
+    fallback = f"http:site.example/{long_path}"
+    assert parse("<p>no base</p>").base_url(fallback) == f"http://site.example/{long_path}"
+    assert parse('<base href="x">').base_url(fallback) == f"http://site.example/{long_path}"
+
+
 def test_base_url_default_fallback() -> None:
     assert parse('<base href="page">').base_url() == "page"
 
@@ -427,7 +462,7 @@ def test_base_url_uses_absolute_url_with_opaque_fallback() -> None:
 @pytest.mark.parametrize(
     ("fallback", "expected"),
     [
-        pytest.param("a:é", "a:é", id="unicode-opaque-path"),
+        pytest.param("a:é", "a:%C3%A9", id="unicode-opaque-path"),
         pytest.param("a:/é", "a:/x", id="unicode-hierarchical-path"),
         pytest.param("aé:foo", "x", id="unicode-invalid-scheme"),
         pytest.param("aéfoo", "x", id="unicode-no-colon"),
