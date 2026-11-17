@@ -209,6 +209,20 @@ def test_normalize_keeps_dotless_canonical_host(url: str, expected: str) -> None
         ),
         pytest.param("http://test.org/?lang=&page=2", "de", "http://test.org/?lang=&page=2", id="empty-lang-passes"),
         pytest.param("http://test.org/?lang", "de", "http://test.org/?lang", id="valueless-lang-passes"),
+        pytest.param("http://test.org/%64e/page", "en", None, id="escaped-marker-other-language"),
+        pytest.param(
+            "http://test.org/%44E/page",
+            "de",
+            "http://test.org/%44E/page",
+            id="escaped-marker-same-language",
+        ),
+        pytest.param("http://test.org/en%2Dus/page", "de", None, id="escaped-hyphen-other-language"),
+        pytest.param(
+            "http://test.org/en%2Fus/page",
+            "de",
+            "http://test.org/en%2Fus/page",
+            id="escaped-reserved-literal",
+        ),
     ],
 )
 def test_clean_language_filter(url: str, language: str, expected: str | None) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import random
 import re
+import string
 from functools import partial
 from itertools import product
 from types import MappingProxyType
@@ -492,6 +493,13 @@ _SEGMENT: Final[re.Pattern[str]] = re.compile(
 )
 
 
+_ESCAPE: Final[re.Pattern[str]] = re.compile(r"%[0-9a-f]{2}")
+# RFC 3986 section 6.2.2.2: a percent-encoded unreserved character equals its decoded form; other escapes stay literal.
+_UNRESERVED_ESCAPES: Final[MappingProxyType[str, str]] = MappingProxyType({
+    f"%{ord(character):02x}": character.lower() for character in f"{string.ascii_letters}{string.digits}-._~"
+})
+
+
 _LANGUAGE_PATHS: Final[tuple[str, ...]] = (
     "",
     "/",
@@ -513,6 +521,12 @@ _LANGUAGE_PATHS: Final[tuple[str, ...]] = (
     "/zz/y",
     "/en-abcd/x",
     "/%64%65/x",
+    "/%64e/x",
+    "/%44E/x",
+    "/en%2dus/x",
+    "/en%2fus/x",
+    "/%65%6e-%75s/x",
+    "/%4/x",
     "/enxab/x",
     "/z{/x",
 )
@@ -565,6 +579,7 @@ def _language_oracle(query: str, path: str, hostname: str, language: str, *, str
         ):
             return False
     leading = next((segment for segment in path.lower().split("/") if segment), "")
+    leading = _ESCAPE.sub(lambda match: _UNRESERVED_ESCAPES.get(match[0], match[0]), leading)
     if (match := _SEGMENT.fullmatch(leading)) and match["language"] in _ISO and match["language"] != language:
         return False
     if strict:
@@ -593,6 +608,14 @@ def _language_oracle(query: str, path: str, hostname: str, language: str, *, str
         pytest.param(("", "/x", "abc.example.org", "en"), True, True, id="strict-host-label-not-two-letters"),
         pytest.param(("", "/x", "de", "en"), True, False, id="strict-dotless-host-label"),
         pytest.param(("", "/enxab/x", "h.org", "en"), False, True, id="path-five-chars-no-separator"),
+        pytest.param(("", "/%64e/x", "h.org", "en"), False, False, id="escaped-letters-other-language"),
+        pytest.param(("", "/%64e/x", "h.org", "de"), False, True, id="escaped-letters-same-language"),
+        pytest.param(("", "/%44E/x", "h.org", "en"), False, False, id="escaped-uppercase-other-language"),
+        pytest.param(("", "/%44E/x", "h.org", "de"), False, True, id="escaped-uppercase-same-language"),
+        pytest.param(("", "/en%2Dus/x", "h.org", "en"), False, True, id="escaped-hyphen-same-language"),
+        pytest.param(("", "/en%2Dus/x", "h.org", "de"), False, False, id="escaped-hyphen-other-language"),
+        pytest.param(("", "/en%2Fus/x", "h.org", "de"), False, True, id="escaped-reserved-stays-literal"),
+        pytest.param(("", "/%4/x", "h.org", "de"), False, True, id="malformed-escape-stays-literal"),
     ],
 )
 def test_language_matches_cases(markers: tuple[str, str, str, str], *, strict: bool, expected: bool) -> None:
