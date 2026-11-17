@@ -21,12 +21,9 @@
 #include "data/tag_atom.h"
 #include "tokenizer/statemachine.h"
 
-/* The deepest element nesting the tree builder will construct. Past it a start tag
-   is inserted as a child of the deepest open element but is not itself pushed onto
-   the stack of open elements, so further start tags become its siblings rather than
-   descending further -- the same runaway-nesting bound browsers apply (Blink and
-   WebKit cap the parser's open-element depth at 512). Capping at construction keeps
-   parser bookkeeping bounded, and caps the O(depth^2) cost a linear run of start tags would otherwise pay. */
+/* The deepest element nesting the DOM holds. The open-element stack is never capped, so the insertion modes and the
+   end tags follow the spec at any depth; a node that would nest deeper attaches after its deepest allowed ancestor
+   instead (cap_insertion_point), the way Blink caps its DOM at kMaximumHTMLParserDOMTreeDepth. */
 #define TH_MAX_TREE_DEPTH 512
 
 enum th_node_type {

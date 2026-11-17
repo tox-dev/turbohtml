@@ -72,9 +72,6 @@ def encoding_observation(
         if document.text != unicode_text:
             msg = f"Encoded parser text differs: {document.text!r} != {unicode_text!r}"
             raise AssertionError(msg)
-        # The C tree builder flattens past 512 open elements; html5lib does not.
-        if nesting > 500:
-            return document.text
         reference: Final = parse_reference(decoded)
         expected: Final = _reference_text(reference)
         if unicode_text != expected:

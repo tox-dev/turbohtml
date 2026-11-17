@@ -133,8 +133,7 @@ def rewrite(
         returns the input unchanged (character references and original quoting are preserved).
     :raises TypeError: if ``html`` is not a str.
     :raises ValueError: if text a handler wrote into a raw-text element such as ``script`` or ``style`` would end
-        that element before its end tag, if a handler edits an element nested past the depth limit in a way that needs
-        its content, or if a handler runs while an SVG or MathML element is nested past the depth limit.
+        that element before its end tag.
     :raises SelectorSyntaxError: if a selector is malformed or uses a construct the stream cannot match (a sibling
         combinator, a positional or structural pseudo-class, or ``:has()``).
     :raises RecursionError: if a selector chains more compound selectors than the C stack this thread has left can

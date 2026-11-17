@@ -88,7 +88,7 @@ static int name_eq(const th_buf *name, const char *literal, size_t len) {
    written; the implied tags, the insertion modes and the list of active formatting elements stay with the tree
    builder.
 
-   TK_MAX_DEPTH is the deepest spine kept, the nesting at which the tree builder stops opening elements. An HTML
+   TK_MAX_DEPTH is the deepest spine kept, a bound on its memory and on the walk an end tag makes. An HTML
    element whose end tag is omitted (<p>, <li>, <td>, ...) stays on the spine until an enclosing end tag arrives, so a
    long flat document reaches it too; past it the outer half is forgotten, because the innermost elements are the ones
    that decide the namespace. An end tag then walks at most this many entries.

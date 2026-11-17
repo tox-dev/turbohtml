@@ -404,7 +404,7 @@ def test_rewrite_deeply_nested_beyond_depth_guard_is_safe() -> None:
     assert "x" in result
 
 
-_PAST_LIMIT: Final[int] = _html._REWRITE_MAX_DEPTH  # ruff:ignore[private-member-access]  # the cap the rewriter keeps
+_PAST_LIMIT: Final[int] = 512  # the DOM depth the tree builder caps; the rewriter follows the stack past it
 _RAW_TAGS: Final[tuple[str, ...]] = ("style", "xmp", "textarea", "title", "iframe", "noembed", "noframes")
 
 
@@ -465,9 +465,10 @@ def test_rewrite_removed_raw_text_past_depth_limit_inside_an_integration_point_d
         pytest.param(lambda element: element.after("F"), id="after"),
     ],
 )
-def test_rewrite_element_past_depth_limit_rejects_an_edit_of_its_content(edit: Callable[[Element], None]) -> None:
-    with pytest.raises(ValueError, match="nested past the depth limit"):
-        rewrite(f"{'<p>' * _PAST_LIMIT}<div>x</div>", elements=[("div", edit)])
+def test_rewrite_element_past_depth_limit_edits_its_content_as_below_it(edit: Callable[[Element], None]) -> None:
+    prefix = "<p>" * _PAST_LIMIT
+    body = "<div>x</div>"
+    assert rewrite(prefix + body, elements=[("div", edit)]) == prefix + rewrite(body, elements=[("div", edit)])
 
 
 def test_rewrite_element_past_depth_limit_applies_edits_to_its_tags() -> None:
@@ -476,7 +477,9 @@ def test_rewrite_element_past_depth_limit_applies_edits_to_its_tags() -> None:
     prepended = rewrite(f"{prefix}<div>x</div>", elements=[("div", lambda element: element.prepend("P"))])
     assert prepended == f"{prefix}<div>Px</div>"
     kept = rewrite(f"{prefix}<div>x</div>", elements=[("div", lambda element: element.remove_and_keep_content())])
-    assert kept == f"{prefix}x</div>"
+    assert kept == prefix + rewrite(
+        "<div>x</div>", elements=[("div", lambda element: element.remove_and_keep_content())]
+    )
 
 
 def test_rewrite_svg_past_depth_limit_is_unchanged_without_handlers() -> None:
@@ -493,9 +496,9 @@ def test_rewrite_svg_past_depth_limit_is_unchanged_without_handlers() -> None:
         pytest.param(lambda source: rewrite(source, doctype=lambda _: None), id="doctype"),
     ],
 )
-def test_rewrite_svg_past_depth_limit_raises_for_a_handler(run: Callable[[str], str]) -> None:
-    with pytest.raises(ValueError, match="SVG or MathML nested past the depth limit"):
-        run(f"{'<p>' * _PAST_LIMIT}<svg><script>x</script></svg>")
+def test_rewrite_svg_past_depth_limit_runs_a_handler(run: Callable[[str], str]) -> None:
+    html = f"{'<p>' * _PAST_LIMIT}<svg><script>x</script></svg>"
+    assert run(html) == html
 
 
 def test_rewrite_raw_content_past_depth_limit_that_ends_it_raises() -> None:
