@@ -2671,6 +2671,25 @@ def test_rng_wide_text_group_scales_linearly(work_steps: WorkSteps) -> None:
     work_steps.assert_linear(validate, (200, 800))
 
 
+@pytest.mark.parametrize("depth", [5, 7])
+def test_rng_block_family_with_attribute_tail_past_the_work_cap_raises(depth: int) -> None:
+    # every tail element carries its own attribute, so each element has a distinct content and no one content covers
+    # the tail; each place then keeps an alternative until one event's work passes its limit
+    attributed = '<f k="1"/>' * 200
+    with pytest.raises(ValueError, match="too ambiguous"):
+        RelaxNG(_attribute_block_grammar(depth, 200)).validate(parse_xml(f"<r><e/>{attributed}</r>"))
+
+
+def _attribute_block_grammar(depth: int, tail: int) -> str:
+    optional = '<optional><element name="{}"><empty/></element></optional>'
+    attributed = '<optional><element name="f"><attribute name="k"/><empty/></element></optional>'
+    defines = [f'<define name="d0"><group>{optional.format("e")}{attributed * tail}</group></define>']
+    for level in range(1, depth + 1):
+        ref = f'<ref name="d{level - 1}"/>'
+        defines.append(f'<define name="d{level}"><group>{ref}{ref}</group></define>')
+    return rgrammar(f'<start><element name="r"><ref name="d{depth}"/></element></start>{"".join(defines)}')
+
+
 def test_rng_required_places_past_the_choice_cap_raise() -> None:
     # the leaf's element is required, so its tail is not closed and the derivative keeps one alternative per place
     leaf = '<element name="e"><empty/></element><element name="f"><empty/></element>'
