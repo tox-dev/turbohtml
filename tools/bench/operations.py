@@ -1839,7 +1839,7 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                     f"<root>{'<row><value>text</value></row>' * rows}</root>",
                 ),
             )
-            for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 128, 160))
+            for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 128, 200))
         ),
         (
             "four 199-deep recursive nodes",
@@ -3132,7 +3132,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 (10, "text"),
                 (100, "text"),
                 (20_000, "text"),
-                (6_000, "text" * 64),
+                (12_000, "text" * 64),
             )
         ),
         ("50,000 empty tail nodes", (50_000, "")),
