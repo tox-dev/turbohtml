@@ -1388,6 +1388,24 @@ static Py_ssize_t base_scheme_of(PyObject *base_url, char *out, Py_ssize_t cap) 
     return 0;
 }
 
+/* The base as a browser parses it, so links resolve against the normalized base. A relative base, or one that does not
+   parse, is joined as written: an empty fallback makes a base that does not parse come back empty. */
+static PyObject *normalized_base(PyObject *base_url, Py_ssize_t scheme_len) {
+    if (scheme_len == 0) {
+        return Py_NewRef(base_url);
+    }
+    PyObject *empty = PyUnicode_New(0, 0);
+    if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *parsed = th_url_base_resolve(base_url, empty);
+    Py_DECREF(empty);
+    if (parsed != NULL && PyUnicode_GET_LENGTH(parsed) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_SETREF(parsed, Py_NewRef(base_url));
+    }
+    return parsed;
+}
+
 /* Node.resolve_links(base_url) -> None. Rewrites every link absolute against base_url with functools.partial bound over
    the C _url_join_link, so a reference's host matches the one a browser resolves -- including the WHATWG backslash and
    extra-slash authority forms stdlib urllib.parse.urljoin misattributes -- without reinventing RFC 3986 resolution. */
@@ -1420,9 +1438,16 @@ PyObject *turbohtml_node_resolve_links(PyObject *owner, th_tree *tree, th_node *
         Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: attribute-failure path */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    PyObject *bound = PyObject_CallFunctionObjArgs(partial, urljoin, base_url, NULL);
+    PyObject *base = normalized_base(base_url, base_scheme_len);
+    if (base == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(partial); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *bound = PyObject_CallFunctionObjArgs(partial, urljoin, base, NULL);
     Py_DECREF(partial);
     Py_DECREF(urljoin);
+    Py_DECREF(base);
     if (bound == NULL) { /* GCOVR_EXCL_BR_LINE: binding a partial cannot be forced to fail from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }

@@ -1086,11 +1086,34 @@ def test_resolve_links_reads_the_host_of_a_special_base_without_authority(base: 
     ("base", "href", "expected"),
     [
         pytest.param("http:", "x", "http:/x", id="special-base-without-host"),
-        pytest.param("file:a/b", "x", "file:a/x", id="file-base-without-authority"),
     ],
 )
 def test_resolve_links_joins_bases_outside_the_host_rule_as_before(base: str, href: str, expected: str) -> None:
     assert _resolved_href(href, base) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("https://H.Example/a/b", "x", "https://h.example/a/x", id="host-lowercased"),
+        pytest.param("HTTPS://H/", "x", "https://h/x", id="scheme-and-host-lowercased"),
+        pytest.param("https://h:443/a", "x", "https://h/x", id="default-port-dropped"),
+        pytest.param("https://h:80/x/./y/..", "z", "https://h:80/x/z", id="other-port-kept-dot-segments-removed"),
+        pytest.param("https://h/a/../b/", "x", "https://h/b/x", id="dot-segments-in-base-path"),
+        pytest.param("https://\u00fc.example/a", "x", "https://xn--tda.example/x", id="non-ascii-host-punycoded"),
+        pytest.param("https://[::1]:443/a", "x", "https://[::1]/x", id="ipv6-default-port-dropped"),
+        pytest.param("foo://H/a", "x", "foo://H/x", id="non-special-host-kept"),
+        pytest.param("file:a/b", "x", "file:///a/x", id="file-base-without-authority"),
+        pytest.param("a/b", "x", "a/x", id="relative-base-joined-as-written"),
+    ],
+)
+def test_resolve_links_normalizes_the_base_before_joining(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
+def test_resolve_links_raises_on_an_unbalanced_ipv6_base() -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        _resolved_href("x", "https://[h/a")
 
 
 @pytest.mark.parametrize(
