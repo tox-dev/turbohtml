@@ -34,14 +34,53 @@ _CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("münchen。example", "xn--mnchen-3ya.example", id="mapped-separator"),
     pytest.param("münchen..example", "xn--mnchen-3ya..example", id="empty-interior-label"),
     pytest.param("münchen.example.", "xn--mnchen-3ya.example.", id="trailing-label"),
-    pytest.param("xn--ascii-.日本", "xn--ascii-.xn--wgv71a", id="retained-ace"),
-    pytest.param("xn--.日本", ".xn--wgv71a", id="empty-ace"),
+    pytest.param("xn--ascii-.日本", "xn--ascii-.日本", id="invalid-ace-keeps-host"),
+    pytest.param("xn--.日本", "xn--.日本", id="empty-ace-keeps-host"),
     pytest.param("A\ufffdB.example", "a\ufffdb.example", id="disallowed-fallback"),
 ]
 
 
 @pytest.mark.parametrize(("host", "expected"), _CASES)
 def test_idna_shared_public_target(host: str, expected: str) -> None:
+    assert normalize_url(f"https://{host}/item?q=1") == f"https://{expected}/item?q=1"
+
+
+# Hosts UTS #46 validity rejects: an RFC 5893 bidi failure, a ContextJ joiner failure, a leading mark, or a bad xn--
+# label in a non-ASCII host. WHATWG fails the host, so the URL is kept as written.
+@pytest.mark.parametrize(
+    "host",
+    [
+        pytest.param("\u0661.com", id="arabic-indic-digit-first"),
+        pytest.param("a\u05dfb.com", id="latin-then-hebrew"),
+        pytest.param("\u0661\u05d0.com", id="digit-then-hebrew"),
+        pytest.param("\u0660\u0661.com", id="arabic-digits-only-and-leading"),
+        pytest.param("a1\u0661.com", id="latin-digit-and-arabic-digit"),
+        pytest.param("\u0300.com", id="leading-combining-mark"),
+        pytest.param("xn--\u00e4.com", id="non-ascii-after-ace-prefix"),
+        pytest.param("xn--zz.\u00fc.com", id="undecodable-ace-beside-unicode"),
+        pytest.param("\u200c.com", id="zwnj-alone"),
+        pytest.param("a\u200cb.com", id="zwnj-between-latin"),
+        pytest.param("\u0915\u200db.com", id="zwj-without-virama"),
+        pytest.param("\u0628\u200cb.com", id="zwnj-with-right-joining-context-missing"),
+    ],
+)
+def test_idna_validity_keeps_an_invalid_host_as_written(host: str) -> None:
+    assert normalize_url(f"https://{host}/item?q=1") == f"https://{host}/item?q=1"
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        pytest.param("\u05dc\u05d0.com", "xn--4dbx.com", id="rtl-letters"),
+        pytest.param("\u05dc1.com", "xn--1-oic.com", id="rtl-letter-then-digit"),
+        pytest.param("\u05d0\u0661.com", "xn--4db40a.com", id="rtl-letter-then-arabic-digit"),
+        pytest.param("a\u0300.com", "xn--0ca.com", id="combining-mark-after-letter"),
+        pytest.param("\u0628\u200c\u0628.com", "xn--ngba799q.com", id="zwnj-between-joining-letters"),
+        pytest.param("\u0915\u094d\u200db.com", "xn--b-tud2o090g.com", id="zwj-after-virama"),
+        pytest.param("\u0915\u094d\u200d\u0915.com", "xn--11ba1o090g.com", id="zwj-between-letters"),
+    ],
+)
+def test_idna_validity_accepts_a_valid_bidi_or_joiner_host(host: str, expected: str) -> None:
     assert normalize_url(f"https://{host}/item?q=1") == f"https://{expected}/item?q=1"
 
 
@@ -150,7 +189,7 @@ def test_punycode_label_decodes_in_linear_steps(work_steps: WorkSteps) -> None:
             f"a{_GRAVE_BELOW}{_ACUTE * 40}b{_GRAVE_BELOW}{_ACUTE}",
             id="long-run-then-short-run",
         ),
-        pytest.param(f"{_ACUTE * 33}{_GRAVE_BELOW}", f"{_GRAVE_BELOW}{_ACUTE * 33}", id="run-opens-the-host"),
+        pytest.param(f"a{_ACUTE * 33}{_GRAVE_BELOW}", f"a{_GRAVE_BELOW}{_ACUTE * 33}", id="run-after-one-letter"),
         pytest.param(f"a{_ACUTE * 31}{_GRAVE_BELOW}", f"a{_GRAVE_BELOW}{_ACUTE * 31}", id="run-just-under-the-switch"),
     ],
 )
