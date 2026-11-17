@@ -3170,6 +3170,37 @@ static int language_segment_code(const Py_UCS4 *segment, Py_ssize_t len, Py_UCS4
     return 0;
 }
 
+/* The leading path segment as a language marker reads it (RFC 3986 section 6.2.2.2): a percent-encoded unreserved
+   character is equivalent to its decoded form, so it is decoded, while an escape of any other character stays literal
+   and fails the marker test. Writes at most `cap` lowercased characters and returns their count, or -1 when the segment
+   holds a literal escape, a malformed escape, or more than `cap` characters. */
+static Py_ssize_t decode_marker_segment(int kind, const void *data, Py_ssize_t start, Py_ssize_t end, Py_UCS4 *out,
+                                        Py_ssize_t cap) {
+    static const char UNRESERVED[] = TH_URL_ALPHA "0123456789-._~";
+    Py_ssize_t count = 0;
+    for (Py_ssize_t index = start; index < end; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch == '%') {
+            int high = index + 2 < end ? hex_value(PyUnicode_READ(kind, data, index + 1)) : -1;
+            int low = high >= 0 ? hex_value(PyUnicode_READ(kind, data, index + 2)) : -1;
+            if (low < 0) {
+                return -1;
+            }
+            ch = (Py_UCS4)(high * 16 + low);
+            if (!th_url_in_set((unsigned char)ch, UNRESERVED, sizeof(UNRESERVED) - 1)) {
+                return -1;
+            }
+            ch = lower_ascii(ch);
+            index += 2;
+        }
+        if (count == cap) {
+            return -1;
+        }
+        out[count++] = ch;
+    }
+    return count;
+}
+
 /* Whether the two-letter code[2] is a known ISO 639-1 language that differs from `language`, so a URL marked for it
    points at another language and the filter rejects the URL. Returns 1 to reject, 0 to keep, -1 on error. */
 static int language_code_rejects(const Py_UCS4 code[2], PyObject *language, PyObject *iso_639_1) {
@@ -3251,10 +3282,11 @@ static int language_query_rejects(PyObject *query, PyObject *language, PyObject 
 
 /* _url_language_matches(query, path, hostname, language, strict, language_params, iso_639_1): judge a URL's own
    language markers against the target `language`, the URL-based heuristics clean_url's language filter runs. A
-   lang/language query parameter, a leading path segment that is an ISO 639-1 tag, and -- in strict mode -- a two-letter
-   host label each reject the URL when they name a different language. `path` and `query` are raw components; `hostname`
-   is the canonical host the cleaner emits, so its label is the one a browser opens. Returns True to keep, False to
-   reject. Runs once per URL, only when a language filter is active. */
+   lang/language query parameter, a leading path segment that is an ISO 639-1 tag (its percent-encoded unreserved
+   characters decoded), and -- in strict mode -- a two-letter host label each reject the URL when they name a different
+   language. `path` and `query` are raw components; `hostname` is the canonical host the cleaner emits, so its label is
+   the one a browser opens. Returns True to keep, False to reject. Runs once per URL, only when a language filter is
+   active. */
 PyObject *turbohtml_url_language_matches(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *query;
     PyObject *path;
@@ -3299,16 +3331,11 @@ int th_url_language_matches(PyObject *query, PyObject *path, PyObject *hostname,
         leading_end++;
     }
     Py_UCS4 segment[6];
-    Py_ssize_t leading_len = leading_end - leading_start;
     Py_UCS4 code[2];
     int rejects = 0;
-    if (leading_len >= 2 && leading_len <= 6) {
-        for (Py_ssize_t index = 0; index < leading_len; index++) {
-            segment[index] = PyUnicode_READ(kind, data, leading_start + index);
-        }
-        if (language_segment_code(segment, leading_len, code) == 0) {
-            rejects = language_code_rejects(code, language, iso_639_1);
-        }
+    Py_ssize_t leading_len = decode_marker_segment(kind, data, leading_start, leading_end, segment, 6);
+    if (leading_len >= 2 && language_segment_code(segment, leading_len, code) == 0) {
+        rejects = language_code_rejects(code, language, iso_639_1);
     }
     Py_DECREF(lowered);
     if (rejects < 0) { /* GCOVR_EXCL_BR_LINE: building a two-letter code and testing membership cannot error */
