@@ -6807,13 +6807,17 @@ def _css_string_values(css: str) -> list[str]:
 def _string_values(
     nodes: list[Any],  # simplint: ignore[imprecise-annotation]  # tinycss2 nodes share no static type
 ) -> list[str]:
-    values: list[str] = []
-    for node in nodes:
-        if node.type in {"string", "url"}:
-            values.append(node.value)
-        elif node.type == "function":
-            values.extend(_string_values(node.arguments))
-    return values
+    return [
+        value
+        for node in nodes
+        for value in (
+            [node.value]
+            if node.type in {"string", "url"}
+            else _string_values(node.arguments)
+            if node.type == "function"
+            else []
+        )
+    ]
 
 
 @pytest.mark.parametrize(

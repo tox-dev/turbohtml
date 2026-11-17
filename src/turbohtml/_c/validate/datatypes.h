@@ -1009,11 +1009,12 @@ static int dt_decimal_compare(const dt_decimal *a, const dt_decimal *b) {
     return a->negative ? -magnitude : magnitude;
 }
 
-/* The number the run of digits at `*at` writes, leaving `*at` on the character that ends the run. A year and a
-   duration's counts have no length limit and may open with any number of zeros, so the run is read whole. */
-static double dt_digit_run(const Py_UCS4 *value, Py_ssize_t *at) {
+/* The number the run of digits at `*at` writes, leaving `*at` on the character that ends the run or on `len`. A year
+   and a duration's counts have no length limit and may open with any number of zeros, so the run is read whole. A gYear
+   with no timezone is only its digits, so its run ends at `len` and must not read past it. */
+static double dt_digit_run(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *at) {
     double number = 0;
-    while (is_digit(value[*at])) {
+    while (*at < len && is_digit(value[*at])) {
         number = number * 10 + (double)(value[*at] - '0');
         (*at)++;
     }
@@ -1059,7 +1060,7 @@ static dt_moment dt_partial_moment_of(int id, const Py_UCS4 *value, Py_ssize_t l
     Py_ssize_t year_end = negative;
     double year = 1972;
     if (id == DT_G_YEAR || id == DT_G_YEAR_MONTH) {
-        year = dt_digit_run(value, &year_end);
+        year = dt_digit_run(value, len, &year_end);
         year = negative ? -year : year;
     }
     int month = 12, day = 31;
@@ -1103,7 +1104,7 @@ static dt_moment dt_moment_of(int id, const Py_UCS4 *value, Py_ssize_t len) {
         const int negative = value[0] == '-';
         at = negative;
         /* years count as written, with 0000 between -0001 and 0001: dt_check_lexical admits it */
-        const double year = dt_digit_run(value, &at);
+        const double year = dt_digit_run(value, len, &at);
         const double months = (negative ? -year : year) * 12 + fixed_digits(value, at + 1, 2, 1, 12) - 1;
         moment.seconds = (dt_month_days(months) + fixed_digits(value, at + 4, 2, 1, 31)) * 86400;
         at += id == DT_DATE ? 6 : 7; /* a dateTime goes on past its T */
@@ -1157,7 +1158,7 @@ static dt_span dt_span_of(const Py_UCS4 *value, Py_ssize_t len) {
             in_time = 1;
             continue;
         }
-        const double count = dt_digit_run(value, &at);
+        const double count = dt_digit_run(value, len, &at);
         if (value[at] == '.') {
             span.fraction = value + ++at;
             while (is_digit(value[at])) {
@@ -1546,6 +1547,18 @@ typedef struct {
     Py_ssize_t enum_count, pattern_count;
 } facet_levels;
 
+/* The patterns of one restriction step are alternatives, as if they were branches of one regular expression (XSD Part 2
+   4.3.4.3), so the value matches the step when any of them does. Each step must still match on its own. */
+static int pattern_step_matches(th_schema *schema, const strspan *patterns, Py_ssize_t count, const Py_UCS4 *value,
+                                Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (regex_full_match(schema, patterns[index].ptr, patterns[index].len, value, len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Apply every facet to the whitespace-normalized value, reporting each violation on `node`: the facets of `facets`,
    then the enumerations and patterns of `levels`. `units` is what the length facets measure: the characters of an
    atomic value, the items of a list. Returns 1 when all pass. */
@@ -1637,20 +1650,17 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
             ok = 0;
         }
     }
-    for (Py_ssize_t index = 0; index < facets->pattern_count; index++) {
-        if (!regex_full_match(ctx->schema, facets->patterns[index].ptr, facets->patterns[index].len, value, len)) {
-            report(ctx, node, "facet", "value does not match the required pattern");
-            ok = 0;
-        }
+    if (facets->pattern_count > 0 &&
+        !pattern_step_matches(ctx->schema, facets->patterns, facets->pattern_count, value, len)) {
+        report(ctx, node, "facet", "value does not match the required pattern");
+        ok = 0;
     }
     for (Py_ssize_t level = 0; level < levels->pattern_count; level++) {
         TH_WORK_STEP();
         const facetset *set = levels->patterns[level];
-        for (Py_ssize_t index = 0; index < set->pattern_count; index++) {
-            if (!regex_full_match(ctx->schema, set->patterns[index].ptr, set->patterns[index].len, value, len)) {
-                report(ctx, node, "facet", "value does not match the required pattern");
-                ok = 0;
-            }
+        if (!pattern_step_matches(ctx->schema, set->patterns, set->pattern_count, value, len)) {
+            report(ctx, node, "facet", "value does not match the required pattern");
+            ok = 0;
         }
     }
     return ok;

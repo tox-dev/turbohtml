@@ -1842,7 +1842,7 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
             for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 128, 160))
         ),
         (
-            "two 398-deep recursive nodes",
+            "four 199-deep recursive nodes",
             (
                 (
                     '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><element name="root">'
@@ -1850,7 +1850,7 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                     '<define name="node"><element name="node"><optional><ref name="node"/></optional>'
                     "</element></define></grammar>"
                 ),
-                f"<root>{('<node>' * 398 + '</node>' * 398) * 2}</root>",
+                f"<root>{('<node>' * 199 + '</node>' * 199) * 4}</root>",
             ),
         ),
     )

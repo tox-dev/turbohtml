@@ -1124,7 +1124,7 @@ def test_schema_children_found_as_the_schema_orders_them(content: str, xml: str,
     [
         pytest.param("", True, id="matches-every-pattern"),
         pytest.param("z", True, id="matches-every-pattern-by-its-first-branch"),
-        pytest.param("00007", False, id="matches-one-pattern"),
+        pytest.param("00007", True, id="matches-one-pattern-as-an-alternative"),
         pytest.param("b", False, id="matches-no-pattern"),
     ],
 )
@@ -1134,6 +1134,55 @@ def test_regex_many_patterns_on_one_type(value: str, *, valid: bool) -> None:
 
 def _many_pattern_facets(count: int) -> str:
     return "".join(f'<xs:pattern value="z?|{number:05d}"/>' for number in range(count))
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        pytest.param("abc01", True, id="matches-first-pattern"),
+        pytest.param("abc12", True, id="matches-second-pattern"),
+        pytest.param("abc", False, id="matches-no-pattern"),
+    ],
+)
+def test_pattern_facets_of_one_step_match_any(value: str, *, valid: bool) -> None:
+    assert check(restricted(_pattern_facets(("[a-z]+0[0-9]+", "[a-z]+1[0-9]+"))), f"<v>{value}</v>").valid is valid
+
+
+def _pattern_facets(patterns: tuple[str, ...]) -> str:
+    return "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
+
+
+def test_pattern_facets_of_one_step_match_any_in_a_repeated_element() -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS}><xs:simpleType name="item"><xs:restriction base="xs:string">'
+        f"{_pattern_facets(('[a-z]+0[0-9]+', '[a-z]+1[0-9]+'))}</xs:restriction></xs:simpleType>"
+        '<xs:element name="root"><xs:complexType><xs:sequence>'
+        '<xs:element name="value" type="item" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>'
+        "</xs:schema>"
+    )
+    assert schema.validate(parse_xml("<root><value>abc123</value></root>")).valid
+    assert not schema.validate(parse_xml("<root><value>abc</value></root>")).valid
+
+
+@pytest.mark.parametrize(
+    ("base", "restriction", "value", "valid"),
+    [
+        pytest.param(("[a-z]{3}",), ("[a-z]{3}", "[0-9]{3}"), "abc", True, id="matches-both-steps"),
+        pytest.param(("[a-z]{3}",), ("[a-z]{3}", "[0-9]{3}"), "123", False, id="restriction-alternative-fails-base"),
+        pytest.param(("[a-z]{3}", "[0-9]{3}"), ("[a-z]{3}",), "123", False, id="base-alternative-fails-restriction"),
+        pytest.param(("[a-z]{3}", "[0-9]{3}"), ("[a-z]{3}",), "abc", True, id="base-alternatives-pass-restriction"),
+    ],
+)
+def test_pattern_facets_of_each_derivation_step_all_apply(
+    base: tuple[str, ...], restriction: tuple[str, ...], value: str, *, valid: bool
+) -> None:
+    schema: Final = XMLSchema(
+        f'<xs:schema {_XS}><xs:simpleType name="base"><xs:restriction base="xs:string">'
+        f"{_pattern_facets(base)}</xs:restriction></xs:simpleType>"
+        '<xs:element name="v"><xs:simpleType><xs:restriction base="base">'
+        f"{_pattern_facets(restriction)}</xs:restriction></xs:simpleType></xs:element></xs:schema>"
+    )
+    assert schema.validate(parse_xml(f"<v>{value}</v>")).valid is valid
 
 
 def test_regex_many_patterns_compile_in_linear_steps(work_steps: WorkSteps) -> None:
@@ -1181,21 +1230,21 @@ def test_regex_class_of_many_ranges_matches_in_linear_steps(template: str, value
 @pytest.mark.parametrize(
     ("value", "valid"),
     [
-        pytest.param("ab", True, id="every-pattern"),
-        pytest.param("b", False, id="fails-a-repeated-pattern"),
-        pytest.param("abab", False, id="fails-a-single-pattern"),
+        pytest.param("abab", True, id="matches-a-repeated-pattern"),
+        pytest.param("c", True, id="matches-a-repeated-literal"),
+        pytest.param("b", False, id="matches-no-pattern"),
     ],
 )
 def test_regex_repeated_patterns_on_one_type(value: str, *, valid: bool) -> None:
     # equal texts compile once, and every facet that repeats one finds that compiled form
-    patterns: Final = ("(ab)+", "a.*", "[ab]{1,4}", ".+", "a.*", "(ab)+", "ab|c", ".b", "a.*", "[ab]{1,4}", "(ab)?")
+    patterns: Final = ("(ab)+", "c", "(ab)+", "d", "c")
     facets: Final = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
     assert check(restricted(facets), f"<v>{value}</v>").valid is valid
 
 
 def test_regex_empty_pattern_matches_only_the_empty_string() -> None:
-    schema: Final = XMLSchema(restricted('<xs:pattern value=""/><xs:pattern value="a*"/><xs:pattern value=""/>'))
-    assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("", "a")] == [True, False]
+    schema: Final = XMLSchema(restricted('<xs:pattern value=""/><xs:pattern value="b"/><xs:pattern value=""/>'))
+    assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("", "b", "a")] == [True, True, False]
 
 
 @pytest.mark.parametrize(
@@ -3205,8 +3254,8 @@ def test_enumeration_numeric_and_growth() -> None:
 
 def test_multiple_patterns_growth() -> None:
     facets = "".join(f'<xs:pattern value="[a-z]{{{n}}}"/>' for n in range(1, 6))
-    # every pattern must match; only a 1-char lowercase string satisfies length 1..5 simultaneously? no -- all lengths
-    assert not xsd_ok(edge_restricted(facets), "<v>abc</v>")
+    assert xsd_ok(edge_restricted(facets), "<v>abc</v>")
+    assert not xsd_ok(edge_restricted(facets), "<v>abcdef</v>")
 
 
 def test_length_exact_mismatch() -> None:
@@ -4822,7 +4871,7 @@ def pattern_schema() -> Callable[[str, str], XMLSchema | RelaxNG]:
     "form",
     [
         pytest.param(
-            ("inline", '<xs:pattern value="[a-z]+[0-9]+"/><xs:pattern value="abc[0-9]+"/>'),
+            ("inline", '<xs:pattern value="abc[0-9]+"/><xs:pattern value="abc[0-9]+x"/>'),
             id="inline",
         ),
         pytest.param(
