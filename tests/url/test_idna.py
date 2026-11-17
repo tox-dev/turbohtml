@@ -37,6 +37,7 @@ _CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("xn--ascii-.日本", "xn--ascii-.日本", id="invalid-ace-keeps-host"),
     pytest.param("xn--.日本", "xn--.日本", id="empty-ace-keeps-host"),
     pytest.param("A\ufffdB.example", "a\ufffdb.example", id="disallowed-fallback"),
+    pytest.param("\u1e9b\u0323.example", "xn--1ig.example", id="nfc-after-mapping"),
 ]
 
 
