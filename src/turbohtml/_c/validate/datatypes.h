@@ -1546,6 +1546,18 @@ typedef struct {
     Py_ssize_t enum_count, pattern_count;
 } facet_levels;
 
+/* The patterns of one restriction step are alternatives, as if they were branches of one regular expression (XSD Part 2
+   4.3.4.3), so the value matches the step when any of them does. Each step must still match on its own. */
+static int pattern_step_matches(th_schema *schema, const strspan *patterns, Py_ssize_t count, const Py_UCS4 *value,
+                                Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (regex_full_match(schema, patterns[index].ptr, patterns[index].len, value, len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Apply every facet to the whitespace-normalized value, reporting each violation on `node`: the facets of `facets`,
    then the enumerations and patterns of `levels`. `units` is what the length facets measure: the characters of an
    atomic value, the items of a list. Returns 1 when all pass. */
@@ -1637,20 +1649,17 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
             ok = 0;
         }
     }
-    for (Py_ssize_t index = 0; index < facets->pattern_count; index++) {
-        if (!regex_full_match(ctx->schema, facets->patterns[index].ptr, facets->patterns[index].len, value, len)) {
-            report(ctx, node, "facet", "value does not match the required pattern");
-            ok = 0;
-        }
+    if (facets->pattern_count > 0 &&
+        !pattern_step_matches(ctx->schema, facets->patterns, facets->pattern_count, value, len)) {
+        report(ctx, node, "facet", "value does not match the required pattern");
+        ok = 0;
     }
     for (Py_ssize_t level = 0; level < levels->pattern_count; level++) {
         TH_WORK_STEP();
         const facetset *set = levels->patterns[level];
-        for (Py_ssize_t index = 0; index < set->pattern_count; index++) {
-            if (!regex_full_match(ctx->schema, set->patterns[index].ptr, set->patterns[index].len, value, len)) {
-                report(ctx, node, "facet", "value does not match the required pattern");
-                ok = 0;
-            }
+        if (!pattern_step_matches(ctx->schema, set->patterns, set->pattern_count, value, len)) {
+            report(ctx, node, "facet", "value does not match the required pattern");
+            ok = 0;
         }
     }
     return ok;
