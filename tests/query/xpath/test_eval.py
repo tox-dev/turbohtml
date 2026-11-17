@@ -1998,6 +1998,90 @@ def _b_then_siblings(size: int) -> turbohtml.Node:
     return parse_xml(f"<r><b/>{'<a/>' * size}</r>")
 
 
+def _chain_under_b_with_c(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r><b><c/>{'<a>' * size}{'</a>' * size}</b></r>")
+
+
+def _chain_with_x_before_b(size: int) -> turbohtml.Node:
+    return parse_xml(f"<r>{'<a>' * size}<x/>{'</a>' * size}<b/></r>")
+
+
+# A near b fails among the walk's first candidates, a far one in the walks the memo runs past them
+@pytest.mark.parametrize(
+    ("axis", "build"),
+    [
+        pytest.param("ancestor", _chain_under_b, id="ancestor"),
+        pytest.param("ancestor-or-self", _chain_under_b, id="ancestor-or-self"),
+        pytest.param("preceding", _b_then_siblings, id="preceding"),
+        pytest.param("preceding-sibling", _b_then_siblings, id="preceding-sibling"),
+        pytest.param("following", _siblings_then_b, id="following"),
+        pytest.param("following-sibling", _siblings_then_b, id="following-sibling"),
+    ],
+)
+@pytest.mark.parametrize("size", [3, 40])
+@pytest.mark.parametrize("form", ["//a[{axis}::b[boolean($missing)]]", "//a[count({axis}::b[boolean($missing)]) = 0]"])
+def test_unbound_variable_in_a_walked_predicate_raises(
+    axis: str, build: Callable[[int], turbohtml.Node], size: int, form: str
+) -> None:
+    with pytest.raises(ValueError, match="unbound variable"):
+        build(size).xpath(form.format(axis=axis))
+
+
+@pytest.mark.parametrize(
+    ("expression", "build"),
+    [
+        pytest.param("//b[count(ancestor-or-self::b[self::b and $missing]) = 0]", _chain_under_b, id="self"),
+        pytest.param(
+            "//c[count(ancestor-or-self::b[boolean($missing)]) = 0]", _chain_under_b_with_c, id="ancestor-or-self"
+        ),
+        pytest.param("//x[count(following::b[boolean($missing)]) = 0]", _chain_with_x_before_b, id="following"),
+        pytest.param("//a[ancestor::b/c[$missing]]", _chain_under_b_with_c, id="rest-of-path"),
+    ],
+)
+@pytest.mark.parametrize("size", [3, 40])
+def test_unbound_variable_in_a_counted_or_rest_walk_raises(
+    expression: str, build: Callable[[int], turbohtml.Node], size: int
+) -> None:
+    with pytest.raises(ValueError, match="unbound variable"):
+        build(size).xpath(expression)
+
+
+@pytest.mark.parametrize("expression", ["//a[ancestor::zz:b]", "//a[count(ancestor::zz:b) = 0]"])
+def test_undefined_prefix_in_a_walked_predicate_raises(expression: str) -> None:
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        _chain_under_b(3).xpath(expression)
+
+
+# A Python call anywhere in an expression turns the walks off, so each existence test below takes the plain step route;
+# that route has to find what the position-filtered form finds.
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "child",
+        "descendant",
+        "descendant-or-self",
+        "ancestor",
+        "ancestor-or-self",
+        "following",
+        "following-sibling",
+        "preceding",
+        "preceding-sibling",
+        "parent",
+        "self",
+        "attribute",
+        "namespace",
+    ],
+)
+@pytest.mark.parametrize("context", ["//p", "//@*", "//text()", "//p/namespace::*", "//*"])
+@pytest.mark.parametrize("test", ["node()", "p"])
+def test_existence_test_without_walks_matches_the_positional_form(
+    doc: turbohtml.Node, context: str, axis: str, test: str
+) -> None:
+    assert doc.xpath(f"{context}[{axis}::{test} and matches('', '')]") == doc.xpath(
+        f"{context}[{axis}::{test}[position() > 0]]"
+    )
+
+
 # A predicate that walks an ancestor, sibling, preceding or following axis from every context node must not repeat that
 # walk for each node: the steps grow linearly whether the walk finds its node near or far, or finds none.
 @pytest.mark.parametrize(
