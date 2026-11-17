@@ -1009,11 +1009,12 @@ static int dt_decimal_compare(const dt_decimal *a, const dt_decimal *b) {
     return a->negative ? -magnitude : magnitude;
 }
 
-/* The number the run of digits at `*at` writes, leaving `*at` on the character that ends the run. A year and a
-   duration's counts have no length limit and may open with any number of zeros, so the run is read whole. */
-static double dt_digit_run(const Py_UCS4 *value, Py_ssize_t *at) {
+/* The number the run of digits at `*at` writes, leaving `*at` on the character that ends the run or on `len`. A year
+   and a duration's counts have no length limit and may open with any number of zeros, so the run is read whole. A gYear
+   with no timezone is only its digits, so its run ends at `len` and must not read past it. */
+static double dt_digit_run(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *at) {
     double number = 0;
-    while (is_digit(value[*at])) {
+    while (*at < len && is_digit(value[*at])) {
         number = number * 10 + (double)(value[*at] - '0');
         (*at)++;
     }
@@ -1059,7 +1060,7 @@ static dt_moment dt_partial_moment_of(int id, const Py_UCS4 *value, Py_ssize_t l
     Py_ssize_t year_end = negative;
     double year = 1972;
     if (id == DT_G_YEAR || id == DT_G_YEAR_MONTH) {
-        year = dt_digit_run(value, &year_end);
+        year = dt_digit_run(value, len, &year_end);
         year = negative ? -year : year;
     }
     int month = 12, day = 31;
@@ -1103,7 +1104,7 @@ static dt_moment dt_moment_of(int id, const Py_UCS4 *value, Py_ssize_t len) {
         const int negative = value[0] == '-';
         at = negative;
         /* years count as written, with 0000 between -0001 and 0001: dt_check_lexical admits it */
-        const double year = dt_digit_run(value, &at);
+        const double year = dt_digit_run(value, len, &at);
         const double months = (negative ? -year : year) * 12 + fixed_digits(value, at + 1, 2, 1, 12) - 1;
         moment.seconds = (dt_month_days(months) + fixed_digits(value, at + 4, 2, 1, 31)) * 86400;
         at += id == DT_DATE ? 6 : 7; /* a dateTime goes on past its T */
@@ -1157,7 +1158,7 @@ static dt_span dt_span_of(const Py_UCS4 *value, Py_ssize_t len) {
             in_time = 1;
             continue;
         }
-        const double count = dt_digit_run(value, &at);
+        const double count = dt_digit_run(value, len, &at);
         if (value[at] == '.') {
             span.fraction = value + ++at;
             while (is_digit(value[at])) {
