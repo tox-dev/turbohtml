@@ -760,6 +760,8 @@ int th_doctype_is_quirky(th_node *node);
    serialize-then-parse rebuilds the tree (measured on 8M fuzzed inputs), so the sanitizer re-checks only its own
    edits; a tree not built by the parser reports 0 and gets the whole-tree pass from its caller. */
 int th_tree_reparse_hazard(const th_tree *tree);
+/* Whether the depth cap moved an inserted node, so the parsed tree is flatter than an uncapped parse of its markup. */
+int th_tree_depth_capped(const th_tree *tree);
 
 /* Whether the tree was parsed with the WHATWG scripting flag on (noscript is a
    raw-text element); programmatic trees default to off. innerHTML fragment parsing

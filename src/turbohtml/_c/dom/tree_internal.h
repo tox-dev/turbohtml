@@ -133,6 +133,7 @@ struct th_tree {
     int open_templates; /* templates on the stack: each one's content fragment adds a DOM level */
     int depth_near_cap; /* the depth bound has reached the cap once; set and never cleared, so an insertion checks only
                            then */
+    int depth_capped;   /* the DOM cap moved a node, so the tree is flatter than the markup it came from */
     Py_ssize_t open_cap;
     th_stack_block *open_blocks; /* per-block summaries of open, built once the stack passes one block; NULL before */
     Py_ssize_t open_block_cap;
