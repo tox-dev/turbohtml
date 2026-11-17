@@ -112,7 +112,6 @@ typedef struct {
     PyObject *static_range_type;      /* StaticRange, the immutable boundary-point snapshot */
     PyObject *mutation_observer_type; /* MutationObserver, the synchronous tree-mutation watcher (dom/observe.c) */
     PyObject *mutation_record_type;   /* turbohtml.mutations.MutationRecord, one delivered change record */
-    PyObject *codec_shift_cache;      /* {CodecInfo: bool}, whether the codec writes a shift code (dom/node.c) */
     /* A freelist of node wrappers: find_all()/select()/iteration mint and drop one
        NodeObject per visited node, and every node subtype shares sizeof(NodeObject)
        (the payload lives in the C th_node), so one pool re-stamps ob_type on reuse.
@@ -122,7 +121,8 @@ typedef struct {
        skips it (a shared pool would race) and keeps the tp_alloc/tp_free path. */
     PyObject *node_freelist;
     int node_freelist_len;
-    uint64_t handles_created; /* numbers each _TreeHandle, so no two trees salt their node hashes alike */
+    uint64_t handles_created;    /* numbers each _TreeHandle, so no two trees salt their node hashes alike */
+    PyObject *codec_shift_cache; /* {id(CodecInfo): (CodecInfo, bool)}, the codec's shift answer (dom/node.c) */
 } module_state;
 
 /* Register the types and enum into module/state. Each returns 0 or -1. */

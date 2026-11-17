@@ -2501,8 +2501,8 @@ def test_element_tree_writes_a_shift_code_as_a_reference_under_a_stateful_codec(
     register_codec: Callable[[str, codecs.CodecInfo], None],
 ) -> None:
     register_codec("turbohtml_esc_latin_etree", _codec_info(_EscLatinEncoder))
-    tree: Final = fragment_fromstring("<p>a\x1b</p>")
-    assert tostring(tree, encoding="turbohtml_esc_latin_etree", method="text") == b"a&#27;"
+    tree: Final = fragment_fromstring("<p>Āāa\x1b</p>")
+    assert tostring(tree, encoding="turbohtml_esc_latin_etree", method="text") == b'\x1b$B!"\x1b(Ba&#27;'
 
 
 def test_encode_keeps_a_shift_code_under_a_stateless_codec_with_a_narrow_repertoire(

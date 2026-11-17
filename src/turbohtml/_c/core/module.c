@@ -672,13 +672,13 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->static_range_type);      /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->mutation_observer_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->mutation_record_type);   /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->codec_shift_cache);      /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
         Py_VISIT(state->axes[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->formatters[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
+    Py_VISIT(state->codec_shift_cache); /* GCOVR_EXCL_BR_LINE: same */
     return 0;
 }
 
@@ -761,13 +761,13 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->static_range_type);
     Py_CLEAR(state->mutation_observer_type);
     Py_CLEAR(state->mutation_record_type);
-    Py_CLEAR(state->codec_shift_cache);
     for (int index = 0; index < 7; index++) {
         Py_CLEAR(state->axes[index]);
     }
     for (int index = 0; index < 3; index++) {
         Py_CLEAR(state->formatters[index]);
     }
+    Py_CLEAR(state->codec_shift_cache);
     return 0;
 }
 
