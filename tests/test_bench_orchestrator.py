@@ -3,10 +3,11 @@ from __future__ import annotations
 import io
 import json
 import os
-import subprocess
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fakes the worker process boundary; nothing is spawned
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -32,7 +33,7 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Harness:
     monkeypatch.setattr(orchestrator, "baseline_python", fake.baseline_python)
     monkeypatch.setattr(orchestrator, "venv_python", fake.venv_python)
     monkeypatch.setattr(orchestrator, "render", fake.render)
-    monkeypatch.setattr(orchestrator.time, "monotonic", fake.monotonic)
+    monkeypatch.setattr(orchestrator, "time", SimpleNamespace(monotonic=fake.monotonic))
     monkeypatch.setattr(subprocess, "run", fake.worker)
     return fake
 
@@ -52,7 +53,8 @@ class _Harness:
     def monotonic(self) -> float:
         return self.now
 
-    def baseline_python(self, workdir: Path, *, pgo: bool) -> Path:
+    @staticmethod
+    def baseline_python(workdir: Path, *, pgo: bool) -> Path:
         assert not pgo
         return workdir / "venv-core"
 
@@ -205,8 +207,9 @@ def test_parallel_runs_are_pinned_to_distinct_cpus(harness: _Harness, monkeypatc
     assert sorted(arg for _, _, args in harness.calls for arg in args) == ["--affinity=0", "--affinity=1"]
 
 
+@pytest.mark.usefixtures("harness")
 def test_parallel_worker_output_is_printed_as_a_block(
-    harness: _Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
     run("core", (), pgo=False, jobs=2)
@@ -309,7 +312,8 @@ def test_all_renders_every_operation_with_its_competitors(harness: _Harness, mon
     }
 
 
-def test_unknown_command_is_rejected(harness: _Harness) -> None:
+@pytest.mark.usefixtures("harness")
+def test_unknown_command_is_rejected() -> None:
     with pytest.raises(SystemExit, match="unknown command 'nope'"):
         run("nope", (), pgo=False, jobs=1)
 
