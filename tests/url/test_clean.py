@@ -20,7 +20,7 @@ if TYPE_CHECKING:
         pytest.param("https://www.dwds\t.de/x\n", "https://www.dwds.de/x", id="embedded-tab-and-newline"),
         pytest.param("http:example.org/x", "http://example.org/x", id="host-after-scheme"),
         pytest.param("\x00\x1fhttps://example.org/\x07", "https://example.org/", id="control-characters"),
-        pytest.param("https://exam ple.org/pa th", "https://example.org/path", id="embedded-spaces-removed"),
+        pytest.param("https://example.org/pa th", "https://example.org/pa%20th", id="embedded-space-encoded"),
         pytest.param("<![CDATA[https://www.dwds.de]]>", "https://www.dwds.de/", id="cdata-wrapper"),
         pytest.param('https://example.org/abc"more', "https://example.org/abc", id="quote-truncates"),
         pytest.param("https://example.org/abc<b>x", "https://example.org/abc", id="tag-truncates"),
@@ -358,6 +358,34 @@ def test_clean_drops_a_fragment_key_with_a_lone_surrogate() -> None:
 )
 def test_anchor_attributes_are_read_the_way_html_defines_them(html: str, expected: set[str]) -> None:
     assert extract_links(html, "https://test.com/") == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("https://a b:a b@h.example/p", "https://a%20b:a%20b@h.example/p", id="userinfo-space-encoded"),
+        pytest.param(
+            "https://h.example/a b?q=a b#f g", "https://h.example/a%20b?q=a%20b#f%20g", id="path-query-fragment"
+        ),
+        pytest.param("https://h.example/a\u2028b", "https://h.example/a%E2%80%A8b", id="path-line-separator-encoded"),
+        pytest.param("https://h.example/\u00a0x", "https://h.example/%C2%A0x", id="path-nbsp-encoded"),
+        pytest.param("https://\u4f8b\u2028.jp/p", None, id="host-line-separator-fails"),
+        pytest.param("https://a b.example/p", None, id="host-space-fails"),
+    ],
+)
+def test_clean_encodes_whitespace_the_way_the_url_standard_does(url: str, expected: str | None) -> None:
+    assert clean_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://\u4f8b\u2028.jp/p", id="host-line-separator"),
+        pytest.param("https://a b.example/p", id="host-space"),
+    ],
+)
+def test_extract_links_drops_a_host_with_whitespace(url: str) -> None:
+    assert extract_links(f'<a href="{url}">x</a>', "https://site.example/d/") == set()
 
 
 def test_extract_links_keeps_unicode_whitespace_in_base_path() -> None:

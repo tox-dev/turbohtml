@@ -1,0 +1,2 @@
+``clean_url()`` and ``extract_links()`` now percent-encode a space or other Unicode whitespace in a URL's userinfo,
+path, query and fragment, as browsers do, instead of dropping it, and drop a link whose host holds whitespace.

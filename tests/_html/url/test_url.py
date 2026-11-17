@@ -980,12 +980,12 @@ def _scrub_corpus() -> list[str]:
 
 
 def _oracle_scrub(url: str) -> str:
-    remainder = "".join(char for char in url.strip(_C0_AND_SPACE) if char not in _PY_WHITESPACE)
+    remainder = "".join(char for char in url.strip(_C0_AND_SPACE) if char not in "\t\n\r")
     if remainder.startswith("<![CDATA["):
         remainder = remainder.removeprefix("<![CDATA[").removesuffix("]]>")
     kept: Final = len(_THROUGH_AUTHORITY.findall(remainder)[0])  # the pattern matches at the start, if only emptily
     head, *cut = _MARKUP_DELIMITER.split(remainder[:kept], maxsplit=1)
-    if not cut or _HOST_TEXT.search(cut[0]):
+    if not cut or (remainder[len(head)] == '"' and _HOST_TEXT.search(cut[0])):
         head = remainder[:kept] + _MARKUP_DELIMITER.split(remainder[kept:], maxsplit=1)[0]
     remainder = head.replace("&amp;", "&")
     trimmed: Final = remainder.rstrip(_C0_AND_SPACE)
@@ -1005,8 +1005,9 @@ def _oracle_scrub(url: str) -> str:
         pytest.param("  https://x/p  ", "https://x/p", id="edge-space-stripped"),
         pytest.param("\x01https://x/p\x02", "https://x/p", id="edge-c0-stripped"),
         pytest.param("mid\x01control", "mid\x01control", id="mid-non-ws-c0-kept"),
-        pytest.param("a\xa0b", "ab", id="nbsp-whitespace-removed"),
-        pytest.param("a b\tc\nd", "abcd", id="internal-whitespace-removed"),
+        pytest.param("a\xa0b", "a\xa0b", id="nbsp-kept"),
+        pytest.param("a\rb\tc", "abc", id="carriage-return-removed"),
+        pytest.param("a b\tc\nd", "a bcd", id="internal-tab-and-newline-removed"),
         pytest.param("<![CDATA[https://x/p]]>", "https://x/p", id="cdata-unwrapped"),
         pytest.param("<![CDATA[https://x/p", "https://x/p", id="cdata-open-only"),
         pytest.param("<![CDATA[ab", "ab", id="cdata-content-too-short-for-suffix"),
