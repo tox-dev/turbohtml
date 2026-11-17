@@ -14,7 +14,7 @@ import sys
 from collections import deque
 from dataclasses import replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import turbohtml
 from turbohtml import Markdown as _Markdown
@@ -542,7 +542,9 @@ def _iterate_inner_indent(text: str) -> None:
 
 
 def _transform_dispatch(count: int) -> None:
-    _dispatch_pipeline(count)()
+    # Repeat the pipeline so a zero-stage call clears the 1M Ir floor.
+    for _ in range(1000):
+        _dispatch_pipeline(count)()
 
 
 @functools.cache
