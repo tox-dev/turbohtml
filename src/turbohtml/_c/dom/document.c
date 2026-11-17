@@ -1120,7 +1120,8 @@ PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
                            "<template>, or one that is an SVG or MathML element, is ignored. A base that resolves to\n"
                            "more than 2,048 characters is ignored.\n\n"
                            ":param fallback: the URL the <base href> is resolved against, and the result\n"
-                           "    itself when the document has no <base href>.\n"
+                           "    itself when the document has no <base href>, normalized as the URL standard parses\n"
+                           "    it. A fallback that does not parse is returned as written.\n"
                            ":returns: the document's base URL.");
 
 static bool base_has_forbidden_scheme(PyObject *url) {
@@ -1315,10 +1316,25 @@ PyObject *th_url_normalize_base(PyObject *base) {
     return parsed;
 }
 
-/* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
-   TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named base. The
-   extraction methods share it. */
+/* The fallback as the URL standard parses it, so the no-<base> result and the base a <base href> resolves against are
+   both normalized. A fallback that does not parse stays as written, and TH_BASE_URL_MAX does not apply: the
+   caller's own URL is not limited. */
+static PyObject *fallback_base_url(PyObject *fallback) {
+    PyObject *parsed = th_url_base_parse(fallback);
+    if (parsed != NULL) {
+        return parsed;
+    }
+    if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation can fail here */
+        return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyErr_Clear();
+    return Py_NewRef(fallback);
+}
+
+/* The document's base URL: its first <base href> resolved against the fallback (a borrowed str, normalized first), or
+   that normalized fallback itself when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base
+   is longer than TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named
+   base. The extraction methods share it. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
@@ -1331,11 +1347,17 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         }
     }
     Py_END_CRITICAL_SECTION();
-    if (href == NULL) {
-        return Py_NewRef(fallback); /* no <base href>: the fallback is the base */
+    PyObject *base = fallback_base_url(fallback);
+    if (base == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_XDECREF(href); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *result = th_url_base_resolve(href, fallback);
+    if (href == NULL) {
+        return base; /* no <base href>: the fallback is the base */
+    }
+    PyObject *result = th_url_base_resolve(href, base);
     Py_DECREF(href);
+    Py_DECREF(base);
     return result;
 }
 
