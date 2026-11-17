@@ -1403,19 +1403,21 @@ static Py_ssize_t base_scheme_of(PyObject *base_url, char *out, Py_ssize_t cap) 
     return 0;
 }
 
-/* The base as a browser parses it, so links resolve against the normalized base. A relative base, or one that does not
-   parse, is joined as written: an empty fallback makes a base that does not parse come back empty. */
+/* The base as a browser parses it, so links resolve against the normalized base. A relative base is joined as written,
+   and so is a base that does not parse: an empty base leaves each link as written, as the URL standard does. */
 static PyObject *normalized_base(PyObject *base_url, Py_ssize_t scheme_len) {
     if (scheme_len == 0) {
         return Py_NewRef(base_url);
     }
-    PyObject *empty = PyUnicode_New(0, 0);
-    if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyObject *parsed = th_url_base_parse(base_url);
+    if (parsed == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation can fail here */
+            return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear();
+        return PyUnicode_New(0, 0);
     }
-    PyObject *parsed = th_url_base_resolve(base_url, empty);
-    Py_DECREF(empty);
-    if (parsed != NULL && PyUnicode_GET_LENGTH(parsed) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+    if (PyUnicode_GET_LENGTH(parsed) > TH_BASE_URL_MAX) {
         Py_SETREF(parsed, Py_NewRef(base_url));
     }
     return parsed;

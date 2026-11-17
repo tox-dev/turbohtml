@@ -315,6 +315,7 @@ PyObject *turbohtml_register_feed(PyObject *module, PyObject *args);
 PyObject *th_url_resolve(PyObject *base, PyObject *target);
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback);
 PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback);
+PyObject *th_url_base_parse(PyObject *href);
 
 /* Implemented in tables.c, the engine behind Element.rows()/records() and Node.tables(). Each takes the wrapping node
    (owner, for the per-tree handle) and the already-derived tree+node the thin C methods in dom/element.c and dom/node.c
