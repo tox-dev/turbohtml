@@ -833,12 +833,49 @@ static int url_path_has_dot_candidate(const Py_UCS4 *value, Py_ssize_t from, Py_
    no tab, CR or LF, a port that is not dropped, a host that cannot read as an IPv4 address, and a path with no tab, CR,
    LF, backslash or dot segment. The host and port are one pass over the authority; the path is memchr scans, each run
    only when its byte occurs. */
+/* Whether an authority code point is percent-encoded in the userinfo the URL parser writes (a C0 control, a space, DEL,
+   a non-ASCII code point, or one of " < > ` { } [ ] ^ | ; = \\), so a link holding one is joined rather than kept. */
+static int url_authority_char_escapes(Py_UCS4 c) {
+    return c <= 0x20 || c > 0x7E || strchr("\"<>`{}[]^|;=\\", (int)c) != NULL;
+}
+
+/* Whether the authority after "//" at start, read up to a '/', '?' or '#', holds a code point the URL parser escapes in
+   its userinfo, or a second '@' or a second ':' before the '@' (so the userinfo is not the one a browser reads). */
+static int url_authority_escapes(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    if (end - start < 2 || value[start] != '/' || value[start + 1] != '/') {
+        return 0;
+    }
+    int at_seen = 0;
+    int colons = 0;
+    for (Py_ssize_t index = start + 2; index < end; index++) {
+        Py_UCS4 c = value[index];
+        if (c == '/' || c == '?' || c == '#') {
+            break;
+        }
+        if (url_authority_char_escapes(c)) {
+            return 1;
+        }
+        if (c == '@') {
+            if (at_seen) {
+                return 1;
+            }
+            at_seen = 1;
+            colons = 0;
+        } else if (c == ':' && !at_seen && ++colons > 1) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
     Py_ssize_t stop = colon + 3;
     Py_ssize_t host = stop;
     Py_ssize_t last_colon = -1;
     int upper = 0;
     int escaped = 0;
+    int at_seen = 0;
+    int colons = 0;
     for (; stop < end; stop++) {
         Py_UCS4 c = value[stop];
         if (c == '/' || c == '?' || c == '#' || c == '\\') {
@@ -847,13 +884,24 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
         if (c == '\t' || c == '\r' || c == '\n') {
             return 0;
         }
+        if (url_authority_char_escapes(c)) {
+            return 0;
+        }
         if (c == '@') {
+            if (at_seen) {
+                return 0;
+            }
+            at_seen = 1;
+            colons = 0;
             upper = 0;
             escaped = 0;
             last_colon = -1;
             host = stop + 1;
         } else if (c == ':') {
             last_colon = stop;
+            if (!at_seen && ++colons > 1) {
+                return 0;
+            }
         } else {
             upper |= c >= 'A' && c <= 'Z';
             escaped |= c == '%' || c >= 0x80;
@@ -931,7 +979,8 @@ static int url_resolves_to_itself(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     }
     if (!same_scheme) {
         return url_special_link_plain(value, start, colon, end) ||
-               (!th_url_scheme_special(value, start, colon) && !url_path_has_dot_candidate(value, colon + 1, end));
+               (!th_url_scheme_special(value, start, colon) && !url_path_has_dot_candidate(value, colon + 1, end) &&
+                !url_authority_escapes(value, colon + 1, end));
     }
     if (!base_netloc_scheme) {
         return 0;
@@ -1339,6 +1388,24 @@ static Py_ssize_t base_scheme_of(PyObject *base_url, char *out, Py_ssize_t cap) 
     return 0;
 }
 
+/* The base as a browser parses it, so links resolve against the normalized base. A relative base, or one that does not
+   parse, is joined as written: an empty fallback makes a base that does not parse come back empty. */
+static PyObject *normalized_base(PyObject *base_url, Py_ssize_t scheme_len) {
+    if (scheme_len == 0) {
+        return Py_NewRef(base_url);
+    }
+    PyObject *empty = PyUnicode_New(0, 0);
+    if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *parsed = th_url_base_resolve(base_url, empty);
+    Py_DECREF(empty);
+    if (parsed != NULL && PyUnicode_GET_LENGTH(parsed) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_SETREF(parsed, Py_NewRef(base_url));
+    }
+    return parsed;
+}
+
 /* Node.resolve_links(base_url) -> None. Rewrites every link absolute against base_url with functools.partial bound over
    the C _url_join_link, so a reference's host matches the one a browser resolves -- including the WHATWG backslash and
    extra-slash authority forms stdlib urllib.parse.urljoin misattributes -- without reinventing RFC 3986 resolution. */
@@ -1371,9 +1438,16 @@ PyObject *turbohtml_node_resolve_links(PyObject *owner, th_tree *tree, th_node *
         Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: attribute-failure path */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    PyObject *bound = PyObject_CallFunctionObjArgs(partial, urljoin, base_url, NULL);
+    PyObject *base = normalized_base(base_url, base_scheme_len);
+    if (base == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(partial); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *bound = PyObject_CallFunctionObjArgs(partial, urljoin, base, NULL);
     Py_DECREF(partial);
     Py_DECREF(urljoin);
+    Py_DECREF(base);
     if (bound == NULL) { /* GCOVR_EXCL_BR_LINE: binding a partial cannot be forced to fail from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }

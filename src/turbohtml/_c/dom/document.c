@@ -1247,27 +1247,10 @@ static th_node *in_document_next(th_node *current, th_node *root) {
     return current == root ? NULL : current->next_sibling;
 }
 
-/* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
-   TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named base. The
-   extraction methods share it. */
-PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
-    PyObject *href = NULL;
-    th_tree *tree = tree_of(self);
-    th_node *root = ((NodeObject *)self)->node;
-    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    for (th_node *node = root->first_child; node != NULL; node = in_document_next(node, root)) {
-        if (node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_BASE && node->ns == TH_NS_HTML &&
-            (href = element_attr_str(tree, node, "href", 4)) != NULL) {
-            break;
-        }
-    }
-    Py_END_CRITICAL_SECTION();
-    if (href == NULL) {
-        return Py_NewRef(fallback); /* no <base href>: the fallback is the base */
-    }
+/* Parse `href` the way a <base href> is parsed against `fallback`, the base URL used when `href` does not parse. A base
+   resolve_links is given takes the same parse, so its links resolve against the normalized base. */
+PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback) {
     PyObject *input = base_url_input(href);
-    Py_DECREF(href);
     if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE */
     }
@@ -1289,6 +1272,30 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         Py_SETREF(result, Py_NewRef(fallback));
     }
     Py_DECREF(input);
+    return result;
+}
+
+/* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
+   when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
+   TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named base. The
+   extraction methods share it. */
+PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
+    PyObject *href = NULL;
+    th_tree *tree = tree_of(self);
+    th_node *root = ((NodeObject *)self)->node;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    for (th_node *node = root->first_child; node != NULL; node = in_document_next(node, root)) {
+        if (node->type == TH_NODE_ELEMENT && node->atom == TH_TAG_BASE && node->ns == TH_NS_HTML &&
+            (href = element_attr_str(tree, node, "href", 4)) != NULL) {
+            break;
+        }
+    }
+    Py_END_CRITICAL_SECTION();
+    if (href == NULL) {
+        return Py_NewRef(fallback); /* no <base href>: the fallback is the base */
+    }
+    PyObject *result = th_url_base_resolve(href, fallback);
+    Py_DECREF(href);
     return result;
 }
 
