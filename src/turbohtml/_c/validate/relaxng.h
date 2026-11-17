@@ -1882,8 +1882,9 @@ static int rng_covers_sides(th_schema *schema, pattern *x, pattern *y) {
 }
 
 /* Whether a sequence `y` covers `x`: side by side, or its first operand covers `x` and the rest is nullable, or `x` is
-   covered by what follows the run its first operand starts. The run's operands are nullable and equal, so that tail is
-   the sequence without the run, and one step covers the whole run instead of one per operand. */
+   covered by what follows a run of two or more equal operands at its start. The run's operands are nullable and equal,
+   so that tail is the sequence without the run, and one step covers the whole run instead of one per operand. A single
+   operand is not skipped this way: a walk past distinct operands would visit every nullable operand after them. */
 static int rng_covers_seq(th_schema *schema, pattern *x, pattern *y) {
     const rng_seq *seq = y->sequence;
     if (rng_join_view(x) == P_GROUP && rng_covers(schema, x->p1, y->p1) && rng_covers(schema, x->p2, y->p2)) {
@@ -1892,7 +1893,11 @@ static int rng_covers_seq(th_schema *schema, pattern *x, pattern *y) {
     if (rng_nullable(schema, y->p2) && rng_covers(schema, x, y->p1)) {
         return 1;
     }
-    return rng_nullable(schema, y->p1) && rng_covers(schema, x, seq->nodes[seq->run_end[y->start] + 1]);
+    Py_ssize_t run_end = seq->run_end[y->start];
+    if (run_end == y->start || !rng_nullable(schema, y->p1)) {
+        return 0;
+    }
+    return rng_covers(schema, x, seq->nodes[run_end + 1]);
 }
 
 /* rng_covers for a group, choice, interleave or sequence `y`. A routed `x` says by its operand range, or by the

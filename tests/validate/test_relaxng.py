@@ -2297,18 +2297,24 @@ def test_rng_block_family_validates(depth: int, tail: int) -> None:
     assert rng_ok(_block_grammar(depth, tail), _blocks(1 << depth, tail))
 
 
-def _block_grammar(depth: int, tail: int) -> str:
+def _block_grammar(depth: int, tail: int, *, distinct: bool = False) -> str:
     optional = '<optional><element name="{}"><empty/></element></optional>'
-    defines = [f'<define name="d0"><group>{optional.format("e")}{optional.format("f") * tail}</group></define>']
+    tail_xml = "".join(optional.format(name) for name in _tail_names(tail, distinct=distinct))
+    defines = [f'<define name="d0"><group>{optional.format("e")}{tail_xml}</group></define>']
     for level in range(1, depth + 1):
         ref = f'<ref name="d{level - 1}"/>'
         defines.append(f'<define name="d{level}"><group>{ref}{ref}</group></define>')
     return rgrammar(f'<start><element name="r"><ref name="d{depth}"/></element></start>{"".join(defines)}')
 
 
-def _blocks(count: int, tail: int) -> str:
-    block = f"<e/>{'<f/>' * tail}"
-    return f"<r>{block * count}</r>"
+def _tail_names(tail: int, *, distinct: bool) -> list[str]:
+    # distinct names keep each optional its own run; equal names form one run that a covers check steps over at once
+    return [f"f{index}" for index in range(tail)] if distinct else ["f"] * tail
+
+
+def _blocks(count: int, tail: int, *, distinct: bool = False) -> str:
+    names = "".join(f"<{name}/>" for name in _tail_names(tail, distinct=distinct))
+    return f"<r>{f'<e/>{names}' * count}</r>"
 
 
 @pytest.mark.parametrize("depth", [5, 7])
@@ -2323,6 +2329,20 @@ def test_rng_single_block_of_optionals_validates() -> None:
 def test_rng_block_family_scales_linearly(work_steps: WorkSteps) -> None:
     def validate(tail: int) -> Callable[[], object]:
         return partial(RelaxNG(_block_grammar(5, tail)).validate, parse_xml(_blocks(32, tail)))
+
+    work_steps.assert_linear(validate, (200, 800))
+
+
+@pytest.mark.parametrize(("blocks", "valid"), [(32, True), (33, False)])
+def test_rng_block_family_of_distinct_optionals_counts_blocks(blocks: int, *, valid: bool) -> None:
+    assert rng_ok(_block_grammar(5, 200, distinct=True), _blocks(blocks, 50, distinct=True)) is valid
+
+
+def test_rng_block_family_of_distinct_optionals_scales_linearly(work_steps: WorkSteps) -> None:
+    # a block uses a quarter of its optionals, so the unused ones form a long nullable run that each check walks
+    def validate(defined: int) -> Callable[[], object]:
+        schema = RelaxNG(_block_grammar(5, defined, distinct=True))
+        return partial(schema.validate, parse_xml(_blocks(32, defined // 4, distinct=True)))
 
     work_steps.assert_linear(validate, (200, 800))
 
