@@ -4892,6 +4892,12 @@ _X_TEXT_HALVES: Final[str] = (
     f"<group><text/>{_repeat(_X_OPTIONAL, 4)}"
     f"<text/>{''.join(_X_OPTIONAL.format(index) for index in range(4, 8))}</group>"
 )
+# the second text sits in a choice whose other branch needs two elements, so the tail is not weak and the text
+# derivative keeps the choice of the bare text and the group over both texts
+_X_TEXT_OR_PAIR: Final[str] = (
+    f"<group><text/>{_repeat(_X_OPTIONAL, 4)}<choice><text/><group>{_X.format('y')}{_X.format('z')}</group></choice>"
+    f"{''.join(_X_OPTIONAL.format(index) for index in range(4, 8))}</group>"
+)
 # each element carries its own attribute, so no two of them have the same content and no one content covers a half
 _X_DISTINCT_OPTIONAL: Final[str] = (
     '<optional><element name="x{0}"><attribute name="a{0}"/><empty/></element></optional>'
@@ -4931,6 +4937,8 @@ def _xs_but(*skipped: int) -> str:
         ),
         pytest.param(_X_TEXT_HALVES, "", "t", _xs(5), True, id="text-in-both-halves"),
         pytest.param(_X_TEXT_HALVES, "", "t", _xs(5, 1), False, id="text-in-both-halves-reordered"),
+        pytest.param(_X_TEXT_OR_PAIR, "", "t", _xs(5), True, id="text-or-pair"),
+        pytest.param(_X_TEXT_OR_PAIR, "", "t", _xs(5, 1), False, id="text-or-pair-reordered"),
         pytest.param(_distinct_text_halves(4), "", "t", _xas(5), True, id="distinct-halves-4"),
         pytest.param(_distinct_text_halves(4), "", "t", _xas(5, 1), False, id="distinct-halves-4-reordered"),
         pytest.param(
