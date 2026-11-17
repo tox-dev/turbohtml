@@ -542,9 +542,7 @@ def _iterate_inner_indent(text: str) -> None:
 
 
 def _transform_dispatch(count: int) -> None:
-    # Repeat the pipeline so a zero-stage call clears the 1M Ir floor.
-    for _ in range(1000):
-        _dispatch_pipeline(count)()
+    _dispatch_pipeline(count)()
 
 
 @functools.cache
