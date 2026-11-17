@@ -586,6 +586,10 @@ static int html_exec(PyObject *module) {
     if (observe_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: module initialization allocation failure */
         return -1;                             /* GCOVR_EXCL_LINE: allocation failure */
     }
+    state->codec_shift_cache = PyDict_New();
+    if (state->codec_shift_cache == NULL) { /* GCOVR_EXCL_BR_LINE: module initialization allocation failure */
+        return -1;                          /* GCOVR_EXCL_LINE: allocation failure */
+    }
     return publish_native_names(module);
 }
 
@@ -674,6 +678,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->formatters[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
+    Py_VISIT(state->codec_shift_cache); /* GCOVR_EXCL_BR_LINE: same */
     return 0;
 }
 
@@ -762,6 +767,7 @@ static int html_clear(PyObject *module) {
     for (int index = 0; index < 3; index++) {
         Py_CLEAR(state->formatters[index]);
     }
+    Py_CLEAR(state->codec_shift_cache);
     return 0;
 }
 

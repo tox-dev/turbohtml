@@ -931,7 +931,7 @@ char *attr_key_utf8(th_tree *tree, PyObject *key, Py_ssize_t *out_len);
 /* Encode serialized markup under a codec label: PyUnicode_AsEncodedString, strict or (charrefs) "xmlcharrefreplace",
    that keeps content from writing its own ISO-2022 shift codes. Defined in node.c beside encode(); elementtree.c's
    tostring() encodes through it too. */
-PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs);
+PyObject *markup_encode(module_state *state, PyObject *text, const char *encoding, int charrefs);
 int declaration_reads_back(PyObject *text, PyObject *bytes, const char *encoding, const char *charset);
 
 /* The name the codec registry gives encoding, as a new reference: None when its CodecInfo carries no name, or NULL with
