@@ -19,9 +19,7 @@ if TYPE_CHECKING:
 
     from bench.operations import Timed
 
-_TWO_OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
-    name: OPERATIONS[name] for name in ("node-equals", "startup")
-}
+_TWO_OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {name: OPERATIONS[name] for name in ("node-equals", "startup")}
 
 
 @pytest.fixture
@@ -123,9 +121,7 @@ def _eta_lines(err: str) -> list[str]:
     return [line for line in err.splitlines() if line.startswith("[")]
 
 
-def test_cached_duration_sets_the_eta_of_a_pending_run(
-    harness: _Harness, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_cached_duration_sets_the_eta_of_a_pending_run(harness: _Harness, capsys: pytest.CaptureFixture[str]) -> None:
     harness.durations.write_text(
         json.dumps({"core:node-equals": 62.0, "beautifulsoup4:node-equals": 100.0}), encoding="utf-8"
     )
@@ -179,7 +175,7 @@ def test_parallel_run_renders_in_plan_order_when_a_later_run_finishes_first(
     def hold(_args: tuple[str, ...]) -> None:
         startup_finished.wait(timeout=10)
 
-    harness.hooks[("node-equals", "core")] = hold
+    harness.hooks["node-equals", "core"] = hold
     run("core", (), pgo=False, jobs=2)
     assert [operation for operation, _ in harness.rendered] == ["node-equals", "startup"]
 
@@ -203,8 +199,8 @@ def test_parallel_runs_are_pinned_to_distinct_cpus(harness: _Harness, monkeypatc
     def meet(_args: tuple[str, ...]) -> None:
         barrier.wait()
 
-    harness.hooks[("node-equals", "core")] = meet
-    harness.hooks[("startup", "core")] = meet
+    harness.hooks["node-equals", "core"] = meet
+    harness.hooks["startup", "core"] = meet
     run("core", (), pgo=False, jobs=2)
     assert sorted(arg for _, _, args in harness.calls for arg in args) == ["--affinity=0", "--affinity=1"]
 
@@ -229,7 +225,7 @@ def test_serial_failure_cancels_the_remaining_runs(
     def fail(_args: tuple[str, ...]) -> None:
         raise subprocess.CalledProcessError(1, ["worker"], stderr="boom")
 
-    harness.hooks[("node-equals", "core")] = fail
+    harness.hooks["node-equals", "core"] = fail
     with pytest.raises(subprocess.CalledProcessError):
         run("core", (), pgo=False, jobs=1)
     assert harness.calls == [("node-equals", "core", ())]
@@ -242,7 +238,7 @@ def test_parallel_failure_reraises(harness: _Harness, monkeypatch: pytest.Monkey
     def fail(_args: tuple[str, ...]) -> None:
         raise subprocess.CalledProcessError(1, ["worker"], stderr="boom")
 
-    harness.hooks[("node-equals", "core")] = fail
+    harness.hooks["node-equals", "core"] = fail
     with pytest.raises(subprocess.CalledProcessError):
         run("core", (), pgo=False, jobs=2)
 
@@ -280,7 +276,7 @@ def test_competitor_that_cannot_be_measured_drops_its_column(
     def fail(_args: tuple[str, ...]) -> None:
         raise error
 
-    harness.hooks[("node-equals", "beautifulsoup4")] = fail
+    harness.hooks["node-equals", "beautifulsoup4"] = fail
     run("node-equals", (), pgo=False, jobs=1)
     assert note in capsys.readouterr().err.splitlines()
     assert harness.rendered == [("node-equals", {"node-equals|case|turbohtml": {"mean": 1.0, "stdev": 0.0}})]
@@ -290,7 +286,7 @@ def test_competitor_crash_after_import_propagates(harness: _Harness) -> None:
     def fail(_args: tuple[str, ...]) -> None:
         raise subprocess.CalledProcessError(1, ["worker"], stderr="ValueError: bad measurement")
 
-    harness.hooks[("node-equals", "beautifulsoup4")] = fail
+    harness.hooks["node-equals", "beautifulsoup4"] = fail
     with pytest.raises(subprocess.CalledProcessError):
         run("node-equals", (), pgo=False, jobs=1)
 

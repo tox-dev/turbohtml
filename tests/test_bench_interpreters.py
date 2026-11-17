@@ -3,16 +3,15 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-import pytest
 from bench import interpreters
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
 
-def test_build_measures_every_operation_under_each_interpreter(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_build_measures_every_operation_under_each_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     feed = tmp_path / "interpreters.json"
     specs: list[str] = []
     jobs: list[tuple[str, tuple[str, str], tuple[str, ...]]] = []

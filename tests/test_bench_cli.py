@@ -15,7 +15,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Recorder]:
     fake = _Recorder()
     monkeypatch.setattr(cli, "run", fake.run)
     monkeypatch.setattr(cli, "physical_cpus", lambda: [0, 1, 2, 3])
-    yield fake
+    return fake
 
 
 class _Recorder:
