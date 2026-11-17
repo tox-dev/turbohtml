@@ -870,7 +870,7 @@ def test_css_url_in_style_element_is_resolved() -> None:
         ),
         pytest.param("url('a\\'b.png')", "url('https://example.com/dir/a\\'b.png')", id="escaped-quote"),
         pytest.param("url(a\\)b.png)", "url(https://example.com/dir/a\\)b.png)", id="bare-escaped-parenthesis"),
-        pytest.param("url(\\61 /b\\ c.png)", "url(https://example.com/dir/a/b\\20 c.png)", id="bare-escaped-space"),
+        pytest.param("url(\\61 /b\\ c.png)", "url(https://example.com/dir/a/b%20c.png)", id="bare-escaped-space"),
         pytest.param(
             'url("https://other.test/\\61")', 'url("https://other.test/\\61")', id="absolute-stays-as-written"
         ),
@@ -1404,11 +1404,64 @@ def test_resolve_links_normalizes_absolute_special_urls(href: str, expected: str
         pytest.param("https://h/p?q#f", "https://h/p?q#f", id="https-h-p-q-f"),
         pytest.param("https://h?#f", "https://h/?#f", id="https-h-f"),
         pytest.param("file://h:21/p", "file://h:21/p", id="file-h-21-p"),
-        pytest.param("https://h/p?Į", "https://h/p?Į", id="https-h-p"),
+        pytest.param("https://h/p?Į", "https://h/p?%C4%AE", id="https-h-p"),
     ],
 )
 def test_resolve_links_special_urls_match_whatwg(href: str, expected: str) -> None:
     assert _resolved_href(href, _HTTPS) == expected
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://h/a b?q x#f g", "https://h/a%20b?q%20x#f%20g", id="space-in-path-query-fragment"),
+        pytest.param("https://a b:c d@h/p", "https://a%20b:c%20d@h/p", id="space-in-userinfo"),
+        pytest.param("https://h/a\u2028b", "https://h/a%E2%80%A8b", id="line-separator-in-path"),
+        pytest.param("https://h/a\u00a0b", "https://h/a%C2%A0b", id="nbsp-in-path"),
+        pytest.param("https://h/a\tb", "https://h/ab", id="tab-removed"),
+        pytest.param("foo://h/a b", "foo://h/a%20b", id="space-in-non-special-path"),
+        pytest.param("https://h:99999/a b", "https://h:99999/a b", id="unparsable-kept-as-written"),
+        pytest.param("https://a b/", "https://a b/", id="space-in-host-kept-as-written"),
+        pytest.param("wss:a b", "wss:a b", id="space-in-slashless-host-kept-as-written"),
+        pytest.param("https:///a b", "https:///a b", id="space-in-host-after-slashes-kept-as-written"),
+        pytest.param("a b", "https://example.com/dir/a%20b", id="relative-path"),
+        pytest.param("/a b", "https://example.com/a%20b", id="root-relative-path"),
+        pytest.param("../a b", "https://example.com/a%20b", id="parent-relative-path"),
+        pytest.param("//h/a b", "https://h/a%20b", id="scheme-relative"),
+        pytest.param("https:h/a b", "https://example.com/dir/h/a%20b", id="same-scheme-without-slashes"),
+        pytest.param("a/ü", "https://example.com/dir/a/%C3%BC", id="relative-non-ascii"),
+        pytest.param("#a b", "https://example.com/dir/#a%20b", id="fragment-only"),
+        pytest.param("?q x", "https://example.com/dir/?q%20x", id="query-only"),
+        pytest.param("mailto:ü", "mailto:%C3%BC", id="foreign-scheme-non-ascii"),
+        pytest.param("foo:/a b", "foo:/a%20b", id="foreign-scheme-path"),
+        pytest.param("file:a b", "file:///a%20b", id="file-no-slashes"),
+        pytest.param("file:///a b", "file:///a%20b", id="file-empty-host"),
+    ],
+)
+def test_resolve_links_encodes_whitespace_in_a_link(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
+@pytest.mark.parametrize(
+    ("href", "base", "expected"),
+    [
+        pytest.param("#a b", "mailto:x", "mailto:x#a%20b", id="fragment-on-opaque-base"),
+        pytest.param("ht\ttps://h/", "mailto:x", "https://h/", id="tab-in-scheme-on-opaque-base"),
+        pytest.param("https://h/a\tb", "file:///home/u/x.html", "https://h/ab", id="tab-on-file-base"),
+        pytest.param("http://h/a/..\n/b", "file:///home/u/x.html", "http://h/b", id="newline-on-file-base"),
+        pytest.param("C\t:/x", "file:///C:/dir/f", "c:/x", id="tab-in-scheme-on-file-base"),
+        pytest.param(
+            "javascript:alert(1);\nalert(2)", _HTTPS, "javascript:alert(1);alert(2)", id="newline-in-javascript"
+        ),
+        pytest.param(
+            "data:image/png;base64,iVBO\nRw0K", _HTTPS, "data:image/png;base64,iVBORw0K", id="newline-in-data"
+        ),
+        pytest.param("ja\tvascript:x", _HTTPS, "javascript:x", id="tab-in-foreign-scheme"),
+        pytest.param("foo:a?c\td#e\tf", _HTTPS, "foo:a?cd#ef", id="tab-in-foreign-query-and-fragment"),
+    ],
+)
+def test_resolve_links_removes_tab_and_newline_from_a_link(href: str, base: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
 
 
 # WHATWG reads a numeric host of a special scheme as an IPv4 address (decimal, octal or hex, one to four parts) and

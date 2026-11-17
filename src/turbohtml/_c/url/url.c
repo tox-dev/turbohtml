@@ -1778,6 +1778,22 @@ static PyObject *url_special_base_with_authority(const url_ref *base) {
 
 static PyObject *join_url(PyObject *base, PyObject *target, int document, int link);
 
+/* Whether the text holds a code point the URL standard percent-encodes or removes in a URL: a C0 control or space, DEL,
+   or a non-ASCII code point. */
+static int url_text_needs_encoding(PyObject *text) {
+    if (!PyUnicode_IS_ASCII(text)) {
+        return 1;
+    }
+    const unsigned char *data = PyUnicode_1BYTE_DATA(text);
+    Py_ssize_t length = PyUnicode_GET_LENGTH(text);
+    for (Py_ssize_t index = 0; index < length; index++) {
+        if (data[index] <= 0x20 || data[index] == 0x7F) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
    ported so the C entry points (th_url_join, th_url_join_link, th_url_document_join, and the c14n base join) resolve
    links without importing urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or
@@ -1884,6 +1900,22 @@ static TH_JOIN_INLINE PyObject *join_url_body(PyObject *base, PyObject *target, 
             return joined;
         }
         Py_DECREF(rewritten);
+    }
+    /* A link holding whitespace or non-ASCII takes the URL standard's parse, which encodes it; one that does not parse
+       stays as written. th_url_resolve reaches the document join with this same target, which must not come back. */
+    if (link && !document && url_text_needs_encoding(target)) {
+        PyMem_Free(base_parts.buf);
+        PyObject *input = th_url_parser_input(target);
+        if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *resolved = th_url_resolve(base, input);
+        Py_DECREF(input);
+        if (resolved == NULL && PyErr_ExceptionMatches(PyExc_ValueError)) {
+            PyErr_Clear();
+            return Py_NewRef(target);
+        }
+        return resolved;
     }
     if (parse_ref(target, &ref_parts, c14n ? 0 : base_special, c14n) < 0) {
         PyMem_Free(base_parts.buf);
