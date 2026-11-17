@@ -2452,6 +2452,253 @@ static const th_noscript_span *first_unstable(const th_noscript_track *track) {
     return NULL;
 }
 
+/* A start tag of one of these kinds closes an open element of the family it names, when no scope boundary sits between
+   them, so the reparse of a minified tree that nests one inside the other builds a different tree. The tree builder
+   reaches such nesting only through foster parenting or quirks-mode tables. Each node carries one bit per family for
+   opening it, closing an open element of the family and bounding the search for one, so the walk does a few bit
+   operations per node. */
+enum renest_family {
+    RENEST_P,
+    RENEST_LI,
+    RENEST_DEF,
+    RENEST_HEADING,
+    RENEST_A,
+    RENEST_NOBR,
+    RENEST_BUTTON,
+    RENEST_OPTION,
+    RENEST_OPTGROUP,
+    RENEST_SELECT,
+    RENEST_FAMILIES,
+};
+
+#define RENEST_ALL ((1u << RENEST_FAMILIES) - 1)
+#define RENEST_OPENS(family) (1u << (family))
+#define RENEST_CLOSES(family) (1u << (RENEST_FAMILIES + (family)))
+#define RENEST_BOUNDS(family) (1u << (2 * RENEST_FAMILIES + (family)))
+#define RENEST_BOUNDS_SCOPE                                                                                            \
+    ((RENEST_ALL & ~(RENEST_OPENS(RENEST_A) | RENEST_OPENS(RENEST_NOBR) | RENEST_OPENS(RENEST_SELECT)))                \
+     << (2 * RENEST_FAMILIES))
+
+static int renest_is_heading(uint16_t atom) {
+    return atom == TH_TAG_H1 || atom == TH_TAG_H2 || atom == TH_TAG_H3 || atom == TH_TAG_H4 || atom == TH_TAG_H5 ||
+           atom == TH_TAG_H6;
+}
+
+/* The start tags that close an open p in button scope (the in-body rules and the list and definition starts). */
+static int renest_is_p_closer(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_ADDRESS:
+    case TH_TAG_ARTICLE:
+    case TH_TAG_ASIDE:
+    case TH_TAG_BLOCKQUOTE:
+    case TH_TAG_CENTER:
+    case TH_TAG_DETAILS:
+    case TH_TAG_DIALOG:
+    case TH_TAG_DIR:
+    case TH_TAG_DIV:
+    case TH_TAG_DL:
+    case TH_TAG_FIELDSET:
+    case TH_TAG_FIGCAPTION:
+    case TH_TAG_FIGURE:
+    case TH_TAG_FOOTER:
+    case TH_TAG_FORM:
+    case TH_TAG_HEADER:
+    case TH_TAG_HGROUP:
+    case TH_TAG_HR:
+    case TH_TAG_LI:
+    case TH_TAG_LISTING:
+    case TH_TAG_MAIN:
+    case TH_TAG_MENU:
+    case TH_TAG_NAV:
+    case TH_TAG_OL:
+    case TH_TAG_P:
+    case TH_TAG_PLAINTEXT:
+    case TH_TAG_PRE:
+    case TH_TAG_SEARCH:
+    case TH_TAG_SECTION:
+    case TH_TAG_SUMMARY:
+    case TH_TAG_UL:
+    case TH_TAG_XMP:
+    case TH_TAG_DD:
+    case TH_TAG_DT:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The family bits of one node: what it opens, what it closes and what it bounds. */
+static unsigned renest_flags(const th_node *node) {
+    unsigned flags = 0;
+    if (node->ns != TH_NS_HTML) {
+        if (node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE ||
+            node->atom == TH_TAG_MI || node->atom == TH_TAG_MO || node->atom == TH_TAG_MN || node->atom == TH_TAG_MS ||
+            node->atom == TH_TAG_MTEXT || node->atom == TH_TAG_ANNOTATION_XML) {
+            flags |= RENEST_BOUNDS_SCOPE;
+        }
+        return flags;
+    }
+    if (renest_is_p_closer(node->atom) || renest_is_heading(node->atom)) {
+        flags |= RENEST_CLOSES(RENEST_P);
+    }
+    switch (node->atom) {
+    case TH_TAG_P:
+        flags |= RENEST_OPENS(RENEST_P);
+        break;
+    case TH_TAG_LI:
+        flags |= RENEST_OPENS(RENEST_LI) | RENEST_CLOSES(RENEST_LI);
+        break;
+    case TH_TAG_DD:
+    case TH_TAG_DT:
+        flags |= RENEST_OPENS(RENEST_DEF) | RENEST_CLOSES(RENEST_DEF);
+        break;
+    case TH_TAG_H1:
+    case TH_TAG_H2:
+    case TH_TAG_H3:
+    case TH_TAG_H4:
+    case TH_TAG_H5:
+    case TH_TAG_H6:
+        flags |= RENEST_OPENS(RENEST_HEADING) | RENEST_CLOSES(RENEST_HEADING);
+        break;
+    case TH_TAG_A:
+        flags |= RENEST_OPENS(RENEST_A) | RENEST_CLOSES(RENEST_A);
+        break;
+    case TH_TAG_NOBR:
+        flags |= RENEST_OPENS(RENEST_NOBR) | RENEST_CLOSES(RENEST_NOBR);
+        break;
+    case TH_TAG_BUTTON:
+        flags |= RENEST_OPENS(RENEST_BUTTON) | RENEST_CLOSES(RENEST_BUTTON) | RENEST_BOUNDS(RENEST_P);
+        break;
+    case TH_TAG_OPTION:
+        flags |= RENEST_OPENS(RENEST_OPTION) | RENEST_CLOSES(RENEST_OPTION);
+        break;
+    case TH_TAG_OPTGROUP:
+        flags |= RENEST_OPENS(RENEST_OPTGROUP) | RENEST_CLOSES(RENEST_OPTGROUP) | RENEST_CLOSES(RENEST_OPTION);
+        break;
+    case TH_TAG_SELECT:
+        flags |= RENEST_OPENS(RENEST_SELECT) | RENEST_CLOSES(RENEST_SELECT);
+        break;
+    case TH_TAG_INPUT:
+    case TH_TAG_KEYGEN:
+    case TH_TAG_TEXTAREA:
+        flags |= RENEST_CLOSES(RENEST_SELECT);
+        break;
+    case TH_TAG_OL:
+    case TH_TAG_UL:
+        flags |= RENEST_BOUNDS(RENEST_LI);
+        break;
+    default:
+        break;
+    }
+    switch (node->atom) {
+    case TH_TAG_APPLET:
+    case TH_TAG_OBJECT:
+    case TH_TAG_MARQUEE:
+    case TH_TAG_TEMPLATE:
+    case TH_TAG_TD:
+    case TH_TAG_TH:
+    case TH_TAG_CAPTION:
+        flags |= RENEST_BOUNDS(RENEST_A) | RENEST_BOUNDS(RENEST_NOBR);
+        break;
+    default:
+        break;
+    }
+    if ((node->tag_flags & TH_TAG_SCOPING) != 0) {
+        flags |= RENEST_BOUNDS_SCOPE;
+    }
+    return flags;
+}
+
+/* Whether a subtree holds a start tag that would close an element above it, with no scope boundary in between. armed
+   holds the families with such an element open above node. */
+static int renest_subtree(const th_node *node, unsigned armed) {
+    unsigned flags = node->type == TH_NODE_ELEMENT ? renest_flags(node) : 0;
+    if (armed & (flags >> RENEST_FAMILIES) & RENEST_ALL) {
+        return 1;
+    }
+    unsigned below = (armed | (flags & RENEST_ALL)) & ~(flags >> (2 * RENEST_FAMILIES)) & RENEST_ALL;
+    for (const th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (renest_subtree(child, below)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether the tree holds a start tag that would close an element above it (see renest_subtree). */
+static int renest_in_tree(th_tree *tree) {
+    return renest_subtree(th_tree_document(tree), 0);
+}
+
+/* The element structure a tree builds, as open and close events in document order. Text is left out: minifying folds
+   whitespace, which changes text without changing what the markup builds, while a start tag that closes an element
+   above it changes the nesting. */
+#define RENEST_OPEN(ns, atom) ((UINT32_C(1) << 31) | ((uint32_t)(ns) << 16) | (uint32_t)(atom))
+#define RENEST_CLOSE UINT32_C(1) << 30
+
+typedef struct {
+    uint32_t *items;
+    Py_ssize_t count;
+    Py_ssize_t cap;
+} renest_events;
+
+static int renest_event_push(renest_events *events, uint32_t value) {
+    if (events->count == events->cap) {
+        Py_ssize_t cap = events->cap == 0 ? 64 : events->cap * 2;
+        uint32_t *grown = PyMem_Realloc(events->items, (size_t)cap * sizeof(uint32_t));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        events->items = grown;
+        events->cap = cap;
+    }
+    events->items[events->count++] = value;
+    return 0;
+}
+
+static int renest_events_walk(const th_node *node, renest_events *events) {
+    for (const th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            if (renest_event_push(events, RENEST_OPEN(child->ns, child->atom)) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        if (renest_events_walk(child, events) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+            return -1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (child->type == TH_NODE_ELEMENT) {
+            if (renest_event_push(events, RENEST_CLOSE) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+                return -1;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    return 0;
+}
+
+/* Whether the markup, reparsed with scripting off as the tree was parsed, builds the element structure the tree has.
+   -1 when the reparse runs out of memory. */
+static int minified_keeps_structure(th_tree *tree, PyObject *markup) {
+    renest_events before = {NULL, 0, 0};
+    renest_events after = {NULL, 0, 0};
+    th_noscript_track track = {0};
+    th_tree *reparsed =
+        th_tree_parse_noscript(PyUnicode_KIND(markup), PyUnicode_DATA(markup), PyUnicode_GET_LENGTH(markup), &track);
+    if (reparsed == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int same = -1;
+    if (renest_events_walk(th_tree_document(tree), &before) == 0 &&    /* GCOVR_EXCL_BR_LINE: OOM */
+        renest_events_walk(th_tree_document(reparsed), &after) == 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        same = before.count == after.count &&
+               memcmp(before.items, after.items, (size_t)before.count * sizeof(uint32_t)) == 0;
+    }
+    th_tree_free(reparsed);
+    th_noscript_track_free(&track);
+    PyMem_Free(before.items);
+    PyMem_Free(after.items);
+    return same;
+}
+
 /* _minify_document(html, layout): parse html with scripting off and minify the document, copying each stable
    noscript's content from the source. From the first noscript the two scripting modes part at, the rest of the source
    follows verbatim when the minified markup before it rebuilds the parser's state there; otherwise html comes back
@@ -2493,6 +2740,15 @@ PyObject *turbohtml_minify_document(PyObject *module, PyObject *args) {
         Py_UCS4 *data = th_node_minify(tree, th_tree_document(tree), &minify_opts, &opts, &out_len);
         result = data == NULL ? PyErr_NoMemory() : ucs4_to_str(data, out_len); /* GCOVR_EXCL_BR_LINE: OOM */
         PyMem_Free(data);
+        if (result != NULL && renest_in_tree(tree)) { /* GCOVR_EXCL_BR_LINE: OOM leaves no result */
+            int kept = minified_keeps_structure(tree, result);
+            if (kept < 0) {                /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                Py_CLEAR(result);          /* GCOVR_EXCL_LINE: allocation-failure path */
+                result = PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            } else if (!kept) {
+                Py_SETREF(result, Py_NewRef(html));
+            }
+        }
     }
     th_tree_free(tree);
     th_noscript_track_free(&track);
