@@ -2945,6 +2945,37 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     }
 }
 
+/* Out of line, so the :has() loop that LTO inlines sel_match_simple into keeps its register allocation
+   when unrelated code changes size. */
+static TH_NOINLINE int sel_match_attr_arm(th_node *node, const sel_simple *simple, const sel_ctx *ctx) {
+    if (simple->kind == '.') {
+        const th_node_attr *attr = sel_find_attr(node, TH_ATTR_CLASS);
+        if (attr == NULL || attr->value == NULL) {
+            return 0;
+        }
+        if (attr->value_len >= SEL_VALUE_MEMO_MIN) {
+            return sel_match_long_value(node, simple, attr->value, attr->value_len, ctx->quirks, ctx);
+        }
+        return contains_ws_token(attr->value, attr->value_len, simple->name, simple->name_len, ctx->quirks);
+    }
+    if (simple->attr_atom == UINT32_MAX) {
+        return 0; /* no element in the tree carries this name */
+    }
+    const th_node_attr *attr = sel_find_attr(node, simple->attr_atom);
+    if (attr == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *value = attr->value != NULL ? attr->value : simple->value;
+    Py_ssize_t value_len = attr->value != NULL ? attr->value_len : 0;
+    /* the HTML case-insensitive set applies only to HTML-namespace elements */
+    int ci = simple->ci || (simple->ci_default && node->ns == TH_NS_HTML);
+    /* the other operators compare at most the selector's own value */
+    if (value_len >= SEL_VALUE_MEMO_MIN && (simple->op == OP_INCLUDE || simple->op == OP_SUBSTR)) {
+        return sel_match_long_value(node, simple, value, value_len, ci, ctx);
+    }
+    return sel_match_attr_op(simple, value, value_len, ci);
+}
+
 int sel_match_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx) {
     switch (simple->kind) {
     case '*':
@@ -2969,34 +3000,9 @@ int sel_match_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx
         return attr != NULL && attr->value != NULL &&
                sel_eq(attr->value, attr->value_len, simple->name, simple->name_len, ctx->quirks);
     }
-    case '.': {
-        const th_node_attr *attr = sel_find_attr(node, TH_ATTR_CLASS);
-        if (attr == NULL || attr->value == NULL) {
-            return 0;
-        }
-        if (attr->value_len >= SEL_VALUE_MEMO_MIN) {
-            return sel_match_long_value(node, simple, attr->value, attr->value_len, ctx->quirks, ctx);
-        }
-        return contains_ws_token(attr->value, attr->value_len, simple->name, simple->name_len, ctx->quirks);
-    }
-    default: { /* '[' */
-        if (simple->attr_atom == UINT32_MAX) {
-            return 0; /* no element in the tree carries this name */
-        }
-        const th_node_attr *attr = sel_find_attr(node, simple->attr_atom);
-        if (attr == NULL) {
-            return 0;
-        }
-        const Py_UCS4 *value = attr->value != NULL ? attr->value : simple->value;
-        Py_ssize_t value_len = attr->value != NULL ? attr->value_len : 0;
-        /* the HTML case-insensitive set applies only to HTML-namespace elements */
-        int ci = simple->ci || (simple->ci_default && node->ns == TH_NS_HTML);
-        /* the other operators compare at most the selector's own value */
-        if (value_len >= SEL_VALUE_MEMO_MIN && (simple->op == OP_INCLUDE || simple->op == OP_SUBSTR)) {
-            return sel_match_long_value(node, simple, value, value_len, ci, ctx);
-        }
-        return sel_match_attr_op(simple, value, value_len, ci);
-    }
+    case '.':
+    default:
+        return sel_match_attr_arm(node, simple, ctx);
     }
 }
 
