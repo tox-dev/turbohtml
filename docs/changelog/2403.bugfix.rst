@@ -1,3 +1,0 @@
-``normalize_url()``, ``resolve_links()`` and ``<base href>`` now keep a non-ASCII host that UTS #46 rejects as written,
-such as one with a bidi-rule or joiner violation, a leading combining mark, or an undecodable ``xn--`` label, where they
-punycoded it.

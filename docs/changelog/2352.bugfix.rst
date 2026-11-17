@@ -1,2 +1,0 @@
-Text past 512 levels of nesting now keeps its source order, so tables and lists deeper than the parser's cap no longer
-reorder.

@@ -1,2 +1,0 @@
-XSD range facets now follow XML Schema for NaN bounds, including list items, and for long decimal and integer values
-that rounding used to misjudge.

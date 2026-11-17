@@ -1,2 +1,0 @@
-``Node.resolve_links()`` now leaves a link as written under a base the URL standard rejects, such as ``http:`` or
-``https://h:99999/a``, where it joined the link to the base or raised ``ValueError``.

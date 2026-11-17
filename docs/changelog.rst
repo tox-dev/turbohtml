@@ -6,6 +6,186 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-12:
+
+***********************
+ v1.15.12 (2026-11-17)
+***********************
+
+.. _release-1-15-12-fixed:
+
+Fixed
+=====
+
+- Base URL, meta refresh and link extraction now skip ``<base>`` and refresh ``<meta>`` inside ``<template>``, and SVG
+  or MathML ``base`` and ``meta`` elements, as browsers do (:pr:`2231`) by :user:`gaborbernat`. (:issue:`1685`)
+- XSD range facets now follow XML Schema for NaN bounds, including list items, and for long decimal and integer values
+  that rounding used to misjudge (:pr:`2242`) by :user:`gaborbernat`. (:issue:`1736`)
+- ``to_markdown()`` drops comments from tables and lists nested in pipe-table cells, where a comment ending in a dash
+  used to show as visible text (:pr:`2226`) by :user:`gaborbernat`. (:issue:`2223`)
+- Inserting or replacing HTML inside a MathML annotation-xml with an HTML encoding now creates HTML elements, and
+  sanitizing MathML children placed there escapes them (:pr:`2229`) by :user:`gaborbernat`. (:issue:`2228`)
+- XSD length, minLength, maxLength, totalDigits and fractionDigits facets now apply their limits exactly, where large
+  limits used to be distorted (:pr:`2247`) by :user:`gaborbernat`. (:issue:`2232`)
+- Content added with ``prepend()`` or ``append()`` now stays in place when a :func:`~turbohtml.rewrite.rewrite` handler
+  unwraps the element with ``remove_and_keep_content()`` (:pr:`2248`) by :user:`gaborbernat`. (:issue:`2233`)
+- ``minify_css()`` keeps a string's value when a line continuation follows a hex escape, instead of joining the escape
+  to the next character (:pr:`2241`) by :user:`gaborbernat`. (:issue:`2234`)
+- Sanitizing a kept ``<style>`` whose last declaration has an unclosed parenthesis no longer appends another ``;}`` on
+  each pass, so re-sanitizing the output returns it unchanged (:pr:`2251`) by :user:`gaborbernat`. (:issue:`2235`)
+- Refresh ``<meta>`` content on XML input is now scheme-checked whatever the case or order of its ``http-equiv``
+  attributes (:pr:`2261`) by :user:`gaborbernat`. (:issue:`2237`)
+- Non-ASCII list bullets, emphasis and strong wrappers, and the ``to_text()`` cell separator and default image alt are
+  now written as given instead of as mojibake (:pr:`2239`) by :user:`gaborbernat`. (:issue:`2238`)
+- ``minify_js()`` accepts ``get``, ``set`` and ``async`` as shorthand names with a default value in destructuring
+  patterns instead of raising an error (:pr:`2243`) by :user:`gaborbernat`. (:issue:`2240`)
+- The strict language filter now judges a subdomain language on the host a browser opens, so every spelling of one host
+  gets the same result (:pr:`2273`) by :user:`gaborbernat`. (:issue:`2244`)
+- Escape the text of a raw-text node such as ``style`` or ``xmp`` when :func:`~turbohtml.clean.linkify` returns it as a
+  string (:pr:`2249`) by :user:`gaborbernat`. (:issue:`2245`)
+- ``Node.resolve_links()`` now resolves a link with a different special scheme and extra slashes before its host, such
+  as ``ftp:///example.com/p``, to the host it names (:pr:`2268`) by :user:`gaborbernat`. (:issue:`2250`)
+- XSD ``xs:any`` and ``xs:anyAttribute`` wildcards now match the elements and attributes their namespace, occurrence and
+  processing settings admit, so validation verdicts follow them (:pr:`2256`) by :user:`gaborbernat`. (:issue:`2252`)
+- Compiling an XSD schema now raises ``ValueError`` for a group in a content model that has no ``ref`` attribute,
+  instead of accepting it (:pr:`2258`) by :user:`gaborbernat`. (:issue:`2253`)
+- XSLT literal result elements now honor their own ``xsl:exclude-result-prefixes`` attribute, so excluded namespace
+  declarations are no longer copied to the output (:pr:`2259`) by :user:`gaborbernat`. (:issue:`2254`)
+- A carriage return in script, style or other raw-text content is now written as a line feed, and rewritten text writes
+  it as ``&#13;`` (:pr:`2284`) by :user:`gaborbernat`. (:issue:`2255`)
+- ``minify_js()`` folds long chains of string literals joined with ``+`` in time that grows linearly with the chain's
+  length (:pr:`2264`) by :user:`gaborbernat`. (:issue:`2257`)
+- ``:has()`` with child or sibling combinators in its argument no longer slows quadratically on deeply nested documents
+  (:pr:`2271`) by :user:`gaborbernat`. (:issue:`2262`)
+- Attribute names with a lone surrogate are now returned as parsed (:pr:`2265`) by :user:`gaborbernat`. (:issue:`2263`)
+- A label passed as encoding= that contains a NUL byte now raises LookupError, and the error shows the whole label
+  (:pr:`2274`) by :user:`gaborbernat`. (:issue:`2269`)
+- ``minify_js()`` raises an error for a string, template or regex token where a property name must be, such as after
+  ``.`` or as a template key (:pr:`2275`) by :user:`gaborbernat`. (:issue:`2270`)
+- Node.encode with meta_charset now raises ValueError when the encoded bytes would read back as different text under the
+  declared encoding, instead of writing them (:pr:`2282`) by :user:`gaborbernat`. (:issue:`2276`)
+- ``Node.resolve_links()`` now resolves a special-scheme link written without slashes before its host, and reads a
+  backslash as a path separator, as a browser does (:pr:`2295`) by :user:`gaborbernat`. (:issue:`2277`)
+- Range facets on ``xs:gYear``, ``xs:gYearMonth``, ``xs:gMonth``, ``xs:gMonthDay`` and ``xs:gDay`` now reject values
+  outside their bounds (:pr:`2279`) by :user:`gaborbernat`. (:issue:`2278`)
+- Schemas with a top-level group, complex type, simple type, attribute or attribute group that has no name now fail to
+  compile with ``ValueError`` (:pr:`2281`) by :user:`gaborbernat`. (:issue:`2280`)
+- Streaming parsers no longer buffer unfinished character references beyond their output: long named runs and numeric
+  digits leave the input as they arrive (:pr:`2294`) by :user:`gaborbernat`. (:issue:`2283`)
+- ``minify_js()`` keeps input that ends right after a member dot unchanged, as it did before the literal-token check,
+  instead of raising an error (:pr:`2287`) by :user:`gaborbernat`. (:issue:`2285`)
+- Converting HTML to Markdown no longer takes quadratic time on a run of digits followed by elements that write no
+  Markdown (:pr:`2296`) by :user:`gaborbernat`. (:issue:`2286`)
+- XPath predicates that look at ancestor, sibling, preceding or following nodes no longer slow down quadratically on
+  long documents; results are unchanged (:pr:`2314`) by :user:`gaborbernat`. (:issue:`2288`)
+- RELAX NG schemas that nest ``group`` pairs of optional elements now accept valid documents instead of raising
+  ``ValueError`` as too ambiguous (:pr:`2326`) by :user:`gaborbernat`. (:issue:`2290`)
+- XSD validation now checks prefixed attributes against declarations and wildcards by namespace, so anyAttribute
+  namespace and processContents settings apply to them. Undeclared xml: attributes are now reported (:pr:`2330`) by
+  :user:`gaborbernat`. (:issue:`2291`)
+- A live Range now moves its boundaries when text is replaced, deleted, split or normalized and when nodes are removed
+  or inserted, so offsets and comparisons stay correct (:pr:`2323`) by :user:`gaborbernat`. (:issue:`2292`)
+- Serializing markup under an ISO-2022 codec registered under another name now refuses U+000E, U+000F and U+001B, as the
+  built-in ISO-2022 codecs do (:pr:`2315`) by :user:`gaborbernat`. (:issue:`2305`)
+- A carriage return in an attribute value written by ``rewrite()`` is now written as ``&#13;``, and in a comment as a
+  line feed, so the output reads back as the same value (:pr:`2313`) by :user:`gaborbernat`. (:issue:`2307`)
+- An+B pseudo-classes such as ``:nth-child()`` now clamp each coefficient to the 32-bit ``int`` range, as browsers do,
+  including its most negative value (:pr:`2319`) by :user:`gaborbernat`. (:issue:`2311`)
+- Converting HTML to Markdown keeps runs of spaces in link titles and destinations inside table cells, so the link reads
+  back unchanged (:pr:`2332`) by :user:`gaborbernat`. (:issue:`2317`)
+- ``Node.resolve_links()`` now drops a default or empty port, resolves dot segments and lowercases the host of an
+  absolute special-scheme link, as a browser does (:pr:`2342`) by :user:`gaborbernat`. (:issue:`2320`)
+- ``minify_css()`` gives the same output when run on its own output for filter values with unclosed functions, and for
+  values with escapes before a number or identifier (:pr:`2348`) by :user:`gaborbernat`. (:issue:`2324`)
+- Converting HTML to Markdown keeps a list or block quote nested past the indentation limit intact, writing the
+  outermost one as HTML so its content stays in place (:pr:`2351`) by :user:`gaborbernat`. (:issue:`2333`)
+- ``Node.resolve_links()`` now writes a numeric host as a browser reads it, in dotted-decimal form: ``https://123/p``
+  becomes ``https://0.0.0.123/p``, and ``http://0x7f.1/`` becomes ``http://127.0.0.1/`` (:pr:`2379`) by
+  :user:`gaborbernat`. (:issue:`2344`)
+- ``Node.resolve_links()`` now removes dot segments from links under non-special schemes such as ``foo://`` or
+  ``sftp://``, as browsers do, and keeps the root of a path such as ``/..//p`` in place (:pr:`2393`) by
+  :user:`gaborbernat`. (:issue:`2345`)
+- Text past 512 levels of nesting now keeps its source order, so tables and lists deeper than the parser's cap no longer
+  reorder (:pr:`2417`) by :user:`gaborbernat`. (:issue:`2352`)
+- Every XPath axis now skips the document's doctype, which ``node()`` used to match, so results contain only elements,
+  comments and processing instructions (:pr:`2376`) by :user:`gaborbernat`. (:issue:`2375`)
+- Minifying a document nested past 512 levels now returns its markup unchanged, so the output reparses to the same tree
+  (:pr:`2425`) by :user:`gaborbernat`. (:issue:`2380`)
+- XPath predicates that select a node by position, or that look down a subtree, no longer slow down quadratically on
+  long documents; results are unchanged (:pr:`2398`) by :user:`gaborbernat`. (:issue:`2381`)
+- ``Node.resolve_links()`` now resolves a fragment-only link against a base with an opaque path, such as ``foo:a/b``, by
+  keeping the base path and query and taking the link fragment, as browsers do (:pr:`2399`) by :user:`gaborbernat`.
+  (:issue:`2394`)
+- ``Node.resolve_links()`` now decodes a percent-encoded host name, as browsers do, so ``https://%41.com/p`` resolves to
+  ``https://a.com/p`` instead of keeping the escapes (:pr:`2402`) by :user:`gaborbernat`. (:issue:`2395`)
+- ``Node.resolve_links()`` now writes an internationalized host name in its ASCII form, as browsers do, so
+  ``https://例.jp/p`` becomes ``https://xn--fsq.jp/p`` (:pr:`2405`) by :user:`gaborbernat`. (:issue:`2396`)
+- ``Node.resolve_links()`` now writes the root path ``/`` for a special-scheme link with no path, so ``https://h?q``
+  becomes ``https://h/?q`` and ``https://h:443`` becomes ``https://h/``, as browsers do (:pr:`2407`) by
+  :user:`gaborbernat`. (:issue:`2397`)
+- ``Node.resolve_links()`` now reads the host of a special-scheme base written without slashes, so ``http:opaque`` is
+  the host ``opaque`` and the link ``x`` becomes ``http://opaque/x``, as browsers do (:pr:`2410`) by
+  :user:`gaborbernat`. (:issue:`2400`)
+- ``normalize_url()``, ``resolve_links()`` and ``<base href>`` now keep a non-ASCII host that UTS #46 rejects as
+  written, such as one with a bidi-rule or joiner violation, a leading combining mark, or an undecodable ``xn--`` label,
+  where they punycoded it (:pr:`2418`) by :user:`gaborbernat`. (:issue:`2403`)
+- ``Node.resolve_links()`` now resolves links against the base as a browser parses it, so an upper-case host, a default
+  port or dot segments in the base no longer carry into the link: ``https://H.Example/a/b`` with ``x`` becomes
+  ``https://h.example/a/x`` (:pr:`2413`) by :user:`gaborbernat`. (:issue:`2404`)
+- ``Node.resolve_links()`` now reads ``file:`` links as browsers do, so ``file://h`` becomes ``file://h/`` and
+  ``file://localhost/a`` becomes ``file:///a``, where the link was kept as written before (:pr:`2415`) by
+  :user:`gaborbernat`. (:issue:`2406`)
+- Minifying no longer nests an element inside its own kind when the reparse would close the outer one, so the markup
+  comes back as written (:pr:`2414`) by :user:`gaborbernat`. (:issue:`2408`)
+- Minifying a document whose ``<noscript>`` holds a ``<frameset>`` tag now returns the markup as written, instead of
+  dropping its content (:pr:`2421`) by :user:`gaborbernat`. (:issue:`2411`)
+- ``Node.resolve_links()`` now leaves a link as written under a base the URL standard rejects, such as ``http:`` or
+  ``https://h:99999/a``, where it joined the link to the base or raised ``ValueError`` (:pr:`2416`) by
+  :user:`gaborbernat`. (:issue:`2412`)
+- ``extract_links()`` now resolves links against a base URL as browsers parse it, so dot segments in the base are
+  removed, and a base that does not parse keeps absolute links and drops relative ones instead of raising ``ValueError``
+  (:pr:`2420`) by :user:`gaborbernat`. (:issue:`2419`)
+- ``clean_url()`` and ``extract_links()`` now percent-encode a space or other Unicode whitespace in a URL's userinfo,
+  path, query and fragment, as browsers do, instead of dropping it, and drop a link whose host holds whitespace
+  (:pr:`2426`) by :user:`gaborbernat`. (:issue:`2423`)
+- ``Node.resolve_links()`` now percent-encodes a space, a line separator or other non-ASCII character in a link,
+  relative or absolute, as browsers do. It used to leave such a character as written (:pr:`2429`) by
+  :user:`gaborbernat`. (:issue:`2424`)
+- The URL language filter now reads a percent-encoded unreserved character in a leading path segment as its decoded
+  form, so ``/%64e/`` marks German and is rejected for English. Escapes of other characters, such as ``%2F``, stay
+  literal as before (:pr:`2432`) by :user:`gaborbernat`.
+- The XSD validator now accepts a value that matches any ``pattern`` facet of one restriction, as XSD Part 2 §4.3.4.3
+  requires, instead of requiring all of them to match. Patterns inherited from a base type still all apply by Bernát
+  Gábor.
+- XPath predicates that compare with ``=`` or ``!=`` no longer slow down quadratically on PyPy and on CPython before
+  3.12; results are unchanged (:pr:`2437`) by :user:`gaborbernat`.
+- XSD range facets on ``xs:gYear`` no longer read past the end of a year with no timezone, so a negative year such as
+  ``-0045`` is rejected by ``minInclusive="-0044"`` every time instead of only sometimes by Bernát Gábor.
+- ``base_url()`` now normalizes its ``fallback`` as the URL standard parses it, both when the document has no ``<base
+  href>`` and when a ``<base href>`` resolves against it, so ``http:site.example`` reads as ``http://site.example/`` and
+  ``HTTP://Site.Example`` as ``http://site.example/``. A fallback that does not parse is still returned as written
+  (:pr:`2431`) by :user:`gaborbernat`.
+
+.. _release-1-15-12-security:
+
+Security
+========
+
+- A reconstructed formatting element keeps its attributes in serialized output when its original start tag is not in the
+  same output (:pr:`2225`) by :user:`gaborbernat`.
+- ``computed_style()`` no longer slows down quadratically on ``:has()`` rules that read ``:scope`` across long sibling
+  runs; past a work allowance it raises :exc:`ValueError` instead (:pr:`2222`) by :user:`gaborbernat`.
+
+.. _release-1-15-12-performance:
+
+Performance
+===========
+
+- XML Schema validation checks content models with fewer name comparisons, so validating against a schema runs faster
+  (:pr:`2331`) by :user:`gaborbernat`. (:issue:`2329`)
+- Converting HTML with nested lists or block quotes to Markdown runs faster, since nesting is checked once per outermost
+  container (:pr:`2372`) by :user:`gaborbernat`. (:issue:`2367`)
+
 .. _release-1-15-11:
 
 ***********************

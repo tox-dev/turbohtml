@@ -1,2 +1,0 @@
-Converting HTML to Markdown no longer takes quadratic time on a run of digits followed by elements that write no
-Markdown.

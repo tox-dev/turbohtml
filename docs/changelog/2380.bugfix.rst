@@ -1,1 +1,0 @@
-Minifying a document nested past 512 levels now returns its markup unchanged, so the output reparses to the same tree.

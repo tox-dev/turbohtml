@@ -1,2 +1,0 @@
-``Node.resolve_links()`` now writes a numeric host as a browser reads it, in dotted-decimal form: ``https://123/p``
-becomes ``https://0.0.0.123/p``, and ``http://0x7f.1/`` becomes ``http://127.0.0.1/``.

@@ -1,2 +1,0 @@
-Escape the text of a raw-text node such as ``style`` or ``xmp`` when :func:`~turbohtml.clean.linkify` returns it as a
-string.

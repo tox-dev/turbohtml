@@ -1,2 +1,0 @@
-``minify_js()`` keeps input that ends right after a member dot unchanged, as it did before the literal-token check,
-instead of raising an error.

@@ -1,2 +1,0 @@
-``Node.resolve_links()`` now percent-encodes a space, a line separator or other non-ASCII character in a link, relative
-or absolute, as browsers do. It used to leave such a character as written.

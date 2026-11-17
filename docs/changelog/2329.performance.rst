@@ -1,1 +1,0 @@
-XML Schema validation checks content models with fewer name comparisons, so validating against a schema runs faster.

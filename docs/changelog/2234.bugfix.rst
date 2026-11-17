@@ -1,2 +1,0 @@
-``minify_css()`` keeps a string's value when a line continuation follows a hex escape, instead of joining the escape to
-the next character.

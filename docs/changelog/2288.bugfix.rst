@@ -1,2 +1,0 @@
-XPath predicates that look at ancestor, sibling, preceding or following nodes no longer slow down quadratically on long
-documents; results are unchanged.

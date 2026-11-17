@@ -1,2 +1,0 @@
-The strict language filter now judges a subdomain language on the host a browser opens, so every spelling of one host
-gets the same result.

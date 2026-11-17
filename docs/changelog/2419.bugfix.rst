@@ -1,2 +1,0 @@
-``extract_links()`` now resolves links against a base URL as browsers parse it, so dot segments in the base are removed,
-and a base that does not parse keeps absolute links and drops relative ones instead of raising ``ValueError``.

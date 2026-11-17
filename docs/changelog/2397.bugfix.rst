@@ -1,2 +1,0 @@
-``Node.resolve_links()`` now writes the root path ``/`` for a special-scheme link with no path, so ``https://h?q``
-becomes ``https://h/?q`` and ``https://h:443`` becomes ``https://h/``, as browsers do.

@@ -1,2 +1,0 @@
-Refresh ``<meta>`` content on XML input is now scheme-checked whatever the case or order of its ``http-equiv``
-attributes.

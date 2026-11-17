@@ -1,2 +1,0 @@
-A carriage return in script, style or other raw-text content is now written as a line feed, and rewritten text writes it
-as ``&#13;``.

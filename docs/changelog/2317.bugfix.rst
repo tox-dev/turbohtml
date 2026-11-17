@@ -1,2 +1,0 @@
-Converting HTML to Markdown keeps runs of spaces in link titles and destinations inside table cells, so the link reads
-back unchanged.

@@ -1,2 +1,0 @@
-Every XPath axis now skips the document's doctype, which ``node()`` used to match, so results contain only elements,
-comments and processing instructions.

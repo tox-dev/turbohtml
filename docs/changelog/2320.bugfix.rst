@@ -1,2 +1,0 @@
-``Node.resolve_links()`` now drops a default or empty port, resolves dot segments and lowercases the host of an absolute
-special-scheme link, as a browser does.

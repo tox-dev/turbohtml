@@ -1,2 +1,0 @@
-Streaming parsers no longer buffer unfinished character references beyond their output: long named runs and numeric
-digits leave the input as they arrive.

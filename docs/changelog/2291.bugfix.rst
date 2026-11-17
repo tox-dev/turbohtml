@@ -1,2 +1,0 @@
-XSD validation now checks prefixed attributes against declarations and wildcards by namespace, so anyAttribute namespace
-and processContents settings apply to them. Undeclared xml: attributes are now reported.

@@ -1,2 +1,0 @@
-Content added with ``prepend()`` or ``append()`` now stays in place when a :func:`~turbohtml.rewrite.rewrite` handler
-unwraps the element with ``remove_and_keep_content()``.

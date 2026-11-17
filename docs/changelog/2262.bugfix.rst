@@ -1,1 +1,0 @@
-``:has()`` with child or sibling combinators in its argument no longer slows quadratically on deeply nested documents.

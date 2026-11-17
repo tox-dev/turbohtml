@@ -1,2 +1,0 @@
-``Node.resolve_links()`` now reads the host of a special-scheme base written without slashes, so ``http:opaque`` is the
-host ``opaque`` and the link ``x`` becomes ``http://opaque/x``, as browsers do.

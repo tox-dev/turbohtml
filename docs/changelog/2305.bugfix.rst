@@ -1,2 +1,0 @@
-Serializing markup under an ISO-2022 codec registered under another name now refuses U+000E, U+000F and U+001B, as the
-built-in ISO-2022 codecs do.

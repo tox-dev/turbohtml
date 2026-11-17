@@ -1,2 +1,0 @@
-Minifying no longer nests an element inside its own kind when the reparse would close the outer one, so the markup comes
-back as written.

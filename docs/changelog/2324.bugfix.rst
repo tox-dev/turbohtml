@@ -1,2 +1,0 @@
-``minify_css()`` gives the same output when run on its own output for filter values with unclosed functions, and for
-values with escapes before a number or identifier.

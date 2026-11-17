@@ -1,2 +1,0 @@
-``minify_js()`` accepts ``get``, ``set`` and ``async`` as shorthand names with a default value in destructuring patterns
-instead of raising an error.
