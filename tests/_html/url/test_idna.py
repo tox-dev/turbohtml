@@ -246,8 +246,8 @@ def test_ascii_label_that_only_resembles_xn_passes_through(host: str) -> None:
 
 
 def test_unpaired_surrogate_host_is_rejected() -> None:
-    # A label carrying an unpaired surrogate has no scalar value to encode, so the engine raises ``ValueError``.
-    with pytest.raises(ValueError, match="cannot be encoded to ASCII"):
+    # UTS #46 disallows a surrogate, so the engine raises ``ValueError`` before it encodes any label.
+    with pytest.raises(ValueError, match="UTS #46 disallows"):
         _url_to_ascii("a\ud800b.example")
 
 
@@ -268,11 +268,11 @@ def test_punycode_label_decoding_to_only_ascii_is_kept_verbatim(label: str) -> N
 
 def test_all_ascii_decode_does_not_forge_an_idna_equivalence() -> None:
     # The RUSTSEC-2024-0421 bypass: ``xn--ascii-`` beside a real IDN label must not canonicalize to the host its
-    # bare-ASCII decoding would, or a raw-vs-normalized host check is defeated.
-    forged = _url_to_ascii("xn--ascii-.日本")
-    genuine = _url_to_ascii("ascii.日本")
-    assert forged != genuine
-    assert forged == "xn--ascii-.xn--wgv71a"
+    # bare-ASCII decoding would, or a raw-vs-normalized host check is defeated. UTS #46 rejects the all-ASCII decode
+    # (IdnaTestV2 row ``xn--ASCII-``), so the host is refused rather than encoded.
+    with pytest.raises(ValueError, match="UTS #46 disallows"):
+        _url_to_ascii("xn--ascii-.日本")
+    assert _url_to_ascii("ascii.日本") == "ascii.xn--wgv71a"
 
 
 def test_empty_punycode_label_decodes_to_an_empty_label() -> None:

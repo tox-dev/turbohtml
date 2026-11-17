@@ -218,8 +218,7 @@ static Py_UCS4 pair_compose(Py_UCS4 first, Py_UCS4 second) {
 
 /* Apply the UTS #46 mapping to input[0,in_len): keep, replace with the pool sequence, or drop each code point. `out`
    holds at most in_len * (longest mapping) code points; returns the mapped length, or -1 on a code point UTS #46
-   disallows in a host (validity criterion 6). It keeps an unpaired surrogate, which UTS #46 also disallows, so the
-   fuzz harness reaches puny_encode's non-scalar guard with one. */
+   disallows in a host (validity criterion 6), an unpaired surrogate included. */
 static Py_ssize_t map_host(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS4 *out) {
     Py_ssize_t at = 0;
     for (Py_ssize_t index = 0; index < in_len; index++) {
@@ -233,7 +232,7 @@ static Py_ssize_t map_host(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS4 *out
             for (uint8_t offset = 0; offset < row->length; offset++) {
                 out[at++] = th_idna_map_pool[row->offset + offset];
             }
-        } else if (row->status == 3 && (cp < 0xD800 || cp > 0xDFFF)) {
+        } else if (row->status == 3) {
             return -1;
         } else if (row->status != 2) { /* 0 keeps the code point; 2 drops it (the ignored set) */
             out[at++] = cp;
@@ -465,16 +464,12 @@ static Py_ssize_t puny_encode_sorted(const Py_UCS4 *label, Py_ssize_t len, Py_ss
 }
 
 /* Encode label[0,len) with RFC 3492 into `out` as ASCII code points (no "xn--" prefix); returns the output length,
-   PUNY_INVALID when a code point is an unpaired surrogate or the arithmetic would overflow (the A3 punycode
-   failure), or PUNY_NO_MEMORY. The sample loop below rescans the label for each distinct code point, so a long label
-   goes to puny_encode_sorted. */
+   PUNY_INVALID when the arithmetic would overflow (the A3 punycode failure), or PUNY_NO_MEMORY. The sample loop below
+   rescans the label for each distinct code point, so a long label goes to puny_encode_sorted. */
 static Py_ssize_t puny_encode(const Py_UCS4 *label, Py_ssize_t len, Py_UCS4 *out) {
     Py_ssize_t at = 0;
     Py_ssize_t handled = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (label[index] >= 0xD800 && label[index] <= 0xDFFF) {
-            return PUNY_INVALID; /* an unpaired surrogate has no scalar value to encode */
-        }
         if (label[index] < PUNY_INITIAL_N) {
             out[at++] = label[index];
             handled++;
