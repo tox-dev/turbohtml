@@ -502,9 +502,26 @@ def test_an_unsplittable_base_raises() -> None:
         extract_links('<a href="https://a.example/">x</a>', "http://[::1", external_only=True)
 
 
-def test_a_relative_link_against_an_unsplittable_base_raises() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        extract_links('<a href="p">x</a>', "http://[::1")
+def test_a_relative_link_against_an_unsplittable_base_is_dropped() -> None:
+    assert extract_links('<a href="p">x</a>', "http://[::1") == set()
+
+
+@pytest.mark.parametrize(
+    ("href", "base", "expected"),
+    [
+        pytest.param("x", "http:site.example", {"http://site.example/x"}, id="special-base-without-slashes"),
+        pytest.param("x", "https://h:80/x/./y/..", {"https://h:80/x/x"}, id="base-dot-segments-removed"),
+        pytest.param("x", "https://[h/a", set(), id="unsplittable-base-drops-relative"),
+        pytest.param(
+            "https://h.example/x", "https://[h/a", {"https://h.example/x"}, id="unsplittable-base-keeps-absolute"
+        ),
+        pytest.param("x", "http:", set(), id="special-base-without-host-drops-relative"),
+    ],
+)
+def test_extract_links_resolves_against_a_raw_base_as_the_url_standard_does(
+    href: str, base: str, expected: set[str]
+) -> None:
+    assert extract_links(f'<a href="{href}">x</a>', base) == expected
 
 
 def test_an_unsplittable_relative_link_raises() -> None:
