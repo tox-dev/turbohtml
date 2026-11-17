@@ -2308,6 +2308,18 @@ def _block_grammar(depth: int, tail: int) -> str:
     return rgrammar(f'<start><element name="r"><ref name="d{depth}"/></element></start>{"".join(defines)}')
 
 
+def test_rng_merge_past_the_choice_cap_raises() -> None:
+    # 2**12 optional places of an element and its optional sibling: one merge passes the cap while under the work budget
+    leaf = '<element name="e"><empty/></element><optional><element name="f"><empty/></element></optional>'
+    defines = [f'<define name="d0"><group>{leaf}</group></define>']
+    for level in range(1, 13):
+        ref = f'<ref name="d{level - 1}"/>'
+        defines.append(f'<define name="d{level}"><optional><group>{ref}{ref}</group></optional></define>')
+    schema = RelaxNG(rgrammar(f'<start><element name="r"><ref name="d12"/></element></start>{"".join(defines)}'))
+    with pytest.raises(ValueError, match="too ambiguous"):
+        schema.validate(parse_xml("<r><e/><e/></r>"))
+
+
 def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<r><a><v/></a></r>")
     # The steps until the raise stay bounded, but the event that passes the limit moves with n, so a near pair of
