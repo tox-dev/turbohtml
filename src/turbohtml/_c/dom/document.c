@@ -1275,6 +1275,29 @@ PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback) {
     return result;
 }
 
+/* The URL standard's parse of an absolute base, with no HTML base policy applied: NULL with a ValueError when the base
+   does not parse, which a special scheme without a host does not. */
+PyObject *th_url_base_parse(PyObject *href) {
+    PyObject *input = base_url_input(href);
+    if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *empty = PyUnicode_New(0, 0);
+    if (empty == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(input); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *parsed = NULL;
+    if (base_url_missing_special_host(empty, input)) {
+        PyErr_SetString(PyExc_ValueError, "a special scheme needs a host");
+    } else {
+        parsed = th_url_resolve(empty, input);
+    }
+    Py_DECREF(empty);
+    Py_DECREF(input);
+    return parsed;
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
    when there is none, the href fails URL parsing (HTML spec 2.4.3) or the resolved base is longer than
    TH_BASE_URL_MAX. Only an HTML base element in the document counts, not an SVG or MathML element named base. The

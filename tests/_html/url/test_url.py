@@ -439,6 +439,7 @@ def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
     for base, reference in _corpus():
         scheme = reference.partition(":")[0].lower()
         foreign = scheme in _SPECIAL_SCHEMES and scheme != base.partition(":")[0]
+        file_reference = scheme == "file" and base.partition(":")[0].lower() != "file"
         rest = base.partition(":")[2]
         special_no_authority = base.partition(":")[0].lower() in _SPECIAL_SCHEMES and (
             not rest.startswith("//") or rest.startswith("///")
@@ -454,7 +455,7 @@ def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
             "?",
             "#",
         }
-        skipped = (foreign, opaque_fragment, bare_authority, bare_base, special_no_authority)
+        skipped = (foreign, file_reference, opaque_fragment, bare_authority, bare_base, special_no_authority)
         if not reference.startswith("///") and not any(skipped):
             assert _join_link(base, reference) == _join(base, reference), (base, reference)
 

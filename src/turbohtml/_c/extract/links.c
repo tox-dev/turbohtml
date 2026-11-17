@@ -928,12 +928,27 @@ static int url_special_text_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssi
     return !url_path_has_dot_candidate(value, stop, end);
 }
 
+static int url_scheme_is_file(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon) {
+    static const char name[] = "file";
+    if (colon - start != 4) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < 4; index++) {
+        if (lower_ascii(value[start + index]) != (Py_UCS4)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Whether the absolute special-scheme reference from `start` reads the same in the link join as it is written: a
-   lowercase scheme, two slashes and a host, and the authority and path checks of url_special_text_plain. Any other form
-   (no slashes, one slash, an empty authority, an upper-case scheme) takes the join, which reads the host and separators
-   as WHATWG does. */
+   lowercase scheme other than file, two slashes and a host, and the authority and path checks of
+   url_special_text_plain. Any other form (no slashes, one slash, an empty authority, an upper-case scheme, a file URL,
+   whose host and empty path the URL standard rewrites) takes the join, which reads the host and separators as WHATWG
+   does. */
 static int url_special_link_plain(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t colon, Py_ssize_t end) {
-    if (colon + 3 >= end || value[colon + 1] != '/' || value[colon + 2] != '/') {
+    if (url_scheme_is_file(value, start, colon) || colon + 3 >= end || value[colon + 1] != '/' ||
+        value[colon + 2] != '/') {
         return 0;
     }
     Py_UCS4 host = value[colon + 3];
@@ -1388,19 +1403,21 @@ static Py_ssize_t base_scheme_of(PyObject *base_url, char *out, Py_ssize_t cap) 
     return 0;
 }
 
-/* The base as a browser parses it, so links resolve against the normalized base. A relative base, or one that does not
-   parse, is joined as written: an empty fallback makes a base that does not parse come back empty. */
+/* The base as a browser parses it, so links resolve against the normalized base. A relative base is joined as written,
+   and so is a base that does not parse: an empty base leaves each link as written, as the URL standard does. */
 static PyObject *normalized_base(PyObject *base_url, Py_ssize_t scheme_len) {
     if (scheme_len == 0) {
         return Py_NewRef(base_url);
     }
-    PyObject *empty = PyUnicode_New(0, 0);
-    if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyObject *parsed = th_url_base_parse(base_url);
+    if (parsed == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation can fail here */
+            return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear();
+        return PyUnicode_New(0, 0);
     }
-    PyObject *parsed = th_url_base_resolve(base_url, empty);
-    Py_DECREF(empty);
-    if (parsed != NULL && PyUnicode_GET_LENGTH(parsed) == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+    if (PyUnicode_GET_LENGTH(parsed) > TH_BASE_URL_MAX) {
         Py_SETREF(parsed, Py_NewRef(base_url));
     }
     return parsed;

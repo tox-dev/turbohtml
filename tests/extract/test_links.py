@@ -1061,6 +1061,40 @@ def test_resolve_links_extra_authority_slash_boundaries(base: str, href: str, ex
 
 
 @pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("file://h", "file://h/", id="host-gets-root-path"),
+        pytest.param("file://h?q", "file://h/?q", id="host-query-gets-root-path"),
+        pytest.param("file://h#f", "file://h/#f", id="host-fragment-gets-root-path"),
+        pytest.param("file://localhost/a", "file:///a", id="localhost-dropped"),
+        pytest.param("file://LOCALHOST/a", "file:///a", id="upper-case-localhost-dropped"),
+        pytest.param("file:///a/b", "file:///a/b", id="empty-host-kept"),
+        pytest.param("file:a/b", "file:///a/b", id="no-slashes-gets-empty-host"),
+        pytest.param("file:", "file:///", id="scheme-only-gets-root"),
+        pytest.param("file:/a", "file:///a", id="one-slash-gets-empty-host"),
+        pytest.param("file://C:/x", "file:///C:/x", id="drive-letter-host-moved-to-path"),
+        pytest.param("file:c:\\x", "file:///c:/x", id="drive-letter-backslash"),
+        pytest.param("file://h/a/../b", "file://h/b", id="dot-segments-removed"),
+        pytest.param("FILE://H/a", "file://h/a", id="scheme-and-host-lowercased"),
+        pytest.param("file://h:99999/a", "file://h:99999/a", id="out-of-range-port-kept-as-written"),
+    ],
+)
+def test_resolve_links_reads_a_file_link_as_the_url_standard_does(href: str, expected: str) -> None:
+    assert _resolved_href(href, _HTTPS) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("file:///srv/page.html", "file://h", "file://h/", id="file-base-host-gets-root-path"),
+        pytest.param("file:///srv/page.html", "file:x", "file:///srv/x", id="file-base-relative-kept"),
+    ],
+)
+def test_resolve_links_reads_a_file_link_under_a_file_base(base: str, href: str, expected: str) -> None:
+    assert _resolved_href(href, base) == expected
+
+
+@pytest.mark.parametrize(
     ("base", "href", "expected"),
     [
         pytest.param("http:opaque", "x", "http://opaque/x", id="relative"),
@@ -1083,13 +1117,21 @@ def test_resolve_links_reads_the_host_of_a_special_base_without_authority(base: 
 
 
 @pytest.mark.parametrize(
-    ("base", "href", "expected"),
+    ("base", "href"),
     [
-        pytest.param("http:", "x", "http:/x", id="special-base-without-host"),
+        pytest.param("http:", "x", id="special-base-without-host"),
+        pytest.param("http:/", "x", id="special-base-one-slash"),
+        pytest.param("https://h:99999/a", "x", id="port-out-of-range"),
+        pytest.param("https://[h/a", "x", id="unbalanced-ipv6"),
     ],
 )
-def test_resolve_links_joins_bases_outside_the_host_rule_as_before(base: str, href: str, expected: str) -> None:
-    assert _resolved_href(href, base) == expected
+def test_resolve_links_leaves_links_under_a_base_the_url_standard_rejects_as_written(base: str, href: str) -> None:
+    assert _resolved_href(href, base) == href
+
+
+def test_resolve_links_keeps_an_over_length_base_as_written() -> None:
+    base = f"https://H/{'a/' * 1100}"
+    assert _resolved_href("x", base) == f"{base}x"
 
 
 @pytest.mark.parametrize(
@@ -1109,11 +1151,6 @@ def test_resolve_links_joins_bases_outside_the_host_rule_as_before(base: str, hr
 )
 def test_resolve_links_normalizes_the_base_before_joining(base: str, href: str, expected: str) -> None:
     assert _resolved_href(href, base) == expected
-
-
-def test_resolve_links_raises_on_an_unbalanced_ipv6_base() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        _resolved_href("x", "https://[h/a")
 
 
 @pytest.mark.parametrize(
