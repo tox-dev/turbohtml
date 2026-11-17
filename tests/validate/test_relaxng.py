@@ -2292,6 +2292,34 @@ def test_rng_doubled_group_chain_scales_linearly(work_steps: WorkSteps) -> None:
     )
 
 
+@pytest.mark.parametrize("depth", [5, 7])
+def test_rng_block_family_past_the_alternative_cap_raises(depth: int) -> None:
+    # 2**depth places of a block of 200 optionals hold more alternatives than the cap allows
+    with pytest.raises(ValueError, match="too ambiguous"):
+        RelaxNG(_block_grammar(depth, 200)).validate(parse_xml(f"<r><e/>{'<f/>' * 200}</r>"))
+
+
+def _block_grammar(depth: int, tail: int) -> str:
+    optional = '<optional><element name="{}"><empty/></element></optional>'
+    defines = [f'<define name="d0"><group>{optional.format("e")}{optional.format("f") * tail}</group></define>']
+    for level in range(1, depth + 1):
+        ref = f'<ref name="d{level - 1}"/>'
+        defines.append(f'<define name="d{level}"><group>{ref}{ref}</group></define>')
+    return rgrammar(f'<start><element name="r"><ref name="d{depth}"/></element></start>{"".join(defines)}')
+
+
+def test_rng_merge_past_the_choice_cap_raises() -> None:
+    # 2**12 optional places of an element and its optional sibling: one merge passes the cap while under the work budget
+    leaf = '<element name="e"><empty/></element><optional><element name="f"><empty/></element></optional>'
+    defines = [f'<define name="d0"><group>{leaf}</group></define>']
+    for level in range(1, 13):
+        ref = f'<ref name="d{level - 1}"/>'
+        defines.append(f'<define name="d{level}"><optional><group>{ref}{ref}</group></optional></define>')
+    schema = RelaxNG(rgrammar(f'<start><element name="r"><ref name="d12"/></element></start>{"".join(defines)}'))
+    with pytest.raises(ValueError, match="too ambiguous"):
+        schema.validate(parse_xml("<r><e/><e/></r>"))
+
+
 def test_rng_too_many_nested_places_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<r><a><v/></a></r>")
     # The steps until the raise stay bounded, but the event that passes the limit moves with n, so a near pair of

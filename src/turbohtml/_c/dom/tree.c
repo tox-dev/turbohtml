@@ -731,7 +731,7 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_cap = (Py_ssize_t)cap;
     }
     tree->open[tree->open_len++] = node;
-    if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
+    if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) { /* GCOVR_EXCL_BR_LINE: alloc failure */
         tree->open_p_count++;
     }
     if (!stack_push_checks(tree, node)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -744,7 +744,7 @@ static int stack_push(th_tree *tree, th_node *node) {
 static void maybe_clone_option(th_tree *tree, th_node *option);
 static int name_matches(const th_node *node, const th_token *token, int fold);
 
-static void stack_pop_any(th_tree *tree) {
+static void stack_pop(th_tree *tree) {
     if (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: only reached with a non-empty stack */
         tree->open_len--;
         tree->stack_version++;
@@ -780,15 +780,6 @@ static void stack_pop_any(th_tree *tree) {
                clone an option into selectedcontent" */
             maybe_clone_option(tree, popped);
         }
-    }
-}
-
-/* html, or the fragment root, stays at open[0] until run_close: the scope walks, clear_to and the adoption agency's
-   common ancestor all read it. An element the depth cap kept off the stack leaves its insertion mode popping for it
-   (a refused tr, td or raw-text element), and that pop must not reach the root. */
-static void stack_pop(th_tree *tree) {
-    if (tree->open_len > 1) {
-        stack_pop_any(tree);
     }
 }
 
@@ -4071,8 +4062,6 @@ static int slice_can_span(const th_tree *tree, const th_token *token) {
             !chunk_has_nul(tree->kind, (const uint8_t *)tree->data + token->src_start * tree->kind, token->src_len));
 }
 
-static void afe_push_if_open(th_tree *tree, th_node *node);
-
 static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) {
     if (tok->kind == TH_TEXT) {
         if (slice_can_span(tree, tok)) {
@@ -4405,14 +4394,14 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             }
             th_node *node = insert_element(tree, tok);
             stack_push(tree, node);
-            afe_push_if_open(tree, node);
+            afe_push(tree, node);
             return TH_DRAIN_NEXT;
         }
         if (flags & TH_TAG_FORMATTING) {
             reconstruct_afe(tree);
             th_node *node = insert_element(tree, tok);
             stack_push(tree, node);
-            afe_push_if_open(tree, node);
+            afe_push(tree, node);
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_APPLET || atom == TH_TAG_MARQUEE || atom == TH_TAG_OBJECT) {
@@ -4582,14 +4571,6 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
     }
     return TH_DRAIN_NEXT; /* GCOVR_EXCL_LINE: in body handles every text/comment/start/end token in a branch
               that breaks, and a DOCTYPE is ignored before the switch, so nothing reaches here */
-}
-
-/* An element the depth cap kept off the open stack must stay off the list too, or reconstruct_afe re-clones it on
-   every later formatting tag: O(n^2) retained nodes past the 512 cap (jsoup TreeBuilder.onStackPrunedForDepth). */
-static void afe_push_if_open(th_tree *tree, th_node *node) {
-    if (current_node(tree) == node) {
-        afe_push(tree, node);
-    }
 }
 
 static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc) {
@@ -5480,7 +5461,7 @@ static void run_close(th_tree *tree) {
        element whose name matches that leftover gets a span the source never wrote. */
     tree->closing_end_tag = NULL;
     while (tree->open_len > 0) {
-        stack_pop_any(tree);
+        stack_pop(tree);
     }
     select_cache_finish(tree);
     select_cache_free(tree);

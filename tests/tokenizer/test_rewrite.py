@@ -140,6 +140,15 @@ def test_rewrite_set_attribute_adds_and_replaces() -> None:
     assert rewrite('<p class="old">x</p>', elements=[("p", handler)]) == '<p class="changed" data-new="1">x</p>'
 
 
+def test_rewrite_keeps_a_formatting_element_moved_out_of_an_open_stack_across_compaction() -> None:
+    # the adoption agency takes b out of the stack under the open p, so the spine's pointer to b goes stale while the
+    # filler grows the shadow tree past its budget and the tree compacts
+    source = f"<template><b><p>x</b>y{'<i>a</i>' * 5000}</p></template>"
+    assert rewrite(source, elements=[("template", _set("k", "v"))]) == source.replace(
+        "<template>", '<template k="v">', 1
+    )
+
+
 @pytest.mark.parametrize(
     ("src", "expected"),
     [

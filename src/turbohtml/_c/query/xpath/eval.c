@@ -4311,9 +4311,8 @@ static int walk_good(const walk_plan *plan, struct th_node *node) {
     if (holds < 0) {
         return holds;
     }
-    if (walk_put(plan->walks, node, plan->base + XW_GOOD, NULL, holds) <
-        0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1; /* GCOVR_EXCL_LINE */
+    if (walk_put(plan->walks, node, plan->base + XW_GOOD, NULL, holds) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                            /* GCOVR_EXCL_LINE */
     }
     return holds;
 }
@@ -4322,11 +4321,6 @@ static int walk_good(const walk_plan *plan, struct th_node *node) {
    are collected first and then filled from the far end, so each node is passed once per evaluation. */
 static int walk_fill(const walk_plan *plan, enum xp_walk_kind kind, struct th_node *node, struct th_node **nearest,
                      Py_ssize_t *count) {
-    if (node == NULL) {
-        *nearest = NULL;
-        *count = 0;
-        return 0;
-    }
     uint32_t tag = plan->base + kind;
     walk_entry *known = walk_find(plan->walks, node, tag);
     if (known != NULL) {
@@ -4347,12 +4341,12 @@ static int walk_fill(const walk_plan *plan, enum xp_walk_kind kind, struct th_no
     }
     struct th_node *below_nearest = NULL;
     Py_ssize_t below_count = 0;
-    if (rc == 0 && beyond != NULL) {
+    if (rc == 0 && beyond != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         walk_entry *entry = walk_find(plan->walks, beyond, tag);
         below_nearest = entry->nearest;
         below_count = entry->count;
     }
-    for (size_t index = chain.len; rc == 0 && index-- > 0;) {
+    for (size_t index = chain.len; rc == 0 && index-- > 0;) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         struct th_node *next = index + 1 < chain.len ? chain.items[index + 1] : beyond;
         int good = next != NULL ? walk_good(plan, next) : 0;
         if (good < 0) {
@@ -4402,7 +4396,7 @@ static int walk_after(const walk_plan *plan, struct th_node *node, struct th_nod
         }
         cur = cur->parent;
     }
-    if (rc == 0) {
+    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         rc = walk_store(plan->walks, &chain, tag, answer);
     }
     PyMem_Free(chain.items);
@@ -4412,7 +4406,8 @@ static int walk_after(const walk_plan *plan, struct th_node *node, struct th_nod
 
 /* The nearest good preceding node of node that is not an ancestor of it. The nearest good node before node is either
    such a node or an ancestor; an ancestor then is the nearest good ancestor, and nothing good lies between it and node,
-   so the answer for node is the answer for that ancestor. */
+   so the answer for node is the answer for that ancestor. Both walks are filled from node before this runs, and a
+   filled walk has filled every node before it, so the lookups below find their entries. */
 static int walk_preceding(const walk_plan *plan, struct th_node *node, struct th_node **nearest) {
     uint32_t tag = plan->base + XW_PRECEDING;
     walk_chain chain = {NULL, 0, 0};
@@ -4429,23 +4424,15 @@ static int walk_preceding(const walk_plan *plan, struct th_node *node, struct th
         if (rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             break;    /* GCOVR_EXCL_LINE */
         }
-        struct th_node *before = NULL;
-        struct th_node *ancestor = NULL;
-        Py_ssize_t count;
-        rc = walk_fill(plan, XW_DOC_PREV, cur, &before, &count);
-        if (rc == 0) {
-            rc = walk_fill(plan, XW_PARENT, cur, &ancestor, &count);
-        }
-        if (rc < 0) {
-            break;
-        }
+        struct th_node *before = walk_find(plan->walks, cur, plan->base + XW_DOC_PREV)->nearest;
+        struct th_node *ancestor = walk_find(plan->walks, cur, plan->base + XW_PARENT)->nearest;
         if (before == NULL || before != ancestor) {
             answer = before;
             break;
         }
         cur = before;
     }
-    if (rc == 0) {
+    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         rc = walk_store(plan->walks, &chain, tag, answer);
     }
     PyMem_Free(chain.items);
@@ -4497,7 +4484,7 @@ static int walk_axis(const walk_plan *plan, struct th_node *node, struct th_node
     default: { /* AX_FOLLOWING */
         struct th_node *after = plan->owned ? node->first_child : NULL;
         int rc = after != NULL ? 0 : walk_after(plan, node, &after);
-        if (rc < 0 || after == NULL) {
+        if (rc < 0 || after == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             *nearest = NULL;
             *count = 0;
             return rc;

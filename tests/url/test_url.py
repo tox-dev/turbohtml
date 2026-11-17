@@ -1048,6 +1048,11 @@ def test_base_url_uses_fallback_for_unclosed_bracket_with_encoded_dot() -> None:
             "http://user%5D@[::1]/x",
             id="ipv6-host",
         ),
+        pytest.param("http://u[x@[::1]/", "https://site.org/", "http://u%5Bx@[::1]/", id="open-bracket-ipv6-host"),
+        pytest.param("http://u]x@h/", "https://site.org/", "http://u%5Dx@h/", id="close-bracket-plain-host"),
+        pytest.param("http://a{b", "https://site.org/", "http://a{b/", id="authority-runs-to-the-end"),
+        pytest.param("http://a{b/c", "https://site.org/", "http://a{b/c", id="authority-then-path"),
+        pytest.param("http://a{b#c", "https://site.org/", "http://a{b/#c", id="authority-ends-at-fragment"),
     ],
 )
 def test_base_url_encodes_userinfo_brackets(href: str, fallback: str, expected: str) -> None:
@@ -1056,6 +1061,32 @@ def test_base_url_encodes_userinfo_brackets(href: str, fallback: str, expected: 
 
 def test_base_url_uses_fallback_for_unclosed_host_bracket_after_userinfo() -> None:
     assert parse('<base href="http://user]@[::1/x">').base_url("https://site.org/x") == "https://site.org/x"
+
+
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("a%?/.", "http://a/b", "http://a/a%?/.", id="percent-before-query-dot"),
+        pytest.param("a%2?/.", "http://a/b", "http://a/a%2?/.", id="short-percent-escape"),
+        pytest.param("a%2f?/.", "http://a/b", "http://a/a%2f?/.", id="percent-escape-not-dot"),
+        pytest.param("a%2F?/.", "http://a/b", "http://a/a%2F?/.", id="upper-percent-escape-not-dot"),
+        pytest.param("a%2e?/.", "http://a/b", "http://a/a%2e?/.", id="encoded-dot-inside-segment"),
+        pytest.param("b\\c%", "http://x/a/", "http://x/a/b/c%", id="backslash-path-percent"),
+        pytest.param("b\\.", "http://x/a/", "http://x/a/b/", id="backslash-dot-segment"),
+        pytest.param("b\\c%2e", "http://x/a/", "http://x/a/b/c%2e", id="backslash-path-encoded-dot-inside-segment"),
+        pytest.param("b%2e\\c", "http://x/a/", "http://x/a/b%2e/c", id="encoded-dot-before-backslash"),
+        pytest.param("b\\", "http://x/a/", "http://x/a/b/", id="trailing-backslash"),
+        pytest.param("b/%2e", "http://x/%2e/a", "http://x/b/", id="base-with-encoded-dot-then-literal-dot"),
+        pytest.param("b%2e/c", "http://x/a/", "http://x/a/b%2e/c", id="base-free-encoded-dot-segment-kept"),
+        pytest.param("http:%2e", "http://x/%2e/a", "http://x/", id="same-scheme-encoded-dot-relative"),
+    ],
+)
+def test_base_url_checks_dot_segments_in_the_joined_path(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+def test_base_url_keeps_unparsed_fallback_ending_in_c0() -> None:
+    assert parse('<base href="a">').base_url("https://[x\x01") == "https://[x\x01"
 
 
 @pytest.mark.parametrize(
@@ -1177,6 +1208,46 @@ def test_meta_refresh_rejects_relative_opaque_reference() -> None:
 
 
 @pytest.mark.parametrize(
+    ("content", "fallback", "expected"),
+    [
+        pytest.param("0;url=#f", "a:é", "a:%C3%A9#f", id="opaque-non-ascii-fragment"),
+        pytest.param("0;url=#f", "aé", "a%C3%A9#f", id="no-colon-non-ascii-fragment"),
+        pytest.param("0;url=#f", "aé:x", "a%C3%A9:x#f", id="non-scheme-character-before-colon"),
+        pytest.param("0;url=#f", "a:/é", "a:/%C3%A9#f", id="colon-then-slash-non-ascii"),
+        pytest.param("0;url=#f", "http:é", "http://xn--9ca/#f", id="special-scheme-non-ascii"),
+        pytest.param("0;url=#f", "file:é", "file:///%C3%A9#f", id="file-scheme-non-ascii"),
+        pytest.param("0;url=x", "é/x", "%C3%A9/x", id="relative-against-non-ascii-path"),
+        pytest.param("0;url=http:\\é", "http://x/a", "http://x/%C3%A9", id="same-scheme-non-ascii-target"),
+        pytest.param("0;url=http:%2e", "http://x/%2e/a", "http://x/", id="same-scheme-encoded-dot-base"),
+        pytest.param("0;url=b/%2e", "http://x/%2e/a", "http://x/b/", id="encoded-dot-base-literal-target"),
+        pytest.param("0;url=#f", "a:b", "a:b#f", id="opaque-ascii-fragment"),
+        pytest.param("0;url=#f", "file:x", "file:///x#f", id="file-scheme-opaque-fragment"),
+        pytest.param("0;url=#f", "http:x", "http://x/#f", id="special-scheme-opaque-fragment"),
+        pytest.param(
+            "0;url=child", "http://u[x@h/dir/file", "http://u%5Bx@h/dir/child", id="raw-open-bracket-userinfo"
+        ),
+        pytest.param(
+            "0;url=child", "http://u]x@h/dir/file", "http://u%5Dx@h/dir/child", id="raw-close-bracket-userinfo"
+        ),
+        pytest.param("0;url=c", "http://x/a\\.b/", "http://x/a/.b/c", id="raw-backslash-path-with-dot"),
+        pytest.param("0;url=c", "http://x/a\\%41/", "http://x/a/%41/c", id="raw-backslash-path-with-percent"),
+        pytest.param("0;url=c", "http://x/a\\b/", "http://x/a/b/c", id="raw-backslash-path-plain"),
+        pytest.param("0;url=http:\\é", "http://é/a", "http://xn--9ca/%C3%A9", id="same-scheme-non-ascii-base"),
+        pytest.param("0;url=#f", "http://a{b#c", "http://a{b/#f", id="raw-authority-ends-at-fragment"),
+        pytest.param("0;url=#f", "http://x/a\\%41/", "http://x/a/%41/#f", id="raw-backslash-percent-fragment"),
+        pytest.param("0;url=#f", "http://x/a\\.b/", "http://x/a/.b/#f", id="raw-backslash-dot-fragment"),
+        pytest.param("0;url=x", "http://ab#c%2e", "http://ab/x", id="encoded-dot-after-fragment-ends-authority"),
+        pytest.param("0;url=http://a{b#c", "https://x/", "http://a{b/#c", id="absolute-target-brace-then-fragment"),
+        pytest.param("0;url=//a{b#c", "https://x/", "https://a{b/#c", id="relative-target-brace-then-fragment"),
+        pytest.param("0;url=//a{b?c#d", "https://x/", "https://a{b/?c#d", id="brace-then-query-and-fragment"),
+        pytest.param("0;url=http://u{@a{b#c", "https://x/p", "http://u%7B@a{b/#c", id="brace-userinfo-then-fragment"),
+    ],
+)
+def test_meta_refresh_resolves_a_raw_fallback(content: str, fallback: str, expected: str) -> None:
+    assert parse(f'<meta http-equiv=refresh content="{content}">').meta_refresh(fallback) == (0.0, expected)
+
+
+@pytest.mark.parametrize(
     ("href", "fallback"),
     [
         pytest.param("https://", "http://site.org/a", id="two-slashes-foreign-scheme"),
@@ -1239,4 +1310,18 @@ def test_meta_refresh_selection(html: str, expected: tuple[float, str] | None) -
 def test_resolve_links_resolves_backslash_scheme_relative(base: str, reference: str, expected: str) -> None:
     fragment: Final = parse_fragment(f'<a href="{reference}"></a>')
     fragment.resolve_links(base)
+    assert fragment.serialize() == f'<div><a href="{expected}"></a></div>'
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://b.x/y", "https://b.x/y", id="host-ends-in-x"),
+        pytest.param("https://b~/x", "https://b~/x", id="host-ends-in-tilde"),
+        pytest.param("https://b.y/x", "https://b.y/x", id="host-ends-in-letter-in-range"),
+    ],
+)
+def test_resolve_links_keeps_a_special_host_as_written(href: str, expected: str) -> None:
+    fragment: Final = parse_fragment(f'<a href="{href}"></a>')
+    fragment.resolve_links("https://example.com/dir/page.html")
     assert fragment.serialize() == f'<div><a href="{expected}"></a></div>'

@@ -5507,6 +5507,20 @@ def test_xsd_long_number_buffer_grows_per_value() -> None:
     assert [check(schema, f"<r>{document}</r>").valid for document in (in_bound, out_of_bound)] == [True, False]
 
 
+def test_xsd_long_double_buffer_grows_per_value() -> None:
+    # a double converts through the buffer one validate() call grows: to just past the value, then to double its
+    # capacity once a value outgrows that, and a value that fits the grown buffer keeps it
+    schema: Final = (
+        f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
+        '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:double">'
+        '<xs:maxInclusive value="100"/></xs:restriction></xs:simpleType></xs:element>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    in_bound: Final = "".join(f"<v>{'0' * (length - 1)}5</v>" for length in (71, 100, 80))
+    out_of_bound: Final = f"{in_bound}<v>{'0' * 149}150</v>"
+    assert [check(schema, f"<r>{document}</r>").valid for document in (in_bound, out_of_bound)] == [True, False]
+
+
 @pytest.mark.parametrize(
     "document",
     [

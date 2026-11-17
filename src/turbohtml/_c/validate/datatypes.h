@@ -941,8 +941,10 @@ static int dt_cmp(double left, double right) {
    makes NaN equal to itself and unordered with every other value, so a NaN bound admits only a NaN value, and only for
    an inclusive facet. */
 static int dt_double_bound_ok(double number, double bound, int side, int inclusive) {
-    if (isnan(number) || isnan(bound)) {
-        return inclusive && isnan(number) && isnan(bound);
+    int number_nan = isnan(number) != 0; /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isnan macro */
+    int bound_nan = isnan(bound) != 0;   /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isnan macro */
+    if (number_nan || bound_nan) {
+        return inclusive && number_nan && bound_nan;
     }
     return (side > 0 ? number > bound : number < bound) || (inclusive && number == bound);
 }

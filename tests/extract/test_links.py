@@ -1433,6 +1433,7 @@ def test_resolve_links_special_urls_match_whatwg(href: str, expected: str) -> No
         pytest.param("#a b", "https://example.com/dir/#a%20b", id="fragment-only"),
         pytest.param("?q x", "https://example.com/dir/?q%20x", id="query-only"),
         pytest.param("mailto:ü", "mailto:%C3%BC", id="foreign-scheme-non-ascii"),
+        pytest.param("foo:į", "foo:%C4%AF", id="foreign-scheme-code-point-with-slash-low-byte"),
         pytest.param("foo:/a b", "foo:/a%20b", id="foreign-scheme-path"),
         pytest.param("file:a b", "file:///a%20b", id="file-no-slashes"),
         pytest.param("file:///a b", "file:///a%20b", id="file-empty-host"),
@@ -1527,6 +1528,17 @@ def test_resolve_links_writes_numeric_hosts_as_ipv4(href: str, expected: str) ->
 )
 def test_resolve_links_keeps_a_host_the_ipv4_parser_rejects(href: str) -> None:
     assert _resolved_href(href, _HTTPS) == href
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        pytest.param("http://0x/p", "http://0.0.0.0/x", id="bare-hex-prefix-host"),
+        pytest.param("https://1.0x/p", "https://1.0.0.0/x", id="empty-hex-last-part-host"),
+    ],
+)
+def test_resolve_links_writes_a_numeric_base_host_as_ipv4(base: str, expected: str) -> None:
+    assert _resolved_href("x", base) == expected
 
 
 @pytest.mark.parametrize(
@@ -1675,6 +1687,8 @@ def test_resolve_links_resolves_a_fragment_against_an_opaque_base(base: str, hre
         pytest.param("https://h", "x", "https://h/x", id="relative-path"),
         pytest.param("https://u@h?z", "?q#f", "https://u@h/?q#f", id="userinfo-and-base-query"),
         pytest.param("https://h", "//k/j", "https://k/j", id="network-path"),
+        pytest.param("https://h?q", "x", "https://h/x", id="query-right-after-host"),
+        pytest.param("https://h#f", "x", "https://h/x", id="fragment-right-after-host"),
     ],
 )
 def test_resolve_links_roots_a_base_without_a_path(base: str, href: str, expected: str) -> None:

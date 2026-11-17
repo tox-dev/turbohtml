@@ -325,8 +325,7 @@ static th_node *xsd_scan_group_model(th_schema *schema, th_node *group_ref) {
 
 /* Resolve a group ref particle to the group's model-group child (sequence/choice/all). */
 static th_node *xsd_group_model(th_schema *schema, th_node *group_ref) {
-    th_node *group = xsd_group_target(schema, group_ref);
-    return group == NULL ? NULL : xsd_child_entry(schema, group)->model_group;
+    return xsd_child_entry(schema, xsd_group_target(schema, group_ref))->model_group;
 }
 
 /* The xs:all a group ref resolves to, or NULL when its model group is not an xs:all. */
@@ -2077,6 +2076,41 @@ static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
     return 0;
 }
 
+/* The value an instance attribute holds against its declaration: the fixed value, then the type. */
+static void xsd_validate_attr_value(valctx *ctx, th_node *instance, th_node *effective, const th_node_attr *present,
+                                    const char *name_bytes) {
+    th_schema *schema = ctx->schema;
+    th_tree *tree = schema->tree;
+    const Py_UCS4 *value = present->value;
+    if (value == NULL) {    /* GCOVR_EXCL_BR_LINE: an XML attribute always has a value */
+        value = EMPTY_UCS4; /* GCOVR_EXCL_LINE */
+    } /* GCOVR_EXCL_LINE: llvm miscredits the closing brace of the unexecuted guard */
+    Py_ssize_t value_len = present->value_len;
+    Py_ssize_t fixed_len = 0;
+    const Py_UCS4 *fixed = xsd_attr(tree, effective, "fixed", &fixed_len);
+    if (fixed != NULL && !u_eq_u(value, value_len, fixed, fixed_len)) {
+        report(ctx, instance, "structure", "attribute '%s' must equal its fixed value", name_bytes);
+    }
+    Py_ssize_t type_len = 0;
+    const Py_UCS4 *type = xsd_attr(tree, effective, "type", &type_len);
+    th_node *inline_type = xsd_child(schema, effective, XSD_SIMPLE_TYPE);
+    if (type != NULL) {
+        th_node *named = NULL;
+        const qname written = schema_node_entry(schema, effective)->type;
+        const Py_UCS4 *local = written.local, *uri = written.uri;
+        Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
+        int base_id = DT_STRING;
+        if (is_xsd_uri(uri, uri_len)) {
+            base_id = xsd_builtin_id(local, local_len);
+        } else {
+            named = named_find(&schema->simple_types, local, local_len);
+        }
+        xsd_validate_simple(ctx, instance, base_id, named, value, value_len);
+    } else if (inline_type != NULL) {
+        xsd_validate_simple(ctx, instance, DT_STRING, inline_type, value, value_len);
+    }
+}
+
 /* Validate one declared attribute against the instance, honoring use/fixed/default. */
 static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl,
                                                    const xattr_index *attrs) {
@@ -2134,34 +2168,7 @@ static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instanc
         report(ctx, instance, "structure", "attribute '%s' is prohibited", name_bytes);
         return;
     }
-    const Py_UCS4 *value = present->value;
-    if (value == NULL) {    /* GCOVR_EXCL_BR_LINE: an XML attribute always has a value */
-        value = EMPTY_UCS4; /* GCOVR_EXCL_LINE */
-    } /* GCOVR_EXCL_LINE: llvm miscredits the closing brace of the unexecuted guard */
-    Py_ssize_t value_len = present->value_len;
-    Py_ssize_t fixed_len = 0;
-    const Py_UCS4 *fixed = xsd_attr(tree, effective, "fixed", &fixed_len);
-    if (fixed != NULL && !u_eq_u(value, value_len, fixed, fixed_len)) {
-        report(ctx, instance, "structure", "attribute '%s' must equal its fixed value", name_bytes);
-    }
-    Py_ssize_t type_len = 0;
-    const Py_UCS4 *type = xsd_attr(tree, effective, "type", &type_len);
-    th_node *inline_type = xsd_child(schema, effective, XSD_SIMPLE_TYPE);
-    if (type != NULL) {
-        th_node *named = NULL;
-        const qname written = schema_node_entry(schema, effective)->type;
-        const Py_UCS4 *local = written.local, *uri = written.uri;
-        Py_ssize_t local_len = written.local_len, uri_len = written.uri_len;
-        int base_id = DT_STRING;
-        if (is_xsd_uri(uri, uri_len)) {
-            base_id = xsd_builtin_id(local, local_len);
-        } else {
-            named = named_find(&schema->simple_types, local, local_len);
-        }
-        xsd_validate_simple(ctx, instance, base_id, named, value, value_len);
-    } else if (inline_type != NULL) {
-        xsd_validate_simple(ctx, instance, DT_STRING, inline_type, value, value_len);
-    }
+    xsd_validate_attr_value(ctx, instance, effective, present, name_bytes);
 }
 
 /* Collect and validate the declared attributes of a complexType (own, attributeGroup
@@ -2249,8 +2256,8 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
 
 /* An attribute an xs:anyAttribute admits without a declaration. A global attribute declaration is in the target
    namespace, so an attribute finds one only when its prefix binds that namespace (an unprefixed one, none). */
-static void xsd_validate_wild_attr(valctx *ctx, th_node *instance, th_node *wild, const char *name,
-                                   const xattr_name *qualified, const xattr_index *attrs) {
+static void xsd_validate_wild_attr(valctx *ctx, th_node *instance, th_node *wild, const th_node_attr *present,
+                                   const char *name, const xattr_name *qualified) {
     th_schema *schema = ctx->schema;
     const int mode = xsd_process_contents(schema, wild);
     if (mode == WILD_SKIP) {
@@ -2268,7 +2275,7 @@ static void xsd_validate_wild_attr(valctx *ctx, th_node *instance, th_node *wild
         decl = named_find(&schema->attributes, scratch, len);
     }
     if (decl != NULL) {
-        xsd_validate_attr_decl(ctx, instance, decl, attrs);
+        xsd_validate_attr_value(ctx, instance, decl, present, name);
     } else if (mode == WILD_STRICT) {
         report(ctx, instance, "structure", "attribute '%s' is not declared", name);
     }
@@ -2359,7 +2366,7 @@ static void xsd_validate_attrs(valctx *ctx, th_node *instance, th_node *scope, e
             if (wild == NULL) {
                 report(ctx, instance, "structure", "attribute '%s' is not declared", abytes);
             } else {
-                xsd_validate_wild_attr(ctx, instance, wild, abytes, &qualified, &attrs);
+                xsd_validate_wild_attr(ctx, instance, wild, &instance->attrs[index], abytes, &qualified);
             }
         }
     }
