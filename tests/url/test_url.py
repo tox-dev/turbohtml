@@ -1311,3 +1311,17 @@ def test_resolve_links_resolves_backslash_scheme_relative(base: str, reference: 
     fragment: Final = parse_fragment(f'<a href="{reference}"></a>')
     fragment.resolve_links(base)
     assert fragment.serialize() == f'<div><a href="{expected}"></a></div>'
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("https://b.x/y", "https://b.x/y", id="host-ends-in-x"),
+        pytest.param("https://b~/x", "https://b~/x", id="host-ends-in-tilde"),
+        pytest.param("https://b.y/x", "https://b.y/x", id="host-ends-in-letter-in-range"),
+    ],
+)
+def test_resolve_links_keeps_a_special_host_as_written(href: str, expected: str) -> None:
+    fragment: Final = parse_fragment(f'<a href="{href}"></a>')
+    fragment.resolve_links("https://example.com/dir/page.html")
+    assert fragment.serialize() == f'<div><a href="{expected}"></a></div>'

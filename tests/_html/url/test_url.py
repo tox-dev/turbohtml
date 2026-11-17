@@ -414,6 +414,66 @@ def test_url_join_link_skips_extra_special_authority_slashes(base: str, referenc
     assert _url_join_link(base, reference) == expected
 
 
+@pytest.mark.parametrize(
+    ("base", "reference", "expected"),
+    [
+        pytest.param("http:opaque", "/x", "http://opaque/x", id="special-opaque-base-reads-host"),
+        pytest.param("http:///x", "y", "http://x/y", id="special-empty-authority-base-reads-host"),
+        pytest.param("http:", "/a", "http:/a", id="special-hostless-base-joins-as-urljoin"),
+        pytest.param("http:opaque", "#f", "http://opaque/#f", id="special-opaque-base-fragment"),
+        pytest.param("http:opaque/x/y", "../z", "http://opaque/z", id="special-opaque-base-dot-segment"),
+        pytest.param("http://a", "?q", "http://a/?q", id="root-path-query"),
+        pytest.param("http://a", "#f", "http://a/#f", id="root-path-fragment"),
+        pytest.param("http://a/x", "?q", "http://a/x?q", id="rooted-path-query"),
+        pytest.param("http:opaque", "?q", "http://opaque/?q", id="opaque-special-root-query"),
+        pytest.param("ftp://a", "?q", "ftp://a/?q", id="foreign-special-root-query"),
+        pytest.param("foo://a", "?q", "foo://a?q", id="non-special-root-query"),
+        pytest.param("mailto:x", "#f", "mailto:x#f", id="opaque-base-fragment"),
+        pytest.param("mailto:x", "mailto:y", "mailto:y", id="opaque-base-same-scheme-reference"),
+        pytest.param("mailto:x", "//h", "//h", id="opaque-base-netloc-reference-verbatim"),
+        pytest.param("mailto:x", "y", "y", id="opaque-base-path-reference-verbatim"),
+        pytest.param("mailto:x", "?q", "?q", id="opaque-base-query-reference-verbatim"),
+        pytest.param("foo://a/b", "#f", "foo://a/b#f", id="hierarchical-non-special-base-fragment"),
+        pytest.param("foo:/a/b", "c", "foo:/a/c", id="non-special-rooted-base-relative"),
+        pytest.param("/x", "#f", "/x#f", id="schemeless-base-fragment"),
+        pytest.param("file:x", "y", "file:y", id="file-opaque-base-relative"),
+        pytest.param("http://a/x", "https://b.example/x", "https://b.example/x", id="different-special-scheme"),
+        pytest.param("http://a/x", "http:///x", "http://x/", id="same-scheme-empty-authority"),
+        pytest.param("http://a/x", "//b.example/x\\y", "http://b.example/x/y", id="authority-reference-backslash-path"),
+        pytest.param("http://a/x", "//b.example/x?a\\b", "http://b.example/x?a\\b", id="backslash-in-query-kept"),
+        pytest.param("file:///a/b", "x y", "file:///a/x%20y", id="file-base-whitespace-reference"),
+        pytest.param("file:///a/b", "../c d", "file:///c%20d", id="file-base-dot-segment-whitespace"),
+        pytest.param("file:x", "y z", "file:///y%20z", id="file-base-without-slashes-whitespace"),
+        pytest.param("http:", "?q", "http:?q", id="special-hostless-empty-base-query"),
+        pytest.param("http://h.example/a/b", "\x7f", "http://h.example/a/%7F", id="delete-reference-encoded"),
+        pytest.param("http://a.example/", "http://[é/x", "http://[é/x", id="unbalanced-bracket-kept"),
+    ],
+)
+def test_url_join_link_resolves_each_reference_shape(base: str, reference: str, expected: str) -> None:
+    assert _url_join_link(base, reference) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        pytest.param("http://a.example/]x", "http://a.example/]x", id="closing-bracket-in-path"),
+        pytest.param("http://a.example/[x", "http://a.example/[x", id="opening-bracket-in-path"),
+        pytest.param("http://a.example/x\\y", "http://a.example/x/y", id="backslash-in-path"),
+        pytest.param("http://a.example/x\x01y", "http://a.example/x%01y", id="control-in-path"),
+        pytest.param("http://é.example/x", "http://xn--9ca.example/x", id="non-ascii-host"),
+    ],
+)
+def test_url_join_link_of_a_blank_reference_reads_the_raw_base(base: str, expected: str) -> None:
+    # a reference that is only whitespace is percent-parsed away, so the document join runs with an empty reference
+    # against the base as written, which is not normalized first
+    assert _url_join_link(base, " ") == expected
+
+
+def test_url_join_fragment_and_root_path_without_a_link() -> None:
+    assert _url_join("mailto:x", "#f") == "#f"
+    assert _url_join("http://a", "?q") == "http://a?q"
+
+
 _SPECIAL_SCHEMES: Final[frozenset[str]] = frozenset({"ftp", "http", "https", "ws", "wss"})
 
 
@@ -599,6 +659,7 @@ def _language_oracle(query: str, path: str, hostname: str, language: str, *, str
         pytest.param(("", "/abc/x", "h.org", "en"), False, True, id="path-three-letters-not-marker"),
         pytest.param(("", "/en-u1/x", "h.org", "en"), False, True, id="path-subtag-not-letters"),
         pytest.param(("", "/e1/x", "h.org", "en"), False, True, id="path-second-char-not-letter"),
+        pytest.param(("", "/1e/x", "h.org", "de"), False, True, id="path-first-char-not-letter"),
         pytest.param(("lang=de", "/x", "h.org", "en"), False, False, id="query-lang-other-language"),
         pytest.param(("lang=en-gb", "/x", "h.org", "en"), False, True, id="query-lang-prefix-matches"),
         pytest.param(("lang=", "/x", "h.org", "en"), False, True, id="query-lang-empty-value"),
