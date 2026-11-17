@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
 
 import pytest
 from bench import __main__ as cli
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
 
 @pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Recorder]:
+def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     fake = _Recorder()
     monkeypatch.setattr(cli, "run", fake.run)
     monkeypatch.setattr(cli, "physical_cpus", lambda: [0, 1, 2, 3])

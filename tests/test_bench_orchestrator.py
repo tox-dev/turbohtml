@@ -18,9 +18,7 @@ from bench.orchestrator import physical_cpus, run
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from bench.operations import Timed
-
-_TWO_OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {name: OPERATIONS[name] for name in ("node-equals", "startup")}
+_TWO_NAMES: Final[tuple[str, str]] = ("node-equals", "startup")
 
 
 @pytest.fixture
@@ -170,7 +168,7 @@ def test_corrupt_duration_cache_counts_as_empty(
 def test_parallel_run_renders_in_plan_order_when_a_later_run_finishes_first(
     harness: _Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
     startup_finished = threading.Event()
     monkeypatch.setattr(sys, "stderr", _StderrWatch("startup", startup_finished))
 
@@ -195,7 +193,7 @@ class _StderrWatch(io.StringIO):
 
 
 def test_parallel_runs_are_pinned_to_distinct_cpus(harness: _Harness, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
     barrier = threading.Barrier(2, timeout=10)
 
     def meet(_args: tuple[str, ...]) -> None:
@@ -211,7 +209,7 @@ def test_parallel_runs_are_pinned_to_distinct_cpus(harness: _Harness, monkeypatc
 def test_parallel_worker_output_is_printed_as_a_block(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
     run("core", (), pgo=False, jobs=2)
     lines = capsys.readouterr().out.splitlines()
     assert sorted(line for line in lines if line.endswith(" measured")) == [
@@ -223,7 +221,7 @@ def test_parallel_worker_output_is_printed_as_a_block(
 def test_serial_failure_cancels_the_remaining_runs(
     harness: _Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
 
     def fail(_args: tuple[str, ...]) -> None:
         raise subprocess.CalledProcessError(1, ["worker"], stderr="boom")
@@ -236,7 +234,7 @@ def test_serial_failure_cancels_the_remaining_runs(
 
 
 def test_parallel_failure_reraises(harness: _Harness, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
 
     def fail(_args: tuple[str, ...]) -> None:
         raise subprocess.CalledProcessError(1, ["worker"], stderr="boom")
@@ -303,7 +301,7 @@ def test_package_run_renders_each_operation_for_turbohtml_and_the_package(harnes
 
 
 def test_all_renders_every_operation_with_its_competitors(harness: _Harness, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(orchestrator, "OPERATIONS", _TWO_OPERATIONS)
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
     run("all", (), pgo=False, jobs=1)
     assert [operation for operation, _ in harness.rendered] == ["node-equals", "startup"]
     assert dict(harness.rendered)["node-equals"] == {
