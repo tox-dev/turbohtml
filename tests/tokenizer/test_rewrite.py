@@ -943,6 +943,72 @@ def test_rewrite_raw_text_in_unclosed_element_is_literal() -> None:
     assert rewrite("<script>a", elements=edit) == "<script>x < y"
 
 
+_RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "noembed", "noframes", "noscript")
+
+
+@pytest.mark.parametrize("tag", [*_RAW_TEXT_TAGS, "plaintext"])
+def test_rewrite_after_unclosed_raw_text_element_reads_back_as_written(tag: str) -> None:
+    (element,) = parse(rewrite(f"<{tag}>", elements=[(tag, _after("a\r\nb&amp;<i>"))]), scripting=True).select(tag)
+    assert element.text == "a\nb&amp;<i>"
+
+
+def _after(content: str, *, html: bool = False) -> Callable[[Element], None]:
+    def handler(element: Element) -> None:
+        element.after(content, html=html)
+
+    return handler
+
+
+@pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+def test_rewrite_after_closed_raw_text_element_stays_escaped(tag: str) -> None:
+    output = rewrite(f"<{tag}>x</{tag}>", elements=[(tag, _after("a\r\nb&amp;<i>"))])
+    assert output == f"<{tag}>x</{tag}>a&#13;\nb&amp;amp;&lt;i&gt;"
+
+
+@pytest.mark.parametrize("content", ["</script>", "<!--"])
+def test_rewrite_after_that_ends_an_unclosed_script_raises(content: str) -> None:
+    with pytest.raises(ValueError, match="text written into <script> must not contain '</script' or '<!--'"):
+        rewrite("<script>", elements=[("script", _after(content))])
+
+
+def test_rewrite_after_that_ends_an_unclosed_style_raises() -> None:
+    with pytest.raises(ValueError, match="text written into <style> must not contain '</style'"):
+        rewrite("<style>", elements=[("style", _after("</style"))])
+
+
+@pytest.mark.parametrize("content", ["</plaintext>", "</script>", "<!--"])
+def test_rewrite_after_unclosed_plaintext_never_raises(content: str) -> None:
+    assert rewrite("<plaintext>", elements=[("plaintext", _after(content))]) == f"<plaintext>{content}"
+
+
+@pytest.mark.parametrize("tag", [*_RAW_TEXT_TAGS, "plaintext"])
+def test_rewrite_after_html_unclosed_raw_text_element_is_written_as_is(tag: str) -> None:
+    output = rewrite(f"<{tag}>", elements=[(tag, _after("a\r\nb&amp;<i>", html=True))])
+    assert output == f"<{tag}>a\nb&amp;<i>"
+
+
+def test_rewrite_after_html_that_ends_an_unclosed_script_is_not_checked() -> None:
+    assert rewrite("<script>", elements=[("script", _after("</script><b>", html=True))]) == "<script></script><b>"
+
+
+@pytest.mark.parametrize("method", ["remove", "remove_and_keep_content"])
+def test_rewrite_after_on_unwrapped_raw_text_element_stays_escaped(method: str) -> None:
+    handler = _edits((methodcaller("after", "a&b"), methodcaller(method)))
+    assert rewrite("<script>", elements=[("script", handler)]) == "a&amp;b"
+
+
+def test_rewrite_after_unclosed_raw_text_read_as_markup_is_escaped() -> None:
+    # unwrapping the foreignObject leaves an SVG script, which the output reads as markup, so its text is escaped
+    edits = [("foreignObject", _unwrap), ("script", _after("a\r\nb&amp;<i>"))]
+    assert rewrite("<svg><foreignObject><script>", elements=edits) == "<svg><script>a&#13;\nb&amp;amp;&lt;i&gt;"
+
+
+def test_rewrite_after_unclosed_raw_text_in_foreign_content_reads_back_as_written() -> None:
+    edits = [("foreignObject", _edits((methodcaller("before", "x"),))), ("script", _after("a\r\nb&amp;<i>"))]
+    (element,) = parse(rewrite("<svg><foreignObject><script>", elements=edits), scripting=True).select("script")
+    assert element.text == "a\nb&amp;<i>"
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
