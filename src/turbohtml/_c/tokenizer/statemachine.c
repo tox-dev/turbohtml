@@ -1560,9 +1560,11 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_sse2_long(const th_tokenizer *self,
     __m128i amp = _mm_set1_epi8('&'), lt = _mm_set1_epi8('<'), nlv = _mm_set1_epi8('\n');
     __m128i onesv = _mm_set1_epi8(1), zerov = _mm_setzero_si128();
 
+    /* a NUL stops the block as '&' and '<' do: the data state reports it, so it must not be scanned past */
     while (index + 32 <= len) {
         __m128i left = _mm_loadu_si128((const __m128i *)(data + index));
-        __m128i left_hit = _mm_or_si128(_mm_cmpeq_epi8(left, amp), _mm_cmpeq_epi8(left, lt));
+        __m128i left_hit = _mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(left, amp), _mm_cmpeq_epi8(left, lt)),
+                                        _mm_cmpeq_epi8(left, zerov));
         if (_mm_movemask_epi8(left_hit)) {
             goto scalar_tail;
         }
@@ -1571,7 +1573,8 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_sse2_long(const th_tokenizer *self,
         newlines += _mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4);
 
         __m128i right = _mm_loadu_si128((const __m128i *)(data + index + 16));
-        __m128i right_hit = _mm_or_si128(_mm_cmpeq_epi8(right, amp), _mm_cmpeq_epi8(right, lt));
+        __m128i right_hit = _mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(right, amp), _mm_cmpeq_epi8(right, lt)),
+                                         _mm_cmpeq_epi8(right, zerov));
         if (_mm_movemask_epi8(right_hit)) {
             index += 16;
             goto scalar_tail;
