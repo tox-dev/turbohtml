@@ -1,0 +1,1 @@
+``IncrementalParser`` is faster on mostly ASCII input and on documents that contain a U+0000 character.
