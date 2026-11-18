@@ -140,12 +140,27 @@ static inline uint64_t block_special_mask(const uint8_t *block, int quote) {
 #define SPECIAL_INDEX(mask) ctz64(mask)
 #define SPECIAL_CLEAR(mask, index) ((mask) & ((mask) - 1))
 
-/* Wide sizing scan: vector variants are unvalidated on this project's
-   benchmark hardware, so x86 keeps the portable SWAR probes. */
+/* Wide sizing scan: UCS-4 tests eight code points per step as two SSE2 vectors (UCS-2 stays on the SWAR probes). */
 #define UCS2_STEP UCS2_LANES
-#define UCS4_STEP UCS4_LANES
+#define UCS4_STEP 8
 #define word_has_special16 swar_word_has_special16
-#define word_has_special32 swar_word_has_special32
+
+static inline __m128i special_lanes32(__m128i lanes, int quote) {
+    __m128i hits = _mm_or_si128(
+        _mm_or_si128(_mm_cmpeq_epi32(lanes, _mm_set1_epi32('&')), _mm_cmpeq_epi32(lanes, _mm_set1_epi32('<'))),
+        _mm_cmpeq_epi32(lanes, _mm_set1_epi32('>')));
+    if (quote) {
+        hits = _mm_or_si128(hits, _mm_or_si128(_mm_cmpeq_epi32(lanes, _mm_set1_epi32('"')),
+                                               _mm_cmpeq_epi32(lanes, _mm_set1_epi32('\''))));
+    }
+    return hits;
+}
+
+static inline int word_has_special32(const uint32_t *block, int quote) {
+    __m128i low = special_lanes32(_mm_loadu_si128((const __m128i *)block), quote);
+    __m128i high = special_lanes32(_mm_loadu_si128((const __m128i *)(block + 4)), quote);
+    return _mm_movemask_epi8(_mm_or_si128(low, high)) != 0;
+}
 
 #else
 
