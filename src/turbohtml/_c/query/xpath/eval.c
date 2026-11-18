@@ -5398,7 +5398,7 @@ static int compare(struct th_tree *tree, int op, xp_result *first, xp_result *se
         if (op == XN_NE && left->len > 0 && right->len > 0) {
             return compare_unequal_sets(tree, left, right, result);
         }
-        if (op != XN_EQ && op != XN_NE && left->len >= 16 && right->len >= 16) {
+        if (op != XN_EQ && op != XN_NE && left->len > 0 && right->len > 0) {
             return compare_ordered_sets(tree, op, left, right, result);
         }
         for (Py_ssize_t index = 0; index < left->len && !*result; index++) {
@@ -5521,54 +5521,60 @@ static int compare_unequal_sets(struct th_tree *tree, const xp_nodeset *left, co
 }
 
 static int comparison_number(struct th_tree *tree, xp_item item, double *number);
-static int comparison_extreme(struct th_tree *tree, const xp_nodeset *nodes, int minimum, double *value);
+static int comparison_fold(double *value, double number, int minimum);
 
-static int compare_ordered_sets(struct th_tree *tree, int op, const xp_nodeset *left, const xp_nodeset *right,
-                                int *result) {
-    xp_result first = {.kind = XP_NUMBER};
-    xp_result second = {.kind = XP_NUMBER};
-    const int first_rc = comparison_number(tree, left->items[0], &first.number);
-    const int second_rc = comparison_number(tree, right->items[0], &second.number);
-    if (first_rc < 0 || second_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                       /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    *result = cmp_scalar(tree, op, &first, &second);
-    if (*result) {
-        return 0;
-    }
+static TH_NOINLINE int compare_ordered_sets(struct th_tree *tree, int op, const xp_nodeset *left,
+                                            const xp_nodeset *right, int *result) {
     const int less = op == XN_LT || op == XN_LE;
-    const int left_rc = comparison_extreme(tree, left, less, &first.number);
-    const int right_rc = comparison_extreme(tree, right, !less, &second.number);
-    if (left_rc < 0 || right_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                     /* GCOVR_EXCL_LINE: allocation failure */
+    xp_result first = {.kind = XP_NUMBER, .number = NAN};
+    xp_result second = {.kind = XP_NUMBER, .number = NAN};
+    for (Py_ssize_t index = 0; index < left->len || index < right->len; index++) {
+        if (index < left->len) {
+            double number;
+            if (comparison_number(tree, left->items[index], &number) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                                  /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (comparison_fold(&first.number, number, less) && cmp_scalar(tree, op, &first, &second)) {
+                *result = 1;
+                return 0;
+            }
+        }
+        if (index < right->len) {
+            double number;
+            const int right_rc = comparison_number(tree, right->items[index], &number);
+            if (right_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (comparison_fold(&second.number, number, !less) && cmp_scalar(tree, op, &first, &second)) {
+                *result = 1;
+                return 0;
+            }
+        }
     }
-    *result = cmp_scalar(tree, op, &first, &second);
+    *result = 0;
     return 0;
 }
 
 static int comparison_number(struct th_tree *tree, xp_item item, double *number) {
-    xp_result text;
-    if (item_as_string(tree, item, &text) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return -1;                               /* GCOVR_EXCL_LINE: allocation failure */
+    Py_ssize_t len;
+    Py_UCS4 *text = item_string(tree, item, &len);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;      /* GCOVR_EXCL_LINE: allocation failure */
     }
-    *number = to_number(tree, &text);
-    xp_result_free(&text);
+    *number = parse_number(text, len);
+    PyMem_Free(text);
     return 0;
 }
 
-/* A matching pair exists iff the corresponding extrema compare true; NaNs cannot supply a match. */
-static int comparison_extreme(struct th_tree *tree, const xp_nodeset *nodes, int minimum, double *value) {
-    for (Py_ssize_t index = 1; index < nodes->len; index++) {
-        double number;
-        if (comparison_number(tree, nodes->items[index], &number) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                                   /* GCOVR_EXCL_LINE: allocation failure */
-        }
-        const int missing = isnan(*value); /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isnan macro */
-        if (missing || (minimum ? number < *value : number > *value)) {
-            *value = number;
-        }
+/* Fold number into the running extreme of one side: its minimum when minimum is set, else its maximum. A NaN extreme
+   (no number yet) takes the next number, and a NaN number never displaces one. Returns 1 when the extreme moved. */
+static int comparison_fold(double *value, double number, int minimum) {
+    const int missing = isnan(*value); /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isnan macro */
+    if (!missing && !(minimum ? number < *value : number > *value)) {
+        return 0;
     }
-    return 0;
+    *value = number;
+    return 1;
 }
 
 /* Where target's item at left falls against source's item at right, as item_order answers, from ranks once the walks

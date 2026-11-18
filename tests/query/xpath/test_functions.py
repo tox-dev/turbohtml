@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import operator
 import random
 import re
 import string
@@ -219,6 +220,68 @@ def doc() -> turbohtml.Node:
 )
 def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, *, expected: float | str | bool) -> None:
     assert doc.xpath(expr) == expected
+
+
+_XPATH_NUMBER: Final[re.Pattern[str]] = re.compile(
+    r"""
+    [ \t\r\n]*                           # XML whitespace around the number
+    -?                                     # an optional sign
+    (?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)       # digits with an optional fraction, or a bare fraction
+    [ \t\r\n]*                           # XML whitespace around the number
+    """,
+    re.VERBOSE,
+)
+_RELATIONAL: Final[Mapping[str, Callable[[float, float], bool]]] = MappingProxyType({
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+})
+_NODE_SET_SIZES: Final[tuple[int, ...]] = (0, 1, 2, 15, 16, 17)
+
+
+@pytest.mark.parametrize("right_size", _NODE_SET_SIZES)
+@pytest.mark.parametrize("left_size", _NODE_SET_SIZES)
+@pytest.mark.parametrize("op", ["<", "<=", ">", ">="])
+def test_node_set_relational_comparison_is_existential(left_size: int, right_size: int, op: str) -> None:
+    texts: Final = ("1", "2", "-1", "0.5", " 3 ", "x", "", "NaN")
+    rng = random.Random(f"{op}-{left_size}-{right_size}")  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    left: Final = [rng.choice(texts) for _ in range(left_size)]
+    right: Final = [rng.choice(texts) for _ in range(right_size)]
+    expected: Final = any(_RELATIONAL[op](_xpath_number(a), _xpath_number(b)) for a in left for b in right)
+    assert _node_set_document(left, right).xpath(f"//li {op} //b") is expected
+
+
+def _xpath_number(text: str) -> float:
+    return float(text) if _XPATH_NUMBER.fullmatch(text) else math.nan
+
+
+def _node_set_document(left: list[str], right: list[str]) -> turbohtml.Node:
+    left_items: Final = "".join(f"<li>{text}</li>" for text in left)
+    right_items: Final = "".join(f"<b>{text}</b>" for text in right)
+    return parse(f"<main><ul>{left_items}</ul><section>{right_items}</section></main>")
+
+
+@pytest.mark.parametrize("size", [1, 2, 15, 16, 17])
+@pytest.mark.parametrize(
+    ("op", "fillers", "lasts", "expected"),
+    [
+        pytest.param("<", ("9", "0"), ("1", "2"), True, id="lt-match"),
+        pytest.param("<", ("9", "0"), ("2", "1"), False, id="lt-miss"),
+        pytest.param("<=", ("9", "0"), ("1", "2"), True, id="le-match"),
+        pytest.param("<=", ("9", "0"), ("2", "1"), False, id="le-miss"),
+        pytest.param(">", ("0", "9"), ("2", "1"), True, id="gt-match"),
+        pytest.param(">", ("0", "9"), ("1", "2"), False, id="gt-miss"),
+        pytest.param(">=", ("0", "9"), ("2", "1"), True, id="ge-match"),
+        pytest.param(">=", ("0", "9"), ("1", "2"), False, id="ge-miss"),
+    ],
+)
+def test_node_set_relational_comparison_checks_past_the_first_pair(
+    size: int, op: str, fillers: tuple[str, str], lasts: tuple[str, str], *, expected: bool
+) -> None:
+    left: Final = [fillers[0]] * (size - 1) + [lasts[0]]
+    right: Final = [fillers[1]] * (size - 1) + [lasts[1]]
+    assert _node_set_document(left, right).xpath(f"//li {op} //b") is expected
 
 
 @pytest.mark.parametrize("function", ["name", "local-name"])
