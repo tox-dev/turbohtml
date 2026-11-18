@@ -10,10 +10,12 @@ It builds the turbohtml wheel once for the ``core`` baseline venv; every competi
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import math
 import os
 import queue
+import signal
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,8 @@ import time
 import tomllib
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from itertools import chain, product
 from pathlib import Path
 from statistics import fmean
 from typing import TYPE_CHECKING, Final, TypeAlias
@@ -47,21 +51,18 @@ _CPU_SYSFS: Final[Path] = Path("/sys/devices/system/cpu")
 _DURATIONS_FILE: Final[Path] = _TOOLS_DIR / ".bench_data" / "durations.json"
 # jobs print their output and update the shared progress from worker threads; one lock keeps each write whole
 _OUTPUT_LOCK: Final[threading.Lock] = threading.Lock()
-_Job: TypeAlias = tuple[str, str]
+_Job: TypeAlias = tuple[str, str, int]
+_Stats: TypeAlias = dict[str, dict[str, float | str]]
 
 
-def _string_tuple(node: ast.Tuple) -> tuple[str, ...]:
-    # Pull the string literals out of a tuple assignment's right-hand side.
-    return tuple(el.value for el in node.elts if isinstance(el, ast.Constant) and isinstance(el.value, str))
-
-
-def _bindings(path: Path) -> Iterator[tuple[str, ast.expr | None]]:
-    # Yield each top-level name a competitor module binds, from a plain or an annotated assignment, with its value.
-    for node in ast.parse(path.read_text(encoding="utf-8")).body:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            yield node.target.id, node.value
-        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            yield node.targets[0].id, node.value
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SweepOptions:
+    # What the command line asks of one run: the pyperf passthrough, the baseline build, and how the sweep is kept.
+    pyperf_args: tuple[str, ...]
+    pgo: bool
+    jobs: int
+    resume: Path | None
+    targets: frozenset[str] | None
 
 
 def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]:
@@ -86,14 +87,31 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
     return found
 
 
+def _bindings(path: Path) -> Iterator[tuple[str, ast.expr | None]]:
+    # Yield each top-level name a competitor module binds, from a plain or an annotated assignment, with its value.
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            yield node.target.id, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            yield node.targets[0].id, node.value
+
+
+def _string_tuple(node: ast.Tuple) -> tuple[str, ...]:
+    # Pull the string literals out of a tuple assignment's right-hand side.
+    return tuple(el.value for el in node.elts if isinstance(el, ast.Constant) and isinstance(el.value, str))
+
+
 _COMPETITORS: Final[dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = _discover()
 
 
-def run(commands: tuple[str, ...], pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> None:
+def run(commands: tuple[str, ...], options: SweepOptions) -> None:
     # Dispatch the CLI commands to the matching reports, forwarding any extra pyperf options to every worker.
     #
-    # One workdir spans the whole run, so the (profile-guided, when ``pgo``) core wheel is built once and every venv
-    # provisioned once, however many operations reuse them.
+    # One workdir spans the whole run, so the (profile-guided, when ``options.pgo``) core wheel is built once and every
+    # venv provisioned once, however many operations reuse them.
+    if commands == ("interpreters",) and (options.resume is not None or options.targets is not None):
+        msg = "interpreters runs outside the sweep, so --resume and --targets do not apply to it"
+        raise SystemExit(msg)
     print(
         "tip: for low-noise results run `pyperf system tune` first (and `sudo pyperf system reset` after); pass "
         "pyperf options like --rigorous or --affinity=<cpu> after the command to control sampling and CPU pinning.",
@@ -107,11 +125,25 @@ def run(commands: tuple[str, ...], pyperf_args: tuple[str, ...], *, pgo: bool, j
                 interpreters,
             )
 
-            interpreters.build(workdir, pyperf_args)
+            interpreters.build(workdir, options.pyperf_args)
         else:
-            plan = _plan(commands)
-            pythons = _provision(workdir, _competitors(plan), pgo=pgo)
-            _Schedule(plan, pythons, workdir=workdir, pyperf_args=pyperf_args, jobs=jobs).execute()
+            plan = _select_targets(_plan(commands), options.targets)
+            if options.resume is not None:
+                _check_source(options.resume)
+            baseline = baseline_python(workdir, pgo=options.pgo)
+            cases = _list_cases(baseline, tuple(plan))
+            pythons = _provision(workdir, _competitors(plan), baseline)
+            _Schedule(plan, cases, pythons, workdir=workdir, options=options).execute()
+
+
+def _select_targets(plan: dict[str, tuple[str, ...]], targets: frozenset[str] | None) -> dict[str, tuple[str, ...]]:
+    # Keep only the chosen targets in each operation, and drop an operation that none of them implements.
+    if targets is None:
+        return plan
+    if unknown := targets - {"core", *_COMPETITORS}:
+        msg = f"unknown target {', '.join(sorted(unknown))}; choose any of: core, {', '.join(_COMPETITORS)}"
+        raise SystemExit(msg)
+    return {operation: kept for operation, names in plan.items() if (kept := tuple(n for n in names if n in targets))}
 
 
 def _plan(commands: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
@@ -147,20 +179,35 @@ def _packages_for(operation: str) -> list[str]:
     return [name for name, (_, operation_names, _pip) in _COMPETITORS.items() if operation in operation_names]
 
 
-def _provision(workdir: Path, competitors: list[str], *, pgo: bool) -> dict[str, Path]:
-    # Build every venv before the first worker runs, so no two runs ever provision a venv while another measures.
-    #
-    # Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies,
-    # metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops just that competitor's column
-    # with a note.
-    pythons = {"core": baseline_python(workdir, pgo=pgo)}
-    for competitor in competitors:
-        requirements, _operation_names, pip_options = _COMPETITORS[competitor]
-        try:
-            pythons[competitor] = venv_python(workdir, competitor, requirements, pip_options)
-        except subprocess.CalledProcessError:
-            _report(f"skipping {competitor}: it did not install in its isolated venv")
-    return pythons
+def _check_source(resume: Path) -> None:
+    # A directory keeps the tree it was first filled from, so results from two code states never share one table.
+    # ``--dirty`` stamps uncommitted edits too, so changed code never passes for the tree the results came from.
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "describe", "--always", "--dirty", "--abbrev=40"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        msg = "--resume needs a git checkout to stamp where the results came from"
+        raise SystemExit(msg) from error
+    stamp = completed.stdout.strip()
+    recorded = resume / "source.txt"
+    if not recorded.exists():
+        _write_atomic(recorded, f"{stamp}\n")
+        return
+    if (previous := recorded.read_text(encoding="utf-8").strip()) != stamp:
+        msg = f"results come from {previous}, this tree is {stamp}; use a fresh directory"
+        raise SystemExit(msg)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    # Write through a temporary file, so an interrupted sweep never leaves a half-written file behind.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.with_name(f"{path.name}.tmp")
+    staging.write_text(text, encoding="utf-8")
+    staging.replace(path)
 
 
 def baseline_python(workdir: Path, *, pgo: bool) -> Path:
@@ -208,6 +255,46 @@ def venv_python(
     return python
 
 
+def _list_cases(baseline: Path, operations: tuple[str, ...]) -> dict[str, list[str]]:
+    # Read every operation's case names from the core venv, so each case becomes its own job before anything measures.
+    try:
+        completed = subprocess.run(
+            [str(baseline), "-m", "bench.worker"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_TOOLS_DIR), "BENCH_LIST": json.dumps(operations)},
+        )
+    except subprocess.CalledProcessError as error:
+        msg = f"could not list the cases of {', '.join(operations)}: {error.stderr.strip()}"
+        raise SystemExit(msg) from error
+    listing = json.loads(completed.stdout)
+    if not _is_listing(listing):
+        msg = f"the core venv listed {completed.stdout.strip()!r}, not case names per operation"
+        raise SystemExit(msg)
+    return listing
+
+
+def _is_listing(value: object) -> TypeIs[dict[str, list[str]]]:
+    return isinstance(value, dict) and all(isinstance(names, list) for names in value.values())
+
+
+def _provision(workdir: Path, competitors: list[str], baseline: Path) -> dict[str, Path]:
+    # Build every venv before the first worker runs, so no two runs ever provision a venv while another measures.
+    #
+    # Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies,
+    # metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops just that competitor's column
+    # with a note.
+    pythons = {"core": baseline}
+    for competitor in competitors:
+        requirements, _operation_names, pip_options = _COMPETITORS[competitor]
+        try:
+            pythons[competitor] = venv_python(workdir, competitor, requirements, pip_options)
+        except subprocess.CalledProcessError:
+            _report(f"skipping {competitor}: it did not install in its isolated venv")
+    return pythons
+
+
 def _report(message: str) -> None:
     # Print a note under the output lock, so it never lands inside another job's block.
     with _OUTPUT_LOCK:
@@ -226,49 +313,55 @@ class _Schedule:
     def __init__(
         self,
         plan: dict[str, tuple[str, ...]],
+        cases: dict[str, list[str]],
         pythons: dict[str, Path],
         *,
         workdir: Path,
-        pyperf_args: tuple[str, ...],
-        jobs: int,
+        options: SweepOptions,
     ) -> None:
         self._pythons = pythons
         self._workdir = workdir
-        self._pyperf_args = pyperf_args
-        self._jobs = jobs
+        self._pyperf_args = options.pyperf_args
+        self._jobs = options.jobs
+        self._resume = options.resume
         self._cpus: queue.SimpleQueue[int] = queue.SimpleQueue()
-        if jobs > 1:
+        if self._jobs > 1:
             for cpu in physical_cpus():
                 self._cpus.put(cpu)
-        self._progress = _Progress(
-            {
-                operation: tuple(target for target in targets if target in pythons)
-                for operation, targets in plan.items()
-            },
-            jobs,
-        )
+        self._progress = _Progress(_operation_jobs(plan, cases, pythons), cases, self._resume, self._jobs)
         self._failed = threading.Event()
 
     def execute(self) -> None:
+        _WORKERS.reopen()
         pool = ThreadPoolExecutor(max_workers=self._jobs)
         try:
             for future in as_completed([pool.submit(self._run, job) for job in self._progress.ordered()]):
                 future.result()
+        except BaseException:
+            # the first failure is the one reported; the workers stopped here fail too, and their errors go unread
+            self._failed.set()
+            _WORKERS.stop()
+            raise
         finally:
             pool.shutdown(cancel_futures=True)
 
     def _run(self, job: _Job) -> None:
-        if self._failed.is_set():
+        if self._failed.is_set() or not self._progress.start(job):
             return
-        self._progress.start(job)
         try:
-            self._progress.finish(job, self._measure(job))
+            stats = self._measure(job)
+        except _SkipError as skipped:
+            self._progress.drop(job, str(skipped))
+            return
         except BaseException:
             # a worker thread would otherwise pick up the next queued run before the failure reaches the caller
             self._failed.set()
             raise
+        if self._resume is not None:
+            _write_atomic(_result_path(self._resume, job), json.dumps(stats, indent=2, sort_keys=True))
+        self._progress.finish(job, stats)
 
-    def _measure(self, job: _Job) -> dict[str, dict[str, float | str]]:
+    def _measure(self, job: _Job) -> _Stats:
         if self._jobs == 1:
             return self._dispatch(job, self._pyperf_args)
         cpu = self._cpus.get()
@@ -277,8 +370,8 @@ class _Schedule:
         finally:
             self._cpus.put(cpu)
 
-    def _dispatch(self, job: _Job, pyperf_args: tuple[str, ...]) -> dict[str, dict[str, float | str]]:
-        operation, target = job
+    def _dispatch(self, job: _Job, pyperf_args: tuple[str, ...]) -> _Stats:
+        operation, target, _case = job
         python = self._pythons[target]
         capture = self._jobs > 1
         if target == "core":
@@ -294,18 +387,18 @@ class _Schedule:
         # toolchain -- is left to propagate rather than silently blanking the column. The two are told apart by whether
         # the worker died inside ``importlib.import_module``.
         #
-        # A competitor that instead hangs -- runs past the per-operation timeout without finishing -- is killed and its
+        # A competitor that instead hangs -- runs past the per-case timeout without finishing -- is killed and its
         # column dropped with a note, so one pathological library or input cannot stall the whole sweep.
         try:
             return run_worker(python, job, self._workdir, pyperf_args, capture=capture)
-        except subprocess.TimeoutExpired:
-            _report(f"skipping {target}: it did not finish {operation} within {_COMPETITOR_TIMEOUT:.0f}s")
-            return {}
+        except subprocess.TimeoutExpired as error:
+            msg = f"skipping {target}: it did not finish {operation} within {_COMPETITOR_TIMEOUT:.0f}s"
+            raise _SkipError(msg) from error
         except subprocess.CalledProcessError as error:
             if "importlib.import_module" not in (error.stderr or ""):
                 raise
-            _report(f"skipping {target}: it installed but failed to import in its isolated venv")
-            return {}
+            msg = f"skipping {target}: it installed but failed to import in its isolated venv"
+            raise _SkipError(msg) from error
 
 
 def physical_cpus() -> list[int]:
@@ -335,8 +428,15 @@ def _cpu_list(text: str) -> set[int]:
 
 
 class _Progress:
-    def __init__(self, plan: dict[str, tuple[str, ...]], jobs: int) -> None:
-        self._plan = plan
+    def __init__(
+        self,
+        jobs_by_operation: dict[str, list[_Job]],
+        cases: dict[str, list[str]],
+        resume: Path | None,
+        jobs: int,
+    ) -> None:
+        self._jobs_by_operation = jobs_by_operation
+        self._cases = cases
         self._jobs = jobs
         try:
             loaded = json.loads(_DURATIONS_FILE.read_text(encoding="utf-8"))
@@ -344,15 +444,30 @@ class _Progress:
             loaded = {}
         # a missing or corrupt cache counts as empty: the durations only steer the order and the ETA, never a result
         self._durations: dict[str, float] = loaded if _is_durations(loaded) else {}
-        self._pending: list[_Job] = []
-        for operation, targets in plan.items():
-            self._pending.extend((operation, target) for target in targets)
-        self._total = len(self._pending)
+        all_jobs = list(chain.from_iterable(jobs_by_operation.values()))
+        self._results: dict[_Job, _Stats] = _load_results(resume, all_jobs) if resume is not None else {}
+        if self._results:
+            _report(f"resumed {len(self._results)} of {len(all_jobs)} runs from {resume}")
+        self._pending: dict[_Job, None] = dict.fromkeys(job for job in all_jobs if job not in self._results)
+        self._total = len(all_jobs)
         self._running: dict[_Job, float] = {}
-        self._results: dict[_Job, dict[str, dict[str, float | str]]] = {}
+        self._dropped: set[tuple[str, str]] = set()
         self._seconds: list[float] = []
-        self._unrendered: deque[str] = deque(plan)
+        self._unrendered: deque[str] = deque(jobs_by_operation)
         self._started_at = time.monotonic()
+        self._render_ready()
+
+    def _render_ready(self) -> None:
+        while self._unrendered:
+            operation = self._unrendered[0]
+            jobs = self._jobs_by_operation[operation]
+            if any(job not in self._results for job in jobs):
+                return
+            stats: _Stats = {}
+            for job in jobs:
+                stats.update(self._results[job])
+            render(operation, stats)
+            self._unrendered.popleft()
 
     def ordered(self) -> list[_Job]:
         if self._jobs == 1:
@@ -360,38 +475,30 @@ class _Progress:
         # a run timed in an earlier sweep starts first, so the longest one is never left for the tail
         return sorted(self._pending, key=lambda job: -self._durations.get(_duration_key(job), -math.inf))
 
-    def start(self, job: _Job) -> None:
+    def start(self, job: _Job) -> bool:
+        operation, target, _case = job
         with _OUTPUT_LOCK:
-            self._pending.remove(job)
+            if (operation, target) in self._dropped:
+                return False
+            del self._pending[job]
             self._running[job] = time.monotonic()
+            return True
 
-    def finish(self, job: _Job, stats: dict[str, dict[str, float | str]]) -> None:
-        operation, target = job
+    def finish(self, job: _Job, stats: _Stats) -> None:
+        operation, target, case = job
         with _OUTPUT_LOCK:
             now = time.monotonic()
             seconds = now - self._running.pop(job)
             self._durations[_duration_key(job)] = seconds
-            _save_durations(self._durations)
+            _write_atomic(_DURATIONS_FILE, json.dumps(self._durations, indent=2, sort_keys=True))
             self._seconds.append(seconds)
             self._results[job] = stats
             self._render_ready()
             print(
-                f"[{len(self._results)}/{self._total}] {target} {operation} took {_clock(seconds)}; "
-                f"elapsed {_clock(now - self._started_at)}, eta {_clock(self._eta(now))}",
+                f"[{len(self._results)}/{self._total}] {target} {operation} {self._cases[operation][case]} "
+                f"took {_clock(seconds)}; elapsed {_clock(now - self._started_at)}, eta {_clock(self._eta(now))}",
                 file=sys.stderr,
             )
-
-    def _render_ready(self) -> None:
-        while self._unrendered:
-            operation = self._unrendered[0]
-            targets = self._plan[operation]
-            if any((operation, target) not in self._results for target in targets):
-                return
-            stats: dict[str, dict[str, float | str]] = {}
-            for target in targets:
-                stats.update(self._results[operation, target])
-            render(operation, stats)
-            self._unrendered.popleft()
 
     def _eta(self, now: float) -> float:
         fallback = fmean(self._seconds)
@@ -402,6 +509,20 @@ class _Progress:
         )
         return (pending + remaining) / self._jobs
 
+    def drop(self, job: _Job, note: str) -> None:
+        # A skipped competitor keeps none of its remaining cases of this operation, and its note prints once.
+        operation, target, _case = job
+        with _OUTPUT_LOCK:
+            del self._running[job]
+            self._results[job] = {}
+            if (operation, target) not in self._dropped:
+                self._dropped.add((operation, target))
+                print(note, file=sys.stderr)
+                for waiting in [waiting for waiting in self._pending if waiting[:2] == (operation, target)]:
+                    del self._pending[waiting]
+                    self._results[waiting] = {}
+            self._render_ready()
+
 
 def _is_durations(value: object) -> TypeIs[dict[str, float]]:
     return isinstance(value, dict) and all(
@@ -409,17 +530,27 @@ def _is_durations(value: object) -> TypeIs[dict[str, float]]:
     )
 
 
+def _load_results(resume: Path, jobs: list[_Job]) -> dict[_Job, _Stats]:
+    # A run an earlier sweep finished is read back instead of measured again; a run that never finished has no file.
+    loaded: dict[_Job, _Stats] = {}
+    for job in jobs:
+        path = _result_path(resume, job)
+        if path.exists():
+            stats = json.loads(path.read_text(encoding="utf-8"))
+            if not _is_stats(stats):
+                msg = f"{path} is not a benchmark result; remove it to measure that run again"
+                raise SystemExit(msg)
+            loaded[job] = stats
+    return loaded
+
+
+def _is_stats(value: object) -> TypeIs[_Stats]:
+    return isinstance(value, dict) and all(isinstance(entry, dict) for entry in value.values())
+
+
 def _duration_key(job: _Job) -> str:
-    operation, target = job
-    return f"{target}:{operation}"
-
-
-def _save_durations(durations: dict[str, float]) -> None:
-    # Write through a temporary file, so an interrupted sweep never leaves a half-written cache behind.
-    _DURATIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    staging = _DURATIONS_FILE.with_name(f"{_DURATIONS_FILE.name}.tmp")
-    staging.write_text(json.dumps(durations, indent=2, sort_keys=True), encoding="utf-8")
-    staging.replace(_DURATIONS_FILE)
+    operation, target, case = job
+    return f"{target}:{operation}:{case}"
 
 
 def _clock(seconds: float) -> str:
@@ -427,22 +558,46 @@ def _clock(seconds: float) -> str:
     return f"{minutes}m{rest:02d}s"
 
 
+def _operation_jobs(
+    plan: dict[str, tuple[str, ...]], cases: dict[str, list[str]], pythons: dict[str, Path]
+) -> dict[str, list[_Job]]:
+    # Every (operation, target, case) run, targets outermost, so the jobs of one operation come in table order.
+    jobs: dict[str, list[_Job]] = {}
+    for operation, targets in plan.items():
+        count = len(cases[operation])
+        jobs[operation] = [
+            (operation, target, index) for target, index in product(targets, range(count)) if target in pythons
+        ]
+    return jobs
+
+
+class _SkipError(Exception):
+    # A competitor run that could not be measured; its message is the note saying why the column is dropped.
+    pass
+
+
+def _result_path(resume: Path, job: _Job) -> Path:
+    operation, target, case = job
+    return resume / target / operation / f"{case}.json"
+
+
 def run_worker(
     python: Path,
-    job: _Job,
+    job: tuple[str, str, int | None],
     workdir: Path,
     pyperf_args: tuple[str, ...],
     *,
     capture: bool = False,
-) -> dict[str, dict[str, float | str]]:
-    # Run the worker for one (operation, target) in the given venv and return its per-case stats.
+) -> _Stats:
+    # Run the worker for one (operation, target, case) in the given venv and return its stats; a ``None`` case measures
+    # every case of the operation.
     #
-    # A competitor is bounded by ``_COMPETITOR_TIMEOUT``: past it the worker is killed and
+    # A competitor is bounded by ``_COMPETITOR_TIMEOUT``: past it the worker's process group is killed and
     # :class:`subprocess.TimeoutExpired` propagates, so a library that hangs on one input cannot freeze the sweep. The
     # core baseline runs untimed -- turbohtml is the thing under test, so its slow cases are measured, never dropped.
-    operation, target = job
+    operation, target, case = job
     timeout = None if target == "core" else _COMPETITOR_TIMEOUT
-    out = workdir / f"{target}-{operation}.json"
+    out = workdir / f"{target}-{operation}-{'all' if case is None else case}.json"
     env = {
         **os.environ,
         "PYTHONPATH": str(_TOOLS_DIR),
@@ -450,31 +605,80 @@ def run_worker(
         "BENCH_OPERATION": operation,
         "BENCH_OUT": str(out),
     }
+    env.pop("BENCH_CASE", None)  # an inherited selection would silently narrow an operation's sweep to one case
+    if case is not None:
+        env["BENCH_CASE"] = str(case)
     # stderr is captured so a failure carries the traceback (the caller reads it to tell an import-time environment
     # clash from a real measurement crash); stdout stays inherited so pyperf's per-case lines stream live, unless a
     # parallel job captures it to print as one block once the worker ends.
+    process = subprocess.Popen(
+        [str(python), "-m", "bench.worker", *pyperf_args],
+        env=env,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    _WORKERS.add(process)
     try:
-        completed = subprocess.run(
-            [str(python), "-m", "bench.worker", *pyperf_args],
-            check=True,
-            env=env,
-            stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.CalledProcessError as error:
-        with _OUTPUT_LOCK:
-            sys.stderr.write(error.stderr or "")
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate(process)
+        process.communicate()
         raise
+    finally:
+        _WORKERS.discard(process)
+    if process.returncode:
+        with _OUTPUT_LOCK:
+            sys.stderr.write(stderr or "")
+        raise subprocess.CalledProcessError(process.returncode, process.args, output=stdout, stderr=stderr)
     if capture:
         with _OUTPUT_LOCK:
-            sys.stdout.write(completed.stdout)
+            sys.stdout.write(stdout)
     return json.loads(out.read_text(encoding="utf-8"))
+
+
+def _terminate(process: subprocess.Popen[str]) -> None:
+    # Windows has no process groups, so a stop can only signal the worker itself there.
+    with contextlib.suppress(ProcessLookupError):  # the group may exit between the check and the signal
+        process.kill() if os.name == "nt" else os.killpg(process.pid, signal.SIGTERM)
+
+
+class _Workers:
+    # Workers lead their own sessions, so a terminal's Ctrl-C never reaches them: a failure stops each one from here.
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._running: set[subprocess.Popen[str]] = set()
+        self._stopped = False
+
+    def reopen(self) -> None:
+        # a sweep starts with its workers allowed to run, even when an earlier sweep in this process was stopped
+        with self._lock:
+            self._stopped = False
+
+    def add(self, process: subprocess.Popen[str]) -> None:
+        with self._lock:
+            self._running.add(process)
+            if self._stopped:
+                _terminate(process)
+
+    def discard(self, process: subprocess.Popen[str]) -> None:
+        with self._lock:
+            self._running.discard(process)
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stopped = True
+            for process in self._running:
+                _terminate(process)
+
+
+_WORKERS: Final[_Workers] = _Workers()
 
 
 __all__ = [
     "REPO_ROOT",
+    "SweepOptions",
     "baseline_python",
     "physical_cpus",
     "run",

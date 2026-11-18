@@ -21,7 +21,21 @@ from itertools import takewhile
 from pathlib import Path
 
 from bench import report
-from bench.orchestrator import physical_cpus, run
+from bench.orchestrator import SweepOptions, physical_cpus, run
+
+
+def _pop_value(arguments: list[str], flag: str) -> str | None:
+    # Remove ``flag VALUE`` from the arguments and return VALUE, or None when the flag is absent.
+    if flag not in arguments:
+        return None
+    position = arguments.index(flag)
+    try:
+        value = arguments[position + 1]
+    except IndexError as error:
+        msg = f"{flag} takes a value"
+        raise SystemExit(msg) from error
+    del arguments[position : position + 2]
+    return value
 
 
 def main() -> None:
@@ -32,6 +46,10 @@ def main() -> None:
         position = arguments.index("--table-json")
         report.TABLE_JSON_DIR = Path(arguments[position + 1])
         del arguments[position : position + 2]
+    # the directory each finished run is kept in, so a stopped sweep continues where it left off
+    resume = _pop_value(arguments, "--resume")
+    # re-measure only the named targets, e.g. one library whose build changed
+    targets = _pop_value(arguments, "--targets")
     pgo = "--pgo" in arguments  # kept out of the pyperf passthrough: it selects how the core wheel is built
     if pgo:
         arguments.remove("--pgo")
@@ -56,11 +74,20 @@ def main() -> None:
     commands = tuple(takewhile(lambda argument: not argument.startswith("-"), arguments))
     if not commands:
         msg = (
-            "usage: python -m bench [--table-json DIR] [--pgo] [--jobs N] "
+            "usage: python -m bench [--table-json DIR] [--resume DIR] [--targets a,b] [--pgo] [--jobs N] "
             "<core|all|interpreters|package|operation...> [pyperf options...]"
         )
         raise SystemExit(msg)
-    run(commands, tuple(arguments[len(commands) :]), pgo=pgo, jobs=jobs)
+    run(
+        commands,
+        SweepOptions(
+            pyperf_args=tuple(arguments[len(commands) :]),
+            pgo=pgo,
+            jobs=jobs,
+            resume=None if resume is None else Path(resume),
+            targets=None if targets is None else frozenset(targets.split(",")),
+        ),
+    )
 
 
 if __name__ == "__main__":

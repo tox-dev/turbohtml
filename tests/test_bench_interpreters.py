@@ -14,14 +14,14 @@ if TYPE_CHECKING:
 def test_build_measures_every_operation_under_each_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     feed = tmp_path / "interpreters.json"
     specs: list[str] = []
-    jobs: list[tuple[str, tuple[str, str], tuple[str, ...]]] = []
+    jobs: list[tuple[str, tuple[str, str, None], tuple[str, ...]]] = []
 
     def venv(workdir: Path, name: str, _requirements: tuple[str, ...], *, interpreter: str) -> Path:
         specs.append(interpreter)
         return workdir / name
 
     def worker(
-        python: Path, job: tuple[str, str], _workdir: Path, pyperf_args: tuple[str, ...]
+        python: Path, job: tuple[str, str, None], _workdir: Path, pyperf_args: tuple[str, ...]
     ) -> dict[str, dict[str, float | str]]:
         jobs.append((python.name, job, pyperf_args))
         return {f"{job[0]}|case|core": {"mean": 1.0, "stdev": 0.0}}
