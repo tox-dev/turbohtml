@@ -142,6 +142,11 @@ static int quick_check(int kind, const void *data, Py_ssize_t len, int form, Py_
     int result = TH_QC_YES;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 cp = PyUnicode_READ(kind, data, index);
+        /* ASCII is a class-0 starter with a Yes value in every form, so it needs no table lookup. */
+        if (cp < 0x80) {
+            last_class = 0;
+            continue;
+        }
         uint8_t klass = ccc_of(cp);
         if (klass != 0 && klass < last_class) {
             if (result == TH_QC_YES) {
