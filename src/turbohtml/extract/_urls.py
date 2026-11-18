@@ -15,7 +15,10 @@ documented where it goes beyond the spec. The pipeline runs in C (``_url_clean``
 
 from __future__ import annotations
 
-__lazy_modules__ = ["typing", f"{__spec__.parent}._native"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+__lazy_modules__ = [
+    "typing",
+    f"{__spec__.parent}._native",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
 
 from dataclasses import dataclass
 from functools import cache
