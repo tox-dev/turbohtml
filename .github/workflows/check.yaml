@@ -212,8 +212,14 @@ jobs:
           persist-credentials: false
       - name: 📥 Check out the conformance oracles
         # checkout never retries a submodule fetch, and one dropped connection on a large oracle (unicodetools) failed
-        # the whole job; the .gitmodules shallow flags keep each fetch to the pinned commit
-        run: for attempt in 1 2 3; do git submodule update --init --recursive --jobs 8 && exit 0; sleep 15; done; exit 1
+        # the whole job; the .gitmodules shallow flags keep each fetch to the pinned commit. parse5 pins its nested
+        # html5lib-tests by SSH URL, which a runner without a key cannot clone, so rewrite it to HTTPS as checkout does
+        run: |
+          for attempt in 1 2 3; do
+            git -c url.https://github.com/.insteadOf=git@github.com: submodule update --init --recursive --jobs 8 && exit 0
+            sleep 15
+          done
+          exit 1
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
         uses: actions/setup-node@v7.1.0
