@@ -16,6 +16,8 @@ This module is the policy facade only; the walk that keeps, escapes, strips, or 
 
 from __future__ import annotations
 
+__lazy_modules__ = ["itertools", f"{__spec__.parent}._native"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import starmap

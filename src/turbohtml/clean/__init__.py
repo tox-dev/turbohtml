@@ -11,6 +11,12 @@ thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`, :
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    f"{__spec__.parent}._linkify",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._native",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._sanitizer",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from ._linkify import (
     DEFAULT_CALLBACKS,
     DEFAULT_PHONE_LABELS,

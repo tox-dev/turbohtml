@@ -9,6 +9,8 @@ an existing ``<a>``, a raw-text element (``<script>``/``<style>``), or a caller'
 
 from __future__ import annotations
 
+__lazy_modules__ = ["collections.abc", "copy", f"{__spec__.parent}._native"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 import copy
 import functools
 from collections.abc import Mapping

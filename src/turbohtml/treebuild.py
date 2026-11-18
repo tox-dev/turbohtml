@@ -21,6 +21,8 @@ instructions arrive through :meth:`TreeBuilder.create_pi` with separate target a
 
 from __future__ import annotations
 
+__lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 from typing import Protocol, TypeVar, cast
 
 from ._html import parse_into as _parse_into

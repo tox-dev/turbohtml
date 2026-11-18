@@ -28,6 +28,8 @@ processor (see ``tests/conformance/test_xslt_conformance.py``).
 
 from __future__ import annotations
 
+__lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 from typing import TYPE_CHECKING
 
 from ._html import (

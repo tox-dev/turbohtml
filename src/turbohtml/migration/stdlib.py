@@ -20,6 +20,8 @@ browsers run:
 
 from __future__ import annotations
 
+__lazy_modules__ = ["turbohtml"]
+
 from turbohtml import Tokenizer
 
 

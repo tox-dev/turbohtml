@@ -13,6 +13,8 @@ inline-``<script>`` path are configured the same way.
 
 from __future__ import annotations
 
+__lazy_modules__ = ["typing"]
+
 from typing import Final, Literal
 
 from ._jsminify import JSMinify
