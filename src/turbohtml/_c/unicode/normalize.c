@@ -285,6 +285,44 @@ static Py_ssize_t compose(Py_UCS4 *seq, Py_ssize_t len) {
     return out_len;
 }
 
+/* The (form, text) arguments of the two engine entries, with the exceptions the METH_VARARGS parse gave before: no
+   keyword arguments, two positional arguments, a form code that fits C int, and a str text. Returns -1 with the
+   exception set when any is wrong. */
+static int parse_form_text(const char *name, PyObject *const *args, Py_ssize_t count, PyObject *kwnames, int *form) {
+    if (kwnames != NULL) {
+        PyErr_Format(PyExc_TypeError, "%s() takes no keyword arguments", name);
+        return -1;
+    }
+    if (count != 2) {
+        PyErr_Format(PyExc_TypeError, "function takes exactly 2 arguments (%zd given)", count);
+        return -1;
+    }
+    int overflow;
+    long code = PyLong_AsLongAndOverflow(args[0], &overflow);
+    if (PyErr_Occurred()) {
+        return -1;
+    }
+    if (overflow) {
+        PyErr_SetString(PyExc_OverflowError, "Python int too large to convert to C long");
+        return -1;
+    }
+    if ((long long)code > INT_MAX) {
+        PyErr_SetString(PyExc_OverflowError, "signed integer is greater than maximum");
+        return -1;
+    }
+    if ((long long)code < INT_MIN) {
+        PyErr_SetString(PyExc_OverflowError, "signed integer is less than minimum");
+        return -1;
+    }
+    *form = (int)code;
+    if (!PyUnicode_Check(args[1])) {
+        PyErr_Format(PyExc_TypeError, "argument 2 must be str, not %.200s",
+                     args[1] == Py_None ? "None" : Py_TYPE(args[1])->tp_name);
+        return -1;
+    }
+    return 0;
+}
+
 /* Both spans determine the width: normalization can remove the input's widest character. */
 static PyObject *build_result(int input_kind, const void *input_data, Py_ssize_t prefix, const Py_UCS4 *buf,
                               Py_ssize_t len) {
@@ -347,14 +385,14 @@ static PyObject *normalize_full(int kind, const void *data, Py_ssize_t len, int 
     return result;
 }
 
-/* _normalize(form, text): the four forms selected by form 0..3 (NFC, NFD, NFKC, NFKD). Already-normalized text is
-   returned as the same object; otherwise the full pipeline runs. */
-PyObject *turbohtml_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
-    int form = 0;
-    PyObject *text = NULL;
-    if (!PyArg_ParseTuple(args, "iU", &form, &text)) {
+/* _normalize(form, text): the four forms named by form, the same object back when already normalized, otherwise the
+   full pipeline. */
+PyObject *turbohtml_normalize(PyObject *Py_UNUSED(module), PyObject *const *args, Py_ssize_t count, PyObject *kwnames) {
+    int form;
+    if (parse_form_text("_normalize", args, count, kwnames, &form) < 0) {
         return NULL;
     }
+    PyObject *text = args[1];
     if (PyUnicode_IS_ASCII(text)) {
         return Py_NewRef(text);
     }
@@ -370,12 +408,13 @@ PyObject *turbohtml_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
 
 /* _is_normalized(form, text): True when text is already in form. A quick-check Maybe is settled by normalizing and
    comparing, exactly as unicodedata.is_normalized does. */
-PyObject *turbohtml_is_normalized(PyObject *Py_UNUSED(module), PyObject *args) {
-    int form = 0;
-    PyObject *text = NULL;
-    if (!PyArg_ParseTuple(args, "iU", &form, &text)) {
+PyObject *turbohtml_is_normalized(PyObject *Py_UNUSED(module), PyObject *const *args, Py_ssize_t count,
+                                  PyObject *kwnames) {
+    int form;
+    if (parse_form_text("_is_normalized", args, count, kwnames, &form) < 0) {
         return NULL;
     }
+    PyObject *text = args[1];
     if (PyUnicode_IS_ASCII(text)) {
         Py_RETURN_TRUE;
     }

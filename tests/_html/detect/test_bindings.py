@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
+from turbohtml import _html as _engine
 from turbohtml._html import DetectStream as _DetectStream
 from turbohtml._html import codec_label as _codec_label
 from turbohtml._html import decode as _decode
@@ -101,3 +104,44 @@ def test_detect_rejects_a_non_string_tld() -> None:
 def test_the_stream_feeds_only_bytes() -> None:
     with pytest.raises(TypeError):
         _DetectStream(None).feed("not bytes")  # ty: ignore[invalid-argument-type]  # rejected at runtime
+
+
+_ENTRY_NAMES: Final[tuple[str, str]] = ("_normalize", "_is_normalized")
+
+
+@pytest.mark.parametrize("name", _ENTRY_NAMES)
+@pytest.mark.parametrize("args", [pytest.param((0,), id="one"), pytest.param((0, "a", "b"), id="three")])
+def test_engine_entry_takes_exactly_two_arguments(name: str, args: tuple[int | str, ...]) -> None:
+    with pytest.raises(TypeError, match="function takes exactly 2 arguments"):
+        getattr(_engine, name)(*args)
+
+
+@pytest.mark.parametrize("name", _ENTRY_NAMES)
+def test_engine_entry_rejects_keyword_arguments(name: str) -> None:
+    with pytest.raises(TypeError, match=f"{name}\\(\\) takes no keyword arguments"):
+        getattr(_engine, name)(0, text="x")
+
+
+@pytest.mark.parametrize("name", _ENTRY_NAMES)
+@pytest.mark.parametrize(
+    ("form", "error", "message"),
+    [
+        pytest.param(2**31, OverflowError, "signed integer is greater than maximum", id="above-int"),
+        pytest.param(-(2**31) - 1, OverflowError, "signed integer is less than minimum", id="below-int"),
+        pytest.param(2**63, OverflowError, "Python int too large to convert to C long", id="above-long"),
+        pytest.param(-(2**70), OverflowError, "Python int too large to convert to C long", id="below-long"),
+        pytest.param("NFC", TypeError, "'str' object cannot be interpreted as an integer", id="str"),
+        pytest.param(None, TypeError, "'NoneType' object cannot be interpreted as an integer", id="none"),
+    ],
+)
+def test_engine_entry_rejects_a_form_code_that_is_not_an_int_in_range(
+    name: str, form: int | str | None, error: type[Exception], message: str
+) -> None:
+    with pytest.raises(error, match=message):
+        getattr(_engine, name)(form, "é")
+
+
+@pytest.mark.parametrize("name", _ENTRY_NAMES)
+@pytest.mark.parametrize("form", [pytest.param(2**31 - 1, id="int-max"), pytest.param(-(2**31), id="int-min")])
+def test_engine_entry_accepts_the_int_extremes(name: str, form: int) -> None:
+    assert isinstance(getattr(_engine, name)(form, "é"), (str, bool))
