@@ -1310,7 +1310,7 @@ def _transform_cases() -> tuple[tuple[str, Case], ...]:
             (
                 (
                     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                    '<xsl:output method="html"/>'
+                    '<xsl:output method="html" indent="no"/>'
                     '<xsl:key name="by-cat" match="book" use="@cat"/>'
                     '<xsl:template match="/"><table>'
                     '<xsl:apply-templates select="catalog/book">'
