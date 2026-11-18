@@ -1244,6 +1244,31 @@ static int css_unicode_range_cmp(const void *left_ptr, const void *right_ptr) {
     return (left[0] > right[0]) - (left[0] < right[0]);
 }
 
+/* Reverse a list of ranges in place. A strictly descending list sorts by reversal, since its starts are distinct. */
+static void css_reverse_ranges(long long (*ranges)[2], Py_ssize_t count) {
+    for (Py_ssize_t low = 0, high = count - 1; low < high; low++, high--) {
+        long long start = ranges[low][0];
+        long long end = ranges[low][1];
+        ranges[low][0] = ranges[high][0];
+        ranges[low][1] = ranges[high][1];
+        ranges[high][0] = start;
+        ranges[high][1] = end;
+    }
+}
+
+/* Write value in uppercase hex with no leading zeros, the spelling a unicode-range code point takes. */
+static void css_put_hex(css_buf *out, long long value) {
+    char digits[16];
+    int count = 0;
+    do {
+        digits[count++] = "0123456789ABCDEF"[value & 0xF];
+        value >>= 4;
+    } while (value != 0);
+    while (count > 0) {
+        cbuf_putc(out, (css_char)digits[--count]);
+    }
+}
+
 /* Minify a unicode-range value, returning 1 when handled (every token was a range), 0 to fall through. */
 static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
     Py_ssize_t capacity = TH_INITIAL_CAPACITY(16);
@@ -1300,7 +1325,15 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
             index++;
         }
         if (index < count) {
-            qsort(ranges, (size_t)count, sizeof(*ranges), css_unicode_range_cmp);
+            Py_ssize_t descending = 1;
+            while (descending < count && ranges[descending - 1][0] > ranges[descending][0]) {
+                descending++;
+            }
+            if (descending == count) {
+                css_reverse_ranges(ranges, count);
+            } else {
+                qsort(ranges, (size_t)count, sizeof(*ranges), css_unicode_range_cmp);
+            }
         }
     } else {
         for (Py_ssize_t outer = 1; outer < count; outer++) {
@@ -1334,10 +1367,9 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
         }
         long long low = ranges[index][0];
         long long high = ranges[index][1];
-        char buffer[32];
         if (low == high) {
-            int written = snprintf(buffer, sizeof(buffer), "U+%llX", low);
-            cbuf_put_run(out, (const css_char *)buffer, written);
+            cbuf_puts(out, "U+");
+            css_put_hex(out, low);
         } else {
             /* a descriptor takes no CSS-wide keyword, so a full U+0-10FFFF range is never rewritten to initial */
             int nibble = 0;
@@ -1356,15 +1388,16 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
                 long long prefix = low >> (wildcards * 4);
                 cbuf_puts(out, "U+");
                 if (prefix != 0) {
-                    int written = snprintf(buffer, sizeof(buffer), "%llX", prefix);
-                    cbuf_put_run(out, (const css_char *)buffer, written);
+                    css_put_hex(out, prefix);
                 }
                 for (int pos = 0; pos < wildcards; pos++) {
                     cbuf_putc(out, '?');
                 }
             } else {
-                int written = snprintf(buffer, sizeof(buffer), "U+%llX-%llX", low, high);
-                cbuf_put_run(out, (const css_char *)buffer, written);
+                cbuf_puts(out, "U+");
+                css_put_hex(out, low);
+                cbuf_putc(out, '-');
+                css_put_hex(out, high);
             }
         }
     }
