@@ -976,6 +976,11 @@ def _article_page(paragraphs: int) -> str:
     return f"{head}{nav}{article}<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 
 
+def _full_document(fragment: str) -> str:
+    # htmldate returns None without searching a fragment with no html tag in its first 50 characters.
+    return f"<html><body>{fragment}</body></html>"
+
+
 _FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 parent-child pairs / {label}",
@@ -2901,20 +2906,22 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "date-tally": lambda: (
         (
             "1000 distinct visible dates",
-            f"<p>{' '.join((date(2000, 1, 1) + timedelta(days=index)).isoformat() for index in range(1000))}</p>",
+            _full_document(
+                f"<p>{' '.join((date(2000, 1, 1) + timedelta(days=index)).isoformat() for index in range(1000))}</p>"
+            ),
         ),
-        ("1000 repeated visible dates", f"<p>{'2000-01-01 ' * 1000}</p>"),
+        ("1000 repeated visible dates", _full_document(f"<p>{'2000-01-01 ' * 1000}</p>")),
     ),
     "date": lambda: (
         ("post (4 KiB)", _article_page(16)),
         ("longform (16 KiB)", _article_page(72)),
-        ("100 meta candidates", f"<head>{'<meta name=date content=2024-05-06>' * 100}</head>"),
-        ("early temporal ISO date, 36 KiB text", f"<time>2024-05-06 {'ordinary ' * 4096}</time>"),
-        ("late temporal ISO date, 36 KiB text", f"<time>{'ordinary ' * 4096}2024-05-06</time>"),
-        ("temporal text without dates, 36 KiB", f"<time>{'ordinary ' * 4096}</time>"),
-        ("single temporal ISO date, 72 KiB text", f"<time>{'ordinary ' * 8192}2024-05-06</time>"),
-        ("early temporal numeric date, 36 KiB text", f"<time>06/05/2024 {'ordinary ' * 4096}</time>"),
-        ("early temporal written date, 36 KiB text", f"<time>May 6, 2024 {'ordinary ' * 4096}</time>"),
+        ("100 meta candidates", f"<html><head>{'<meta name=date content=2024-05-06>' * 100}</head></html>"),
+        ("early temporal ISO date, 36 KiB text", _full_document(f"<time>2024-05-06 {'ordinary ' * 4096}</time>")),
+        ("late temporal ISO date, 36 KiB text", _full_document(f"<time>{'ordinary ' * 4096}2024-05-06</time>")),
+        ("temporal text without dates, 36 KiB", _full_document(f"<time>{'ordinary ' * 4096}</time>")),
+        ("single temporal ISO date, 72 KiB text", _full_document(f"<time>{'ordinary ' * 8192}2024-05-06</time>")),
+        ("early temporal numeric date, 36 KiB text", _full_document(f"<time>06/05/2024 {'ordinary ' * 4096}</time>")),
+        ("early temporal written date, 36 KiB text", _full_document(f"<time>May 6, 2024 {'ordinary ' * 4096}</time>")),
     ),
     "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
     "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
