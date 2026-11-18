@@ -1,0 +1,2 @@
+Encoding detection no longer scores the ASCII byte that follows an unmapped Big5 character as a letter, as chardetng
+does. Some streams that hold such a pair now detect as Big5 instead of windows-1252.

@@ -1225,3 +1225,54 @@ def test_encoding_result_resiliparse_preserves_decoded_text(case: int, expected:
     encoding: Final = library.detect_encoding(data)
     assert encoding is not None
     assert data.decode(encoding).removeprefix("﻿") == expected
+
+
+# chardetng drops an unmapped Big5 pair's ASCII trail: it neither scores the letter nor reads it again. Rewinding onto
+# the trail charged the letter the Latin-adjacency penalty, which can decide the answer.
+_BIG5_TEXT: Final[bytes] = "繁體中文測試這是一個很長的句".encode("big5")
+_BIG5_UNMAPPED_PAIR: Final[tuple[bytes, ...]] = tuple(
+    b"\xc0\xe0" * 4 + _BIG5_TEXT + bytes([lead, trail]) + _BIG5_TEXT for lead in range(0x81, 0x87) for trail in b"Aa"
+)
+_BIG5_CHUNK_SIZES: Final[tuple[int, ...]] = (1, 2, 3, 16)
+
+
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"pair-{index}") for index, raw in enumerate(_BIG5_UNMAPPED_PAIR)]
+)
+def test_unmapped_big5_pair_with_ascii_trail_keeps_big5(raw: bytes) -> None:
+    assert detect(raw).encoding == "Big5"
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in _BIG5_CHUNK_SIZES])
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"pair-{index}") for index, raw in enumerate(_BIG5_UNMAPPED_PAIR)]
+)
+def test_unmapped_big5_pair_with_ascii_trail_keeps_big5_streamed(raw: bytes, size: int) -> None:
+    detector = EncodingDetector()
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close().encoding == "Big5"
+
+
+# a letter right before the pair takes chardetng's Latin-adjacency penalty on top of the pair's own
+_BIG5_LETTER_BEFORE_PAIR: Final[tuple[bytes, ...]] = tuple(
+    b"x" + bytes([lead, trail]) + _BIG5_TEXT for lead in range(0x81, 0x87) for trail in b"Aa"
+)
+
+
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"letter-{index}") for index, raw in enumerate(_BIG5_LETTER_BEFORE_PAIR)]
+)
+def test_letter_before_unmapped_big5_pair_is_windows_1252(raw: bytes) -> None:
+    assert detect(raw).encoding == "windows-1252"
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in _BIG5_CHUNK_SIZES])
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"letter-{index}") for index, raw in enumerate(_BIG5_LETTER_BEFORE_PAIR)]
+)
+def test_letter_before_unmapped_big5_pair_is_windows_1252_streamed(raw: bytes, size: int) -> None:
+    detector = EncodingDetector()
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close().encoding == "windows-1252"
