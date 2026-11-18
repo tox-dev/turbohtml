@@ -1,0 +1,2 @@
+Node transform pipelines skip a type check for each stage that returns the node it was given, so they run slightly
+faster.

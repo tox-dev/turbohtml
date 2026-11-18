@@ -28,7 +28,7 @@ PyObject *turbohtml_transform_node(PyObject *module, PyObject *const *args, Py_s
         }
         if (result == Py_None) {
             Py_DECREF(result);
-        } else if (PyObject_TypeCheck(result, (PyTypeObject *)state->node_type)) {
+        } else if (result == root || PyObject_TypeCheck(result, (PyTypeObject *)state->node_type)) {
             Py_SETREF(root, result);
         } else {
             PyErr_Format(PyExc_TypeError, "stage %zd returned %.200s; expected Node or None", index,
