@@ -64,9 +64,9 @@ PyObject *turbohtml_codec_label(PyObject *module, PyObject *name);
 
 /* Implemented in unicode/normalize.c. _normalize(form, text) applies one of the
    four Unicode normalization forms (form 0..3 = NFC, NFD, NFKC, NFKD) to text;
-   _is_normalized(form, text) tests membership. Both match METH_VARARGS. */
-PyObject *turbohtml_normalize(PyObject *module, PyObject *args);
-PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
+   _is_normalized(form, text) tests membership. Both are METH_FASTCALL | METH_KEYWORDS. */
+PyObject *turbohtml_normalize(PyObject *module, PyObject *const *args, Py_ssize_t count, PyObject *kwnames);
+PyObject *turbohtml_is_normalized(PyObject *module, PyObject *const *args, Py_ssize_t count, PyObject *kwnames);
 /* _collapse_whitespace(text) joins the text's words with single spaces, the str.split() fold (METH_O). */
 PyObject *turbohtml_collapse_whitespace(PyObject *module, PyObject *text);
 

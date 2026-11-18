@@ -166,11 +166,34 @@ def test_invalid_form_raises_value_error(bad: str) -> None:
         is_normalized(bad, "x")  # ty: ignore[invalid-argument-type]  # exercises the form guard
 
 
-def test_non_string_text_raises_type_error() -> None:
-    with pytest.raises(TypeError):
-        normalize("NFC", 123)  # ty: ignore[invalid-argument-type]  # exercises the C str guard
-    with pytest.raises(TypeError):
-        is_normalized("NFC", b"bytes")  # ty: ignore[invalid-argument-type]  # exercises the C str guard
+@pytest.mark.parametrize("bad", [pytest.param(1, id="int"), pytest.param(None, id="none")])
+def test_non_string_form_raises_value_error(bad: int | None) -> None:
+    with pytest.raises(ValueError, match="invalid normalization form"):
+        normalize(bad, "x")  # ty: ignore[invalid-argument-type]  # exercises the form lookup
+    with pytest.raises(ValueError, match="invalid normalization form"):
+        is_normalized(bad, "x")  # ty: ignore[invalid-argument-type]  # exercises the form lookup
+
+
+def test_unhashable_form_raises_the_dict_key_type_error() -> None:
+    with pytest.raises(TypeError, match="unhashable type: 'list'"):
+        normalize(["NFC"], "x")  # ty: ignore[invalid-argument-type]  # exercises the form lookup
+    with pytest.raises(TypeError, match="unhashable type: 'list'"):
+        is_normalized(["NFC"], "x")  # ty: ignore[invalid-argument-type]  # exercises the form lookup
+
+
+@pytest.mark.parametrize(
+    ("text", "name"),
+    [
+        pytest.param(None, "None", id="none"),
+        pytest.param(123, "int", id="int"),
+        pytest.param(b"bytes", "bytes", id="bytes"),
+    ],
+)
+def test_non_string_text_raises_type_error(text: int | bytes | None, name: str) -> None:
+    with pytest.raises(TypeError, match=f"argument 2 must be str, not {name}"):
+        normalize("NFC", text)  # ty: ignore[invalid-argument-type]  # exercises the C str guard
+    with pytest.raises(TypeError, match=f"argument 2 must be str, not {name}"):
+        is_normalized("NFC", text)  # ty: ignore[invalid-argument-type]  # exercises the C str guard
 
 
 # Extra cross-check against the running interpreter's unicodedata. It runs only where that interpreter's Unicode matches
