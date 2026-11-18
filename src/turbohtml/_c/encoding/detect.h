@@ -434,17 +434,14 @@ static void th_sb_skip_to_space(th_sb_candidate *cand, const th_detect_single_by
 
 /* Feed the whole input to one single-byte candidate, accumulating its score or
    disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
-static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int track_logical_punctuation) {
-    /* A viable visual candidate still needs punctuation from a disqualified logical candidate. */
-    if (!cand->alive && !track_logical_punctuation) {
-        return;
-    }
+static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len,
+                                   int track_logical_punctuation, const int skip_runs) {
     const th_detect_single_byte *data = cand->data;
     int windows_1256 = cand->kind == TH_SB_ARABIC_FRENCH;
     Py_ssize_t scanned_to = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         unsigned char byte = buf[index];
-        if (byte < 0x80 && index > 0 && buf[index - 1] < 0x80 && cand->alive && index >= scanned_to) {
+        if (skip_runs && byte < 0x80 && index > 0 && buf[index - 1] < 0x80 && cand->alive && index >= scanned_to) {
             Py_ssize_t run = th_decode_ascii_run(buf + index, len - index);
             scanned_to = index + run;
             /* Runs under 16 bytes cost more to scan for a space than the per-byte walk saves. */
@@ -605,6 +602,20 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
         cand->prev = caseless;
         cand->prev_was_a0 = is_a0;
         cand->prev_punctuation = caseless == 0 && th_detect_is_ascii_punct(byte);
+    }
+}
+
+/* A feed under 64 bytes takes the loop without the skip probe: probing a short feed costs more than the skips save,
+   as a 24-byte detection shows. Both calls inline the same loop with skip_runs constant. */
+static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int track_logical_punctuation) {
+    /* A viable visual candidate still needs punctuation from a disqualified logical candidate. */
+    if (!cand->alive && !track_logical_punctuation) {
+        return;
+    }
+    if (len >= 64) {
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, 1);
+    } else {
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, 0);
     }
 }
 /* NOLINTEND(bugprone-branch-clone) */
