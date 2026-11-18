@@ -1650,6 +1650,12 @@ def test_concat_builds_beside_empty_and_valueless_members(markup: str, expressio
     assert parse(markup).xpath(expression) == expected
 
 
+def test_concat_of_a_chain_emptied_by_set_text() -> None:
+    document = parse("<root><i><s>x</s></i><i><s>é</s></i></root>")
+    document.xpath("//s")[0].set_text("")
+    assert document.xpath("str:concat(//i)") == "é"
+
+
 def _reversed(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
     return nodes[::-1]
 
