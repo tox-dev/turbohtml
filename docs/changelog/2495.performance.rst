@@ -1,0 +1,1 @@
+Building elements with ``Element(...)`` and ``E.<tag>(...)`` from a dict of attributes is faster again: the attribute loop no longer goes through helper calls for each attribute.
