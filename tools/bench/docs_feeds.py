@@ -254,7 +254,7 @@ TABLES: Final[dict[str, str | Combined]] = {
     "markdown-runs": Combined(
         label="Markdown escaping and plain text",
         parties=("turbohtml", "markdownify", "html2text"),
-        rows=(("8192 asterisks", "markdown"), ("8192 letters", "markdown")),
+        rows=(("8192 asterisks", "markdown"), ("65536 letters", "markdown")),
     ),
     "markdown": Combined(
         label="HTML to Markdown",

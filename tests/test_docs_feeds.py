@@ -11,7 +11,7 @@ _ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
 from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
-from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
+from bench.operations import INPUTS, OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
 
 _GUIDE: Final[Path] = _ROOT / "docs" / "development" / "performance.rst"
 _REFERENCED: Final[list[str]] = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))
@@ -47,3 +47,19 @@ def test_generator_entry_is_rendered_by_the_guide(name: str) -> None:
 def test_generator_entry_names_a_real_operation(operation: str) -> None:
     # A table cannot source a cell from an operation the bench no longer runs.
     assert operation in OPERATIONS
+
+
+def _rows(name: str) -> tuple[tuple[str, str], ...]:
+    # Return the (case, operation) rows of a table the generator assembles from several operations.
+    table = TABLES[name]
+    assert isinstance(table, Combined)
+    return table.rows
+
+
+@pytest.mark.parametrize(
+    ("case", "operation"),
+    [pytest.param(case, operation, id=case) for case, operation in _rows("markdown-runs")],
+)
+def test_markdown_runs_row_names_an_input_of_its_operation(case: str, operation: str) -> None:
+    # A renamed input leaves its row unmeasured, and the guide then shows "no equivalent operation" for every party.
+    assert case in {label for label, _ in INPUTS[operation]()}
