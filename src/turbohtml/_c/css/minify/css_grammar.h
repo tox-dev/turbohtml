@@ -1681,6 +1681,12 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
                 target->body_len / CSS_MAX_MERGE_RATIO > it->body_len) {
                 break;
             }
+            /* only plain declarations merge to themselves: a nested block or a block-less at-rule is kept twice */
+            if (!nested_body && memchr(pool->data + it->body_off, '@', (size_t)it->body_len) == NULL &&
+                rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len)) {
+                it->dropped = 1;
+                return back;
+            }
             Py_ssize_t body_off = target->body_off;
             Py_ssize_t body_len = target->body_len;
             css_merge_rule_bodies(pool, target, it, baseline, depth);

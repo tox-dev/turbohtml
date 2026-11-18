@@ -733,6 +733,34 @@ def test_minify_css_many_rules_merge_same_body() -> None:
     assert minify_css(f"first{{color:red}}{middle}last{{color:red}}") == f"first,last{{color:red}}{middle}"
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{color:red}a{color:red}", "a{color:red}", id="identical-body"),
+        pytest.param("a{b{c:d}}a{b{c:d}}", "a{b{c:d};b{c:d}}", id="nested-block-keeps-both"),
+        pytest.param("a{x:1;b{y:2}}a{x:1;b{y:2}}", "a{x:1;b{y:2};x:1;b{y:2}}", id="nested-block-after-declaration"),
+        pytest.param("a{@apply b}a{@apply b}", "a{@apply b;@apply b}", id="apply-kept-twice"),
+        pytest.param(
+            "a{color:red;@apply b}a{color:red;@apply b}",
+            "a{color:red;@apply b;color:red;@apply b}",
+            id="apply-after-declaration",
+        ),
+        pytest.param("a{@layer x;}a{@layer x;}", "a{@layer x;@layer x}", id="layer-statement-kept-twice"),
+        pytest.param("a{@foo;}a{@foo;}", "a{@foo;@foo}", id="unknown-statement-kept-twice"),
+        pytest.param(
+            "a{@media print;}a{@media print;}", "a{@media print;@media print}", id="media-statement-kept-twice"
+        ),
+        pytest.param("a{@include m}a{@include m}", "a{@include m;@include m}", id="include-kept-twice"),
+        pytest.param("a{@extend .b}a{@extend .b}", "a{@extend .b;@extend .b}", id="extend-kept-twice"),
+        pytest.param(
+            "a{@apply b}b{color:red}a{@apply b}", "a{@apply b;@apply b}b{color:red}", id="rule-between-kept-twice"
+        ),
+    ],
+)
+def test_minify_css_same_selector_identical_bodies(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 def test_minify_css_many_rules_keep_blocked_merge() -> None:
     middle = "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(40))
     source = f".target{{color:red}}{middle}.block{{color:blue}}.target{{color:green}}"
