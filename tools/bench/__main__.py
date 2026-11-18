@@ -1,10 +1,11 @@
 """
-CLI entry point: ``python -m bench [--pgo] [--jobs N] <command>``.
+CLI entry point: ``python -m bench [--pgo] [--jobs N] <command>...``.
 
 Commands: ``core`` (turbohtml baseline for every operation), ``all`` (every operation table), ``interpreters`` (the same
-turbohtml under each interpreter it supports, written straight to its docs feed), an operation name (cross-package
-table), or a package name (that package's own report). Anything after the command is forwarded verbatim to pyperf in
-every worker (e.g. ``--rigorous``, ``--affinity=2``).
+turbohtml under each interpreter it supports, written straight to its docs feed), one or more operation names
+(cross-package tables, rendered in the order given), or a package name (that package's own report). Only operation
+names may be combined. Anything after the names is forwarded verbatim to pyperf in every worker (e.g. ``--rigorous``,
+``--affinity=2``).
 
 ``--pgo``, before the command so pyperf never sees it, builds the turbohtml ``core`` baseline with the shipped release
 recipe -- the two-phase profile-guided, link-time-optimized build of :mod:`pgo_build` -- so the baseline measures
@@ -16,6 +17,7 @@ no competitor.
 from __future__ import annotations
 
 import sys
+from itertools import takewhile
 from pathlib import Path
 
 from bench import report
@@ -23,7 +25,7 @@ from bench.orchestrator import physical_cpus, run
 
 
 def main() -> None:
-    # Parse the command argument plus any pyperf passthrough options and run the matching report.
+    # Parse the command names plus any pyperf passthrough options and run the matching reports.
     arguments = sys.argv[1:]
     if "--table-json" in arguments:
         # also write each rendered table as the docs' bench-table JSON feed into the named directory
@@ -51,13 +53,14 @@ def main() -> None:
                 "--affinity cannot be combined with --jobs above 1: each parallel run is already pinned to its own core"
             )
             raise SystemExit(msg)
-    if not arguments:
+    commands = tuple(takewhile(lambda argument: not argument.startswith("-"), arguments))
+    if not commands:
         msg = (
             "usage: python -m bench [--table-json DIR] [--pgo] [--jobs N] "
-            "<core|all|interpreters|operation|package> [pyperf options...]"
+            "<core|all|interpreters|package|operation...> [pyperf options...]"
         )
         raise SystemExit(msg)
-    run(arguments[0], tuple(arguments[1:]), pgo=pgo, jobs=jobs)
+    run(commands, tuple(arguments[len(commands) :]), pgo=pgo, jobs=jobs)
 
 
 if __name__ == "__main__":

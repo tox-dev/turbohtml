@@ -21,12 +21,14 @@ benchmarks each competitor in its own isolated ``uv`` venv -- turbohtml in a ven
 so one library's dependency pins never perturb another's. Every table below is one harness operation, so each is
 reproducible with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
 operation), an operation name (the cross-competitor table), a package name (that competitor's own report), or ``all``.
-The numbers in these tables come from the ``--pgo`` baseline: turbohtml built with the shipped profile-guided,
-link-time-optimized release recipe (``tox -e bench -- --pgo all``), so each figure reads as what a release ships rather
-than a plain build. The default baseline is a plain wheel, which builds quickly for iterating; the ``--pgo`` build costs
-much more time. Most operations are a single call; a few aggregate workloads (``build``, ``build-e``) sweep a size, and
-the ``construct`` and ``emit`` breakdowns decompose that write path into the constructor and the serializer in
-isolation. Numbers vary with input and hardware.
+Several operation names can share one run (``tox -e bench -- node-equals startup``), so a sweep that stopped partway can
+resume by naming only the operations that did not finish, without rerunning the ones that did. The numbers in these
+tables come from the ``--pgo`` baseline: turbohtml built with the shipped profile-guided, link-time-optimized release
+recipe (``tox -e bench -- --pgo all``), so each figure reads as what a release ships rather than a plain build. The
+default baseline is a plain wheel, which builds quickly for iterating; the ``--pgo`` build costs much more time. Most
+operations are a single call; a few aggregate workloads (``build``, ``build-e``) sweep a size, and the ``construct`` and
+``emit`` breakdowns decompose that write path into the constructor and the serializer in isolation. Numbers vary with
+input and hardware.
 
 ``--jobs N`` runs N workers at once, so a sweep finishes sooner. Each concurrent run is pinned to its own physical core,
 which the harness chooses itself, so ``--affinity`` is rejected alongside it. Concurrent runs share last-level cache and

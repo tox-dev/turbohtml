@@ -46,21 +46,24 @@ class _Harness:
         self.hooks: dict[tuple[str, str], Callable[[tuple[str, ...]], None]] = {}
         self.seconds: dict[tuple[str, str], float] = {}
         self.broken_installs: set[str] = set()
+        self.baseline_builds = 0
+        self.provisioned: list[str] = []
         self.pip_options: dict[str, tuple[str, ...]] = {}
         self.rendered: list[tuple[str, dict[str, dict[str, float | str]]]] = []
 
     def monotonic(self) -> float:
         return self.now
 
-    @staticmethod
-    def baseline_python(workdir: Path, *, pgo: bool) -> Path:
+    def baseline_python(self, workdir: Path, *, pgo: bool) -> Path:
         assert not pgo
+        self.baseline_builds += 1
         return workdir / "venv-core"
 
     def venv_python(
         self, workdir: Path, name: str, _requirements: tuple[str, ...], pip_options: tuple[str, ...]
     ) -> Path:
         self.pip_options[name] = pip_options
+        self.provisioned.append(name)
         if name in self.broken_installs:
             raise subprocess.CalledProcessError(1, ["uv", "pip", "install"])
         return workdir / f"venv-{name}"
@@ -112,7 +115,7 @@ def test_physical_cpus_keep_one_cpu_per_core(
 
 def test_serial_run_prints_an_eta_after_each_run(harness: _Harness, capsys: pytest.CaptureFixture[str]) -> None:
     harness.seconds = {("node-equals", "core"): 62.0, ("node-equals", "beautifulsoup4"): 10.0}
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert _eta_lines(capsys.readouterr().err) == [
         "[1/2] core node-equals took 1m02s; elapsed 1m02s, eta 1m02s",
         "[2/2] beautifulsoup4 node-equals took 0m10s; elapsed 1m12s, eta 0m00s",
@@ -128,13 +131,13 @@ def test_cached_duration_sets_the_eta_of_a_pending_run(harness: _Harness, capsys
         json.dumps({"core:node-equals": 62.0, "beautifulsoup4:node-equals": 100.0}), encoding="utf-8"
     )
     harness.seconds = {("node-equals", "core"): 62.0, ("node-equals", "beautifulsoup4"): 10.0}
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert _eta_lines(capsys.readouterr().err)[0] == "[1/2] core node-equals took 1m02s; elapsed 1m02s, eta 1m40s"
 
 
 def test_finished_runs_are_written_to_the_duration_cache(harness: _Harness) -> None:
     harness.seconds = {("node-equals", "core"): 62.0, ("node-equals", "beautifulsoup4"): 10.0}
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert json.loads(harness.durations.read_text(encoding="utf-8")) == {
         "core:node-equals": 62.0,
         "beautifulsoup4:node-equals": 10.0,
@@ -143,7 +146,7 @@ def test_finished_runs_are_written_to_the_duration_cache(harness: _Harness) -> N
 
 def test_missing_duration_cache_counts_as_empty(harness: _Harness, capsys: pytest.CaptureFixture[str]) -> None:
     harness.seconds = {("node-equals", "core"): 62.0, ("node-equals", "beautifulsoup4"): 10.0}
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert _eta_lines(capsys.readouterr().err)[0] == "[1/2] core node-equals took 1m02s; elapsed 1m02s, eta 1m02s"
 
 
@@ -159,7 +162,7 @@ def test_corrupt_duration_cache_counts_as_empty(
 ) -> None:
     harness.durations.write_text(cache, encoding="utf-8")
     harness.seconds = {("node-equals", "core"): 62.0, ("node-equals", "beautifulsoup4"): 10.0}
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert _eta_lines(capsys.readouterr().err)[0] == "[1/2] core node-equals took 1m02s; elapsed 1m02s, eta 1m02s"
     assert json.loads(harness.durations.read_text(encoding="utf-8")) == {
         "core:node-equals": 62.0,
@@ -178,7 +181,7 @@ def test_parallel_run_renders_in_plan_order_when_a_later_run_finishes_first(
         startup_finished.wait(timeout=10)
 
     harness.hooks["node-equals", "core"] = hold
-    run("core", (), pgo=False, jobs=2)
+    run(("core",), (), pgo=False, jobs=2)
     assert [operation for operation, _ in harness.rendered] == ["node-equals", "startup"]
 
 
@@ -203,7 +206,7 @@ def test_parallel_runs_are_pinned_to_distinct_cpus(harness: _Harness, monkeypatc
 
     harness.hooks["node-equals", "core"] = meet
     harness.hooks["startup", "core"] = meet
-    run("core", (), pgo=False, jobs=2)
+    run(("core",), (), pgo=False, jobs=2)
     assert sorted(arg for _, _, args in harness.calls for arg in args) == ["--affinity=0", "--affinity=1"]
 
 
@@ -212,7 +215,7 @@ def test_parallel_worker_output_is_printed_as_a_block(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
-    run("core", (), pgo=False, jobs=2)
+    run(("core",), (), pgo=False, jobs=2)
     lines = capsys.readouterr().out.splitlines()
     assert sorted(line for line in lines if line.endswith(" measured")) == [
         "core node-equals measured",
@@ -230,7 +233,7 @@ def test_serial_failure_cancels_the_remaining_runs(
 
     harness.hooks["node-equals", "core"] = fail
     with pytest.raises(subprocess.CalledProcessError):
-        run("core", (), pgo=False, jobs=1)
+        run(("core",), (), pgo=False, jobs=1)
     assert harness.calls == [("node-equals", "core", ())]
     assert "boom" in capsys.readouterr().err
 
@@ -243,14 +246,14 @@ def test_parallel_failure_reraises(harness: _Harness, monkeypatch: pytest.Monkey
 
     harness.hooks["node-equals", "core"] = fail
     with pytest.raises(subprocess.CalledProcessError):
-        run("core", (), pgo=False, jobs=2)
+        run(("core",), (), pgo=False, jobs=2)
 
 
 def test_competitor_that_does_not_install_drops_its_column(
     harness: _Harness, capsys: pytest.CaptureFixture[str]
 ) -> None:
     harness.broken_installs = {"beautifulsoup4"}
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert "skipping beautifulsoup4: it did not install in its isolated venv" in capsys.readouterr().err.splitlines()
     assert harness.rendered == [("node-equals", {"node-equals|case|turbohtml": {"mean": 1.0, "stdev": 0.0}})]
 
@@ -280,7 +283,7 @@ def test_competitor_that_cannot_be_measured_drops_its_column(
         raise error
 
     harness.hooks["node-equals", "beautifulsoup4"] = fail
-    run("node-equals", (), pgo=False, jobs=1)
+    run(("node-equals",), (), pgo=False, jobs=1)
     assert note in capsys.readouterr().err.splitlines()
     assert harness.rendered == [("node-equals", {"node-equals|case|turbohtml": {"mean": 1.0, "stdev": 0.0}})]
 
@@ -291,11 +294,11 @@ def test_competitor_crash_after_import_propagates(harness: _Harness) -> None:
 
     harness.hooks["node-equals", "beautifulsoup4"] = fail
     with pytest.raises(subprocess.CalledProcessError):
-        run("node-equals", (), pgo=False, jobs=1)
+        run(("node-equals",), (), pgo=False, jobs=1)
 
 
 def test_package_run_renders_each_operation_for_turbohtml_and_the_package(harness: _Harness) -> None:
-    run("beautifulsoup4", (), pgo=False, jobs=1)
+    run(("beautifulsoup4",), (), pgo=False, jobs=1)
     assert dict(harness.rendered)["node-equals"] == {
         "node-equals|case|turbohtml": {"mean": 1.0, "stdev": 0.0},
         "node-equals|case|beautifulsoup4": {"mean": 1.0, "stdev": 0.0},
@@ -304,7 +307,7 @@ def test_package_run_renders_each_operation_for_turbohtml_and_the_package(harnes
 
 def test_all_renders_every_operation_with_its_competitors(harness: _Harness, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
-    run("all", (), pgo=False, jobs=1)
+    run(("all",), (), pgo=False, jobs=1)
     assert [operation for operation, _ in harness.rendered] == ["node-equals", "startup"]
     assert dict(harness.rendered)["node-equals"] == {
         "node-equals|case|turbohtml": {"mean": 1.0, "stdev": 0.0},
@@ -313,14 +316,47 @@ def test_all_renders_every_operation_with_its_competitors(harness: _Harness, mon
 
 
 def test_package_run_installs_with_the_competitor_pip_options(harness: _Harness) -> None:
-    run("html5_parser", (), pgo=False, jobs=1)
+    run(("html5_parser",), (), pgo=False, jobs=1)
     assert harness.pip_options["html5_parser"] == ("--no-binary", "lxml")
 
 
 @pytest.mark.usefixtures("harness")
 def test_unknown_command_is_rejected() -> None:
     with pytest.raises(SystemExit, match="unknown command 'nope'"):
-        run("nope", (), pgo=False, jobs=1)
+        run(("nope",), (), pgo=False, jobs=1)
+
+
+def test_several_operations_share_one_baseline_and_render_in_the_order_given(
+    harness: _Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orchestrator, "OPERATIONS", {name: OPERATIONS[name] for name in _TWO_NAMES})
+    run(("startup", "node-equals"), (), pgo=False, jobs=1)
+    assert [operation for operation, _ in harness.rendered] == ["startup", "node-equals"]
+    assert (harness.baseline_builds, harness.provisioned) == (1, ["beautifulsoup4"])
+
+
+@pytest.mark.parametrize(
+    ("commands", "rejected"),
+    [
+        pytest.param(("all", "node-equals"), "all", id="all-first"),
+        pytest.param(("node-equals", "all"), "all", id="all-last"),
+        pytest.param(("core", "node-equals"), "core", id="core"),
+        pytest.param(("interpreters", "node-equals"), "interpreters", id="interpreters"),
+        pytest.param(("node-equals", "beautifulsoup4"), "beautifulsoup4", id="package"),
+    ],
+)
+def test_single_command_cannot_be_mixed_with_operations(
+    harness: _Harness, commands: tuple[str, ...], rejected: str
+) -> None:
+    with pytest.raises(SystemExit, match=f"{rejected!r} runs alone"):
+        run(commands, (), pgo=False, jobs=1)
+    assert harness.calls == []
+
+
+def test_unknown_name_among_several_operations_is_rejected(harness: _Harness) -> None:
+    with pytest.raises(SystemExit, match="unknown command 'nope'"):
+        run(("node-equals", "nope"), (), pgo=False, jobs=1)
+    assert harness.calls == []
 
 
 def test_interpreters_command_builds_its_feed_outside_the_scheduler(
@@ -332,6 +368,6 @@ def test_interpreters_command_builds_its_feed_outside_the_scheduler(
         built.append((workdir, pyperf_args))
 
     monkeypatch.setattr(interpreters, "build", build)
-    run("interpreters", ("--rigorous",), pgo=False, jobs=1)
+    run(("interpreters",), ("--rigorous",), pgo=False, jobs=1)
     assert [args for _, args in built] == [("--rigorous",)]
     assert harness.calls == []

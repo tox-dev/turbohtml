@@ -89,10 +89,10 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
 _COMPETITORS: Final[dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = _discover()
 
 
-def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> None:
-    # Dispatch a CLI command to the matching report, forwarding any extra pyperf options to every worker.
+def run(commands: tuple[str, ...], pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> None:
+    # Dispatch the CLI commands to the matching reports, forwarding any extra pyperf options to every worker.
     #
-    # One workdir spans the whole command, so the (profile-guided, when ``pgo``) core wheel is built once and every venv
+    # One workdir spans the whole run, so the (profile-guided, when ``pgo``) core wheel is built once and every venv
     # provisioned once, however many operations reuse them.
     print(
         "tip: for low-noise results run `pyperf system tune` first (and `sudo pyperf system reset` after); pass "
@@ -102,20 +102,30 @@ def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> 
     prefetch()  # the worker venvs carry no HTTP client; fill the download cache here, where one is installed
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        if command == "interpreters":
+        if commands == ("interpreters",):
             from . import (  # ruff:ignore[import-outside-top-level]  # imports orchestrator, so bind it late
                 interpreters,
             )
 
             interpreters.build(workdir, pyperf_args)
         else:
-            plan = _plan(command)
+            plan = _plan(commands)
             pythons = _provision(workdir, _competitors(plan), pgo=pgo)
             _Schedule(plan, pythons, workdir=workdir, pyperf_args=pyperf_args, jobs=jobs).execute()
 
 
-def _plan(command: str) -> dict[str, tuple[str, ...]]:
+def _plan(commands: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
     # Map each operation to the targets whose runs fill its table: turbohtml first, then competitors in discovery order.
+    if len(commands) > 1:
+        # One run covers them all: one baseline build and one schedule, rendered in the order given.
+        for command in commands:
+            if command in _COMPETITORS or command in {"core", "all", "interpreters"}:
+                msg = f"{command!r} runs alone; several at once take operation names only"
+                raise SystemExit(msg)
+            if command not in OPERATIONS:
+                raise _unknown(command)
+        return {operation: ("core", *_packages_for(operation)) for operation in commands}
+    (command,) = commands
     if command in _COMPETITORS:
         return dict.fromkeys(_COMPETITORS[command][1], ("core", command))
     if command == "core":
@@ -124,9 +134,12 @@ def _plan(command: str) -> dict[str, tuple[str, ...]]:
         return {operation: ("core", *_packages_for(operation)) for operation in OPERATIONS}
     if command in OPERATIONS:
         return {command: ("core", *_packages_for(command))}
+    raise _unknown(command)
+
+
+def _unknown(command: str) -> SystemExit:
     choices = ", ".join(["core", "all", "interpreters", *OPERATIONS, *_COMPETITORS])
-    msg = f"unknown command {command!r}; choose one of: {choices}"
-    raise SystemExit(msg)
+    return SystemExit(f"unknown command {command!r}; choose one of: {choices}")
 
 
 def _packages_for(operation: str) -> list[str]:

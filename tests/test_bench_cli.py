@@ -16,17 +16,17 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
 
 class _Recorder:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple[str, ...], bool, int]] = []
+        self.calls: list[tuple[tuple[str, ...], tuple[str, ...], bool, int]] = []
 
-    def run(self, command: str, pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> None:
-        self.calls.append((command, pyperf_args, pgo, jobs))
+    def run(self, commands: tuple[str, ...], pyperf_args: tuple[str, ...], *, pgo: bool, jobs: int) -> None:
+        self.calls.append((commands, pyperf_args, pgo, jobs))
 
 
 def test_jobs_and_pgo_are_kept_out_of_the_pyperf_arguments(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _invoke(monkeypatch, "--pgo", "--jobs", "2", "core", "--rigorous")
-    assert recorder.calls == [("core", ("--rigorous",), True, 2)]
+    assert recorder.calls == [(("core",), ("--rigorous",), True, 2)]
 
 
 def _invoke(monkeypatch: pytest.MonkeyPatch, *arguments: str) -> None:
@@ -36,7 +36,7 @@ def _invoke(monkeypatch: pytest.MonkeyPatch, *arguments: str) -> None:
 
 def test_jobs_defaults_to_one(recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
     _invoke(monkeypatch, "core")
-    assert recorder.calls == [("core", (), False, 1)]
+    assert recorder.calls == [(("core",), (), False, 1)]
 
 
 @pytest.mark.parametrize(
@@ -60,7 +60,14 @@ def test_invalid_jobs_are_rejected(
 
 def test_affinity_is_allowed_without_parallel_jobs(recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
     _invoke(monkeypatch, "core", "--affinity=3")
-    assert recorder.calls == [("core", ("--affinity=3",), False, 1)]
+    assert recorder.calls == [(("core",), ("--affinity=3",), False, 1)]
+
+
+def test_operation_names_are_passed_in_order_ahead_of_pyperf_options(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _invoke(monkeypatch, "startup", "node-equals", "--rigorous", "--affinity=3")
+    assert recorder.calls == [(("startup", "node-equals"), ("--rigorous", "--affinity=3"), False, 1)]
 
 
 def test_missing_command_prints_usage_with_jobs(recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
