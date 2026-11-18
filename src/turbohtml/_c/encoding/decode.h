@@ -386,9 +386,12 @@ static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
                                ((uint32_t)(dec->second - 0x30) * 10 * 126) + ((uint32_t)(dec->third - 0x81) * 10) +
                                (uint32_t)(byte - 0x30);
             dec->first = dec->second = dec->third = 0;
+            /* GCOVR_EXCL_START: the fast path decodes every in-range four-byte sequence a buffer holds, and a tail
+               cut short is re-read from its lead, so only an out-of-range pointer resolves here */
             if (th_dec_gb18030_range(pointer, point)) {
                 return TH_DEC_POINT;
             }
+            /* GCOVR_EXCL_STOP */
             /* the four-byte form resolved to no code point. Naming the offending byte matters:
                a stale error_at would read as the -1 an incomplete tail sets, which is how a
                resumed decoder tells "wait for more input" from "this input is wrong". */
@@ -413,11 +416,14 @@ static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
             unsigned char lead = dec->first;
             dec->first = 0;
             int offset = byte < 0x7F ? 0x40 : 0x41;
+            /* GCOVR_EXCL_START: the fast path decodes every valid two-byte sequence a buffer holds, so only an
+               invalid trail byte reaches here */
             if ((byte >= 0x40 && byte <= 0x7E) || (byte >= 0x80 && byte <= 0xFE)) {
                 /* every two-byte pointer maps; the generator refuses to emit a gb18030 table with a hole */
                 *point = th_gb18030[(lead - 0x81) * 190 + (byte - offset)];
                 return TH_DEC_POINT;
             }
+            /* GCOVR_EXCL_STOP */
             dec->error_at = dec->pos - 1;
             if (th_dec_ascii(byte)) {
                 dec->pos--;
