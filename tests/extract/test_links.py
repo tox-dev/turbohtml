@@ -806,6 +806,27 @@ def test_link_is_a_named_tuple() -> None:
     assert link.element.attrs["href"] == "u"
 
 
+@pytest.mark.parametrize(
+    ("html", "attribute"),
+    [
+        pytest.param('<a href="u">x</a>', "href", id="attribute"),
+        pytest.param("<style>a{b:url(u)}</style>", None, id="style"),
+    ],
+)
+def test_link_record_hashes_and_compares_like_its_tuple(html: str, attribute: str | None) -> None:
+    (link,) = parse_fragment(html).links()
+    twin = (link.element, attribute, link.url)
+    assert (hash(link) == hash(twin), link == twin, {twin: 1}[link], len({link, twin})) == (True, True, 1, 1)
+
+
+def test_link_record_is_a_link_with_named_tuple_methods() -> None:
+    (link,) = parse_fragment('<a href="u">x</a>').links()
+    replaced = link._replace(url="v")
+    assert (type(link) is Link, type(replaced) is Link, replaced.url, link.url) == (True, True, "v", "u")
+    assert link._asdict() == {"element": link.element, "attribute": "href", "url": "u"}
+    assert repr(link) == f"Link(element={link.element!r}, attribute='href', url='u')"
+
+
 _RESOLVE_BASE: Final[str] = "https://example.com/dir/page.html"
 
 
