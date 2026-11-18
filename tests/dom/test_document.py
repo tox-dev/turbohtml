@@ -4,6 +4,7 @@ import copy
 import gc
 import os
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own trusted payloads
+import random
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fixed argv, generated child script
 import sys
 import textwrap
@@ -713,6 +714,66 @@ def _tree_parse_errors_streamed(markup: str, chunk: int = 1) -> list[tuple[str, 
     for start in range(0, len(markup), chunk):
         parser.feed(markup[start : start + chunk])
     return [(error.code, error.line, error.col) for error in parser.close().errors]
+
+
+@pytest.mark.parametrize(
+    ("offset", "length"),
+    [
+        pytest.param(16, 48, id="first-32-byte-block"),
+        pytest.param(40, 64, id="second-32-byte-block"),
+        pytest.param(56, 64, id="trailing-16-byte-block"),
+    ],
+)
+def test_a_nul_in_a_long_text_run_is_reported(offset: int, length: int) -> None:
+    # the data state reports a NUL wherever it sits, and the blocks the long text scan skips must stop at it
+    markup = f"{'a' * offset}\x00{'b' * (length - offset - 1)}"
+    assert _whole_errors(markup) == [("unexpected-null-character", 1, offset)]
+
+
+def _whole_errors(markup: str) -> list[tuple[str, int, int]]:
+    return [(error.code, error.line, error.col) for error in parse(markup).errors]
+
+
+@pytest.mark.parametrize("chunk", [1, 2, 3, 7, 4096])
+def test_a_streamed_nul_after_a_long_run_matches_one_shot(chunk: int) -> None:
+    markup = 'ab\x0c>bb>gh">\x0c\r\x01>gg>éé\n"\taf\x01p\x00\n"\tp\t\'\x7f\tgé\n&>\r<\x7f\x85<\x00<'
+    expected = _whole_errors(markup)
+    assert ("unexpected-null-character", 3, 6) in expected
+    assert _tree_parse_errors_streamed(markup, chunk) == expected
+
+
+@pytest.mark.parametrize("chunk", [1, 2, 3, 7, 4096])
+def test_seeded_random_markup_streams_the_errors_parse_reports(chunk: int) -> None:
+    # Latin-1 strings stay on the one-byte scan, where the long blocks are skipped; the wide ones cover the other widths
+    rng = random.Random(20261118)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed seed reproduces the sample
+    latin = {
+        "a": 4,
+        "b": 4,
+        " ": 4,
+        "é": 2,
+        "\n": 2,
+        "\r": 1,
+        "\t": 2,
+        ">": 1,
+        "\x01": 1,
+        "\x0c": 1,
+        "\x7f": 1,
+        "\x00": 3,
+        "<": 0.5,
+        "&": 0.5,
+        "=": 1,
+        '"': 1,
+        "'": 1,
+        "\x85": 1,
+    }
+
+    def sample() -> str:
+        weights = latin | {"日": 1, "🎉": 1} if rng.random() < 0.5 else latin
+        population = list(weights)
+        return "".join(rng.choices(population, weights=[weights[char] for char in population], k=rng.randrange(0, 160)))
+
+    markups = [sample() for _ in range(300)]
+    assert [markup for markup in markups if _tree_parse_errors_streamed(markup, chunk) != _whole_errors(markup)] == []
 
 
 def test_a_crlf_split_across_a_feed_counts_one_line_break() -> None:
