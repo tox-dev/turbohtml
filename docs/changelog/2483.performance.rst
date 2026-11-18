@@ -1,0 +1,2 @@
+Minifying a ``unicode-range`` descriptor with hundreds of ranges is up to twice as fast, most of all when the ranges are
+listed in descending order.
