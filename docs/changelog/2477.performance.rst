@@ -1,1 +1,2 @@
-Comparing two elements with many attributes is faster, and so is comparing elements whose attributes come in the same order.
+Comparing two elements with many attributes is faster, and so is comparing elements whose attributes come in the same
+order.
