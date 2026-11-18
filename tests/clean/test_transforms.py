@@ -148,6 +148,16 @@ def test_transform_empty() -> None:
     assert assert_type(transform_node(root), Text) is root
 
 
+def test_transform_stage_returning_its_root_keeps_identity() -> None:
+    root: Final = Element("p", children=[Text("a")])
+    assert transform_node(root, strip_comments_node, lambda node: node) is root
+
+
+def test_transform_stage_returning_a_new_node_replaces_the_root() -> None:
+    result: Final = transform_node(Text("a"), lambda _node: Text("b"))
+    assert (type(result), result.text) == (Text, "b")
+
+
 def test_transform_native_mutator() -> None:
     root: Final = Element("p", children=[Text("a"), Text("b")])
     assert assert_type(transform_node(root, Element.normalize), Element).inner_html == "ab"
