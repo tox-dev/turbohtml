@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import string
 from typing import Final
 
 import pytest
@@ -308,6 +310,29 @@ def test_base_url_resolves_simple_web_path(href: str, expected: str) -> None:
 def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> None:
     # the resolved base URL applies the WHATWG path/query/fragment percent-encode sets, so it is a valid URL string
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+_PERCENT_SAFE: Final[frozenset[str]] = frozenset(f"{string.ascii_letters}{string.digits}-._~:/?&=#%")
+
+
+@pytest.mark.parametrize(
+    "character", [pytest.param(character, id=f"{ord(character):#04x}") for character in sorted(_PERCENT_SAFE)]
+)
+def test_base_url_keeps_every_percent_safe_character(character: str) -> None:
+    assert parse(_base_with_href(f"/a{character}b")).base_url("http://site.com/") == f"http://site.com/a{character}b"
+
+
+def _base_with_href(href: str) -> str:
+    return f'<base href="{html.escape(href, quote=True)}">'
+
+
+@pytest.mark.parametrize("byte", [pytest.param(value, id=f"{value:#04x}") for value in range(256)])
+def test_base_url_encodes_every_byte_outside_the_percent_safe_set(byte: int) -> None:
+    # a non-ASCII character sends the URL to the encoder, which encodes it: the mixed URL is the bare one plus that
+    character = chr(byte)
+    bare = parse(_base_with_href(f"/a{character}b")).base_url("http://site.com/")
+    mixed = parse(_base_with_href(f"/a{character}b\u00e9")).base_url("http://site.com/")
+    assert mixed == f"{bare}%C3%A9"
 
 
 @pytest.mark.parametrize(

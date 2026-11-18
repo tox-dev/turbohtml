@@ -194,11 +194,28 @@ static int url_web_special_base(PyObject *base) {
 /* Encode the resolved URL's path, query, fragment, and userinfo brackets, preserving the raw host. */
 static PyObject *url_percent_encode_slow(PyObject *url, int check_encoded_dot);
 
+static const unsigned char URL_PERCENT_SAFE[256] = {
+    ['a'] = 1, ['b'] = 1, ['c'] = 1, ['d'] = 1, ['e'] = 1, ['f'] = 1, ['g'] = 1, ['h'] = 1, ['i'] = 1, ['j'] = 1,
+    ['k'] = 1, ['l'] = 1, ['m'] = 1, ['n'] = 1, ['o'] = 1, ['p'] = 1, ['q'] = 1, ['r'] = 1, ['s'] = 1, ['t'] = 1,
+    ['u'] = 1, ['v'] = 1, ['w'] = 1, ['x'] = 1, ['y'] = 1, ['z'] = 1, ['A'] = 1, ['B'] = 1, ['C'] = 1, ['D'] = 1,
+    ['E'] = 1, ['F'] = 1, ['G'] = 1, ['H'] = 1, ['I'] = 1, ['J'] = 1, ['K'] = 1, ['L'] = 1, ['M'] = 1, ['N'] = 1,
+    ['O'] = 1, ['P'] = 1, ['Q'] = 1, ['R'] = 1, ['S'] = 1, ['T'] = 1, ['U'] = 1, ['V'] = 1, ['W'] = 1, ['X'] = 1,
+    ['Y'] = 1, ['Z'] = 1, ['0'] = 1, ['1'] = 1, ['2'] = 1, ['3'] = 1, ['4'] = 1, ['5'] = 1, ['6'] = 1, ['7'] = 1,
+    ['8'] = 1, ['9'] = 1, ['-'] = 1, ['.'] = 1, ['_'] = 1, ['~'] = 1, [':'] = 1, ['/'] = 1, ['?'] = 1, ['&'] = 1,
+    ['='] = 1, ['#'] = 1, ['%'] = 1,
+};
+
 static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
-    static const char ASCII_SAFE[] = TH_URL_ALPHA "0123456789-._~:/?&=#%";
-    if (check_encoded_dot == 0 && PyUnicode_IS_ASCII(url) &&
-        (Py_ssize_t)strspn((const char *)PyUnicode_1BYTE_DATA(url), ASCII_SAFE) == PyUnicode_GET_LENGTH(url)) {
-        return Py_NewRef(url);
+    if (check_encoded_dot == 0 && PyUnicode_IS_ASCII(url)) {
+        const Py_UCS1 *bytes = PyUnicode_1BYTE_DATA(url);
+        Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+        Py_ssize_t index = 0;
+        while (index < length && URL_PERCENT_SAFE[bytes[index]]) {
+            index++;
+        }
+        if (index == length) {
+            return Py_NewRef(url);
+        }
     }
     return url_percent_encode_slow(url, check_encoded_dot);
 }
