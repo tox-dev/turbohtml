@@ -1416,6 +1416,20 @@ static int attr_value_equal(const th_node_attr *left, const th_node_attr *right)
 static int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right,
                                Py_ssize_t start);
 
+/* The position in right of the attribute named like want, probing on from cursor and wrapping around; -1 when right has
+   none. The caller has already seen cursor fail to match, so the lap stops before probing it again. */
+static TH_NOINLINE Py_ssize_t attr_scan(th_tree *left_tree, const th_node_attr *want, th_tree *right_tree,
+                                        th_node *right, Py_ssize_t cursor) {
+    Py_ssize_t other = cursor;
+    do {
+        other = other + 1 < right->attr_count ? other + 1 : 0;
+        if (other == cursor) {
+            return -1;
+        }
+    } while (!attr_name_equal(left_tree, want, right_tree, &right->attrs[other]));
+    return other;
+}
+
 static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
     if (left->attr_count != right->attr_count) {
         return 0;
@@ -1424,41 +1438,31 @@ static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, t
                     /* GCOVR_EXCL_BR_START: allocation size overflow */
                     (size_t)left->attr_count <= SIZE_MAX / (4 * sizeof(Py_ssize_t));
     /* GCOVR_EXCL_BR_STOP */
-    Py_ssize_t comparisons = 0;
-    /* Elements built alike keep their attributes in one order, so the same index matches until the first
-       misalignment; from there on every attribute is scanned. */
-    int aligned = 1;
+    Py_ssize_t misses_to_index = can_index ? left->attr_count * 2 : 0;
+    /* Elements built alike list their attributes in one order, so each attribute usually matches where the previous
+       one did; a rotated list then wraps around once rather than restarting at zero for every attribute. */
+    Py_ssize_t cursor = 0;
     for (Py_ssize_t index = 0; index < left->attr_count; index++) {
         const th_node_attr *want = &left->attrs[index];
-        Py_ssize_t skip = -1;
-        if (aligned) {
-            if (attr_name_equal(left_tree, want, right_tree, &right->attrs[index])) {
-                if (!attr_value_equal(want, &right->attrs[index])) {
-                    return 0;
-                }
-                continue;
+        Py_ssize_t other = cursor;
+        if (!attr_name_equal(left_tree, want, right_tree, &right->attrs[other])) {
+            other = attr_scan(left_tree, want, right_tree, right, cursor);
+            if (other < 0) {
+                return 0;
             }
-            aligned = 0;
-            skip = index;
-        }
-        Py_ssize_t other = 0;
-        while (other < right->attr_count &&
-               (other == skip || !attr_name_equal(left_tree, want, right_tree, &right->attrs[other]))) {
-            other++;
-        }
-        if (other == right->attr_count || !attr_value_equal(want, &right->attrs[other])) {
-            return 0;
-        }
-        if (can_index) {
-            comparisons += other + 1;
-            if (comparisons >= left->attr_count * 2) {
-                can_index = 0;
-                const int indexed = attrs_equal_indexed(left_tree, left, right_tree, right, index + 1);
+            const Py_ssize_t misses = other > cursor ? other - cursor : other + right->attr_count - cursor;
+            if (misses_to_index != 0 && (misses_to_index -= misses) <= 0) {
+                misses_to_index = 0;
+                const int indexed = attrs_equal_indexed(left_tree, left, right_tree, right, index);
                 if (indexed >= 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                     return indexed;
                 }
             } /* GCOVR_EXCL_LINE: allocation failure fallback */
         }
+        if (!attr_value_equal(want, &right->attrs[other])) {
+            return 0;
+        }
+        cursor = other + 1 < right->attr_count ? other + 1 : 0;
     }
     return 1;
 }
