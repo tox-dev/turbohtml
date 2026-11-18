@@ -584,7 +584,7 @@ static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char 
     return atom;
 }
 
-/* Replaces the value of a present name, or appends it. Kept apart from th_node_attr_append rather than inlined into
+/* Replaces the value of a present name, or appends it. Kept apart from th_node_attr_adopt rather than inlined into
    both: a shared store would hold the duplicate and index branches, which the appender never takes. With borrow the
    slot takes value itself, a buffer of this tree's arena that is already another element's attribute value, rather
    than a copy. */
@@ -661,17 +661,11 @@ int th_node_attr_set_shared(th_tree *tree, th_node *node, const char *name, Py_s
 }
 
 /* out of line: inlined into the XML parser's attribute loop it cost that loop more than the call. The XML parser is the
-   only appender and its tree is always XML, so the namespace check needs no tree->xml test. */
-TH_NOINLINE int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                    const Py_UCS4 *value, Py_ssize_t value_len) {
+   only caller and its tree is always XML, so the namespace check needs no tree->xml test. The slot takes owned, an
+   arena buffer the caller has filled, rather than a copy of it. */
+TH_NOINLINE int th_node_attr_adopt(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, Py_UCS4 *owned,
+                                   Py_ssize_t value_len) {
     uint32_t atom = node_attr_begin(tree, node, name, name_len);
-    Py_UCS4 *owned = arena_alloc(tree, (value_len ? value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
-    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (value_len > 0) { /* an empty value may arrive as a NULL pointer */
-        memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
-    }
     if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
         return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }

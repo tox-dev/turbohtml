@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
@@ -663,7 +664,13 @@ def test_xml_attribute_append_keeps_later_attribute_replacement() -> None:
     ],
 )
 @pytest.mark.parametrize(
-    "length", [pytest.param(0, id="empty"), pytest.param(65, id="growth"), pytest.param(65536, id="long")]
+    "length",
+    [
+        pytest.param(0, id="empty"),
+        pytest.param(65, id="growth"),
+        pytest.param(65536, id="long"),
+        pytest.param(131_073, id="beyond-128-kib"),
+    ],
 )
 def test_xml_attribute_run_value(quote: str, character: str, length: int) -> None:
     value: Final = character * length
@@ -684,6 +691,58 @@ def test_xml_attribute_run_scratch_reuse() -> None:
     root: Final = parse_xml(f'<root first="{long}" second="short" third="{long}"/>').find("root")
     assert root is not None
     assert list(root.attrs.items()) == [("first", long), ("second", "short"), ("third", long)]
+
+
+def test_xml_attribute_values_mix_plain_and_expanded_runs() -> None:
+    long: Final = "a" * 1024
+    root: Final = root_of(parse_xml(f'<r one="{long}" two="x&amp;y" three="t\tu" four="" five="é" six="é&#233;"/>'))
+    assert list(root.attrs.items()) == [
+        ("one", long),
+        ("two", "x&y"),
+        ("three", "t u"),
+        ("four", ""),
+        ("five", "é"),
+        ("six", "éé"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("\tx", " x", id="leading-tab"),
+        pytest.param("x\n", "x ", id="trailing-lf"),
+        pytest.param("a\r\nb", "a b", id="crlf"),
+        pytest.param("é\tè", "é è", id="latin1-tab"),
+        pytest.param("λ\tx", "λ x", id="wide-tab"),
+        pytest.param(f"{'a' * 300}\t{'b' * 300}", f"{'a' * 300} {'b' * 300}", id="tab-after-long-run"),
+        pytest.param(f"{'a' * 200}\r{'a' * 200}", f"{'a' * 200} {'a' * 200}", id="cr-after-long-run"),
+    ],
+)
+def test_xml_attribute_value_normalizes_whitespace(value: str, expected: str) -> None:
+    assert root_of(parse_xml(f'<r value="{value}"/>')).attrs["value"] == expected
+
+
+def test_xml_attribute_value_empty_in_wide_input() -> None:
+    assert list(root_of(parse_xml('<r λ="" μ="λ"/>')).attrs.items()) == [("λ", ""), ("μ", "λ")]
+
+
+def test_xml_attribute_value_beyond_128_kib_with_references() -> None:
+    value: Final = "a" * 131_072
+    root: Final = root_of(parse_xml(f'<r value="{value}&amp;{value}"/>'))
+    assert root.attrs["value"] == f"{value}&{value}"
+
+
+def test_xml_attribute_value_outlives_source_and_stays_mutable() -> None:
+    root: Final = root_of(parse_built_source(4096))
+    gc.collect()
+    assert (root.attrs["value"], root.attrs["other"]) == ("a" * 4096, f"λ&{'b' * 4096}")
+    root.attrs["value"] = "replaced"
+    root.attrs["added"] = "new"
+    assert list(root.attrs.items()) == [("value", "replaced"), ("other", f"λ&{'b' * 4096}"), ("added", "new")]
+
+
+def parse_built_source(count: int) -> Document:
+    return parse_xml(f'<r value="{"a" * count}" other="λ&amp;{"b" * count}"/>')
 
 
 @pytest.mark.parametrize(

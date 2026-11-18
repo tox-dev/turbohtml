@@ -413,9 +413,10 @@ int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
    is never written in place and the arena keeps it until the tree is freed, so the holders need no bookkeeping. */
 int th_node_attr_set_shared(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                             Py_ssize_t value_len);
-/* The caller has already established that this attribute name is absent. */
-int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
-                        Py_ssize_t value_len);
+/* The caller has already established that this attribute name is absent. The slot takes owned, a buffer of this tree's
+   arena that the caller has filled with value_len code points. */
+int th_node_attr_adopt(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, Py_UCS4 *owned,
+                       Py_ssize_t value_len);
 
 /* An element's attribute array and count; (NULL, 0) for every non-element node. */
 static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **attrs) {

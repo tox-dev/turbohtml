@@ -282,13 +282,13 @@ static int name_equals(const xml_parser *parser, Py_ssize_t start, Py_ssize_t en
 static const char XML_NS_URI[] = "http://www.w3.org/XML/1998/namespace";
 static const char XMLNS_NS_URI[] = "http://www.w3.org/2000/xmlns/";
 
-/* Whether the scratch buffer (a parsed, entity-normalized attribute value) equals `text`. */
-static int scratch_equals(const xml_parser *parser, const char *text, Py_ssize_t text_len) {
-    if (parser->scratch_len != text_len) {
+/* Whether a parsed, entity-normalized attribute value of value_len code points equals `text`. */
+static int value_equals(const Py_UCS4 *value, Py_ssize_t value_len, const char *text, Py_ssize_t text_len) {
+    if (value_len != text_len) {
         return 0;
     }
     for (Py_ssize_t index = 0; index < text_len; index++) {
-        if (parser->scratch[index] != (Py_UCS4)text[index]) {
+        if (value[index] != (Py_UCS4)text[index]) {
             return 0;
         }
     }
@@ -406,14 +406,16 @@ static int push_open(xml_parser *parser, th_node *element) {
     return 0;
 }
 
-/* Copy a namespace URI into the arena. consume_namespace_decl rejects an empty one first, so src is never the
-   NULL scratch buffer. */
+/* Copy a namespace URI or an attribute value into the arena. src is the NULL scratch buffer only when len is 0, as an
+   empty value that never grew it. */
 static Py_UCS4 *arena_copy(th_tree *tree, const Py_UCS4 *src, Py_ssize_t len) {
     Py_UCS4 *out = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
+    if (len > 0) {
+        memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
+    }
     return out;
 }
 
@@ -1233,10 +1235,11 @@ static int consume_end_tag(xml_parser *parser) {
     return 0;
 }
 
-/* Enforce Namespaces in XML 1.0 on an xmlns / xmlns:prefix attribute whose value is in the
-   scratch buffer, declaring a well-formed prefix binding. Returns 0 for an ordinary attribute
+/* Enforce Namespaces in XML 1.0 on an xmlns / xmlns:prefix attribute whose value is `value`,
+   declaring a well-formed prefix binding. Returns 0 for an ordinary attribute
    or a valid declaration, -1 with an error recorded for a reserved-binding violation. */
-static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_ssize_t name_end, Py_ssize_t depth) {
+static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_ssize_t name_end, const Py_UCS4 *value,
+                                  Py_ssize_t value_len, Py_ssize_t depth) {
     if (name_end - name_start < 5 || cp(parser, name_start) != 'x') {
         return 0;
     }
@@ -1244,8 +1247,8 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     if (!is_default && !starts_with(parser, name_start, "xmlns:")) {
         return 0;
     }
-    int binds_xml_uri = scratch_equals(parser, XML_NS_URI, (Py_ssize_t)(sizeof(XML_NS_URI) - 1));
-    int binds_xmlns_uri = scratch_equals(parser, XMLNS_NS_URI, (Py_ssize_t)(sizeof(XMLNS_NS_URI) - 1));
+    int binds_xml_uri = value_equals(value, value_len, XML_NS_URI, (Py_ssize_t)(sizeof(XML_NS_URI) - 1));
+    int binds_xmlns_uri = value_equals(value, value_len, XMLNS_NS_URI, (Py_ssize_t)(sizeof(XMLNS_NS_URI) - 1));
     if (is_default) { /* a reserved name may not be bound as the default namespace */
         if (binds_xml_uri || binds_xmlns_uri) {
             record(parser, "xml-reserved-namespace", name_start);
@@ -1258,7 +1261,7 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     Py_ssize_t prefix_len = name_end - prefix_start;
     /* an empty prefix is not an NCName, and an empty URI would undeclare the prefix, which only Namespaces in XML 1.1
        allows (NSC: No Prefix Undeclaring) */
-    if (prefix_len == 0 || !is_name_start(cp(parser, prefix_start)) || parser->scratch_len == 0) {
+    if (prefix_len == 0 || !is_name_start(cp(parser, prefix_start)) || value_len == 0) {
         record(parser, "xml-invalid-namespace-decl", name_start);
         return -1;
     }
@@ -1285,7 +1288,7 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
         record(parser, "xml-reserved-namespace", prefix_start);
         return -1;
     }
-    int declared = declare_prefix(parser, prefix_start, prefix_len, parser->scratch, parser->scratch_len, depth);
+    int declared = declare_prefix(parser, prefix_start, prefix_len, value, value_len, depth);
     if (declared < 0) { /* GCOVR_EXCL_BR_LINE: declare_prefix only fails on allocation */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1324,35 +1327,38 @@ static uint64_t decl_uri_hash(xml_parser *parser, xml_nsdecl *decl) {
     return decl->uri_hash;
 }
 
-/* Parse one attribute onto `element`, tracking any xmlns declaration at `depth`.
-   Advances past the attribute; returns 0, or -1 with an error recorded. */
-static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t depth) {
-    Py_ssize_t name_start = parser->pos;
-    Py_ssize_t name_end = read_name(parser);
-    if (name_end < 0) {
-        return -1;
-    }
-    skip_space(parser);
-    if (parser->pos >= parser->length || cp(parser, parser->pos) != '=') {
-        record(parser, "xml-expected-equals", parser->pos < parser->length ? parser->pos : name_start);
-        return -1;
-    }
-    parser->pos++; /* past '=' */
-    skip_space(parser);
-    if (parser->pos >= parser->length || (cp(parser, parser->pos) != '"' && cp(parser, parser->pos) != '\'')) {
-        record(parser, "xml-unquoted-attribute", parser->pos < parser->length ? parser->pos : name_start);
-        return -1;
-    }
-    Py_UCS4 quote = cp(parser, parser->pos);
-    parser->pos++; /* past the opening quote */
-    parser->scratch_len = 0;
+/* The normalized value of an attribute once its opening quote is consumed, through its closing quote. A 1-byte run
+   with no reference and no whitespace to normalize is widened straight into its arena buffer; anything else is built
+   in the scratch buffer first. It takes which quote rather than the quote itself: derived here, the compiler knows the
+   quote sorts below '<' and drops the quote test for every byte above it, which an opaque parameter costs per byte. */
+static int read_attribute_value(xml_parser *parser, Py_ssize_t name_start, int apostrophe, Py_UCS4 **value,
+                                Py_ssize_t *value_len) {
+    const Py_UCS4 quote = apostrophe ? '\'' : '"';
+    Py_ssize_t end = parser->pos;
     if (parser->kind == PyUnicode_1BYTE_KIND) {
         const uint8_t *bytes = parser->data;
-        Py_ssize_t end = parser->pos;
         while (end < parser->length && bytes[end] >= 0x20 && bytes[end] != quote && bytes[end] != '<' &&
                bytes[end] != '&') {
             end++;
         }
+        if (end < parser->length && bytes[end] == quote) {
+            const Py_ssize_t length = end - parser->pos;
+            Py_UCS4 *plain = arena_alloc(parser->tree, (length ? length : 1) * (Py_ssize_t)sizeof(Py_UCS4));
+            if (plain == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            for (Py_ssize_t index = 0; index < length; index++) {
+                plain[index] = bytes[parser->pos + index];
+            }
+            parser->pos = end + 1; /* past the closing quote */
+            *value = plain;
+            *value_len = length;
+            return 0;
+        }
+    }
+    parser->scratch_len = 0;
+    if (parser->kind == PyUnicode_1BYTE_KIND) {
+        const uint8_t *bytes = parser->data;
         const Py_ssize_t length = end - parser->pos;
         if (length > parser->scratch_cap) {
             size_t capacity, size;
@@ -1416,17 +1422,51 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
         return -1;
     }
     parser->pos++; /* past the closing quote */
+    *value = arena_copy(parser->tree, parser->scratch, parser->scratch_len);
+    if (*value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    *value_len = parser->scratch_len;
+    return 0;
+}
+
+/* Parse one attribute onto `element`, tracking any xmlns declaration at `depth`.
+   Advances past the attribute; returns 0, or -1 with an error recorded. */
+static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t depth) {
+    Py_ssize_t name_start = parser->pos;
+    Py_ssize_t name_end = read_name(parser);
+    if (name_end < 0) {
+        return -1;
+    }
+    skip_space(parser);
+    if (parser->pos >= parser->length || cp(parser, parser->pos) != '=') {
+        record(parser, "xml-expected-equals", parser->pos < parser->length ? parser->pos : name_start);
+        return -1;
+    }
+    parser->pos++; /* past '=' */
+    skip_space(parser);
+    if (parser->pos >= parser->length || (cp(parser, parser->pos) != '"' && cp(parser, parser->pos) != '\'')) {
+        record(parser, "xml-unquoted-attribute", parser->pos < parser->length ? parser->pos : name_start);
+        return -1;
+    }
+    Py_UCS4 quote = cp(parser, parser->pos);
+    parser->pos++; /* past the opening quote */
+    Py_UCS4 *value;
+    Py_ssize_t value_len;
+    if (read_attribute_value(parser, name_start, quote == '\'', &value, &value_len) < 0) {
+        return -1;
+    }
     Py_ssize_t u8_len;
     const char *name = encode_utf8(parser, name_start, name_end - name_start, &u8_len);
     if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int stored = th_node_attr_append(parser->tree, element, name, u8_len, parser->scratch, parser->scratch_len);
-    if (stored < 0) { /* GCOVR_EXCL_BR_LINE: th_node_attr_append only fails on allocation */
+    int stored = th_node_attr_adopt(parser->tree, element, name, u8_len, value, value_len);
+    if (stored < 0) { /* GCOVR_EXCL_BR_LINE: th_node_attr_adopt only fails on allocation */
         return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* Reject a repeated raw name (XML 1.0 3.1 Unique Att Spec) by its interned atom; the
-       append just assigned it. The discarded tree keeps the duplicate just stored. */
+       adopt just assigned it. The discarded tree keeps the duplicate just stored. */
     if ((parser->dup_count + 1) * 2 > parser->dup_cap) {
         int grown = slots_grow(parser, &parser->dup, &parser->dup_cap, parser->dup_gen);
         if (grown < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1456,7 +1496,7 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
         parser->attr_spans_cap = cap;
     }
     parser->attr_spans[parser->attr_spans_len++] = (xml_attr_span){name_start, name_end, 0, -1};
-    return consume_namespace_decl(parser, name_start, name_end, depth);
+    return consume_namespace_decl(parser, name_start, name_end, value, value_len, depth);
 }
 
 /* The in-scope declaration index for the prefix of attribute [start, end), with *colon set to
