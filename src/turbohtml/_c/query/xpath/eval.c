@@ -5523,8 +5523,8 @@ static int compare_unequal_sets(struct th_tree *tree, const xp_nodeset *left, co
 static int comparison_number(struct th_tree *tree, xp_item item, double *number);
 static int comparison_fold(double *value, double number, int minimum);
 
-static int compare_ordered_sets(struct th_tree *tree, int op, const xp_nodeset *left, const xp_nodeset *right,
-                                int *result) {
+static TH_NOINLINE int compare_ordered_sets(struct th_tree *tree, int op, const xp_nodeset *left,
+                                            const xp_nodeset *right, int *result) {
     const int less = op == XN_LT || op == XN_LE;
     xp_result first = {.kind = XP_NUMBER, .number = NAN};
     xp_result second = {.kind = XP_NUMBER, .number = NAN};
