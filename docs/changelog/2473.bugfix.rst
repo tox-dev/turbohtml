@@ -1,0 +1,4 @@
+Encoding detection now agrees with chardetng on input that starts with an ASCII run followed by a non-ASCII byte. Such
+input could land on another single-byte encoding: ``b"a1111\xaa "`` detected as ISO-8859-4 where chardetng says
+windows-1252. The confidence reported for some of these inputs changes too, so with a ``threshold`` such input can now detect
+an encoding where it returned ``None``.
