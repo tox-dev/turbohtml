@@ -1136,6 +1136,7 @@ typedef struct engine {
     size_t out_bindings_cap;
     size_t out_bindings_len;
     th_node_map out_bindings_seen; /* large result element to the attributes recorded from it, plus one */
+    th_node_map instructions;      /* stylesheet element to its enum xsl_instr, plus one, set once at compile time */
     int precedence;                /* import precedence being assigned as declarations are walked */
 
     /* Whether a non-empty default namespace is in scope at the output parent, which a no-namespace result element
@@ -7099,11 +7100,19 @@ static int instantiate_fallback(engine *eng, th_node *node, th_node *out_parent)
     return 0;
 }
 
-/* The instructions instantiate_one dispatches on directly. XSL_OTHER covers every other
-   xsl:* element (sort, with-param, param, fallback, apply-imports, ...), which the parent
-   consumes or the core does not model, so it instantiates nothing. */
+/* The kinds a stylesheet element is classified into once, at compile time: the xsl:* instructions
+   instantiate_classified dispatches on, a literal result element, and an extension element. XSL_PARAM, XSL_SORT,
+   XSL_WITH_PARAM and XSL_WHEN are named so precompile_instruction and the body walk can tell them apart, and
+   XSL_OTHER covers every other xsl:* element (fallback, apply-imports, ...) the core does not model; none of them
+   instantiates anything. */
 enum xsl_instr {
     XSL_OTHER,
+    XSL_PARAM,
+    XSL_SORT,
+    XSL_WITH_PARAM,
+    XSL_WHEN,
+    XSL_LITERAL,
+    XSL_EXTENSION,
     XSL_VALUE_OF,
     XSL_APPLY_TEMPLATES,
     XSL_CALL_TEMPLATE,
@@ -7174,6 +7183,18 @@ static enum xsl_instr xsl_classify(const Py_UCS4 *local, Py_ssize_t len) {
     if (ucs4_ascii_eq(local, len, "message")) {
         return XSL_MESSAGE;
     }
+    if (ucs4_ascii_eq(local, len, "param")) {
+        return XSL_PARAM;
+    }
+    if (ucs4_ascii_eq(local, len, "sort")) {
+        return XSL_SORT;
+    }
+    if (ucs4_ascii_eq(local, len, "with-param")) {
+        return XSL_WITH_PARAM;
+    }
+    if (ucs4_ascii_eq(local, len, "when")) {
+        return XSL_WHEN;
+    }
     return XSL_OTHER;
 }
 
@@ -7212,6 +7233,18 @@ static int instantiate_non_element(engine *eng, th_node *node, th_node *out_pare
         return emit_literal_text(eng, out_parent, node);
     }
     return 0;
+}
+
+/* The kind of a stylesheet element as a run instantiates it: an xsl:* instruction by its local name, an extension
+   element, or a literal result element. Recorded once by precompile_stylesheet. */
+static enum xsl_instr element_kind(const engine *eng, const th_node *node) {
+    if (eng->xsl_ns_dynamic ? is_any_xsl_dynamic(eng, node) : is_any_xsl_fast(eng, node)) {
+        Py_ssize_t local_len;
+        Py_ssize_t prefix_len;
+        const Py_UCS4 *local = qname_local(node, &local_len, &prefix_len);
+        return xsl_classify(local, local_len);
+    }
+    return is_extension_element(eng, node) ? XSL_EXTENSION : XSL_LITERAL;
 }
 
 /* Every xsl:* instruction dispatches through this frame, so a recursive template repeats it once per nesting level.
@@ -7316,78 +7349,71 @@ static int instantiate_classified(engine *eng, th_node *node, th_node *out_paren
         return 0; /* a non-terminating message is discarded */
     }
     default:
-        /* sort, with-param and param are handled by their parent; anything else the core
-           does not model (fallback, apply-imports, ...) instantiates nothing. */
+        /* param and sort are read by their parent; anything else the core does not model
+           (with-param, fallback, apply-imports, ...) instantiates nothing. */
         return 0;
     }
 }
 
-/* Instantiate one instruction (an xsl:* element, a literal result element, or a text
-   node) into out_parent. */
-static int instantiate_one_fast(engine *eng, th_node *node, th_node *out_parent) {
+/* The kind precompile_stylesheet recorded for a stylesheet element. */
+static int instruction_kind(engine *eng, const th_node *node, enum xsl_instr *kind) {
+    Py_ssize_t slot = th_node_map_find(&eng->instructions, node);
+    if (slot == 0) { /* GCOVR_EXCL_BR_LINE: precompile_stylesheet visits every element a run instantiates */
+        return fail(eng, "xslt: stylesheet instruction was not compiled"); /* GCOVR_EXCL_LINE */
+    }
+    *kind = (enum xsl_instr)(slot - 1);
+    return 0;
+}
+
+/* Instantiate one child of a body or the root (an xsl:* element, a literal result element, an extension element, or a
+   text node) into out_parent. */
+static int instantiate_child(engine *eng, th_node *node, enum xsl_instr kind, th_node *out_parent) {
     if (node->type != TH_NODE_ELEMENT) {
         return instantiate_non_element(eng, node, out_parent);
     }
-    if (!is_any_xsl_fast(eng, node)) {
-        if (is_extension_element(eng, node)) {
-            return instantiate_fallback(eng, node, out_parent);
-        }
+    switch (kind) {
+    case XSL_LITERAL:
         return instantiate_literal(eng, node, out_parent);
+    case XSL_EXTENSION:
+        return instantiate_fallback(eng, node, out_parent);
+    default:
+        return instantiate_classified(eng, node, out_parent, kind);
     }
-    Py_ssize_t offset = eng->xsl_prefix_len + 1;
-    return instantiate_classified(eng, node, out_parent, xsl_classify(node->text + offset, node->text_len - offset));
 }
 
-static int instantiate_one_dynamic(engine *eng, th_node *node, th_node *out_parent) {
-    if (node->type != TH_NODE_ELEMENT) {
-        return instantiate_non_element(eng, node, out_parent);
+static int instantiate_root(engine *eng, th_node *root, th_node *out_parent) {
+    enum xsl_instr kind;
+    if (instruction_kind(eng, root, &kind) < 0) { /* GCOVR_EXCL_LINE */
+        return -1;                                /* GCOVR_EXCL_LINE */
     }
-    if (!is_any_xsl_dynamic(eng, node)) {
-        if (is_extension_element(eng, node)) {
-            return instantiate_fallback(eng, node, out_parent);
-        }
-        return instantiate_literal(eng, node, out_parent);
-    }
-    Py_ssize_t local_len;
-    Py_ssize_t prefix_len;
-    const Py_UCS4 *local = qname_local(node, &local_len, &prefix_len);
-    return instantiate_classified(eng, node, out_parent, xsl_classify(local, local_len));
+    return instantiate_child(eng, root, kind, out_parent);
 }
 
-/* Instantiate every child of `body` (skipping the param declarations already bound). */
+/* Instantiate every child of `body`, except the param and sort declarations its parent reads. */
 static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
     if (++eng->depth > XSLT_STACK_CHECK_DEPTH && enter_deep_level(eng, XSLT_LEVEL_TEMPLATE, NULL) < 0) {
         return -1;
     }
     Py_ssize_t scope_mark = eng->scope_len;
     int rc = 0;
-    if (eng->xsl_ns_dynamic) {
-        for (th_node *child = body->first_child; child != NULL && rc == 0; child = child->next_sibling) {
-            TH_WORK_STEP();
-            if (is_xsl_dynamic(eng, child, "param") || is_xsl_dynamic(eng, child, "sort")) {
+    for (th_node *child = body->first_child; child != NULL && rc == 0; child = child->next_sibling) {
+        TH_WORK_STEP();
+        enum xsl_instr kind = XSL_OTHER;
+        if (child->type == TH_NODE_ELEMENT) {
+            if (instruction_kind(eng, child, &kind) < 0) { /* GCOVR_EXCL_LINE */
+                rc = -1;                                   /* GCOVR_EXCL_LINE */
+                break;                                     /* GCOVR_EXCL_LINE */
+            }
+            if (kind == XSL_PARAM || kind == XSL_SORT) {
                 continue;
             }
-#ifdef TH_OPERATION_LIMIT
-            if ((rc = charge_operation(eng, "applying the stylesheet")) < 0) {
-                break;
-            }
-#endif
-            rc = instantiate_one_dynamic(eng, child, out_parent);
         }
-    } else {
-        for (th_node *child = body->first_child; child != NULL && rc == 0; child = child->next_sibling) {
-            /* xsl:param leads a template body and xsl:sort leads a for-each; both are read
-               by the parent, not instantiated. A stray xsl:with-param produces nothing. */
-            if (is_xsl_fast(eng, child, "param") || is_xsl_fast(eng, child, "sort")) {
-                continue;
-            }
 #ifdef TH_OPERATION_LIMIT
-            if ((rc = charge_operation(eng, "applying the stylesheet")) < 0) {
-                break;
-            }
-#endif
-            rc = instantiate_one_fast(eng, child, out_parent);
+        if ((rc = charge_operation(eng, "applying the stylesheet")) < 0) {
+            break;
         }
+#endif
+        rc = instantiate_child(eng, child, kind, out_parent);
     }
     scope_drop(eng, scope_mark); /* local xsl:variable bindings fall out of scope */
     eng->depth--;
@@ -8263,6 +8289,7 @@ static void engine_clear(engine *eng) {
         PyMem_Free(eng->named_index.entries);
         PyMem_Free(eng->key_index.entries);
         PyMem_Free(eng->rule_names.entries);
+        PyMem_Free(eng->instructions.entries);
         PyMem_Free(eng->attrset_index.entries);
         PyMem_Free(eng->attrset_previous);
         PyMem_Free(eng->attrset_uses.items);
@@ -8936,37 +8963,47 @@ static int precompile_pattern_attribute(engine *eng, th_node *element, const cha
     return 0;
 }
 
-static int precompile_instruction(engine *eng, th_node *element) {
-    const char *select_context = NULL;
-    const char *select_instructions[] = {"apply-templates", "for-each", "value-of",   "copy-of",
-                                         "variable",        "param",    "with-param", "sort"};
-    for (size_t index = 0; index < sizeof(select_instructions) / sizeof(select_instructions[0]); index++) {
-        if (is_xsl(eng, element, select_instructions[index])) {
-            select_context = select_instructions[index];
-            break;
-        }
+static const char *select_context(enum xsl_instr kind) {
+    switch (kind) {
+    case XSL_APPLY_TEMPLATES:
+        return "apply-templates select";
+    case XSL_FOR_EACH:
+        return "for-each select";
+    case XSL_VALUE_OF:
+        return "value-of select";
+    case XSL_COPY_OF:
+        return "copy-of select";
+    case XSL_VARIABLE:
+        return "variable select";
+    case XSL_PARAM:
+        return "param select";
+    case XSL_WITH_PARAM:
+        return "with-param select";
+    case XSL_SORT:
+        return "sort select";
+    default:
+        return NULL;
     }
-    if (select_context != NULL) {
-        char context[64];
-        snprintf(context, sizeof(context), "%s select", select_context);
-        if (precompile_attribute(eng, element, "select", context) < 0) {
-            return -1;
-        }
-    }
-    if ((is_xsl(eng, element, "if") || is_xsl(eng, element, "when")) &&
-        precompile_attribute(eng, element, "test", "test") < 0) {
+}
+
+static int precompile_instruction(engine *eng, th_node *element, enum xsl_instr kind) {
+    const char *context = select_context(kind);
+    if (context != NULL && precompile_attribute(eng, element, "select", context) < 0) {
         return -1;
     }
-    if (is_xsl(eng, element, "number")) {
+    if ((kind == XSL_IF || kind == XSL_WHEN) && precompile_attribute(eng, element, "test", "test") < 0) {
+        return -1;
+    }
+    if (kind == XSL_NUMBER) {
         if (precompile_attribute(eng, element, "value", "number value") < 0 ||
             precompile_pattern_attribute(eng, element, "count") < 0 ||
             precompile_pattern_attribute(eng, element, "from") < 0) {
             return -1;
         }
     }
-    int element_instruction = is_xsl(eng, element, "element");
-    int attribute_instruction = !element_instruction && is_xsl(eng, element, "attribute");
-    if (element_instruction || attribute_instruction || is_xsl(eng, element, "processing-instruction")) {
+    int element_instruction = kind == XSL_ELEMENT;
+    int attribute_instruction = kind == XSL_ATTRIBUTE;
+    if (element_instruction || attribute_instruction || kind == XSL_PI) {
         Py_ssize_t length = 0;
         const Py_UCS4 *source = attr_lookup(eng->sheet_tree, element, "name", 4, &length);
         if (source != NULL && precompile_avt(eng, element, source, length) < 0) {
@@ -9014,8 +9051,12 @@ static int precompile_stylesheet(engine *eng, th_node *root) {
             return -1;
         }
 #endif
+        enum xsl_instr kind = element_kind(eng, node);
+        if (th_node_map_insert(&eng->instructions, node, kind + 1) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                    /* GCOVR_EXCL_LINE */
+        }
         if (node_is_xsl(eng, node)) {
-            if (precompile_instruction(eng, node) < 0) {
+            if (precompile_instruction(eng, node, kind) < 0) {
                 return -1;
             }
         } else if (precompile_literal_attributes(eng, node) < 0) {
@@ -9062,8 +9103,7 @@ static PyObject *run_transform(engine *eng, th_node *sheet_root, PyObject *param
     PyObject *result = NULL;
     int rc = bind_globals(eng, params);
     if (rc == 0) {
-        rc = eng->simplified ? (eng->xsl_ns_dynamic ? instantiate_one_dynamic(eng, sheet_root, out_root)
-                                                    : instantiate_one_fast(eng, sheet_root, out_root))
+        rc = eng->simplified ? instantiate_root(eng, sheet_root, out_root)
                              : apply_to_item(eng, (xp_item){eng->src_root, -1}, 1, 1, NULL, 0, NULL, 0, out_root);
     }
     if (rc == 0) {

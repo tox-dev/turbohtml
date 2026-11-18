@@ -1420,6 +1420,14 @@ def _match_root(body: str) -> str:
     return f'<xsl:template match="/">{body}</xsl:template>'
 
 
+def test_transform_choose_with_text_children_under_rebound_xsl_prefix() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:choose>\n<xsl:when test="false()">no</xsl:when>\n'
+        '<xsl:otherwise>yes</xsl:otherwise>\n</xsl:choose><out xmlns:xsl="urn:literal"/></xsl:template>'
+    )
+    assert _run("<r/>", body) == "yes"
+
+
 def test_transform_compile_resolves_attribute_prefix_per_element() -> None:
     directive = '<out xmlns:t="http://www.w3.org/1999/XSL/Transform" t:note="{1 +}"/>'
     assert _collapse(_run("<r/>", _match_root(directive), method="xml")) == "<out/>"

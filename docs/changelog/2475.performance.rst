@@ -1,0 +1,1 @@
+XSLT transforms that emit many literal or xsl:text nodes run faster.
