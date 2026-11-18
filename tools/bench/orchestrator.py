@@ -23,7 +23,7 @@ import threading
 import time
 import tomllib
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from itertools import chain, product
 from pathlib import Path
@@ -37,8 +37,9 @@ from .operations import OPERATIONS
 from .report import render
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from typing import TypeIs
+    from collections.abc import Generator, Iterator
+    from types import FrameType
+    from typing import NoReturn, TypeIs
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _TOOLS_DIR: Final[Path] = Path(__file__).resolve().parents[1]
@@ -137,13 +138,16 @@ def run(commands: tuple[str, ...], options: SweepOptions) -> None:
 
 
 def _select_targets(plan: dict[str, tuple[str, ...]], targets: frozenset[str] | None) -> dict[str, tuple[str, ...]]:
-    # Keep only the chosen targets in each operation, and drop an operation that none of them implements.
+    # turbohtml is every table's baseline, so each operation keeps it; the chosen competitors join it.
     if targets is None:
         return plan
     if unknown := targets - {"core", *_COMPETITORS}:
         msg = f"unknown target {', '.join(sorted(unknown))}; choose any of: core, {', '.join(_COMPETITORS)}"
         raise SystemExit(msg)
-    return {operation: kept for operation, names in plan.items() if (kept := tuple(n for n in names if n in targets))}
+    return {
+        operation: ("core", *(name for name in names if name != "core" and name in targets))
+        for operation, names in plan.items()
+    }
 
 
 def _plan(commands: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
@@ -323,27 +327,32 @@ class _Schedule:
         self._workdir = workdir
         self._pyperf_args = options.pyperf_args
         self._jobs = options.jobs
-        self._resume = options.resume
         self._cpus: queue.SimpleQueue[int] = queue.SimpleQueue()
         if self._jobs > 1:
             for cpu in physical_cpus():
                 self._cpus.put(cpu)
-        self._progress = _Progress(_operation_jobs(plan, cases, pythons), cases, self._resume, self._jobs)
+        self._progress = _Progress(_operation_jobs(plan, cases, pythons), cases, options.resume, self._jobs)
         self._failed = threading.Event()
 
     def execute(self) -> None:
-        _WORKERS.reopen()
-        pool = ThreadPoolExecutor(max_workers=self._jobs)
-        try:
-            for future in as_completed([pool.submit(self._run, job) for job in self._progress.ordered()]):
-                future.result()
-        except BaseException:
-            # the first failure is the one reported; the workers stopped here fail too, and their errors go unread
-            self._failed.set()
-            _WORKERS.stop()
-            raise
-        finally:
-            pool.shutdown(cancel_futures=True)
+        with _stop_on_signals():
+            pool = ThreadPoolExecutor(max_workers=self._jobs)
+            try:
+                pending = {pool.submit(self._run, job) for job in self._progress.ordered()}
+                while pending:
+                    # a timed wait returns to the interpreter now and then, so a signal's handler runs; a blocking wait
+                    # on Windows ignores Ctrl-C
+                    done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        future.result()
+            except BaseException:
+                # the first failure is the one reported; the workers stopped here fail too, and their errors go unread
+                self._failed.set()
+                raise
+            finally:
+                _WORKERS.stop()
+                pool.shutdown(cancel_futures=True)
+                _WORKERS.reopen()
 
     def _run(self, job: _Job) -> None:
         if self._failed.is_set() or not self._progress.start(job):
@@ -357,8 +366,6 @@ class _Schedule:
             # a worker thread would otherwise pick up the next queued run before the failure reaches the caller
             self._failed.set()
             raise
-        if self._resume is not None:
-            _write_atomic(_result_path(self._resume, job), json.dumps(stats, indent=2, sort_keys=True))
         self._progress.finish(job, stats)
 
     def _measure(self, job: _Job) -> _Stats:
@@ -438,6 +445,7 @@ class _Progress:
         self._jobs_by_operation = jobs_by_operation
         self._cases = cases
         self._jobs = jobs
+        self._resume = resume
         try:
             loaded = json.loads(_DURATIONS_FILE.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
@@ -449,7 +457,6 @@ class _Progress:
         if self._results:
             _report(f"resumed {len(self._results)} of {len(all_jobs)} runs from {resume}")
         self._pending: dict[_Job, None] = dict.fromkeys(job for job in all_jobs if job not in self._results)
-        self._total = len(all_jobs)
         self._running: dict[_Job, float] = {}
         self._dropped: set[tuple[str, str]] = set()
         self._seconds: list[float] = []
@@ -465,7 +472,8 @@ class _Progress:
                 return
             stats: _Stats = {}
             for job in jobs:
-                stats.update(self._results[job])
+                if (job[0], job[1]) not in self._dropped:
+                    stats.update(self._results[job])
             render(operation, stats)
             self._unrendered.popleft()
 
@@ -493,9 +501,12 @@ class _Progress:
             _write_atomic(_DURATIONS_FILE, json.dumps(self._durations, indent=2, sort_keys=True))
             self._seconds.append(seconds)
             self._results[job] = stats
+            if self._resume is not None and (operation, target) not in self._dropped:
+                _write_atomic(_result_path(self._resume, job), json.dumps(stats, indent=2, sort_keys=True))
             self._render_ready()
             print(
-                f"[{len(self._results)}/{self._total}] {target} {operation} {self._cases[operation][case]} "
+                f"[{len(self._results)}/{sum(map(len, self._jobs_by_operation.values()))}] "
+                f"{target} {operation} {self._cases[operation][case]} "
                 f"took {_clock(seconds)}; elapsed {_clock(now - self._started_at)}, eta {_clock(self._eta(now))}",
                 file=sys.stderr,
             )
@@ -510,7 +521,7 @@ class _Progress:
         return (pending + remaining) / self._jobs
 
     def drop(self, job: _Job, note: str) -> None:
-        # A skipped competitor keeps none of its remaining cases of this operation, and its note prints once.
+        # A skipped competitor contributes nothing to its operation: its runs are neither rendered nor kept on disk.
         operation, target, _case = job
         with _OUTPUT_LOCK:
             del self._running[job]
@@ -521,6 +532,9 @@ class _Progress:
                 for waiting in [waiting for waiting in self._pending if waiting[:2] == (operation, target)]:
                     del self._pending[waiting]
                     self._results[waiting] = {}
+                if self._resume is not None:
+                    for index in range(len(self._cases[operation])):
+                        _result_path(self._resume, (operation, target, index)).unlink(missing_ok=True)
             self._render_ready()
 
 
@@ -553,6 +567,11 @@ def _duration_key(job: _Job) -> str:
     return f"{target}:{operation}:{case}"
 
 
+def _result_path(resume: Path, job: _Job) -> Path:
+    operation, target, case = job
+    return resume / target / operation / f"{case}.json"
+
+
 def _clock(seconds: float) -> str:
     minutes, rest = divmod(round(seconds), 60)
     return f"{minutes}m{rest:02d}s"
@@ -571,14 +590,28 @@ def _operation_jobs(
     return jobs
 
 
+@contextlib.contextmanager
+def _stop_on_signals() -> Generator[None, None, None]:
+    # Workers lead their own sessions, so a terminal's Ctrl-C never reaches them; a signal must unwind the sweep here,
+    # through the cleanup that stops every worker group, and the caller's handlers come back afterwards.
+    previous = {number: signal.signal(number, _interrupt) for number in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        yield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
+def _interrupt(signum: int, _frame: FrameType | None) -> NoReturn:
+    # Ctrl-C raises KeyboardInterrupt as the interpreter does, and SIGTERM exits the way a terminated process does.
+    if signum == signal.SIGINT:
+        raise KeyboardInterrupt
+    raise SystemExit(128 + signum)
+
+
 class _SkipError(Exception):
     # A competitor run that could not be measured; its message is the note saying why the column is dropped.
     pass
-
-
-def _result_path(resume: Path, job: _Job) -> Path:
-    operation, target, case = job
-    return resume / target / operation / f"{case}.json"
 
 
 def run_worker(
@@ -652,7 +685,7 @@ class _Workers:
         self._stopped = False
 
     def reopen(self) -> None:
-        # a sweep starts with its workers allowed to run, even when an earlier sweep in this process was stopped
+        # once a sweep's pool has shut down nothing of it can start again, so later runs in this process start clean
         with self._lock:
             self._stopped = False
 

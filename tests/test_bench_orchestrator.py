@@ -597,13 +597,95 @@ def test_targets_limit_the_run_to_the_chosen_targets(harness: _Harness) -> None:
     assert list(dict(harness.rendered)["node-equals"]) == ["node-equals|case|turbohtml"]
 
 
-def test_an_operation_no_chosen_target_implements_is_not_rendered(harness: _Harness) -> None:
+def test_turbohtml_stays_in_every_run_as_the_baseline(harness: _Harness) -> None:
     run(
         ("startup", "node-equals"),
         SweepOptions(pyperf_args=(), pgo=False, jobs=1, resume=None, targets=frozenset({"beautifulsoup4"})),
     )
-    assert [operation for operation, _ in harness.rendered] == ["node-equals"]
-    assert harness.processes.calls == [("node-equals", "beautifulsoup4", 0, ())]
+    assert harness.processes.calls == [
+        ("startup", "core", 0, ()),
+        ("node-equals", "core", 0, ()),
+        ("node-equals", "beautifulsoup4", 0, ()),
+    ]
+    assert [operation for operation, _ in harness.rendered] == ["startup", "node-equals"]
+
+
+def test_targets_reuse_the_finished_turbohtml_runs_from_resume(harness: _Harness, tmp_path: Path) -> None:
+    harness.processes.cases = {"node-equals": ["a", "b"]}
+    resume = tmp_path / "results"
+    for index, case in enumerate(("a", "b")):
+        finished = resume / "core" / "node-equals" / f"{index}.json"
+        finished.parent.mkdir(parents=True, exist_ok=True)
+        finished.write_text(
+            json.dumps({f"node-equals|{case}|turbohtml": {"mean": 2.0, "stdev": 0.0}}), encoding="utf-8"
+        )
+    run(
+        ("node-equals",),
+        SweepOptions(pyperf_args=(), pgo=False, jobs=1, resume=resume, targets=frozenset({"beautifulsoup4"})),
+    )
+    assert harness.processes.calls == [
+        ("node-equals", "beautifulsoup4", 0, ()),
+        ("node-equals", "beautifulsoup4", 1, ()),
+    ]
+    assert dict(harness.rendered)["node-equals"] == {
+        "node-equals|a|turbohtml": {"mean": 2.0, "stdev": 0.0},
+        "node-equals|b|turbohtml": {"mean": 2.0, "stdev": 0.0},
+        "node-equals|a|beautifulsoup4": {"mean": 1.0, "stdev": 0.0},
+        "node-equals|b|beautifulsoup4": {"mean": 1.0, "stdev": 0.0},
+    }
+
+
+def test_a_skipped_target_contributes_nothing_even_when_a_sibling_case_succeeded(
+    harness: _Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness.processes.cases = {"node-equals": ["a", "b"]}
+    resume = tmp_path / "results"
+    # the timed-out case waits until its sibling has finished and been written, so the drop must clean up after it
+    sibling_finished = threading.Event()
+    monkeypatch.setattr(sys, "stderr", _StderrWatch("beautifulsoup4 node-equals b took", sibling_finished))
+
+    def time_out() -> None:
+        sibling_finished.wait(timeout=10)
+        raise subprocess.TimeoutExpired(["worker"], 5400)
+
+    harness.processes.hooks["node-equals", "beautifulsoup4", 0] = time_out
+    run(
+        ("node-equals",),
+        SweepOptions(pyperf_args=(), pgo=False, jobs=2, resume=resume, targets=None),
+    )
+    assert dict(harness.rendered)["node-equals"] == {
+        "node-equals|a|turbohtml": {"mean": 1.0, "stdev": 0.0},
+        "node-equals|b|turbohtml": {"mean": 1.0, "stdev": 0.0},
+    }
+    assert sorted(path.relative_to(resume).as_posix() for path in resume.rglob("*.json")) == [
+        "core/node-equals/0.json",
+        "core/node-equals/1.json",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("signal_number", "error"),
+    [
+        pytest.param(signal.SIGTERM, SystemExit, id="sigterm"),
+        pytest.param(signal.SIGINT, KeyboardInterrupt, id="sigint"),
+    ],
+)
+def test_a_signal_stops_every_running_worker_and_gives_back_the_handler(
+    harness: _Harness, signal_number: int, error: type[BaseException]
+) -> None:
+    previous = signal.getsignal(signal_number)
+
+    def hold() -> None:
+        signal.raise_signal(signal_number)
+        harness.processes.killed.wait(timeout=10)
+
+    harness.processes.hooks["node-equals", "core", 0] = hold
+    with pytest.raises(error):
+        run(
+            ("node-equals",),
+            SweepOptions(pyperf_args=(), pgo=False, jobs=1, resume=None, targets=frozenset({"core"})),
+        )
+    assert (harness.processes.terminated, signal.getsignal(signal_number)) == ([("node-equals", "core", 0)], previous)
 
 
 def test_unknown_target_is_rejected(harness: _Harness) -> None:
