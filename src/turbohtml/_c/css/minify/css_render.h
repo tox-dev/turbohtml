@@ -1244,6 +1244,18 @@ static int css_unicode_range_cmp(const void *left_ptr, const void *right_ptr) {
     return (left[0] > right[0]) - (left[0] < right[0]);
 }
 
+/* Reverse a list of ranges in place. A strictly descending list sorts by reversal, since its starts are distinct. */
+static void css_reverse_ranges(long long (*ranges)[2], Py_ssize_t count) {
+    for (Py_ssize_t low = 0, high = count - 1; low < high; low++, high--) {
+        long long start = ranges[low][0];
+        long long end = ranges[low][1];
+        ranges[low][0] = ranges[high][0];
+        ranges[low][1] = ranges[high][1];
+        ranges[high][0] = start;
+        ranges[high][1] = end;
+    }
+}
+
 /* Write value in uppercase hex with no leading zeros, the spelling a unicode-range code point takes. */
 static void css_put_hex(css_buf *out, long long value) {
     char digits[16];
@@ -1313,7 +1325,15 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
             index++;
         }
         if (index < count) {
-            qsort(ranges, (size_t)count, sizeof(*ranges), css_unicode_range_cmp);
+            Py_ssize_t descending = 1;
+            while (descending < count && ranges[descending - 1][0] > ranges[descending][0]) {
+                descending++;
+            }
+            if (descending == count) {
+                css_reverse_ranges(ranges, count);
+            } else {
+                qsort(ranges, (size_t)count, sizeof(*ranges), css_unicode_range_cmp);
+            }
         }
     } else {
         for (Py_ssize_t outer = 1; outer < count; outer++) {

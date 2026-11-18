@@ -4967,6 +4967,17 @@ def test_minify_css_preserves_reversed_unicode_ranges(value: str, expected: str)
     )
 
 
+@pytest.mark.parametrize("count", [65, 1024])
+def test_minify_css_unicode_range_nearly_reversed_sorts(count: int) -> None:
+    ranges: Final = [f"U+{index * 2:X}" for index in range(count)]
+    nearly_reversed: Final = ranges[::-1]
+    middle: Final = count // 2
+    nearly_reversed[middle], nearly_reversed[middle + 1] = nearly_reversed[middle + 1], nearly_reversed[middle]
+    assert minify_css(f"@font-face{{unicode-range:{','.join(nearly_reversed)}}}") == (
+        f"@font-face{{unicode-range:{','.join(ranges)}}}"
+    )
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
