@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -96,11 +97,16 @@ def _case_entry(
 
 def main() -> None:
     # Benchmark every case of the operation for the target; write ``{name: {mean, stdev}}`` from the pyperf manager.
+    # the orchestrator reads the case names before any measurement, so it can schedule one job per case
+    if (listing := os.environ.get("BENCH_LIST")) is not None:
+        print(json.dumps(_case_names(json.loads(listing))))
+        return
     target = os.environ["BENCH_TARGET"]
     operation = os.environ["BENCH_OPERATION"]
     module = importlib.import_module("bench.core" if target == "core" else f"bench.competitors.{target}")
     func, label = module.OPERATIONS[operation]
-    runner = pyperf.Runner()
+    # Untimed rebuilds dominate a mutating case; pyperf's 100 ms timed budget would take thousands of them per value.
+    runner = pyperf.Runner(min_time=0.01) if isinstance(func, Mutating) else pyperf.Runner()
     args = runner.parse_args()
     # pyperf re-execs this module as forked worker processes that re-read these from the environment, so each must be
     # inherited or the worker cannot locate the target, operation, or output path the manager set.
@@ -111,12 +117,16 @@ def main() -> None:
         "BENCH_OPERATION",
         "BENCH_OUT",
         "BENCH_SKIP_CASES",
+        "BENCH_CASE",
     ]
     stats: dict[str, dict[str, float | str]] = {}
+    cases = INPUTS[operation]()
     skipped: set[int] = set(json.loads(os.environ.get("BENCH_SKIP_CASES", "[]"))) if args.worker else set()
+    if (only := os.environ.get("BENCH_CASE")) is not None:
+        skipped.update(index for index in range(len(cases)) if index != int(only))
     os.environ["BENCH_SKIP_CASES"] = json.dumps(sorted(skipped))
     task_index = 0
-    for case_index, (case_name, arg) in enumerate(INPUTS[operation]()):
+    for case_index, (case_name, arg) in enumerate(cases):
         if case_index in skipped:
             continue
         name = f"{operation}|{case_name}|{label}"
@@ -139,7 +149,21 @@ def main() -> None:
         Path(os.environ["BENCH_OUT"]).write_text(json.dumps(stats), encoding="utf-8")
 
 
-__all__ = []
+def _case_names(operations: list[str]) -> dict[str, list[str]]:
+    # A name repeated within one operation is refused here, since pyperf would only reject it partway through a sweep.
+    names: dict[str, list[str]] = {}
+    for operation in operations:
+        cases = [case_name for case_name, _arg in INPUTS[operation]()]
+        if (repeated := next((name for name, count in Counter(cases).items() if count > 1), None)) is not None:
+            msg = f"{operation!r} repeats the case name {repeated!r}; pyperf needs each case name unique"
+            raise SystemExit(msg)
+        names[operation] = cases
+    return names
+
+
+__all__ = [
+    "main",
+]
 
 if __name__ == "__main__":
     main()

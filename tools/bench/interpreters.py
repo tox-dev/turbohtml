@@ -67,7 +67,7 @@ def _measure(workdir: Path, pyperf_args: tuple[str, ...]) -> dict[str, dict[str,
         # the working tree, not the built wheel: a wheel carries one interpreter's ABI tag and cannot install elsewhere
         python = venv_python(workdir, interpreter.replace(".", "-"), (str(REPO_ROOT),), interpreter=interpreter)
         for operation in OPERATIONS:
-            for key, entry in run_worker(python, (operation, "core"), workdir, pyperf_args).items():
+            for key, entry in run_worker(python, (operation, "core", None), workdir, pyperf_args).items():
                 case = key.split("|")[1]
                 measured[operation].setdefault(case, {})[party] = entry.get(
                     "mean", entry.get("error", "no measurement")

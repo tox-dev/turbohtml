@@ -2250,7 +2250,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     ),
     "query-roots": lambda: tuple(
         (f"{count} {order} roots", (count, order))
-        for count, order in ((2_048, "reversed"), (2_048, "shuffled"), (2_048, "sorted"), (2_048, "reversed"))
+        for count, order in ((2_048, "reversed"), (2_048, "shuffled"), (2_048, "sorted"))
     ),
     "query-closest": lambda: (
         ("32,768 children, shared ancestor", (32_768, True)),
