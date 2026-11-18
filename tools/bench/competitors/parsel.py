@@ -127,9 +127,11 @@ def path_xpath(text: str) -> None:
     _ = [tree.getpath(element) for element in _parsed(text).root.iter()]
 
 
-def translate(selector: str) -> None:
+def translate(case: tuple[str, int]) -> None:
     # Translate one CSS selector to XPath 1.0 with the cssselect HTMLTranslator parsel's css() builds on.
-    _TRANSLATOR.css_to_xpath(selector)
+    selector, repeats = case
+    for _ in range(repeats):
+        _TRANSLATOR.css_to_xpath(selector)
 
 
 class _ExtensionContext(Protocol): ...
