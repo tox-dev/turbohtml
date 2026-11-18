@@ -1,0 +1,2 @@
+Encoding detection skips over long runs of ASCII in each candidate encoding instead of scoring them byte by byte, so
+detecting a mostly ASCII document with a legacy encoding takes much less time.

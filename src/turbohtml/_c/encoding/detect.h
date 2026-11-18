@@ -401,6 +401,37 @@ static void th_sb_ordinal(th_sb_candidate *cand, unsigned char byte, unsigned ch
     }
 }
 
+/* The last space in buf[first, end), or -1. Scanned by hand because memrchr is missing on Windows. */
+static Py_ssize_t th_sb_last_space(const unsigned char *buf, Py_ssize_t first, Py_ssize_t end) {
+    for (Py_ssize_t index = end - 1; index >= first; index--) {
+        if (buf[index] == ' ') {
+            return index;
+        }
+    }
+    return -1;
+}
+
+/* Reset a live candidate to the state its last space leaves it in, once the bytes before that space are skipped. No
+   candidate scores an ASCII byte that follows an ASCII byte, so the skipped bytes move state and charge nothing:
+   - Latin (windows-1250/1252/1254/1257, ISO-8859-2/4/13): pair scores, the adjacency penalty and the case-transition
+     penalty all sit under !ascii_pair, and the run penalty is zero once the previous byte is ASCII.
+   - windows-1256: pair and adjacency scores sit under !ascii_pair, and ASCII is never a non-Latin letter, so the word
+     length is already closed by the byte before the run.
+   - Cyrillic and Greek: the only ASCII charge is a case bonus or penalty, and after an ASCII byte the case state is
+     MIX with an empty word or SPACE, both of which charge nothing.
+   - Hebrew, logical and visual: the plausible-punctuation counts and pair scores sit under !ascii_pair.
+   - windows-1252 ordinal machine: bonuses fire only in the EXPECTING_* and COPYRIGHT states, which only an 0xAA, 0xBA
+     or 0xA9 byte enters, and every ASCII-driven state falls to SPACE on a space. */
+static void th_sb_skip_to_space(th_sb_candidate *cand, const th_detect_single_byte *data) {
+    cand->case_state = TH_LAT_SPACE;
+    cand->ordinal_state = TH_ORD_SPACE;
+    cand->prev = th_detect_classify(data, ' ') & 0x7F;
+    cand->prev_ascii = 1;
+    cand->prev_non_ascii = 0;
+    cand->prev_was_a0 = 0;
+    cand->prev_punctuation = 0;
+}
+
 /* Feed the whole input to one single-byte candidate, accumulating its score or
    disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
 static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int track_logical_punctuation) {
@@ -410,8 +441,19 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
     }
     const th_detect_single_byte *data = cand->data;
     int windows_1256 = cand->kind == TH_SB_ARABIC_FRENCH;
+    Py_ssize_t scanned_to = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         unsigned char byte = buf[index];
+        if (byte < 0x80 && index > 0 && buf[index - 1] < 0x80 && cand->alive && index >= scanned_to) {
+            Py_ssize_t run = th_decode_ascii_run(buf + index, len - index);
+            scanned_to = index + run;
+            Py_ssize_t space = th_sb_last_space(buf, index, scanned_to);
+            if (space >= 0) {
+                th_sb_skip_to_space(cand, data);
+                index = space;
+                continue;
+            }
+        }
         unsigned char cls = th_detect_classify(data, byte);
         if (cls == 255) {
             cand->alive = 0;
@@ -1374,6 +1416,25 @@ static unsigned char th_cjk_byte_before(const th_cjk_candidate *cand, const unsi
     return cand->tail_len >= from_end ? cand->tail[cand->tail_len - from_end] : 0;
 }
 
+/* Jump to the last byte of an ASCII run the scorers would otherwise walk one byte at a time. Every decoder step returns
+   with its pending bytes consumed or cleared, so the decoder is idle here; the run qualifies when the previous scalar
+   was ASCII or other, since nothing in the run can change that. The scorers charge for ASCII only after a CJ scalar,
+   and the last byte still runs through the scorer, so its resets (word_len, hwk_state, the cleared pending mark)
+   cover the whole run. Per kind:
+   - GBK and Big5 charge the Latin adjacency penalty only after a CJ scalar; a held scalar is left to the scorer.
+   - Shift_JIS and EUC-JP clear hwk_state on every scalar, so the last byte's clear is the one that matters.
+   - EUC-KR zeroes word_len on every ASCII scalar, so the last byte's zero is the one that matters.
+   The skipped bytes decode to themselves in every candidate decoder (decode.h's ASCII copy relies on the same fact). */
+static void th_cjk_skip_ascii_run(th_cjk_candidate *cand, const unsigned char *data, Py_ssize_t data_len) {
+    Py_ssize_t here = cand->dec.pos;
+    if (here >= data_len || data[here] >= 0x80 || cand->has_pending ||
+        (cand->prev != TH_CJ_ASCII && cand->prev != TH_CJ_OTHER)) {
+        return;
+    }
+    Py_ssize_t run = th_decode_ascii_run(data + here, data_len - here);
+    cand->dec.pos = here + run - 1;
+}
+
 /* Feed one chunk. final marks the end of the stream, where an unfinished sequence is an
    error rather than a boundary. A candidate the decoder has already killed reads nothing. */
 static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len, int final) {
@@ -1400,6 +1461,7 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
     cand->dec.len = data_len;
     cand->dec.pos = 0;
     for (;;) {
+        th_cjk_skip_ascii_run(cand, data, data_len);
         Py_ssize_t before = cand->dec.pos;
         Py_UCS4 point = 0;
         int status = th_decode_step(&cand->dec, &point);
