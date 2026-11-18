@@ -3006,7 +3006,7 @@ static PyObject *attr_value(PyObject *attrs, PyObject *name) {
 #else
     /* no free-threaded build predates 3.13, so taking the reference right after the borrowed lookup is safe */
     value = Py_XNewRef(PyDict_GetItemWithError(attrs, name));
-    int found = value != NULL ? 1 : PyErr_Occurred() ? -1 : 0;
+    int found = value != NULL ? 1 : PyErr_Occurred() ? -1 : 0; /* GCOVR_EXCL_BR_LINE: a str key always hashes */
 #endif
     if (found == 0) {
         PyErr_SetObject(PyExc_KeyError, name);
