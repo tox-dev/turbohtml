@@ -670,6 +670,12 @@ static void print_number(St *st, const jm_node *node) {
         buf[len++] = node->str[index];
     }
     if (overflow) { /* an unusually long literal (a huge exponent): one run, separators removed */
+        /* GCOVR_EXCL_START: needs a 32-bit build and a literal of over a billion code points */
+        if ((size_t)node->str_len > SIZE_MAX / sizeof(Py_UCS4)) {
+            st->failed = 1;
+            return;
+        }
+        /* GCOVR_EXCL_STOP */
         Py_UCS4 *big = jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
         if (big == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             st->failed = 1; /* GCOVR_EXCL_LINE */
@@ -762,6 +768,12 @@ static void print_bigint(St *st, const jm_node *node) {
         print_text(st, node);
         return;
     }
+    /* GCOVR_EXCL_START: needs a 32-bit build and a literal of over a billion code points */
+    if ((size_t)node->str_len > SIZE_MAX / sizeof(Py_UCS4)) {
+        st->failed = 1;
+        return;
+    }
+    /* GCOVR_EXCL_STOP */
     Py_UCS4 *buf = jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
     if (buf == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         st->failed = 1; /* GCOVR_EXCL_LINE */

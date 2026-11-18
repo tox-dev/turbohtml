@@ -182,6 +182,12 @@ static void xt_value_literal(xt_ctx *ctx, const Py_UCS4 *value, Py_ssize_t lengt
         xt_literal(ctx, value, length);
         return;
     }
+    /* GCOVR_EXCL_START: needs a 32-bit build and a value of over a billion code points */
+    if ((size_t)(length + 3) > SIZE_MAX / sizeof(Py_UCS4)) {
+        ctx->out.failed = 1;
+        return;
+    }
+    /* GCOVR_EXCL_STOP */
     Py_UCS4 *temp = PyMem_Malloc((size_t)(length + 3) * sizeof(Py_UCS4));
     if (temp == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */

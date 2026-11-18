@@ -1205,7 +1205,14 @@ CSS_NOINLINE static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_p
    so the table doubles as the stack. Returns NULL when the allocation fails. Kept out of line: only a filter value
    that calls a math function or drop-shadow() reaches it. */
 CSS_NOINLINE static Py_ssize_t *css_match_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
-    Py_ssize_t *closers = css_malloc((size_t)(end - start) * sizeof(Py_ssize_t));
+    /* GCOVR_EXCL_START: a block count past SIZE_MAX needs a 32-bit build and a value of hundreds of megabytes */
+    const size_t count = (size_t)(end - start);
+    if (count > SIZE_MAX / sizeof(Py_ssize_t)) {
+        *vec->oom = 1;
+        return NULL;
+    }
+    /* GCOVR_EXCL_STOP */
+    Py_ssize_t *closers = css_malloc(count * sizeof(Py_ssize_t));
     if (closers == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         *vec->oom = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */

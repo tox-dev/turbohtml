@@ -317,9 +317,9 @@ static void push(M *mangler, htab *table, const Py_UCS4 *name, Py_ssize_t len, i
         size_t bytes;
         int grew =
             th_grow_cap((size_t)mangler->undo_cap + 1, (size_t)mangler->undo_cap, 256, sizeof(undo_rec), &cap, &bytes);
-        if (!grew) {             /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            mangler->failed = 1; /* GCOVR_EXCL_LINE */
-            return;              /* GCOVR_EXCL_LINE */
+        if (!grew || cap > INT32_MAX) { /* GCOVR_EXCL_BR_LINE: needs over two billion undo records */
+            mangler->failed = 1;        /* GCOVR_EXCL_LINE */
+            return;                     /* GCOVR_EXCL_LINE */
         }
         undo_rec *grown = jm_realloc(mangler->undo, bytes);
         if (grown == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation-failure path */

@@ -16,11 +16,11 @@ static TH_NOINLINE int jm_grow_nodes(jm_program *prog) {
     size_t cap;
     size_t bytes;
     jm_node *grown;
-    /* GCOVR_EXCL_BR_START: a failed program never grows again, and a size overflow or a failed realloc is an
-       allocation failure */
+    /* GCOVR_EXCL_BR_START: a failed program never grows again, and a size overflow, a capacity past INT32_MAX, or a
+       failed realloc is an allocation failure */
     if (!prog->failed &&
         th_grow_cap((size_t)prog->node_cap + 1, (size_t)prog->node_cap, 64, sizeof(jm_node), &cap, &bytes) &&
-        (grown = jm_realloc(prog->nodes, bytes)) != NULL) {
+        cap <= INT32_MAX && (grown = jm_realloc(prog->nodes, bytes)) != NULL) {
         /* GCOVR_EXCL_BR_STOP */
         prog->nodes = grown;
         prog->node_cap = (int32_t)cap;
@@ -89,9 +89,9 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind) {
         size_t bytes;
         int grew =
             th_grow_cap((size_t)prog->scope_cap + 1, (size_t)prog->scope_cap, 16, sizeof(jm_scope), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            prog->failed = 1; /* GCOVR_EXCL_LINE */
-            return -1;        /* GCOVR_EXCL_LINE */
+        if (!grew || cap > INT32_MAX) { /* GCOVR_EXCL_BR_LINE: needs over two billion scopes */
+            prog->failed = 1;           /* GCOVR_EXCL_LINE */
+            return -1;                  /* GCOVR_EXCL_LINE */
         }
         jm_scope *grown = jm_realloc(prog->scopes, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -125,9 +125,9 @@ int32_t jm_sym_new(jm_program *prog, const Py_UCS4 *name, Py_ssize_t name_len, i
         size_t cap;
         size_t bytes;
         int grew = th_grow_cap((size_t)prog->sym_cap + 1, (size_t)prog->sym_cap, 32, sizeof(jm_sym), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            prog->failed = 1; /* GCOVR_EXCL_LINE */
-            return -1;        /* GCOVR_EXCL_LINE */
+        if (!grew || cap > INT32_MAX) { /* GCOVR_EXCL_BR_LINE: needs over two billion symbols */
+            prog->failed = 1;           /* GCOVR_EXCL_LINE */
+            return -1;                  /* GCOVR_EXCL_LINE */
         }
         jm_sym *grown = jm_realloc(prog->syms, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -168,9 +168,9 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
         size_t bytes;
         int grew =
             th_grow_cap((size_t)prog->owned_cap + 1, (size_t)prog->owned_cap, 16, sizeof(Py_UCS4 *), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            prog->failed = 1; /* GCOVR_EXCL_LINE */
-            return NULL;      /* GCOVR_EXCL_LINE */
+        if (!grew || cap > INT32_MAX) { /* GCOVR_EXCL_BR_LINE: needs over two billion owned strings */
+            prog->failed = 1;           /* GCOVR_EXCL_LINE */
+            return NULL;                /* GCOVR_EXCL_LINE */
         }
         Py_UCS4 **grown = jm_realloc(prog->owned, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -180,7 +180,9 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
         prog->owned = grown;
         prog->owned_cap = (int32_t)cap;
     }
-    Py_UCS4 *copy = jm_malloc((size_t)len * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_START: needs a 32-bit build and a name of over a billion code points */
+    Py_UCS4 *copy = (size_t)len > SIZE_MAX / sizeof(Py_UCS4) ? NULL : jm_malloc((size_t)len * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_STOP */
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         prog->failed = 1; /* GCOVR_EXCL_LINE */
         return NULL;      /* GCOVR_EXCL_LINE */
@@ -237,7 +239,10 @@ const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t l
         *out_len = len;
         return src;
     }
-    Py_UCS4 *buf = jm_malloc((size_t)len * sizeof(Py_UCS4)); /* decoding only ever shortens */
+    /* decoding only ever shortens, so len bounds the buffer; GCOVR_EXCL_START: needs a 32-bit build and a name past
+       a billion code points */
+    Py_UCS4 *buf = (size_t)len > SIZE_MAX / sizeof(Py_UCS4) ? NULL : jm_malloc((size_t)len * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_STOP */
     if (buf == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         prog->failed = 1; /* GCOVR_EXCL_LINE: the escaped spelling would resolve as another name */
         *out_len = len;   /* GCOVR_EXCL_LINE */

@@ -389,6 +389,12 @@ static int css_classify_component(const Py_UCS4 *data, Py_ssize_t len) {
    literal. Each comment becomes one space so it stays a token boundary. Returns an owned buffer of *out_len code
    points, or NULL on allocation failure. */
 static Py_UCS4 *css_strip_comments(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len) {
+    /* GCOVR_EXCL_START: a copy past SIZE_MAX bytes needs a 32-bit build and a source of over a billion code points */
+    if ((size_t)(len + 1) > SIZE_MAX / sizeof(Py_UCS4)) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    /* GCOVR_EXCL_STOP */
     Py_UCS4 *out = PyMem_Malloc((size_t)(len + 1) * sizeof(Py_UCS4));
     if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -670,13 +676,18 @@ static Py_ssize_t css_parse_block(Py_UCS4 *data, Py_ssize_t start, Py_ssize_t en
                     css_unescape_name((Py_UCS4 *)name, &name_len);
                 }
                 if (count == *capacity) {
-                    Py_ssize_t grown = *capacity == 0 ? TH_INITIAL_CAPACITY(8) : *capacity * 2;
-                    css_decl *bigger = PyMem_Realloc(*out, (size_t)grown * sizeof(css_decl));
+                    size_t grown;
+                    size_t bytes;
+                    int grew = th_grow_cap((size_t)count + 1, (size_t)*capacity, 8, sizeof(css_decl), &grown, &bytes);
+                    if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                        return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                    }
+                    css_decl *bigger = PyMem_Realloc(*out, bytes);
                     if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
                     }
                     *out = bigger;
-                    *capacity = grown;
+                    *capacity = (Py_ssize_t)grown;
                 }
                 (*out)[count++] = (css_decl){name,
                                              name_len,
@@ -1060,14 +1071,20 @@ static css_rule *css_parse_sheet(Py_UCS4 *data, Py_ssize_t len, Py_ssize_t *out_
         }
         if (selector_len > 0) {
             if (count == capacity) {
-                Py_ssize_t grown = capacity == 0 ? TH_INITIAL_CAPACITY(8) : capacity * 2;
-                css_rule *bigger = PyMem_Realloc(rules, (size_t)grown * sizeof(css_rule));
+                size_t grown;
+                size_t bytes;
+                int grew = th_grow_cap((size_t)count + 1, (size_t)capacity, 8, sizeof(css_rule), &grown, &bytes);
+                if (!grew) {           /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                    PyMem_Free(decls); /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                    goto fail;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                }
+                css_rule *bigger = PyMem_Realloc(rules, bytes);
                 if (bigger == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                     PyMem_Free(decls); /* GCOVR_EXCL_LINE: allocation-failure path */
                     goto fail;         /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 rules = bigger;
-                capacity = grown;
+                capacity = (Py_ssize_t)grown;
             }
             rules[count++] = (css_rule){selector, selector_len, decls, decl_count};
         } else {
@@ -1795,6 +1812,11 @@ static void css_free_computed(HandleObject *handle) {
 /* Copy source into dest as buffers dest owns. */
 static int css_copy_map(css_value *dest, const css_value *source) {
     for (int index = 0; index < NUM_PROPS; index++) {
+        /* GCOVR_EXCL_START: needs a 32-bit build and a declaration of over a billion code points */
+        if ((size_t)(source[index].len + 1) > SIZE_MAX / sizeof(Py_UCS4)) {
+            return -1;
+        }
+        /* GCOVR_EXCL_STOP */
         Py_UCS4 *copy = PyMem_Malloc((size_t)(source[index].len + 1) * sizeof(Py_UCS4));
         if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return -1;      /* GCOVR_EXCL_LINE: allocation failure */
@@ -1913,13 +1935,18 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
             continue;
         }
         if (count == capacity) {
-            Py_ssize_t grown = capacity == 0 ? TH_INITIAL_CAPACITY(4) : capacity * 2;
-            css_sheet *bigger = PyMem_Realloc(sheets, (size_t)grown * sizeof(css_sheet));
+            size_t grown;
+            size_t bytes;
+            int grew = th_grow_cap((size_t)count + 1, (size_t)capacity, 4, sizeof(css_sheet), &grown, &bytes);
+            if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                goto fail; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            }
+            css_sheet *bigger = PyMem_Realloc(sheets, bytes);
             if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 goto fail;        /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             sheets = bigger;
-            capacity = grown;
+            capacity = (Py_ssize_t)grown;
         }
         const int supported = css_style_type_supported(node);
         sheets[count++] = (css_sheet){.style = node, .supported = supported};
@@ -2340,6 +2367,11 @@ PyObject *turbohtml_css_escape_identifier(PyObject *Py_UNUSED(module), PyObject 
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
+    /* GCOVR_EXCL_START: needs a 32-bit build and a string of over 134 million code points */
+    if ((size_t)len > SIZE_MAX / (8 * sizeof(Py_UCS4))) {
+        return PyErr_NoMemory();
+    }
+    /* GCOVR_EXCL_STOP */
     Py_UCS4 *out = PyMem_Malloc((size_t)(len > 0 ? len : 1) * 8 * sizeof(Py_UCS4));
     if (out == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
