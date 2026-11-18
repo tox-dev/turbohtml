@@ -1276,3 +1276,67 @@ def test_letter_before_unmapped_big5_pair_is_windows_1252_streamed(raw: bytes, s
     for start in range(0, len(raw), size):
         detector.feed(raw[start : start + size])
     assert detector.close().encoding == "windows-1252"
+
+
+# chardetng's GBK candidate survives a lead, a digit pair and a 0xFF. The decoder pushes the digit pair back with the
+# 0xFF, chardetng takes the single-byte-extension penalty and resets its decoder, so the pushed-back bytes are never
+# read again. Reading them again killed the candidate, and under a .cn label IBM866 won instead.
+_CHARDETNG_GBK: Final[tuple[bytes, ...]] = (b"\xe26\x90\xff0\xa3\x89", b"yr69\xe26\x90\xff0\xa3\x89")
+# a lead followed directly by 0xFF is a two-byte error chardetng scores as death, so the candidate stays out
+_LEAD_BEFORE_FF: Final[bytes] = bytes.fromhex("90ffd836a0328037")
+_GBK_CHUNK_SIZES: Final[tuple[int, ...]] = (1, 2, 3, 16)
+_CN: Final[Detection] = Detection(tld="cn")
+
+
+@pytest.mark.parametrize("raw", [pytest.param(raw, id=f"gbk-{index}") for index, raw in enumerate(_CHARDETNG_GBK)])
+def test_pushed_back_digits_after_a_lead_keep_gbk(raw: bytes) -> None:
+    assert detect(raw, _CN).encoding == "GBK"
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in _GBK_CHUNK_SIZES])
+@pytest.mark.parametrize("raw", [pytest.param(raw, id=f"gbk-{index}") for index, raw in enumerate(_CHARDETNG_GBK)])
+def test_pushed_back_digits_after_a_lead_keep_gbk_streamed(raw: bytes, size: int) -> None:
+    detector = EncodingDetector(_CN)
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close().encoding == "GBK"
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in _GBK_CHUNK_SIZES])
+def test_lead_before_ff_is_windows_1256_streamed(size: int) -> None:
+    detector = EncodingDetector(_CN)
+    for start in range(0, len(_LEAD_BEFORE_FF), size):
+        detector.feed(_LEAD_BEFORE_FF[start : start + size])
+    assert detector.close().encoding == "windows-1256"
+
+
+def test_lead_before_ff_is_windows_1256() -> None:
+    assert detect(_LEAD_BEFORE_FF, _CN).encoding == "windows-1256"
+
+
+_GBK_U: Final[bytes] = "中华人民共和国的首都是北京市这里有很多历史文化遗产".encode("gbk")
+_GBK_T: Final[bytes] = "中华人民共和国的首都是北京市这里有".encode("gbk")
+# a four-byte prefix whose fourth byte is 0xFF, or ASCII after a 0xA0 or 0xFE lead, is pushed back by the decoder,
+# and chardetng's first single-byte-extension rule resets its decoder there as the 0xFF rule does
+_PUSHED_BACK_FOURTH_BYTE: Final[tuple[bytes, ...]] = (
+    _GBK_U * 2 + b"\x81\x36\xfe\xff" + _GBK_U,
+    b"\xc0\xe0" * 4 + _GBK_T + b"\x81\x36\xa0\x20" + _GBK_T,
+)
+
+
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"fourth-{index}") for index, raw in enumerate(_PUSHED_BACK_FOURTH_BYTE)]
+)
+def test_pushed_back_fourth_byte_keeps_gbk(raw: bytes) -> None:
+    assert detect(raw).encoding == "GBK"
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in _GBK_CHUNK_SIZES])
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"fourth-{index}") for index, raw in enumerate(_PUSHED_BACK_FOURTH_BYTE)]
+)
+def test_pushed_back_fourth_byte_keeps_gbk_streamed(raw: bytes, size: int) -> None:
+    detector = EncodingDetector()
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close().encoding == "GBK"

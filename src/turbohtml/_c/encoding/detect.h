@@ -1202,12 +1202,16 @@ static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t 
             } else {
                 cand->prev = TH_CJ_OTHER;
             }
+            cand->dec.pos = cand->dec.error_at + 1;
             return 1;
         }
         if (malformed_len == 1 && b == 0xFF) {
+            /* the decoder pushed the rest of the sequence back along with this 0xFF; chardetng resets its decoder
+               here, so those bytes are dropped rather than read again */
             cand->has_pending = 0;
             cand->score += TH_GBK_SINGLE_BYTE_EXTENSION_PENALTY;
             cand->prev = TH_CJ_OTHER;
+            cand->dec.pos = cand->dec.error_at + 1;
             return 1;
         }
         return 0;
