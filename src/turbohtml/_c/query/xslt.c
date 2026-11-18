@@ -738,6 +738,9 @@ typedef struct {
     th_node *body;
     Py_UCS4 *mode;
     Py_ssize_t mode_len;
+    const Py_UCS4 *key; /* the element name the pattern can only match, NULL for a rule any node may match */
+    Py_ssize_t key_len;
+    Py_ssize_t next; /* the next rule in the chain best_rule walks for this rule, or -1 */
 } xslt_rule;
 
 typedef struct {
@@ -1090,6 +1093,9 @@ typedef struct engine {
     xslt_name_index named_index;
     xslt_name_index key_index;
     xslt_name_index attrset_index;
+    xslt_name_index
+        rule_names;       /* element-named rules by local name; an entry's first is the earliest rule's position + 1 */
+    Py_ssize_t rule_wild; /* the first rule of the chain of rules any node may match, or -1 */
     Py_ssize_t *attrset_previous; /* with attrset_index, per set one past the earlier definition of its name, else 0 */
     xslt_slots attrset_uses;
     xslt_space *spaces;
@@ -2454,7 +2460,8 @@ static int dispatch_grow(engine *eng) {
 
 /* The best-matching rule for (node, attr) in the given mode, or NULL for none. The
    rule array is pre-sorted by descending (priority, position), so the
-   first match wins the section 5.5 conflict resolution. */
+   first match wins the section 5.5 conflict resolution. The chains visit only the
+   rules that can match node, in that same order, so a rule no node reaches is never built. */
 static xslt_rule *best_rule(engine *eng, th_node *node, Py_ssize_t attr, const Py_UCS4 *mode, Py_ssize_t mode_len) {
     size_t slot = 0;
     const int cache = eng->nrules >= 16;
@@ -2473,9 +2480,24 @@ static xslt_rule *best_rule(engine *eng, th_node *node, Py_ssize_t attr, const P
             return eng->dispatch[slot].rule;
         }
     }
+    Py_ssize_t named = -1;
+    if (eng->rule_names.capacity != 0 && attr < 0 && node->type == TH_NODE_ELEMENT) {
+        Py_ssize_t local_len;
+        Py_ssize_t prefix_len;
+        const Py_UCS4 *local = qname_local(node, &local_len, &prefix_len);
+        named = name_index_find(&eng->rule_names, local, local_len) - 1;
+    }
+    Py_ssize_t wild = eng->rule_wild;
     xslt_rule *winner = NULL;
-    for (Py_ssize_t index = 0; index < eng->nrules; index++) {
-        xslt_rule *rule = &eng->rules[index];
+    while (named >= 0 || wild >= 0) {
+        xslt_rule *rule;
+        if (wild < 0 || (named >= 0 && named < wild)) {
+            rule = &eng->rules[named];
+            named = rule->next;
+        } else {
+            rule = &eng->rules[wild];
+            wild = rule->next;
+        }
         int rule_default = rule->mode == NULL;
         int want_default = mode == NULL;
         if (rule_default != want_default) {
@@ -8240,6 +8262,7 @@ static void engine_clear(engine *eng) {
     if (eng->owns_model) {
         PyMem_Free(eng->named_index.entries);
         PyMem_Free(eng->key_index.entries);
+        PyMem_Free(eng->rule_names.entries);
         PyMem_Free(eng->attrset_index.entries);
         PyMem_Free(eng->attrset_previous);
         PyMem_Free(eng->attrset_uses.items);
@@ -8753,6 +8776,93 @@ static int scope_prefix_resolve(void *context, const Py_UCS4 *prefix, Py_ssize_t
 static int bind_expression_scope(engine *eng, xp_program *prog, th_node *element) {
     xslt_scope_source source = {.eng = eng, .element = element};
     return xp_bind_namespaces(prog, scope_prefix_resolve, &source);
+}
+
+static int pattern_node_is_plain(uint8_t kind) {
+    switch (kind) {
+    case XN_PATH:
+    case XN_STEP:
+    case XN_PRED:
+    case XN_NUM:
+    case XN_LIT:
+    case XN_EQ:
+    case XN_NE:
+    case XN_LT:
+    case XN_LE:
+    case XN_GT:
+    case XN_GE:
+    case XN_AND:
+    case XN_OR:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Set rule->key to the element name the pattern can match, or to NULL when any node may match it. A pattern that is not
+   a plain path or comparison is never named: evaluating a function or a variable can raise whatever nodes the source
+   holds. A prefixed name test raises on an HTML source the same way, so its rule stays in the wildcard chain and is
+   built wherever the scan reaches it, as it always was. */
+static void rule_element_key(xslt_rule *rule) {
+    const xn *nodes = rule->prog->nodes;
+    rule->key = NULL;
+    for (int32_t index = 0; index < rule->prog->count; index++) {
+        const xn *node = &nodes[index];
+        if (!pattern_node_is_plain(node->kind) ||
+            (node->kind == XN_STEP && node->test == NT_NAME && node->prefix_len > 0)) {
+            return;
+        }
+    }
+    const xn *path = &nodes[rule->prog->root];
+    if (path->first < 0) {
+        return;
+    }
+    int32_t last = path->first;
+    while (nodes[last].next >= 0) {
+        last = nodes[last].next;
+    }
+    const xn *step = &nodes[last];
+    if (step->test != NT_NAME || (step->axis != AX_CHILD && step->axis != AX_DESCENDANT)) {
+        return;
+    }
+    rule->key = step->str;
+    rule->key_len = step->str_len;
+}
+
+/* Chain the rules best_rule consults: an element-named rule joins the chain of its name, and every other rule joins
+   the wildcard chain. Each chain keeps the sorted order, so the first matching rule along it is the winner. */
+static int build_rule_index(engine *eng) {
+    Py_ssize_t named = 0;
+    for (Py_ssize_t index = 0; index < eng->nrules; index++) {
+        xslt_rule *rule = &eng->rules[index];
+        rule_element_key(rule);
+        named += rule->key != NULL;
+    }
+    /* GCOVR_EXCL_BR_START: allocation failure */
+    if (name_index_reserve(&eng->rule_names, named) < 0) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    Py_ssize_t wild = -1;
+    for (Py_ssize_t index = eng->nrules - 1; index >= 0; index--) {
+        xslt_rule *rule = &eng->rules[index];
+        if (eng->rule_names.capacity == 0 || rule->key == NULL) {
+            rule->next = wild;
+            wild = index;
+        }
+    }
+    eng->rule_wild = wild;
+    if (eng->rule_names.capacity != 0) {
+        do {
+            for (Py_ssize_t index = eng->nrules - 1; index >= 0 && !eng->rule_names.walked_far; index--) {
+                xslt_rule *rule = &eng->rules[index];
+                if (rule->key != NULL) {
+                    rule->next = name_index_add(&eng->rule_names, rule->key, rule->key_len, index) - 1;
+                }
+            }
+        } while (name_index_rekey(&eng->rule_names));
+    }
+    return 0;
 }
 
 static int precompile_expression(engine *eng, th_node *element, const Py_UCS4 *source, Py_ssize_t length,
@@ -9412,6 +9522,9 @@ TH_NODE_API(, PyObject *, turbohtml_xslt_compile, (PyObject * module, PyObject *
     }
     if (status == 0) {
         status = build_name_indexes(&compiled->model);
+    }
+    if (status == 0) {
+        status = build_rule_index(&compiled->model);
     }
     if (status == 0) {
         status = resolve_attribute_sets(&compiled->model);
