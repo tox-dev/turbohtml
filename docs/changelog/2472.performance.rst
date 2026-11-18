@@ -1,0 +1,1 @@
+Decoding GB18030 text, which includes four-byte characters, runs faster for both two-byte and four-byte characters.
