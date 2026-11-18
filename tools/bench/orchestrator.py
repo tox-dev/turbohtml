@@ -39,7 +39,7 @@ from .report import render
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
     from types import FrameType
-    from typing import NoReturn, TypeIs
+    from typing import TypeIs
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _TOOLS_DIR: Final[Path] = Path(__file__).resolve().parents[1]
@@ -335,16 +335,10 @@ class _Schedule:
         self._failed = threading.Event()
 
     def execute(self) -> None:
-        with _stop_on_signals():
+        with _stop_on_signals() as received:
             pool = ThreadPoolExecutor(max_workers=self._jobs)
             try:
-                pending = {pool.submit(self._run, job) for job in self._progress.ordered()}
-                while pending:
-                    # a timed wait returns to the interpreter now and then, so a signal's handler runs; a blocking wait
-                    # on Windows ignores Ctrl-C
-                    done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        future.result()
+                self._wait_for_futures(pool, received)
             except BaseException:
                 # the first failure is the one reported; the workers stopped here fail too, and their errors go unread
                 self._failed.set()
@@ -353,6 +347,21 @@ class _Schedule:
                 _WORKERS.stop()
                 pool.shutdown(cancel_futures=True)
                 _WORKERS.reopen()
+
+    def _wait_for_futures(self, pool: ThreadPoolExecutor, received: list[int]) -> None:
+        pending = {pool.submit(self._run, job) for job in self._progress.ordered()}
+        while pending:
+            # a timed wait returns to the interpreter now and then, so a recorded signal is seen even where a blocking
+            # wait ignores Ctrl-C (Windows)
+            done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+            if received:
+                _WORKERS.stop()
+                pool.shutdown(cancel_futures=True)
+                if received[0] == signal.SIGINT:
+                    raise KeyboardInterrupt
+                raise SystemExit(128 + received[0])
+            for future in done:
+                future.result()
 
     def _run(self, job: _Job) -> None:
         if self._failed.is_set() or not self._progress.start(job):
@@ -591,22 +600,22 @@ def _operation_jobs(
 
 
 @contextlib.contextmanager
-def _stop_on_signals() -> Generator[None, None, None]:
-    # Workers lead their own sessions, so a terminal's Ctrl-C never reaches them; a signal must unwind the sweep here,
-    # through the cleanup that stops every worker group, and the caller's handlers come back afterwards.
-    previous = {number: signal.signal(number, _interrupt) for number in (signal.SIGTERM, signal.SIGINT)}
+def _stop_on_signals() -> Generator[list[int], None, None]:
+    # Workers lead their own sessions, so a terminal's Ctrl-C never reaches them; the sweep's wait loop turns a
+    # recorded signal into the cleanup that stops every worker group. The handler only appends: Python runs it between
+    # any two bytecodes of the main thread, so raising there could land inside a lock the sweep holds, and an Event's
+    # set() takes a lock of its own.
+    received: list[int] = []
+
+    def record(signum: int, _frame: FrameType | None) -> None:
+        received.append(signum)
+
+    previous = {number: signal.signal(number, record) for number in (signal.SIGTERM, signal.SIGINT)}
     try:
-        yield
+        yield received
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)
-
-
-def _interrupt(signum: int, _frame: FrameType | None) -> NoReturn:
-    # Ctrl-C raises KeyboardInterrupt as the interpreter does, and SIGTERM exits the way a terminated process does.
-    if signum == signal.SIGINT:
-        raise KeyboardInterrupt
-    raise SystemExit(128 + signum)
 
 
 class _SkipError(Exception):
