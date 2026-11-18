@@ -72,6 +72,11 @@ def _select_relative(case: tuple[str, str, int]) -> None:
         document.css(selector)
 
 
+def _select_scaling(case: tuple[str, str]) -> None:
+    selector, text = case
+    _parsed(text).css(selector)
+
+
 def text_content(text: str) -> None:
     # Collect the document's visible text with an XPath text() sweep that skips script/style.
     _parsed(text).xpath("//body//text()[not(ancestor::script or ancestor::style)]").getall()
@@ -122,9 +127,11 @@ def path_xpath(text: str) -> None:
     _ = [tree.getpath(element) for element in _parsed(text).root.iter()]
 
 
-def translate(selector: str) -> None:
+def translate(case: tuple[str, int]) -> None:
     # Translate one CSS selector to XPath 1.0 with the cssselect HTMLTranslator parsel's css() builds on.
-    _TRANSLATOR.css_to_xpath(selector)
+    selector, repeats = case
+    for _ in range(repeats):
+        _TRANSLATOR.css_to_xpath(selector)
 
 
 class _ExtensionContext(Protocol): ...
@@ -229,7 +236,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-scope": (parse, "parsel"),
     "find": (find, "parsel"),
     "select": (select, "parsel"),
-    "select-nth": (_select_relative, "parsel"),
+    "select-nth": (_select_scaling, "parsel"),
     "select-relative": (_select_relative, "parsel"),
     "select-has": (select_has, "parsel"),
     "find-text": (find_text, "parsel"),

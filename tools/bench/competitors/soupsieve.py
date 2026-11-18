@@ -39,15 +39,22 @@ def select_has(text: str) -> None:
     _HAS.select(_parsed(text))
 
 
-def _select_default(case: tuple[str, str]) -> None:
+def _select_default(case: tuple[str, str, int]) -> None:
     if case[0] == ":default" and "<button>" in case[1]:
         unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
         raise NotImplementedError(unsupported)
     _select_relative(case)
 
 
-def _select_relative(case: tuple[str, str]) -> None:
+def _select_scaling(case: tuple[str, str]) -> None:
     soupsieve.select(case[0], _parsed(case[1]))
+
+
+def _select_relative(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        soupsieve.select(selector, document)
 
 
 def match(text: str) -> None:
@@ -66,7 +73,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "escape-identifier": (escape_identifier, "soupsieve"),
     "find": (find, "soupsieve"),
     "select": (select, "soupsieve"),
-    "select-nth": (_select_relative, "soupsieve"),
+    "select-nth": (_select_scaling, "soupsieve"),
     "select-relative": (_select_relative, "soupsieve"),
     "select-default": (_select_default, "soupsieve"),
     "select-has": (select_has, "soupsieve"),

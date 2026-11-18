@@ -73,6 +73,11 @@ def _select_relative(case: tuple[str, str, int]) -> None:
         document(selector)
 
 
+def _select_scaling(case: tuple[str, str]) -> None:
+    selector, text = case
+    _parsed(text)(selector)
+
+
 def text_content(text: str) -> None:
     # Collect visible text from the body or fragment root.
     document: Final = _parsed(text)
@@ -253,7 +258,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-scope": (parse, "pyquery"),
     "find": (find, "pyquery"),
     "select": (select, "pyquery"),
-    "select-nth": (_select_relative, "pyquery"),
+    "select-nth": (_select_scaling, "pyquery"),
     "select-relative": (_select_relative, "pyquery"),
     "find-text": (find_text, "pyquery"),
     "find-text-exact": (_find_text_exact, "pyquery"),

@@ -14,15 +14,19 @@ _REQUIREMENTS: Final[tuple[str, ...]] = ("cssselect>=1.4",)
 _TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()
 
 
-def translate(selector: str) -> None:
-    # Translate one CSS selector to XPath 1.0 with cssselect's HTML translator.
-    _TRANSLATOR.css_to_xpath(selector)
+def translate(case: tuple[str, int]) -> None:
+    # Translate one CSS selector to XPath 1.0 with cssselect's HTML translator, repeated as the case asks.
+    selector, repeats = case
+    for _ in range(repeats):
+        _TRANSLATOR.css_to_xpath(selector)
 
 
-def specificity(selector: str) -> None:
-    # Weigh each selector in a list with cssselect, the (a, b, c) triple per parsed arm.
-    for parsed in parse(selector):
-        parsed.specificity()
+def specificity(case: tuple[str, int]) -> None:
+    # Weigh each selector in a list with cssselect, the (a, b, c) triple per parsed arm, repeated as the case asks.
+    selector, repeats = case
+    for _ in range(repeats):
+        for parsed in parse(selector):
+            parsed.specificity()
 
 
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {

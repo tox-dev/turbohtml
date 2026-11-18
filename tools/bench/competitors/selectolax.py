@@ -51,8 +51,15 @@ def select_has(text: str) -> None:
     _parsed(text).css("div:has(a)")
 
 
-def _select_relative(case: tuple[str, str]) -> None:
+def _select_scaling(case: tuple[str, str]) -> None:
     _parsed(case[1]).css(case[0])
+
+
+def _select_relative(case: tuple[str, str, int]) -> None:
+    selector, text, repeats = case
+    document = _parsed(text)
+    for _ in range(repeats):
+        document.css(selector)
 
 
 def text_content(text: str) -> None:
@@ -234,7 +241,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-scope": (parse, "selectolax"),
     "find": (find, "selectolax"),
     "select": (select, "selectolax"),
-    "select-nth": (_select_relative, "selectolax"),
+    "select-nth": (_select_scaling, "selectolax"),
     "select-relative": (_select_relative, "selectolax"),
     "select-has": (select_has, "selectolax"),
     "text-content": (text_content, "selectolax"),

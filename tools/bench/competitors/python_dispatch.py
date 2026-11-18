@@ -16,7 +16,9 @@ _REQUIREMENTS: Final[tuple[str, ...]] = ("turbohtml>=1.8",)
 
 
 def _dispatch(count: int) -> Node:
-    return _pipeline(count)()
+    for _ in range(1000):
+        result = _pipeline(count)()
+    return result
 
 
 @cache

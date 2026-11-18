@@ -81,6 +81,11 @@ def _select_relative(case: tuple[str, str, int]) -> None:
         document.query_selector_all(selector)
 
 
+def _select_scaling(case: tuple[str, str]) -> None:
+    selector, text = case
+    _document(_parsed(text)).query_selector_all(selector)
+
+
 def text_content(text: str) -> None:
     # Collect the document's raw text with resiliparse's text property, distinct from the layout-aware render.
     tree = _parsed(text)
@@ -192,7 +197,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "text-main": (text_main, "resiliparse"),
     "find": (find, "resiliparse"),
     "select": (select, "resiliparse"),
-    "select-nth": (_select_relative, "resiliparse"),
+    "select-nth": (_select_scaling, "resiliparse"),
     "select-relative": (_select_relative, "resiliparse"),
     "select-has": (select_has, "resiliparse"),
     "text-content": (text_content, "resiliparse"),

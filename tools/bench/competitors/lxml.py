@@ -152,6 +152,11 @@ def _select_relative(case: tuple[str, str, int]) -> None:
         document.cssselect(selector)
 
 
+def _select_scaling(case: tuple[str, str]) -> None:
+    selector, text = case
+    _parsed(text).cssselect(selector)
+
+
 def text_content(text: str) -> None:
     # Collect the document's visible text with lxml's text_content method.
     _parsed(text).text_content()
@@ -559,7 +564,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "emit": (emit, "lxml"),
     "find": (find, "lxml"),
     "select": (select, "lxml"),
-    "select-nth": (_select_relative, "lxml"),
+    "select-nth": (_select_scaling, "lxml"),
     "select-relative": (_select_relative, "lxml"),
     "select-has": (select_has, "lxml"),
     "text-content": (text_content, "lxml"),
