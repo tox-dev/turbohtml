@@ -432,23 +432,24 @@ def _xslt_compiled(sheet: str, source: str):  # ruff:ignore[missing-return-type-
     return lxml_etree.XSLT(document), lxml_etree.fromstring(source.encode())
 
 
-def transform(case: tuple[str, str]) -> lxml_etree._XSLTResultTree:
-    # Apply a compiled XSLT 1.0 stylesheet to a parsed source with lxml's libxslt engine.
+def transform(case: tuple[str, str]) -> str:
+    # Apply a compiled XSLT 1.0 stylesheet to a parsed source with lxml's libxslt engine. libxslt returns a lazy result
+    # tree, so serialize it as turbohtml's transform does: each side then times the same output work.
     sheet, source = case
     compiled, document = _xslt_compiled(sheet, source)
-    return compiled(document)
+    return str(compiled(document))
 
 
-def _transform_compile_run(case: tuple[str, str]) -> lxml_etree._XSLTResultTree:
+def _transform_compile_run(case: tuple[str, str]) -> str:
     sheet, source = case
-    return lxml_etree.XSLT(_xslt_sheet(sheet))(_xslt_sheet(source))
+    return str(lxml_etree.XSLT(_xslt_sheet(sheet))(_xslt_sheet(source)))
 
 
 def transform_reuse(case: tuple[str, str]) -> None:
     sheet, source = case
     compiled, document = _xslt_compiled(sheet, source)
     for _ in range(10):
-        compiled(document)
+        str(compiled(document))
 
 
 class _Counter:
