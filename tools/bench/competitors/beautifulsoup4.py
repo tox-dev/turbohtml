@@ -22,6 +22,7 @@ from bench._beautifulsoup import (  # simplint: ignore[private-import-path]  # s
     serialize_inner_indent,
     socialcard,
 )
+from bench.link_attributes import element_links
 from bench.timing import Mutating
 
 if TYPE_CHECKING:
@@ -224,9 +225,17 @@ def match(text: str) -> None:
         anchor.css.match("div a[href]")
 
 
+def link_urls(text: str) -> list[str]:
+    # Collect every link-bearing attribute and <style> url() with BeautifulSoup, the set turbohtml's links() reads.
+    return [
+        link
+        for tag in parsed("html.parser", text).find_all(name=True)
+        for link in element_links(tag.name, tag.attrs.items(), tag.get_text() if tag.name == "style" else None)
+    ]
+
+
 def links_extract(text: str) -> None:
-    # Collect every anchor's href with BeautifulSoup, the shape a scraper reads links in.
-    _ = [anchor.get("href") for anchor in parsed("html.parser", text).find_all("a")]
+    _ = link_urls(text)
 
 
 def links_rewrite(text: str) -> None:

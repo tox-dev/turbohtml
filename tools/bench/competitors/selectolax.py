@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
+from bench.link_attributes import element_links
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
@@ -81,9 +82,17 @@ def navigate(text: str) -> None:
             pass
 
 
+def link_urls(text: str) -> list[str]:
+    # Collect every link-bearing attribute and <style> url() with selectolax, the set turbohtml's links() reads.
+    return [
+        link
+        for node in _parsed(text).css("*")
+        for link in element_links(node.tag, node.attributes.items(), node.text() if node.tag == "style" else None)
+    ]
+
+
 def links_extract(text: str) -> None:
-    # Collect every anchor's href with selectolax, the shape a scraper reads links in.
-    _ = [anchor.attributes.get("href") for anchor in _parsed(text).css("a")]
+    _ = link_urls(text)
 
 
 def extract_attr(text: str) -> None:

@@ -12,6 +12,7 @@ import lxml.etree as lxml_etree
 from lxml import html as lxml_html
 from lxml.builder import E
 
+from bench.link_attributes import element_links
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
@@ -254,10 +255,19 @@ def navigate(text: str) -> None:
         pass
 
 
+def link_urls(text: str) -> list[str]:
+    # Collect every link-bearing attribute and <style> url() with lxml, the set turbohtml's links() reads.
+    return [
+        link
+        for element in _parsed(text).iter(lxml_etree.Element)
+        for link in element_links(
+            str(element.tag), element.attrib.items(), element.text if element.tag == "style" else None
+        )
+    ]
+
+
 def links_extract(text: str) -> None:
-    # Collect every link with lxml's iterlinks().
-    for _link in _parsed(text).iterlinks():
-        pass
+    _ = link_urls(text)
 
 
 def links_absolutize(tree: HtmlElement) -> None:
