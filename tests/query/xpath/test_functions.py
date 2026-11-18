@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 import re
 import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
@@ -1537,6 +1538,26 @@ def test_distinct_string_values(content: str, expected: list[str]) -> None:
 )
 def test_distinct_attribute_values(content: str, expected: list[str]) -> None:
     assert parse_xml(f"<root>{content}</root>").xpath("set:distinct(//item/@*)") == expected
+
+
+@pytest.mark.parametrize("count", [pytest.param(3, id="few"), pytest.param(300, id="many")])
+def test_distinct_keeps_the_first_node_of_each_value(count: int) -> None:
+    pool: Final = (
+        "",
+        "é",
+        "界",
+        "😀",
+        "😀😀",
+        "a",
+        "aa",
+        "界界",
+        *(f"{'x' * (number % 5)}{number}" for number in range(40)),
+    )
+    rng = random.Random(count)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
+    values: Final = [rng.choice(pool) for _ in range(count)]
+    items: Final = "".join(f'<item id="{index}">{value}</item>' for index, value in enumerate(values))
+    expected: Final = [str(index) for index, value in enumerate(values) if values.index(value) == index]
+    assert parse_xml(f"<root>{items}</root>").xpath("set:distinct(//item)/@id") == expected
 
 
 @pytest.mark.parametrize(

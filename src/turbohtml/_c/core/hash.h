@@ -3,6 +3,7 @@
    The tokenizer's per-tag duplicate-attribute index (tokenizer/statemachine.c), the tree's dynamic
    attribute-name table (dom/tree.c), and the string tables of XPath id() and translate(), xsl:key and
    minify_js are open-addressing tables with linear probing, keyed by text the document author picks.
+   The set:distinct value table (query/xpath/functions.c) is one too, but it starts keyed; see below.
    Linear probing stays O(1) only while home slots are spread over the table: a hash that can be
    evaluated offline lets a document choose names that land in one run of slots, and every further
    name then walks that run, the quadratic cost the tables exist to remove (CWE-407).
@@ -12,6 +13,11 @@
    th_key_mix for code points) and stays there. th_name_hash is SipHash-1-3 (Aumasson and Bernstein),
    the keyed hash CPython uses for str and bytes (PEP 456), under a 128-bit key the document cannot
    see, so the slots cannot be predicted from the input.
+
+   The set:distinct table starts keyed instead, and it has no run watch: each value is hashed under th_name_hash
+   on insert, and every growth reseats the values under those stored hashes. Its entries are whole string-values
+   the document picks, so the document could line them up into one run from the first insert, and a fixed hash
+   would not stop it. The cost is one SipHash per value.
 
    th_name_hash is one out-of-line function in core/module.c: its rounds run only on keyed tables and
    long CSS rule bodies, and inlined at every call site they used up the link-time inliner's unit
