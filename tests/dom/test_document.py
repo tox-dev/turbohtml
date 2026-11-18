@@ -1182,3 +1182,35 @@ def test_pickled_fragment_transform_document_context(select: str, expected: str)
         )
     )
     assert convert(_roundtrip(source)) == expected
+
+
+@pytest.mark.parametrize("offset", range(40), ids=lambda value: f"at-{value}")
+def test_control_after_a_printable_run_reports_its_column(offset: int) -> None:
+    # printable ASCII is skipped sixteen bytes at a time; the control must stop the skip and report its own column
+    markup = f"{'a' * offset}\x0b{'b' * 23}"
+    assert [(error.code, error.line, error.col) for error in parse(markup).errors] == [
+        ("control-character-in-input-stream", 1, offset)
+    ]
+
+
+@pytest.mark.parametrize("chunk", [pytest.param(size, id=f"chunk-{size}") for size in (5, 16, 17)])
+@pytest.mark.parametrize("offset", range(0, 40, 3), ids=lambda value: f"at-{value}")
+def test_control_in_a_fed_printable_run_reports_the_same_error(offset: int, chunk: int) -> None:
+    markup = f"{'a' * offset}\x0b{'b' * 23}"
+    with IncrementalParser() as parser:
+        for start in range(0, len(markup), chunk):
+            parser.feed(markup[start : start + chunk])
+        streamed = parser.close()
+    assert [(error.code, error.line, error.col) for error in streamed.errors] == [
+        (error.code, error.line, error.col) for error in parse(markup).errors
+    ]
+
+
+@pytest.mark.parametrize("filler", [pytest.param("a", id="bmp"), pytest.param("😀", id="astral")])
+@pytest.mark.parametrize("position", range(19), ids=lambda value: f"nul-at-{value}")
+def test_nul_at_every_position_of_a_later_text_run_is_dropped(filler: str, position: int) -> None:
+    # the attribute NUL makes the document flag NULs, so each text run is scanned for them; the run is longer than a
+    # vector step and the NUL lands in every lane and in the scalar tail
+    run = f"{filler * position}\x00{filler * (18 - position)}"
+    paragraph = parse(f"<p data-x='\x00'></p><p>{run}</p>").find_all("p")[1]
+    assert paragraph.text == filler * 18

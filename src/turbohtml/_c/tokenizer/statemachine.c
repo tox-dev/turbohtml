@@ -1342,10 +1342,28 @@ static Py_ssize_t scan_resume(th_input_scan *scan, Py_UCS4 first) {
     return first == '\n';
 }
 
+#if defined(TH_SCAN_SSE2)
+/* Whether sixteen bytes are all printable ASCII: no control, line break, NUL, or byte at or above 0x80, so each one
+   only advances the column. The signed compares put every high byte below the range, since it reads negative. */
+static int printable_ascii16(const Py_UCS1 *bytes) {
+    __m128i block = _mm_loadu_si128((const __m128i *)bytes);
+    __m128i printable =
+        _mm_and_si128(_mm_cmpgt_epi8(block, _mm_set1_epi8(0x1F)), _mm_cmplt_epi8(block, _mm_set1_epi8(0x7F)));
+    return _mm_movemask_epi8(printable) == 0xFFFF;
+}
+#endif
+
 /* The preprocessing errors over 1-byte input, where the corpora live. */
 static void input_errors_ucs1(th_input_scan *scan, const Py_UCS1 *bytes, Py_ssize_t len, th_error_sink *sink) {
     Py_ssize_t index = scan_resume(scan, bytes[0]);
     while (index < len) {
+#if defined(TH_SCAN_SSE2)
+        if (index + 16 <= len && printable_ascii16(bytes + index)) {
+            index += 16;
+            scan->col += 16;
+            continue;
+        }
+#endif
         if (index + 8 <= len) {
             uint64_t word;
             memcpy(&word, bytes + index, sizeof(word));

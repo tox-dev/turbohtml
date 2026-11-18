@@ -21,6 +21,10 @@
 
 #include <string.h>
 
+#if !defined(TH_FORCE_SCALAR) && (defined(__SSE2__) || defined(_M_X64))
+#include <emmintrin.h>
+#endif
+
 /* Doctype quirks tables and the foreign-content step: static helper collections that
    compile into this translation unit. foreign.h forward-declares the tree-builder
    statics it shares (defined below), so both include cleanly at the top. */
@@ -1687,6 +1691,22 @@ static th_node *insert_template(th_tree *tree, const th_token *token) {
     return node;
 }
 
+/* The first U+0000 in text[0, len), or len when there is none: four code points per SSE2 compare, then the tail. */
+static Py_ssize_t first_nul(const Py_UCS4 *text, Py_ssize_t len) {
+    Py_ssize_t index = 0;
+#if !defined(TH_FORCE_SCALAR) && (defined(__SSE2__) || defined(_M_X64))
+    const __m128i zero = _mm_setzero_si128();
+    while (index + 4 <= len &&
+           _mm_movemask_epi8(_mm_cmpeq_epi32(_mm_loadu_si128((const __m128i *)(text + index)), zero)) == 0) {
+        index += 4;
+    }
+#endif
+    while (index < len && text[index] != 0) {
+        index++;
+    }
+    return index;
+}
+
 static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len) {
     if (len == 0) {
         return;
@@ -1695,10 +1715,7 @@ static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len) {
        per-run scan entirely unless the document actually contains a NUL */
     Py_ssize_t nul = len;
     if (tree->has_nul) {
-        nul = 0;
-        while (nul < len && text[nul] != 0) {
-            nul++;
-        }
+        nul = first_nul(text, len);
     }
     if (nul < len) {
         Py_ssize_t write_pos = nul;
