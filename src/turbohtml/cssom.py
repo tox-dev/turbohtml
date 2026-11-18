@@ -16,6 +16,8 @@ is the same boundary jsdom and cssstyle draw -- see :doc:`the explanation </expl
 
 from __future__ import annotations
 
+__lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 from typing import TYPE_CHECKING, final
 
 from ._html import (

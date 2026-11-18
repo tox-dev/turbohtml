@@ -26,6 +26,8 @@ the reserved ``xml`` and ``xml-stylesheet`` targets remain comments.
 
 from __future__ import annotations
 
+__lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 from ._html import sax_dispatch as _sax_dispatch

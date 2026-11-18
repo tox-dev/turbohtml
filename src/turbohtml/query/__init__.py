@@ -16,6 +16,12 @@ adjusts the spelling but keeps the structure.
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    f"{__spec__.parent}._match",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._native",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._xpath",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from typing import TYPE_CHECKING, cast, overload
 
 from ._match import (

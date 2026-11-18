@@ -34,6 +34,11 @@ floor and language constraints.
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    "itertools",
+    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 import codecs
 import string
 from dataclasses import dataclass

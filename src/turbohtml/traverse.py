@@ -13,6 +13,11 @@ constructor takes ``root`` positionally with ``what_to_show`` and ``filter`` as 
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    "typing",
+    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from typing import Final
 
 from ._html import NodeIterator, TreeWalker

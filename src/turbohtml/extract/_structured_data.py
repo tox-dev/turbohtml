@@ -12,6 +12,8 @@ library :mod:`json`. Importing this module registers the parser and every record
 
 from __future__ import annotations
 
+__lazy_modules__ = ["json"]
+
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass

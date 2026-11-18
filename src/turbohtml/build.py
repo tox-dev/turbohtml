@@ -21,6 +21,11 @@ Text serializes escaped, except inside ``script``, ``style``, ``xmp``, ``iframe`
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    "collections.abc",
+    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Final, TypeAlias
 

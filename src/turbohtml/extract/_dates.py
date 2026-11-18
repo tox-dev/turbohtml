@@ -14,6 +14,8 @@ the common numeric spellings, an 8-digit stamp, and a compact multilingual month
 
 from __future__ import annotations
 
+__lazy_modules__ = [f"{__spec__.parent}._native"]  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final, Literal, NamedTuple

@@ -15,6 +15,11 @@ delegate to the same engine, which always applies the HTML rules (element and at
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    f"{__spec__.parent}",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from . import SelectorSyntaxError
 from ._html import css_specificity as _css_specificity
 from ._html import css_to_xpath as _css_to_xpath

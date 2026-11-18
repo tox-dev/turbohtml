@@ -9,6 +9,15 @@ them. It gives the toolkit the command-line surface ``html2text``, ``markdownify
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    "argparse",
+    "pathlib",
+    f"{__spec__.parent}",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}.clean",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}.detect",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 import argparse
 import sys
 from pathlib import Path

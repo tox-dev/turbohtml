@@ -31,6 +31,17 @@ records, the ``feedparser.parse`` entry point over :meth:`turbohtml.Document.fee
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    "itertools",
+    f"{__spec__.parent}._article",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._dates",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._feed",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._links",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._native",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._structured_data",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+    f"{__spec__.parent}._urls",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from dataclasses import dataclass
 from itertools import starmap
 from typing import Final, NamedTuple, cast

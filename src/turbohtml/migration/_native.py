@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__lazy_modules__ = ["turbohtml._html"]
+
 from turbohtml._html import (  # simplint: ignore[private-import-path]  # native extension lives in the root package
     bleach_allow_relative,
     bleach_attributes,

@@ -16,6 +16,8 @@ default handling.
 
 from __future__ import annotations
 
+__lazy_modules__ = ["typing"]
+
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import Field, dataclass, field, fields
 from typing import Final, Literal, TypeAlias

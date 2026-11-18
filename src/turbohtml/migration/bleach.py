@@ -10,6 +10,11 @@ serialization. Event-handler attributes and ``javascript:`` URLs are dropped unc
 
 from __future__ import annotations
 
+__lazy_modules__ = [
+    "typing",
+    f"{__spec__.parent}._native",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
+]
+
 from collections.abc import Callable, Iterable, Mapping
 from typing import Final, TypeAlias
 
