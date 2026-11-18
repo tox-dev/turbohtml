@@ -159,10 +159,8 @@ NOTES: Final[dict[str, dict[str, str]]] = {
     "minify-js": dict.fromkeys(("rjsmin", "jsmin", "css-html-js-minify"), _STRIPPER_JS),
     "minify-css": dict.fromkeys(("rcssmin", "cssmin", "css-html-js-minify"), _STRIPPER_CSS),
     "strip-remove": {
-        "w3lib": (
-            "removes the tags with a regular expression over the raw string and never parses, so it cannot honor "
-            "nesting or the tokenizer rules that decide where an element really ends"
-        ),
+        "w3lib": "regex substitution over the raw string, does not parse; "
+        "differs on unclosed/nested elements and comments",
     },
     "build-e": dict.fromkeys(("simple-html", "markyp", "yattag", "htbuilder", "htpy", "fast-html"), _BUILDER),
     "construct": dict.fromkeys(("simple-html", "markyp", "htbuilder", "htpy"), _BUILDER),
