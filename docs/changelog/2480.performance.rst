@@ -1,1 +1,2 @@
-Resolving a URL that needs no percent-encoding checks its characters with a lookup table, so base URL and link resolution spend less time on it.
+Resolving a URL that needs no percent-encoding checks its characters with a lookup table, so base URL and link
+resolution spend less time on it.
