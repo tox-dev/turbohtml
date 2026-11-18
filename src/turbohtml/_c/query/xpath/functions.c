@@ -1744,6 +1744,52 @@ static int set_split(const xp_result *args, int want_before, xp_result *out) {
 
 /* The EXSLT string functions (str:). */
 
+/* The only child of node when it is an element with exactly one child, else NULL. */
+static inline th_node *sole_child(th_node *node) {
+    if (node->type != TH_NODE_ELEMENT || node->first_child == NULL || node->first_child->next_sibling != NULL) {
+        return NULL;
+    }
+    return node->first_child;
+}
+
+/* The text or comment node that holds the string-value of node, reached down a chain of single-child elements, or NULL
+   when the string-value spans several nodes. */
+static inline th_node *concat_leaf(th_node *node) {
+    th_node *child = sole_child(node);
+    while (child != NULL && child->type == TH_NODE_ELEMENT) {
+        node = child;
+        child = sole_child(node);
+    }
+    if (child != NULL && child->type == TH_NODE_TEXT) {
+        node = child;
+    }
+    return node->type == TH_NODE_TEXT || node->type == TH_NODE_COMMENT ? node : NULL;
+}
+
+/* 1 with the characters of item borrowed from the tree, 0 when they have to be built (a namespace node, or a
+   string-value that spans several nodes), -1 on allocation failure. */
+static inline int concat_view_borrowed(th_tree *tree, xp_item item, const Py_UCS4 **part, Py_ssize_t *len) {
+    if (item.attr == -2) {
+        return 0;
+    }
+    if (xp_is_attribute(item.attr)) {
+        const th_node_attr *attr = xp_item_attribute(tree, item);
+        *part = attr->value;
+        *len = attr->value == NULL ? 0 : attr->value_len;
+        return 1;
+    }
+    th_node *leaf = concat_leaf(item.node);
+    if (leaf == NULL) {
+        return 0;
+    }
+    *len = leaf->text_len;
+    *part = *len == 0 ? NULL : th_node_realize_text(tree, leaf);
+    if (*len != 0 && *part == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return 1;
+}
+
 static int concat_item_view(th_tree *tree, xp_item item, const Py_UCS4 **part, Py_ssize_t *len, Py_UCS4 **owned) {
     *owned = NULL;
     if (item.attr == -2) {
@@ -1773,8 +1819,61 @@ static int concat_item_view(th_tree *tree, xp_item item, const Py_UCS4 **part, P
     return *owned == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
 }
 
-/* str:concat(node-set): the string-values of every member joined in document order. */
-static int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
+/* str:concat when every member's characters are borrowed from the tree, the common case: the lengths are summed in one
+   pass, the result is allocated once, and a second pass copies the views in. Returns 1 without writing out when some
+   member has to build its string-value, so str_concat runs its general pass; the allowance is charged as that pass
+   charges it. */
+/* Out of line, so eval_function's registers stay as they were without it. */
+static TH_NOINLINE int str_concat_borrowed(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
+    const xp_nodeset *nodes = &arg->nodes;
+    Py_ssize_t total = 0;
+    xp_gather seen;
+    for (Py_ssize_t index = 0; index < nodes->len; index++) {
+        const Py_UCS4 *part;
+        Py_ssize_t part_len;
+        const int borrowed = concat_view_borrowed(tree, nodes->items[index], &part, &part_len);
+        if (borrowed < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        if (borrowed == 0) {
+            return 1;
+        }
+        /* an overflow is past the allowance too, so the common short total checks once */
+        if (part_len > XP_GATHER_ALLOWANCE - total) {
+            if (charge_repeated(&seen, ctx, nodes, NULL, index, part_len, total <= XP_GATHER_ALLOWANCE) < 0) {
+                return -1;
+            }
+            const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
+            if ((size_t)part_len > limit - (size_t)total) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                  /* GCOVR_EXCL_LINE */
+            }
+        }
+        total += part_len;
+    }
+    Py_UCS4 *buf = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+    if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    Py_UCS4 *cursor = buf;
+    for (Py_ssize_t index = 0; index < nodes->len; index++) {
+        const Py_UCS4 *part;
+        Py_ssize_t part_len;
+        const int viewed = concat_view_borrowed(tree, nodes->items[index], &part, &part_len);
+        if (viewed <= 0) {   /* GCOVR_EXCL_BR_LINE: the first pass realized it */
+            PyMem_Free(buf); /* GCOVR_EXCL_LINE */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        if (part_len > 0) {
+            memcpy(cursor, part, (size_t)part_len * sizeof(Py_UCS4));
+            cursor += part_len;
+        }
+    }
+    result_string(out, buf, total);
+    return 0;
+}
+
+static TH_NOINLINE int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
     struct th_tree *tree = ctx->tree;
     const xp_nodeset *nodes = &arg->nodes;
     Py_UCS4 *buf = NULL;
@@ -1836,7 +1935,6 @@ static int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
     result_string(out, buf, total);
     return 0;
 }
-
 /* str:replace(string, search, replace): every non-overlapping literal occurrence of
    `search` in `string` swapped for `replace`. An empty `search` leaves the input
    untouched (no zero-width match loop). Out of line, so its match loop keeps its own registers: inlined, it shares
@@ -2487,7 +2585,10 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             *ctx->feature = "str:concat on a non-node-set";
             rc = -4;
         } else {
-            rc = str_concat(ctx, &args[0], out);
+            rc = str_concat_borrowed(ctx, &args[0], out);
+            if (rc == 1) {
+                rc = str_concat(ctx, &args[0], out);
+            }
         }
     } else if (func_is(fn, "str:replace")) {
         rc = str_replace(ctx, args, out);

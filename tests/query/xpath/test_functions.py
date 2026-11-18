@@ -1607,6 +1607,49 @@ def test_concat_item_string_values(markup: str, expression: str, expected: str) 
     assert parse_xml(markup).xpath(expression) == expected
 
 
+@pytest.mark.parametrize("depth", [pytest.param(depth, id=f"depth-{depth}") for depth in range(4)])
+def test_concat_follows_single_child_chains_to_their_text(depth: int) -> None:
+    chain: Final = "<s>" * depth
+    close: Final = "</s>" * depth
+    document: Final = parse_xml(f"<root><i>{chain}é界😀{close}</i><i>{chain}second{close}</i></root>")
+    assert document.xpath("str:concat(//i)") == "é界😀second"
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<i><s>é</s><b>界</b></i>", "é界", id="chain-ends-in-several-children"),
+        pytest.param("<i><s><!--c-->界</s></i>", "界", id="chain-ends-in-comment-and-text"),
+        pytest.param("<i><s><!--c--></s></i>", "", id="chain-ends-in-comment"),
+        pytest.param("<i><s><t>é</t></s><!--c--></i>", "é", id="descendant-then-comment"),
+        pytest.param("<i><s/><b/></i>", "", id="several-empty-children"),
+        pytest.param("<i><!--c--><s/></i>", "", id="comment-then-empty-element"),
+        pytest.param("<i><s>é</s><b/></i><i>z</i>", "éz", id="built-then-borrowed"),
+        pytest.param("<i><s>é</s><b/></i><i><b>y</b><!--c--></i>", "éy", id="built-then-built"),
+        pytest.param(
+            f"<i><s>{'x' * 300}</s><!--c--></i><i><b>y</b><!--c--></i>", f"{'x' * 300}y", id="built-past-scratch"
+        ),
+        pytest.param("<i>abc</i><i>é😀</i><i>def</i>", "abcé😀def", id="wide-in-one-member"),
+        pytest.param("<i>x</i><i><s>😀</s></i><i>y</i>", "x😀y", id="wide-in-one-built-member"),
+        pytest.param("<i/><i></i><i><s/></i>", "", id="empty-members"),
+        pytest.param("<i></i><i>é</i><i/>", "é", id="empty-members-around-text"),
+    ],
+)
+def test_concat_member_values(markup: str, expected: str) -> None:
+    assert parse_xml(f"<root>{markup}</root>").xpath("str:concat(//i)") == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expression", "expected"),
+    [
+        pytest.param("<root><i>x<b></b></i><!----></root>", "str:concat(//i | //comment())", "x", id="empty-comment"),
+        pytest.param('<root><i a b="value">x<b></b></i></root>', "str:concat(//i | //i/@*)", "xvalue", id="valueless"),
+    ],
+)
+def test_concat_builds_beside_empty_and_valueless_members(markup: str, expression: str, expected: str) -> None:
+    assert parse(markup).xpath(expression) == expected
+
+
 def _reversed(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
     return nodes[::-1]
 
