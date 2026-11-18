@@ -22,16 +22,17 @@ Py_UCS4 *th_js_minify(const Py_UCS4 *src, Py_ssize_t len, int fold, int mangle, 
            the empties and folds any literal an inline just uncovered (`const x=42;x*2` -> `42*2`). The
            tree only ever shrinks, so this converges; the cap is a backstop against a pathological loop. */
         int settled = 0;
+        jm_analysis *analysis = NULL;
         /* GCOVR_EXCL_BR_START: the tree only shrinks, so it converges well before the backstop cap */
         for (int pass = 0; pass < 12; pass++) {
             /* GCOVR_EXCL_BR_STOP */
-            if (jm_compress(prog) <= 0) {
+            if (jm_compress(prog, &analysis) <= 0) {
                 settled = 1; /* nothing left to do, or a with/eval poisoned resolution, or an allocation failed */
                 break;
             }
             settled = fold && !jm_fold(prog); /* clean up empties and fold what the compress exposed */
         }
-        jm_mangle(prog); /* assign short names once the shape has settled */
+        jm_mangle(prog, analysis); /* assign short names once the shape has settled */
         /* a last fold over a pathological unsettled exit, and over the `undefined` reads a shadowing
            binding kept the first fold from touching: the mangle resolution now proves them global */
         if (fold && (!settled || prog->shadows_undefined)) { /* GCOVR_EXCL_BR_LINE: only the cap exits unsettled */

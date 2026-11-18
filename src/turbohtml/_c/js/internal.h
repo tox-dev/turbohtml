@@ -476,12 +476,17 @@ void jm_program_free(jm_program *prog);
    before mangling. Value-exact; an allocation failure sets prog->failed. */
 int jm_fold(jm_program *prog); /* 1 when any transform fired: the tree needs another look */
 
+/* The resolution of a settled tree, which jm_mangle reuses instead of resolving the tree again. */
+typedef struct jm_analysis jm_analysis;
+
 /* Run one compression pass: resolve every binding, then drop dead ones, inline single-use values, and
    collapse assignment temporaries. Returns 1 if the tree changed (run again), 0 at a fixpoint, -1 when
-   with/eval or an allocation makes it unusable. Interleave with jm_fold until it returns <= 0. */
-int jm_compress(jm_program *prog);
+   with/eval or an allocation makes it unusable. Interleave with jm_fold until it returns <= 0. A fixpoint
+   sets settled to the resolution the pass ran on, which jm_mangle takes over; otherwise settled is NULL. */
+int jm_compress(jm_program *prog, jm_analysis **settled);
 
-void jm_mangle(jm_program *prog);
+/* Assign names over the resolution settled, or over a fresh one when settled is NULL. */
+void jm_mangle(jm_program *prog, jm_analysis *settled);
 
 /* Append a scope (parent, kind 0 block / 1 function / 2 catch / 3 with) or a symbol
    declared in scope; return the index, or -1 on OOM. Used by the mangler. */
@@ -489,7 +494,7 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind);
 int32_t jm_sym_new(jm_program *prog, const Py_UCS4 *name, Py_ssize_t name_len, int32_t scope, uint8_t decl);
 
 /* A program with an empty node arena that already holds the spare sink slot, or NULL on allocation failure. */
-jm_program *jm_program_new(void);
+jm_program *jm_program_new(Py_ssize_t source_len);
 
 /* Append a node of the given kind and return its index. All fields but kind are zeroed except
    a/b/c/d/next/sym which are set to -1. On allocation failure it sets prog->failed. During a parse it then returns

@@ -1844,12 +1844,17 @@ static void mangler_free(M *mangler) {
     jm_free(mangler->undo);
 }
 
+struct jm_analysis {
+    M mangler;
+};
+
 /* One compression pass over the whole program: resolve afresh, then run the tree-shrinking transforms.
    Returns 1 when a transform changed the tree (the driver runs another pass), 0 at a fixpoint, and -1
    when the analysis is unusable -- a with/eval poisoned name resolution, or an allocation failed -- so
    the driver stops. Names are never assigned here; that is the final jm_mangle pass. */
-int jm_compress(jm_program *prog) {
+int jm_compress(jm_program *prog, jm_analysis **settled) {
     M mangler = {0};
+    *settled = NULL;
     int32_t global = analyze(&mangler, prog);
     prog->resolved = 0;
     int result = -1;
@@ -1868,15 +1873,29 @@ int jm_compress(jm_program *prog) {
             result = changed;
         }
     }
-    mangler_free(&mangler);
+    if (result == 0) {
+        *settled = jm_malloc(sizeof **settled);
+    }
+    if (*settled != NULL) {
+        (*settled)->mangler = mangler;
+    } else {
+        mangler_free(&mangler);
+    }
     return result;
 }
 
 /* Assign the shortest legal names to the surviving local bindings. Run once after compression settles;
    it changes no tree shape, only names. Skipped entirely under with/eval, where resolution is unsafe. */
-void jm_mangle(jm_program *prog) {
+void jm_mangle(jm_program *prog, jm_analysis *settled) {
     M mangler = {0};
-    int32_t global = analyze(&mangler, prog);
+    int32_t global;
+    if (settled != NULL) {
+        mangler = settled->mangler;
+        global = mangler.global;
+        jm_free(settled);
+    } else {
+        global = analyze(&mangler, prog);
+    }
     prog->resolved = 0;
     /* GCOVR_EXCL_BR_START: each operand is an allocation failure */
     prog->failed |= global < 0 || mangler.failed || mangler.visible.failed || mangler.frees.failed;

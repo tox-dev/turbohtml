@@ -35,15 +35,27 @@ static TH_NOINLINE int jm_grow_nodes(jm_program *prog) {
     /* GCOVR_EXCL_STOP */
 }
 
-jm_program *jm_program_new(void) {
+jm_program *jm_program_new(Py_ssize_t source_len) {
     jm_program *prog = jm_calloc(1, sizeof(jm_program));
     if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
-    if (!jm_grow_nodes(prog)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        jm_free(prog);          /* GCOVR_EXCL_LINE */
-        return NULL;            /* GCOVR_EXCL_LINE */
+    /* node indexes are int32_t, and the arena's byte size must fit in size_t: past either, the arena grows on demand */
+    /* GCOVR_EXCL_BR_START: the arm not taken depends on the word size */
+    size_t max_nodes = SIZE_MAX / sizeof(jm_node) < (size_t)INT32_MAX ? SIZE_MAX / sizeof(jm_node) : (size_t)INT32_MAX;
+    /* GCOVR_EXCL_BR_STOP */
+    size_t guess = source_len / 4 < 64 ? 64 : (size_t)(source_len / 4);
+    /* GCOVR_EXCL_START: a source of 4 * max_nodes code points, over 8 GiB on a 64-bit build */
+    if (guess > max_nodes) {
+        guess = max_nodes;
     }
+    /* GCOVR_EXCL_STOP */
+    prog->nodes = jm_malloc(guess * sizeof(jm_node));
+    if (prog->nodes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        jm_free(prog);         /* GCOVR_EXCL_LINE */
+        return NULL;           /* GCOVR_EXCL_LINE */
+    }
+    prog->node_cap = (int32_t)guess;
     return prog;
 }
 
