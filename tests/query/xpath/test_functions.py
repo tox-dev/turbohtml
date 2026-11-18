@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import math
 import operator
-
-
 import random
 import re
 import string
