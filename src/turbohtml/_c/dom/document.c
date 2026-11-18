@@ -2305,13 +2305,16 @@ static PyObject *detect_stream_feed(PyObject *self, PyObject *arg) {
     Py_ssize_t take = view.len < room ? view.len : room;
     memcpy(detector->prefix + detector->prefix_len, view.buf, (size_t)take);
     detector->prefix_len += take;
+    if (th_detect_bom(detector->prefix, detector->prefix_len) != NULL) {
+        PyBuffer_Release(&view);
+        Py_RETURN_TRUE; /* a byte-order mark settles the stream whatever follows, so the candidates never read it */
+    }
     th_detect_stream_feed(&detector->stream, view.buf, view.len, 0);
     PyBuffer_Release(&view);
     if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    /* a byte-order mark settles the stream whatever follows */
-    return PyBool_FromLong(th_detect_bom(detector->prefix, detector->prefix_len) != NULL);
+    Py_RETURN_FALSE;
 }
 
 static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
@@ -2324,15 +2327,15 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
     if (!detector->fed) {
         Py_RETURN_NONE; /* no bytes were ever seen: the ranker answers with the no-match row */
     }
-    /* the scanners pass the chunk to memchr and memcpy, which take no NULL pointer even at length 0 */
-    th_detect_stream_feed(&detector->stream, (const unsigned char *)"", 0, 1);
-    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
     int certain, bom;
     const char *winner = detect_declared(detector->prefix, detector->prefix_len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};
     if (winner == NULL) {
+        /* the scanners pass the chunk to memchr and memcpy, which take no NULL pointer even at length 0 */
+        th_detect_stream_feed(&detector->stream, (const unsigned char *)"", 0, 1);
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         const th_encoding_entry *entry = th_detect_stream_finish(&detector->stream, detector->tld, &scores);
         certain = scores.structural;
         winner = entry == NULL ? NULL : entry->canonical;

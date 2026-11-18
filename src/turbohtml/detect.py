@@ -180,7 +180,20 @@ def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
     active: Final = options or _DEFAULT
-    return EncodingMatch(*_rank(_detect(data, active.tld), active)[0])
+    return _match(_detect(data, active.tld), active)
+
+
+def _match(result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection) -> EncodingMatch:
+    if options is _DEFAULT and result is not None and (result[1] or result[0] is None):
+        return _settled(result[0], certain=result[1], bom=result[3])
+    return EncodingMatch(*_rank(result, options)[0])
+
+
+@cache
+def _settled(winner: str | None, *, certain: bool, bom: bool) -> EncodingMatch:
+    # a settled answer has no candidate scores, so its match is fixed by three values; the key space is a few hundred
+    # entries, and only the default options are shared, so no caller object is held
+    return EncodingMatch(*_rank((winner, certain, [], bom), _DEFAULT)[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,7 +331,7 @@ class EncodingDetector:
         :returns: the detector's answer.
         """
         if self._result is None:
-            self._result = EncodingMatch(*_rank(self._stream.close(), self._options)[0])
+            self._result = _match(self._stream.close(), self._options)
             self.done = True
         return self._result
 
