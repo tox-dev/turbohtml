@@ -1329,9 +1329,11 @@ static uint64_t decl_uri_hash(xml_parser *parser, xml_nsdecl *decl) {
 
 /* The normalized value of an attribute once its opening quote is consumed, through its closing quote. A 1-byte run
    with no reference and no whitespace to normalize is widened straight into its arena buffer; anything else is built
-   in the scratch buffer first. */
-static int read_attribute_value(xml_parser *parser, Py_ssize_t name_start, Py_UCS4 quote, Py_UCS4 **value,
+   in the scratch buffer first. It takes which quote rather than the quote itself: derived here, the compiler knows the
+   quote sorts below '<' and drops the quote test for every byte above it, which an opaque parameter costs per byte. */
+static int read_attribute_value(xml_parser *parser, Py_ssize_t name_start, int apostrophe, Py_UCS4 **value,
                                 Py_ssize_t *value_len) {
+    const Py_UCS4 quote = apostrophe ? '\'' : '"';
     Py_ssize_t end = parser->pos;
     if (parser->kind == PyUnicode_1BYTE_KIND) {
         const uint8_t *bytes = parser->data;
@@ -1451,7 +1453,7 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
     parser->pos++; /* past the opening quote */
     Py_UCS4 *value;
     Py_ssize_t value_len;
-    if (read_attribute_value(parser, name_start, quote, &value, &value_len) < 0) {
+    if (read_attribute_value(parser, name_start, quote == '\'', &value, &value_len) < 0) {
         return -1;
     }
     Py_ssize_t u8_len;
