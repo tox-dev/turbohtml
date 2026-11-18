@@ -105,7 +105,8 @@ def main() -> None:
     operation = os.environ["BENCH_OPERATION"]
     module = importlib.import_module("bench.core" if target == "core" else f"bench.competitors.{target}")
     func, label = module.OPERATIONS[operation]
-    runner = pyperf.Runner()
+    # Untimed rebuilds dominate a mutating case; pyperf's 100 ms timed budget would take thousands of them per value.
+    runner = pyperf.Runner(min_time=0.01) if isinstance(func, Mutating) else pyperf.Runner()
     args = runner.parse_args()
     # pyperf re-execs this module as forked worker processes that re-read these from the environment, so each must be
     # inherited or the worker cannot locate the target, operation, or output path the manager set.

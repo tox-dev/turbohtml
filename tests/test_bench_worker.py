@@ -7,10 +7,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
+import pyperf
 import pytest
 from bench.ci import benchmarks
 from bench.core import OPERATIONS
 from bench.operations import INPUTS
+from bench.timing import Mutating
 from bench.worker import main
 
 from turbohtml import __version__
@@ -207,3 +209,38 @@ def test_worker_measures_only_the_case_named_by_bench_case(tmp_path: Path) -> No
         {"audit-worker|second.txt|files": ["mean", "stdev"]},
         {("manager", "second.txt"), ("--worker-task=0", "second.txt")},
     )
+
+
+@pytest.mark.parametrize(
+    ("operation", "argv", "expected"),
+    [
+        pytest.param(Mutating(setup=str.upper, run=str.lower), [], 0.01, id="mutating-default"),
+        pytest.param(str.lower, [], 0.1, id="plain-default"),
+        pytest.param(Mutating(setup=str.upper, run=str.lower), ["--min-time=0.5"], 0.5, id="mutating-command-line"),
+    ],
+)
+def test_worker_min_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    operation: Callable[[str], str] | Mutating[str, str, str],
+    argv: list[str],
+    expected: float,
+) -> None:
+    runners: Final[list[pyperf.Runner]] = []
+
+    class RecordingRunner(pyperf.Runner):
+        def __init__(self, **kwargs: object) -> None:
+            super().__init__(**kwargs)
+            runners.append(self)
+
+    monkeypatch.setattr(pyperf, "Runner", RecordingRunner)
+    monkeypatch.setitem(OPERATIONS, "min-time", (operation, "files"))
+    monkeypatch.setitem(INPUTS, "min-time", lambda: ())
+    monkeypatch.setenv("BENCH_TARGET", "core")
+    monkeypatch.setenv("BENCH_OPERATION", "min-time")
+    monkeypatch.setenv("BENCH_OUT", str(tmp_path / "stats.json"))
+    monkeypatch.setenv("BENCH_SKIP_CASES", "[]")
+    monkeypatch.setattr(sys, "argv", ["worker", *argv])
+    main()
+    assert runners[0].parse_args().min_time == expected
