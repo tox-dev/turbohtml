@@ -26,7 +26,7 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Harness:
     fake = _Harness(tmp_path)
     monkeypatch.setattr(orchestrator, "_CPU_SYSFS", fake.sysfs)
     monkeypatch.setattr(orchestrator, "_DURATIONS_FILE", fake.durations)
-    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: fake.affinity)
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: fake.affinity, raising=False)
     monkeypatch.setattr(orchestrator, "prefetch", lambda: None)
     monkeypatch.setattr(orchestrator, "baseline_python", fake.baseline_python)
     monkeypatch.setattr(orchestrator, "venv_python", fake.venv_python)
