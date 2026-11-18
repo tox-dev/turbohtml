@@ -345,26 +345,6 @@ static int th_dec_gb18030_range(uint32_t pointer, Py_UCS4 *point) {
 }
 
 static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
-    if (dec->pos + 2 <= dec->len) {
-        const unsigned char *at = dec->buf + dec->pos;
-        if (at[0] >= 0x81 && at[0] <= 0xFE) {
-            if (at[1] >= 0x40 && at[1] <= 0xFE && at[1] != 0x7F) {
-                int offset = at[1] < 0x7F ? 0x40 : 0x41;
-                *point = th_gb18030[(at[0] - 0x81) * 190 + (at[1] - offset)];
-                dec->pos += 2;
-                return TH_DEC_POINT;
-            }
-            if (dec->pos + 4 <= dec->len && at[1] >= 0x30 && at[1] <= 0x39 && at[2] >= 0x81 && at[2] <= 0xFE &&
-                at[3] >= 0x30 && at[3] <= 0x39) {
-                uint32_t pointer = ((uint32_t)(at[0] - 0x81) * 10 * 126 * 10) + ((uint32_t)(at[1] - 0x30) * 10 * 126) +
-                                   ((uint32_t)(at[2] - 0x81) * 10) + (uint32_t)(at[3] - 0x30);
-                if (th_dec_gb18030_range(pointer, point)) {
-                    dec->pos += 4;
-                    return TH_DEC_POINT;
-                }
-            }
-        }
-    }
     for (;;) {
         int byte = th_dec_next(dec);
         if (byte == TH_DEC_EOF) {
@@ -386,12 +366,9 @@ static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
                                ((uint32_t)(dec->second - 0x30) * 10 * 126) + ((uint32_t)(dec->third - 0x81) * 10) +
                                (uint32_t)(byte - 0x30);
             dec->first = dec->second = dec->third = 0;
-            /* GCOVR_EXCL_START: the fast path decodes every in-range four-byte sequence a buffer holds, and a tail
-               cut short is re-read from its lead, so only an out-of-range pointer resolves here */
             if (th_dec_gb18030_range(pointer, point)) {
                 return TH_DEC_POINT;
             }
-            /* GCOVR_EXCL_STOP */
             /* the four-byte form resolved to no code point. Naming the offending byte matters:
                a stale error_at would read as the -1 an incomplete tail sets, which is how a
                resumed decoder tells "wait for more input" from "this input is wrong". */
@@ -416,14 +393,11 @@ static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
             unsigned char lead = dec->first;
             dec->first = 0;
             int offset = byte < 0x7F ? 0x40 : 0x41;
-            /* GCOVR_EXCL_START: the fast path decodes every valid two-byte sequence a buffer holds, so only an
-               invalid trail byte reaches here */
             if ((byte >= 0x40 && byte <= 0x7E) || (byte >= 0x80 && byte <= 0xFE)) {
                 /* every two-byte pointer maps; the generator refuses to emit a gb18030 table with a hole */
                 *point = th_gb18030[(lead - 0x81) * 190 + (byte - offset)];
                 return TH_DEC_POINT;
             }
-            /* GCOVR_EXCL_STOP */
             dec->error_at = dec->pos - 1;
             if (th_dec_ascii(byte)) {
                 dec->pos--;
@@ -445,6 +419,32 @@ static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
         dec->error_at = dec->pos - 1;
         return TH_DEC_ERROR;
     }
+}
+
+/* Only the chunked decoder peeks: th_decode_step drives the detector, and a peek inlined there would change the code
+   every encoding's dispatch runs through. Whatever the peek does not resolve takes the byte-at-a-time path. */
+static TH_HOT int th_dec_gb18030_peek(th_decoder *dec, Py_UCS4 *point) {
+    if (dec->pos + 2 <= dec->len) {
+        const unsigned char *at = dec->buf + dec->pos;
+        if (at[0] >= 0x81 && at[0] <= 0xFE) {
+            if (at[1] >= 0x40 && at[1] <= 0xFE && at[1] != 0x7F) {
+                int offset = at[1] < 0x7F ? 0x40 : 0x41;
+                *point = th_gb18030[(at[0] - 0x81) * 190 + (at[1] - offset)];
+                dec->pos += 2;
+                return TH_DEC_POINT;
+            }
+            if (dec->pos + 4 <= dec->len && at[1] >= 0x30 && at[1] <= 0x39 && at[2] >= 0x81 && at[2] <= 0xFE &&
+                at[3] >= 0x30 && at[3] <= 0x39) {
+                uint32_t pointer = ((uint32_t)(at[0] - 0x81) * 10 * 126 * 10) + ((uint32_t)(at[1] - 0x30) * 10 * 126) +
+                                   ((uint32_t)(at[2] - 0x81) * 10) + (uint32_t)(at[3] - 0x30);
+                if (th_dec_gb18030_range(pointer, point)) {
+                    dec->pos += 4;
+                    return TH_DEC_POINT;
+                }
+            }
+        }
+    }
+    return th_dec_gb18030(dec, point);
 }
 
 static TH_HOT int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
@@ -705,7 +705,7 @@ static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_s
     case TH_DEC_EUC_JP:
         return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_jp, 0);
     case TH_DEC_GB18030:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030, 0);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030_peek, 0);
     default: /* TH_DEC_ISO_2022_JP */
         return th_decode_run(dec, out, final, consumed, maxchar, th_dec_iso_2022_jp, 1);
     }
