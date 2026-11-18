@@ -72,6 +72,11 @@ def _select_relative(case: tuple[str, str, int]) -> None:
         document.css(selector)
 
 
+def _select_scaling(case: tuple[str, str]) -> None:
+    selector, text = case
+    _parsed(text).css(selector)
+
+
 def text_content(text: str) -> None:
     # Collect the document's visible text with an XPath text() sweep that skips script/style.
     _parsed(text).xpath("//body//text()[not(ancestor::script or ancestor::style)]").getall()
@@ -229,7 +234,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-scope": (parse, "parsel"),
     "find": (find, "parsel"),
     "select": (select, "parsel"),
-    "select-nth": (_select_relative, "parsel"),
+    "select-nth": (_select_scaling, "parsel"),
     "select-relative": (_select_relative, "parsel"),
     "select-has": (select_has, "parsel"),
     "find-text": (find_text, "parsel"),

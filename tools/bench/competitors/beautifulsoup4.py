@@ -120,6 +120,11 @@ def _select_relative(case: tuple[str, str, int]) -> None:
         document.select(selector)
 
 
+def _select_scaling(case: tuple[str, str]) -> None:
+    selector, text = case
+    parsed("html.parser", text).select(selector)
+
+
 def text_content(text: str) -> None:
     # Collect the document's visible text with BeautifulSoup's get_text().
     parsed("html.parser", text).get_text()
@@ -325,7 +330,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "emit": (emit, "BeautifulSoup (html.parser)"),
     "find": (functools.partial(find, "html.parser"), "BeautifulSoup (html.parser)"),
     "select": (select, "BeautifulSoup (html.parser)"),
-    "select-nth": (_select_relative, "BeautifulSoup (html.parser)"),
+    "select-nth": (_select_scaling, "BeautifulSoup (html.parser)"),
     "select-relative": (_select_relative, "BeautifulSoup (html.parser)"),
     "select-default": (_select_default, "BeautifulSoup (html.parser)"),
     "select-has": (select_has, "BeautifulSoup (html.parser)"),
