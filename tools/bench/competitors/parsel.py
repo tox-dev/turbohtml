@@ -12,6 +12,8 @@ from cssselect import HTMLTranslator
 from lxml import etree as _lxml_etree
 from parsel import Selector
 
+from bench.link_attributes import element_links
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -87,9 +89,17 @@ def serialize(text: str) -> None:
     _parsed(text).get()
 
 
+def link_urls(text: str) -> list[str]:
+    # Collect every link-bearing attribute and <style> url() with parsel's lxml root, the set turbohtml's links() reads.
+    return [
+        link
+        for element in _parsed(text).root.iter(_lxml_etree.Element)
+        for link in element_links(element.tag, element.attrib.items(), element.text if element.tag == "style" else None)
+    ]
+
+
 def links_extract(text: str) -> None:
-    # Collect every anchor's href with parsel's ``::attr(href)`` getall.
-    _parsed(text).css("a::attr(href)").getall()
+    _ = link_urls(text)
 
 
 def links_filter(text: str) -> None:

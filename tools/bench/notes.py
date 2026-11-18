@@ -27,6 +27,10 @@ _BUILDER: Final[str] = (
     "concatenates a string rather than constructing a navigable tree, so nothing it builds can afterwards be queried "
     "or mutated"
 )
+_ESBUILD_CLI: Final[str] = (
+    "runs a fresh esbuild CLI process per call, so each cell includes process start-up and pipe I/O; esbuild has no "
+    "in-process Python API"
+)
 
 NOTES: Final[dict[str, dict[str, str]]] = {
     "xpath-concat": {
@@ -156,13 +160,14 @@ NOTES: Final[dict[str, dict[str, str]]] = {
         "parse5": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
         "jsdom": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
     },
-    "minify-js": dict.fromkeys(("rjsmin", "jsmin", "css-html-js-minify"), _STRIPPER_JS),
-    "minify-css": dict.fromkeys(("rcssmin", "cssmin", "css-html-js-minify"), _STRIPPER_CSS),
+    "minify-js": {**dict.fromkeys(("rjsmin", "jsmin", "css-html-js-minify"), _STRIPPER_JS), "esbuild": _ESBUILD_CLI},
+    "minify-css": {
+        **dict.fromkeys(("rcssmin", "cssmin", "css-html-js-minify"), _STRIPPER_CSS),
+        "esbuild": _ESBUILD_CLI,
+    },
     "strip-remove": {
-        "w3lib": (
-            "removes the tags with a regular expression over the raw string and never parses, so it cannot honor "
-            "nesting or the tokenizer rules that decide where an element really ends"
-        ),
+        "w3lib": "regex substitution over the raw string, does not parse; "
+        "differs on unclosed/nested elements and comments",
     },
     "build-e": dict.fromkeys(("simple-html", "markyp", "yattag", "htbuilder", "htpy", "fast-html"), _BUILDER),
     "construct": dict.fromkeys(("simple-html", "markyp", "htbuilder", "htpy"), _BUILDER),
@@ -234,6 +239,20 @@ NOTES.update({
         ),
     }
     for operation in ("minify-css-merges", "minify-css-conflicts")
+})
+NOTES.update({
+    operation: {
+        "rjsmin": "removes whitespace and comments only and does not optimize: no renaming, dead-code removal, or "
+        "expression rewriting",
+        "esbuild": _ESBUILD_CLI,
+    }
+    for operation in (
+        "minify-js-guards",
+        "minify-js-names",
+        "minify-js-propagation",
+        "minify-js-sequences",
+        "minify-js-single-use",
+    )
 })
 
 __all__ = [

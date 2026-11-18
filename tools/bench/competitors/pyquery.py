@@ -6,8 +6,10 @@ import functools
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
+from lxml import html as lxml_html
 from pyquery import PyQuery
 
+from bench.link_attributes import element_links
 from bench.timing import Mutating
 
 if TYPE_CHECKING:
@@ -36,8 +38,9 @@ def _fresh(text: str) -> PyQuery:
 
 
 def parse(text: str) -> None:
-    # Parse a whole document into a queryable tree through PyQuery.
-    PyQuery(text, parser="html")
+    # PyQuery has no parser option, so libxml2 parses with huge_tree here: its default nesting limit drops the rest
+    # of a deeply nested page.
+    PyQuery(lxml_html.document_fromstring(text, parser=lxml_html.HTMLParser(huge_tree=True)))
 
 
 def find(text: str) -> None:
@@ -96,9 +99,17 @@ def navigate(text: str) -> None:
         pass
 
 
+def link_urls(text: str) -> list[str]:
+    # Collect every link-bearing attribute and <style> url() over pyquery's elements, the set turbohtml's links() reads.
+    return [
+        link
+        for element in _parsed(text)("*")
+        for link in element_links(element.tag, element.attrib.items(), element.text if element.tag == "style" else None)
+    ]
+
+
 def links_extract(text: str) -> None:
-    # Collect every anchor's href by iterating a pyquery items() set.
-    _ = [item.attr("href") for item in _parsed(text)("a").items()]
+    _ = link_urls(text)
 
 
 def links_filter(text: str) -> None:

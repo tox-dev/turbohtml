@@ -14,6 +14,7 @@ from resiliparse.parse.encoding import (
 )
 from resiliparse.parse.html import HTMLTree
 
+from bench.link_attributes import LINK_ELEMENTS_SELECTOR, element_links
 from bench.timing import Mutating
 
 if TYPE_CHECKING:
@@ -120,9 +121,22 @@ def extract_text(text: str) -> None:
     _ = [anchor.text for anchor in _document(_parsed(text)).query_selector_all("a")]
 
 
+def link_urls(text: str) -> list[str]:
+    # Select only the elements that can hold a link: resiliparse builds each element's Python view on first touch, about
+    # 1 ms apiece, so walking every element costs far more than the links it yields.
+    return [
+        link
+        for element in _document(_parsed(text)).query_selector_all(LINK_ELEMENTS_SELECTOR)
+        for link in element_links(
+            element.tag,
+            [(name, element.getattr(name)) for name in element.attrs],
+            element.text_content if element.tag == "style" else None,
+        )
+    ]
+
+
 def links_extract(text: str) -> None:
-    # Collect every anchor's href with resiliparse, the shape a scraper reads links in.
-    _ = [anchor.getattr("href") for anchor in _document(_parsed(text)).query_selector_all("a")]
+    _ = link_urls(text)
 
 
 def links_rewrite(text: str) -> None:
