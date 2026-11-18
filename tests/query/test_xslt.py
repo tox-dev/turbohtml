@@ -35,6 +35,51 @@ _COLLAPSE_PATTERN: Final[re.Pattern[str]] = re.compile(r">\s+<")
 _CANON_PATTERN: Final[re.Pattern[str]] = re.compile(r"^<\?xml\s[^>]*\?>\s*")
 
 
+# These names share one str_hash home, so forty rules spend the first fill's walk budget and the index rehashes.
+_SHARED_HOME_NAMES: Final[tuple[str, ...]] = (
+    "w40",
+    "w233",
+    "w242",
+    "w439",
+    "w523",
+    "w552",
+    "w721",
+    "w790",
+    "w822",
+    "w853",
+    "w884",
+    "w1014",
+    "w1199",
+    "w1205",
+    "w1256",
+    "w1524",
+    "w1582",
+    "w1689",
+    "w1825",
+    "w1876",
+    "w1887",
+    "w2002",
+    "w2073",
+    "w2118",
+    "w2309",
+    "w2419",
+    "w2532",
+    "w2543",
+    "w2594",
+    "w2671",
+    "w2851",
+    "w3027",
+    "w3085",
+    "w3250",
+    "w3526",
+    "w3575",
+    "w3760",
+    "w3870",
+    "w4215",
+    "w4246",
+)
+
+
 def test_transform_value_of_reads_string_value() -> None:
     result = _run(
         "<r><name>World</name></r>", '<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>'
@@ -1522,6 +1567,161 @@ def test_transform_union_pattern_matches_each_alternative() -> None:
         '<xsl:template match="a|b">hit</xsl:template>'
     )
     assert _run("<r><a/><b/><c/></r>", body) == "hithit"
+
+
+@pytest.mark.parametrize(
+    ("templates", "expected"),
+    [
+        pytest.param((("*", ' priority="0"', "wild"), ("x", "", "named")), "named", id="name-later-same-priority"),
+        pytest.param((("x", "", "named"), ("*", ' priority="0"', "wild")), "wild", id="wildcard-later-same-priority"),
+        pytest.param((("x", ' priority="1"', "named"), ("*", "", "wild")), "named", id="name-higher-priority"),
+        pytest.param((("x", "", "named"), ("*", ' priority="1"', "wild")), "wild", id="wildcard-higher-priority"),
+        pytest.param((("node()", "", "any"), ("x", "", "named")), "named", id="node-test-under-name"),
+        pytest.param((("x", "", "named"), ("node()", "", "any")), "named", id="node-test-after-name"),
+        pytest.param(
+            (("x", "", "named"), ("x[last()]", ' priority="1"', "last")), "last", id="function-predicate-wins"
+        ),
+        pytest.param(
+            (("x", "", "named"), ("x[position() = 2]", ' priority="1"', "second")),
+            "named",
+            id="function-predicate-misses",
+        ),
+    ],
+)
+def test_transform_conflict_resolution_across_name_and_wildcard_rules(
+    templates: tuple[tuple[str, str, str], ...], expected: str
+) -> None:
+    rules = "".join(
+        f'<xsl:template match="{pattern}"{priority}>{text}</xsl:template>' for pattern, priority, text in templates
+    )
+    body = f'<xsl:template match="/"><xsl:apply-templates select="r/x"/></xsl:template>{rules}'
+    assert _run("<r><x/></r>", body) == expected
+
+
+def test_transform_union_alternative_competes_with_wildcard_by_position() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        '<xsl:template match="*">generic</xsl:template>'
+        '<xsl:template match="a|b">hit</xsl:template>'
+    )
+    assert _run("<r><a/><b/><c/></r>", body) == "hithitgeneric"
+
+
+def test_transform_prefixed_name_rules_match_only_their_namespace() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        '<xsl:template match="p:x">P</xsl:template>'
+        '<xsl:template match="q:x">Q</xsl:template>'
+        '<xsl:template match="x">N</xsl:template>'
+    )
+    sheet = _sheet(body, declare='xmlns:p="urn:p" xmlns:q="urn:q"')
+    source = turbohtml.parse_xml('<r xmlns:p="urn:p" xmlns:q="urn:q"><q:x/><p:x/><x/></r>')
+    assert Transform(sheet)(source) == "QPN"
+
+
+@pytest.mark.parametrize(
+    ("moded", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="*" mode="m" priority="0">S</xsl:template>'
+            '<xsl:template match="x" mode="m">M</xsl:template>',
+            "M",
+            id="name-after-wildcard",
+        ),
+        pytest.param(
+            '<xsl:template match="x" mode="m">M</xsl:template>'
+            '<xsl:template match="*" mode="m" priority="0">S</xsl:template>',
+            "S",
+            id="wildcard-after-name",
+        ),
+    ],
+)
+def test_transform_mode_keeps_its_own_winner_beside_the_default_mode(moded: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/x"/>|'
+        '<xsl:apply-templates select="r/x" mode="m"/>|<xsl:apply-templates select="r/x" mode="n"/></xsl:template>'
+        '<xsl:template match="x">D</xsl:template>'
+        f"{moded}"
+        '<xsl:template match="*" mode="n">N</xsl:template>'
+    )
+    assert _run("<r><x/></r>", body) == f"D|{expected}|N"
+
+
+def test_transform_attribute_and_text_rules_beside_name_rules() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x|//text()|//@id"/></xsl:template>'
+        '<xsl:template match="x">E</xsl:template>'
+        '<xsl:template match="@id">A</xsl:template>'
+        '<xsl:template match="text()">T</xsl:template>'
+    )
+    assert _run('<r><x id="1">t</x></r>', body) == "EAT"
+
+
+def test_transform_key_pattern_rule_beside_name_rule() -> None:
+    body = (
+        '<xsl:key name="k" match="x" use="@id"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        '<xsl:template match="x">N</xsl:template>'
+        "<xsl:template match=\"key('k', '1')\" priority=\"1\">K</xsl:template>"
+    )
+    assert _run('<r><x id="1"/><x id="2"/></r>', body) == "KN"
+
+
+@pytest.mark.parametrize("count", [pytest.param(3, id="wildcard-chain"), pytest.param(40, id="name-chains")])
+def test_transform_element_rules_pick_the_rule_of_their_name(count: int) -> None:
+    named = "".join(f'<xsl:template match="n{index}">{index},</xsl:template>' for index in range(count))
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        f'{named}<xsl:template match="*" priority="-1">?</xsl:template>'
+    )
+    elements = "".join(f"<n{index}/>" for index in range(count))
+    expected = "".join(f"{index}," for index in range(count))
+    assert _run(f"<r>{elements}<z/></r>", body) == f"{expected}?"
+
+
+def test_transform_element_rules_sharing_a_name_home_still_match_by_name() -> None:
+    named = "".join(
+        f'<xsl:template match="{name}">{index},</xsl:template>' for index, name in enumerate(_SHARED_HOME_NAMES)
+    )
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        f'{named}<xsl:template match="*" priority="-1">?</xsl:template>'
+    )
+    elements = "".join(f"<{name}/>" for name in reversed(_SHARED_HOME_NAMES))
+    expected = "".join(f"{index}," for index in reversed(range(len(_SHARED_HOME_NAMES))))
+    assert _run(f"<r>{elements}<z/></r>", body) == f"{expected}?"
+
+
+@pytest.mark.parametrize(
+    "source", [pytest.param("<r><x/></r>", id="name-matches"), pytest.param("<r><b/></r>", id="name-misses")]
+)
+def test_transform_unused_undeclared_prefix_rule_still_raises(source: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        '<xsl:template match="x">x</xsl:template>'
+        '<xsl:template match="zz:x">z</xsl:template>'
+    )
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        _run(source, body)
+
+
+@pytest.mark.parametrize("count", [pytest.param(15, id="fifteen-rules"), pytest.param(16, id="sixteen-rules")])
+def test_transform_prefixed_name_rule_raises_on_html_source_beside_named_rules(count: int) -> None:
+    padding = "".join(f'<xsl:template match="zz{index}"/>' for index in range(count - 1))
+    sheet = _sheet(f'{padding}<xsl:template match="p:a">A</xsl:template>', declare='xmlns:p="urn:p"')
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        Transform(sheet)(turbohtml.parse("<p>x</p>"))
+
+
+@pytest.mark.parametrize("pattern", [pytest.param("zzz[p:b]", id="predicate"), pytest.param("zzz/p:b", id="path")])
+def test_transform_prefixed_step_under_a_name_raises_on_html_source(pattern: str) -> None:
+    padding = "".join(f'<xsl:template match="zz{index}"/>' for index in range(20))
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/x"/></xsl:template>'
+        f'{padding}<xsl:template match="{pattern}">Z</xsl:template><xsl:template match="x">X</xsl:template>'
+    )
+    with pytest.raises(ValueError, match="undefined namespace prefix"):
+        Transform(_sheet(body, declare='xmlns:p="urn:p"'))(turbohtml.parse("<r><x/><zzz/></r>"))
 
 
 def test_transform_mode_isolates_templates() -> None:
