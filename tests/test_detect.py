@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import random
 import string
 from itertools import islice, product
 from typing import Final, cast
@@ -1373,3 +1375,122 @@ def test_ascii_prefix_streamed_matches_chardetng(raw: bytes, size: int) -> None:
     for start in range(0, len(raw), size):
         detector.feed(raw[start : start + size])
     assert detector.close().encoding == "windows-1252"
+
+
+# ASCII runs of every length between multi-byte and single-byte text, so each candidate kind skips runs in the
+# middle of a sequence it is scoring. The digests pin the answers upstream/main gives for these bytes, one-shot and
+# streamed at several chunk sizes; a skip that drops or misreads a run changes a digest.
+_RUN_SEED: Final[int] = 20261118
+_RUN_CASES: Final[int] = 300
+_RUN_TEXTS: Final[tuple[tuple[str, str], ...]] = (
+    ("日本語のテキストをここに書きます。今日は", "shift_jis"),
+    ("日本語のテキストｱｲｳﾞﾟ。今日は", "shift_jis"),
+    ("日本語のテキストをここに書きます。今日は", "euc_jp"),
+    ("中文测试文本，你好世界（重要）", "gbk"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+    ("中文测试文本，你好世界。鿿", "gb18030"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+    ("繁體中文測試，你好世界。今天天氣很好", "big5"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+    ("한국어 텍스트입니다. 안녕하세요 세계", "euc_kr"),
+    ("漢字漢字漢字漢字", "euc_kr"),
+    ("Привет мир, как дела? Программирование Ёж", "cp1251"),
+    ("Привет мир, как дела? Программирование", "koi8_r"),
+    ("Γειά σου κόσμε, τι κάνεις; Καλημέρα", "cp1253"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+    ("שלום עולם, מה שלומך? בסדר גמור", "cp1255"),
+    ("مرحبا بالعالم، كيف حالك؟ الحمد لله", "cp1256"),
+    ("Merhaba dünya, nasılsın? Çok güzel değil mi", "cp1254"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+    ("Příliš žluťoučký kůň, dobrý den. Ahoj světe", "cp1250"),
+    ("Précédemment, la créativité française déjà", "cp1252"),
+    ("สวัสดีครับ ยินดีต้อนรับ วันนี้", "cp874"),
+    ("Sveiki pasaulis, kā tev klājas? Ačiū labai", "cp1257"),
+)
+_RUN_WORDS: Final[tuple[bytes, ...]] = (
+    b"the",
+    b"ABC",
+    b" ",
+    b"  ",
+    b"x",
+    b"1234",
+    b"I V X",
+    b"Ma",
+    b"N.",
+    b"n.",
+    b"No",
+    b"<p>",
+    b"&amp;",
+    b"ok.",
+    b"Hi!",
+    b"a",
+    b"Z9",
+)
+_RUN_RANKING_DIGEST: Final[str] = "b235bb978fb8ad8dcd87b0316e9d2adfec02fd69085c2a97052afa8cd0048a70"
+_RUN_STREAM_DIGEST: Final[str] = "0fd1e8738c485d9ace1b264f7e600288caf456baf474a6b080b04c3155960cd8"
+
+
+def test_ascii_runs_keep_the_ranking() -> None:
+    ranked = [[(m.encoding, m.confidence, m.language, m.bom) for m in detect_all(raw)] for raw in _run_corpus()]
+    assert _digest(repr(ranked)) == _RUN_RANKING_DIGEST
+
+
+def _run_corpus() -> list[bytes]:
+    rng = random.Random(_RUN_SEED)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed, not a security decision
+    return [
+        b"".join(_run_ascii(rng) if rng.random() < 0.55 else _run_text(rng) for _ in range(rng.randrange(1, 7)))
+        for _ in range(_RUN_CASES)
+    ]
+
+
+def _run_ascii(rng: random.Random) -> bytes:
+    if rng.random() < 0.5:
+        return b"".join(rng.choice(_RUN_WORDS) for _ in range(rng.randrange(1, 6)))
+    return bytes(rng.randrange(0x20, 0x7F) for _ in range(rng.randrange(1, 24)))
+
+
+def _run_text(rng: random.Random) -> bytes:
+    text, codec = rng.choice(_RUN_TEXTS)
+    return text[rng.randrange(len(text)) :].encode(codec)
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in (1, 3, 16, 4096)])
+def test_ascii_runs_keep_the_streamed_answer(size: int) -> None:
+    answers: list[tuple[str | None, float, str | None, bool]] = []
+    for raw in _run_corpus():
+        detector = EncodingDetector()
+        for start in range(0, len(raw), size):
+            detector.feed(raw[start : start + size])
+        match = detector.close()
+        answers.append((match.encoding, match.confidence, match.language, match.bom))
+    assert _digest(repr(answers)) == _RUN_STREAM_DIGEST
+
+
+# One byte per feed rarely reaches the in-feed ASCII skip (only held-over gb18030 bytes can form a run), so
+# byte-at-a-time streaming is the reference each run is checked against. Each input lands an ASCII run right after
+# a candidate's pending state: an unfinished lead, a held gb18030 pair, a pending Big5 combining mark, a pending GBK
+# scalar, or a word the space closes.
+_RUN_EDGES: Final[tuple[bytes, ...]] = (
+    b"\x81a hello world",
+    b"\x81\x30abc def",
+    "中文 hello world 测试".encode("gbk"),
+    b"\xb0\x40abc def",
+    "繁體 hello world 字".encode("big5"),
+    b"\x88\x62abc def",
+    "漢字 ab cd 漢字".encode("euc_kr"),
+    "日本語 hello world 日本".encode("shift_jis"),
+    "日本語 hello world 日本".encode("euc_jp"),
+    "Привет abcdefghijk мир".encode("cp1251"),
+    "مرحبا hello world مرحبا".encode("cp1256"),
+    "שלום hello world שלום".encode("cp1255"),
+    "Příliš abcdefgh žluťoučký".encode("cp1250"),
+    b"1\xaa abc def ",
+    b"caf\xe9 abcdefghijklmnop",
+)
+
+
+@pytest.mark.parametrize("raw", [pytest.param(raw, id=f"edge-{index}") for index, raw in enumerate(_RUN_EDGES)])
+def test_ascii_runs_match_byte_at_a_time_detection(raw: bytes) -> None:
+    detector = EncodingDetector()
+    for index in range(len(raw)):
+        detector.feed(raw[index : index + 1])
+    assert detect(raw) == detector.close()
