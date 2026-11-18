@@ -1744,6 +1744,24 @@ static int set_split(const xp_result *args, int want_before, xp_result *out) {
 
 /* The EXSLT string functions (str:). */
 
+/* The text node ending the single-child chain below node, or NULL when that chain ends in another node. Out of line:
+   only nested chains reach it, and inlining it would change the code of the flat case. */
+static TH_NOINLINE th_node *concat_chain_text(th_node *node) {
+    while (node->type == TH_NODE_ELEMENT && node->first_child != NULL && node->first_child->next_sibling == NULL) {
+        node = node->first_child;
+    }
+    return node->type == TH_NODE_TEXT ? node : NULL;
+}
+
+static inline int concat_text_view(th_tree *tree, th_node *node, const Py_UCS4 **part, Py_ssize_t *len) {
+    *len = node->text_len;
+    *part = *len == 0 ? NULL : th_node_realize_text(tree, node);
+    if (*len != 0 && *part == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return 0;
+}
+
 static int concat_item_view(th_tree *tree, xp_item item, const Py_UCS4 **part, Py_ssize_t *len, Py_UCS4 **owned) {
     *owned = NULL;
     if (item.attr == -2) {
@@ -1760,12 +1778,11 @@ static int concat_item_view(th_tree *tree, xp_item item, const Py_UCS4 **part, P
             node = node->first_child;
         }
         if (node->type == TH_NODE_TEXT || node->type == TH_NODE_COMMENT) {
-            *len = node->text_len;
-            *part = *len == 0 ? NULL : th_node_realize_text(tree, node);
-            if (*len != 0 && *part == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-                return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
-            }
-            return 0;
+            return concat_text_view(tree, node, part, len);
+        }
+        th_node *leaf = concat_chain_text(node);
+        if (leaf != NULL) {
+            return concat_text_view(tree, leaf, part, len);
         }
         *owned = th_node_text(tree, node, len);
     }
