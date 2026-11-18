@@ -1,0 +1,1 @@
+Extracting publication dates is much faster on text without digits and on pages whose date comes late in the text.

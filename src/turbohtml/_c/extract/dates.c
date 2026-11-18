@@ -58,7 +58,7 @@ static inline int is_perl_space(Py_UCS4 codepoint) {
 }
 
 /* A valid four-digit year, _YEAR = 199[0-9]|20[0-9]{2}: 1990-1999 or 2000-2099. */
-static int year_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *out_year) {
+static inline int year_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *out_year) {
     if (pos + 4 > len) {
         return 0;
     }
@@ -289,20 +289,33 @@ typedef struct {
     uint8_t month;
 } month_name;
 
+typedef struct {
+    uint8_t start;
+    uint8_t end;
+} month_bucket;
+
 static const month_name MONTH_NAMES[] = {
-    {"jan", 3, 1},       {"januar", 6, 1},      {"january", 7, 1},    {"janvier", 7, 1},   {"enero", 5, 1},
-    {"gennaio", 7, 1},   {"feb", 3, 2},         {"februar", 7, 2},    {"february", 8, 2},  {"février", 7, 2},
-    {"febrero", 7, 2},   {"febbraio", 8, 2},    {"mar", 3, 3},        {"märz", 4, 3},      {"march", 5, 3},
-    {"mars", 4, 3},      {"marzo", 5, 3},       {"apr", 3, 4},        {"april", 5, 4},     {"avril", 5, 4},
-    {"abril", 5, 4},     {"aprile", 6, 4},      {"may", 3, 5},        {"mai", 3, 5},       {"mayo", 4, 5},
-    {"maggio", 6, 5},    {"jun", 3, 6},         {"juni", 4, 6},       {"june", 4, 6},      {"juin", 4, 6},
-    {"junio", 5, 6},     {"giugno", 6, 6},      {"jul", 3, 7},        {"juli", 4, 7},      {"july", 4, 7},
-    {"juillet", 7, 7},   {"julio", 5, 7},       {"luglio", 6, 7},     {"aug", 3, 8},       {"august", 6, 8},
-    {"aout", 4, 8},      {"août", 4, 8},        {"agosto", 6, 8},     {"sep", 3, 9},       {"september", 9, 9},
-    {"septembre", 9, 9}, {"septiembre", 10, 9}, {"settembre", 9, 9},  {"oct", 3, 10},      {"oktober", 7, 10},
-    {"october", 7, 10},  {"octobre", 7, 10},    {"octubre", 7, 10},   {"ottobre", 7, 10},  {"nov", 3, 11},
-    {"november", 8, 11}, {"novembre", 8, 11},   {"noviembre", 9, 11}, {"dec", 3, 12},      {"dezember", 8, 12},
-    {"december", 8, 12}, {"décembre", 8, 12},   {"diciembre", 9, 12}, {"dicembre", 8, 12},
+    {"apr", 3, 4},       {"april", 5, 4},     {"avril", 5, 4},       {"abril", 5, 4},     {"aprile", 6, 4},
+    {"aug", 3, 8},       {"august", 6, 8},    {"aout", 4, 8},        {"août", 4, 8},      {"agosto", 6, 8},
+    {"dec", 3, 12},      {"dezember", 8, 12}, {"december", 8, 12},   {"décembre", 8, 12}, {"diciembre", 9, 12},
+    {"dicembre", 8, 12}, {"enero", 5, 1},     {"feb", 3, 2},         {"februar", 7, 2},   {"february", 8, 2},
+    {"février", 7, 2},   {"febrero", 7, 2},   {"febbraio", 8, 2},    {"gennaio", 7, 1},   {"giugno", 6, 6},
+    {"jan", 3, 1},       {"januar", 6, 1},    {"january", 7, 1},     {"janvier", 7, 1},   {"jun", 3, 6},
+    {"juni", 4, 6},      {"june", 4, 6},      {"juin", 4, 6},        {"junio", 5, 6},     {"jul", 3, 7},
+    {"juli", 4, 7},      {"july", 4, 7},      {"juillet", 7, 7},     {"julio", 5, 7},     {"luglio", 6, 7},
+    {"mar", 3, 3},       {"märz", 4, 3},      {"march", 5, 3},       {"mars", 4, 3},      {"marzo", 5, 3},
+    {"may", 3, 5},       {"mai", 3, 5},       {"mayo", 4, 5},        {"maggio", 6, 5},    {"nov", 3, 11},
+    {"november", 8, 11}, {"novembre", 8, 11}, {"noviembre", 9, 11},  {"oct", 3, 10},      {"oktober", 7, 10},
+    {"october", 7, 10},  {"octobre", 7, 10},  {"octubre", 7, 10},    {"ottobre", 7, 10},  {"sep", 3, 9},
+    {"september", 9, 9}, {"septembre", 9, 9}, {"septiembre", 10, 9}, {"settembre", 9, 9},
+};
+
+/* MONTH_NAMES grouped by lowercase first letter: MONTH_BUCKETS[letter - 'a'] is the [start, end) run of names that
+   open with that letter, so a position tries only the names it could begin. */
+static const month_bucket MONTH_BUCKETS[26] = {
+    ['a' - 'a'] = {0, 10},  ['d' - 'a'] = {10, 16}, ['e' - 'a'] = {16, 17}, ['f' - 'a'] = {17, 23},
+    ['g' - 'a'] = {23, 25}, ['j' - 'a'] = {25, 39}, ['l' - 'a'] = {39, 40}, ['m' - 'a'] = {40, 49},
+    ['n' - 'a'] = {49, 53}, ['o' - 'a'] = {53, 59}, ['s' - 'a'] = {59, 64},
 };
 
 /* Decode the next code point of a stored month name (ASCII, or a two-byte Latin-1
@@ -322,8 +335,16 @@ static Py_UCS4 name_cp(const char **cursor) {
    the token the alternation captures. Returns its code-point length (0 for none)
    and writes the month to *out_month. */
 static int match_month_name(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *out_month) {
+    if (pos >= len) {
+        return 0;
+    }
+    Py_UCS4 initial = lower_month_cp(CP(pos));
+    if (initial < 'a' || initial > 'z') {
+        return 0;
+    }
+    const month_bucket *bucket = &MONTH_BUCKETS[initial - 'a'];
     int best_length = 0;
-    for (size_t index = 0; index < sizeof(MONTH_NAMES) / sizeof(MONTH_NAMES[0]); index++) {
+    for (size_t index = bucket->start; index < bucket->end; index++) {
         const month_name *entry = &MONTH_NAMES[index];
         if (pos + entry->length > len || entry->length <= best_length) {
             continue;
@@ -551,9 +572,66 @@ PyObject *turbohtml_date_scan(PyObject *Py_UNUSED(module), PyObject *args) {
 /* Visitors return positive to stop after a match, negative on allocation failure. */
 typedef int (*date_visitor)(void *context, int year, int month, int day);
 
+/* The index of the first ASCII digit at or after from, or the length when there is none. Every date pattern needs a
+   digit, so a text without one is answered before any pattern runs. The element text the tree stages scan is always
+   UCS-4, and there each chunk ORs its flags over typed code points with no early exit, which the compiler vectorizes;
+   the exit is taken between chunks. The narrower storage only reaches the conformance entry point, so it reads
+   through CP. */
+#define DIGIT_CHUNK 64
+#define DIGIT_HEAD 8
+
+static Py_ssize_t first_ascii_digit(const void *data, int kind, Py_ssize_t from, Py_ssize_t len) {
+    Py_ssize_t pos = from;
+    Py_ssize_t head = from + DIGIT_HEAD < len ? from + DIGIT_HEAD : len;
+    for (; pos < head; pos++) {
+        if (is_ascii_digit(CP(pos))) {
+            return pos;
+        }
+    }
+    if (kind == PyUnicode_4BYTE_KIND) {
+        const Py_UCS4 *points = data;
+        for (; pos + DIGIT_CHUNK <= len; pos += DIGIT_CHUNK) {
+            int hit = 0;
+            for (Py_ssize_t offset = 0; offset < DIGIT_CHUNK; offset++) {
+                hit |= is_ascii_digit(points[pos + offset]);
+            }
+            if (hit) {
+                break;
+            }
+        }
+    }
+    for (; pos < len; pos++) {
+        if (is_ascii_digit(CP(pos))) {
+            return pos;
+        }
+    }
+    return len;
+}
+
+/* The longest month name in MONTH_NAMES, septiembre, in code points. */
+#define MAX_MONTH_LEN 10
+
+/* The earliest position a written-out match whose day is the first digit can begin. The name sits before that day
+   with only an optional dot and whitespace between, so walking back over the whitespace and one dot and then the
+   longest name finds its start. A name ahead of the first digit can only have that digit as its day, since the name
+   and the separators hold no digit. */
+static Py_ssize_t written_start(const void *data, int kind, Py_ssize_t first) {
+    Py_ssize_t start = first;
+    while (start > 0 && is_perl_space(CP(start - 1))) {
+        start--;
+    }
+    if (start > 0 && CP(start - 1) == '.') {
+        start--;
+    }
+    return start > MAX_MONTH_LEN ? start - MAX_MONTH_LEN : 0;
+}
+
 /* Every ISO, day-month-year, and written-out date in the text, each pattern swept independently over the whole
    text and reported in that order. A match whose calendar is impossible is skipped but still advances the scan
-   past its span, the way re.finditer does. Propagates a nonzero visitor result. */
+   past its span, the way re.finditer does. Propagates a nonzero visitor result. The ISO and day-month-year
+   patterns open with a digit, so each tries position 0 and then hops from digit to digit; the written-out pass
+   starts where a month name can first reach the first digit, and a text without one ends there. Nothing skipped
+   can match. */
 static int scan_every_date(const void *data, int kind, Py_ssize_t len, int current_year, date_visitor visit,
                            void *context) {
     int year, month, day;
@@ -569,7 +647,7 @@ static int scan_every_date(const void *data, int kind, Py_ssize_t len, int curre
             }
             pos = end;
         } else {
-            pos++;
+            pos = first_ascii_digit(data, kind, pos + 1, len);
         }
     }
     pos = 0;
@@ -586,10 +664,14 @@ static int scan_every_date(const void *data, int kind, Py_ssize_t len, int curre
             }
             pos = end;
         } else {
-            pos++;
+            pos = first_ascii_digit(data, kind, pos + 1, len);
         }
     }
-    pos = 0;
+    Py_ssize_t first = first_ascii_digit(data, kind, 0, len);
+    if (first == len) {
+        return 0;
+    }
+    pos = written_start(data, kind, first);
     while (pos < len) {
         int matched = 0;
         if (CP(pos) >= 'A') { /* a written-out date opens with a month name (letter) */
