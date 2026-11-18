@@ -1590,6 +1590,7 @@ typedef struct {
     th_cjk_candidate cjk[5];
     th_sb_candidate sb[TH_SB_COUNT];
     th_sb_candidate visual;
+    /* the Python stream object gets these zeroed by its allocator, and the one-shot path never reads them */
     int started;
     unsigned char tail[2];
     int tail_len;
@@ -1616,8 +1617,6 @@ static void th_detect_stream_init(th_detect_stream *stream) {
                    th_sb_candidate_table[slot].kind);
     }
     th_sb_init(&stream->visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_ROW], TH_SB_VISUAL);
-    stream->started = 0;
-    stream->tail_len = 0;
 }
 
 /* The two candidate arrays laid end to end under chardetng's indices, so one number addresses any
@@ -1669,7 +1668,8 @@ static int th_detect_expectation(const th_detect_stream *stream, th_tld *tld) {
 
 /* Feed the scored candidates only. th_encoding_detect calls this directly, having already
    ruled out the pure-ASCII and valid-UTF-8 answers that need no scoring at all. */
-static void th_detect_candidates_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len, int final) {
+static TH_HOT void th_detect_candidates_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len,
+                                             int final) {
     for (int slot = 0; slot < 5; slot++) {
         th_cjk_feed(&stream->cjk[slot], buf, len, final);
     }
@@ -1689,9 +1689,11 @@ static void th_detect_candidates_feed(th_detect_stream *stream, const unsigned c
    so the single-byte and CJK candidates never score the ASCII before that point; the stream and the one-shot path
    both match that. The ISO-2022-JP scan still sees the whole prefix. */
 static Py_ssize_t th_detect_first_event(const unsigned char *buf, Py_ssize_t len) {
-    Py_ssize_t ascii = th_decode_ascii_run(buf, len);
-    const unsigned char *escape = memchr(buf, 0x1B, (size_t)ascii);
-    return escape == NULL ? ascii : escape - buf;
+    Py_ssize_t index = 0;
+    while (index < len && buf[index] < 0x80 && buf[index] != 0x1B) {
+        index++;
+    }
+    return index;
 }
 
 /* Keep the last two bytes of an all-ASCII chunk, the context a first event at offset 0 or 1 of a later chunk reads. */
@@ -1706,6 +1708,21 @@ static void th_detect_stream_keep_tail(th_detect_stream *stream, const unsigned 
     }
 }
 
+static void th_detect_stream_start(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len, int final) {
+    Py_ssize_t first = th_detect_first_event(buf, len);
+    if (first == len) {
+        th_detect_stream_keep_tail(stream, buf, len);
+        return;
+    }
+    stream->started = 1;
+    if (first < 2 && stream->tail_len > 0) {
+        Py_ssize_t context = 2 - first < stream->tail_len ? 2 - first : stream->tail_len;
+        th_detect_candidates_feed(stream, stream->tail + 2 - context, context, 0);
+    }
+    Py_ssize_t skip = first < 2 ? 0 : first - 2;
+    th_detect_candidates_feed(stream, buf + skip, len - skip, final);
+}
+
 static void th_detect_stream_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len, int final) {
     th_utf8_scan_feed(&stream->utf8, buf, len);
     th_jp_scan_feed(&stream->jp, buf, len, final);
@@ -1713,21 +1730,7 @@ static void th_detect_stream_feed(th_detect_stream *stream, const unsigned char 
         th_detect_candidates_feed(stream, buf, len, final);
         return;
     }
-    Py_ssize_t first = th_detect_first_event(buf, len);
-    if (first == len) {
-        th_detect_stream_keep_tail(stream, buf, len);
-        return;
-    }
-    stream->started = 1;
-    if (first >= 2) {
-        th_detect_candidates_feed(stream, buf + first - 2, len - first + 2, final);
-        return;
-    }
-    Py_ssize_t context = 2 - first < stream->tail_len ? 2 - first : stream->tail_len;
-    if (context > 0) {
-        th_detect_candidates_feed(stream, stream->tail + 2 - context, context, 0);
-    }
-    th_detect_candidates_feed(stream, buf, len, final);
+    th_detect_stream_start(stream, buf, len, final);
 }
 
 /* The scored answer: the surviving CJK and single-byte candidates compete in chardetng's
