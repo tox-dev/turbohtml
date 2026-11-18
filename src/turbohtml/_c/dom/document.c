@@ -3641,6 +3641,19 @@ static PyObject *register_subtype(PyObject *module, PyType_Spec *spec, PyObject 
     return type;
 }
 
+static int cache_mapping_abc(module_state *state) {
+    PyObject *abc = PyImport_ImportModule("collections.abc");
+    if (abc == NULL) { /* GCOVR_EXCL_BR_LINE: collections.abc always imports */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    state->mapping_abc = PyObject_GetAttrString(abc, "Mapping");
+    Py_DECREF(abc);
+    if (state->mapping_abc == NULL) { /* GCOVR_EXCL_BR_LINE: collections.abc always provides Mapping */
+        return -1;                    /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
 /* Register type as a collections.abc.MutableMapping: the attrs view implements the whole interface, so
    isinstance(element.attrs, MutableMapping) holds. collections.abc always imports and provides the class, so the
    failure paths are unreachable. */
@@ -3676,6 +3689,9 @@ int tree_register(PyObject *module, module_state *state) {
     }
     if (cache_pattern_type(state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
         return -1;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (cache_mapping_abc(state) < 0) { /* GCOVR_EXCL_BR_LINE: collections.abc always imports */
+        return -1;                      /* GCOVR_EXCL_LINE: import-failure path */
     }
     state->minify_type = PyType_FromModuleAndSpec(module, &minify_spec, NULL);
     /* allocation failure cannot be forced from a test */

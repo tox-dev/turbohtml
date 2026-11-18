@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
+import time
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -15,7 +16,7 @@ from turbohtml.query import Query
 from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
 
@@ -55,6 +56,40 @@ def _run(*targets: object) -> None:
         thread.start()
     for thread in threads:
         thread.join()
+
+
+def test_concurrent_element_construction_from_a_mutated_dict_is_memory_safe() -> None:
+    # a worker thread that raises fails the test: pytest turns an unhandled thread exception into a warning, and the
+    # suite's filterwarnings = "error" makes that a failure
+    attrs: dict[str, str | list[str]] = {f"data-{index}": str(index) for index in range(32)}
+    attrs["slow"] = _YieldingList(["x"])
+    start = threading.Barrier(4)
+    built: list[turbohtml.Element] = []
+
+    def builder() -> None:
+        start.wait()
+        for _ in range(300):
+            with contextlib.suppress(KeyError):  # the mutator removed a name after the snapshot, as base raises
+                built.append(turbohtml.Element("p", attrs))
+
+    def mutator() -> None:
+        start.wait()
+        for _ in range(300):
+            attrs.clear()
+            for index in range(32):
+                attrs[f"data-{index}"] = "v"
+            attrs["slow"] = _YieldingList(["x"])
+
+    _run(builder, builder, builder, mutator)
+    assert built
+    names = {f"data-{index}" for index in range(32)} | {"slow"}
+    assert all(set(element.attrs) <= names for element in built)
+
+
+class _YieldingList(list):  # ruff:ignore[subclass-builtin]  # a value whose iteration lets other threads run
+    def __iter__(self) -> Iterator[str]:
+        time.sleep(0)  # yields the GIL, so the mutator runs while the value is being read
+        return super().__iter__()
 
 
 def test_concurrent_find_all_and_extract_is_memory_safe() -> None:

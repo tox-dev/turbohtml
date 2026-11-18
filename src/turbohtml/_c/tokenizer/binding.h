@@ -86,6 +86,7 @@ typedef struct {
     PyObject *indent_type;            /* Indent (a serialize(layout=...) mode) */
     PyObject *pattern_type;           /* re.Pattern, to recognize a compiled-regex filter */
     PyObject *re_compile;             /* re.compile, to turn a str pattern into a program for re()/re_first() */
+    PyObject *mapping_abc;            /* collections.abc.Mapping, the shape test of turbohtml.build */
     PyObject *markup_type;            /* turbohtml.markup.Markup, stamped onto escape() results */
     PyObject *xpath_string_type;      /* turbohtml._xpath.XPathString, for smart_strings xpath() results */
     PyObject *xpath_type;             /* XPath, the precompiled reusable expression object */

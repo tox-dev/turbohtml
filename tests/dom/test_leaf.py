@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
+from collections import OrderedDict, UserDict
 from functools import partial
 from typing import TYPE_CHECKING, cast
 
@@ -25,7 +26,7 @@ from turbohtml import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator, Mapping
 
     from work_steps import WorkSteps
 
@@ -471,6 +472,93 @@ def test_element_mapping_keys_failure_is_not_masked() -> None:
     # keys() exists but raises: surface that error rather than mislabeling it a non-mapping TypeError
     with pytest.raises(RuntimeError):
         Element("div", RaisingKeys())  # ty: ignore[invalid-argument-type]  # keys() raises
+
+
+class _PlainDict(dict):  # ruff:ignore[subclass-builtin]  # a dict subclass, which is not an exact dict
+    pass
+
+
+@pytest.mark.parametrize("count", [pytest.param(2, id="narrow"), pytest.param(40, id="wide")])
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(dict, id="dict"),
+        pytest.param(OrderedDict, id="ordered-dict"),
+        pytest.param(_PlainDict, id="dict-subclass"),
+        pytest.param(UserDict, id="custom-mapping"),
+    ],
+)
+def test_element_attrs_from_any_mapping_builds_the_dict_element(
+    make: Callable[[list[tuple[str, str]]], Mapping[str, str]], count: int
+) -> None:
+    pairs = [(f"Data-{index}", str(index)) for index in range(count)] + [("data-0", "again")]
+    expected = Element("p", dict(pairs)).html
+    assert Element("p", make(pairs)).html == expected
+
+
+def test_element_attrs_dict_subclass_reads_through_its_keys_method() -> None:
+    class Shown(dict):  # ruff:ignore[subclass-builtin]  # a dict subclass whose keys() narrows what it shows
+        def keys(self) -> list[str]:  # ty: ignore[incompatible-method-override]  # narrows the keys a dict shows
+            return [key for key in self if key == "shown"]
+
+    assert Element("p", Shown(hidden="x", shown="y")).html == '<p shown="y"></p>'
+
+
+def test_element_non_dict_mapping_rejects_a_non_str_value() -> None:
+    with pytest.raises(TypeError, match="attribute value must be a str"):
+        Element("p", UserDict([("x", 1)]))  # ty: ignore[invalid-argument-type]  # the value is the point
+
+
+@pytest.mark.parametrize(
+    "length",
+    [
+        pytest.param(63, id="stack"),
+        pytest.param(64, id="stack-limit"),
+        pytest.param(65, id="heap"),
+        pytest.param(200, id="heap-long"),
+    ],
+)
+def test_element_attribute_name_at_the_stack_buffer_size_is_folded(length: int) -> None:
+    attrs: dict[str, str] = {"A" * length: "v"}
+    assert dict(Element("p", attrs).attrs) == {"a" * length: "v"}
+
+
+@pytest.mark.parametrize("length", [pytest.param(64, id="stack-limit"), pytest.param(65, id="heap")])
+def test_element_long_attribute_names_keep_the_first_of_each_fold(length: int) -> None:
+    attrs: dict[str, str] = {"A" * length: "1", "a" * length: "2"}
+    assert dict(Element("p", attrs).attrs) == {"a" * length: "1"}
+
+
+def test_element_attrs_cleared_by_a_value_callback_raises_key_error() -> None:
+    attrs: dict[str, str | list[str]] = {}
+
+    class ClearingValue(list):  # ruff:ignore[subclass-builtin]  # the callback that clears the dict is the point
+        def __iter__(self) -> Iterator[str]:
+            attrs.clear()
+            return super().__iter__()
+
+    attrs["a"] = ClearingValue(["x"])
+    attrs["b"] = "y"
+    # the names are read before the value's callback runs, so the dict's loss of "b" is the KeyError base raises
+    with pytest.raises(KeyError) as raised:
+        Element("p", attrs)
+    assert raised.value.args == ("b",)
+
+
+def test_element_attrs_changed_by_a_value_callback_raises_key_error() -> None:
+    attrs: dict[str, str | list[str]] = {}
+
+    class ReplacingValue(list):  # ruff:ignore[subclass-builtin]  # the callback that rewrites the dict is the point
+        def __iter__(self) -> Iterator[str]:
+            attrs.pop("b")
+            attrs["z"] = "1"
+            return super().__iter__()
+
+    attrs["a"] = ReplacingValue(["x"])
+    attrs["b"] = "y"
+    with pytest.raises(KeyError) as raised:
+        Element("p", attrs)
+    assert raised.value.args == ("b",)
 
 
 @pytest.mark.parametrize(

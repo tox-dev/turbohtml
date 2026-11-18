@@ -1,0 +1,2 @@
+Building elements with ``Element(...)`` and ``E.<tag>(...)`` from plain dicts runs faster: the mapping check skips the
+abstract base class and short attribute names are lowercased without a heap allocation.

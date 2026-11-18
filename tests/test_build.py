@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import re
+from collections import OrderedDict
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -10,7 +12,7 @@ from turbohtml import Comment, Document, Element, Text, parse, parse_fragment
 from turbohtml.build import E, ElementMaker, document
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from turbohtml import Node
 
@@ -45,6 +47,18 @@ def maker() -> ElementMaker:
         pytest.param(lambda: E("div", "body"), "<div>body</div>", id="call-form-names-the-tag"),
         pytest.param(lambda: E("a", {"href": "/x"}, "link"), '<a href="/x">link</a>', id="call-form-leading-mapping"),
         pytest.param(lambda: E("my-widget"), "<my-widget></my-widget>", id="call-form-non-identifier-tag"),
+        pytest.param(
+            lambda: E.div(OrderedDict([("id", "x")]), "t"),
+            '<div id="x">t</div>',
+            id="leading-dict-subclass-is-attributes",
+        ),
+        pytest.param(
+            lambda: E.div(MappingProxyType({"id": "x"}), "t"),
+            '<div id="x">t</div>',
+            id="leading-non-dict-mapping-is-attributes",
+        ),
+        pytest.param(lambda: E.div(E.span("s"), "t"), "<div><span>s</span>t</div>", id="leading-element-is-a-child"),
+        pytest.param(lambda: E.p(Text("t"), "u"), "<p>tu</p>", id="leading-text-node-is-a-child"),
     ],
 )
 def test_serialize(build: Callable[[], Element], expected: str) -> None:
@@ -99,9 +113,17 @@ def test_a_separate_maker_builds_the_same_way(maker: ElementMaker) -> None:
     assert maker.span("x").serialize() == "<span>x</span>"
 
 
-def test_non_leading_mapping_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "late",
+    [
+        pytest.param({"id": "b"}, id="dict"),
+        pytest.param(OrderedDict([("id", "b")]), id="dict-subclass"),
+        pytest.param(MappingProxyType({"id": "b"}), id="non-dict-mapping"),
+    ],
+)
+def test_non_leading_mapping_is_rejected(late: Mapping[str, str]) -> None:
     with pytest.raises(TypeError, match="must come first"):
-        E.div("text", {"id": "b"})
+        E.div("text", late)
 
 
 @pytest.mark.parametrize(
