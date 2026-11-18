@@ -46,6 +46,7 @@ class _Harness:
         self.hooks: dict[tuple[str, str], Callable[[tuple[str, ...]], None]] = {}
         self.seconds: dict[tuple[str, str], float] = {}
         self.broken_installs: set[str] = set()
+        self.pip_options: dict[str, tuple[str, ...]] = {}
         self.rendered: list[tuple[str, dict[str, dict[str, float | str]]]] = []
 
     def monotonic(self) -> float:
@@ -57,8 +58,9 @@ class _Harness:
         return workdir / "venv-core"
 
     def venv_python(
-        self, workdir: Path, name: str, _requirements: tuple[str, ...], _pip_options: tuple[str, ...]
+        self, workdir: Path, name: str, _requirements: tuple[str, ...], pip_options: tuple[str, ...]
     ) -> Path:
+        self.pip_options[name] = pip_options
         if name in self.broken_installs:
             raise subprocess.CalledProcessError(1, ["uv", "pip", "install"])
         return workdir / f"venv-{name}"
@@ -308,6 +310,11 @@ def test_all_renders_every_operation_with_its_competitors(harness: _Harness, mon
         "node-equals|case|turbohtml": {"mean": 1.0, "stdev": 0.0},
         "node-equals|case|beautifulsoup4": {"mean": 1.0, "stdev": 0.0},
     }
+
+
+def test_package_run_installs_with_the_competitor_pip_options(harness: _Harness) -> None:
+    run("html5_parser", (), pgo=False, jobs=1)
+    assert harness.pip_options["html5_parser"] == ("--no-binary", "lxml")
 
 
 @pytest.mark.usefixtures("harness")

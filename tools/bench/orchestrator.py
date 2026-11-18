@@ -65,7 +65,7 @@ def _bindings(path: Path) -> Iterator[tuple[str, ast.expr | None]]:
 
 
 def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]:
-    # Read each competitor's _REQUIREMENTS, OPERATIONS keys, and optional PIP_OPTIONS from source, without importing.
+    # Read each competitor's _REQUIREMENTS, OPERATIONS keys, and optional _PIP_OPTIONS from source, without importing.
     found: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {}
     for path in sorted(_COMPETITOR_DIR.glob("*.py")):
         if path.stem == "__init__":
@@ -76,7 +76,7 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
         for name, value in _bindings(path):
             if name == "_REQUIREMENTS" and isinstance(value, ast.Tuple):
                 requirements = _string_tuple(value)
-            elif name == "PIP_OPTIONS" and isinstance(value, ast.Tuple):
+            elif name == "_PIP_OPTIONS" and isinstance(value, ast.Tuple):
                 pip_options = _string_tuple(value)
             elif name == "OPERATIONS" and isinstance(value, ast.Dict):
                 operation_names = tuple(
@@ -274,7 +274,7 @@ class _Schedule:
         #
         # A competitor can install cleanly yet fail to *import*, when its bundled native library clashes with another
         # wheel's ABI in the shared venv (html5-parser returns an lxml tree, so the two must share one libxml2, which
-        # its ``PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import
+        # its ``_PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import
         # boundary later, so it drops the column with a note too.
         #
         # Only a crash *after* the library imported -- during measurement, where the fault is the benchmark and not the
