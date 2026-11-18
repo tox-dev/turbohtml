@@ -1393,11 +1393,13 @@ int th_node_contains(th_tree *tree, th_node *ancestor, th_node *node) {
     return 0;
 }
 
-/* Whether two attributes carry the same name. Names resolve to their interned
-   bytes, so a per-tree dynamic atom in one tree matches the same spelling in the
-   other (the numeric atoms differ across trees). */
+/* Whether two attributes carry the same name. An atom names one spelling within a tree, so atoms decide there; across
+   trees the dynamic atoms differ, so the interned bytes are compared. */
 static int attr_name_equal(th_tree *left_tree, const th_node_attr *left, th_tree *right_tree,
                            const th_node_attr *right) {
+    if (left_tree == right_tree) {
+        return left->name_atom == right->name_atom;
+    }
     Py_ssize_t left_len, right_len;
     const char *left_name = th_attr_name(left_tree, left->name_atom, &left_len);
     const char *right_name = th_attr_name(right_tree, right->name_atom, &right_len);
@@ -1418,23 +1420,33 @@ static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, t
     if (left->attr_count != right->attr_count) {
         return 0;
     }
-    int can_index = left->attr_count >= 32 &&
+    int can_index = left->attr_count >= 8 &&
                     /* GCOVR_EXCL_BR_START: allocation size overflow */
                     (size_t)left->attr_count <= SIZE_MAX / (4 * sizeof(Py_ssize_t));
     /* GCOVR_EXCL_BR_STOP */
     Py_ssize_t comparisons = 0;
+    /* Elements built alike keep their attributes in one order, so the same index matches until the first
+       misalignment; from there on every attribute is scanned. */
+    int aligned = 1;
     for (Py_ssize_t index = 0; index < left->attr_count; index++) {
         const th_node_attr *want = &left->attrs[index];
-        Py_ssize_t other = 0;
-        for (; other < right->attr_count; other++) {
-            if (attr_name_equal(left_tree, want, right_tree, &right->attrs[other])) {
-                if (!attr_value_equal(want, &right->attrs[other])) {
+        Py_ssize_t skip = -1;
+        if (aligned) {
+            if (attr_name_equal(left_tree, want, right_tree, &right->attrs[index])) {
+                if (!attr_value_equal(want, &right->attrs[index])) {
                     return 0;
                 }
-                break;
+                continue;
             }
+            aligned = 0;
+            skip = index;
         }
-        if (other == right->attr_count) {
+        Py_ssize_t other = 0;
+        while (other < right->attr_count &&
+               (other == skip || !attr_name_equal(left_tree, want, right_tree, &right->attrs[other]))) {
+            other++;
+        }
+        if (other == right->attr_count || !attr_value_equal(want, &right->attrs[other])) {
             return 0;
         }
         if (can_index) {
@@ -1449,6 +1461,21 @@ static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, t
         }
     }
     return 1;
+}
+
+/* The atom right_tree gives the name of want, an attribute of left_tree. The record's stored hash is the home slot in
+   right_tree only when both trees hash names alike (FNV-1a until a tree moves to th_name_hash for good), so otherwise
+   the name is looked up. */
+static uint32_t right_name_atom(th_tree *left_tree, const th_node_attr *want, th_tree *right_tree) {
+    int same_hash = right_tree->attr_slots != NULL && (left_tree->attr_fast == NULL) == (right_tree->attr_fast == NULL);
+    if (want->name_atom < TH_ATTR__DYNAMIC_BASE || !same_hash) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(left_tree, want->name_atom, &name_len);
+        return th_attr_lookup(right_tree, name, name_len);
+    }
+    const th_attr_record *rec = &left_tree->attr_recs[want->name_atom - TH_ATTR__DYNAMIC_BASE];
+    uint32_t found = dynamic_slot(right_tree, rec->name, (Py_ssize_t)rec->name_len, rec->hash);
+    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
 }
 
 static int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right,
@@ -1472,12 +1499,7 @@ static int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right
     int equal = 1;
     for (Py_ssize_t index = start; index < left->attr_count; index++) {
         const th_node_attr *want = &left->attrs[index];
-        uint32_t atom = want->name_atom;
-        if (left_tree != right_tree) {
-            Py_ssize_t name_len;
-            const char *name = th_attr_name(left_tree, atom, &name_len);
-            atom = th_attr_lookup(right_tree, name, name_len);
-        }
+        uint32_t atom = left_tree == right_tree ? want->name_atom : right_name_atom(left_tree, want, right_tree);
         size_t slot = ((size_t)atom * 2654435761U) & (capacity - 1);
         while (slots[slot] != 0 && right->attrs[slots[slot] - 1].name_atom != atom) {
             slot = (slot + 1) & (capacity - 1);
