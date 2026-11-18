@@ -1,1 +1,2 @@
-XPath relational comparisons between two node-sets, such as ``//li < //b``, stop at the first matching pair and no longer convert every node of both sets.
+XPath relational comparisons between two node-sets, such as ``//li < //b``, stop at the first matching pair and no
+longer convert every node of both sets.
