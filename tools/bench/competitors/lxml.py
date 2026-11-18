@@ -31,8 +31,8 @@ _LINKS_BASE: Final[str] = "https://example.com/base/"
 
 
 def parse(text: str) -> None:
-    # Parse a whole document with lxml's libxml2-backed HTML parser.
-    lxml_html.document_fromstring(text)
+    # huge_tree lifts libxml2's nesting limit; without it the default parser drops the rest of a deeply nested page.
+    lxml_html.document_fromstring(text, parser=lxml_html.HTMLParser(huge_tree=True))
 
 
 def _parse_encoded(case: tuple[str, bytes]) -> None:

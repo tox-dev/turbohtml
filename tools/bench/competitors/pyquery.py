@@ -6,6 +6,7 @@ import functools
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
+from lxml import html as lxml_html
 from pyquery import PyQuery
 
 from bench.link_attributes import element_links
@@ -37,8 +38,9 @@ def _fresh(text: str) -> PyQuery:
 
 
 def parse(text: str) -> None:
-    # Parse a whole document into a queryable tree through PyQuery.
-    PyQuery(text, parser="html")
+    # PyQuery has no parser option, so libxml2 parses with huge_tree here: its default nesting limit drops the rest
+    # of a deeply nested page.
+    PyQuery(lxml_html.document_fromstring(text, parser=lxml_html.HTMLParser(huge_tree=True)))
 
 
 def find(text: str) -> None:
