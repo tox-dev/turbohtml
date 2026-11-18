@@ -1,1 +1,2 @@
-XPath ``str:concat()`` is faster when the text of each member sits in a single text node, since the text is copied once into a result that is allocated once.
+XPath ``str:concat()`` is faster when the text of each member sits in a single text node, since the text is copied once
+into a result that is allocated once.
