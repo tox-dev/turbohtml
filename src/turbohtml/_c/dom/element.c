@@ -2993,96 +2993,10 @@ static int fill_wide_element_attrs(th_tree *tree, th_node *node, PyObject *attrs
 /* On-stack scratch for the lowercased name of one attribute; a longer name takes a heap buffer. */
 #define ELEMENT_ATTR_NAME_STACK_BYTES 64
 
-/* The value attrs holds under name, as a new reference. An exact dict is read with PyDict_GetItemRef, so a key Python
-   code removed while it was being read is the KeyError the mapping protocol raises; any other mapping's __getitem__
-   is called. */
-static PyObject *attr_value(PyObject *attrs, PyObject *name) {
-    if (!PyDict_CheckExact(attrs)) {
-        return PyObject_GetItem(attrs, name);
-    }
-    PyObject *value;
-#if PY_VERSION_HEX >= 0x030D0000
-    int found = PyDict_GetItemRef(attrs, name, &value); /* GCOVR_EXCL_BR_LINE: a str key always hashes */
-#else
-    /* no free-threaded build predates 3.13, so taking the reference right after the borrowed lookup is safe */
-    value = Py_XNewRef(PyDict_GetItemWithError(attrs, name));
-    int found = value != NULL ? 1 : PyErr_Occurred() ? -1 : 0; /* GCOVR_EXCL_BR_LINE: a str key always hashes */
-#endif
-    if (found == 0) {
-        PyErr_SetObject(PyExc_KeyError, name);
-    }
-    return found == 1 ? value : NULL; /* GCOVR_EXCL_BR_LINE: found is -1 only when hashing raises */
-}
-
-/* Set the attribute at slot from the value of name, read once the name is accepted, as a mapping's __getitem__ may
-   raise. Returns 1, or -1 with an exception set. */
-static int set_element_slot(th_tree *tree, th_node *node, Py_ssize_t slot, const char *stored, Py_ssize_t name_len,
-                            PyObject *attrs, PyObject *name) {
-    PyObject *value = attr_value(attrs, name);
-    if (value == NULL) {
-        return -1;
-    }
-    Py_UCS4 *points;
-    Py_ssize_t value_len;
-    int has_value;
-    int bad = element_attr_value(value, &points, &value_len, &has_value) < 0;
-    Py_DECREF(value);
-    if (bad) {
-        return -1;
-    }
-    int rc = th_tree_set_attr(tree, node, slot, stored, name_len, points, value_len, has_value);
-    PyMem_Free(points);
-    if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    return 1;
-}
-
-/* On-stack scratch for the lowercased name of one attribute; a longer name takes a heap buffer. */
-#define ELEMENT_ATTR_NAME_STACK_BYTES 64
-
-/* Store the attribute name at slot, its value read from attrs[name]. fold lowercases the name, and a repeat of an
-   earlier name is skipped with its value never read. Returns 1 when stored, 0 when skipped, or -1 with an exception
-   set. */
-static int store_element_attr(th_tree *tree, th_node *node, Py_ssize_t slot, PyObject *attrs, PyObject *name,
-                              int fold) {
-    if (!PyUnicode_Check(name)) {
-        PyErr_SetString(PyExc_TypeError, "attribute name must be a str");
-        return -1;
-    }
-    if (th_validate_markup_name(name, 1) < 0) {
-        return -1;
-    }
-    Py_ssize_t name_len;
-    const char *name_utf8 = PyUnicode_AsUTF8AndSize(name, &name_len);
-    if (name_utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: a lone-surrogate name cannot encode, hard to force */
-        return -1;           /* GCOVR_EXCL_LINE: surrogate path */
-    }
-    char stack[ELEMENT_ATTR_NAME_STACK_BYTES];
-    char *stored = name_len <= (Py_ssize_t)sizeof(stack) ? stack : PyMem_Malloc((size_t)name_len);
-    if (stored == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (Py_ssize_t byte = 0; byte < name_len; byte++) {
-        char ch = name_utf8[byte];
-        stored[byte] = fold && ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch;
-    }
-    int rc = 0;
-    if (!(fold && has_attr_named(tree, node, slot, stored, name_len))) {
-        rc = set_element_slot(tree, node, slot, stored, name_len, attrs, name);
-    }
-    if (stored != stack) {
-        PyMem_Free(stored);
-    }
-    return rc;
-}
-
-/* Fill a constructed element's attribute slots from attrs, walking keys: the keys() snapshot taken before any Python
-   code runs. A value's callback may change attrs, and the walk stays on the names it was given. fold lowercases each
-   name for an HTML tree; an XML tree keeps case, so its names are stored verbatim. Two keys that fold to one name keep
-   the first, as the HTML tokenizer does for a repeated attribute, so the element never carries the same name twice. */
+/* Fill a constructed element's attribute slots from the keys of attrs. fold lowercases
+   each name for an HTML tree; an XML tree keeps case, so its names are stored verbatim.
+   Two keys that fold to one name keep the first, as the HTML tokenizer does for a
+   repeated attribute, so the element never carries the same name twice. */
 static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyObject *keys, int fold) {
     Py_ssize_t count = PyList_GET_SIZE(keys);
     if (fold && count >= TH_WIDE_ATTR_COUNT) {
@@ -3090,11 +3004,56 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
     }
     Py_ssize_t filled = 0;
     for (Py_ssize_t index = 0; index < count; index++) {
-        int rc = store_element_attr(tree, node, filled, attrs, PyList_GET_ITEM(keys, index), fold);
-        if (rc < 0) {
+        PyObject *name = PyList_GET_ITEM(keys, index);
+        if (!PyUnicode_Check(name)) {
+            PyErr_SetString(PyExc_TypeError, "attribute name must be a str");
             return -1;
         }
-        filled += rc;
+        if (th_validate_markup_name(name, 1) < 0) {
+            return -1;
+        }
+        Py_ssize_t name_len;
+        const char *name_utf8 = PyUnicode_AsUTF8AndSize(name, &name_len);
+        if (name_utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: a lone-surrogate name cannot encode, hard to force */
+            return -1;           /* GCOVR_EXCL_LINE: surrogate path */
+        }
+        char stack[ELEMENT_ATTR_NAME_STACK_BYTES];
+        char *stored = name_len <= (Py_ssize_t)sizeof(stack) ? stack : PyMem_Malloc((size_t)name_len);
+        if (stored == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        for (Py_ssize_t byte = 0; byte < name_len; byte++) {
+            char ch = name_utf8[byte];
+            stored[byte] = fold && ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch;
+        }
+        if (fold && has_attr_named(tree, node, filled, stored, name_len)) {
+            if (stored != stack) {
+                PyMem_Free(stored);
+            }
+            continue;
+        }
+        PyObject *value = PyObject_GetItem(attrs, name);
+        Py_UCS4 *points;
+        Py_ssize_t value_len;
+        int has_value;
+        int bad = value == NULL || element_attr_value(value, &points, &value_len, &has_value) < 0;
+        Py_XDECREF(value);
+        if (bad) {
+            if (stored != stack) {
+                PyMem_Free(stored);
+            }
+            return -1;
+        }
+        int rc = th_tree_set_attr(tree, node, filled++, stored, name_len, points, value_len, has_value);
+        if (stored != stack) {
+            PyMem_Free(stored);
+        }
+        PyMem_Free(points);
+        if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     node->attr_count = filled;
     return 0;

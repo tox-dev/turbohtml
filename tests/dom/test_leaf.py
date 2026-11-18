@@ -524,6 +524,13 @@ def test_element_attribute_name_at_the_stack_buffer_size_is_folded(length: int) 
 
 
 @pytest.mark.parametrize("length", [pytest.param(64, id="stack-limit"), pytest.param(65, id="heap")])
+def test_element_attribute_name_with_a_bad_value_raises_type_error(length: int) -> None:
+    attrs: dict[str, int] = {"A" * length: 1}
+    with pytest.raises(TypeError, match="attribute value must be a str"):
+        Element("p", attrs)  # ty: ignore[invalid-argument-type]  # the value is the point
+
+
+@pytest.mark.parametrize("length", [pytest.param(64, id="stack-limit"), pytest.param(65, id="heap")])
 def test_element_long_attribute_names_keep_the_first_of_each_fold(length: int) -> None:
     attrs: dict[str, str] = {"A" * length: "1", "a" * length: "2"}
     assert dict(Element("p", attrs).attrs) == {"a" * length: "1"}
