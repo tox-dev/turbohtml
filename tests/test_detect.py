@@ -1340,3 +1340,36 @@ def test_pushed_back_fourth_byte_keeps_gbk_streamed(raw: bytes, size: int) -> No
     for start in range(0, len(raw), size):
         detector.feed(raw[start : start + size])
     assert detector.close().encoding == "GBK"
+
+
+# Each input is an ASCII run followed by a non-ASCII byte, a shape chardetng's feed starts two bytes before. Upstream
+# scored the run too and picked another single-byte encoding; chardetng answers windows-1252 for all of them, as the
+# tests/conformance detector oracle confirms.
+_CHARDETNG_WINDOWS_1252: Final[tuple[bytes, ...]] = (
+    b"a1111\xaa ",
+    b"N.x\xaa.\xa9",
+    b"zz11\xba \xa9",
+    b"N.x\xba  \xaa",
+    b"a11\xaa \xc9\xba",
+    b"n.1\xaa \xe9\xa9",
+    b"a11\xba \xc9\xaa.",
+)
+_CHUNK_SIZES: Final[tuple[int, ...]] = (1, 2, 3, 5, 7, 16)
+
+
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"case-{index}") for index, raw in enumerate(_CHARDETNG_WINDOWS_1252)]
+)
+def test_ascii_prefix_one_shot_matches_chardetng(raw: bytes) -> None:
+    assert detect(raw).encoding == "windows-1252"
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in _CHUNK_SIZES])
+@pytest.mark.parametrize(
+    "raw", [pytest.param(raw, id=f"case-{index}") for index, raw in enumerate(_CHARDETNG_WINDOWS_1252)]
+)
+def test_ascii_prefix_streamed_matches_chardetng(raw: bytes, size: int) -> None:
+    detector = EncodingDetector()
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close().encoding == "windows-1252"

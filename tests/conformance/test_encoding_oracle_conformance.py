@@ -217,6 +217,66 @@ def _detect_cases() -> Iterator[bytes]:
         yield bytes(rng.randrange(256) for _ in range(rng.randrange(2, 40)))
 
 
+# An ASCII run ahead of the first non-ASCII byte is the shape chardetng's feed starts two bytes before. The content
+# sweep above reaches it rarely, so this corpus is built for it, one-shot and streamed.
+_ASCII_PREFIX_CASES: Final[int] = 20000
+_ASCII_PREFIX_SEED: Final[int] = 20260710
+_ASCII_PREFIX_ALPHABET: Final[bytes] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;?!\x1b"
+_ASCII_PREFIX_LEADS: Final[tuple[int, ...]] = (
+    0x80,
+    0x81,
+    0x8E,
+    0x9F,
+    0xA0,
+    0xA9,
+    0xAA,
+    0xB0,
+    0xBA,
+    0xC9,
+    0xE9,
+    0xEA,
+    0xFD,
+    0xFF,
+)
+
+
+def test_ascii_prefix_agrees_with_chardetng(detector_oracle: Path) -> None:
+    cases = _ascii_prefix_cases()
+    assert len(cases) == _ASCII_PREFIX_CASES
+    expected = _run(detector_oracle, "".join(f"{raw.hex()}\n" for raw in cases), len(cases))
+    divergent = [
+        (raw.hex(), got, want)
+        for raw, want in zip(cases, expected, strict=True)
+        if ((got := detect(raw).encoding) or "").casefold() != want.casefold()
+    ]
+    assert not divergent, f"{len(divergent)} of {len(cases)} ASCII-prefixed inputs detect differently: {divergent[:3]}"
+
+
+def _ascii_prefix_cases() -> list[bytes]:
+    rng = random.Random(_ASCII_PREFIX_SEED)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed, not a security decision
+    cases: list[bytes] = []
+    for _ in range(_ASCII_PREFIX_CASES):
+        run = bytes(rng.choice(_ASCII_PREFIX_ALPHABET) for _ in range(rng.randrange(1, 12)))
+        tail = bytes([rng.choice(_ASCII_PREFIX_LEADS)] + [rng.randrange(256) for _ in range(rng.randrange(0, 6))])
+        cases.append(run + tail)
+    return cases
+
+
+def test_ascii_prefix_streamed_agrees_with_chardetng(detector_oracle: Path) -> None:
+    cases = _ascii_prefix_cases()
+    expected = _run(detector_oracle, "".join(f"{raw.hex()}\n" for raw in cases), len(cases))
+    divergent = []
+    for raw, want in zip(cases, expected, strict=True):
+        for size in (1, 3, 7):
+            detector = EncodingDetector()
+            for start in range(0, len(raw), size):
+                detector.feed(raw[start : start + size])
+            got = detector.close().encoding or ""
+            if got.casefold() != want.casefold():
+                divergent.append((raw.hex(), size, got, want))
+    assert not divergent, f"{len(divergent)} streamed ASCII-prefixed inputs detect differently: {divergent[:3]}"
+
+
 def test_the_tld_hint_agrees_with_chardetng(detector_oracle: Path) -> None:
     # every label the classifier knows, against text in each encoding it models. The hint reaches three places in
     # chardetng's scoring: the TLD's own encoding, the encodings native to it, and the penalty the rest pay. A label

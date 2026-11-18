@@ -362,9 +362,11 @@ def test_hebrew_visual_order_detected() -> None:
 
 def test_latin_lower_to_upper_case_transitions() -> None:
     # the Latin candidate penalizes an implausible lowercase->uppercase transition unless the pair
-    # is plain ASCII: "aB" is the ASCII pair (no penalty), "éB" is not (penalty), exercising both
-    # arms of that case-state branch. The short mixed run ultimately scores highest as Shift_JIS.
+    # is plain ASCII: "éB" is not (penalty), and "aB" is the ASCII pair (no penalty) once a leading
+    # "é" puts it past the first non-ASCII byte, where scoring starts. The short mixed run without
+    # that lead scores highest as Shift_JIS.
     assert _detected("aBcD éB àC normal latin text here".encode("cp1252")) == "Shift_JIS"
+    assert _detected("é aBcD éB àC normal latin text here".encode("cp1252")) == "windows-1252"
 
 
 def test_arabic_zwnj_and_ascii_run() -> None:
