@@ -3001,7 +3001,13 @@ static PyObject *attr_value(PyObject *attrs, PyObject *name) {
         return PyObject_GetItem(attrs, name);
     }
     PyObject *value;
+#if PY_VERSION_HEX >= 0x030D0000
     int found = PyDict_GetItemRef(attrs, name, &value); /* GCOVR_EXCL_BR_LINE: a str key always hashes */
+#else
+    /* no free-threaded build predates 3.13, so taking the reference right after the borrowed lookup is safe */
+    value = Py_XNewRef(PyDict_GetItemWithError(attrs, name));
+    int found = value != NULL ? 1 : PyErr_Occurred() ? -1 : 0;
+#endif
     if (found == 0) {
         PyErr_SetObject(PyExc_KeyError, name);
     }
