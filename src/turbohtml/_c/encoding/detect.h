@@ -447,7 +447,8 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
         if (byte < 0x80 && index > 0 && buf[index - 1] < 0x80 && cand->alive && index >= scanned_to) {
             Py_ssize_t run = th_decode_ascii_run(buf + index, len - index);
             scanned_to = index + run;
-            Py_ssize_t space = th_sb_last_space(buf, index, scanned_to);
+            /* Runs under 16 bytes cost more to scan for a space than the per-byte walk saves. */
+            Py_ssize_t space = run >= 16 ? th_sb_last_space(buf, index, scanned_to) : -1;
             if (space >= 0) {
                 th_sb_skip_to_space(cand, data);
                 index = space;
