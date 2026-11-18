@@ -93,6 +93,7 @@ class _Processes:
         self.terminated: list[tuple[str, str, int | None]] = []
         self.killed = threading.Event()
         self.workers: dict[int, _Worker] = {}
+        self._spawn_lock = threading.Lock()
 
     def run(
         self, args: list[str], *, env: dict[str, str] | None = None, **_options: object
@@ -112,8 +113,10 @@ class _Processes:
     def popen(self, args: list[str], *, env: dict[str, str], stdout: int | None, **_options: object) -> _Worker:
         if (gate := self.spawn_gates.get(_job_of(env))) is not None:
             gate()
-        worker = _Worker(self, args, env, pid=1000 + len(self.workers), captured=stdout is not None)
-        self.workers[worker.pid] = worker
+        # workers spawn from pool threads, and without a GIL two of them could read the same length and share a pid
+        with self._spawn_lock:
+            worker = _Worker(self, args, env, pid=1000 + len(self.workers), captured=stdout is not None)
+            self.workers[worker.pid] = worker
         return worker
 
 
