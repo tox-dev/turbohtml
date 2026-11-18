@@ -772,6 +772,33 @@ def test_chunk_boundaries_never_change_the_answer(raw: bytes, size: int) -> None
     assert detector.close() == detect(raw)
 
 
+# Settled answers (a byte-order mark, a <meta> declaration, pure ASCII, structural UTF-8) skip the candidates, and the
+# detector shares one match per settled answer under the default options. Streams of each must answer what one-shot
+# detect does under every option set, at a chunk size that splits the mark and one that feeds everything at once.
+_SETTLED_STREAMS: Final[tuple[bytes, ...]] = (
+    b"\xef\xbb\xbf<p>hi</p>",
+    b"\xff\xfe<\x00p\x00>\x00",
+    b'<meta charset="iso-8859-2"><p>x</p>',
+    b"<p>plain ascii</p>",
+    "<p>café 日本</p>".encode(),
+)
+_SETTLED_OPTIONS: Final[tuple[Detection, ...]] = (
+    Detection(),
+    Detection(threshold=0.9),
+    Detection(excluded=frozenset({"UTF-8-SIG"})),
+)
+
+
+@pytest.mark.parametrize("raw", _SETTLED_STREAMS)
+@pytest.mark.parametrize("options", _SETTLED_OPTIONS)
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in (2, 4096)])
+def test_settled_streams_answer_what_one_shot_does(raw: bytes, options: Detection, size: int) -> None:
+    detector = EncodingDetector(options)
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close() == detect(raw, options)
+
+
 def test_a_long_stream_still_answers_what_one_shot_does() -> None:
     # the candidates carry state, not bytes, so 4096 feeds cost what one does and answer the same
     chunk = "Съешь же ещё этих мягких".encode("windows-1251")

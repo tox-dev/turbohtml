@@ -1,0 +1,2 @@
+Encoding detection returns sooner when a byte-order mark or a ``<meta>`` declaration decides the answer, both for a
+one-shot call and for a streamed detector, and reuses the result it builds for the default options.
