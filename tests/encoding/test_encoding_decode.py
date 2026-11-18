@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 import turbohtml.detect  # ruff:ignore[unused-import]  # importing registers the whatwg-* codecs these tests decode through
@@ -246,3 +248,76 @@ def test_a_big5_combination_holds_its_mark_back_past_an_ascii_run() -> None:
     decoded = _decode(b"\x88\x62Aa", "big5")
     assert decoded == "Ê̄Aa"
     assert hash(decoded) == hash("Ê̄Aa")
+
+
+def _four_byte(pointer: int) -> bytes:
+    # the inverse of the decoder's mixed-radix arithmetic over the four byte positions
+    lead, rest = divmod(pointer, 12600)
+    second, rest = divmod(rest, 1260)
+    third, fourth = divmod(rest, 10)
+    return bytes([lead + 0x81, second + 0x30, third + 0x81, fourth + 0x30])
+
+
+@pytest.mark.parametrize(
+    "pointer",
+    [
+        pytest.param(0, id="first-pointer"),
+        pytest.param(1, id="second-pointer"),
+        pytest.param(7458, id="past-the-special-pointer"),
+        pytest.param(39419, id="last-bmp-pointer"),
+        pytest.param(189000, id="first-astral-pointer"),
+        pytest.param(189001, id="second-astral-pointer"),
+        pytest.param(1237574, id="penultimate-scalar"),
+        pytest.param(1237575, id="last-scalar"),
+    ],
+)
+def test_gb18030_four_byte_boundaries_match_cpython(pointer: int) -> None:
+    # the first and last pointer of each range the four-byte form reaches, so the end of the BMP table, the astral start
+    # and the last scalar decode as CPython's codec decodes them
+    data = _four_byte(pointer)
+    assert _decode(data, "gb18030") == data.decode("gb18030")
+
+
+def test_gb18030_pointer_7457_is_the_spec_special_case() -> None:
+    # the spec maps this one pointer to U+E7C7, where CPython's table holds U+1E3F
+    data = _four_byte(7457)
+    assert _decode(data, "gb18030") == "\ue7c7"
+    assert data.decode("gb18030") == "\u1e3f"
+
+
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(_four_byte(39420), "\ufffd", id="first-pointer-past-the-bmp-table"),
+        pytest.param(_four_byte(1237576), "\ufffd", id="first-pointer-past-the-last-scalar"),
+        pytest.param(b"\x84\x31\xa5\x39\x81\x30\x81\x30", "\ufffd\x80", id="rejected-four-byte-then-valid"),
+        pytest.param(b"\x81\x30\x81\x30A", "\x80A", id="four-byte-then-ascii"),
+        pytest.param(b"\x81\x30\x20\x30", "\ufffd0 0", id="third-byte-outside-the-lead-range"),
+        pytest.param(b"\x81\x30\x81\x20A", "\ufffd0\ufffd A", id="fourth-byte-outside-the-digit-range"),
+        pytest.param(b"\x81\x30\xff\x30A", "\ufffd0\ufffd0A", id="third-byte-above-the-lead-range"),
+        pytest.param(b"\x81\x7fA", "\ufffd\x7fA", id="two-byte-trail-of-0x7f"),
+        pytest.param(b"\x81\x30\x81\x30\x81\x30\x81\x30", "\x80\x80", id="back-to-back-four-byte"),
+        pytest.param(b"\x81\x30\x81\x3a", "\ufffd0\ufffd:", id="non-digit-fourth-byte"),
+        pytest.param(b"\x81\x30\x81\x30\x81", "\x80\ufffd", id="four-byte-then-lead-flush"),
+        pytest.param(b"\x81\x30\x81\x30\x20\xa1\xa1", "\x80 \u3000", id="four-byte-then-space-and-two-byte"),
+    ],
+)
+def test_gb18030_four_byte_fast_path_leaves_the_rest_of_the_input(data: bytes, text: str) -> None:
+    # a four-byte sequence consumes exactly four bytes, and one that resolves to no code point falls back to the
+    # byte-at-a-time arms, so the bytes after it decode the way they did before the fast path
+    assert _decode(data, "gb18030") == text
+
+
+def test_gb18030_every_two_byte_sequence_is_unchanged() -> None:
+    # all 23,940 two-byte sequences, pinned to what the byte-at-a-time decoder answered before the four-byte fast path
+    # shared its peek, so a change to the two-byte table lookup cannot pass
+    decoded = [
+        bytes([lead, trail]).decode("whatwg-gb18030")
+        for lead in range(0x81, 0xFF)
+        for trail in range(0x40, 0xFF)
+        if trail != 0x7F
+    ]
+    assert (
+        hashlib.sha256(repr(decoded).encode()).hexdigest()
+        == "12248a3cf1c53c463263129b913b55a25b4e6c4c8b32f6e2009aca7c03fc8ed9"
+    )

@@ -345,6 +345,26 @@ static int th_dec_gb18030_range(uint32_t pointer, Py_UCS4 *point) {
 }
 
 static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
+    if (dec->pos + 2 <= dec->len) {
+        const unsigned char *at = dec->buf + dec->pos;
+        if (at[0] >= 0x81 && at[0] <= 0xFE) {
+            if (at[1] >= 0x40 && at[1] <= 0xFE && at[1] != 0x7F) {
+                int offset = at[1] < 0x7F ? 0x40 : 0x41;
+                *point = th_gb18030[(at[0] - 0x81) * 190 + (at[1] - offset)];
+                dec->pos += 2;
+                return TH_DEC_POINT;
+            }
+            if (dec->pos + 4 <= dec->len && at[1] >= 0x30 && at[1] <= 0x39 && at[2] >= 0x81 && at[2] <= 0xFE &&
+                at[3] >= 0x30 && at[3] <= 0x39) {
+                uint32_t pointer = ((uint32_t)(at[0] - 0x81) * 10 * 126 * 10) + ((uint32_t)(at[1] - 0x30) * 10 * 126) +
+                                   ((uint32_t)(at[2] - 0x81) * 10) + (uint32_t)(at[3] - 0x30);
+                if (th_dec_gb18030_range(pointer, point)) {
+                    dec->pos += 4;
+                    return TH_DEC_POINT;
+                }
+            }
+        }
+    }
     for (;;) {
         int byte = th_dec_next(dec);
         if (byte == TH_DEC_EOF) {
