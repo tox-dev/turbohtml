@@ -152,3 +152,23 @@ def test_escape_rejects_non_str() -> None:
 def test_escape_adjacent_byte_lanes(pair: str, offset: int, *, quote: bool) -> None:
     text: Final = f"{'x' * offset}{pair * 8}tail"
     assert escape(text, quote=quote) == html.escape(text, quote=quote)
+
+
+@pytest.mark.parametrize("quote", [pytest.param(False, id="text"), pytest.param(True, id="quoted")])
+@pytest.mark.parametrize(
+    ("size", "position"),
+    [pytest.param(size, position, id=f"{size}-at-{position}") for size in (8, 19) for position in range(size)],
+)
+@pytest.mark.parametrize(
+    "char",
+    [
+        pytest.param("&", id="amp"),
+        pytest.param("<", id="lt"),
+        pytest.param(">", id="gt"),
+        pytest.param('"', id="quot"),
+        pytest.param("'", id="apos"),
+    ],
+)
+def test_escape_ucs4_special_at_every_lane_and_tail(char: str, size: int, position: int, *, quote: bool) -> None:
+    text: Final = "\U0001f600" * position + char + "\U0001f600" * (size - position - 1)
+    assert escape(text, quote=quote) == html.escape(text, quote=quote)

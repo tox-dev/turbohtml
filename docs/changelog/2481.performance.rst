@@ -1,0 +1,1 @@
+``escape()`` is faster on text that contains characters above U+FFFF, such as emoji.
