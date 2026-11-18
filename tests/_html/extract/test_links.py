@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from turbohtml import Link, parse
 from turbohtml._html import _registrable_domain
+from turbohtml.extract._native import register_links
 
 
 @pytest.mark.parametrize(
@@ -47,3 +49,10 @@ def test_registrable_domain_matches_the_suffix_without_the_trailing_dots(host: s
     # the trailing dots name the DNS root: the suffix rules match the host without them and the answer keeps them; an
     # empty label left of the registrable domain names nothing, so such a host has no known site and stays whole
     assert _registrable_domain(host) == expected
+
+
+@pytest.mark.parametrize("record", [dict, "Link"])
+def test_register_links_rejects_a_non_tuple_record(record: type | str) -> None:
+    with pytest.raises(TypeError, match="register_links expected a tuple subclass"):
+        register_links(record)  # ty: ignore[invalid-argument-type]  # rejected at runtime
+    assert type(parse("<a href=u>x</a>").links()[0]) is Link

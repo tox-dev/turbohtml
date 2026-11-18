@@ -628,6 +628,24 @@ static PyObject *span_urls(const link_walk *walk, const Py_UCS4 *value) {
     return urls;
 }
 
+/* A Link(element, attr, url) record laid out the way tuple_subtype_new lays it out, without the format-string call and
+   the NamedTuple __new__ a call to the type would run. Steals the reference to url; element and attr are borrowed. */
+static PyObject *link_record(PyTypeObject *link_type, PyObject *element, PyObject *attr, PyObject *url) {
+    PyObject *record = link_type->tp_alloc(link_type, 3);
+    if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(url);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+#if PY_VERSION_HEX >= 0x030E0000
+    /* CPython starts a tuple's cached hash at -1; tp_alloc leaves it 0, which would hash every Link to 0 */
+    ((PyTupleObject *)record)->ob_hash = -1;
+#endif
+    PyTuple_SET_ITEM(record, 0, Py_NewRef(element));
+    PyTuple_SET_ITEM(record, 1, Py_NewRef(attr));
+    PyTuple_SET_ITEM(record, 2, url);
+    return record;
+}
+
 /* Append a Link(element, attr, url) for each link to the result list: each str of `urls` when the value's links are
    shared (span_urls), else each span cut from `value`. The Element wrapper for `report_node` is minted on the first
    link and cached in *report_element, so an element with no link (the vast majority on a real page) is never wrapped.
@@ -653,8 +671,7 @@ static int emit_enumerated(link_walk *walk, PyObject **report_element, th_node *
             Py_DECREF(url);
             continue;
         }
-        PyObject *record = PyObject_CallFunction(walk->state->link_type, "OOO", *report_element, report_attr, url);
-        Py_DECREF(url);
+        PyObject *record = link_record((PyTypeObject *)walk->state->link_type, *report_element, report_attr, url);
         if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1367,6 +1384,11 @@ static PyObject *run_walk(PyObject *owner, th_tree *tree, th_node *root, PyObjec
 /* Store the Link record type the C core constructs for each enumerated link; turbohtml._links registers it on import.
  */
 PyObject *turbohtml_register_links(PyObject *module, PyObject *type) {
+    /* link_record fills the type's instances as tuples, so anything else would be written out of bounds */
+    if (!PyType_Check(type) || !PyType_IsSubtype((PyTypeObject *)type, &PyTuple_Type)) {
+        PyErr_SetString(PyExc_TypeError, "register_links expected a tuple subclass");
+        return NULL;
+    }
     module_state *state = PyModule_GetState(module);
     Py_XSETREF(state->link_type, Py_NewRef(type));
     Py_RETURN_NONE;
