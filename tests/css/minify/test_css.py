@@ -4968,6 +4968,27 @@ def test_minify_css_preserves_reversed_unicode_ranges(value: str, expected: str)
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("U+0", "U+0", id="zero"),
+        pytest.param("U+0-0", "U+0", id="zero-range-collapses"),
+        pytest.param("U+0-10", "U+0-10", id="zero-start-range"),
+        pytest.param("U+ABCDEF", "U+ABCDEF", id="uppercase-digits"),
+        pytest.param("U+10FFFF", "U+10FFFF", id="max-code-point"),
+        pytest.param("U+F0000-10FFFF", "U+F0000-10FFFF", id="six-digit-range"),
+        pytest.param("U+0??", "U+??", id="zero-prefix-wildcard"),
+        pytest.param("U+10F??", "U+10F??", id="prefix-wildcard"),
+        pytest.param("U+4??,U+5??", "U+400-5FF", id="adjacent-wildcards-merge"),
+        pytest.param("U+0-FFFFFF", "U+??????", id="six-wildcards"),
+    ],
+)
+def test_minify_css_unicode_range_spelling(value: str, expected: str) -> None:
+    assert minify_css(f"@font-face{{font-family:x;src:url(x);unicode-range:{value}}}") == (
+        f"@font-face{{font-family:x;src:url(x);unicode-range:{expected}}}"
+    )
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param(
