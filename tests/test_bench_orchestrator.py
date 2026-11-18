@@ -33,7 +33,7 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Harness:
     monkeypatch.setattr(orchestrator, "venv_python", fake.venvs.venv_python)
     monkeypatch.setattr(orchestrator, "render", fake.render)
     monkeypatch.setattr(orchestrator, "time", SimpleNamespace(monotonic=fake.monotonic))
-    monkeypatch.setattr(os, "killpg", fake.processes.killpg, raising=False)
+    monkeypatch.setattr(os, "killpg", lambda pid, number: fake.processes.workers[pid].stop(number), raising=False)
     monkeypatch.setattr(subprocess, "run", fake.processes.run)
     monkeypatch.setattr(subprocess, "Popen", fake.processes.popen)
     return fake
@@ -116,9 +116,6 @@ class _Processes:
         self.workers[worker.pid] = worker
         return worker
 
-    def killpg(self, pid: int, signal_number: int) -> None:
-        self.workers[pid].stop(signal_number)
-
 
 def _job_of(env: dict[str, str]) -> _Job:
     return _Job(env["BENCH_OPERATION"], env["BENCH_TARGET"], int(env["BENCH_CASE"]) if "BENCH_CASE" in env else None)
@@ -146,13 +143,12 @@ class _Worker:
         self._stderr = ""
         self._communicated = False
 
-    def kill(self) -> None:
-        self.stop()
-
     def stop(self, signal_number: int = signal.SIGTERM) -> None:
         self._processes.terminated.append(self.job)
         self.returncode = -signal_number
         self._processes.killed.set()
+
+    kill = stop  # Windows stops the worker itself; POSIX signals its group through os.killpg
 
     def communicate(self, **_options: object) -> tuple[str | None, str]:
         # a reap after a timeout comes back with what the first communicate collected
