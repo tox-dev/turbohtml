@@ -234,6 +234,9 @@ def test_worker_min_time(
             super().__init__(**kwargs)
             runners.append(self)
 
+    # pyperf's one-runner-per-process guard keys on id(cls) in a set shared by every subclass, and a collected
+    # RecordingRunner from an earlier case can leave its id for this one to reuse
+    monkeypatch.setattr(RecordingRunner, "_created", set())
     monkeypatch.setattr(pyperf, "Runner", RecordingRunner)
     monkeypatch.setitem(OPERATIONS, "min-time", (operation, "files"))
     monkeypatch.setitem(INPUTS, "min-time", lambda: ())
