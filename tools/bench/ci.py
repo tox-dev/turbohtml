@@ -215,7 +215,6 @@ _ADDITIONAL_CASES: Final[MappingProxyType[str, tuple[str, int]]] = MappingProxyT
     "form-data-fieldsets-plain": ("form-data-fieldsets", 3),
     "query-roots-shuffled": ("query-roots", 1),
     "query-roots-sorted": ("query-roots", 2),
-    "query-roots-small": ("query-roots", 3),
     "sax-records-tiny": ("sax-records", 1),
     "tables-spans-ordinary": ("tables-spans", 1),
     "tables-spans-records": ("tables-spans", 2),
