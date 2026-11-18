@@ -233,6 +233,19 @@ NOTES.update({
     }
     for operation in ("minify-css-merges", "minify-css-conflicts")
 })
+NOTES.update({
+    operation: {
+        "rjsmin": "removes whitespace and comments only and does not optimize: no renaming, dead-code removal, or "
+        "expression rewriting",
+    }
+    for operation in (
+        "minify-js-guards",
+        "minify-js-names",
+        "minify-js-propagation",
+        "minify-js-sequences",
+        "minify-js-single-use",
+    )
+})
 
 __all__ = [
     "NOTES",
