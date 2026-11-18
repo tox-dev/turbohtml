@@ -203,6 +203,31 @@ def test_attribute_name_interned_again_after_the_name_table_moved_to_the_keyed_h
     assert len(document.select(f"i[{names[0]}]")) == 2
 
 
+def test_attribute_equality_when_both_name_tables_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
+    left: Final = turbohtml.Element("div", dict.fromkeys(names, "same"))
+    right: Final = turbohtml.Element("div", dict.fromkeys(reversed(names), "same"))
+    changed: Final = turbohtml.Element("div", dict.fromkeys(reversed(names), "same") | {names[0]: "other"})
+
+    assert (left.equals(right), left.equals(changed)) == (True, False)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [pytest.param({}, id="equal"), pytest.param({"data-3": "other"}, id="changed-value")],
+)
+def test_attribute_equality_across_a_keyed_and_a_fnv_name_table(overrides: dict[str, str]) -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
+    ordinary: Final = {f"data-{index}": "same" for index in range(40)}
+    keyed: Final = turbohtml.Element("div", dict.fromkeys(names, "same"))
+    for name in names:
+        del keyed.attrs[name]
+    keyed.attrs.update(ordinary | overrides)
+    plain: Final = turbohtml.Element("div", dict(reversed(ordinary.items())))
+
+    assert (keyed.equals(plain), plain.equals(keyed)) == (not overrides, not overrides)
+
+
 def test_xsl_key_duplicate_value_after_the_map_moved_to_the_keyed_hash() -> None:
     names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_XSLT64, _STEPS))]
 

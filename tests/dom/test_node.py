@@ -633,17 +633,32 @@ def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
     assert left.equals(right) is not different
 
 
-@pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
-def test_attribute_equality_with_sparse_atoms(*, different: bool) -> None:
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+@pytest.mark.parametrize(
+    "overrides",
+    [pytest.param({}, id="equal"), pytest.param({"data-39": "different"}, id="different")],
+)
+def test_attribute_equality_with_sparse_atoms(order: str, overrides: dict[str, str]) -> None:
     left: Final = Element("div")
     right: Final = Element("div")
     for index in range(40):
         left.attrs[f"data-{index}"] = str(index)
-        right.attrs[f"data-{index}"] = str(index + int(different and index == 39))
+    for name in _reordered(order, [f"data-{index}" for index in range(40)]):
+        right.attrs[name] = overrides.get(name, name.removeprefix("data-"))
         for filler in range(127):
-            right.attrs[f"unused-{index}-{filler}"] = ""
-            del right.attrs[f"unused-{index}-{filler}"]
-    assert left.equals(right) is not different
+            right.attrs[f"unused-{name}-{filler}"] = ""
+            del right.attrs[f"unused-{name}-{filler}"]
+    assert left.equals(right) is (not overrides)
+
+
+def _reordered(order: str, names: list[str]) -> list[str]:
+    match order:
+        case "reversed":
+            return names[::-1]
+        case "rotated":
+            return names[len(names) // 2 :] + names[: len(names) // 2]
+        case _:
+            return names
 
 
 @pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
@@ -655,6 +670,128 @@ def test_large_attribute_equality_within_one_tree(*, different: bool) -> None:
     )
     left, right = document.find_all("div")
     assert left.equals(right) is not different
+
+
+@pytest.mark.parametrize("same_tree", [pytest.param(False, id="separate-trees"), pytest.param(True, id="one-tree")])
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+@pytest.mark.parametrize("count", [pytest.param(n, id=f"{n}-attributes") for n in (1, 7, 8, 9, 33, 1000)])
+def test_reordered_attributes_are_equal(*, same_tree: bool, order: str, count: int) -> None:
+    left: Final = {f"data-{index}": f"value-{index}" for index in range(count)}
+    left_element, right_element = _attribute_pair(left, _ordered(order, left), same_tree=same_tree)
+    assert left_element.equals(right_element)
+
+
+def _attribute_pair(left: dict[str, str], right: dict[str, str], *, same_tree: bool) -> tuple[Element, Element]:
+    # XML keeps attribute names case-sensitive, which the HTML attribute setter would fold
+    if same_tree:
+        first, second = _xml_divs(f"<div {_markup(left)}/><div {_markup(right)}/>")
+        return first, second
+    (first,) = _xml_divs(f"<div {_markup(left)}/>")
+    (second,) = _xml_divs(f"<div {_markup(right)}/>")
+    return first, second
+
+
+def _xml_divs(markup: str) -> list[Element]:
+    return parse_xml(f'<root xmlns:x="urn:x" xmlns:y="urn:y">{markup}</root>').find_all("div")
+
+
+def _markup(attrs: dict[str, str]) -> str:
+    return " ".join(f'{name}="{value}"' for name, value in attrs.items())
+
+
+def _ordered(order: str, attrs: dict[str, str]) -> dict[str, str]:
+    return {name: attrs[name] for name in _reordered(order, list(attrs))}
+
+
+@pytest.mark.parametrize("same_tree", [pytest.param(False, id="separate-trees"), pytest.param(True, id="one-tree")])
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+@pytest.mark.parametrize("count", [pytest.param(n, id=f"{n}-attributes") for n in (1, 7, 8, 9, 33, 1000)])
+def test_reordered_attribute_with_a_changed_value_is_unequal(*, same_tree: bool, order: str, count: int) -> None:
+    left: Final = {f"data-{index}": f"value-{index}" for index in range(count)}
+    right: Final = _ordered(order, left | {"data-0": "different"})
+    left_element, right_element = _attribute_pair(left, right, same_tree=same_tree)
+    assert not left_element.equals(right_element)
+
+
+@pytest.mark.parametrize("same_tree", [pytest.param(False, id="separate-trees"), pytest.param(True, id="one-tree")])
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+@pytest.mark.parametrize("count", [pytest.param(n, id=f"{n}-attributes") for n in (1, 7, 8, 9, 33, 1000)])
+def test_reordered_attribute_with_a_new_name_is_unequal(*, same_tree: bool, order: str, count: int) -> None:
+    left: Final = {f"data-{index}": f"value-{index}" for index in range(count)}
+    last: Final = f"data-{count - 1}"
+    renamed: Final = {name: value for name, value in left.items() if name != last} | {"data-missing": left[last]}
+    left_element, right_element = _attribute_pair(left, _ordered(order, renamed), same_tree=same_tree)
+    assert not left_element.equals(right_element)
+
+
+@pytest.mark.parametrize("same_tree", [pytest.param(False, id="separate-trees"), pytest.param(True, id="one-tree")])
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+@pytest.mark.parametrize("spelling", [pytest.param("data-0", id="equal"), pytest.param("DATA-0", id="case-variant")])
+def test_attribute_names_differing_only_in_case_are_distinct(*, same_tree: bool, order: str, spelling: str) -> None:
+    left: Final = {f"data-{index}": "same" for index in range(40)} | {"Data-0": "other"}
+    right: Final = {spelling: "same"} | {name: value for name, value in left.items() if name != "data-0"}
+    left_element, right_element = _attribute_pair(left, _ordered(order, right), same_tree=same_tree)
+    assert left_element.equals(right_element) is (spelling == "data-0")
+
+
+@pytest.mark.parametrize("same_tree", [pytest.param(False, id="separate-trees"), pytest.param(True, id="one-tree")])
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+@pytest.mark.parametrize("prefix", [pytest.param("x", id="same-prefix"), pytest.param("y", id="other-prefix")])
+def test_namespaced_attribute_equality(*, same_tree: bool, order: str, prefix: str) -> None:
+    left: Final = {f"x:data-{index}": "same" for index in range(40)}
+    right: Final = _ordered(order, {f"{prefix}:data-{index}": "same" for index in range(40)})
+    left_element, right_element = _attribute_pair(left, right, same_tree=same_tree)
+    assert left_element.equals(right_element) is (prefix == "x")
+
+
+_STATIC_NAMES: Final[list[str]] = [
+    "accept-charset",
+    "accesskey",
+    "action",
+    "align",
+    "alink",
+    "alt",
+    "archive",
+    "async",
+    "autocomplete",
+    "autofocus",
+    "background",
+    "bgcolor",
+    "bordercolor",
+    "cellpadding",
+    "cellspacing",
+    "charset",
+    "checked",
+    "class",
+    "clear",
+    "cols",
+    "colspan",
+    "compact",
+    "content",
+    "contenteditable",
+    "controls",
+    "coords",
+    "crossorigin",
+    "datetime",
+    "decoding",
+    "defer",
+    "dir",
+    "disabled",
+    "download",
+]
+
+
+@pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
+def test_static_attribute_names_equal_across_trees_past_the_index_cutoff(order: str) -> None:
+    left: Final = Element("div", dict.fromkeys(_STATIC_NAMES, "same"))
+    right: Final = Element("div", dict.fromkeys(_reordered(order, _STATIC_NAMES), "same"))
+    assert left.equals(right)
+
+
+def test_dynamic_attribute_absent_from_a_tree_with_no_dynamic_names_is_unequal() -> None:
+    left: Final = Element("div", dict.fromkeys(_STATIC_NAMES, "same") | {"data-x": "same"})
+    right: Final = Element("div", dict.fromkeys([*_STATIC_NAMES[::-1], "translate"], "same"))
+    assert not left.equals(right)
 
 
 def test_duplicate_attributes_reach_index_threshold_at_last_name() -> None:
