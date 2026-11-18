@@ -30,81 +30,65 @@ enum {
     HANGUL_SCOUNT = HANGUL_LCOUNT * HANGUL_NCOUNT,
 };
 
-/* The canonical combining class of `cp`, 0 when the sorted table has no row for it (the default, every starter). */
-static uint8_t ccc_of(Py_UCS4 cp) {
-    if (cp < th_norm_ccc[0].code) {
-        return 0;
-    }
-    Py_UCS4 offset = cp - th_norm_ccc[0].code;
-    if (offset < sizeof(th_norm_ccc_dense)) {
-        return th_norm_ccc_dense[offset];
-    }
-    int lo = 0;
-    int hi = th_norm_ccc_count;
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (th_norm_ccc[mid].code < cp) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    if (lo < th_norm_ccc_count && th_norm_ccc[lo].code == cp) {
-        return th_norm_ccc[lo].ccc;
-    }
-    return 0;
+/* The offset into a two-stage table's blocks for `offset`, the code point less the table's base: the block `index`
+   picks, then the low bits of the offset. */
+static inline Py_UCS4 two_stage_offset(const uint8_t *index, unsigned shift, Py_UCS4 offset) {
+    return ((Py_UCS4)index[offset >> shift] << shift) | (offset & ((1u << shift) - 1));
 }
 
-/* The decomposition row for `cp` in a table of `count` rows, or NULL when the code point is absent. */
-static const th_norm_decomp_row *decomp_row(const th_norm_decomp_row *table, int count, Py_UCS4 cp) {
-    if (cp < table[0].code) {
-        return NULL;
+/* The canonical combining class of `cp`, 0 outside the table (every starter and every code point below its base). */
+static uint8_t ccc_of(Py_UCS4 cp) {
+    Py_UCS4 offset = cp - TH_NORM_CCC_BASE;
+    if (offset > TH_NORM_CCC_SPAN) {
+        return 0;
     }
-    /* Code points vary independently, so selecting either half is unpredictable. */
-    int left = 0;
-    int remaining = count;
-    while (remaining > 1) {
-        int half = remaining / 2;
-        int middle = left + half;
-        left = table[middle].code < cp ? middle : left;
-        remaining -= half;
+    return th_norm_ccc_blocks[two_stage_offset(th_norm_ccc_index, TH_NORM_CCC_SHIFT, offset)];
+}
+
+/* The 1-based canonical decomposition row of `cp`, 0 when it has none. */
+static uint16_t canon_number(Py_UCS4 cp) {
+    Py_UCS4 offset = cp - TH_NORM_CANON_BASE;
+    if (offset > TH_NORM_CANON_SPAN) {
+        return 0;
     }
-    left += table[left].code < cp;
-    if (left < count && table[left].code == cp) {
-        return &table[left];
+    return th_norm_canon_blocks[two_stage_offset(th_norm_canon_index, TH_NORM_CANON_SHIFT, offset)];
+}
+
+/* The 1-based compatibility decomposition row of `cp`, 0 when it has none. */
+static uint16_t compat_number(Py_UCS4 cp) {
+    Py_UCS4 offset = cp - TH_NORM_COMPAT_BASE;
+    if (offset > TH_NORM_COMPAT_SPAN) {
+        return 0;
     }
-    return NULL;
+    return th_norm_compat_blocks[two_stage_offset(th_norm_compat_index, TH_NORM_COMPAT_SHIFT, offset)];
 }
 
 /* Whether `cp` has a decomposition at the requested depth (Hangul aside): the quick check's decompose-form No test.
    NFKD looks in the compatibility table first, then the canonical one it does not duplicate; NFD looks canonical only.
  */
 static int decomposes(Py_UCS4 cp, int compat) {
-    if (compat && decomp_row(th_norm_compat, th_norm_compat_count, cp) != NULL) {
-        return 1;
-    }
-    return decomp_row(th_norm_canon, th_norm_canon_count, cp) != NULL;
+    return (compat && compat_number(cp) != 0) || canon_number(cp) != 0;
 }
 
-/* The tabled canonical composition of the pair (first, second), or 0 when the sorted table pairs them into nothing; 0
-   is a safe "no composition" sentinel because U+0000 is never a composition target. */
+/* The tabled canonical composition of the pair (first, second), or 0 when no pair composes; 0 is a safe "no
+   composition" sentinel because U+0000 is never a composition target. */
 static Py_UCS4 table_compose(Py_UCS4 first, Py_UCS4 second) {
     if (second < th_norm_comp_second_min) {
         return 0;
     }
-    int lo = 0;
-    int hi = th_norm_comp_count;
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (th_norm_comp[mid].first < first ||
-            (th_norm_comp[mid].first == first && th_norm_comp[mid].second < second)) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
+    Py_UCS4 offset = first - TH_NORM_COMP_BASE;
+    if (offset > TH_NORM_COMP_SPAN) {
+        return 0;
     }
-    if (lo < th_norm_comp_count && th_norm_comp[lo].first == first && th_norm_comp[lo].second == second) {
-        return th_norm_comp[lo].composed;
+    uint16_t group = th_norm_comp_blocks[two_stage_offset(th_norm_comp_index, TH_NORM_COMP_SHIFT, offset)];
+    if (group == 0) {
+        return 0;
+    }
+    const th_norm_comp_row *end = th_norm_comp + th_norm_comp_group[group];
+    for (const th_norm_comp_row *row = th_norm_comp + th_norm_comp_group[group - 1]; row < end; row++) {
+        if (row->second == second) {
+            return row->composed;
+        }
     }
     return 0;
 }
@@ -127,26 +111,14 @@ static Py_UCS4 pair_compose(Py_UCS4 first, Py_UCS4 second) {
     return table_compose(first, second);
 }
 
-/* The NFC (column 0) or NFKC (column 1) quick-check value of `cp`: Yes when the sorted range table has no row. */
+/* The NFC (low two bits) or NFKC (high two bits) quick-check value of `cp`: Yes when the table holds no value. */
 static uint8_t qc_of(Py_UCS4 cp, int nfkc) {
-    if (cp < th_norm_qc[0].first) {
+    Py_UCS4 offset = cp - TH_NORM_QC_BASE;
+    if (offset > TH_NORM_QC_SPAN) {
         return TH_QC_YES;
     }
-    int lo = 0;
-    int hi = th_norm_qc_count - 1;
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (cp > th_norm_qc[mid].last) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    const th_norm_qc_row *row = &th_norm_qc[lo];
-    if (cp >= row->first && cp <= row->last) {
-        return nfkc ? row->nfkc : row->nfc;
-    }
-    return TH_QC_YES;
+    uint8_t packed = th_norm_qc_blocks[two_stage_offset(th_norm_qc_index, TH_NORM_QC_SHIFT, offset)];
+    return (nfkc ? packed >> 2 : packed) & 3;
 }
 
 /* The quick-check value of `cp` for `form`. The decompose forms have no Maybe: a code point is No exactly when it
@@ -195,6 +167,16 @@ static int quick_check(int kind, const void *data, Py_ssize_t len, int form, Py_
     return result;
 }
 
+/* Append the decomposition row `number` (1-based) of a table, its run in the shared pool, to `out` at `at`; returns the
+   new length. */
+static Py_ssize_t append_row(Py_UCS4 *out, Py_ssize_t at, const uint16_t *offsets, const uint8_t *lengths,
+                             uint16_t number) {
+    for (uint8_t index = 0; index < lengths[number - 1]; index++) {
+        out[at++] = th_norm_pool[offsets[number - 1] + index];
+    }
+    return at;
+}
+
 /* Decompose input[0,len) into `out` (Hangul arithmetically, everything else through the tables at the `compat` depth);
    `out` holds at most len * TH_NORM_MAX_EXPANSION code points. Returns the decomposed length. */
 static Py_ssize_t decompose(int kind, const void *data, Py_ssize_t len, Py_UCS4 *out, int compat) {
@@ -210,19 +192,13 @@ static Py_ssize_t decompose(int kind, const void *data, Py_ssize_t len, Py_UCS4 
             }
             continue;
         }
-        const th_norm_decomp_row *row = NULL;
-        const uint32_t *pool = th_norm_canon_pool;
-        if (compat && (row = decomp_row(th_norm_compat, th_norm_compat_count, cp)) != NULL) {
-            pool = th_norm_compat_pool;
+        uint16_t number = compat ? compat_number(cp) : 0;
+        if (number != 0) {
+            at = append_row(out, at, th_norm_compat_offset, th_norm_compat_length, number);
+        } else if ((number = canon_number(cp)) != 0) {
+            at = append_row(out, at, th_norm_canon_offset, th_norm_canon_length, number);
         } else {
-            row = decomp_row(th_norm_canon, th_norm_canon_count, cp);
-        }
-        if (row == NULL) {
             out[at++] = cp;
-        } else {
-            for (uint8_t offset = 0; offset < row->length; offset++) {
-                out[at++] = pool[row->offset + offset];
-            }
         }
     }
     return at;

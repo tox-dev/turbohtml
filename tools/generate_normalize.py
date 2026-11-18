@@ -49,6 +49,7 @@ _DERIVED_NORM_SHA256: Final[str] = "4d4c03892dea9146d674b686e495df2d55a28d071ac4
 
 _HANGUL_SBASE: Final[int] = 0xAC00
 _HANGUL_SCOUNT: Final[int] = 11172
+_SHIFTS: Final[range] = range(5, 9)
 
 
 def _fetch(url: str, expected_sha256: str) -> str:
@@ -255,20 +256,102 @@ def _wrap(items: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
-def _decomp_block(name: str, table: dict[int, list[int]]) -> str:
-    # Render a decomposition row array and its shared pool for *table*.
-    offsets: dict[int, tuple[int, int]] = {}
-    pool: list[int] = []
-    for code in sorted(table):
-        run = table[code]
-        offsets[code] = (len(pool), len(run))
-        pool.extend(run)
-    rows = _wrap(f"{{0x{code:X}, {offsets[code][0]}, {offsets[code][1]}}}" for code in sorted(table))
-    pool_rows = _wrap(f"0x{code:X}" for code in pool)
+class _TwoStage(NamedTuple):
+    shift: int
+    base: int
+    span: int
+    index: list[int]
+    blocks: list[int]
+
+    def size(self) -> int:
+        return len(self.index) + len(self.blocks) * _element_size(max(self.blocks))
+
+
+def _two_stage_at(values: dict[int, int], shift: int) -> _TwoStage | None:
+    # Lay *values* out in blocks of 1 << shift code points: index maps (code - base) >> shift to the id of its block,
+    # and blocks holds the distinct blocks back to back, id 0 the all-zero block. The span starts at the lowest code
+    # point aligned down to a block, so a code point outside [base, base + span] reads as the default. None when more
+    # than 256 distinct blocks would not fit the one-byte index.
+    size = 1 << shift
+    base = min(values) >> shift << shift
+    span = max(values) - base
+    ids: dict[tuple[int, ...], int] = {(0,) * size: 0}
+    index = [0] * ((span >> shift) + 1)
+    for block_number in sorted({(code - base) >> shift for code in values}):
+        start = base + (block_number << shift)
+        index[block_number] = ids.setdefault(tuple(values.get(start + offset, 0) for offset in range(size)), len(ids))
+    if len(ids) > 256:
+        return None
+    return _TwoStage(shift, base, span, index, [value for block in sorted(ids, key=ids.__getitem__) for value in block])
+
+
+def _element_size(maximum: int) -> int:
+    # Return the byte width of the narrowest unsigned C integer that holds *maximum*.
+    if maximum <= 0xFF:
+        return 1
+    if maximum <= 0xFFFF:
+        return 2
+    msg = f"value {maximum} does not fit a uint16_t"
+    raise SystemExit(msg)
+
+
+def _table(name: str, values: dict[int, int]) -> str:
+    # Render one two-stage table: its layout constants, the one-byte index, and the blocks in the narrowest type.
+    designs = [design for shift in _SHIFTS if (design := _two_stage_at(values, shift)) is not None]
+    design = min(designs, key=_TwoStage.size)
+    upper = name.upper()
+    block_type = "uint8_t" if _element_size(max(design.blocks)) == 1 else "uint16_t"
     return (
-        f"static const int th_norm_{name}_count = {len(table)};\n"
-        f"static const th_norm_decomp_row th_norm_{name}[] = {{\n{rows}\n}};\n\n"
-        f"static const uint32_t th_norm_{name}_pool[] = {{\n{pool_rows}\n}};\n\n"
+        f"#define TH_NORM_{upper}_SHIFT {design.shift}\n"
+        f"#define TH_NORM_{upper}_BASE 0x{design.base:X}\n"
+        f"#define TH_NORM_{upper}_SPAN 0x{design.span:X}\n"
+        f"static const uint8_t th_norm_{name}_index[] = {{\n{_wrap(str(block) for block in design.index)}\n}};\n\n"
+        f"static const {block_type} th_norm_{name}_blocks[] = {{\n"
+        f"{_wrap(str(value) for value in design.blocks)}\n}};\n\n"
+    )
+
+
+def _composition_groups(pairs: list[tuple[int, int, int]]) -> tuple[dict[int, int], list[int]]:
+    # Number the distinct first code points of the sorted pairs from 1, and return that numbering with the row offset
+    # each group starts at plus a closing offset, so group n spans the rows from starts[n - 1] up to starts[n].
+    numbers: dict[int, int] = {}
+    starts: list[int] = []
+    for offset, (first, _, _) in enumerate(pairs):
+        if first not in numbers:
+            numbers[first] = len(numbers) + 1
+            starts.append(offset)
+    starts.append(len(pairs))
+    return numbers, starts
+
+
+def _shared_pool(
+    canonical: dict[int, list[int]], compatibility: dict[int, list[int]]
+) -> tuple[list[int], dict[tuple[int, ...], int]]:
+    # Lay every distinct decomposition run of both tables into one pool, once each, and return it with each run's
+    # offset. A run the canonical and compatibility tables share is stored once; the rows reach it by offset.
+    offsets: dict[tuple[int, ...], int] = {}
+    pool: list[int] = []
+    for run in (*canonical.values(), *compatibility.values()):
+        if (key := tuple(run)) not in offsets:
+            offsets[key] = len(pool)
+            pool.extend(run)
+    return pool, offsets
+
+
+def _decomposition(name: str, table: dict[int, list[int]], offsets: dict[tuple[int, ...], int]) -> str:
+    # Render the decomposition of *table*: a two-stage map from each code point to its row number (1-based, 0 for none),
+    # and the rows' pool offsets and lengths, indexed by row number minus one.
+    ordered = sorted(table)
+    numbers = {code: number for number, code in enumerate(ordered, start=1)}
+    row_offsets = [offsets[tuple(table[code])] for code in ordered]
+    row_lengths = [len(table[code]) for code in ordered]
+    if max(row_offsets) > 0xFFFF:
+        msg = "decomposition pool offset does not fit a uint16_t"
+        raise SystemExit(msg)
+    return (
+        f"{_table(name, numbers)}"
+        f"static const uint16_t th_norm_{name}_offset[] = {{\n{_wrap(str(value) for value in row_offsets)}\n}};\n\n"
+        f"static const uint8_t th_norm_{name}_length[] = {{\n{_wrap(str(value) for value in row_lengths)}\n}};\n\n"
     )
 
 
@@ -280,14 +363,11 @@ def _emit(
     quick: list[tuple[int, int, int, int]],
 ) -> str:
     # Render the generated C header from the combining-class, decomposition, composition, and quick-check tables.
-    ccc_items = sorted(combining.items())
-    ccc_rows = _wrap(f"{{0x{code:X}, {klass}}}" for code, klass in ccc_items)
-    comp_rows = _wrap(f"{{0x{first:X}, 0x{second:X}, 0x{composed:X}}}" for first, second, composed in pairs)
-    quick_rows = _wrap(f"{{0x{first:X}, 0x{last:X}, {nfc}, {nfkc}}}" for first, last, nfc, nfkc in quick)
-    canon_text = _decomp_block("canon", canonical)
-    compat_text = _decomp_block("compat", compatibility)
+    pool, offsets = _shared_pool(canonical, compatibility)
+    quick_values = {code: nfc | nfkc << 2 for first, last, nfc, nfkc in quick for code in range(first, last + 1)}
+    comp_numbers, comp_starts = _composition_groups(pairs)
+    comp_rows = _wrap(f"{{0x{second:X}, 0x{composed:X}}}" for _, second, composed in pairs)
     max_expansion = max(len(run) for run in (*canonical.values(), *compatibility.values()))
-    ccc_dense: Final = _wrap(str(combining.get(code, 0)) for code in range(ccc_items[0][0], ccc_items[0][0] + 256))
     return (
         "/* Auto-generated by tools/generate_normalize.py - do not edit. */\n"
         f"/* Unicode {_UNICODE_VERSION} normalization (UAX #15): the canonical combining classes, the full canonical\n"
@@ -299,41 +379,29 @@ def _emit(
         f'#define TH_NORM_UNICODE_VERSION "{_UNICODE_VERSION}"\n'
         "/* The longest full decomposition of any single code point, bounding the output at in_len * this. */\n"
         f"#define TH_NORM_MAX_EXPANSION {max_expansion}\n\n"
-        "/* Canonical combining class, sorted by code point; a code point absent from the table has class 0. */\n"
+        "/* Every two-stage table below: the code point less its BASE, shifted right by SHIFT, indexes `index` for a\n"
+        "   block number; the value sits at blocks[(block << SHIFT) | (offset & ((1 << SHIFT) - 1))]. A code point\n"
+        "   above BASE + SPAN, or below BASE, has the default value and skips the table. */\n"
+        "/* Canonical combining class: 0 for every code point outside the table, the class of a mark otherwise. */\n"
+        f"{_table('ccc', combining)}"
+        "/* Decomposition: the pool holds each distinct run once; canon and compat map a code point to its row. The\n"
+        "   compatibility table holds only code points whose NFKD differs from their NFD; canon covers the rest. */\n"
+        f"static const uint32_t th_norm_pool[] = {{\n{_wrap(f'0x{code:X}' for code in pool)}\n}};\n\n"
+        f"{_decomposition('canon', canonical, offsets)}"
+        f"{_decomposition('compat', compatibility, offsets)}"
+        "/* Canonical composition: the pairs of each first code point form one group, numbered by `comp` (0: none)\n"
+        "   and spanning rows comp_group[number - 1] up to comp_group[number], sorted by second. */\n"
         "typedef struct {\n"
-        "    uint32_t code;\n"
-        "    uint8_t ccc;\n"
-        "} th_norm_ccc_row;\n\n"
-        f"static const int th_norm_ccc_count = {len(ccc_items)};\n"
-        f"static const uint8_t th_norm_ccc_dense[] = {{\n{ccc_dense}\n}};\n\n"
-        f"static const th_norm_ccc_row th_norm_ccc[] = {{\n{ccc_rows}\n}};\n\n"
-        "/* Full decomposition, sorted by code point: pool[offset, offset+length) is the run. The compatibility table\n"
-        "   holds only code points whose NFKD differs from their NFD; the canonical table covers the rest. */\n"
-        "typedef struct {\n"
-        "    uint32_t code;\n"
-        "    uint32_t offset;\n"
-        "    uint8_t length;\n"
-        "} th_norm_decomp_row;\n\n"
-        f"{canon_text}"
-        f"{compat_text}"
-        "/* Canonical composition, sorted by (first, second): the pair composes to `composed`. */\n"
-        "typedef struct {\n"
-        "    uint32_t first;\n"
         "    uint32_t second;\n"
         "    uint32_t composed;\n"
         "} th_norm_comp_row;\n\n"
-        f"static const int th_norm_comp_count = {len(pairs)};\n"
         f"static const uint32_t th_norm_comp_second_min = 0x{min(second for _, second, _ in pairs):X};\n"
+        f"{_table('comp', comp_numbers)}"
+        f"static const uint16_t th_norm_comp_group[] = {{\n{_wrap(str(start) for start in comp_starts)}\n}};\n\n"
         f"static const th_norm_comp_row th_norm_comp[] = {{\n{comp_rows}\n}};\n\n"
-        "/* NFC/NFKC quick-check, sorted by range: 0 Yes (absent), 1 No, 2 Maybe. Decompose forms need no table. */\n"
-        "typedef struct {\n"
-        "    uint32_t first;\n"
-        "    uint32_t last;\n"
-        "    uint8_t nfc;\n"
-        "    uint8_t nfkc;\n"
-        "} th_norm_qc_row;\n\n"
-        f"static const int th_norm_qc_count = {len(quick)};\n"
-        f"static const th_norm_qc_row th_norm_qc[] = {{\n{quick_rows}\n}};\n\n"
+        "/* NFC (low 2 bits) and NFKC (bits 2-3) quick-check per code point: 0 Yes (absent), 1 No, 2 Maybe. Decompose\n"
+        "   forms need no table. */\n"
+        f"{_table('qc', quick_values)}"
         "#endif /* TURBOHTML_NORMALIZE_TABLE_H */\n"
     )
 
