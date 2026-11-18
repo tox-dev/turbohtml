@@ -1264,6 +1264,7 @@ static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t 
                 cand->score += TH_CJK_LATIN_ADJ;
             }
             cand->prev = TH_CJ_CJ;
+            cand->dec.pos = cand->dec.error_at + 1;
             return 1;
         }
         if ((prev == 0xA0 || prev == 0xFD || prev == 0xFE) && (b < 0x80 || b == 0xFF)) {
