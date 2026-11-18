@@ -2193,7 +2193,7 @@ static int32_t stack_levels(void) {
 }
 
 jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbuf, size_t errlen) {
-    jm_program *prog = jm_program_new();
+    jm_program *prog = jm_program_new(len);
     if (prog == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         errbuf[0] = '\0'; /* GCOVR_EXCL_LINE */
         return NULL;      /* GCOVR_EXCL_LINE */

@@ -494,7 +494,7 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind);
 int32_t jm_sym_new(jm_program *prog, const Py_UCS4 *name, Py_ssize_t name_len, int32_t scope, uint8_t decl);
 
 /* A program with an empty node arena that already holds the spare sink slot, or NULL on allocation failure. */
-jm_program *jm_program_new(void);
+jm_program *jm_program_new(Py_ssize_t source_len);
 
 /* Append a node of the given kind and return its index. All fields but kind are zeroed except
    a/b/c/d/next/sym which are set to -1. On allocation failure it sets prog->failed. During a parse it then returns
